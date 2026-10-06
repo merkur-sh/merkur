@@ -3,7 +3,7 @@
 // which is on by default, plus we widen the happy-eyeballs so [::1] resolves.
 import { defineConfig } from '@playwright/test';
 
-const probePort = Number(process.env.PW_E2E_PROBE_PORT ?? 54_341);
+const probePort = Number(process.env.PW_E2E_PROBE_PORT ?? 24_341);
 const probeOrigin = process.env.PROBE_ORIGIN ?? `http://127.0.0.1:${probePort}`;
 
 export default defineConfig({

@@ -4,7 +4,7 @@
 // builds the site and the server first.
 import { defineConfig } from '@playwright/test';
 
-const port = Number(process.env.PW_SITE_PORT ?? 54_361);
+const port = Number(process.env.PW_SITE_PORT ?? 24_361);
 const rybbitPort = Number(process.env.PW_SITE_RYBBIT_PORT ?? port + 1);
 const origin = `http://127.0.0.1:${port}`;
 const softwareGpu = process.env.PW_E2E_GPU === 'swiftshader';

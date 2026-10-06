@@ -20,7 +20,7 @@ export default async function globalSetup(): Promise<void> {
       throw new Error('edge harness readiness requires its URL and certificate hash');
     }
     const redisPort =
-      process.env.PW_E2E_REDIS_PORT ?? String(Number(process.env.PW_E2E_PORT ?? 54331) + 1);
+      process.env.PW_E2E_REDIS_PORT ?? String(Number(process.env.PW_E2E_PORT ?? 24331) + 1);
     await promisify(execFile)('bun', [
       'run',
       path.join(PROJECT_ROOT, 'tests/e2e/wait-edge-registration.ts'),

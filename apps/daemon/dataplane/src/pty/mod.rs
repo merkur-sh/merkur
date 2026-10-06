@@ -1985,6 +1985,7 @@ mod tests {
         start_pty_reader(Box::new(SteadyOutput { reads: 0 }), event_tx, return_rx).unwrap();
 
         let mut buffers = std::collections::BTreeSet::new();
+        let mut reads = 0;
         loop {
             match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
                 TerminalEvent::PtyBytes(read, _) => {
@@ -1992,7 +1993,12 @@ mod tests {
                     let buffer = read.into_buffer();
                     assert_eq!(buffer.len(), PTY_READ_BYTES);
                     buffers.insert(buffer.as_ptr() as usize);
-                    return_tx.send(buffer).unwrap();
+                    reads += 1;
+                    // After its sixteenth read the reader meets end of file and leaves,
+                    // so that read's buffer, and no earlier one, may find no one to take it.
+                    if return_tx.send(buffer).is_err() {
+                        assert_eq!(reads, 16, "the reader left before end of file");
+                    }
                 }
                 TerminalEvent::PtyReadClosed => break,
                 _ => panic!("unexpected reader event"),

@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test';
 // The same hermetic server as `playwright.config.mjs`, started with
 // AUTH_IDENTITY=email and a captured stand-in for Resend, for the specs that
 // cover sign-up by verified address.
-const port = Number(process.env.PW_E2E_PORT ?? 54_331);
+const port = Number(process.env.PW_E2E_PORT ?? 24_331);
 const redisPort = Number(process.env.PW_E2E_REDIS_PORT ?? port + 1);
 const mailPort = Number(process.env.PW_E2E_MAIL_PORT ?? port + 2);
 const origin = `http://127.0.0.1:${port}`;

@@ -78,10 +78,12 @@ bun run test:fuzz:kani proof_proto_frame
 ```
 
 `setup:kani` pins kani-verifier 0.68.0, shared with `tools/ownership-proofs`. The runner
-gives each proof Kani's own 15-minute `--harness-timeout`, fails a refuted property, a
+gives each proof Kani's own 25-minute `--harness-timeout`, fails a refuted property, a
 timeout, a changed generated lock, and any `kani::cover!` it cannot satisfy: an
 unreachable cover means the proof checked nothing. A proof without a verdict in the budget
 has its bound halved once and is otherwise left to fuzzing; its header comment records it.
+The times in the tables below are an Apple-silicon laptop's; GitHub's hosted x64 runner
+takes about half as long again, and the budget is sized for it.
 
 Kani-proven, with the bound and the time the proof took on an M-series Mac:
 

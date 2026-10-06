@@ -25,8 +25,13 @@ const workspace = path.join(root, 'test-results', 'bolero', 'workspace');
 const retainedLock = path.join(root, 'tools', 'bolero', 'Cargo.lock');
 const boleroVersion = '0.13.6';
 const cliVersion = '0.13.5';
-/** A proof without a verdict by then is halved once, then left to fuzzing. */
-const kaniTimeoutMinutes = 15;
+/**
+ * A proof without a verdict by then is halved once, then left to fuzzing. The budget is
+ * for the slowest machine that runs the proofs: GitHub's hosted x64 runner takes about
+ * half as long again as an Apple-silicon laptop, which puts the longest proof kept,
+ * `proof_rebind_keeper_chain`, near 16 minutes there.
+ */
+const kaniTimeoutMinutes = 25;
 
 async function prepare(): Promise<void> {
   const { lints, patch } = await productionWorkspaceTables();

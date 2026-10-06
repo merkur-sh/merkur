@@ -1,6 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
-const port = Number(process.env.PW_E2E_PORT ?? 54_321);
+// Every harness port sits below the operating systems' ephemeral ranges (Linux from 32768,
+// macOS from 49152): a client socket the kernel numbered from that range, or its TIME_WAIT
+// remnant from the previous run, refuses a listener the same port.
+const port = Number(process.env.PW_E2E_PORT ?? 24_321);
 const redisPort = Number(process.env.PW_E2E_REDIS_PORT ?? port + 1);
 const origin = `http://127.0.0.1:${port}`;
 const dbPath = process.env.PW_E2E_DB_PATH ?? `${process.cwd()}/data/merkur-e2e-${process.pid}.db`;

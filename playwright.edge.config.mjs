@@ -4,7 +4,7 @@
 // and exports the required edge coordinates first.
 import { defineConfig } from '@playwright/test';
 
-const port = Number(process.env.PW_E2E_PORT ?? 54_331);
+const port = Number(process.env.PW_E2E_PORT ?? 24_331);
 const redisPort = Number(process.env.PW_E2E_REDIS_PORT ?? port + 1);
 const origin = `http://127.0.0.1:${port}`;
 const dbPath = process.env.PW_E2E_DB_PATH ?? `${process.cwd()}/data/merkur-edge-${process.pid}.db`;

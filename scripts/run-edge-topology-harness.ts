@@ -25,13 +25,13 @@ interface Registration {
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const EDGE_BIN = path.join(ROOT, 'target', 'rust', 'release', 'merkur-edge');
-const APP_PORT = Number(process.env.PW_E2E_PORT ?? 54_341);
+const APP_PORT = Number(process.env.PW_E2E_PORT ?? 24_341);
 const APP_REGISTER_URL = `http://127.0.0.1:${APP_PORT}/api/edge/register`;
-const CONTROL_PORT = Number(process.env.EDGE_TOPOLOGY_CONTROL_PORT ?? 54_351);
+const CONTROL_PORT = Number(process.env.EDGE_TOPOLOGY_CONTROL_PORT ?? 24_351);
 const CONTROL_REGISTER_URL = `http://127.0.0.1:${CONTROL_PORT}/api/edge/register`;
 const EDGE_PORTS = [
-  Number(process.env.EDGE_TOPOLOGY_IAD_PORT ?? 54_352),
-  Number(process.env.EDGE_TOPOLOGY_FRA_PORT ?? 54_353),
+  Number(process.env.EDGE_TOPOLOGY_IAD_PORT ?? 24_352),
+  Number(process.env.EDGE_TOPOLOGY_FRA_PORT ?? 24_353),
 ] as const;
 const EDGE_REGISTRATION_KEYS = new Map([
   ['fra-1', Buffer.alloc(64, 0x61).toString('base64url')],
