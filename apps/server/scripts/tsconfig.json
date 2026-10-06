@@ -1,0 +1,36 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../../.."
+  },
+  // Deliberately a file list rather than a glob.
+  //
+  // `apps/server/tsconfig.json` includes only `src/**` and `migrations/**`, so
+  // nothing here was ever type-checked. `telemetry-smoke.ts` had drifted five
+  // config fields out of date and would have failed at runtime while
+  // `bun run check:types` stayed green.
+  //
+  // The three `*-benchmark.ts` scripts are excluded because they are **broken**,
+  // not merely unchecked. They construct `SessionIssuanceInput` without
+  // `delegationId`, `daemonIdentityKeyCommitment` or `sessionRequestCommitment`,
+  // and `DaemonControlSessionOffer` without `delegationId` — fields the
+  // daemon-identity session bootstrap (`d4929d7`) made required. They would fail
+  // at runtime today, and their `ServerConfig` literals are twelve fields stale.
+  //
+  // They stay out because the fix is not mechanical: those fields are crypto
+  // commitments, and inventing values that merely satisfy the compiler would
+  // make the benchmark measure a rejection path while still writing a number
+  // into `PERF.md`. A wrong benchmark is worse than an absent one. Whoever
+  // repairs them needs to know what they are supposed to measure.
+  "include": [
+    "telemetry-smoke.ts",
+    "run-db-codegen.ts",
+    "bench-daemon-control.ts",
+    "bench-daemon-requests.ts",
+    "bench-daemon-trace-export.ts",
+    "bench-logger-sink.ts",
+    "bench-sqlite-query-compile.ts",
+    "bench-sqlite-statements.ts",
+    "bench-telemetry-ingest.ts"
+  ]
+}

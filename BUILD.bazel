@@ -1,0 +1,63 @@
+load("//tools/bazel/verification:root-inputs.bzl", "ROOT_HIDDEN_INPUTS")
+load("//tools/bazel/browser:burst.bzl", "burst_playwright_config")
+load("//tools/bazel/bun:runtime_sources.bzl", "declare_runtime_files")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "ci_entrypoint_templates",
+    srcs = [
+        ".github/actions/setup-bazel/action.yml",
+        ".github/workflows/bazel-assurance.yml.in",
+        ".github/workflows/bazel-ci.yml.in",
+        ".github/workflows/bazel-dependency-audit.yml.in",
+        ".github/workflows/bazel-extended-ci.yml.in",
+        ".github/workflows/bazel-native-qualification.yml.in",
+        ".github/workflows/bazel-release.yml.in",
+        ".githooks/pre-commit.bazel.in",
+        ".vscode/tasks.bazel.json.in",
+    ],
+)
+
+npm_link_all_packages()
+
+declare_runtime_files(["biome.slop.json", "bunfig.toml", "playwright.edge.config.mjs"])
+
+exports_files([
+    "playwright.burst.config.mjs",
+    "biome.json",
+    ".github/bazel/engine-pins.json",
+    "LICENSE",
+    "MODULE.bazel",
+    ".npmrc",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "bunfig.toml",
+    "tsconfig.base.json",
+    "tsconfig.json",
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    ".cargo/config.toml",
+    "deny.toml",
+    "supply-chain/config.toml",
+    "supply-chain/audits.toml",
+    "supply-chain/imports.lock",
+])
+
+burst_playwright_config(name = "burst_playwright_config", tags = ["manual", "unqualified-browser-runtime"])
+
+js_library(name = "js_configuration", srcs = ["package.json", "bunfig.toml", "tsconfig.base.json", "tsconfig.json"])
+
+js_library(name = "inventory_resolver", srcs = ["pnpm-lock.yaml", "pnpm-workspace.yaml"])
+
+# The site's page facts read the release fingerprint from this file.
+js_library(name = "source__SECURITY.md", srcs = ["SECURITY.md"])
+
+filegroup(
+    name = "verification_inputs",
+    srcs = glob(["**"], exclude = [".*", ".*/**", "**/.*", "**/.*/**",".git", ".git/**", "**/node_modules/**", "**/dist/**", "**/target/**", "**/pkg/**", "**/test-results/**", ".codegraph/**", ".tools/**", "bazel-*", "bazel-*/**", ".bazelrc.local", "**/.env", "**/.env.*", "**/__pycache__/**", "**/*.pyc", ".DS_Store"], allow_empty = True) + glob(ROOT_HIDDEN_INPUTS, allow_empty = False),
+)

@@ -1,0 +1,100 @@
+[package]
+name = "merkur-dataplane"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[features]
+tpm-sim = ["merkur-identity-seal/tpm-sim"]
+
+[[bin]]
+name = "merkur-dataplane"
+path = "src/main.rs"
+
+# The library exists for the network simulator (`tools/sim`) and the binary; it has
+# no doc examples, and the gate planner filters this crate's tests by module.
+[lib]
+doctest = false
+
+[dependencies]
+merkur-stun-protocol = { path = "../../../packages/merkur-stun-protocol" }
+portable-pty = "0.9.0"
+libc = "0.2"
+alacritty_terminal = { version = "0.26.0", default-features = false }
+merkur-identity-seal = { path = "../../../packages/merkur-identity-seal" }
+merkur-authorization = { path = "../../../packages/merkur-authorization" }
+merkur-codec = { path = "../../../packages/merkur-codec" }
+merkur-e2e = { path = "../../../packages/merkur-e2e" }
+merkur-edge-protocol = { path = "../../../packages/merkur-edge-protocol" }
+merkur-fec = { path = "../../../packages/merkur-fec" }
+merkur-graphics = { path = "../../../packages/merkur-graphics" }
+merkur-image-worker = { path = "../../../packages/merkur-image-worker" }
+merkur-wire = { path = "../../../packages/merkur-wire" }
+bytes = "1"
+# Vectorized byte search for the two scans the PTY path runs over every read
+# alongside the VT parser. Already in the lock file as a transitive dependency.
+memchr = "2"
+tokio = { version = "1", features = ["full"] }
+# Display-frame compression. The daemon encodes with the C implementation that
+# term-wasm also decodes with, compiled to wasm32 there. `experimental` exposes
+# the magicless frame format the display payload uses, and `zstd-sys` is used
+# directly for `ZDICT_finalizeDictionary`, which the safe wrapper does not expose.
+zstd = { version = "0.13", features = ["experimental"] }
+zstd-sys = "2.0"
+crossbeam-channel = "0.5"
+# Fixed-capacity global display scheduler queue. Already present transitively;
+# direct because the preparation hot path owns the concrete type.
+arrayvec = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# `quinn` feature: exposes the wtransport::quinn re-export used to install the
+# tuned QUIC transport config (BBR, initial_rtt, ack-frequency) — no new deps.
+wtransport = { version = "0.7", features = ["quinn"] }
+# Already linked transitively; exposes the patched diagnostic queue/packet boundary.
+quinn-proto = { version = "0.11", default-features = false }
+ring = "0.17"
+subtle = "2.6"
+zeroize = "1.8"
+libcrux-ml-dsa = { version = "=0.0.10", default-features = false, features = ["mldsa87"] }
+socket2 = "0.6"
+netdev = "0.46"
+# OS-level network path notifications: SCDynamicStore on Apple, rtnetlink on
+# Linux, NotifyIpInterfaceChange on Windows — never the crate's polling
+# `fallback` backend, which is only compiled for other targets. Exact-pinned to
+# match the libcrux/sha2 precedent in this manifest.
+if-watch = { version = "=3.2.2", features = ["tokio"] }
+base64 = "0.23"
+sha2 = { version = "=0.10.9", default-features = false }
+tokio-stream = "0.1"
+futures = "0.3"
+
+# The simulated PTY (`src/pty/sim.rs`) implements portable-pty's traits, whose
+# methods return `anyhow::Error`. Only the simulator's generated workspace sets
+# `merkur_sim`, so no production build links it.
+[target.'cfg(merkur_sim)'.dependencies]
+anyhow = "1"
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+proptest = "1.11"
+merkur-e2e = { path = "../../../packages/merkur-e2e", features = ["testing"] }
+# The real browser terminal, driven natively so the simulator can assert that a
+# viewer converges on the daemon's grid rather than only that a frame was sent.
+term-wasm = { path = "../../../packages/term-wasm" }
+# The client core's viewer, so the simulator grants as every client does.
+merkur-client = { path = "../../../packages/merkur-client" }
+tokio = { version = "1", features = ["test-util"] }
+
+[[bench]]
+name = "zstd"
+harness = false
+
+[[bench]]
+name = "fec"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,9 @@
+.codegraph/
+target/
+test-results/
+node_modules/
+.git/
+dist/
+**/dist/
+.dev/
+playwright-report/

@@ -1,0 +1,322 @@
+# Inactive; native Linux contexts and retained campaign/tool evidence are not qualified.
+name: Assurance
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: assurance-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  controller:
+    name: Complete assurance controller batch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-bazel
+        id: engine
+        with:
+          ledger-origin: ${{ vars.MERKUR_VERIFICATION_LEDGER_ORIGIN }}
+          ledger-credential-helper: ${{ vars.MERKUR_VERIFICATION_LEDGER_CREDENTIAL_HELPER }}
+          credential-file: ${{ vars.MERKUR_VERIFICATION_CREDENTIAL_FILE }}
+      - name: Require qualification for every event-selected assurance lane
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request|push|schedule|workflow_dispatch) ;;
+            *) exit 1 ;;
+          esac
+          python3 -I scripts/ci/bazel_admission.py .github/bazel/qualification.json assurance
+          if [[ "$EVENT_NAME" == schedule || "$EVENT_NAME" == workflow_dispatch ]]; then
+            python3 -I scripts/ci/bazel_admission.py .github/bazel/qualification.json fuzz-campaign
+          fi
+      # One configured union runs all eight static gates once, five fixed-seed
+      # replay targets and instrumentation, custody/Loom/all-target Clippy/Kani,
+      # all five negative controls, every listed bounded parser/state proof with
+      # original budgets, including the merkur-e2e rebind keeper proof with Kani stubbing,
+      # and nonprivileged kernel Clippy/layout/completed-work checks.
+      # Every event replays all simulation scenarios, seeds and recorded regressions.
+      # Schedule/manual additionally sweeps 200 random simulation seeds in the same union.
+      # Original per-attempt simulation logs and failed-seed regression outputs are
+      # copied from the explicit diagnostic inventory before owned storage cleanup.
+      # Their retention is diagnostic only; native execution remains a qualification obligation.
+      # The declared Kani SDK replaces host setup:kani. Solvers execute inside
+      # nonce-keyed TestRunners, not cached build actions. Original production and
+      # diagnostic locks, harness listings and budgets remain declared action inputs.
+      # Schedule/manual events add all five 10000-mutation campaigns, exact input
+      # and memory bounds, genuine instrumentation and complete corpus/crash retention.
+      - name: Verify the complete union through one nonce reservation and admission
+        env:
+          VERIFICATION_BAZEL: ${{ steps.engine.outputs.executable }}
+          LEDGER_CLIENT: ${{ steps.engine.outputs.ledger-client }}
+          CREDENTIAL_FILE: ${{ steps.engine.outputs.credential-file }}
+          SOURCE_CANDIDATE_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFICATION_BAZEL" == /* ]]
+          [[ "$LEDGER_CLIENT" == /* && "$CREDENTIAL_FILE" == /* ]]
+          [[ "$SOURCE_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          directory="$RUNNER_TEMP/assurance-controller-$GITHUB_RUN_ATTEMPT"
+          mkdir "$directory"
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" run \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_download_outputs=all --symlink_prefix=/ //tools:verify -- --all --force \
+            --assurance-event "$EVENT_NAME" --candidate "$SOURCE_CANDIDATE_SHA" \
+            --ledger-client "$LEDGER_CLIENT" --credential-file "$CREDENTIAL_FILE" \
+            --report-file "$directory/controller.json" --ci-report-file "$directory/ci.json" \
+            --expected-context-file "$directory/expected.json"
+      - name: Require all three retained controller diagnostic Files
+        if: always()
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/assurance-controller-$GITHUB_RUN_ATTEMPT"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+      - name: Retain the one controller batch diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: assurance-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/assurance-controller-${{ github.run_attempt }}/controller.json
+            ${{ runner.temp }}/assurance-controller-${{ github.run_attempt }}/ci.json
+            ${{ runner.temp }}/assurance-controller-${{ github.run_attempt }}/expected.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  # Original required job names project the successful owned controller command.
+  # Downloaded reports retain diagnostics only; they cannot construct admission
+  # authority, reserve nonces, reexecute tests or approve individual lane evidence.
+      - name: Copy only reported simulation diagnostics before storage retirement
+        id: simulation-artifacts
+        if: always()
+        env:
+          VERIFICATION_BAZEL: ${{ steps.engine.outputs.executable }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFICATION_BAZEL" == /* ]]
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          report="$RUNNER_TEMP/assurance-controller-$GITHUB_RUN_ATTEMPT/controller.json"
+          archive="$RUNNER_TEMP/simulation-diagnostics-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          retained=$(env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" run \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_download_outputs=all --symlink_prefix=/ //tools/bazel/ci:simulation_artifacts -- \
+            --report-file "$report" --temporary-root "$TMPDIR" --output-directory "$archive")
+          [[ -z "$retained" || ( "$retained" == /* && "$retained" == */"${archive##*/}" ) ]]
+          printf 'directory=%s\n' "$retained" >> "$GITHUB_OUTPUT"
+      - name: Retain reported original simulation attempt Files
+        if: always() && steps.simulation-artifacts.outputs.directory != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: simulation-diagnostics-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.simulation-artifacts.outputs.directory }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retire the owned Bazel storage
+        if: always() && env.MERKUR_BAZEL_STORAGE_STATE != ''
+        shell: bash
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+        run: |
+          set -euo pipefail
+          shutdown_status=0
+          if [[ -n "$ENGINE" && -x "$ENGINE" ]]; then
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" shutdown || shutdown_status=$?
+          fi
+          cleanup_status=0
+          python3 -I -B tools/bazel/qualification/storage/storage.py cleanup --state "$MERKUR_BAZEL_STORAGE_STATE" || cleanup_status=$?
+          if (( shutdown_status != 0 || cleanup_status != 0 )); then
+            echo "Owned storage retirement: Bazel shutdown exited $shutdown_status; storage cleanup exited $cleanup_status" >&2
+          fi
+          if (( cleanup_status != 0 )); then
+            exit "$cleanup_status"
+          fi
+          exit "$shutdown_status"
+
+  parser-smoke:
+    name: Fixed-seed parser safety
+    needs: controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same published diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/assurance-controller-diagnostics
+      - name: Require complete ordinary diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/assurance-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+
+  ownership:
+    name: Ownership proofs and race models
+    needs: controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same published diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/assurance-controller-diagnostics
+      - name: Require complete ordinary diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/assurance-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+
+  bounded-proofs:
+    name: Bounded parser and state proofs
+    needs: controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same published diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/assurance-controller-diagnostics
+      - name: Require complete ordinary diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/assurance-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+
+  simulation:
+    name: Network simulation
+    needs: controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same published diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/assurance-controller-diagnostics
+      - name: Require complete ordinary diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/assurance-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+
+  kernel-tool:
+    name: Linux diagnostic tool checks
+    needs: controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same published diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/assurance-controller-diagnostics
+      - name: Require complete ordinary diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/assurance-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+
+  fuzz-campaign:
+    name: Bounded coverage-guided parser campaign
+    needs: controller
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same published diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/assurance-controller-diagnostics
+      - name: Require complete ordinary diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/assurance-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+
+  required:
+    name: Assurance required
+    if: always()
+    needs: [controller, parser-smoke, ownership, bounded-proofs, simulation, kernel-tool, fuzz-campaign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+      PARSER_RESULT: ${{ needs.parser-smoke.result }}
+      OWNERSHIP_RESULT: ${{ needs.ownership.result }}
+      PROOFS_RESULT: ${{ needs.bounded-proofs.result }}
+      SIMULATION_RESULT: ${{ needs.simulation.result }}
+      KERNEL_TOOL_RESULT: ${{ needs.kernel-tool.result }}
+      CAMPAIGN_RESULT: ${{ needs.fuzz-campaign.result }}
+      EVENT_NAME: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      # These status assertions require the actual same-process controller command
+      # and every original lane projection; uploaded JSON never becomes authority.
+      - name: Require the controller and every applicable original assurance lane
+        run: python3 -I scripts/ci/bazel_admission.py assurance-results "$EVENT_NAME" "$RESULTS"

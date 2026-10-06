@@ -1,0 +1,6 @@
+native_tools = use_extension("//tools/bazel/tools/native:extensions.bzl", "native_tools")
+use_repo(native_tools, "python_darwin_arm64", "python_darwin_x64", "python_linux_arm64", "python_linux_x64")
+use_repo(native_tools, "tools_darwin_arm64", "tools_darwin_x64")
+use_repo(native_tools, "redis_linux_arm64", "redis_linux_x64")
+
+use_repo(native_tools, "tools_linux_arm64", "tools_linux_x64", "build_tools_darwin_arm64", "build_tools_darwin_x64", "git_declared_shell_source")

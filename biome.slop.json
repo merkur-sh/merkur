@@ -1,0 +1,47 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.10/schema.json",
+  "root": true,
+  "vcs": {
+    "enabled": false
+  },
+  "files": {
+    "ignoreUnknown": false,
+    "includes": ["**"]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none"
+    }
+  },
+  "plugins": [
+    "./tools/biome/slop/no-array-filter-map.grit",
+    "./tools/biome/slop/no-chained-type-assertions.grit",
+    "./tools/biome/slop/no-conditional-empty-object-spread.grit",
+    "./tools/biome/slop/no-known-value-widening.grit",
+    "./tools/biome/slop/no-manual-effect-error-tag.grit",
+    "./tools/biome/slop/no-manual-tag-comparison.grit",
+    "./tools/biome/slop/no-manual-tagged-construction.grit",
+    "./tools/biome/slop/no-module-mocking.grit",
+    "./tools/biome/slop/no-object-parameters.grit",
+    "./tools/biome/slop/no-reduce-accumulator-copy.grit",
+    "./tools/biome/slop/no-reflect-apply.grit",
+    "./tools/biome/slop/no-reflect-get.grit",
+    "./tools/biome/slop/no-runtime-typeof.grit",
+    "./tools/biome/slop/no-service-constructor-imports.grit",
+    "./tools/biome/slop/no-shape-in-symbol-names.grit",
+    "./tools/biome/slop/no-unknown-parameters.grit",
+    "./tools/biome/slop/no-unknown-returns.grit",
+    "./tools/biome/slop/no-unknown-type-aliases.grit",
+    "./tools/biome/slop/no-unsafe-dictionary-type.grit",
+    "./tools/biome/slop/no-widen-then-assert.grit",
+    "./tools/biome/slop/prefer-effect-match.grit",
+    "./tools/biome/slop/require-safety-comment-for-type-assertion.grit"
+  ]
+}

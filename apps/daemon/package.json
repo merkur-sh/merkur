@@ -1,0 +1,27 @@
+{
+  "name": "@merkur/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "merkur": "./dist/merkur"
+  },
+  "dependencies": {
+    "@elysia/eden": "catalog:",
+    "@merkur/auth": "workspace:*",
+    "@merkur/config": "workspace:*",
+    "@merkur/daemon-control-protocol": "workspace:*",
+    "@merkur/logger": "workspace:*",
+    "@merkur/server": "workspace:*",
+    "@merkur/shared": "workspace:*",
+    "effect": "catalog:",
+    "uqr": "0.1.3"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts daemon",
+    "dev:watch": "bun run ../../scripts/build-daemon-artifacts.ts && bun --watch run src/index.ts daemon",
+    "link": "bun run src/index.ts link",
+    "build": "bun run ../../scripts/build-daemon-dist.ts"
+  }
+}

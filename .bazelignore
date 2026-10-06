@@ -1,0 +1,9 @@
+node_modules
+target
+dist
+test-results
+.claude/worktrees
+bazel-bin
+bazel-out
+bazel-testlogs
+bazel-worktree

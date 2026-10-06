@@ -1,0 +1,29 @@
+JetBrains Mono Nerd Font
+========================
+
+Copyright 2020 The JetBrains Mono Project Authors
+(https://github.com/JetBrains/JetBrainsMono)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: https://scripts.sil.org/OFL
+
+The two paragraphs above are reproduced verbatim from the `name` table of the
+shipped font files (name IDs 0, 13 and 14), which the subsetting step preserves.
+The full text of the SIL Open Font License 1.1 ships beside the fonts as
+`OFL-JetBrainsMono.txt`, copied verbatim from the family's upstream repository.
+The build emits it into this directory from `packages/quicksilver/fonts`, which
+owns the family's UI faces and the licences of every UI family.
+
+Modification notice
+-------------------
+
+The `.ttf` files in this directory are NOT the upstream binaries. They were
+re-emitted with `hb-subset` to drop tables that the terminal renderer never
+reads (PostScript glyph names, layout/positioning, and hinting). No codepoint
+was removed and no glyph outline was altered: the mapped character set and the
+font metrics are byte-identical to upstream.
+
+`SUBSET.json` in this directory records the upstream version, the exact command,
+and the sha256 of every file before and after, so the transformation can be
+reproduced or reversed.
+

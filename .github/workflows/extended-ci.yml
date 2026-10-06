@@ -1,0 +1,82 @@
+name: Extended CI
+on:
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  wasm:
+    uses: ./.github/workflows/ci-artifacts.yml
+    with:
+      kind: wasm
+      scope: extended
+  browser-native:
+    uses: ./.github/workflows/ci-artifacts.yml
+    with:
+      kind: native
+      scope: extended
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [test:natlab, test:tpm-sim, test:graphics:long]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-merkur
+        with:
+          # NAT builds inside its own Linux container.
+          rust: ${{ matrix.suite != 'test:natlab' }}
+          cache-key: extended-${{ matrix.suite }}
+      - name: Run native suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: bun run "$SUITE"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: extended-native-${{ strategy.job-index }}-${{ github.run_id }}
+          overwrite: true
+          path: test-results/
+          retention-days: 7
+  browser:
+    needs: [wasm, browser-native]
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [test:e2e:transport:impaired:functional, test:e2e:edge-topology]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PW_E2E_GPU: swiftshader
+      HEADED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust-cache: 'false'
+          browser: 'true'
+      - uses: ./.github/actions/restore-ci-artifacts
+        with:
+          scope: extended
+          native: 'true'
+      - name: Run suite
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: xvfb-run -a bun run "$SUITE"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: extended-browser-${{ strategy.job-index }}-${{ github.run_id }}
+          overwrite: true
+          path: |
+            test-results/
+            !test-results/verification/web-artifacts/**
+          retention-days: 7

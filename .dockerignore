@@ -1,0 +1,107 @@
+# Deny by default. New build inputs must be deliberately admitted here.
+**
+
+# Workspace manifests and build configuration.
+!package.json
+!bun.lock
+!bunfig.toml
+!tsconfig.base.json
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!.cargo/config.toml
+!apps/*/package.json
+!apps/*/tsconfig.json
+!packages/*/package.json
+!packages/*/tsconfig.json
+!apps/**/Cargo.toml
+!packages/*/Cargo.toml
+!packages/*/.cargo/config.toml
+# The terminal WASM build manifest hashes the pipeline that declares its
+# compiler, profile and packaging: `TERM_WASM_BAZEL_PIPELINE_INPUTS` in
+# `scripts/term-wasm-provenance.ts`. Admit exactly that list.
+!.bazelversion
+!.bazelrc
+!MODULE.bazel
+!tsconfig.json
+!packages/term-wasm/wasm_artifacts.bzl
+!tools/bazel/bun/bun.MODULE.bazel
+!tools/bazel/bun/extensions.bzl
+!tools/bazel/bun/rules.bzl
+!tools/bazel/cc/cc.MODULE.bazel
+!tools/bazel/cc/sdk.BUILD.bazel
+!tools/bazel/cc/wasm_config.bzl
+!tools/bazel/rust/contexts.py
+!tools/bazel/rust/defs.bzl
+!tools/bazel/rust/generate.py
+!tools/bazel/rust/llvm_tools.bzl
+!tools/bazel/rust/rust.MODULE.bazel
+!tools/bazel/rust/units.bzl
+!tools/bazel/rust/units.py
+!tools/bazel/rust/units/provenance/term_wasm_instrumented.json
+!tools/bazel/rust/units/provenance/term_wasm_profile_use.json
+!tools/bazel/wasm/BUILD.bazel
+!tools/bazel/wasm/extensions.bzl
+!tools/bazel/wasm/input-tree.ts
+!tools/bazel/wasm/optimize.ts
+!tools/bazel/wasm/package.ts
+!tools/bazel/wasm/rules.bzl
+!tools/bazel/wasm/train-profile.ts
+!tools/bazel/wasm/wasm.MODULE.bazel
+
+# Compiler inputs. Local databases, credentials, tooling state and arbitrary
+# files beside the source are not build inputs.
+!apps/**/src/**/*.ts
+!apps/**/src/**/*.tsx
+!apps/**/src/**/*.rs
+!apps/**/src/**/*.swift
+!apps/**/build.rs
+!apps/**/benches/**/*.rs
+!packages/*/src/**/*.ts
+!packages/*/src/**/*.tsx
+!packages/*/src/**/*.rs
+!packages/*/src/**/*.json
+!packages/*/src/**/*.css
+!packages/*/build.rs
+!packages/*/benches/**/*.rs
+!packages/*/examples/**/*.rs
+!packages/*/tests/**/*.rs
+# Release daemons are profile-guided, and the training build compiles the
+# dataplane and merkur-e2e tests, which `include_str!` these vectors.
+!packages/shared/test-vectors/*.json
+!tests/fixtures/kitty/reference.json
+!apps/daemon/dataplane/src/webtransport/portmap/fixtures/*.xml
+!packages/*/README.md
+!packages/*/LICENSE*
+!packages/*/licenses/**
+# The notices generator reads the project's own licence to render its header.
+!LICENSE
+!scripts/*.ts
+!apps/server/migrations/*.ts
+!apps/web/index.html
+!apps/web/vite.config.ts
+!apps/web/uno.config.ts
+!apps/web/public/**
+# The UI faces, their licences and the orb still the web build inlines.
+!packages/quicksilver/fonts/**
+!packages/quicksilver/assets/**
+# Image entrypoints install egress caps, then drop privileges.
+!apps/edge/entrypoint.sh
+!apps/stun/entrypoint.sh
+
+# Do not admit generated copies or development credentials through source rules.
+**/node_modules
+**/target
+**/dist
+**/pkg
+**/*.test.ts
+**/*.test.tsx
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/*.seed
+
+# Packaging input: preserve the COMPLETE signed directory, including unexpected
+# files, so deployment:verify rejects additions instead of filtering them away.
+!deployment/**

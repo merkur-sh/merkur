@@ -1,0 +1,90 @@
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+
+FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS bun
+
+# Debian 12 is Merkur's Linux ABI floor. Building on a newer distribution
+# can silently introduce glibc symbols that are unavailable to users.
+FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS builder
+
+ARG MERKUR_PUBLIC_ORIGIN
+ARG MERKUR_OPAQUE_SERVER_PUBLIC_KEY
+ARG MERKUR_VERSION
+ARG MERKUR_RELEASE_SEQUENCE
+ARG MERKUR_RELEASE_MLDSA87_PUBLIC_KEY
+ARG TARGETARCH
+
+WORKDIR /app
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    clang \
+    lld \
+    llvm \
+    pkg-config \
+    libssl-dev \
+  && rustup target add wasm32-unknown-unknown \
+  && cargo install wasm-pack --version 0.15.0 --locked \
+  && rm -rf /var/lib/apt/lists/*
+
+# The CLI embeds the e2e WebAssembly module (ML-DSA-87 for release and link
+# verification), which `scripts/build-daemon-dist.ts` builds with wasm-pack and
+# the wasm-bindgen CLI pinned in Cargo.lock. Installed against just those two
+# files so the layer survives source changes; see the main Dockerfile.
+COPY Cargo.lock rust-toolchain.toml ./
+RUN version="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = "|"/, ""); print; exit }' Cargo.lock)" \
+  && test -n "$version" \
+  && cargo install wasm-bindgen-cli --version "$version" --locked --root .tools/wasm-bindgen
+
+COPY package.json bun.lock ./
+COPY apps/daemon/package.json apps/daemon/package.json
+COPY apps/server/package.json apps/server/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/auth/package.json packages/auth/package.json
+COPY packages/config/package.json packages/config/package.json
+COPY packages/daemon-control-protocol/package.json packages/daemon-control-protocol/package.json
+COPY packages/keyboard/package.json packages/keyboard/package.json
+COPY packages/logger/package.json packages/logger/package.json
+COPY packages/protocol/package.json packages/protocol/package.json
+COPY packages/quicksilver/package.json packages/quicksilver/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/user-agent/package.json packages/user-agent/package.json
+
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked \
+  bun install --frozen-lockfile
+
+COPY Cargo.toml Cargo.lock rust-toolchain.toml tsconfig.base.json LICENSE ./
+COPY .cargo/ .cargo/
+COPY apps/ apps/
+COPY packages/ packages/
+COPY scripts/ scripts/
+# The profile-guided training build compiles the dataplane tests, which read it.
+COPY tests/fixtures/kitty/reference.json tests/fixtures/kitty/reference.json
+
+RUN --mount=type=cache,id=merkur-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+  --mount=type=cache,id=merkur-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+  test -n "${MERKUR_RELEASE_SEQUENCE}" \
+  && test -n "${MERKUR_RELEASE_MLDSA87_PUBLIC_KEY}" \
+  && MERKUR_PUBLIC_ORIGIN="${MERKUR_PUBLIC_ORIGIN}" \
+    MERKUR_OPAQUE_SERVER_PUBLIC_KEY="${MERKUR_OPAQUE_SERVER_PUBLIC_KEY}" \
+    MERKUR_RELEASE_MLDSA87_PUBLIC_KEY="${MERKUR_RELEASE_MLDSA87_PUBLIC_KEY}" \
+    bun run scripts/build-daemon-dist.ts \
+      --version "${MERKUR_VERSION}" \
+      --sequence "${MERKUR_RELEASE_SEQUENCE}" \
+  && test "$(apps/daemon/dist/merkur version)" = "${MERKUR_VERSION}" \
+  && case "${TARGETARCH}" in \
+    amd64) platform=linux-x64 ;; \
+    arm64) platform=linux-arm64 ;; \
+    *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac \
+  && mkdir -p /release \
+  && COPYFILE_DISABLE=1 tar --format=ustar --no-xattrs \
+    -czf "/release/merkur-daemon-${platform}.tar.gz" \
+    -C apps/daemon/dist merkur merkur-dataplane merkur-image-worker merkur-tui \
+  && bun build scripts/ci-release-verify.ts --compile --outfile "/release/verify-${platform}"
+
+FROM scratch AS artifacts
+COPY --from=builder /release/ /

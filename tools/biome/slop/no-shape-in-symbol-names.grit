@@ -1,0 +1,53 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// Any identifier, private name or JSX name with "shape" in it, in any letter case: bindings,
+// references, property and member keys, type names, labels, import and export names. The one
+// exemption is a name read off another value with a dot (`schema.shape`, `owner.#shape`), which
+// the reader does not get to choose.
+//
+// Quoted keys (`'shape': 1`) are strings, not symbols, and are left alone.
+
+or {
+  JsIdentifierBinding(),
+  JsIdentifierAssignment(),
+  JsReferenceIdentifier(),
+  JsLiteralMemberName(),
+  JsLiteralExportName(),
+  JsPrivateClassMemberName(),
+  JsLabel(),
+  TsIdentifierBinding(),
+  TsTypeParameterName(),
+  TsLiteralEnumMemberName(),
+  JsxName(),
+  JsxReferenceIdentifier(),
+  JsName(),
+  JsPrivateName()
+} as $name where {
+  // A regex match costs about twenty times a substring test in Biome 2.5.10, and this runs on
+  // every name in the tree: any spelling of "shape" holds one of these four of "ha".
+  $name <: includes or {
+    "ha",
+    "HA",
+    "Ha",
+    "hA"
+  },
+  $name <: r"(?i)[^'\"]*shape[^'\"]*",
+  or {
+    ! $name <: or {
+      JsName(),
+      JsPrivateName()
+    },
+    ! $name <: within or {
+      JsStaticMemberExpression(member=$name),
+      JsStaticMemberAssignment(member=$name)
+    }
+  },
+  register_diagnostic(span=$name, message=join(list=[
+    "[no-shape-in-symbol-names] `",
+
+    $name,
+
+    "` is named for its structure. Name it for what it is in the domain: who owns it or what it is for.",
+  ], separator=""), severity="error")
+}

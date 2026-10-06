@@ -1,0 +1,31 @@
+{
+  "execution_cpu": "aarch64",
+  "tools": {
+    "clang": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+    "clangxx": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++",
+    "ld": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld",
+    "ar": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ar",
+    "ranlib": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib",
+    "nm": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/nm",
+    "strip": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip",
+    "objdump": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/objdump"
+  },
+  "sysroot": "Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk",
+  "resource_dir": "Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21",
+  "cxx_headers": "Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1",
+  "licenses": [
+    "Contents/Resources/en.lproj/License.rtf",
+    "Contents/Resources/en.lproj/License.pdf",
+    "Contents/Resources/LicenseInfo.plist"
+  ],
+  "strip_prefix": "original",
+  "archive": {
+    "sha256": "9987b57648688edcb4883c1a45fc164d81b6c8db7046536eecf05175b0b9f967",
+    "size": 455103601
+  },
+  "source": {
+    "product": "Xcode",
+    "version": "26.5",
+    "build": "17F42"
+  }
+}

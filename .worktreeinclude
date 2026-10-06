@@ -1,0 +1,8 @@
+# Gitignored files copied into every worktree Claude Code creates. `bun install`
+# does not produce these; without them check:types and bun test apps/web fail.
+# The CodeGraph database is deliberately absent: the SessionStart hook rebuilds
+# it in about a second, and the primary's copy carries absolute paths.
+packages/term-wasm/pkg/
+apps/web/src/term-wasm/pkg/
+packages/e2e-wasm/pkg/
+apps/server/.env

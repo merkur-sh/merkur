@@ -1,0 +1,24 @@
+{
+  "name": "@merkur/auth",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@merkur/shared": "workspace:*",
+    "@serenity-kit/opaque": "catalog:",
+    "nanoid": "^6.0.1"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun"
+  }
+}

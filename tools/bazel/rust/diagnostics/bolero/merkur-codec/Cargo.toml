@@ -1,0 +1,42 @@
+
+[["bench"]]
+"harness" = false
+"name" = "codec"
+"path" = "../../../../../../packages/merkur-codec/benches/codec.rs"
+
+["dependencies"]
+
+["dependencies"."alacritty_terminal"]
+"default-features" = false
+"version" = "0.26.0"
+
+["dependencies"."merkur-graphics"]
+"path" = "../../../../../../packages/merkur-graphics"
+
+["dependencies"."xxhash-rust"]
+"features" = ["xxh3"]
+"version" = "0.8"
+
+["dev-dependencies"]
+"bolero" = "=0.13.6"
+"criterion" = "0.8"
+"proptest" = "1.11"
+
+["lib"]
+"name" = "merkur_codec"
+"path" = "../../../../../../packages/merkur-codec/src/lib.rs"
+
+["lints"]
+"workspace" = true
+
+["package"]
+"autotests" = false
+"edition" = "2024"
+"license" = "AGPL-3.0-only"
+"name" = "merkur-codec-fuzz"
+"publish" = false
+"version" = "0.1.0"
+
+[["test"]]
+"name" = "fuzz"
+"path" = "../../../../../bolero/codec.rs"

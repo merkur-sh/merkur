@@ -1,0 +1,2933 @@
+{
+  "configuration": {
+    "captured_execution_hosts": [
+      "aarch64-apple-darwin"
+    ],
+    "compiler_root": "graphics-wasm/release/wasm32-unknown-unknown",
+    "public_release_context": "//tools/bazel/bun:public_release_context",
+    "target": "wasm32-unknown-unknown"
+  },
+  "license_sources": {
+    "packages": {
+      "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8": "@merkur_rust_source_arrayvec_0_7_8//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7": "@merkur_rust_source_blake3_1_8_7//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#bumpalo@3.20.3": "@merkur_rust_source_bumpalo_3_20_3//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4": "@merkur_rust_source_cc_1_4_4//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4": "@merkur_rust_source_cfg_if_1_0_4//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#constant_time_eq@0.4.2": "@merkur_rust_source_constant_time_eq_0_4_2//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11": "@merkur_rust_source_find_msvc_tools_0_1_11//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4": "@merkur_rust_source_once_cell_1_21_4//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107": "@merkur_rust_source_proc_macro2_1_0_107//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47": "@merkur_rust_source_quote_1_0_47//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": "@merkur_rust_source_rustversion_1_0_23//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1": "@merkur_rust_source_shlex_2_0_1//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119": "@merkur_rust_source_syn_2_0_119//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24": "@merkur_rust_source_unicode_ident_1_0_24//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro-support@0.2.127": "@merkur_rust_source_wasm_bindgen_macro_support_0_2_127//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro@0.2.127": "@merkur_rust_source_wasm_bindgen_macro_0_2_127//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127": "@merkur_rust_source_wasm_bindgen_shared_0_2_127//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127": "@merkur_rust_source_wasm_bindgen_0_2_127//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18": "@merkur_rust_source_xxhash_rust_0_8_18//:package_data",
+      "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0": "@merkur_rust_source_zeroize_1_9_0//:package_data",
+      "workspace:packages/graphics-wasm": "//packages/graphics-wasm:package_data",
+      "workspace:packages/merkur-graphics": "//packages/merkur-graphics:package_data"
+    },
+    "workspace": {
+      "manifest": "//:Cargo.toml",
+      "text": "//:LICENSE"
+    }
+  },
+  "macro_inputs": {
+    "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8": [],
+    "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7": [],
+    "registry+https://github.com/rust-lang/crates.io-index#bumpalo@3.20.3": [],
+    "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4": [],
+    "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4": [],
+    "registry+https://github.com/rust-lang/crates.io-index#constant_time_eq@0.4.2": [],
+    "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11": [],
+    "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4": [],
+    "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107": [],
+    "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47": [],
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": [],
+    "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1": [],
+    "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119": [],
+    "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24": [],
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro-support@0.2.127": [],
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro@0.2.127": [],
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127": [],
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127": [],
+    "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18": [],
+    "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0": [],
+    "workspace:packages/graphics-wasm": [],
+    "workspace:packages/merkur-graphics": [
+      "packages/merkur-graphics/tests/fixtures/rowcolumn-diacritics.txt"
+    ]
+  },
+  "package_manifests": {
+    "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8": "@merkur_rust_source_arrayvec_0_7_8//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7": "@merkur_rust_source_blake3_1_8_7//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#bumpalo@3.20.3": "@merkur_rust_source_bumpalo_3_20_3//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4": "@merkur_rust_source_cc_1_4_4//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4": "@merkur_rust_source_cfg_if_1_0_4//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#constant_time_eq@0.4.2": "@merkur_rust_source_constant_time_eq_0_4_2//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11": "@merkur_rust_source_find_msvc_tools_0_1_11//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4": "@merkur_rust_source_once_cell_1_21_4//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107": "@merkur_rust_source_proc_macro2_1_0_107//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47": "@merkur_rust_source_quote_1_0_47//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": "@merkur_rust_source_rustversion_1_0_23//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1": "@merkur_rust_source_shlex_2_0_1//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119": "@merkur_rust_source_syn_2_0_119//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24": "@merkur_rust_source_unicode_ident_1_0_24//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro-support@0.2.127": "@merkur_rust_source_wasm_bindgen_macro_support_0_2_127//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro@0.2.127": "@merkur_rust_source_wasm_bindgen_macro_0_2_127//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127": "@merkur_rust_source_wasm_bindgen_shared_0_2_127//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127": "@merkur_rust_source_wasm_bindgen_0_2_127//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18": "@merkur_rust_source_xxhash_rust_0_8_18//:Cargo.toml",
+    "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0": "@merkur_rust_source_zeroize_1_9_0//:Cargo.toml",
+    "workspace:packages/graphics-wasm": "//packages/graphics-wasm:Cargo.toml",
+    "workspace:packages/merkur-graphics": "//packages/merkur-graphics:Cargo.toml"
+  },
+  "package_sources": {
+    "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8": "@merkur_rust_source_arrayvec_0_7_8//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7": "@merkur_rust_source_blake3_1_8_7//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#bumpalo@3.20.3": "@merkur_rust_source_bumpalo_3_20_3//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4": "@merkur_rust_source_cc_1_4_4//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4": "@merkur_rust_source_cfg_if_1_0_4//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#constant_time_eq@0.4.2": "@merkur_rust_source_constant_time_eq_0_4_2//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11": "@merkur_rust_source_find_msvc_tools_0_1_11//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4": "@merkur_rust_source_once_cell_1_21_4//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107": "@merkur_rust_source_proc_macro2_1_0_107//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47": "@merkur_rust_source_quote_1_0_47//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": "@merkur_rust_source_rustversion_1_0_23//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1": "@merkur_rust_source_shlex_2_0_1//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119": "@merkur_rust_source_syn_2_0_119//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24": "@merkur_rust_source_unicode_ident_1_0_24//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro-support@0.2.127": "@merkur_rust_source_wasm_bindgen_macro_support_0_2_127//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro@0.2.127": "@merkur_rust_source_wasm_bindgen_macro_0_2_127//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127": "@merkur_rust_source_wasm_bindgen_shared_0_2_127//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127": "@merkur_rust_source_wasm_bindgen_0_2_127//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18": "@merkur_rust_source_xxhash_rust_0_8_18//:package_data",
+    "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0": "@merkur_rust_source_zeroize_1_9_0//:package_data",
+    "workspace:packages/graphics-wasm": "//packages/graphics-wasm:package_data",
+    "workspace:packages/merkur-graphics": "//packages/merkur-graphics:package_data"
+  },
+  "packages": {
+    "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8": {
+      "archive_checksum": "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56",
+      "authors": [
+        "bluss"
+      ],
+      "description": "A vector with fixed capacity, backed by an array (it can be stored on the stack too). Implements fixed capacity ArrayVec and ArrayString.",
+      "edition": "2018",
+      "features": {
+        "borsh": [
+          "dep:borsh"
+        ],
+        "default": [
+          "std"
+        ],
+        "serde": [
+          "dep:serde"
+        ],
+        "std": [],
+        "zeroize": [
+          "dep:zeroize"
+        ]
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "arrayvec",
+      "repository": "https://github.com/bluss/arrayvec",
+      "rust_version": "1.51",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.7.8"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7": {
+      "archive_checksum": "6d9e454fc11f76977dc803893aff6304ed33d6a26efae8696573bea74baa27ae",
+      "authors": [
+        "Jack O'Connor <oconnor663@gmail.com>",
+        "Samuel Neves"
+      ],
+      "description": "the BLAKE3 hash function",
+      "edition": "2024",
+      "features": {
+        "default": [
+          "std"
+        ],
+        "digest": [
+          "dep:digest"
+        ],
+        "mmap": [
+          "std",
+          "dep:memmap2"
+        ],
+        "neon": [],
+        "no_avx2": [],
+        "no_avx512": [],
+        "no_neon": [],
+        "no_sse2": [],
+        "no_sse41": [],
+        "prefer_intrinsics": [],
+        "pure": [],
+        "rayon": [
+          "dep:rayon-core"
+        ],
+        "serde": [
+          "dep:serde"
+        ],
+        "std": [
+          "constant_time_eq/std"
+        ],
+        "traits-preview": [
+          "dep:digest"
+        ],
+        "wasm32_simd": [],
+        "zeroize": [
+          "dep:zeroize",
+          "arrayvec/zeroize"
+        ]
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7",
+      "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+      "license_file": null,
+      "links": null,
+      "name": "blake3",
+      "repository": "https://github.com/BLAKE3-team/BLAKE3",
+      "rust_version": null,
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.8.7"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#bumpalo@3.20.3": {
+      "archive_checksum": "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649",
+      "authors": [
+        "Nick Fitzgerald <fitzgen@gmail.com>"
+      ],
+      "description": "A fast bump allocation arena for Rust.",
+      "edition": "2021",
+      "features": {
+        "allocator-api2": [
+          "dep:allocator-api2"
+        ],
+        "allocator_api": [],
+        "bench_allocator_api": [
+          "allocator_api",
+          "blink-alloc/nightly"
+        ],
+        "boxed": [],
+        "collections": [],
+        "default": [],
+        "serde": [
+          "dep:serde"
+        ],
+        "std": []
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#bumpalo@3.20.3",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "bumpalo",
+      "repository": "https://github.com/fitzgen/bumpalo",
+      "rust_version": "1.71.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "3.20.3"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4": {
+      "archive_checksum": "0ad534f4357a5264cce5019c989cf66a4f0dc4e0d1b1d15f8aacec0ff7360273",
+      "authors": [],
+      "description": "A build-time dependency for Cargo build scripts to assist in invoking the native\nC compiler to compile native C code into a static archive to be linked into Rust\ncode.\n",
+      "edition": "2021",
+      "features": {
+        "jobserver": [],
+        "parallel": [
+          "dep:jobserver",
+          "dep:libc"
+        ]
+      },
+      "homepage": "https://github.com/rust-lang/cc-rs",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "cc",
+      "repository": "https://github.com/rust-lang/cc-rs",
+      "rust_version": "1.65.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.4.4"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4": {
+      "archive_checksum": "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801",
+      "authors": [
+        "Alex Crichton <alex@alexcrichton.com>"
+      ],
+      "description": "A macro to ergonomically define an item depending on a large number of #[cfg]\nparameters. Structured like an if-else chain, the first matching branch is the\nitem that gets emitted.\n",
+      "edition": "2018",
+      "features": {
+        "core": [
+          "dep:core"
+        ],
+        "rustc-dep-of-std": [
+          "core"
+        ]
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "cfg-if",
+      "repository": "https://github.com/rust-lang/cfg-if",
+      "rust_version": "1.32",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.4"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#constant_time_eq@0.4.2": {
+      "archive_checksum": "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b",
+      "authors": [
+        "Cesar Eduardo Barros <cesarb@cesarb.eti.br>"
+      ],
+      "description": "Compares two equal-sized byte strings in constant time.",
+      "edition": "2024",
+      "features": {
+        "count_instructions_test": [],
+        "default": [
+          "std"
+        ],
+        "std": []
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#constant_time_eq@0.4.2",
+      "license": "CC0-1.0 OR MIT-0 OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "constant_time_eq",
+      "repository": "https://github.com/cesarb/constant_time_eq",
+      "rust_version": "1.85.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.4.2"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11": {
+      "archive_checksum": "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890",
+      "authors": [],
+      "description": "Find windows-specific tools, read MSVC versions from the registry and from COM interfaces",
+      "edition": "2021",
+      "features": {},
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "find-msvc-tools",
+      "repository": "https://github.com/rust-lang/cc-rs",
+      "rust_version": "1.65.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.1.11"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4": {
+      "archive_checksum": "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50",
+      "authors": [
+        "Aleksey Kladov <aleksey.kladov@gmail.com>"
+      ],
+      "description": "Single assignment cells and lazy values.",
+      "edition": "2021",
+      "features": {
+        "alloc": [
+          "race"
+        ],
+        "atomic-polyfill": [
+          "critical-section"
+        ],
+        "critical-section": [
+          "dep:critical-section",
+          "portable-atomic"
+        ],
+        "default": [
+          "std"
+        ],
+        "parking_lot": [
+          "dep:parking_lot_core"
+        ],
+        "portable-atomic": [
+          "dep:portable-atomic"
+        ],
+        "race": [],
+        "std": [
+          "alloc"
+        ],
+        "unstable": []
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "once_cell",
+      "repository": "https://github.com/matklad/once_cell",
+      "rust_version": "1.65",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.21.4"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107": {
+      "archive_checksum": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9",
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>",
+        "Alex Crichton <alex@alexcrichton.com>"
+      ],
+      "description": "A substitute implementation of the compiler's `proc_macro` API to decouple token-based libraries from the procedural macro use case.",
+      "edition": "2021",
+      "features": {
+        "default": [
+          "proc-macro"
+        ],
+        "nightly": [],
+        "proc-macro": [],
+        "span-locations": []
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "proc-macro2",
+      "repository": "https://github.com/dtolnay/proc-macro2",
+      "rust_version": "1.71",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.107"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47": {
+      "archive_checksum": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001",
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>"
+      ],
+      "description": "Quasi-quoting macro quote!(...)",
+      "edition": "2021",
+      "features": {
+        "default": [
+          "proc-macro"
+        ],
+        "proc-macro": [
+          "proc-macro2/proc-macro"
+        ]
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "quote",
+      "repository": "https://github.com/dtolnay/quote",
+      "rust_version": "1.71",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.47"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": {
+      "archive_checksum": "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f",
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>"
+      ],
+      "description": "Conditional compilation according to rustc compiler version",
+      "edition": "2018",
+      "features": {},
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "rustversion",
+      "repository": "https://github.com/dtolnay/rustversion",
+      "rust_version": "1.31",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.23"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1": {
+      "archive_checksum": "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba",
+      "authors": [
+        "comex <comexk@gmail.com>",
+        "Fenhl <fenhl@fenhl.net>",
+        "Adrian Taylor <adetaylor@chromium.org>",
+        "Alex Touchet <alextouchet@outlook.com>",
+        "Daniel Parks <dp+git@oxidized.org>",
+        "Garrett Berg <googberg@gmail.com>"
+      ],
+      "description": "Split a string into shell words, like Python's shlex.",
+      "edition": "2018",
+      "features": {
+        "default": [
+          "std"
+        ],
+        "std": []
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "shlex",
+      "repository": "https://github.com/comex/rust-shlex",
+      "rust_version": "1.46.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.1"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119": {
+      "archive_checksum": "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297",
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>"
+      ],
+      "description": "Parser for Rust source code",
+      "edition": "2021",
+      "features": {
+        "clone-impls": [],
+        "default": [
+          "derive",
+          "parsing",
+          "printing",
+          "clone-impls",
+          "proc-macro"
+        ],
+        "derive": [],
+        "extra-traits": [],
+        "fold": [],
+        "full": [],
+        "parsing": [],
+        "printing": [
+          "dep:quote"
+        ],
+        "proc-macro": [
+          "proc-macro2/proc-macro",
+          "quote?/proc-macro"
+        ],
+        "test": [
+          "syn-test-suite/all-features"
+        ],
+        "visit": [],
+        "visit-mut": []
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "syn",
+      "repository": "https://github.com/dtolnay/syn",
+      "rust_version": "1.71",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "2.0.119"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24": {
+      "archive_checksum": "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75",
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>"
+      ],
+      "description": "Determine whether characters have the XID_Start or XID_Continue properties according to Unicode Standard Annex #31",
+      "edition": "2021",
+      "features": {},
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "license_file": null,
+      "links": null,
+      "name": "unicode-ident",
+      "repository": "https://github.com/dtolnay/unicode-ident",
+      "rust_version": "1.71",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.24"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro-support@0.2.127": {
+      "archive_checksum": "e11d33f857dc2fb11b8bc75aee111aa9cbeb12cd9f25efd3d4c2a3dd4e235284",
+      "authors": [
+        "The wasm-bindgen Developers"
+      ],
+      "description": "Implementation APIs for the `#[wasm_bindgen]` attribute",
+      "edition": "2021",
+      "features": {
+        "extra-traits": [
+          "syn/extra-traits"
+        ],
+        "strict-macro": []
+      },
+      "homepage": "https://wasm-bindgen.github.io/wasm-bindgen/",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro-support@0.2.127",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "wasm-bindgen-macro-support",
+      "repository": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro-support",
+      "rust_version": "1.77",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.2.127"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro@0.2.127": {
+      "archive_checksum": "77775f8f3f7217702089053b94958f8f54061a3f663417df76e19cbdcca29bc1",
+      "authors": [
+        "The wasm-bindgen Developers"
+      ],
+      "description": "Definition of the `#[wasm_bindgen]` attribute, an internal dependency\n",
+      "edition": "2021",
+      "features": {
+        "strict-macro": [
+          "wasm-bindgen-macro-support/strict-macro"
+        ]
+      },
+      "homepage": "https://wasm-bindgen.github.io/wasm-bindgen/",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro@0.2.127",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "wasm-bindgen-macro",
+      "repository": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/macro",
+      "rust_version": "1.77",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.2.127"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127": {
+      "archive_checksum": "7ef64dbcc55df09c7e5a46182d181c2cfa3e925f3da937ea764728b4bbb9dcbf",
+      "authors": [
+        "The wasm-bindgen Developers"
+      ],
+      "description": "Shared support between wasm-bindgen and wasm-bindgen cli, an internal\ndependency.\n",
+      "edition": "2021",
+      "features": {},
+      "homepage": "https://wasm-bindgen.github.io/wasm-bindgen/",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": "wasm_bindgen",
+      "name": "wasm-bindgen-shared",
+      "repository": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/shared",
+      "rust_version": "1.77",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.2.127"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127": {
+      "archive_checksum": "1b70935747edd64d89de3efa29d73789b806c15798f8e7dca4d8ac356b50ce70",
+      "authors": [
+        "The wasm-bindgen Developers"
+      ],
+      "description": "Easy support for interacting between JS and Rust.\n",
+      "edition": "2021",
+      "features": {
+        "default": [
+          "std"
+        ],
+        "enable-interning": [
+          "std"
+        ],
+        "gg-alloc": [],
+        "msrv": [],
+        "rustversion": [],
+        "serde": [
+          "dep:serde"
+        ],
+        "serde-serialize": [
+          "serde",
+          "serde_json",
+          "std"
+        ],
+        "serde_json": [
+          "dep:serde_json"
+        ],
+        "spans": [],
+        "std": [],
+        "strict-macro": [
+          "wasm-bindgen-macro/strict-macro"
+        ],
+        "xxx_debug_only_print_generated_code": []
+      },
+      "homepage": "https://wasm-bindgen.github.io/wasm-bindgen",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "wasm-bindgen",
+      "repository": "https://github.com/wasm-bindgen/wasm-bindgen",
+      "rust_version": "1.77",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.2.127"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18": {
+      "archive_checksum": "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6",
+      "authors": [
+        "Douman <douman@gmx.se>"
+      ],
+      "description": "Implementation of xxhash",
+      "edition": "2018",
+      "features": {
+        "const_xxh3": [],
+        "const_xxh32": [],
+        "const_xxh64": [],
+        "std": [],
+        "xxh3": [],
+        "xxh32": [],
+        "xxh64": []
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18",
+      "license": "BSL-1.0",
+      "license_file": null,
+      "links": null,
+      "name": "xxhash-rust",
+      "repository": "https://github.com/DoumanAsh/xxhash-rust",
+      "rust_version": null,
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.8.18"
+    },
+    "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0": {
+      "archive_checksum": "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e",
+      "authors": [
+        "The RustCrypto Project Developers"
+      ],
+      "description": "Securely clear secrets from memory with a simple trait built on\nstable Rust primitives which guarantee memory is zeroed using an\noperation will not be 'optimized away' by the compiler.\nUses a portable pure Rust implementation that works everywhere,\neven WASM!\n",
+      "edition": "2024",
+      "features": {
+        "aarch64": [],
+        "alloc": [],
+        "default": [
+          "alloc"
+        ],
+        "derive": [
+          "zeroize_derive"
+        ],
+        "serde": [
+          "dep:serde"
+        ],
+        "simd": [],
+        "std": [
+          "alloc"
+        ],
+        "zeroize_derive": [
+          "dep:zeroize_derive"
+        ]
+      },
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+      "license": "Apache-2.0 OR MIT",
+      "license_file": null,
+      "links": null,
+      "name": "zeroize",
+      "repository": "https://github.com/RustCrypto/utils",
+      "rust_version": "1.85",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.9.0"
+    },
+    "workspace:packages/graphics-wasm": {
+      "archive_checksum": null,
+      "authors": [],
+      "description": null,
+      "edition": "2024",
+      "features": {},
+      "homepage": null,
+      "id": "workspace:packages/graphics-wasm",
+      "license": "AGPL-3.0-only",
+      "license_file": null,
+      "links": null,
+      "manifest": "packages/graphics-wasm/Cargo.toml",
+      "name": "graphics-wasm",
+      "repository": null,
+      "rust_version": null,
+      "source": null,
+      "targets": [
+        {
+          "kind": [
+            "cdylib",
+            "rlib"
+          ],
+          "name": "graphics_wasm",
+          "source": "packages/graphics-wasm/src/lib.rs"
+        }
+      ],
+      "version": "0.1.0"
+    },
+    "workspace:packages/merkur-graphics": {
+      "archive_checksum": null,
+      "authors": [],
+      "description": null,
+      "edition": "2024",
+      "features": {},
+      "homepage": null,
+      "id": "workspace:packages/merkur-graphics",
+      "license": "AGPL-3.0-only",
+      "license_file": null,
+      "links": null,
+      "manifest": "packages/merkur-graphics/Cargo.toml",
+      "name": "merkur-graphics",
+      "repository": null,
+      "rust_version": null,
+      "source": null,
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "name": "merkur_graphics",
+          "source": "packages/merkur-graphics/src/lib.rs"
+        },
+        {
+          "kind": [
+            "test"
+          ],
+          "name": "allocation",
+          "source": "packages/merkur-graphics/tests/allocation.rs"
+        },
+        {
+          "kind": [
+            "test"
+          ],
+          "name": "integration",
+          "source": "packages/merkur-graphics/tests/integration/main.rs"
+        }
+      ],
+      "version": "0.1.0"
+    }
+  },
+  "pending": [
+    "Native release PGO and SDK/compiler receipts",
+    "Configured Cargo resolution on every supported execution host",
+    "Compiled public account-pin and release configuration assertions"
+  ],
+  "roots": [
+    "30238d57996de8806ef8c7080d77089904b0304d9ce2a6da913dccd4e3d41b78"
+  ],
+  "shipping_qualified": false,
+  "source_membership": [
+    ".cargo/config.toml",
+    "Cargo.lock",
+    "Cargo.toml",
+    "LICENSE",
+    "MODULE.bazel",
+    "packages/graphics-wasm/BUILD.bazel",
+    "packages/graphics-wasm/Cargo.toml",
+    "packages/graphics-wasm/src/lib.rs",
+    "packages/merkur-graphics/BUILD.bazel",
+    "packages/merkur-graphics/Cargo.toml",
+    "packages/merkur-graphics/src/animation.rs",
+    "packages/merkur-graphics/src/boundary.rs",
+    "packages/merkur-graphics/src/budget.rs",
+    "packages/merkur-graphics/src/command.rs",
+    "packages/merkur-graphics/src/diacritics.rs",
+    "packages/merkur-graphics/src/geometry.rs",
+    "packages/merkur-graphics/src/ingest.rs",
+    "packages/merkur-graphics/src/lib.rs",
+    "packages/merkur-graphics/src/placeholder.rs",
+    "packages/merkur-graphics/src/placements.rs",
+    "packages/merkur-graphics/src/processing.rs",
+    "packages/merkur-graphics/src/projection.rs",
+    "packages/merkur-graphics/src/publication.rs",
+    "packages/merkur-graphics/src/reply.rs",
+    "packages/merkur-graphics/src/scene.rs",
+    "packages/merkur-graphics/src/source.rs",
+    "packages/merkur-graphics/src/tile.rs",
+    "packages/merkur-graphics/tests/allocation.rs",
+    "packages/merkur-graphics/tests/fixtures/rowcolumn-diacritics.txt",
+    "packages/merkur-graphics/tests/integration/animation.rs",
+    "packages/merkur-graphics/tests/integration/boundary.rs",
+    "packages/merkur-graphics/tests/integration/canonical.rs",
+    "packages/merkur-graphics/tests/integration/geometry.rs",
+    "packages/merkur-graphics/tests/integration/ingestion.rs",
+    "packages/merkur-graphics/tests/integration/main.rs",
+    "packages/merkur-graphics/tests/integration/placeholders.rs",
+    "packages/merkur-graphics/tests/integration/placements.rs",
+    "packages/merkur-graphics/tests/integration/projection.rs",
+    "packages/merkur-graphics/tests/integration/publication.rs",
+    "packages/merkur-graphics/tests/integration/replies.rs",
+    "packages/merkur-graphics/tests/integration/scene.rs",
+    "packages/merkur-graphics/tests/integration/scene_model.rs",
+    "packages/term-wasm/.cargo/config.toml",
+    "rust-toolchain.toml",
+    "tools/bazel/bun/BUILD.bazel",
+    "tools/bazel/bun/public-release-context.ts",
+    "tools/bazel/bun/rules.bzl",
+    "tools/bazel/cc/cc.MODULE.bazel",
+    "tools/bazel/cc/sdk.BUILD.bazel",
+    "tools/bazel/cc/wasm_config.bzl",
+    "tools/bazel/rust/contexts.py",
+    "tools/bazel/rust/license_metadata.json",
+    "tools/bazel/rust/license_metadata.py",
+    "tools/bazel/rust/llvm_tools.bzl",
+    "tools/bazel/rust/rust.MODULE.bazel",
+    "tools/bazel/rust/source_inputs.json",
+    "tools/bazel/rust/source_inputs.rs",
+    "tools/bazel/rust/units.bzl",
+    "tools/bazel/rust/units.py",
+    "tools/bazel/rust/units/provenance/graphics_wasm_selected_release_wasm.json",
+    "tools/bazel/worker/rules_rust-0.74.0.patch"
+  ],
+  "units": {
+    "0b1c2d393bb63567a08e4176ba41d1582cf82f2a114d68e8370a0bc9d41825f5": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "bumpalo",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "7f5543e961beb1dc0cdb2e74d24d0820541b66205c0bcf9ec5f8527f6e9d5fe6"
+        },
+        {
+          "extern_crate_name": "proc_macro2",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "2ec732513092e5be9e32232eae25bfa6199fc536c3526cffb82483ed00065545"
+        },
+        {
+          "extern_crate_name": "quote",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "e7c76b00b378cc8a0425efa576c8ce02f19d47e412159f05e5cdf9b354fe6ded"
+        },
+        {
+          "extern_crate_name": "syn",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "d98e29815a3a62c57f25522616cf101e0c4413c9f2bfd0cc0cf1b2a6e1926fe1"
+        },
+        {
+          "extern_crate_name": "wasm_bindgen_shared",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "c81423f2ff30233f3c9ec54cdfb0d3c3f9e503e94456fbb6b2a41d7c3d878d64"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro-support@0.2.127",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "wasm_bindgen_macro_support",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "12aa0c9f5f6e1a3f0d176f34e38986e68337ebac48dc58922beac7bfea67a893": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "bf292087d5fd2f491461926aaf633d4a7788ba34ea1ed3f69c1390e4d6a8d151"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "1802e45d46c544d2bd81ffda1af85fdfeff4a099bff2c03d0f08a86c41f77e38": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "proc-macro"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "1ac3f2873adc7044e7be5e66cea37b7acfffcc46772cade1b98225f1a0a30af1": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "bf292087d5fd2f491461926aaf633d4a7788ba34ea1ed3f69c1390e4d6a8d151"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "1e8b5fcce40f57f40c75fc4c4202c0e6cbc210c6554b1288ffe6ef033b9f49e3": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "alloc"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2024",
+        "kind": [
+          "lib"
+        ],
+        "name": "zeroize",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "2594d3492face931f25c94005532624cf7f1d186409edfddc8a21513ffd5a37f": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "cc",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "e3a174361b7ed87c3ef4e3bf55065dfbceb374a38685414a6944be5aeb07ecbd"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "std",
+        "wasm32_simd"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2024",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "264248b5d36172f68b8a7f14750d1bbb92cdaf6e58ae2c901bc4fbb1280e1dd6": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "quote",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "e7c76b00b378cc8a0425efa576c8ce02f19d47e412159f05e5cdf9b354fe6ded"
+        },
+        {
+          "extern_crate_name": "wasm_bindgen_macro_support",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "0b1c2d393bb63567a08e4176ba41d1582cf82f2a114d68e8370a0bc9d41825f5"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-macro@0.2.127",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "proc-macro"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "proc-macro"
+        ],
+        "name": "wasm_bindgen_macro",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "281f1f5494ae1ce48b9ea3a0e9bf9c3ad1f84471728eb3abe1cf12e44df098d2": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "blake3",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "e65d0e5a0e8b3d6cbb0941afd5e73d967138fa39ed538a9bb9d050d22593c11b"
+        },
+        {
+          "extern_crate_name": "xxhash_rust",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "b54920665bef0a7972d11f510f87fd56931a4c1dadd5cee0db84616861acd8ab"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "workspace:packages/merkur-graphics",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2024",
+        "kind": [
+          "lib"
+        ],
+        "name": "merkur_graphics",
+        "src_path": "packages/merkur-graphics/src/lib.rs",
+        "test": true
+      }
+    },
+    "2ec732513092e5be9e32232eae25bfa6199fc536c3526cffb82483ed00065545": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "d5e7956858835dff9a20c77de6a5677b83be7cdecca2f608716e00a78044f8e3"
+        },
+        {
+          "extern_crate_name": "unicode_ident",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "889f178acb4c31b835e76ed54d6ad19e733e4dfeef82d7f71d7ef6e53dbe68ec"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "proc-macro"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "proc_macro2",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "30238d57996de8806ef8c7080d77089904b0304d9ce2a6da913dccd4e3d41b78": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "merkur_graphics",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "281f1f5494ae1ce48b9ea3a0e9bf9c3ad1f84471728eb3abe1cf12e44df098d2"
+        },
+        {
+          "extern_crate_name": "wasm_bindgen",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "b7319d84a88a76b472b379648f39b6c03733833889be095d3a40b8b534e701fd"
+        },
+        {
+          "extern_crate_name": "zeroize",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "1e8b5fcce40f57f40c75fc4c4202c0e6cbc210c6554b1288ffe6ef033b9f49e3"
+        }
+      ],
+      "emit_cdylib": true,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "workspace:packages/graphics-wasm",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "cdylib",
+          "rlib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2024",
+        "kind": [
+          "cdylib",
+          "rlib"
+        ],
+        "name": "graphics_wasm",
+        "src_path": "packages/graphics-wasm/src/lib.rs",
+        "test": true
+      }
+    },
+    "601b83ff71c9e21605d4f8c85668c875f6999918c4d3fa1b7bbe9451a9db2101": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2018",
+        "kind": [
+          "lib"
+        ],
+        "name": "arrayvec",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "63a0623ea845aa5e9d7e0e2ea562454c07baf0f2b608538fcaac4a142192386f": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "ec1a8ded624fff06d8b399c6e541764887a4c7e5b7607351b8a4f85ee533a6d8"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2018",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build/build.rs",
+        "test": false
+      }
+    },
+    "7ad6d221717850d9f689ac38e040b4a9e2e7a4e6e0be7bbfdd27d71943f70cea": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2018",
+        "kind": [
+          "lib"
+        ],
+        "name": "cfg_if",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "7f5543e961beb1dc0cdb2e74d24d0820541b66205c0bcf9ec5f8527f6e9d5fe6": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#bumpalo@3.20.3",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "bumpalo",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "84ce886b4c265ffcf2edc96c8bb6535ff4af7b24260dabe7bd9f8bb9155894b5": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "9756c4af7862a5c7dcf0bce1dcb1476c3ad19e0d307bd43e7bb57412f72517e7"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "proc-macro"
+      ],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "889f178acb4c31b835e76ed54d6ad19e733e4dfeef82d7f71d7ef6e53dbe68ec": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "unicode_ident",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "931cd209f6e89e2d0cee65bc16eabf5caa84ab8e75c576d925f0d312ad9bb030": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "find_msvc_tools",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "9756c4af7862a5c7dcf0bce1dcb1476c3ad19e0d307bd43e7bb57412f72517e7": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "proc-macro"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "a2aaa6e024bd5582cc511612ea7fdcb9103dc9472474a88b5592f9b80a718f90": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "2594d3492face931f25c94005532624cf7f1d186409edfddc8a21513ffd5a37f"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "std",
+        "wasm32_simd"
+      ],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2024",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "acff5030ef0fdb43984c5ee554214588dadea47256afbd943ac60134af09500f": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "12aa0c9f5f6e1a3f0d176f34e38986e68337ebac48dc58922beac7bfea67a893"
+        },
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "b71b4768f9b962f4d334b1d713e1f47c6a6ce04e9ed72309914a01f3383f9c4e"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "std"
+      ],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "b54920665bef0a7972d11f510f87fd56931a4c1dadd5cee0db84616861acd8ab": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "xxh3"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2018",
+        "kind": [
+          "lib"
+        ],
+        "name": "xxhash_rust",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "b71b4768f9b962f4d334b1d713e1f47c6a6ce04e9ed72309914a01f3383f9c4e": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "rustversion_compat",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "f813790940338e96c08716ac3edf4100bb704d467e2060f16dc2216ba385cd80"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "std"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "b7319d84a88a76b472b379648f39b6c03733833889be095d3a40b8b534e701fd": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "acff5030ef0fdb43984c5ee554214588dadea47256afbd943ac60134af09500f"
+        },
+        {
+          "extern_crate_name": "cfg_if",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "7ad6d221717850d9f689ac38e040b4a9e2e7a4e6e0be7bbfdd27d71943f70cea"
+        },
+        {
+          "extern_crate_name": "once_cell",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "fd908bdd05fe7b01af7597b1670ff30b505ef93ff5f1e90f8eae8757480eaee7"
+        },
+        {
+          "extern_crate_name": "wasm_bindgen_macro",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "264248b5d36172f68b8a7f14750d1bbb92cdaf6e58ae2c901bc4fbb1280e1dd6"
+        },
+        {
+          "extern_crate_name": "wasm_bindgen_shared",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "cb16d986ce253b1044981b90ea5be7d9469e80944892d123cc9fd079e12dc517"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "std"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "wasm_bindgen",
+        "src_path": "src/lib.rs",
+        "test": false
+      }
+    },
+    "baa5771a61a5f759e55b6f91e4380639131d9ccf68c7f4527dd873f0056a95c3": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "std"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#constant_time_eq@0.4.2",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2024",
+        "kind": [
+          "lib"
+        ],
+        "name": "constant_time_eq",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "bcb261d3e6a1bada122d68ec38a83753afbee3f1b158b2dc96efd9d5d0016618": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "std"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#shlex@2.0.1",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2018",
+        "kind": [
+          "lib"
+        ],
+        "name": "shlex",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "bf292087d5fd2f491461926aaf633d4a7788ba34ea1ed3f69c1390e4d6a8d151": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "c81423f2ff30233f3c9ec54cdfb0d3c3f9e503e94456fbb6b2a41d7c3d878d64": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "1ac3f2873adc7044e7be5e66cea37b7acfffcc46772cade1b98225f1a0a30af1"
+        },
+        {
+          "extern_crate_name": "unicode_ident",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "889f178acb4c31b835e76ed54d6ad19e733e4dfeef82d7f71d7ef6e53dbe68ec"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "wasm_bindgen_shared",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "cb16d986ce253b1044981b90ea5be7d9469e80944892d123cc9fd079e12dc517": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "12aa0c9f5f6e1a3f0d176f34e38986e68337ebac48dc58922beac7bfea67a893"
+        },
+        {
+          "extern_crate_name": "unicode_ident",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "f9b398234a469da1ce7e4ca8715de70f38d9be0cedb0b167c3be195ac97023a2"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-shared@0.2.127",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "wasm_bindgen_shared",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "d5e7956858835dff9a20c77de6a5677b83be7cdecca2f608716e00a78044f8e3": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "1802e45d46c544d2bd81ffda1af85fdfeff4a099bff2c03d0f08a86c41f77e38"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "proc-macro"
+      ],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2021",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build.rs",
+        "test": false
+      }
+    },
+    "d98e29815a3a62c57f25522616cf101e0c4413c9f2bfd0cc0cf1b2a6e1926fe1": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "proc_macro2",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "2ec732513092e5be9e32232eae25bfa6199fc536c3526cffb82483ed00065545"
+        },
+        {
+          "extern_crate_name": "quote",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "e7c76b00b378cc8a0425efa576c8ce02f19d47e412159f05e5cdf9b354fe6ded"
+        },
+        {
+          "extern_crate_name": "unicode_ident",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "889f178acb4c31b835e76ed54d6ad19e733e4dfeef82d7f71d7ef6e53dbe68ec"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "clone-impls",
+        "default",
+        "derive",
+        "extra-traits",
+        "full",
+        "parsing",
+        "printing",
+        "proc-macro",
+        "visit",
+        "visit-mut"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "syn",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "e3a174361b7ed87c3ef4e3bf55065dfbceb374a38685414a6944be5aeb07ecbd": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "find_msvc_tools",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "931cd209f6e89e2d0cee65bc16eabf5caa84ab8e75c576d925f0d312ad9bb030"
+        },
+        {
+          "extern_crate_name": "shlex",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "bcb261d3e6a1bada122d68ec38a83753afbee3f1b158b2dc96efd9d5d0016618"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "cc",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "e65d0e5a0e8b3d6cbb0941afd5e73d967138fa39ed538a9bb9d050d22593c11b": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "arrayvec",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "601b83ff71c9e21605d4f8c85668c875f6999918c4d3fa1b7bbe9451a9db2101"
+        },
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "a2aaa6e024bd5582cc511612ea7fdcb9103dc9472474a88b5592f9b80a718f90"
+        },
+        {
+          "extern_crate_name": "cfg_if",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "7ad6d221717850d9f689ac38e040b4a9e2e7a4e6e0be7bbfdd27d71943f70cea"
+        },
+        {
+          "extern_crate_name": "constant_time_eq",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "baa5771a61a5f759e55b6f91e4380639131d9ccf68c7f4527dd873f0056a95c3"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "std",
+        "wasm32_simd"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2024",
+        "kind": [
+          "lib"
+        ],
+        "name": "blake3",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "e7c76b00b378cc8a0425efa576c8ce02f19d47e412159f05e5cdf9b354fe6ded": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "84ce886b4c265ffcf2edc96c8bb6535ff4af7b24260dabe7bd9f8bb9155894b5"
+        },
+        {
+          "extern_crate_name": "proc_macro2",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "2ec732513092e5be9e32232eae25bfa6199fc536c3526cffb82483ed00065545"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [
+        "default",
+        "proc-macro"
+      ],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "quote",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "ec1a8ded624fff06d8b399c6e541764887a4c7e5b7607351b8a4f85ee533a6d8": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2018",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build/build.rs",
+        "test": false
+      }
+    },
+    "f813790940338e96c08716ac3edf4100bb704d467e2060f16dc2216ba385cd80": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "63a0623ea845aa5e9d7e0e2ea562454c07baf0f2b608538fcaac4a142192386f"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "proc-macro"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2018",
+        "kind": [
+          "proc-macro"
+        ],
+        "name": "rustversion",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "f9b398234a469da1ce7e4ca8715de70f38d9be0cedb0b167c3be195ac97023a2": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "unicode_ident",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    },
+    "fd908bdd05fe7b01af7597b1670ff30b505ef93ff5f1e90f8eae8757480eaee7": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#once_cell@1.21.4",
+      "platform": "wasm32-unknown-unknown",
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "3",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [
+        "--cfg",
+        "getrandom_backend=\"wasm_js\""
+      ],
+      "target": {
+        "crate_types": [
+          "lib"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2021",
+        "kind": [
+          "lib"
+        ],
+        "name": "once_cell",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    }
+  }
+}

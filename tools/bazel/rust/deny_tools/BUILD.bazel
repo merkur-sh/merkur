@@ -1,0 +1,64 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+# Exact Cargo.lock direct edges; external labels are acquired only for compile targets.
+_NORMAL_DEPS = [
+    "@crates_deny_tools//anyhow-1.0.103",
+    "@crates_deny_tools//bitvec-1.0.1",
+    "@crates_deny_tools//camino-1.2.2",
+    "@crates_deny_tools//cfg-expr-0.20.7",
+    "@crates_deny_tools//clap-4.6.1",
+    "@crates_deny_tools//codespan-0.13.1",
+    "@crates_deny_tools//codespan-reporting-0.13.1",
+    "@crates_deny_tools//crossbeam-0.8.4",
+    "@crates_deny_tools//fern-0.7.1",
+    "@crates_deny_tools//globset-0.4.18",
+    "@crates_deny_tools//goblin-0.10.5",
+    "@crates_deny_tools//jiff-0.2.24",
+    "@crates_deny_tools//krates-0.21.2",
+    "@crates_deny_tools//log-0.4.29",
+    "@crates_deny_tools//memchr-2.8.0",
+    "@crates_deny_tools//memmap2-0.9.11",
+    "@crates_deny_tools//nu-ansi-term-0.50.3",
+    "@crates_deny_tools//parking_lot-0.12.5",
+    "@crates_deny_tools//rayon-1.12.0",
+    "@crates_deny_tools//regex-1.12.3",
+    "@crates_deny_tools//ring-0.17.14",
+    "@crates_deny_tools//semver-1.0.28",
+    "@crates_deny_tools//serde-1.0.228",
+    "@crates_deny_tools//serde_json-1.0.150",
+    "@crates_deny_tools//smallvec-1.15.1",
+    "@crates_deny_tools//spdx-0.13.4",
+    "@crates_deny_tools//strum-0.28.0",
+    "@crates_deny_tools//tame-index-0.26.3",
+    "@crates_deny_tools//toml-span-0.7.1",
+    "@crates_deny_tools//twox-hash-2.1.2",
+    "@crates_deny_tools//url-2.5.8",
+    "@crates_deny_tools//walkdir-2.5.0",
+]
+
+package(default_visibility = ["//visibility:public"])
+exports_files(["Cargo.toml", "Cargo.lock", "cargo-deny-0.20.2-metadata.patch"])
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "Cargo.toml", "Cargo.lock", "empty.rs", "cargo-deny-0.20.2-metadata.patch"])
+rust_library(
+    name = "cargo_deny_lib",
+    crate_name = "cargo_deny",
+    crate_root = "@cargo_deny_source//:src/lib.rs",
+    srcs = ["@cargo_deny_source//:rust_sources"],
+    compile_data = ["@cargo_deny_source//:package_data"],
+    edition = "2024",
+    version = "0.20.2",
+    deps = _NORMAL_DEPS,
+    aliases = {},
+    tags = ["manual"],
+)
+rust_binary(
+    name = "cargo_deny",
+    crate_name = "cargo_deny_cli",
+    crate_root = "@cargo_deny_source//:src/cargo-deny/main.rs",
+    srcs = ["@cargo_deny_source//:rust_sources"],
+    compile_data = ["@cargo_deny_source//:package_data"],
+    edition = "2024",
+    version = "0.20.2",
+    deps = [":cargo_deny_lib"] + _NORMAL_DEPS,
+    aliases = {},
+    tags = ["manual"],
+)

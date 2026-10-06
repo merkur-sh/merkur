@@ -1,0 +1,14 @@
+# Readline configuration for the shell the E2E daemon spawns.
+#
+# Bracketed paste is off. With it on — the default since bash 5.1 — a pasted
+# block is inserted into the line buffer as literal text and the newlines inside
+# it do not submit anything, so every test that pastes a command and waits for
+# its marker hangs until the timeout. The suite pastes deliberately: chunked
+# paste is how it proves input transport preserves ordering across chunk
+# boundaries, and that only means anything if the pasted commands actually run.
+#
+# This is not a workaround for the shell pin; it restores the behaviour the pin
+# is meant to reproduce. `/bin/sh` on macOS is bash 3.2, which predates
+# bracketed paste entirely, so the tests were written against a shell that
+# executes pasted newlines.
+set enable-bracketed-paste off

@@ -1,0 +1,199 @@
+--- a/src/codegen/bundle-modules.ts
++++ b/src/codegen/bundle-modules.ts
+@@ -38,6 +38,9 @@
+ const TMP_DIR = path.join(CMAKE_BUILD_ROOT, "tmp_modules");
+ const CODEGEN_DIR = path.join(CMAKE_BUILD_ROOT, "codegen");
+ const JS_DIR = path.join(CMAKE_BUILD_ROOT, "js");
++const compilerInputsDir = path.join(CODEGEN_DIR, "compiler-inputs");
++fs.mkdirSync(compilerInputsDir, { recursive: true });
++const originalModuleSources: Record<string, string> = {};
+ 
+ const t = new Bun.Transpiler({ loader: "tsx" });
+ 
+@@ -199,6 +202,7 @@
+       });
+     }
+     bundledEntryPoints.push(outputPath);
++    originalModuleSources[outputPath] = file;
+   } catch (error) {
+     console.error(error);
+     console.error(`While processing: ${moduleList[i]}`);
+@@ -207,11 +211,13 @@
+ }
+ 
+ mark("Preprocess modules");
++fs.writeFileSync(path.join(compilerInputsDir, "modules.sources.json"), JSON.stringify(originalModuleSources));
+ 
+ // directory caching stuff breaks this sometimes. CLI rules
+ const config_cli = [
+   process.execPath,
+   "build",
++  `--metafile=${path.join(compilerInputsDir, "modules.json")}`,
+   ...bundledEntryPoints,
+   ...(debug ? [] : ["--minify-syntax", "--keep-names"]),
+   "--root",
+@@ -798,10 +804,9 @@
+ 
+ const evalFiles = new Bun.Glob(path.join(BASE, "eval", "*.ts")).scanSync();
+ for (const file of evalFiles) {
+-  const {
+-    outputs: [output],
+-  } = await Bun.build({
++  const result = await Bun.build({
+     entrypoints: [file],
++    metafile: true,
+ 
+     // Shrink it.
+     minify: !debug,
+@@ -814,6 +819,9 @@
+       "process.arch": JSON.stringify(process.env.TARGET_ARCH ?? process.arch),
+     },
+   });
++  if (!result.success || !result.metafile) throw new AggregateError(result.logs);
++  fs.writeFileSync(path.join(compilerInputsDir, `eval.${path.basename(file)}.json`), JSON.stringify(result.metafile));
++  const { outputs: [output] } = result;
+   writeIfNotChanged(path.join(CODEGEN_DIR, "eval", path.basename(file)), await output.text());
+ }
+ 
+--- a/src/codegen/bundle-functions.ts
++++ b/src/codegen/bundle-functions.ts
+@@ -66,6 +66,8 @@
+ const SRC_DIR = path.join(import.meta.dir, "../js/builtins");
+ const CODEGEN_DIR = path.join(CMAKE_BUILD_ROOT, "./codegen");
+ const TMP_DIR = path.join(CMAKE_BUILD_ROOT, "./tmp_functions");
++const compilerInputsDir = path.join(CODEGEN_DIR, "compiler-inputs", "functions");
++mkdirSync(compilerInputsDir, { recursive: true });
+ 
+ interface ParsedBuiltin {
+   name: string;
+@@ -305,6 +307,7 @@
+     await Bun.sleep(1);
+     const build = await Bun.build({
+       entrypoints: [tmpFile],
++      metafile: true,
+       define,
+       target: "bun",
+       minify: { syntax: true, whitespace: false, keepNames: true },
+@@ -313,6 +316,9 @@
+     if (!build.success) {
+       throw new AggregateError(build.logs, "Failed bundling builtin function " + fn.name + " from " + basename + ".ts");
+     }
++    if (!build.metafile) throw new Error("Original Bun compiler input metadata is absent");
++    writeFileSync(path.join(compilerInputsDir, `${basename}.${fn.name}.json`), JSON.stringify(build.metafile));
++    writeFileSync(path.join(compilerInputsDir, `${basename}.${fn.name}.sources.json`), JSON.stringify({ [tmpFile]: filename }));
+     if (build.outputs.length !== 1) {
+       throw new Error("expected one output");
+     }
+--- a/scripts/build/codegen.ts
++++ b/scripts/build/codegen.ts
+@@ -433,6 +433,7 @@
+         "index.tsx",
+         "bun-error.css",
+         `--outdir=${outDir}`,
++        `--metafile=${resolve(outDir, "compiler-inputs.json")}`,
+         `--define:process.env.NODE_ENV="production"`,
+         "--minify",
+         "--bundle",
+@@ -506,6 +507,7 @@
+       args: shJoin(cfg, [
+         src,
+         `--outfile=${out}`,
++        `--metafile=${out}.compiler-inputs.json`,
+         `--define:process.env.NODE_ENV="production"`,
+         "--target=esnext",
+         "--bundle",
+@@ -569,6 +571,7 @@
+         "build",
+         rrSrc,
+         `--outfile=${rrOut}`,
++        `--metafile=${rrOut}.compiler-inputs.json`,
+         "--target=browser",
+         "--format=cjs",
+         "--minify",
+--- a/src/node-fallbacks/build-fallbacks.ts
++++ b/src/node-fallbacks/build-fallbacks.ts
+@@ -33,7 +33,7 @@
+ 
+   // Create the build command with all the specified options
+   const buildCommand =
+-    Bun.$`bun build --define=process.env.NODE_DEBUG:"false" --define=process.env.READABLE_STREAM="'enable'" --define=global:globalThis --outdir=${outdir} ${name} --minify-syntax --minify-whitespace --format=${name.includes("stream") ? "cjs" : "esm"} --target=node ${{ raw: externalModules }}`.text();
++    Bun.$`bun build --define=process.env.NODE_DEBUG:"false" --define=process.env.READABLE_STREAM="'enable'" --define=global:globalThis --outdir=${outdir} --metafile=${`${outdir}/${name}.compiler-inputs.json`} ${name} --minify-syntax --minify-whitespace --format=${name.includes("stream") ? "cjs" : "esm"} --target=node ${{ raw: externalModules }}`.text();
+ 
+   commands.push(
+     buildCommand.then(async text => {
+--- a/src/codegen/bake-codegen.ts
++++ b/src/codegen/bake-codegen.ts
+@@ -1,5 +1,5 @@
+ import assert from "node:assert";
+-import { existsSync, readFileSync, rmSync } from "node:fs";
++import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+ import { basename, join } from "node:path";
+ import { argParse, writeIfNotChanged } from "./helpers";
+ 
+@@ -12,6 +12,8 @@
+ }
+ 
+ const base_dir = join(import.meta.dirname, "../runtime/bake");
++const compilerInputsDir = join(codegenRoot, "compiler-inputs", "bake");
++mkdirSync(compilerInputsDir, { recursive: true });
+ process.chdir(base_dir); // to make bun build predictable in development
+ 
+ function convertRustEnum(rust: string, names: string[]) {
+@@ -35,7 +37,7 @@
+ 
+ function css(file: string, is_development: boolean): string {
+   const { success, stdout, stderr } = Bun.spawnSync({
+-    cmd: [process.execPath, "build", file, "--minify"],
++    cmd: [process.execPath, "build", file, "--minify", `--metafile=${join(compilerInputsDir, "overlay-css.json")}`],
+     cwd: import.meta.dir,
+     stdio: ["ignore", "pipe", "pipe"],
+   });
+@@ -46,12 +48,14 @@
+ async function run() {
+   const devServerRust = readFileSync(join(base_dir, "dev_server/mod.rs"), "utf-8");
+   writeIfNotChanged(join(base_dir, "generated.ts"), convertRustEnum(devServerRust, ["IncomingMessageId", "MessageId"]));
++  writeFileSync(join(compilerInputsDir, "rust-enum.sources.json"), JSON.stringify({ [join(base_dir, "generated.ts")]: join(base_dir, "dev_server/mod.rs") }));
+ 
+   const results = await Promise.allSettled(
+     ["client", "server", "error"].map(async file => {
+       const side = file === "error" ? "client" : file;
+       let result = await Bun.build({
+         entrypoints: [join(base_dir, `hmr-runtime-${file}.ts`)],
++        metafile: true,
+         define: {
+           side: JSON.stringify(side),
+           IS_ERROR_RUNTIME: String(file === "error"),
+@@ -66,9 +70,13 @@
+         conditions: [side],
+       });
+       if (!result.success) throw new AggregateError(result.logs);
++      if (!result.metafile) throw new Error("Missing original bake compiler metafile");
++      writeFileSync(join(compilerInputsDir, `${file}.first.json`), JSON.stringify(result.metafile));
+       assert(result.outputs.length === 1, "must bundle to a single file");
+       // @ts-ignore
+       let code = await result.outputs[0].text();
++      writeFileSync(join(compilerInputsDir, `${file}.first.generated.js`), code);
++      writeFileSync(join(compilerInputsDir, `${file}.first.sources.json`), JSON.stringify({ [result.outputs[0].path]: join(compilerInputsDir, `${file}.first.generated.js`) }));
+ 
+       // A second pass is used to convert global variables into parameters, while
+       // allowing for renaming to properly function when minification is enabled.
+@@ -94,14 +102,19 @@
+ 
+       result = await Bun.build({
+         entrypoints: [generated_entrypoint],
++        metafile: true,
+         minify: !debug,
+         drop: debug ? [] : ["DEBUG"],
+         target: side === "server" ? "bun" : "browser",
+       });
+       if (!result.success) throw new AggregateError(result.logs);
++      if (!result.metafile) throw new Error("Missing original bake compiler metafile");
++      writeFileSync(join(compilerInputsDir, `${file}.second.json`), JSON.stringify(result.metafile));
+       assert(result.outputs.length === 1, "must bundle to a single file");
+       code = (await result.outputs[0].text()).replace(`// ${basename(generated_entrypoint)}`, "").trim();
+ 
++      writeFileSync(join(compilerInputsDir, `${file}.generated.ts`), readFileSync(generated_entrypoint));
++      writeFileSync(join(compilerInputsDir, `${file}.sources.json`), JSON.stringify({ [generated_entrypoint]: join(compilerInputsDir, `${file}.generated.ts`) }));
+       rmSync(generated_entrypoint);
+ 
+       if (code.includes("export default ")) {

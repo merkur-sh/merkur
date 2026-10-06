@@ -1,0 +1,76 @@
+{
+  "handshake": {
+    "handshake_hash_hex": "e724d63a6da7b702af7d0e85254bbda924c351a0ca848c6a87db41c687339030af6e3bde5ad21cbf9dcc60d1a622a297e9ff88ee856829585fd0bec696a207a8",
+    "initiator_remote_static_hex": "0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20",
+    "msg1_hex": "7b0d47d93427f8311160781c7c733fd89f88970aef490d8aa0ee19a4cb8a1b1427d02615d2e7ba9d7fcea195abb6aab9",
+    "msg1_payload_hex": "",
+    "msg2_hex": "ff2ee45601ec1b67310c7790404585ae697331eee1c1f8cf2419731c1fff3e6b5d2e5945bc2b211c807592da57d72728cf713a87420d8f24fc6894d55760bb70066f1ce2849357f7dd5b5938cc8306c45c5773468c4274ca567c1b631d5b23a2",
+    "msg2_payload_hex": "",
+    "msg3_hex": "833dfea961fbaa4ffcf981d64d355d775ddf662bb00cdedce9e9b3324ceb667dd2befd26998ec71d8dbaee6f23d32375e6eedda725f453a8b7a4544ce1a81000e840",
+    "msg3_payload_hex": "6f6b",
+    "responder_remote_static_hex": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13"
+  },
+  "initiator_ephemeral_priv_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+  "initiator_static_priv_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "initiator_to_responder": {
+    "datagram": {
+      "channel": "displayDatagram",
+      "framed_hex": [
+        "0000000000000000ba8de17f11af226fa667407fc1e7f45957f4158121",
+        "0000000000000001e4d7ec11b987f765273423741c80c72af44f2b1e5d",
+        "000000000000000265e02cc37120e1571c6c2db4053b1f3b1adaea5d43"
+      ],
+      "lane": 2,
+      "plaintexts_hex": [
+        "726f772d61",
+        "726f772d62",
+        "726f772d63"
+      ]
+    },
+    "stream": {
+      "channel": "ctrl",
+      "framed_hex": [
+        "0000000000000000813e4267975662cb7ddcde5559177c15686e625585",
+        "00000000000000013539d72f6ecd97485b83eb1fff510e9abb838d2362",
+        "000000000000000249dc6ff220eef4f4eac6b070b8ef255c8b"
+      ],
+      "lane": 1,
+      "plaintexts_hex": [
+        "68656c6c6f",
+        "776f726c64",
+        "21"
+      ]
+    }
+  },
+  "prologue_hex": "6d65726b75722d7472616e73706f72742d7071000000000000000e766563746f722d73657373696f6e000000000000000d766563746f722d6461656d6f6e42424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242",
+  "protocol": "Noise_XXpsk3_25519_ChaChaPoly_SHA512",
+  "psk_hex": "9d61b19deffe6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e",
+  "responder_ephemeral_priv_hex": "4444444444444444444444444444444444444444444444444444444444444444",
+  "responder_static_priv_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+  "responder_to_initiator": {
+    "datagram": {
+      "channel": "displayAck",
+      "framed_hex": [
+        "0000000000000000ee73664b858d5e4b6782f5a0e93d2c280fb5",
+        "0000000000000001603e88b7daaeb177d3e813280124384af94c"
+      ],
+      "lane": 4,
+      "plaintexts_hex": [
+        "6730",
+        "6731"
+      ]
+    },
+    "stream": {
+      "channel": "pty",
+      "framed_hex": [
+        "0000000000000000b0f71232333020b34f817231acfc3a5371f4954171",
+        "00000000000000017dd6edef30dbe0cefa176e4446abfc7dfab15e23b2"
+      ],
+      "lane": 0,
+      "plaintexts_hex": [
+        "61636b2d31",
+        "61636b2d32"
+      ]
+    }
+  }
+}

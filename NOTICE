@@ -1,0 +1,27 @@
+merkur
+Copyright (c) 2026 Dmytro Pletenskyi
+
+This software is licensed under the GNU Affero General Public License v3.0,
+with one exception. See the LICENSE file for the full license text.
+
+The packages/logger directory is licensed under the Apache License 2.0, so
+that one logging implementation can serve software outside the AGPL tree. See
+packages/logger/LICENSE.
+
+Merkur vendors modified copies of six third-party crates under
+packages/*-patch. Each keeps the upstream license files it was published with
+and records Merkur's modification in its README.
+
+The lint rules under tools/biome/slop restate the rules of the anti-slop
+Oxlint plugin (https://github.com/dmmulroy/anti-slop, MIT, commit
+c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b) as Biome GritQL plugins, and
+tools/biome/slop/cases.json is taken from its tests.
+tools/biome/slop/LICENSE-anti-slop holds its license. They are development
+tools; no shipped artifact contains them.
+
+The daemon carries the attribution and license text for every dependency
+compiled into it; `merkur licenses` prints it.
+
+Rights beyond those the public licenses grant are available only under a
+separate written agreement; see COMMERCIAL-LICENSING.md. These licenses grant
+no right to the Merkur name or logo; see TRADEMARK.md.

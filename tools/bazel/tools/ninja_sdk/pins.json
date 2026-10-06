@@ -1,0 +1,12 @@
+{
+  "version": "1.13.2",
+  "source": {
+    "url": "https://codeload.github.com/ninja-build/ninja/tar.gz/refs/tags/v1.13.2",
+    "sha256": "974d6b2f4eeefa25625d34da3cb36bdcebe7fbce40f4c16ac0835fd1c0cbae17",
+    "strip_prefix": "ninja-1.13.2"
+  },
+  "license": {
+    "path": "COPYING",
+    "sha256": "eb7e9ab9690124c5c9f42bdc81383d886a3dede26345b6ed15bbad7caf81f7ea"
+  }
+}

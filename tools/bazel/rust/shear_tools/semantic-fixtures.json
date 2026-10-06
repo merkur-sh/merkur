@@ -1,0 +1,1368 @@
+[
+  {
+    "name": "used",
+    "expected_exit": 0,
+    "manifest": "[package]\nname = \"shear-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\n[dependencies]\nitoa = \"=1.0.18\"\n",
+    "source": "pub fn used() { let _ = itoa::Buffer::new(); }\n",
+    "included": null,
+    "metadata": {
+      "packages": [
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "description": "Fast integer primitive to string conversion",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "dependencies": [
+            {
+              "name": "no-panic",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.1",
+              "kind": null,
+              "rename": null,
+              "optional": true,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            },
+            {
+              "name": "criterion",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.8",
+              "kind": "dev",
+              "rename": null,
+              "optional": false,
+              "uses_default_features": false,
+              "features": [],
+              "target": "cfg(not(miri))",
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "itoa",
+              "src_path": "@registry@/itoa-1.0.18/src/lib.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            },
+            {
+              "kind": ["test"],
+              "crate_types": ["bin"],
+              "name": "test",
+              "src_path": "@registry@/itoa-1.0.18/tests/test.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": true
+            },
+            {
+              "kind": ["bench"],
+              "crate_types": ["bin"],
+              "name": "bench",
+              "src_path": "@registry@/itoa-1.0.18/benches/bench.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": false
+            }
+          ],
+          "features": {
+            "no-panic": ["dep:no-panic"]
+          },
+          "manifest_path": "@registry@/itoa-1.0.18/Cargo.toml",
+          "metadata": {
+            "docs": {
+              "rs": {
+                "targets": ["x86_64-unknown-linux-gnu"],
+                "rustdoc-args": [
+                  "--generate-link-to-definition",
+                  "--generate-macro-expansion",
+                  "--extern-html-root-url=core=https://doc.rust-lang.org",
+                  "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+                  "--extern-html-root-url=std=https://doc.rust-lang.org"
+                ]
+              }
+            }
+          },
+          "publish": null,
+          "authors": ["David Tolnay <dtolnay@gmail.com>"],
+          "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+          "keywords": ["integer"],
+          "readme": "README.md",
+          "repository": "https://github.com/dtolnay/itoa",
+          "homepage": null,
+          "documentation": "https://docs.rs/itoa",
+          "edition": "2021",
+          "links": null,
+          "default_run": null,
+          "rust_version": "1.68"
+        },
+        {
+          "name": "shear-fixture",
+          "version": "0.1.0",
+          "id": "path+file://@fixture@#shear-fixture@0.1.0",
+          "license": null,
+          "license_file": null,
+          "description": null,
+          "source": null,
+          "dependencies": [
+            {
+              "name": "itoa",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "=1.0.18",
+              "kind": null,
+              "rename": null,
+              "optional": false,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "shear_fixture",
+              "src_path": "@fixture@/src/lib.rs",
+              "edition": "2024",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            }
+          ],
+          "features": {},
+          "manifest_path": "@fixture@/Cargo.toml",
+          "metadata": null,
+          "publish": null,
+          "authors": [],
+          "categories": [],
+          "keywords": [],
+          "readme": null,
+          "repository": null,
+          "homepage": null,
+          "documentation": null,
+          "edition": "2024",
+          "links": null,
+          "default_run": null,
+          "rust_version": null
+        }
+      ],
+      "workspace_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "workspace_default_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "resolve": {
+        "nodes": [
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+            "dependencies": [],
+            "deps": [],
+            "features": []
+          },
+          {
+            "id": "path+file://@fixture@#shear-fixture@0.1.0",
+            "dependencies": ["registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"],
+            "deps": [
+              {
+                "name": "itoa",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              }
+            ],
+            "features": []
+          }
+        ],
+        "root": "path+file://@fixture@#shear-fixture@0.1.0"
+      },
+      "target_directory": "@fixture@/target",
+      "build_directory": "@fixture@/target",
+      "version": 1,
+      "workspace_root": "@fixture@",
+      "metadata": null
+    },
+    "expected_stdout": "shear/summary\n\n  \u2713 no issues found\n"
+  },
+  {
+    "name": "unused",
+    "expected_exit": 1,
+    "manifest": "[package]\nname = \"shear-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\n[dependencies]\nitoa = \"=1.0.18\"\n",
+    "source": "pub fn unused() {}\n",
+    "included": null,
+    "metadata": {
+      "packages": [
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "description": "Fast integer primitive to string conversion",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "dependencies": [
+            {
+              "name": "no-panic",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.1",
+              "kind": null,
+              "rename": null,
+              "optional": true,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            },
+            {
+              "name": "criterion",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.8",
+              "kind": "dev",
+              "rename": null,
+              "optional": false,
+              "uses_default_features": false,
+              "features": [],
+              "target": "cfg(not(miri))",
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "itoa",
+              "src_path": "@registry@/itoa-1.0.18/src/lib.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            },
+            {
+              "kind": ["test"],
+              "crate_types": ["bin"],
+              "name": "test",
+              "src_path": "@registry@/itoa-1.0.18/tests/test.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": true
+            },
+            {
+              "kind": ["bench"],
+              "crate_types": ["bin"],
+              "name": "bench",
+              "src_path": "@registry@/itoa-1.0.18/benches/bench.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": false
+            }
+          ],
+          "features": {
+            "no-panic": ["dep:no-panic"]
+          },
+          "manifest_path": "@registry@/itoa-1.0.18/Cargo.toml",
+          "metadata": {
+            "docs": {
+              "rs": {
+                "targets": ["x86_64-unknown-linux-gnu"],
+                "rustdoc-args": [
+                  "--generate-link-to-definition",
+                  "--generate-macro-expansion",
+                  "--extern-html-root-url=core=https://doc.rust-lang.org",
+                  "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+                  "--extern-html-root-url=std=https://doc.rust-lang.org"
+                ]
+              }
+            }
+          },
+          "publish": null,
+          "authors": ["David Tolnay <dtolnay@gmail.com>"],
+          "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+          "keywords": ["integer"],
+          "readme": "README.md",
+          "repository": "https://github.com/dtolnay/itoa",
+          "homepage": null,
+          "documentation": "https://docs.rs/itoa",
+          "edition": "2021",
+          "links": null,
+          "default_run": null,
+          "rust_version": "1.68"
+        },
+        {
+          "name": "shear-fixture",
+          "version": "0.1.0",
+          "id": "path+file://@fixture@#shear-fixture@0.1.0",
+          "license": null,
+          "license_file": null,
+          "description": null,
+          "source": null,
+          "dependencies": [
+            {
+              "name": "itoa",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "=1.0.18",
+              "kind": null,
+              "rename": null,
+              "optional": false,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "shear_fixture",
+              "src_path": "@fixture@/src/lib.rs",
+              "edition": "2024",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            }
+          ],
+          "features": {},
+          "manifest_path": "@fixture@/Cargo.toml",
+          "metadata": null,
+          "publish": null,
+          "authors": [],
+          "categories": [],
+          "keywords": [],
+          "readme": null,
+          "repository": null,
+          "homepage": null,
+          "documentation": null,
+          "edition": "2024",
+          "links": null,
+          "default_run": null,
+          "rust_version": null
+        }
+      ],
+      "workspace_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "workspace_default_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "resolve": {
+        "nodes": [
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+            "dependencies": [],
+            "deps": [],
+            "features": []
+          },
+          {
+            "id": "path+file://@fixture@#shear-fixture@0.1.0",
+            "dependencies": ["registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"],
+            "deps": [
+              {
+                "name": "itoa",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              }
+            ],
+            "features": []
+          }
+        ],
+        "root": "path+file://@fixture@#shear-fixture@0.1.0"
+      },
+      "target_directory": "@fixture@/target",
+      "build_directory": "@fixture@/target",
+      "version": 1,
+      "workspace_root": "@fixture@",
+      "metadata": null
+    },
+    "expected_stdout": "shear/unused_dependency\n\n  \u00d7 unused dependency `itoa`\n   \u256d\u2500[Cargo.toml:8:1]\n 7 \u2502 [dependencies]\n 8 \u2502 itoa = \"=1.0.18\"\n   \u00b7 \u2500\u2500\u252c\u2500\n   \u00b7   \u2570\u2500\u2500 not used in code\n   \u2570\u2500\u2500\u2500\u2500\n  help: remove this dependency\n\nshear/summary\n\n  \u2717 1 error\n\nAdvice:\n  \u261e run with `--fix` to fix 1 issue\n  \u261e to suppress a dependency issue\n   \u256d\u2500[Cargo.toml:2:12]\n 1 \u2502 [package.metadata.cargo-shear] # or [workspace.metadata.cargo-shear]\n 2 \u2502 ignored = [\"crate-name\"]\n   \u00b7            \u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\n   \u00b7                  \u2570\u2500\u2500 add a crate name here\n   \u2570\u2500\u2500\u2500\u2500\n"
+  },
+  {
+    "name": "renamed",
+    "expected_exit": 0,
+    "manifest": "[package]\nname = \"shear-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\n[dependencies]\nnumber = { package = \"itoa\", version = \"=1.0.18\" }\n",
+    "source": "pub fn used() { let _ = number::Buffer::new(); }\n",
+    "included": null,
+    "metadata": {
+      "packages": [
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "description": "Fast integer primitive to string conversion",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "dependencies": [
+            {
+              "name": "no-panic",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.1",
+              "kind": null,
+              "rename": null,
+              "optional": true,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            },
+            {
+              "name": "criterion",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.8",
+              "kind": "dev",
+              "rename": null,
+              "optional": false,
+              "uses_default_features": false,
+              "features": [],
+              "target": "cfg(not(miri))",
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "itoa",
+              "src_path": "@registry@/itoa-1.0.18/src/lib.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            },
+            {
+              "kind": ["test"],
+              "crate_types": ["bin"],
+              "name": "test",
+              "src_path": "@registry@/itoa-1.0.18/tests/test.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": true
+            },
+            {
+              "kind": ["bench"],
+              "crate_types": ["bin"],
+              "name": "bench",
+              "src_path": "@registry@/itoa-1.0.18/benches/bench.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": false
+            }
+          ],
+          "features": {
+            "no-panic": ["dep:no-panic"]
+          },
+          "manifest_path": "@registry@/itoa-1.0.18/Cargo.toml",
+          "metadata": {
+            "docs": {
+              "rs": {
+                "targets": ["x86_64-unknown-linux-gnu"],
+                "rustdoc-args": [
+                  "--generate-link-to-definition",
+                  "--generate-macro-expansion",
+                  "--extern-html-root-url=core=https://doc.rust-lang.org",
+                  "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+                  "--extern-html-root-url=std=https://doc.rust-lang.org"
+                ]
+              }
+            }
+          },
+          "publish": null,
+          "authors": ["David Tolnay <dtolnay@gmail.com>"],
+          "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+          "keywords": ["integer"],
+          "readme": "README.md",
+          "repository": "https://github.com/dtolnay/itoa",
+          "homepage": null,
+          "documentation": "https://docs.rs/itoa",
+          "edition": "2021",
+          "links": null,
+          "default_run": null,
+          "rust_version": "1.68"
+        },
+        {
+          "name": "shear-fixture",
+          "version": "0.1.0",
+          "id": "path+file://@fixture@#shear-fixture@0.1.0",
+          "license": null,
+          "license_file": null,
+          "description": null,
+          "source": null,
+          "dependencies": [
+            {
+              "name": "itoa",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "=1.0.18",
+              "kind": null,
+              "rename": "number",
+              "optional": false,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "shear_fixture",
+              "src_path": "@fixture@/src/lib.rs",
+              "edition": "2024",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            }
+          ],
+          "features": {},
+          "manifest_path": "@fixture@/Cargo.toml",
+          "metadata": null,
+          "publish": null,
+          "authors": [],
+          "categories": [],
+          "keywords": [],
+          "readme": null,
+          "repository": null,
+          "homepage": null,
+          "documentation": null,
+          "edition": "2024",
+          "links": null,
+          "default_run": null,
+          "rust_version": null
+        }
+      ],
+      "workspace_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "workspace_default_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "resolve": {
+        "nodes": [
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+            "dependencies": [],
+            "deps": [],
+            "features": []
+          },
+          {
+            "id": "path+file://@fixture@#shear-fixture@0.1.0",
+            "dependencies": ["registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"],
+            "deps": [
+              {
+                "name": "number",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              }
+            ],
+            "features": []
+          }
+        ],
+        "root": "path+file://@fixture@#shear-fixture@0.1.0"
+      },
+      "target_directory": "@fixture@/target",
+      "build_directory": "@fixture@/target",
+      "version": 1,
+      "workspace_root": "@fixture@",
+      "metadata": null
+    },
+    "expected_stdout": "shear/summary\n\n  \u2713 no issues found\n"
+  },
+  {
+    "name": "test_module_usage",
+    "expected_exit": 0,
+    "manifest": "[package]\nname = \"shear-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\n[dependencies]\nitoa = \"=1.0.18\"\n",
+    "source": "#[cfg(test)] mod tests { #[test] fn used() { let _ = itoa::Buffer::new(); } }\n",
+    "included": null,
+    "metadata": {
+      "packages": [
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "description": "Fast integer primitive to string conversion",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "dependencies": [
+            {
+              "name": "no-panic",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.1",
+              "kind": null,
+              "rename": null,
+              "optional": true,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            },
+            {
+              "name": "criterion",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.8",
+              "kind": "dev",
+              "rename": null,
+              "optional": false,
+              "uses_default_features": false,
+              "features": [],
+              "target": "cfg(not(miri))",
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "itoa",
+              "src_path": "@registry@/itoa-1.0.18/src/lib.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            },
+            {
+              "kind": ["test"],
+              "crate_types": ["bin"],
+              "name": "test",
+              "src_path": "@registry@/itoa-1.0.18/tests/test.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": true
+            },
+            {
+              "kind": ["bench"],
+              "crate_types": ["bin"],
+              "name": "bench",
+              "src_path": "@registry@/itoa-1.0.18/benches/bench.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": false
+            }
+          ],
+          "features": {
+            "no-panic": ["dep:no-panic"]
+          },
+          "manifest_path": "@registry@/itoa-1.0.18/Cargo.toml",
+          "metadata": {
+            "docs": {
+              "rs": {
+                "targets": ["x86_64-unknown-linux-gnu"],
+                "rustdoc-args": [
+                  "--generate-link-to-definition",
+                  "--generate-macro-expansion",
+                  "--extern-html-root-url=core=https://doc.rust-lang.org",
+                  "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+                  "--extern-html-root-url=std=https://doc.rust-lang.org"
+                ]
+              }
+            }
+          },
+          "publish": null,
+          "authors": ["David Tolnay <dtolnay@gmail.com>"],
+          "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+          "keywords": ["integer"],
+          "readme": "README.md",
+          "repository": "https://github.com/dtolnay/itoa",
+          "homepage": null,
+          "documentation": "https://docs.rs/itoa",
+          "edition": "2021",
+          "links": null,
+          "default_run": null,
+          "rust_version": "1.68"
+        },
+        {
+          "name": "shear-fixture",
+          "version": "0.1.0",
+          "id": "path+file://@fixture@#shear-fixture@0.1.0",
+          "license": null,
+          "license_file": null,
+          "description": null,
+          "source": null,
+          "dependencies": [
+            {
+              "name": "itoa",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "=1.0.18",
+              "kind": null,
+              "rename": null,
+              "optional": false,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "shear_fixture",
+              "src_path": "@fixture@/src/lib.rs",
+              "edition": "2024",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            }
+          ],
+          "features": {},
+          "manifest_path": "@fixture@/Cargo.toml",
+          "metadata": null,
+          "publish": null,
+          "authors": [],
+          "categories": [],
+          "keywords": [],
+          "readme": null,
+          "repository": null,
+          "homepage": null,
+          "documentation": null,
+          "edition": "2024",
+          "links": null,
+          "default_run": null,
+          "rust_version": null
+        }
+      ],
+      "workspace_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "workspace_default_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "resolve": {
+        "nodes": [
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+            "dependencies": [],
+            "deps": [],
+            "features": []
+          },
+          {
+            "id": "path+file://@fixture@#shear-fixture@0.1.0",
+            "dependencies": ["registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"],
+            "deps": [
+              {
+                "name": "itoa",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              }
+            ],
+            "features": []
+          }
+        ],
+        "root": "path+file://@fixture@#shear-fixture@0.1.0"
+      },
+      "target_directory": "@fixture@/target",
+      "build_directory": "@fixture@/target",
+      "version": 1,
+      "workspace_root": "@fixture@",
+      "metadata": null
+    },
+    "expected_stdout": "shear/summary\n\n  \u2713 no issues found\n"
+  },
+  {
+    "name": "ignored",
+    "expected_exit": 0,
+    "manifest": "[package]\nname = \"shear-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\n[dependencies]\nitoa = \"=1.0.18\"\n[package.metadata.cargo-shear]\nignored = [\"itoa\"]\n",
+    "source": "pub fn unused() {}\n",
+    "included": null,
+    "metadata": {
+      "packages": [
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "description": "Fast integer primitive to string conversion",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "dependencies": [
+            {
+              "name": "no-panic",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.1",
+              "kind": null,
+              "rename": null,
+              "optional": true,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            },
+            {
+              "name": "criterion",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.8",
+              "kind": "dev",
+              "rename": null,
+              "optional": false,
+              "uses_default_features": false,
+              "features": [],
+              "target": "cfg(not(miri))",
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "itoa",
+              "src_path": "@registry@/itoa-1.0.18/src/lib.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            },
+            {
+              "kind": ["test"],
+              "crate_types": ["bin"],
+              "name": "test",
+              "src_path": "@registry@/itoa-1.0.18/tests/test.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": true
+            },
+            {
+              "kind": ["bench"],
+              "crate_types": ["bin"],
+              "name": "bench",
+              "src_path": "@registry@/itoa-1.0.18/benches/bench.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": false
+            }
+          ],
+          "features": {
+            "no-panic": ["dep:no-panic"]
+          },
+          "manifest_path": "@registry@/itoa-1.0.18/Cargo.toml",
+          "metadata": {
+            "docs": {
+              "rs": {
+                "targets": ["x86_64-unknown-linux-gnu"],
+                "rustdoc-args": [
+                  "--generate-link-to-definition",
+                  "--generate-macro-expansion",
+                  "--extern-html-root-url=core=https://doc.rust-lang.org",
+                  "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+                  "--extern-html-root-url=std=https://doc.rust-lang.org"
+                ]
+              }
+            }
+          },
+          "publish": null,
+          "authors": ["David Tolnay <dtolnay@gmail.com>"],
+          "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+          "keywords": ["integer"],
+          "readme": "README.md",
+          "repository": "https://github.com/dtolnay/itoa",
+          "homepage": null,
+          "documentation": "https://docs.rs/itoa",
+          "edition": "2021",
+          "links": null,
+          "default_run": null,
+          "rust_version": "1.68"
+        },
+        {
+          "name": "shear-fixture",
+          "version": "0.1.0",
+          "id": "path+file://@fixture@#shear-fixture@0.1.0",
+          "license": null,
+          "license_file": null,
+          "description": null,
+          "source": null,
+          "dependencies": [
+            {
+              "name": "itoa",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "=1.0.18",
+              "kind": null,
+              "rename": null,
+              "optional": false,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "shear_fixture",
+              "src_path": "@fixture@/src/lib.rs",
+              "edition": "2024",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            }
+          ],
+          "features": {},
+          "manifest_path": "@fixture@/Cargo.toml",
+          "metadata": {
+            "cargo-shear": {
+              "ignored": ["itoa"]
+            }
+          },
+          "publish": null,
+          "authors": [],
+          "categories": [],
+          "keywords": [],
+          "readme": null,
+          "repository": null,
+          "homepage": null,
+          "documentation": null,
+          "edition": "2024",
+          "links": null,
+          "default_run": null,
+          "rust_version": null
+        }
+      ],
+      "workspace_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "workspace_default_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "resolve": {
+        "nodes": [
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+            "dependencies": [],
+            "deps": [],
+            "features": []
+          },
+          {
+            "id": "path+file://@fixture@#shear-fixture@0.1.0",
+            "dependencies": ["registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"],
+            "deps": [
+              {
+                "name": "itoa",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              }
+            ],
+            "features": []
+          }
+        ],
+        "root": "path+file://@fixture@#shear-fixture@0.1.0"
+      },
+      "target_directory": "@fixture@/target",
+      "build_directory": "@fixture@/target",
+      "version": 1,
+      "workspace_root": "@fixture@",
+      "metadata": null
+    },
+    "expected_stdout": "shear/summary\n\n  \u2713 no issues found\n"
+  },
+  {
+    "name": "included",
+    "expected_exit": 0,
+    "manifest": "[package]\nname = \"shear-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\n[dependencies]\nitoa = \"=1.0.18\"\n",
+    "source": "include!(\"included.rs\");\n",
+    "included": "pub fn included() { let _ = itoa::Buffer::new(); }\n",
+    "metadata": {
+      "packages": [
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "description": "Fast integer primitive to string conversion",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "dependencies": [
+            {
+              "name": "no-panic",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.1",
+              "kind": null,
+              "rename": null,
+              "optional": true,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            },
+            {
+              "name": "criterion",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.8",
+              "kind": "dev",
+              "rename": null,
+              "optional": false,
+              "uses_default_features": false,
+              "features": [],
+              "target": "cfg(not(miri))",
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "itoa",
+              "src_path": "@registry@/itoa-1.0.18/src/lib.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            },
+            {
+              "kind": ["test"],
+              "crate_types": ["bin"],
+              "name": "test",
+              "src_path": "@registry@/itoa-1.0.18/tests/test.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": true
+            },
+            {
+              "kind": ["bench"],
+              "crate_types": ["bin"],
+              "name": "bench",
+              "src_path": "@registry@/itoa-1.0.18/benches/bench.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": false
+            }
+          ],
+          "features": {
+            "no-panic": ["dep:no-panic"]
+          },
+          "manifest_path": "@registry@/itoa-1.0.18/Cargo.toml",
+          "metadata": {
+            "docs": {
+              "rs": {
+                "targets": ["x86_64-unknown-linux-gnu"],
+                "rustdoc-args": [
+                  "--generate-link-to-definition",
+                  "--generate-macro-expansion",
+                  "--extern-html-root-url=core=https://doc.rust-lang.org",
+                  "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+                  "--extern-html-root-url=std=https://doc.rust-lang.org"
+                ]
+              }
+            }
+          },
+          "publish": null,
+          "authors": ["David Tolnay <dtolnay@gmail.com>"],
+          "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+          "keywords": ["integer"],
+          "readme": "README.md",
+          "repository": "https://github.com/dtolnay/itoa",
+          "homepage": null,
+          "documentation": "https://docs.rs/itoa",
+          "edition": "2021",
+          "links": null,
+          "default_run": null,
+          "rust_version": "1.68"
+        },
+        {
+          "name": "shear-fixture",
+          "version": "0.1.0",
+          "id": "path+file://@fixture@#shear-fixture@0.1.0",
+          "license": null,
+          "license_file": null,
+          "description": null,
+          "source": null,
+          "dependencies": [
+            {
+              "name": "itoa",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "=1.0.18",
+              "kind": null,
+              "rename": null,
+              "optional": false,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "shear_fixture",
+              "src_path": "@fixture@/src/lib.rs",
+              "edition": "2024",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            }
+          ],
+          "features": {},
+          "manifest_path": "@fixture@/Cargo.toml",
+          "metadata": null,
+          "publish": null,
+          "authors": [],
+          "categories": [],
+          "keywords": [],
+          "readme": null,
+          "repository": null,
+          "homepage": null,
+          "documentation": null,
+          "edition": "2024",
+          "links": null,
+          "default_run": null,
+          "rust_version": null
+        }
+      ],
+      "workspace_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "workspace_default_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "resolve": {
+        "nodes": [
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+            "dependencies": [],
+            "deps": [],
+            "features": []
+          },
+          {
+            "id": "path+file://@fixture@#shear-fixture@0.1.0",
+            "dependencies": ["registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"],
+            "deps": [
+              {
+                "name": "itoa",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              }
+            ],
+            "features": []
+          }
+        ],
+        "root": "path+file://@fixture@#shear-fixture@0.1.0"
+      },
+      "target_directory": "@fixture@/target",
+      "build_directory": "@fixture@/target",
+      "version": 1,
+      "workspace_root": "@fixture@",
+      "metadata": null
+    },
+    "expected_stdout": "shear/summary\n\n  \u2713 no issues found\n"
+  },
+  {
+    "name": "stale_ignore",
+    "expected_exit": 1,
+    "manifest": "[package]\nname = \"shear-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[workspace]\nresolver = \"3\"\n[dependencies]\nitoa = \"=1.0.18\"\n[package.metadata.cargo-shear]\nignored = [\"absent\"]\n",
+    "source": "pub fn used() { let _ = itoa::Buffer::new(); }\n",
+    "included": null,
+    "metadata": {
+      "packages": [
+        {
+          "name": "itoa",
+          "version": "1.0.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+          "license": "MIT OR Apache-2.0",
+          "license_file": null,
+          "description": "Fast integer primitive to string conversion",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "dependencies": [
+            {
+              "name": "no-panic",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.1",
+              "kind": null,
+              "rename": null,
+              "optional": true,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            },
+            {
+              "name": "criterion",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "^0.8",
+              "kind": "dev",
+              "rename": null,
+              "optional": false,
+              "uses_default_features": false,
+              "features": [],
+              "target": "cfg(not(miri))",
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "itoa",
+              "src_path": "@registry@/itoa-1.0.18/src/lib.rs",
+              "edition": "2021",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            },
+            {
+              "kind": ["test"],
+              "crate_types": ["bin"],
+              "name": "test",
+              "src_path": "@registry@/itoa-1.0.18/tests/test.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": true
+            },
+            {
+              "kind": ["bench"],
+              "crate_types": ["bin"],
+              "name": "bench",
+              "src_path": "@registry@/itoa-1.0.18/benches/bench.rs",
+              "edition": "2021",
+              "doc": false,
+              "doctest": false,
+              "test": false
+            }
+          ],
+          "features": {
+            "no-panic": ["dep:no-panic"]
+          },
+          "manifest_path": "@registry@/itoa-1.0.18/Cargo.toml",
+          "metadata": {
+            "docs": {
+              "rs": {
+                "targets": ["x86_64-unknown-linux-gnu"],
+                "rustdoc-args": [
+                  "--generate-link-to-definition",
+                  "--generate-macro-expansion",
+                  "--extern-html-root-url=core=https://doc.rust-lang.org",
+                  "--extern-html-root-url=alloc=https://doc.rust-lang.org",
+                  "--extern-html-root-url=std=https://doc.rust-lang.org"
+                ]
+              }
+            }
+          },
+          "publish": null,
+          "authors": ["David Tolnay <dtolnay@gmail.com>"],
+          "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+          "keywords": ["integer"],
+          "readme": "README.md",
+          "repository": "https://github.com/dtolnay/itoa",
+          "homepage": null,
+          "documentation": "https://docs.rs/itoa",
+          "edition": "2021",
+          "links": null,
+          "default_run": null,
+          "rust_version": "1.68"
+        },
+        {
+          "name": "shear-fixture",
+          "version": "0.1.0",
+          "id": "path+file://@fixture@#shear-fixture@0.1.0",
+          "license": null,
+          "license_file": null,
+          "description": null,
+          "source": null,
+          "dependencies": [
+            {
+              "name": "itoa",
+              "source": "registry+https://github.com/rust-lang/crates.io-index",
+              "req": "=1.0.18",
+              "kind": null,
+              "rename": null,
+              "optional": false,
+              "uses_default_features": true,
+              "features": [],
+              "target": null,
+              "registry": null
+            }
+          ],
+          "targets": [
+            {
+              "kind": ["lib"],
+              "crate_types": ["lib"],
+              "name": "shear_fixture",
+              "src_path": "@fixture@/src/lib.rs",
+              "edition": "2024",
+              "doc": true,
+              "doctest": true,
+              "test": true
+            }
+          ],
+          "features": {},
+          "manifest_path": "@fixture@/Cargo.toml",
+          "metadata": {
+            "cargo-shear": {
+              "ignored": ["absent"]
+            }
+          },
+          "publish": null,
+          "authors": [],
+          "categories": [],
+          "keywords": [],
+          "readme": null,
+          "repository": null,
+          "homepage": null,
+          "documentation": null,
+          "edition": "2024",
+          "links": null,
+          "default_run": null,
+          "rust_version": null
+        }
+      ],
+      "workspace_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "workspace_default_members": ["path+file://@fixture@#shear-fixture@0.1.0"],
+      "resolve": {
+        "nodes": [
+          {
+            "id": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+            "dependencies": [],
+            "deps": [],
+            "features": []
+          },
+          {
+            "id": "path+file://@fixture@#shear-fixture@0.1.0",
+            "dependencies": ["registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18"],
+            "deps": [
+              {
+                "name": "itoa",
+                "pkg": "registry+https://github.com/rust-lang/crates.io-index#itoa@1.0.18",
+                "dep_kinds": [
+                  {
+                    "kind": null,
+                    "target": null
+                  }
+                ]
+              }
+            ],
+            "features": []
+          }
+        ],
+        "root": "path+file://@fixture@#shear-fixture@0.1.0"
+      },
+      "target_directory": "@fixture@/target",
+      "build_directory": "@fixture@/target",
+      "version": 1,
+      "workspace_root": "@fixture@",
+      "metadata": null
+    },
+    "expected_stdout": "shear/unknown_ignore\n\n  \u26a0 unknown ignore `absent`\n    \u256d\u2500[Cargo.toml:10:12]\n  9 \u2502 [package.metadata.cargo-shear]\n 10 \u2502 ignored = [\"absent\"]\n    \u00b7            \u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\n    \u00b7                \u2570\u2500\u2500 not a dependency\n    \u2570\u2500\u2500\u2500\u2500\n  help: remove from ignored list\n\nshear/summary\n\n  \u26a0 1 warning\n"
+  }
+]

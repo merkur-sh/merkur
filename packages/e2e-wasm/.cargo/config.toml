@@ -1,0 +1,11 @@
+# The Noise transport seals and opens EVERY browser frame, so this crate is on
+# the per-frame path even though its handshake work is bootstrap-only.
+#
+# `chacha20` ships no wasm simd128 backend (only avx2/avx512/neon/sse2/soft), so
+# the expectation was that this would do nothing. It does not: measured on
+# `bench:e2e-display-open`, open cost falls ~15% at 16-60 KiB and ~10% at 1 KiB,
+# which is the size range display frames actually occupy. The 64-byte case — a
+# keystroke or an ACK — measures ~20 ns slower, which is noise against the win
+# on every frame that carries a screen.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

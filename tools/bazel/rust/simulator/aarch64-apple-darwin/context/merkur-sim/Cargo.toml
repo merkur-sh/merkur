@@ -1,0 +1,103 @@
+
+["dependencies"]
+"base64" = "0.22"
+"futures" = "0.3"
+"libc" = "0.2"
+"serde_json" = "1"
+"turmoil" = "=0.7.2"
+
+["dependencies"."alacritty_terminal"]
+"default-features" = false
+"version" = "0.26.0"
+
+["dependencies"."merkur-authorization"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/merkur-authorization"
+
+["dependencies"."merkur-client"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/merkur-client"
+
+["dependencies"."merkur-client-native"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/merkur-client-native"
+
+["dependencies"."merkur-dataplane"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/apps/daemon/dataplane"
+
+["dependencies"."merkur-e2e"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/merkur-e2e"
+
+["dependencies"."merkur-edge"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/apps/edge"
+
+["dependencies"."merkur-wire"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/merkur-wire"
+
+["dependencies"."serde"]
+"features" = ["derive"]
+"version" = "1"
+
+["dependencies"."tokio"]
+"features" = ["io-util", "macros", "rt", "sync", "time", "test-util"]
+"version" = "1"
+
+["dependencies"."wtransport"]
+"features" = ["quinn"]
+"version" = "0.7"
+
+["lib"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/src/lib.rs"
+
+["lints"]
+"workspace" = true
+
+["package"]
+"autotests" = false
+"build" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/build.rs"
+"edition" = "2024"
+"license" = "AGPL-3.0-only"
+"name" = "merkur-sim"
+"publish" = false
+"version" = "0.1.0"
+
+[["test"]]
+"name" = "bounces"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/bounces.rs"
+
+[["test"]]
+"name" = "expiry"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/expiry.rs"
+
+[["test"]]
+"name" = "faults"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/faults.rs"
+
+[["test"]]
+"name" = "issuer"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/issuer.rs"
+
+[["test"]]
+"name" = "network"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/network.rs"
+
+[["test"]]
+"name" = "recovery"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/recovery.rs"
+
+[["test"]]
+"name" = "regressions"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/regressions.rs"
+
+[["test"]]
+"name" = "rotation"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/rotation.rs"
+
+[["test"]]
+"name" = "session"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/session.rs"
+
+[["test"]]
+"name" = "spike"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/spike.rs"
+
+[["test"]]
+"name" = "sweep"
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/tools/sim/tests/sweep.rs"

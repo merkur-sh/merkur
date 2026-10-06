@@ -1,0 +1,21 @@
+[package]
+name = "graphics-codec-probe"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+blake3 = { version = "1.8", features = ["wasm32_simd"] }
+ruzstd = { version = "0.9", default-features = false, features = ["hash", "std"] }
+wasm-bindgen = "=0.2.127"
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+zstd = "0.13"
+
+[lints]
+workspace = true

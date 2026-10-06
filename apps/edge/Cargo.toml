@@ -1,0 +1,80 @@
+[package]
+name = "merkur-edge"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[[bin]]
+name = "merkur-edge"
+path = "src/main.rs"
+
+[[bin]]
+name = "relay_profile"
+path = "src/bin/relay_profile.rs"
+required-features = ["profiling"]
+
+[features]
+# Diagnostic peer only; no instrumentation or dependency enters the edge binary.
+profiling = []
+
+[dependencies]
+# Pinned to the versions already resolved in the workspace Cargo.lock so the
+# edge does not pull new transitive trees. See apps/daemon/dataplane/Cargo.toml.
+# `quinn` feature: exposes the wtransport::quinn re-export used to install the
+# tuned QUIC transport config (BBR, initial_rtt, ack-frequency) — no new deps.
+wtransport = { version = "0.7", features = ["quinn"] }
+# The routing preface and splice-control events, shared with the daemon and
+# the client.
+merkur-edge-protocol = { path = "../../packages/merkur-edge-protocol" }
+
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+base64 = "0.23"
+bytes = "1"
+parking_lot = "0.12"
+# Already in Cargo.lock; 64-bit NIC counters and UTC calendar conversion.
+libc = "0.2"
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Out-of-band cert-hash push to the app server (see src/register.rs). Features:
+# `rustls-no-provider` is the ring-compatible rustls backend already resolved in
+# the workspace Cargo.lock — the public `rustls` feature pulls aws-lc-rs (absent
+# here, needs cmake) and would break the locked/offline build; the rest of this
+# workspace is ring-only, so we install ring's CryptoProvider at startup. `json`
+# enables RequestBuilder::json(). default-features=false drops native-tls/http2/
+# charset/system-proxy we do not need for a plain JSON POST over TLS.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+# Direct dep only so register.rs can install ring's CryptoProvider for the
+# provider-less reqwest backend above. Already in Cargo.lock (pulled transitively
+# by wtransport), so this adds no new crates — just a nameable path.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# OTLP export to Axiom. Exact versions are belt-and-braces: the image is built
+# from the workspace with `--locked`, so the lock already pins these, but an
+# exact requirement makes an unreviewed bump a resolution error rather than a
+# quiet lock update.
+#
+# `reqwest-blocking-client`, NOT `reqwest-client`: opentelemetry_sdk's batch
+# processor runs on a dedicated OS thread with no Tokio reactor, and async HTTP
+# clients are unsupported there. The blocking client owns its own runtime on its
+# own thread, which is why an Axiom stall can never block the relay's accept
+# loop. Its feature set (futures-channel/futures-util/tokio-sync) is already
+# resolved in the workspace lock, so it adds no crates.
+#
+# `http-proto` rather than `http-json`: Axiom's metrics intake accepts only
+# protobuf, and http-json pulls prost anyway, so JSON would cost the same and
+# carry less.
+opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
+opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
+opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs", "internal-logs"] }
+opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
+tracing-opentelemetry = { version = "=0.33.0", default-features = false }
+
+[dev-dependencies]
+# Paused time for relay waits that must outlast any clock the relay once had.
+tokio = { version = "1", features = ["test-util"] }
+
+[lints]
+workspace = true

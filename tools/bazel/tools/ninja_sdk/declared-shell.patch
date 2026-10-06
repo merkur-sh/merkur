@@ -1,0 +1,95 @@
+diff --git a/src/subprocess-posix.cc b/src/subprocess-posix.cc
+--- a/src/subprocess-posix.cc
++++ b/src/subprocess-posix.cc
+@@ -21,6 +21,7 @@
+ #include <fcntl.h>
+ #include <unistd.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <string.h>
+ #include <sys/wait.h>
+ #include <spawn.h>
+@@ -54,6 +55,9 @@
+ }
+ 
+ bool Subprocess::Start(SubprocessSet* set, const string& command) {
++  const char* shell = getenv("MERKUR_NINJA_SHELL");
++  if (!shell || shell[0] != '/' || access(shell, X_OK) != 0)
++    Fatal("MERKUR_NINJA_SHELL requires the declared executable shell File");
+   int subproc_stdout_fd = -1;
+   if (use_console_) {
+     fd_ = -1;
+@@ -129,8 +133,8 @@
+   if (err != 0)
+     Fatal("posix_spawnattr_setflags: %s", strerror(err));
+ 
+-  const char* spawned_args[] = { "/bin/sh", "-c", command.c_str(), NULL };
+-  err = posix_spawn(&pid_, "/bin/sh", &action, &attr,
++  const char* spawned_args[] = { "sh", "-c", command.c_str(), NULL };
++  err = posix_spawn(&pid_, shell, &action, &attr,
+         const_cast<char**>(spawned_args), environ);
+   if (err != 0)
+     Fatal("posix_spawn: %s", strerror(err));
+diff --git a/configure.py b/configure.py
+--- a/configure.py
++++ b/configure.py
+@@ -198,7 +198,10 @@
+         try:
+             if self.verbose:
+                 print(cmdline)
+-            subprocess.check_call(cmdline, shell=True)
++            shell = os.environ.get('MERKUR_NINJA_SHELL')
++            if not shell or not os.path.isabs(shell) or not os.access(shell, os.X_OK):
++                raise RuntimeError('MERKUR_NINJA_SHELL requires the declared executable shell File')
++            subprocess.check_call([shell, '--posix', '-c', cmdline])
+         except subprocess.CalledProcessError:
+             print('when running: ', cmdline)
+             raise
+@@ -491,7 +494,7 @@
+ if platform.supports_ninja_browse():
+     n.comment('browse_py.h is used to inline browse.py.')
+     n.rule('inline',
+-           command='"%s"' % src('inline.sh') + ' $varname < $in > $out',
++           command=shlex.quote(os.environ['MERKUR_NINJA_SHELL']) + ' --posix "%s"' % src('inline.sh') + ' $varname < $in > $out',
+            description='INLINE $out')
+     n.build(built('browse_py.h'), 'inline', src('browse.py'),
+             implicit=src('inline.sh'),
+diff --git a/src/browse.cc b/src/browse.cc
+--- a/src/browse.cc
++++ b/src/browse.cc
+@@ -13,6 +13,7 @@
+ // limitations under the License.
+ 
+ #include "browse.h"
++#include "util.h"
+ 
+ #include <errno.h>
+ #include <stdio.h>
+@@ -26,6 +27,9 @@
+ 
+ void RunBrowsePython(State* state, const char* ninja_command,
+                      const char* input_file, int argc, char* argv[]) {
++  const char* python = getenv("MERKUR_NINJA_PYTHON");
++  if (!python || python[0] != '/' || access(python, X_OK) != 0)
++    Fatal("MERKUR_NINJA_PYTHON requires the declared executable Python File");
+   // Fork off a Python process and have it run our code via its stdin.
+   // (Actually the Python process becomes the parent.)
+   int pipefd[2];
+@@ -49,7 +53,7 @@
+       }
+ 
+       std::vector<const char *> command;
+-      command.push_back(NINJA_PYTHON);
++      command.push_back(python);
+       command.push_back("-");
+       command.push_back("--ninja-command");
+       command.push_back(ninja_command);
+@@ -59,7 +63,7 @@
+           command.push_back(argv[i]);
+       }
+       command.push_back(NULL);
+-      execvp(command[0], const_cast<char**>(&command[0]));
++      execv(command[0], const_cast<char**>(&command[0]));
+       if (errno == ENOENT) {
+         printf("ninja: %s is required for the browse tool\n", NINJA_PYTHON);
+       } else {

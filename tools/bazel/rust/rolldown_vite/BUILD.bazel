@@ -1,0 +1,39 @@
+load(":units.bzl", "declare_rolldown_units")
+load("//tools/bazel/rust/acquire:sdk_rules.bzl", "cargo_acquisition_sdk")
+load("//tools/bazel/rust:rolldown.bzl", "rolldown_compiler_context")
+load("@merkur_vite_rolldown_source//:sources.bzl", "ROLLDOWN_SOURCE_FILES")
+load(":registry.bzl", "ROLLDOWN_REGISTRY_ARCHIVES")
+
+package(default_visibility = ["//visibility:public"])
+exports_files([
+    "captured-context.json",
+    "units.bzl",
+    "crates.MODULE.bazel",
+    "additional-crates.MODULE.bazel","registry.MODULE.bazel", "registry.bzl"])
+filegroup(name = "verification_inputs", srcs = glob(["**"], exclude = [".*", "**/.*", ".*/**", "**/.*/**", "__pycache__/**", "**/__pycache__/**", "*.pyc", "**/*.pyc", ".env", ".env.*", "**/.env", "**/.env.*", ".bazelrc.local", "**/.bazelrc.local", ".DS_Store", "**/.DS_Store"]))
+
+cargo_acquisition_sdk(
+    name = "acquisition_sdk",
+    execution_host = "aarch64-apple-darwin",
+    source_files = ROLLDOWN_SOURCE_FILES,
+    locks = ["Cargo.lock"],
+    archives = ROLLDOWN_REGISTRY_ARCHIVES,
+    target_compatible_with = ["@platforms//os:macos", "@platforms//cpu:aarch64"],
+    exec_compatible_with = ["@platforms//os:macos", "@platforms//cpu:aarch64"],
+    tags = ["manual"],
+)
+rolldown_compiler_context(
+    name = "compiler_context",
+    sdk = ":acquisition_sdk",
+    source_archive = "@merkur_vite_rolldown_original_archive//file",
+    source_instance = "vite",
+    tags = ["manual"],
+)
+
+declare_rolldown_units(sdk = ":acquisition_sdk", compiler_context = ":compiler_context")
+
+filegroup(
+    name = "native_aarch64_apple_darwin",
+    srcs = [":binding_aarch64_apple_darwin"],
+    output_group = "native",
+)

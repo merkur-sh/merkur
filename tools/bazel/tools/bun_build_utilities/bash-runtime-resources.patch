@@ -1,0 +1,79 @@
+--- a/shell.c
++++ b/shell.c
+@@ -37,6 +37,9 @@
+ #include <stdio.h>
+ #include <signal.h>
+ #include <errno.h>
++#if defined (__APPLE__)
++#  include <mach-o/dyld.h>
++#endif
+ #include "filecntl.h"
+ #if defined (HAVE_PWD_H)
+ #  include <pwd.h>
+@@ -1924,6 +1927,57 @@
+ 
+ /* Do whatever is necessary to initialize the shell.
+    Put new initializations in here. */
++/* The declared utility keeps terminal data beside its original executable.
++   An env shebang must not need an inherited dynamic-loader or terminfo path. */
++static void
++initialize_declared_terminfo ()
++{
++  char *program, *physical, *separator, *directory;
++  SHELL_VAR *terminfo;
++#if defined (__APPLE__)
++  uint32_t size = 0;
++  _NSGetExecutablePath ((char *)0, &size);
++  program = xmalloc (size);
++  if (_NSGetExecutablePath (program, &size) != 0)
++    exit (EXECUTION_FAILURE);
++#else
++  size_t size = 128;
++  ssize_t length;
++  for (;;)
++    {
++      program = xmalloc (size);
++      length = readlink ("/proc/self/exe", program, size - 1);
++      if (length < 0)
++        exit (EXECUTION_FAILURE);
++      if (length < size - 1)
++        {
++          program[length] = 0;
++          break;
++        }
++      free (program);
++      size *= 2;
++    }
++#endif
++  physical = realpath (program, (char *)0);
++  free (program);
++  if (physical == 0 || (separator = strrchr (physical, '/')) == 0)
++    exit (EXECUTION_FAILURE);
++  *separator = 0;
++  directory = xmalloc (strlen (physical) + sizeof ("/../share/terminfo"));
++  strcpy (directory, physical);
++  strcat (directory, "/../share/terminfo");
++  program = realpath (directory, (char *)0);
++  free (directory);
++  free (physical);
++  if (program == 0 || setenv ("TERMINFO", program, 1) != 0)
++    exit (EXECUTION_FAILURE);
++  terminfo = bind_variable ("TERMINFO", program, 0);
++  if (terminfo == 0)
++    exit (EXECUTION_FAILURE);
++  VSETATTR (terminfo, att_exported);
++  free (program);
++}
++
+ static void
+ shell_initialize ()
+ {
+@@ -1979,6 +2033,8 @@
+ #else
+   initialize_shell_variables (shell_environment, privileged_mode||running_setuid);
+ #endif
++
++  initialize_declared_terminfo ();
+ 
+   /* Initialize the data structures for storing and running jobs. */
+   initialize_job_control (jobs_m_flag);

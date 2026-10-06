@@ -1,0 +1,38 @@
+[package]
+name = "merkur-image-worker"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+merkur-graphics = { path = "../merkur-graphics" }
+# Kitty payload base64 at SIMD speed; `src/strict_base64.rs` makes it strict RFC 4648.
+simdutf = "0.7"
+png = "=0.18.1"
+blake3 = "1.8"
+libc = "0.2"
+crossbeam-channel = "0.5"
+tokio = { version = "1", features = ["io-util", "process", "sync", "rt", "macros", "time"] }
+dlmalloc = { version = "=0.2.14", default-features = false }
+libdeflate-sys = "=1.26.1"
+crc32fast = "1"
+zeroize = "1.9"
+
+[[bin]]
+name = "merkur-image-worker"
+path = "src/main.rs"
+
+[dev-dependencies]
+# The strict decoder the SIMD base64 path is fuzzed against.
+base64 = "0.23"
+# Builds the zlib `o=z` fixtures; the worker itself inflates through libdeflate.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+libdeflater = "=1.26.0"
+graphics-codec-probe = { path = "../graphics-codec-probe" }
+tempfile = "3"
+zstd = "0.13"
+ruzstd = { version = "0.9", default-features = false, features = ["hash", "std"] }
+
+[lints]
+workspace = true

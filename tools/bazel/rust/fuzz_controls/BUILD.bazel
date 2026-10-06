@@ -1,0 +1,12 @@
+load("//tools/bazel/packaging:rules.bzl", "package_controls_test")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "campaign-test.py"])
+
+package_controls_test(
+    name = "campaign_declaration_test",
+    src = "campaign-test.py",
+    data = ["//tools/bolero:targets.json", "//tools/bazel/rust:verification_inputs", "//tools/bazel/rust/units:verification_inputs"],
+    tags = ["manual"],
+)

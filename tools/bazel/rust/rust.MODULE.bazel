@@ -1,0 +1,170 @@
+# Included by MODULE.bazel. Cargo performs locked dependency resolution only.
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    versions = ["1.97.1"],
+    rustfmt_version = "1.97.1",
+    rust_analyzer_version = "1.97.1",
+    extra_target_triples = ["wasm32-unknown-unknown", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"],
+)
+use_repo(rust, "rust_toolchains")
+register_toolchains("@rust_toolchains//:all")
+
+# Qualification source is an original File; extraction remains a declared action.
+acquisition_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+acquisition_archive(
+    name = "merkur_acquisition_itoa_archive",
+    urls = ["https://static.crates.io/crates/itoa/itoa-1.0.18.crate"],
+    sha256 = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682",
+    downloaded_file_path = "itoa-1.0.18.crate",
+)
+acquisition_archive(
+    name = "merkur_worker_compiler_source",
+    urls = ["https://static.rust-lang.org/dist/rustc-1.97.1-src.tar.xz"],
+    sha256 = "0ed06fdaffd4722a7702e0b4eebfafc897ab8f513e8e1b247cdd7e5c6df6ded2",
+    downloaded_file_path = "rustc-1.97.1-src.tar.xz",
+)
+acquisition_archive(
+    name = "merkur_worker_stage0_rustc",
+    urls = ["https://static.rust-lang.org/dist/2026-05-28/rustc-1.96.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "1bb7b0bad1d2a42fc4173ede6dd460de2774fc1858a8369329d3e081e4e3426c",
+    downloaded_file_path = "rustc-1.96.0-aarch64-apple-darwin.tar.xz",
+)
+acquisition_archive(
+    name = "merkur_worker_stage0_cargo",
+    urls = ["https://static.rust-lang.org/dist/2026-05-28/cargo-1.96.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "c042858192b7b6d66fe59b3bbbbd0f6e3cac6e8a478dc4cc091cde9eddea3c8b",
+    downloaded_file_path = "cargo-1.96.0-aarch64-apple-darwin.tar.xz",
+)
+acquisition_archive(
+    name = "merkur_worker_stage0_std",
+    urls = ["https://static.rust-lang.org/dist/2026-05-28/rust-std-1.96.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "439c4f71060b913e00db3a2e01340b2da0aa49978b843e36871f3250267c63f8",
+    downloaded_file_path = "rust-std-1.96.0-aarch64-apple-darwin.tar.xz",
+)
+acquisition_archive(
+    name = "merkur_worker_bootstrap_llvm",
+    urls = ["https://ci-artifacts.rust-lang.org/rustc-builds/8bab26f4f68e0e26f0bb7960be334d5b520ea452/rust-dev-1.97.1-aarch64-apple-darwin.tar.xz"],
+    sha256 = "e0523e176187712723b3c63d52b461cb49e6bb7bb6a59e02ae115c904e409bdf",
+    downloaded_file_path = "rust-dev-1.97.1-aarch64-apple-darwin.tar.xz",
+)
+
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.splicing_config(resolver_version = "3")
+resolution_host = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
+resolution_host.host_tools(name = "merkur_rust_host_tools", version = "1.97.1", rustfmt_version = "1.97.1")
+use_repo(resolution_host, "merkur_rust_host_tools")
+# Specialized diagnostic resolution must not alter production versions/features.
+crate.from_cargo(
+    host_tools = "@merkur_rust_host_tools//:BUILD.bazel",
+    name = "crates_ownership",
+    cargo_lockfile = "//tools/ownership-proofs:Cargo.lock",
+    manifests = ["//tools/ownership-proofs:Cargo.toml"],
+    skip_cargo_lockfile_overwrite = True,
+    supported_platform_triples = [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+    ],
+)
+crate.from_cargo(
+    host_tools = "@merkur_rust_host_tools//:BUILD.bazel",
+    name = "crates_profile",
+    cargo_lockfile = "//tools/edge-kernel-profile:Cargo.lock",
+    manifests = ["//tools/edge-kernel-profile:Cargo.toml"],
+    skip_cargo_lockfile_overwrite = True,
+    supported_platform_triples = ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"],
+)
+use_repo(crate, "crates_ownership", "crates_profile")
+
+kani = use_extension("//tools/bazel/rust:kani_repositories.bzl", "kani")
+use_repo(kani, "kani_darwin_arm64", "kani_darwin_x64", "kani_linux_arm64", "kani_linux_x64")
+register_toolchains("//tools/bazel/rust:kani_darwin_arm64", "//tools/bazel/rust:kani_darwin_x64", "//tools/bazel/rust:kani_linux_arm64", "//tools/bazel/rust:kani_linux_x64")
+
+# Locked metadata parser; this tool graph is independent of shipping features.
+crate.from_cargo(
+    host_tools = "@merkur_rust_host_tools//:BUILD.bazel",
+    name = "crates_parser",
+    cargo_lockfile = "//tools/bazel/rust/parser:Cargo.lock",
+    manifests = ["//tools/bazel/rust/parser:Cargo.toml"],
+    skip_cargo_lockfile_overwrite = True,
+    supported_platform_triples = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"],
+)
+use_repo(crate, "crates_parser")
+
+# Exact policy interpreter source; no installed Cargo plugin or compiler wrapper.
+crate.from_cargo(
+    host_tools = "@merkur_rust_host_tools//:BUILD.bazel",
+    name = "crates_policy_tools",
+    cargo_lockfile = "//tools/bazel/rust/policy_tools:Cargo.lock",
+    manifests = ["//tools/bazel/rust/policy_tools:Cargo.toml"],
+    skip_cargo_lockfile_overwrite = True,
+    supported_platform_triples = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"],
+)
+use_repo(crate, "crates_policy_tools")
+
+policy_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+policy_archive(
+    name = "cargo_vet_source",
+    urls = ["https://static.crates.io/crates/cargo-vet/cargo-vet-0.10.2.crate"],
+    sha256 = "dd93790018205cbbfa161f078ca4631afa8ed57fc8f32482268bcfdf0c0d7499",
+    strip_prefix = "cargo-vet-0.10.2",
+    type = "tar.gz",
+    patches = ["//tools/bazel/rust/policy_tools:cargo-vet-0.10.2-metadata.patch"],
+    patch_args = ["-p1"],
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+
+crate.from_cargo(
+    host_tools = "@merkur_rust_host_tools//:BUILD.bazel",
+    name = "crates_deny_tools",
+    cargo_lockfile = "//tools/bazel/rust/deny_tools:Cargo.lock",
+    manifests = ["//tools/bazel/rust/deny_tools:Cargo.toml"],
+    skip_cargo_lockfile_overwrite = True,
+    supported_platform_triples = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"],
+)
+use_repo(crate, "crates_deny_tools")
+policy_archive(
+    name = "cargo_deny_source",
+    urls = ["https://static.crates.io/crates/cargo-deny/cargo-deny-0.20.2.crate"],
+    sha256 = "e528dfcbe739af7ce37a77d3d6df1b29dd6887b1c701d888820c0f16b864f737",
+    strip_prefix = "cargo-deny-0.20.2",
+    type = "tar.gz",
+    patches = ["//tools/bazel/rust/deny_tools:cargo-deny-0.20.2-metadata.patch"],
+    patch_args = ["-p1"],
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+
+# CargoShear's exact source analyzer, independent of product compiler roots.
+shear_crate = use_extension("//tools/bazel/rust:shear_extension.bzl", "crate")
+shear_crate.splicing_config(resolver_version = "3")
+shear_crate.render_config(regen_command = "bazel mod deps")
+shear_crate.from_cargo(
+    host_tools = "@merkur_rust_host_tools//:BUILD.bazel",
+    name = "crates_shear_tools",
+    lockfile = "//tools/bazel/rust/shear_tools:Bazel.lock",
+    cargo_lockfile = "//tools/bazel/rust/shear_tools:Cargo.lock",
+    manifests = ["//tools/bazel/rust/shear_tools:Cargo.toml"],
+    skip_cargo_lockfile_overwrite = True,
+    supported_platform_triples = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"],
+)
+use_repo(shear_crate, "crates_shear_tools")
+policy_archive(
+    name = "cargo_shear_source",
+    urls = ["https://static.crates.io/crates/cargo-shear/cargo-shear-1.13.2.crate"],
+    sha256 = "58276de72db535c9620d9ba07369dc08479cc0af39afebc386cceca207bebd81",
+    strip_prefix = "cargo-shear-1.13.2",
+    type = "tar.gz",
+    patches = ["//tools/bazel/rust/shear_tools:cargo-shear-1.13.2-metadata.patch"],
+    patch_args = ["-p1"],
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+
+# Original pinned rule source, consumed with the maintained patch by configured attribute controls.
+acquisition_archive(
+    name = "merkur_rules_rust_original",
+    urls = ["https://github.com/bazelbuild/rules_rust/releases/download/0.74.0/rules_rust-0.74.0.tar.gz"],
+    sha256 = "d8bcc1e111e98270dc03172e22ef7af9c2f94f3269801618a2b83d20890f8df5",
+    downloaded_file_path = "rules_rust-0.74.0.tar.gz",
+)

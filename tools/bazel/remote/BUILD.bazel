@@ -1,0 +1,66 @@
+load("//tools/bazel/bun:rules.bzl", "bun_command_test")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "native-runtime-probe.ts"])
+
+platform(
+    name = "hosted_linux_x64_gcc",
+    constraint_values = ["@platforms//os:linux", "@platforms//cpu:x86_64", "//tools/bazel/cc/native:gcc_14_3_bookworm"],
+    exec_properties = {
+        "OSFamily": "linux",
+        "Arch": "amd64",
+        "container-image": "docker://gcc@sha256:a689e29bc3adf4663ef9a141d23081252764d1319c63f591a027bd6fd676f4c1",
+        "network": "off",
+        "recycle-runner": "false",
+        "use-self-hosted-executors": "false",
+    },
+)
+
+platform(
+    name = "hosted_linux_arm64_gcc",
+    constraint_values = ["@platforms//os:linux", "@platforms//cpu:aarch64", "//tools/bazel/cc/native:gcc_14_3_bookworm"],
+    exec_properties = {
+        "OSFamily": "linux",
+        "Arch": "arm64",
+        "container-image": "docker://gcc@sha256:66035d353338cb93b64f621393dc6fecde85258651ca454f0cf36ff2639b1352",
+        "network": "off",
+        "recycle-runner": "false",
+        "use-self-hosted-executors": "false",
+    },
+)
+
+platform(
+    name = "hosted_linux_x64_probe",
+    constraint_values = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
+    exec_properties = {
+        "OSFamily": "linux",
+        "Arch": "amd64",
+        "container-image": "docker://ubuntu@sha256:496754492fb28b4d3049432f2ca787449331e23fb14f0dd3fffea86bf5a93eb4",
+        "network": "off",
+        "recycle-runner": "false",
+        "use-self-hosted-executors": "false",
+    },
+)
+
+platform(
+    name = "hosted_linux_arm64_probe",
+    constraint_values = ["@platforms//os:linux", "@platforms//cpu:aarch64"],
+    exec_properties = {
+        "OSFamily": "linux",
+        "Arch": "arm64",
+        "container-image": "docker://ubuntu@sha256:11dc1ccb427f0464a2369e645454c272bb0baece7357c892ba69d313b3a332cf",
+        "network": "off",
+        "recycle-runner": "false",
+        "use-self-hosted-executors": "false",
+    },
+)
+
+bun_command_test(
+    name = "native_runtime_probe",
+    fixed_args = ["run", "tools/bazel/remote/native-runtime-probe.ts"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    data = ["native-runtime-probe.ts", "//:js_configuration"],
+    tags = ["manual", "external", "no-cache"],
+    timeout = "short",
+)

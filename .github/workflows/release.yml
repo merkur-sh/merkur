@@ -1,0 +1,253 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: merkur-production-release
+  queue: max
+
+env:
+  MERKUR_RELEASE_MLDSA87_PUBLIC_KEY: ${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
+  VERSION: ${{ github.ref_name }}
+  STUN_APPS: ${{ vars.STUN_APPS }}
+  SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+  OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
+  MINIMUM_SEQUENCE: ${{ vars.RELEASE_MINIMUM_SEQUENCE }}
+  RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+  RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+  RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+
+jobs:
+  validate:
+    if: github.event.created == true && github.event.deleted != true && github.event.forced != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      sequence: ${{ steps.reserve.outputs.sequence }}
+      commit: ${{ steps.reserve.outputs.commit }}
+      resume: ${{ steps.reserve.outputs.resume }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate deployment inventory and public configuration
+        env:
+          STUN_APPS: ${{ vars.STUN_APPS }}
+          ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+          OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
+        run: python3 scripts/ci/release_inventory.py
+      - id: reserve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          python3 scripts/ci/release_state.py reserve
+  checks:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+  extended:
+    needs: validate
+    uses: ./.github/workflows/extended-ci.yml
+  daemon:
+    needs: validate
+    if: needs.validate.outputs.resume == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+            docker: linux/amd64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            docker: linux/arm64
+          - os: macos-15
+            platform: darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      SEQUENCE: ${{ needs.validate.outputs.sequence }}
+      PLATFORM: ${{ matrix.platform }}
+      DOCKER_PLATFORM: ${{ matrix.docker }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-merkur
+        with:
+          # macOS builds the daemon on the runner, including the e2e WebAssembly
+          # module the CLI embeds; Linux builds it inside Dockerfile.daemon-release.
+          wasm-toolchain: ${{ runner.os == 'macOS' }}
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        if: runner.os == 'Linux'
+      - name: Build native release and smoke all executables
+        run: bash scripts/ci/build-daemon.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/ci-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+  services:
+    needs: validate
+    if: needs.validate.outputs.resume == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build server, web, edge and STUN once
+        env:
+          COMMIT: ${{ needs.validate.outputs.commit }}
+          OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
+        run: |
+          mkdir -p dist/ci-release
+          docker buildx build --target artifacts --platform linux/amd64 \
+            --build-arg "MERKUR_BUILD_COMMIT=$COMMIT" \
+            --build-arg "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
+            --build-arg "VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY=$OPAQUE_PIN" \
+            --output type=local,dest=deployment .
+          tar -czf dist/ci-release/deployment.tar.gz -C deployment .
+          docker buildx build --load --platform linux/amd64 -f apps/edge/Dockerfile -t merkur-edge:release .
+          docker save merkur-edge:release | gzip > dist/ci-release/edge-image.tar.gz
+          docker buildx build --load --platform linux/amd64 -f apps/stun/Dockerfile -t merkur-stun:release .
+          docker save merkur-stun:release | gzip > dist/ci-release/stun-image.tar.gz
+          cp apps/daemon/NOTICES.txt dist/ci-release/NOTICES.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-services
+          path: dist/ci-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+  sign:
+    needs: [validate, checks, extended, daemon, services]
+    if: >-
+      !cancelled() && needs.validate.result == 'success' &&
+      needs.checks.result == 'success' && needs.extended.result == 'success' &&
+      (needs.validate.outputs.resume == 'true' ||
+       (needs.daemon.result == 'success' && needs.services.result == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-signing
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      COMMIT: ${{ needs.validate.outputs.commit }}
+      SEQUENCE: ${{ needs.validate.outputs.sequence }}
+      MINIMUM_SEQUENCE: ${{ vars.RELEASE_MINIMUM_SEQUENCE }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - id: state
+        run: python3 scripts/ci/release_state.py inspect
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: steps.state.outputs.resume == 'false'
+        with:
+          pattern: release-*
+          path: dist/ci-release
+          merge-multiple: true
+      - name: Validate exact unsigned artifact inventory
+        if: steps.state.outputs.resume == 'false'
+        run: python3 scripts/ci/release_assets.py validate-unsigned dist/ci-release
+      - name: Sign and durably retain exact artifacts
+        if: steps.state.outputs.resume == 'false'
+        env:
+          RELEASE_SEED_BASE64: ${{ secrets.RELEASE_SEED_BASE64 }}
+        run: bash scripts/ci/sign-release.sh
+      - name: Verify retained artifacts on resume
+        if: steps.state.outputs.resume == 'true'
+        run: |
+          python3 scripts/ci/release_assets.py restore dist/ci-release
+          bun run scripts/ci-release-verify.ts dist/ci-release "$VERSION" "$SEQUENCE"
+          bun run deployment:verify -- --directory deployment --commit "$COMMIT"
+  package-smoke:
+    needs: [validate, sign]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: write # Draft release download requires push access.
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SEQUENCE: ${{ needs.validate.outputs.sequence }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exercise the actual installer against signed bytes
+        run: |
+          python3 scripts/ci/release_assets.py restore dist/ci-release
+          mkdir dist/smoke
+          tar -xzf "dist/ci-release/merkur-daemon-$PLATFORM.tar.gz" -C dist/smoke
+          python3 scripts/ci/release_smoke.py dist/smoke "$VERSION" "$SEQUENCE" dist/ci-release "$PLATFORM"
+  deploy:
+    needs: [validate, package-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      COMMIT: ${{ needs.validate.outputs.commit }}
+      SEQUENCE: ${{ needs.validate.outputs.sequence }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+      RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+      SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+      STUN_APPS: ${{ vars.STUN_APPS }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: python3 scripts/ci/release_assets.py restore dist/ci-release
+      - run: npm install --global @railway/cli@5.12.1
+      - name: Install verified Fly CLI
+        run: |
+          curl --fail --silent --show-error --location https://github.com/superfly/flyctl/releases/download/v0.4.104/flyctl_0.4.104_Linux_x86_64.tar.gz -o "$RUNNER_TEMP/flyctl.tar.gz"
+          printf '4023d2a4f5e76198197f80bde74271184b200b9034bb16d799acba373714bfbc  %s\n' "$RUNNER_TEMP/flyctl.tar.gz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/fly-bin"
+          tar -xzf "$RUNNER_TEMP/flyctl.tar.gz" -C "$RUNNER_TEMP/fly-bin" flyctl
+          echo "$RUNNER_TEMP/fly-bin" >> "$GITHUB_PATH"
+      - name: Deploy retained services and publish
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          gh auth setup-git
+          bash scripts/ci/deploy-services.sh

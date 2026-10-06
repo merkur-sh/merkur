@@ -1,0 +1,8 @@
+load("@//tools/bazel/verification:test-nonce.bzl", "test_epochs")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["REPO.bazel"])
+
+# No synthetic defaults: an unbound test target fails analysis.
+test_epochs(name = "epochs", nonces = {})

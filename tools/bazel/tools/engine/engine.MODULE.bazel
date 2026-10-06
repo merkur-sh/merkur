@@ -1,0 +1,2 @@
+engines = use_extension("//tools/bazel/tools/engine:extensions.bzl", "engines")
+use_repo(engines, "bazel_engine_darwin_arm64", "bazel_engine_darwin_x86_64", "bazel_engine_linux_arm64", "bazel_engine_linux_x86_64", "bazel_engine_metadata")

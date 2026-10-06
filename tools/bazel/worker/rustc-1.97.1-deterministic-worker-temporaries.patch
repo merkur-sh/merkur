@@ -1,0 +1,45 @@
+--- a/compiler/rustc_interface/src/util.rs
++++ b/compiler/rustc_interface/src/util.rs
+@@ -622,7 +622,15 @@
+         .opts
+         .incremental
+         .as_ref()
+-        .map(|_| rng().next_u32().to_base_fixed_len(CASE_INSENSITIVE).to_string());
++        .map(|_| {
++            if sess.opts.cg.deterministic_incremental_temporaries {
++                // The caller must exclusively own and clean the output namespace before
++                // each invocation. Incremental cache/session randomness stays unchanged.
++                "0000000".to_owned()
++            } else {
++                rng().next_u32().to_base_fixed_len(CASE_INSENSITIVE).to_string()
++            }
++        });
+ 
+     match sess.io.output_file {
+         None => {
+--- a/compiler/rustc_session/src/options.rs
++++ b/compiler/rustc_session/src/options.rs
+@@ -2059,6 +2059,9 @@
+         line-tables-only, limited, or full; default: 0)"),
+     default_linker_libraries: bool = (false, parse_bool, [UNTRACKED],
+         "allow the linker to link its default libraries (default: no)"),
++    deterministic_incremental_temporaries: bool = (false, parse_bool, [TRACKED],
++        "use fixed incremental temporary names; requires an isolated, clean, \
++        single-writer output directory"),
+     dlltool: Option<PathBuf> = (None, parse_opt_pathbuf, [UNTRACKED],
+         "import library generation tool (ignored except when targeting windows-gnu)"),
+     #[rustc_lint_opt_deny_field_access("use `Session::dwarf_version` instead of this field")]
+--- a/compiler/rustc_session/src/config.rs
++++ b/compiler/rustc_session/src/config.rs
+@@ -1132,7 +1132,10 @@
+     /// during concurrent invocations of rustc, or past invocations that were
+     /// preserved with a flag like `-C save-temps`, since these files may be
+     /// hard linked.
+-    // This does not affect incr comp outputs, only where temp files are stored.
++    // These basenames also appear in rlib members, link metadata and debug information.
++    // `-C deterministic-incremental-temporaries` uses a fixed token only for callers
++    // which isolate and clean the temporary namespace before every invocation. The
++    // incremental cache's independently randomized sessions and hardlinks are unchanged.
+     #[stable_hash(ignore)]
+     invocation_temp: Option<String>,
+ 

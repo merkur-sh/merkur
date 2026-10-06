@@ -1,0 +1,23 @@
+[package]
+name = "merkur-stun"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[[bin]]
+name = "merkur-stun"
+path = "src/main.rs"
+
+# Binding is a blocking, allocation-free UDP loop with no async runtime.
+[dependencies]
+merkur-stun-protocol = { path = "../../packages/merkur-stun-protocol" }
+# HMAC-SHA256 for ticket tags and MESSAGE-INTEGRITY-SHA256, and constant-time
+# comparison. Already resolved in the workspace lock.
+ring = "0.17"
+base64 = "0.23"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

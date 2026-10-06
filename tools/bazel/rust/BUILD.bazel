@@ -1,0 +1,387 @@
+load(":protocol-capture.bzl", "native_protocol_capture", "protocol_wasm_capture", "protocol_wasm_context_capture", "protocol_wasm_context_controls_test")
+load(":policy-acquisition.bzl", "policy_acquisition", "policy_acquisition_test", "policy_acquisition_transport_test")
+load(":contexts-controls.bzl", "contexts_protocol_controls_test", "contexts_simulator_controls_test")
+load(":stdlib-test.bzl", "stock_stdlib_attribution_tests")
+load("//tools/bazel/packaging:rules.bzl", "package_controls_test")
+load(":release-pgo.bzl", "dataplane_release_pgo_capture")
+load(":bounded-workspace.bzl", "bounded_workspace")
+load(":bounded-kani.bzl", "declare_bounded_kani_proofs")
+load(":cmake-driver.bzl", "declared_cmake_driver")
+load("//tools/bazel/bun:rules.bzl", "bun_test")
+load(":configured-parity.bzl", "configured_rust_parity_test")
+load(":pipelining.bzl", "rust_pipelining_test")
+load(":kani.bzl", "kani_toolchain")
+load(":shear.bzl", "rust_dependency_shear_test")
+load(":catalog.bzl", "rust_operation_catalog")
+load(":llvm_tools.bzl", "rust_llvm_profdata", "rust_tool")
+load(":metadata_host.bzl", "declare_metadata_hosts")
+load(":metadata_resolution_inputs.bzl", "METADATA_RESOLUTION_INPUTS")
+load(":policy.bzl", "declare_policy_controls")
+load(":policy_graphs.bzl", "declare_policy_graphs")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["contexts.py", "contexts-controls.bzl", "contexts_simulator_test.py"])
+contexts_simulator_controls_test(name = "contexts_simulator_test", tags = ["manual"])
+exports_files(["contexts_protocol_test.py"])
+contexts_protocol_controls_test(name = "contexts_protocol_test", tags = ["manual"])
+exports_files(["acquisition_sdk.py"])
+
+rust_operation_catalog(name = "operation_catalog")
+rust_dependency_shear_test(name = "dependency_shear")
+exports_files(["native_receipts.py", "native_sdk_pins.json", "catalog.bzl", "operation_bindings.bzl"])
+
+exports_files(["rust.MODULE.bazel", "sources.MODULE.bazel", "crate_sources.BUILD.bazel", "generate.py", "contexts.py", "units.py", "units.bzl", "defs.bzl", "ownership.bzl", "extract_ownership.rs", "kani_repositories.bzl", "kani.bzl", "llvm_tools.bzl", "package_targets.bzl", "source_inputs.json", "source_inputs.rs", "refresh_source_inputs.py", "runtime_inputs.json"])
+exports_files(["license_metadata.py", "license_metadata.json"])
+exports_files(["native_oracle.py", "bolero.py", "diagnostics/oracles/browser-session-oracle.json"])
+exports_files(["policy_snapshots.py", "policy_snapshots/production.json", "policy_snapshots/bolero.json", "policy_snapshots/ownership.json", "policy_snapshots/aya.json"])
+
+declare_policy_controls()
+declare_policy_graphs()
+
+filegroup(name = "policy_root_inputs", srcs = ["//:Cargo.toml", "//:Cargo.lock", "//:rust-toolchain.toml", "//:deny.toml", "//:supply-chain/config.toml", "//:supply-chain/audits.toml", "//:supply-chain/imports.lock"])
+filegroup(name = "policy_bolero_generated_inputs", srcs = glob(["diagnostics/bolero/**"], exclude = ["diagnostics/bolero/*.json"]))
+
+filegroup(name = "verification_inputs", srcs = glob(["**"], exclude = ["node_modules/**", "target/**", "dist/**", "pkg/**", "test-results/**", ".*", "**/.*", ".*/**", "**/.*/**", "__pycache__/**", "**/__pycache__/**", "*.pyc", "**/*.pyc", ".env", ".env.*", "**/.env", "**/.env.*", ".bazelrc.local", "**/.bazelrc.local", ".DS_Store", "**/.DS_Store"]))
+
+rust_llvm_profdata(name = "llvm_profdata")
+rust_tool(name = "cargo", tool = "cargo")
+rust_tool(name = "rustc", tool = "rustc")
+
+rust_binary(name = "metadata_host_identity", crate_root = "metadata_host.rs", srcs = ["metadata_host.rs"], edition = "2024", deps = ["@crates_parser//:serde_json", "@crates_parser//:sha2"])
+declare_metadata_hosts(sources = [":verification_inputs", ":policy_root_inputs"] + METADATA_RESOLUTION_INPUTS)
+
+config_setting(name = "dev", values = {"compilation_mode": "dbg"})
+config_setting(name = "release", values = {"compilation_mode": "opt"})
+config_setting(name = "wasm", constraint_values = ["@platforms//cpu:wasm32"])
+
+toolchain_type(name = "kani_toolchain_type")
+
+rust_binary(
+    name = "check_policy_controls",
+    crate_root = "check_policy_controls.rs",
+    srcs = ["check_policy_controls.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:serde_json"],
+)
+
+rust_test(name = "check_policy_controls_test", crate = ":check_policy_controls")
+
+rust_binary(
+    name = "check_fuzz",
+    crate_root = "check_fuzz.rs",
+    srcs = ["check_fuzz.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:serde_json", "@crates_parser//:sha2"],
+)
+
+rust_test(name = "check_fuzz_test", crate = ":check_fuzz")
+
+rust_binary(
+    name = "check_fuzz_sentinel",
+    crate_root = "check_fuzz_sentinel.rs",
+    srcs = ["check_fuzz_sentinel.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:serde_json"],
+)
+
+rust_binary(
+    name = "check_kani",
+    crate_root = "check_kani.rs",
+    srcs = ["check_kani.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:serde_json"],
+)
+
+rust_test(name = "check_kani_test", crate = ":check_kani")
+
+rust_binary(
+    name = "check_model_failure",
+    crate_root = "check_model_failure.rs",
+    srcs = ["check_model_failure.rs"],
+    edition = "2024",
+)
+
+kani_toolchain(name = "kani_darwin_arm64_tool", driver = "@kani_darwin_arm64//:bin/kani-driver", cargo = "@kani_darwin_arm64//:toolchain/bin/cargo", files = ["@kani_darwin_arm64//:files"])
+kani_toolchain(name = "kani_darwin_x64_tool", driver = "@kani_darwin_x64//:bin/kani-driver", cargo = "@kani_darwin_x64//:toolchain/bin/cargo", files = ["@kani_darwin_x64//:files"])
+kani_toolchain(name = "kani_linux_arm64_tool", driver = "@kani_linux_arm64//:bin/kani-driver", cargo = "@kani_linux_arm64//:toolchain/bin/cargo", files = ["@kani_linux_arm64//:files"])
+kani_toolchain(name = "kani_linux_x64_tool", driver = "@kani_linux_x64//:bin/kani-driver", cargo = "@kani_linux_x64//:toolchain/bin/cargo", files = ["@kani_linux_x64//:files"])
+
+toolchain(name = "kani_darwin_arm64", toolchain_type = ":kani_toolchain_type", toolchain = ":kani_darwin_arm64_tool", exec_compatible_with = ["@platforms//os:macos", "@platforms//cpu:aarch64"])
+toolchain(name = "kani_darwin_x64", toolchain_type = ":kani_toolchain_type", toolchain = ":kani_darwin_x64_tool", exec_compatible_with = ["@platforms//os:macos", "@platforms//cpu:x86_64"])
+toolchain(name = "kani_linux_arm64", toolchain_type = ":kani_toolchain_type", toolchain = ":kani_linux_arm64_tool", exec_compatible_with = ["@platforms//os:linux", "@platforms//cpu:aarch64"])
+toolchain(name = "kani_linux_x64", toolchain_type = ":kani_toolchain_type", toolchain = ":kani_linux_x64_tool", exec_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"])
+
+rust_binary(
+    name = "source_inputs",
+    crate_root = "source_inputs.rs",
+    srcs = ["source_inputs.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:proc-macro2", "@crates_parser//:quote", "@crates_parser//:syn", "@crates_parser//:serde_json", "@crates_parser//:sha2"],
+)
+
+rust_test(name = "source_inputs_test", crate = ":source_inputs", tags = ["manual"])
+
+exports_files(["configured_parity.py", "configured_parity_test.py", "configured-parity.bzl", "pipelining.bzl", "pipelining_controls.py", "pipelining_dependency.rs", "pipelining_consumer.rs", "pipelining_failure.rs"])
+configured_rust_parity_test(name = "configured_parity_test", tags = ["manual"])
+rust_pipelining_test(name = "pipelining_test", tags = ["manual"])
+
+exports_files(["kani_runner.py", "kani_runner_test.py"])
+bun_test(
+    name = "kani_runner_test",
+    test_files = ["tools/bazel/rust/kani-runner.test.ts"],
+    data = ["kani_runner.py", "kani_runner_test.py", "kani-runner.test.ts"],
+    tools = {"//tools/bazel/tools/native:python3": "python3"},
+    tool_environment = {"python3": "MERKUR_KANI_TEST_PYTHON"},
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = ["external", "no-cache"],
+)
+
+exports_files(["rolldown_registry.py", "rolldown_registry_test.py"])
+bun_test(
+    name = "rolldown_registry_test",
+    test_files = ["tools/bazel/rust/rolldown-registry.test.ts"],
+    data = ["rolldown_registry.py", "rolldown_registry_test.py", "rolldown-registry.test.ts", "//tools/bazel/rust/acquire:sdk_producer.py", "acquisition_sdk.py"],
+    tools = {"//tools/bazel/tools/native:python3": "python3"},
+    tool_environment = {"python3": "MERKUR_ROLLDOWN_REGISTRY_PYTHON"},
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = ["external", "no-cache"],
+)
+
+exports_files(["rolldown.bzl", "rolldown_acquire.py", "rolldown_source.bzl", "rolldown_source_data.bzl", "rolldown_generate.py", "rolldown_controls.py", "rolldown-native-origin.patch", "rolldown-native-preload.patch"])
+
+exports_files(["cmake-driver.rs", "cmake-driver.bzl"])
+declared_cmake_driver(name = "declared_cmake_driver")
+
+exports_files(["bounded-kani.bzl", "bounded_kani_runner.py", "bounded_kani_runner_test.py"])
+
+exports_files(["bounded-workspace.bzl", "bounded-workspace.py", "bounded-workspace_test.py"])
+
+exports_files(["stdlib_attribution.bzl", "stdlib_attribution.py", "stdlib_attribution_test.py"])
+
+exports_files(["rolldown-source-instances.json", "rolldown_instances_test.py", "rolldown_vite_source_data.bzl"])
+
+# Add to the original Rust package BUILD loads.
+
+# The SDK producer owns all five original locks and all original source Files.
+# cfg=exec on bounded_kani_test.workspace selects this workspace's actual host.
+bounded_workspace(
+    name = "bounded_workspace",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    execution_host = select({
+        "//tools/bazel/tools/native:darwin_arm64": "aarch64-apple-darwin",
+        "//tools/bazel/tools/native:darwin_x64": "x86_64-apple-darwin",
+        "//tools/bazel/tools/native:linux_arm64": "aarch64-unknown-linux-gnu",
+        "//tools/bazel/tools/native:linux_x64": "x86_64-unknown-linux-gnu",
+    }, no_match_error = "Bounded proofs require one of the four declared native SDK hosts"),
+    tags = ["manual"],
+)
+
+declare_bounded_kani_proofs(
+    workspace = ":bounded_workspace",
+    production_lock = "//:Cargo.lock",
+)
+
+exports_files(["stdlib-test.bzl", "stdlib_attribution_controls.py", "stdlib_attribution_stock_test.py", "stdlib_attribution_stock_callback_test.py"])
+# Routine bounded parser/File-custody regressions, synthetic Files only.
+package_controls_test(
+    name = "stdlib_attribution_controls_test",
+    src = "stdlib_attribution_controls.py",
+    runner = "stdlib_attribution.py",
+    data = [
+        "stdlib_attribution_test.py",
+        "//tools/bazel/packaging:deployment-pack.py",
+        "//tools/bazel/packaging:pack.py",
+        "//tools/bazel/packaging:license-inputs.py",
+    ],
+)
+
+
+# Original stock distribution fixture; does not qualify custom or nightly shipping compilers.
+stock_stdlib_attribution_tests(
+    name = "stock_stdlib_attribution_darwin_arm64_control",
+    compiler = ":declared_cmake_driver",
+    sdk = "//tools/bazel/rust/acquire:archive_sdk_control",
+    source = "//tools/bazel/worker:prepared_compiler_sources",
+    source_archive = "@merkur_worker_compiler_source//file",
+    stdlib_archive = "@merkur_stock_std_darwin_arm64//file",
+    rustc_archive = "@merkur_stock_rustc_darwin_arm64//file",
+    execution_host = "aarch64-apple-darwin",
+    target_compatible_with = ["@platforms//os:macos", "@platforms//cpu:aarch64"],
+)
+
+exports_files(["units_lock_test.py"])
+package_controls_test(
+    name = "units_lock_test",
+    src = "units_lock_test.py",
+    data = ["units.py", "configured_parity.py", "license_metadata.py", "native_receipts.py"],
+    tags = ["manual"],
+)
+
+exports_files(["policy-acquisition.bzl", "policy-acquisition.py", "policy-acquisition-test.py", "policy_snapshots_test.py"])
+policy_acquisition_transport_test(name = "policy_acquisition_transport_test")
+policy_acquisition_test(name = "policy_acquisition_sdk_test", sdk = "//tools/bazel/rust/acquire:production_sdk", tags = ["manual"])
+policy_acquisition(name = "acquire_current_policy", sdk = "//tools/bazel/rust/acquire:production_sdk", tags = ["manual", "external", "no-cache", "no-remote"])
+
+exports_files(["protocol_wasm_generate.py", "protocol_wasm_generate_test.py"])
+package_controls_test(
+    name = "protocol_wasm_generation_test",
+    src = "protocol_wasm_generate_test.py",
+    runner = "protocol_wasm_generate.py",
+    data = ["acquisition_sdk.py"],
+    tags = ["manual"],
+)
+
+exports_files(["native_protocol_generate.py", "native_protocol_generate_test.py"])
+package_controls_test(
+    name = "native_protocol_generation_test",
+    src = "native_protocol_generate_test.py",
+    runner = "native_protocol_generate.py",
+    data = ["acquisition_sdk.py"],
+    tags = ["manual"],
+)
+
+exports_files(["tpm_recipe_test.py"])
+package_controls_test(
+    name = "tpm_recipe_test",
+    src = "tpm_recipe_test.py",
+    runner = "native_protocol_generate.py",
+    data = ["//scripts:test-tpm-sim.ts", "//packages/merkur-identity-seal:Cargo.toml"],
+    tags = ["manual"],
+)
+
+exports_files(["unit_link_map_test.py"])
+package_controls_test(
+    name = "unit_link_map_test",
+    src = "unit_link_map_test.py",
+    runner = "units.bzl",
+    data = ["units.bzl"],
+)
+
+exports_files(["release-pgo.bzl", "release_pgo_generate.py", "release_pgo_train.py", "release_pgo_test.py"])
+package_controls_test(
+    name = "release_pgo_controls_test",
+    src = "release_pgo_test.py",
+    runner = "release_pgo_generate.py",
+    data = ["acquisition_sdk.py", "release_pgo_train.py", "release-pgo.bzl", "contexts.py", "//scripts:build-daemon-artifacts.ts", "units.bzl", "units.py"],
+    tags = ["manual"],
+)
+# Exact existing genuine Darwin ARM SourceSDK; no foreign-host capture inferred.
+dataplane_release_pgo_capture(
+    name = "capture_dataplane_release_pgo",
+    phase = "generate",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    metadata = "metadata.json",
+    source_inputs = "source_inputs.json",
+    runtime_inputs = "runtime_inputs.json",
+    target_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    exec_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    tags = ["manual"],
+)
+
+# Existing genuine Darwin ARM generation/training graph; no profile stand-in.
+dataplane_release_pgo_capture(
+    name = "capture_dataplane_release_pgo_use",
+    phase = "use",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    trained_profile = "//tools/bazel/rust/release_pgo/aarch64-apple-darwin:dataplane_profile",
+    instrumented_context = "//tools/bazel/rust/release_pgo/aarch64-apple-darwin:contexts/dataplane-pgo-generate.json",
+    metadata = "metadata.json",
+    source_inputs = "source_inputs.json",
+    runtime_inputs = "runtime_inputs.json",
+    target_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    exec_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    tags = ["manual"],
+)
+
+load(":simulator-capture.bzl", "declare_simulator_captures", "simulator_generation_test")
+
+exports_files(["simulator_generate.py", "simulator_generate_test.py", "simulator-capture.bzl"])
+
+declare_simulator_captures(
+    name = "capture_simulator",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    simulator_sources = "//tools/sim:sources",
+    metadata = ":metadata.json",
+    source_inputs = ":source_inputs.json",
+    runtime_inputs = ":runtime_inputs.json",
+    tags = ["manual"],
+)
+simulator_generation_test(
+    name = "simulator_generation_test",
+    tags = ["manual"],
+)
+
+# Hermetic controls for the original SDK's declared sandbox Tree presentation.
+exports_files(["acquisition_sdk_carriers_test.py"])
+package_controls_test(
+    name = "acquisition_sdk_carriers_test",
+    src = "acquisition_sdk_carriers_test.py",
+    runner = "acquisition_sdk.py",
+    tags = ["manual"],
+)
+
+# Manual original-source captures; runtime qualification is separate.
+# Shared registration for Root; exact current Darwin ARM SDK only.
+exports_files(["protocol-capture.bzl", "protocol_capture_test.py"])
+package_controls_test(
+    name = "protocol_capture_controls_test",
+    src = "protocol_capture_test.py",
+    runner = "protocol-capture.bzl",
+    data = ["native_protocol_generate.py", "protocol_wasm_generate.py", "protocol_wasm_context.py"],
+    tags = ["manual"],
+)
+
+native_protocol_capture(
+    name = "capture_native_protocol",
+    recipe_set = "protocol",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    metadata = "metadata.json",
+    source_inputs = "source_inputs.json",
+    runtime_inputs = "runtime_inputs.json",
+    target_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    exec_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    tags = ["manual", "unqualified-native-runtime"],
+)
+native_protocol_capture(
+    name = "capture_native_tpm",
+    recipe_set = "tpm",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    metadata = "metadata.json",
+    source_inputs = "source_inputs.json",
+    runtime_inputs = "runtime_inputs.json",
+    target_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    exec_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    tags = ["manual", "unqualified-native-runtime"],
+)
+# Fresh current-SourceSDK context File; no old golden is a capture input.
+protocol_wasm_context_capture(
+    name = "capture_protocol_wasm_context",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    target_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    exec_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    tags = ["manual", "unqualified-native-runtime"],
+)
+protocol_wasm_capture(
+    name = "capture_protocol_wasm",
+    context = ":capture_protocol_wasm_context",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    metadata = "metadata.json",
+    source_inputs = "source_inputs.json",
+    runtime_inputs = "runtime_inputs.json",
+    target_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    exec_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    tags = ["manual", "unqualified-native-runtime"],
+)
+
+exports_files(["protocol_wasm_context.py", "protocol_wasm_context_test.py"])
+
+protocol_wasm_context_controls_test(
+    name = "protocol_wasm_context_controls_test",
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    context = ":capture_protocol_wasm_context",
+    target_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    exec_compatible_with = ["@platforms//cpu:aarch64", "@platforms//os:macos"],
+    tags = ["manual", "unqualified-native-runtime"],
+)

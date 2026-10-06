@@ -1,0 +1,40 @@
+
+["patch"]
+
+["patch"."crates-io"]
+
+["patch"."crates-io"."alacritty_terminal"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/alacritty-terminal-patch"
+
+["patch"."crates-io"."fontdue"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/fontdue-patch"
+
+["patch"."crates-io"."quinn"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/quinn-patch"
+
+["patch"."crates-io"."quinn-proto"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/quinn-proto-patch"
+
+["patch"."crates-io"."vte"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/vte-patch"
+
+["patch"."crates-io"."wtransport"]
+"path" = "/private/tmp/merkur-bazel-evidence/wasm-configured-qualification-rfa6qb02/case-sensitive/output-base/execroot/_main/bazel-out/darwin_arm64-opt-exec/bin/tools/bazel/rust/acquire/workspace_sdk_darwin_arm64.sources/packages/wtransport-patch"
+
+["workspace"]
+"members" = ["merkur-sim"]
+"resolver" = "3"
+
+["workspace"."lints"]
+
+["workspace"."lints"."clippy"]
+"allow_attributes" = "warn"
+"allow_attributes_without_reason" = "warn"
+"debug_assert_with_mut_call" = "warn"
+"too_many_arguments" = "allow"
+
+["workspace"."lints"."rust"]
+
+["workspace"."lints"."rust"."unexpected_cfgs"]
+"check-cfg" = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)", "cfg(merkur_sim)"]
+"level" = "warn"

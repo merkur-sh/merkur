@@ -1,0 +1,26 @@
+[package]
+name = "merkur-wire"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+# The terminal wire between a client and the dataplane, in one implementation:
+# logical channels and edge lanes, protocol frames and every control message,
+# input records and runs, and the data-attachment handshake. The daemon and the
+# native client link it; nothing here owns a transport or a clock, so it builds
+# for wasm32 as well.
+[features]
+default = ["std"]
+std = ["merkur-authorization/std"]
+wasm = ["merkur-authorization/wasm"]
+
+[dependencies]
+merkur-authorization = { path = "../merkur-authorization", default-features = false }
+merkur-codec = { path = "../merkur-codec" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zeroize = "1.9"
+
+[lints]
+workspace = true

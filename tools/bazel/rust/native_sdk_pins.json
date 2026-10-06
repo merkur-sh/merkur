@@ -1,0 +1,564 @@
+{
+  "aarch64-unknown-linux-gnu": {
+    "effective_cfg": {
+      "dev": [
+        "debug_assertions",
+        "emscripten_wasm_eh",
+        "fmt_debug=\"full\"",
+        "overflow_checks",
+        "panic=\"unwind\"",
+        "relocation_model=\"pic\"",
+        "target_abi=\"\"",
+        "target_arch=\"aarch64\"",
+        "target_endian=\"little\"",
+        "target_env=\"gnu\"",
+        "target_family=\"unix\"",
+        "target_feature=\"neon\"",
+        "target_feature=\"outline-atomics\"",
+        "target_has_atomic",
+        "target_has_atomic=\"128\"",
+        "target_has_atomic=\"16\"",
+        "target_has_atomic=\"32\"",
+        "target_has_atomic=\"64\"",
+        "target_has_atomic=\"8\"",
+        "target_has_atomic=\"ptr\"",
+        "target_has_atomic_load_store",
+        "target_has_atomic_load_store=\"128\"",
+        "target_has_atomic_load_store=\"16\"",
+        "target_has_atomic_load_store=\"32\"",
+        "target_has_atomic_load_store=\"64\"",
+        "target_has_atomic_load_store=\"8\"",
+        "target_has_atomic_load_store=\"ptr\"",
+        "target_has_atomic_primitive_alignment=\"128\"",
+        "target_has_atomic_primitive_alignment=\"16\"",
+        "target_has_atomic_primitive_alignment=\"32\"",
+        "target_has_atomic_primitive_alignment=\"64\"",
+        "target_has_atomic_primitive_alignment=\"8\"",
+        "target_has_atomic_primitive_alignment=\"ptr\"",
+        "target_has_reliable_f128",
+        "target_has_reliable_f128_math",
+        "target_has_reliable_f16",
+        "target_has_reliable_f16_math",
+        "target_object_format=\"elf\"",
+        "target_os=\"linux\"",
+        "target_pointer_width=\"64\"",
+        "target_thread_local",
+        "target_vendor=\"unknown\"",
+        "ub_checks",
+        "unix"
+      ],
+      "release": [
+        "emscripten_wasm_eh",
+        "fmt_debug=\"full\"",
+        "panic=\"unwind\"",
+        "relocation_model=\"pic\"",
+        "target_abi=\"\"",
+        "target_arch=\"aarch64\"",
+        "target_endian=\"little\"",
+        "target_env=\"gnu\"",
+        "target_family=\"unix\"",
+        "target_feature=\"neon\"",
+        "target_feature=\"outline-atomics\"",
+        "target_has_atomic",
+        "target_has_atomic=\"128\"",
+        "target_has_atomic=\"16\"",
+        "target_has_atomic=\"32\"",
+        "target_has_atomic=\"64\"",
+        "target_has_atomic=\"8\"",
+        "target_has_atomic=\"ptr\"",
+        "target_has_atomic_load_store",
+        "target_has_atomic_load_store=\"128\"",
+        "target_has_atomic_load_store=\"16\"",
+        "target_has_atomic_load_store=\"32\"",
+        "target_has_atomic_load_store=\"64\"",
+        "target_has_atomic_load_store=\"8\"",
+        "target_has_atomic_load_store=\"ptr\"",
+        "target_has_atomic_primitive_alignment=\"128\"",
+        "target_has_atomic_primitive_alignment=\"16\"",
+        "target_has_atomic_primitive_alignment=\"32\"",
+        "target_has_atomic_primitive_alignment=\"64\"",
+        "target_has_atomic_primitive_alignment=\"8\"",
+        "target_has_atomic_primitive_alignment=\"ptr\"",
+        "target_has_reliable_f128",
+        "target_has_reliable_f128_math",
+        "target_has_reliable_f16",
+        "target_has_reliable_f16_math",
+        "target_object_format=\"elf\"",
+        "target_os=\"linux\"",
+        "target_pointer_width=\"64\"",
+        "target_thread_local",
+        "target_vendor=\"unknown\"",
+        "unix"
+      ]
+    },
+    "executor_image": "docker://gcc@sha256:66035d353338cb93b64f621393dc6fecde85258651ca454f0cf36ff2639b1352",
+    "files": {
+      "bin/cargo": {
+        "sha256": "c5dcff701935f50505c9c5df7ee941a9de4f29d84ab91627c396848accef1808",
+        "size": 41448024
+      },
+      "bin/rustc": {
+        "sha256": "a3d4dfcd867ddc1e7dca25f13f7236c72229a56f68aa511437c5bb72eb2dfe78",
+        "size": 2333624
+      },
+      "lib/libLLVM-22-rust-1.97.1-stable.so": {
+        "sha256": "6694b12226d12f5d36d4b7a0e497e0bdae45e636ef00c64f4b722c595cfa0245",
+        "size": 42
+      },
+      "lib/libLLVM.so.22.1-rust-1.97.1-stable": {
+        "sha256": "639f2d6b7e64b21decab15bb2851e62be84fac37d08fc2d921886ce72fd1e458",
+        "size": 165558632
+      },
+      "lib/librustc_driver-bb2b40829e117684.so": {
+        "sha256": "b75cb062606785c56a4fe2d84f2adbcdd070284cb16445d6bc5f77ae3c081cbb",
+        "size": 114267984
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libLLVM-22-rust-1.97.1-stable.so": {
+        "sha256": "6694b12226d12f5d36d4b7a0e497e0bdae45e636ef00c64f4b722c595cfa0245",
+        "size": 42
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libLLVM.so.22.1-rust-1.97.1-stable": {
+        "sha256": "639f2d6b7e64b21decab15bb2851e62be84fac37d08fc2d921886ce72fd1e458",
+        "size": 165558632
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libaddr2line-2e3482c52a9abbcc.rmeta": {
+        "sha256": "cbae83603be25063df8d732cf00c9ca539cd7fee7d84305c495b18b3f368a5cb",
+        "size": 470676
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libadler2-dd14a93ce7cab49b.rmeta": {
+        "sha256": "7aa7da34b5a2a97569d40b82e8023a710c1c118d84314f39148e9db7edc4a632",
+        "size": 20399
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/liballoc-744b7284d5246cb5.rmeta": {
+        "sha256": "1b931a60d30afb9469c7633c81f2e0b42a10f47054f7b871e290b51c07b3c307",
+        "size": 7403936
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libcfg_if-10d462ff5a440c97.rmeta": {
+        "sha256": "2cf0ff543ba73c3b27cf48bd7a546b68695d4ef65009b6847ee0a8cb97e72f5d",
+        "size": 5506
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libcompiler_builtins-c4f4fd36b2781e8b.rmeta": {
+        "sha256": "23ca5f8905ff1d7e38ee95a47540a04d7b0318bf825353c2fd8599248a455a51",
+        "size": 2097069
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libcore-d6e8102a8536a4c2.rmeta": {
+        "sha256": "cf44af70070eefca73450fbd9f4eae94bc49c04416e1e6df6a4ff50695698721",
+        "size": 62144438
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libgetopts-f23dfad1c66ec1ef.rmeta": {
+        "sha256": "907ca34e7c95abedfc2bb638fd7e3d9860dce5440a762f7a669f32ec0e117063",
+        "size": 217456
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libgimli-5b6c286801f2c19e.rmeta": {
+        "sha256": "c6b77817d8ccbc129e89bcf3640e09fa538488efbb3ae96c3660dd4b02ba98a0",
+        "size": 5319677
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libhashbrown-da9148b63c1218aa.rmeta": {
+        "sha256": "8e5da66bd8e3bcfdc64e2d768f99ce069ca4cb9ddf11d5f5bd43e471eaa285b1",
+        "size": 1717935
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/liblibc-466100fa14c63b78.rmeta": {
+        "sha256": "61274971e9c5dd8993071542a5c83b40ceb9b59da8780260003b861794da8573",
+        "size": 4154622
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libmemchr-b7d4aae65421ba0b.rmeta": {
+        "sha256": "7a3afca8c7a0478a83ca0e88751d5665dddfd94e0cd6a7c3428834b4070fbf1b",
+        "size": 1180909
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libminiz_oxide-5a50353d7a6584c4.rmeta": {
+        "sha256": "3c42de5bcf71edd3f8645d389764e625dd799c5146bbbe9747b383db9e502c70",
+        "size": 124921
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libobject-9026c9ecb6cd1f18.rmeta": {
+        "sha256": "5769de744418d13140e36894dc5f48287bae241a0d7264a5624395f3eead7ac9",
+        "size": 8476496
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libpanic_abort-c89c00ff89024a44.rmeta": {
+        "sha256": "b48b9501c3754fa72a1afedc6619d87eb187ae1e578c290f18560196b9872017",
+        "size": 2909
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libpanic_unwind-bf3adb40f9d11e27.rmeta": {
+        "sha256": "6442ee4b6bb1a124acbf1b1e9823990ce1d0885a81c97c4cedd426cd172fdf02",
+        "size": 7085
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libproc_macro-f2b6d37e2362c326.rmeta": {
+        "sha256": "4650e6f95e0673d6a2871400e305c89d10a7e0f1b9752307af640a817bc4d6a7",
+        "size": 1100345
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libprofiler_builtins-567d14a4ea0c2b4b.rmeta": {
+        "sha256": "a64bd3820c66845f618c72b0ad6d89bca8e29c9e0f854142359ad9a6b0f68c7c",
+        "size": 1346
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/librustc_demangle-71378119729956bb.rmeta": {
+        "sha256": "347290ee2537787d00092a86fff389818c27f4578e7cb73cdcf79f4d18120961",
+        "size": 90881
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/librustc_literal_escaper-e16acef15ec9a73c.rmeta": {
+        "sha256": "62e8977c8f3609b3ec3ea754385bfbbf52275e383046cf2e4b21e18a12fbac76",
+        "size": 122752
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/librustc_std_workspace_alloc-3184d95f49040730.rmeta": {
+        "sha256": "9c128bf8c4f5b8dda55618828bdd4c37e8bf5a46ed5d405b5323028109a1b57b",
+        "size": 2168
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/librustc_std_workspace_core-ed1a6e8772a1f6ae.rmeta": {
+        "sha256": "f36545147d497578442d05818250efc864d64cbae23941917c0ac850501b80e6",
+        "size": 5939
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/librustc_std_workspace_std-3f0f9297e55b0afb.rmeta": {
+        "sha256": "f48e28746fd6b94c7fa7655d8cc86165dfb544d347a7d83a763322b5b1794c7b",
+        "size": 7133
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-55999f89fc36b51f.rmeta": {
+        "sha256": "64ea77c68b87b82ff0194fa122d0f64b28248c493c6cedb3721412e58e0089ca",
+        "size": 8650964
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd-55999f89fc36b51f.so": {
+        "sha256": "11a8be4b55761b7ae41f689d9f50101270555aa2d339b99d6ede31bafae1504f",
+        "size": 5697080
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libstd_detect-3f5d49233eb25f7a.rmeta": {
+        "sha256": "20b2bf5046bca2c9db5929ee52d5a21dc2145ec54f3e493f633476614b8edacb",
+        "size": 340712
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libsysroot-b42fe6bc9fe3d885.rmeta": {
+        "sha256": "a6ae6cf89362b25a2be7240945ad8b15d759b73b72f8db11dc56fbbef77ddd72",
+        "size": 2241
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libtest-3d5f34fb111c89f7.rmeta": {
+        "sha256": "5ba0663a631d6071ec003534a85431a1dee6a1c437bff97b7bfc47921af3339f",
+        "size": 1008127
+      },
+      "lib/rustlib/aarch64-unknown-linux-gnu/lib/libunwind-ce6883073e87a4f8.rmeta": {
+        "sha256": "e136908113e37820e705a4a4596f0f939aa1c07f2f2f20ce2e8dd01de2a2fa25",
+        "size": 20028
+      }
+    },
+    "resolution_cfg": [
+      "debug_assertions",
+      "emscripten_wasm_eh",
+      "fmt_debug=\"full\"",
+      "overflow_checks",
+      "panic=\"unwind\"",
+      "relocation_model=\"pic\"",
+      "target_abi=\"\"",
+      "target_arch=\"aarch64\"",
+      "target_endian=\"little\"",
+      "target_env=\"gnu\"",
+      "target_family=\"unix\"",
+      "target_feature=\"neon\"",
+      "target_feature=\"outline-atomics\"",
+      "target_has_atomic",
+      "target_has_atomic=\"128\"",
+      "target_has_atomic=\"16\"",
+      "target_has_atomic=\"32\"",
+      "target_has_atomic=\"64\"",
+      "target_has_atomic=\"8\"",
+      "target_has_atomic=\"ptr\"",
+      "target_has_atomic_load_store",
+      "target_has_atomic_load_store=\"128\"",
+      "target_has_atomic_load_store=\"16\"",
+      "target_has_atomic_load_store=\"32\"",
+      "target_has_atomic_load_store=\"64\"",
+      "target_has_atomic_load_store=\"8\"",
+      "target_has_atomic_load_store=\"ptr\"",
+      "target_has_atomic_primitive_alignment=\"128\"",
+      "target_has_atomic_primitive_alignment=\"16\"",
+      "target_has_atomic_primitive_alignment=\"32\"",
+      "target_has_atomic_primitive_alignment=\"64\"",
+      "target_has_atomic_primitive_alignment=\"8\"",
+      "target_has_atomic_primitive_alignment=\"ptr\"",
+      "target_has_reliable_f128",
+      "target_has_reliable_f128_math",
+      "target_has_reliable_f16",
+      "target_has_reliable_f16_math",
+      "target_object_format=\"elf\"",
+      "target_os=\"linux\"",
+      "target_pointer_width=\"64\"",
+      "target_thread_local",
+      "target_vendor=\"unknown\"",
+      "ub_checks",
+      "unix"
+    ]
+  },
+  "x86_64-unknown-linux-gnu": {
+    "effective_cfg": {
+      "dev": [
+        "debug_assertions",
+        "emscripten_wasm_eh",
+        "fmt_debug=\"full\"",
+        "overflow_checks",
+        "panic=\"unwind\"",
+        "relocation_model=\"pic\"",
+        "target_abi=\"\"",
+        "target_arch=\"x86_64\"",
+        "target_endian=\"little\"",
+        "target_env=\"gnu\"",
+        "target_family=\"unix\"",
+        "target_feature=\"fxsr\"",
+        "target_feature=\"sse\"",
+        "target_feature=\"sse2\"",
+        "target_feature=\"sse3\"",
+        "target_feature=\"ssse3\"",
+        "target_feature=\"x87\"",
+        "target_has_atomic",
+        "target_has_atomic=\"16\"",
+        "target_has_atomic=\"32\"",
+        "target_has_atomic=\"64\"",
+        "target_has_atomic=\"8\"",
+        "target_has_atomic=\"ptr\"",
+        "target_has_atomic_load_store",
+        "target_has_atomic_load_store=\"16\"",
+        "target_has_atomic_load_store=\"32\"",
+        "target_has_atomic_load_store=\"64\"",
+        "target_has_atomic_load_store=\"8\"",
+        "target_has_atomic_load_store=\"ptr\"",
+        "target_has_atomic_primitive_alignment=\"16\"",
+        "target_has_atomic_primitive_alignment=\"32\"",
+        "target_has_atomic_primitive_alignment=\"64\"",
+        "target_has_atomic_primitive_alignment=\"8\"",
+        "target_has_atomic_primitive_alignment=\"ptr\"",
+        "target_has_reliable_f128",
+        "target_has_reliable_f16",
+        "target_has_reliable_f16_math",
+        "target_object_format=\"elf\"",
+        "target_os=\"linux\"",
+        "target_pointer_width=\"64\"",
+        "target_thread_local",
+        "target_vendor=\"unknown\"",
+        "ub_checks",
+        "unix"
+      ],
+      "release": [
+        "emscripten_wasm_eh",
+        "fmt_debug=\"full\"",
+        "panic=\"unwind\"",
+        "relocation_model=\"pic\"",
+        "target_abi=\"\"",
+        "target_arch=\"x86_64\"",
+        "target_endian=\"little\"",
+        "target_env=\"gnu\"",
+        "target_family=\"unix\"",
+        "target_feature=\"fxsr\"",
+        "target_feature=\"sse\"",
+        "target_feature=\"sse2\"",
+        "target_feature=\"sse3\"",
+        "target_feature=\"ssse3\"",
+        "target_feature=\"x87\"",
+        "target_has_atomic",
+        "target_has_atomic=\"16\"",
+        "target_has_atomic=\"32\"",
+        "target_has_atomic=\"64\"",
+        "target_has_atomic=\"8\"",
+        "target_has_atomic=\"ptr\"",
+        "target_has_atomic_load_store",
+        "target_has_atomic_load_store=\"16\"",
+        "target_has_atomic_load_store=\"32\"",
+        "target_has_atomic_load_store=\"64\"",
+        "target_has_atomic_load_store=\"8\"",
+        "target_has_atomic_load_store=\"ptr\"",
+        "target_has_atomic_primitive_alignment=\"16\"",
+        "target_has_atomic_primitive_alignment=\"32\"",
+        "target_has_atomic_primitive_alignment=\"64\"",
+        "target_has_atomic_primitive_alignment=\"8\"",
+        "target_has_atomic_primitive_alignment=\"ptr\"",
+        "target_has_reliable_f128",
+        "target_has_reliable_f16",
+        "target_has_reliable_f16_math",
+        "target_object_format=\"elf\"",
+        "target_os=\"linux\"",
+        "target_pointer_width=\"64\"",
+        "target_thread_local",
+        "target_vendor=\"unknown\"",
+        "unix"
+      ]
+    },
+    "executor_image": "docker://gcc@sha256:a689e29bc3adf4663ef9a141d23081252764d1319c63f591a027bd6fd676f4c1",
+    "files": {
+      "bin/cargo": {
+        "sha256": "828980723df339d62434390e9fb8ef8831036583343ae2316b7ab5646b5c1953",
+        "size": 42839824
+      },
+      "bin/rustc": {
+        "sha256": "d3a664c970a9fd8361b64194861bebc1ae37b9054e5ee3400dc1c9e691797eea",
+        "size": 645000
+      },
+      "lib/libLLVM-22-rust-1.97.1-stable.so": {
+        "sha256": "6694b12226d12f5d36d4b7a0e497e0bdae45e636ef00c64f4b722c595cfa0245",
+        "size": 42
+      },
+      "lib/libLLVM.so.22.1-rust-1.97.1-stable": {
+        "sha256": "ed4f320c4e1ed6de7d2db6fd89faccf764d63186c2f877057ddf31065b1fac09",
+        "size": 199494192
+      },
+      "lib/librustc_driver-832cf6cfb1386559.so": {
+        "sha256": "b0726217c199be52842c1318a340f0fc68a2c2ca0e3fa4886191dbf6ee192a58",
+        "size": 157802496
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libLLVM-22-rust-1.97.1-stable.so": {
+        "sha256": "6694b12226d12f5d36d4b7a0e497e0bdae45e636ef00c64f4b722c595cfa0245",
+        "size": 42
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libLLVM.so.22.1-rust-1.97.1-stable": {
+        "sha256": "ed4f320c4e1ed6de7d2db6fd89faccf764d63186c2f877057ddf31065b1fac09",
+        "size": 199494192
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libaddr2line-02954dcf5cbc5891.rmeta": {
+        "sha256": "01c50e79c1f7aa856e661678186c9547d722133fc7c8b8e72990e19b89cb005f",
+        "size": 470927
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libadler2-57de982d9269a3a4.rmeta": {
+        "sha256": "7ec260d73f85127292258f212f3322650bc703b81705570c2afbc7aed905019c",
+        "size": 20400
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/liballoc-e17b81f57125c74c.rmeta": {
+        "sha256": "f88774168ef1ae7887f5a2359ae6a06b00099e316fcbe6c0076920f580ba2565",
+        "size": 7406501
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libcfg_if-c966e4159bd8bc70.rmeta": {
+        "sha256": "97f25c4528287a9034f42460c79812c781745dc4a067196715be909f1c883227",
+        "size": 5505
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libcompiler_builtins-085f534a869f02d5.rmeta": {
+        "sha256": "b66b15477a45e9848b2100bb857cf5b54a78bb2ae72019ae77ea7e0673983e20",
+        "size": 1997842
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libcore-b5d59729c8525f07.rmeta": {
+        "sha256": "f4dd656e2dc727a519ea6c38216c922ee7c5755663b4e07e1c5b745b55f0bcf6",
+        "size": 64066594
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libgetopts-bbdff6f3ac33b345.rmeta": {
+        "sha256": "bf27ef6f9238032ec46cb5eab529319fae5c11595b902785d7285710003d8642",
+        "size": 217660
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libgimli-34f31eace0d7245f.rmeta": {
+        "sha256": "cb024146fd8c2bf2f08d74c9a67ca100d52eb10dc5259182743170abffc99c16",
+        "size": 5320225
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libhashbrown-51d9ae21a16391ba.rmeta": {
+        "sha256": "c28e09cc43b6ad698b9bea16084f739344b683849d89cb5a583ad56a69abe773",
+        "size": 1700303
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/liblibc-8da72b3f3dca3868.rmeta": {
+        "sha256": "8344a76fd6fcf5da7d50945f893e6ead3e21c87d7ab4d8e090ea66911f06e1b8",
+        "size": 4240911
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libmemchr-5338843b9da46083.rmeta": {
+        "sha256": "229d4911def3b17d567347c5e8dd85a0efa28f7df4a38e0d2294a5c290eb5d94",
+        "size": 1391139
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libminiz_oxide-24b69c27fbe9064f.rmeta": {
+        "sha256": "082980f38144ce4e9c8e3eaeaa192c156a542aef6618204e4b467cf7c7ce4590",
+        "size": 124922
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libobject-f810d9e1ec7b3602.rmeta": {
+        "sha256": "5654ac05374870fde9058cea67d68f15d09a43f56a8e6eec53aec1623e4925bc",
+        "size": 8476715
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libpanic_abort-ccef00ac2e243a21.rmeta": {
+        "sha256": "ccc3dba047d2d5c637d57f08e31f9909a2be89f0e9abb0c90badc0294ff53268",
+        "size": 2908
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libpanic_unwind-e8f3c569ec017ae8.rmeta": {
+        "sha256": "ad245859d7f2f55d5c1b364f8670327c362cbd55842019a532c52ff1c304a9b7",
+        "size": 7084
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libproc_macro-46d5885eef674d45.rmeta": {
+        "sha256": "94819dc3b39e822ca30f10325dcf2a76d01978c7e843b2080007608d5793f427",
+        "size": 1100622
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libprofiler_builtins-3bb349696bf4ca2e.rmeta": {
+        "sha256": "e4077f0f20a6b839601bfa9a6cccaf04754b427e521ce36f70ad96a8a38024b3",
+        "size": 1345
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_demangle-73bcb43673848f30.rmeta": {
+        "sha256": "a41772164aaabfdd0294b9417fab88082cfbfbadbd9b9330180046e23938652b",
+        "size": 90947
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_literal_escaper-efb1017eaf01b596.rmeta": {
+        "sha256": "3af4d2bcd0b8dbbc3310b619e4dbb10b25746e241a41cc1af1ec3d6e7c84939d",
+        "size": 122845
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_alloc-99955b4d3549c390.rmeta": {
+        "sha256": "178828a24509bbca20d32b0326aa3c8c80c1cddd8b5383063e9f97fd2a1462fb",
+        "size": 2167
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_core-79f73bde78643b0a.rmeta": {
+        "sha256": "e1fb1e8ffe7827e7fc34b1e14e115690e4d882665f5b5075070705c06143a8b2",
+        "size": 5939
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_std-6aad90a2a10ef45d.rmeta": {
+        "sha256": "833091fbb103d7961e74c050f509b7459e25a0c1e1e7fc5dfbd4f6ee19f680bd",
+        "size": 7132
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-c64e6e11aa24fc43.rmeta": {
+        "sha256": "3847f93ceb44f7c976c9facb2013effce10cb63474bc5b0cf351b0ce91646ab7",
+        "size": 8651231
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-c64e6e11aa24fc43.so": {
+        "sha256": "af148991054c1e1a7ce94bbd9acbf10166b734055c0339aedfe80fdd6e91f02a",
+        "size": 5421888
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd_detect-64da8f7c5e658436.rmeta": {
+        "sha256": "2dc43e3a04574a1768a5b8712cefc1a73b82ac7a1ea5516ed11360588e49b278",
+        "size": 578946
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libsysroot-1ab7d50ee4e42671.rmeta": {
+        "sha256": "b0dde27cbb7b4e2befbf2c75f04c09e657a499570f75dd11ffa764fa49bfe21d",
+        "size": 2240
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libtest-009e9a84885f0921.rmeta": {
+        "sha256": "efcda9e91ebcf21e369388db4af1c7380058c5a50d01f9c3b9ae09c5f4eaa54a",
+        "size": 1008519
+      },
+      "lib/rustlib/x86_64-unknown-linux-gnu/lib/libunwind-d90fb703b61b002d.rmeta": {
+        "sha256": "12a3a60a08e96aa2176951d4b65966bb757ce56cfc4c7f171b90c176a858a01d",
+        "size": 20058
+      }
+    },
+    "resolution_cfg": [
+      "debug_assertions",
+      "emscripten_wasm_eh",
+      "fmt_debug=\"full\"",
+      "overflow_checks",
+      "panic=\"unwind\"",
+      "relocation_model=\"pic\"",
+      "target_abi=\"\"",
+      "target_arch=\"x86_64\"",
+      "target_endian=\"little\"",
+      "target_env=\"gnu\"",
+      "target_family=\"unix\"",
+      "target_feature=\"fxsr\"",
+      "target_feature=\"sse\"",
+      "target_feature=\"sse2\"",
+      "target_feature=\"x87\"",
+      "target_has_atomic",
+      "target_has_atomic=\"16\"",
+      "target_has_atomic=\"32\"",
+      "target_has_atomic=\"64\"",
+      "target_has_atomic=\"8\"",
+      "target_has_atomic=\"ptr\"",
+      "target_has_atomic_load_store",
+      "target_has_atomic_load_store=\"16\"",
+      "target_has_atomic_load_store=\"32\"",
+      "target_has_atomic_load_store=\"64\"",
+      "target_has_atomic_load_store=\"8\"",
+      "target_has_atomic_load_store=\"ptr\"",
+      "target_has_atomic_primitive_alignment=\"16\"",
+      "target_has_atomic_primitive_alignment=\"32\"",
+      "target_has_atomic_primitive_alignment=\"64\"",
+      "target_has_atomic_primitive_alignment=\"8\"",
+      "target_has_atomic_primitive_alignment=\"ptr\"",
+      "target_has_reliable_f128",
+      "target_has_reliable_f16",
+      "target_has_reliable_f16_math",
+      "target_object_format=\"elf\"",
+      "target_os=\"linux\"",
+      "target_pointer_width=\"64\"",
+      "target_thread_local",
+      "target_vendor=\"unknown\"",
+      "ub_checks",
+      "unix"
+    ]
+  }
+}

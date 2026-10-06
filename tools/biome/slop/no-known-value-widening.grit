@@ -1,0 +1,647 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A value whose type is plain from the syntax (an object, array, function, class, `new`, literal,
+// template or unary expression, or a `const` initialised with one) that is handed to an explicit
+// type which forgets it: `unknown`, `object`, an anonymous object type, or an open dictionary
+// (`Record<string, V>`, `{ [key: string]: V }`, a mapped type). The value is reported where it
+// flows into that type:
+//   a declaration (`const x: T = value`) or a later assignment to one, a class property,
+//   a `return value` or arrow body under a declared return type, and `value as T` / `<T>value`.
+// An empty `{}` flowing into a dictionary is an accumulator being started and is left alone.
+//
+// What GritQL cannot see:
+//   - the target behind a type alias is found by name in the whole file and one alias deep, not
+//     by lexical scope; a generic alias (`Index<Command>`) is not instantiated, and an alias used
+//     as a `Record` key (`Record<Key, V>` with `type Key = string`) is not resolved;
+//   - a known value passed to a type-predicate function of this file whose subject is `unknown`
+//     (`isString('known')`) is reported when the subject is the first or second parameter; the
+//     function and the functions its argument calls are found by name in the whole file;
+//   - a `const` source is followed one declaration, through the scope rebuilt from syntax
+//     (nearest function with the parameter, statement list with the declaration, `for`/`catch`);
+//   - type wrappers on the value (parentheses, `as`, `satisfies`, `!`) and on the type
+//     (`Readonly<…>`, parentheses) are followed two deep;
+//   - a later assignment is matched to its declaration only when the file spells it
+//     `let name: ` or `var name: ` (Biome's formatting; not a second declarator of one `let`);
+//   - a file that declares or imports its own `Record`, `Readonly`, `Partial`, `Required`,
+//     `NonNullable` or `PropertyKey` gets no finding through those names at all.
+
+pattern wrapped($inner) {
+  or {
+    JsParenthesizedExpression(expression=$inner),
+    TsAsExpression(expression=$inner),
+    TsSatisfiesExpression(expression=$inner),
+    TsNonNullAssertionExpression(expression=$inner),
+    TsTypeAssertionExpression(expression=$inner)
+  }
+}
+
+pattern bare($inner) {
+  or {
+    $inner,
+    wrapped($inner),
+    wrapped(inner=wrapped($inner))
+  }
+}
+
+pattern through_parens($inner) {
+  or {
+    $inner,
+    JsParenthesizedExpression(expression=$inner),
+    JsParenthesizedExpression(expression=JsParenthesizedExpression(expression=$inner))
+  }
+}
+
+pattern plain_from_syntax() {
+  or {
+    JsObjectExpression(),
+    JsArrayExpression(),
+    JsArrowFunctionExpression(),
+    JsFunctionExpression(),
+    JsClassExpression(),
+    JsNewExpression(),
+    JsStringLiteralExpression(),
+    JsNumberLiteralExpression(),
+    JsBigintLiteralExpression(),
+    JsBooleanLiteralExpression(),
+    JsNullLiteralExpression(),
+    JsRegexLiteralExpression(),
+    JsUnaryExpression(),
+    JsTemplateExpression() as $template where { $template <: r"(?s)`.*" }
+  }
+}
+
+// Every condition on a declaration is part of the pattern handed down: a list is searched for the
+// first element matching the pattern, and a condition tested afterwards sees that element only.
+pattern declaring($declaration) {
+  or {
+    JsVariableStatement(declaration=$declaration),
+    JsExport(export_clause=JsVariableDeclarationClause(declaration=$declaration))
+  }
+}
+
+pattern statements_with($statement) {
+  or {
+    JsFunctionBody(statements=some $statement),
+    JsBlockStatement(statements=some $statement),
+    JsModule(items=some $statement),
+    JsScript(statements=some $statement),
+    TsModuleBlock(items=some $statement),
+    JsCaseClause(consequent=some $statement),
+    JsDefaultClause(consequent=some $statement),
+    JsStaticInitializationBlockClassMember(statements=some $statement)
+  }
+}
+
+pattern function_with($parameters) {
+  or {
+    JsArrowFunctionExpression(parameters=$parameters),
+    JsFunctionDeclaration(parameters=$parameters),
+    JsFunctionExpression(parameters=$parameters),
+    JsFunctionExportDefaultDeclaration(parameters=$parameters),
+    JsMethodClassMember(parameters=$parameters),
+    JsMethodObjectMember(parameters=$parameters),
+    JsConstructorClassMember(parameters=$parameters),
+    JsSetterClassMember(parameter=$parameters),
+    JsSetterObjectMember(parameter=$parameters)
+  }
+}
+
+pattern binds($name) { contains JsIdentifierBinding() as $bound where { $bound <: $name } }
+
+// The scope a name belongs to at a reference: the nearest function with it as a parameter,
+// statement list declaring it, or `for`/`catch` binding it.
+pattern scope_of($name) {
+  or {
+    function_with(parameters=binds($name)),
+    statements_with(statement=declaring(declaration=JsVariableDeclaration(declarators=some JsVariableDeclarator(id=binds($name))))),
+    JsForOfStatement(initializer=binds($name)),
+    JsForInStatement(initializer=binds($name)),
+    JsForStatement(initializer=binds($name)),
+    JsCatchClause(declaration=binds($name))
+  }
+}
+
+// The keyword is a token, which a node pattern cannot name; a regex here ran on every statement
+// of every block searched, so the text is split instead.
+pattern is_const() {
+  JsVariableDeclaration() as $declaration where {
+    $around_keyword = split(string=$declaration, separator="const "),
+    $before_keyword = $around_keyword[0],
+    $before_keyword <: ""
+  }
+}
+
+pattern const_plain_from_syntax() {
+  JsIdentifierExpression(name=$source) as $reference where {
+    $reference <: within scope_of(name=$source) as $source_scope ,
+    $source_scope <: statements_with(statement=declaring(declaration=and { JsVariableDeclaration(declarators=some JsVariableDeclarator(id=$source, initializer=JsInitializerClause(expression=bare(inner=plain_from_syntax())))),
+    is_const() }))
+  }
+}
+
+pattern known() {
+  bare(inner=or {
+    plain_from_syntax(),
+    const_plain_from_syntax()
+  })
+}
+
+pattern empty_object() {
+  bare(inner= JsObjectExpression() as $object where { $object <: r"\{\s*\}" })
+}
+
+pattern transparent($argument) {
+  TsReferenceType(name=$wrapper, type_arguments=TsTypeArguments(ts_type_argument_list=[
+    $argument, ...
+  ])) where {
+    $wrapper <: or {
+      "Readonly",
+      "Partial",
+      "Required",
+      "NonNullable"
+    }
+  }
+}
+
+pattern through($inner) {
+  or {
+    $inner,
+    TsParenthesizedType(ty=$inner),
+    transparent(argument=$inner),
+    transparent(argument=transparent(argument=$inner)),
+    transparent(argument=TsParenthesizedType(ty=$inner)),
+    TsParenthesizedType(ty=transparent(argument=$inner))
+  }
+}
+
+pattern broad_key_0() {
+  or {
+    TsStringType(),
+    TsNumberType(),
+    TsSymbolType(),
+    TsReferenceType() as $key where { $key <: "PropertyKey" }
+  }
+}
+
+pattern broad_key() {
+  or {
+    broad_key_0(),
+    TsParenthesizedType(ty=broad_key_0()),
+    TsUnionType(types=some broad_key_0())
+  }
+}
+
+pattern broad_record() {
+  or {
+    TsReferenceType(name="Record", type_arguments=TsTypeArguments(ts_type_argument_list=[
+      broad_key(), ...
+    ])),
+    TsReferenceType() as $unapplied where { $unapplied <: "Record" }
+  }
+}
+
+pattern index_signature_object() { TsObjectType(members=some TsIndexSignatureTypeMember()) }
+
+// An open dictionary, as written at the flow.
+pattern dictionary() {
+  through(inner=or {
+    index_signature_object(),
+    TsMappedType(),
+    broad_record()
+  })
+}
+
+// `unknown`, `object` or an anonymous object type, as written at the flow.
+pattern forgetful() {
+  through(inner=or {
+    TsUnknownType(),
+    TsNonPrimitiveType(),
+    TsObjectType(members=[$_, ...]) as $anonymous where { ! $anonymous <: index_signature_object() }
+  })
+}
+
+// What an alias has to be for a bare use of it to be a target: no anonymous object here, and a
+// mapped type only over a broad key.
+pattern aliased_dictionary() {
+  through(inner=or {
+    index_signature_object(),
+    TsMappedType(keys_type=broad_key()),
+    broad_record()
+  })
+}
+
+pattern aliased_forgetful() {
+  through(inner=or {
+    TsUnknownType(),
+    TsNonPrimitiveType()
+  })
+}
+
+pattern own_utility_type() {
+  or {
+    TsTypeAliasDeclaration(binding_identifier=$own),
+    TsInterfaceDeclaration(id=$own),
+    JsClassDeclaration(id=$own),
+    TsEnumDeclaration(id=$own),
+    JsNamedImportSpecifier(local_name=$own),
+    JsShorthandNamedImportSpecifier(local_name=$own),
+    JsDefaultImportSpecifier(local_name=$own)
+  } where {
+    $own <: or {
+      "Record",
+      "Readonly",
+      "Partial",
+      "Required",
+      "NonNullable",
+      "PropertyKey"
+    }
+  }
+}
+
+pattern returning($type) {
+  or {
+    JsArrowFunctionExpression(return_type_annotation=TsReturnTypeAnnotation(ty=$type)),
+    JsFunctionDeclaration(return_type_annotation=TsReturnTypeAnnotation(ty=$type)),
+    JsFunctionExpression(return_type_annotation=TsReturnTypeAnnotation(ty=$type)),
+    JsFunctionExportDefaultDeclaration(return_type_annotation=TsReturnTypeAnnotation(ty=$type)),
+    JsMethodClassMember(return_type_annotation=TsReturnTypeAnnotation(ty=$type)),
+    JsMethodObjectMember(return_type_annotation=TsReturnTypeAnnotation(ty=$type)),
+    JsGetterClassMember(return_type=TsTypeAnnotation(ty=$type)),
+    JsGetterObjectMember(return_type=TsTypeAnnotation(ty=$type))
+  }
+}
+
+pattern function_boundary() {
+  or {
+    JsArrowFunctionExpression(),
+    JsFunctionDeclaration(),
+    JsFunctionExpression(),
+    JsFunctionExportDefaultDeclaration(),
+    JsMethodClassMember(),
+    JsMethodObjectMember(),
+    JsConstructorClassMember(),
+    JsGetterClassMember(),
+    JsSetterClassMember(),
+    JsGetterObjectMember(),
+    JsSetterObjectMember()
+  }
+}
+
+// One place where `$value` flows into the declared type `$type`.
+pattern flow($type, $value) {
+  or {
+    JsVariableDeclarator(id=JsIdentifierBinding(), variable_annotation=TsTypeAnnotation(ty=$type), initializer=JsInitializerClause(expression=$value)),
+    JsPropertyClassMember(property_annotation=or {
+      TsTypeAnnotation(ty=$type),
+      TsOptionalPropertyAnnotation(type_annotation=TsTypeAnnotation(ty=$type))
+    }, value=JsInitializerClause(expression=$value)),
+    JsArrowFunctionExpression(return_type_annotation=TsReturnTypeAnnotation(ty=$type), body=$value) where {
+      ! $value <: JsFunctionBody()
+    },
+    JsReturnStatement(argument=$value) as $return where {
+      $return <: within function_boundary() as $function ,
+      $function <: returning($type)
+    },
+    // Not the operand of another assertion, through parentheses: that outer assertion is the
+    // flow.
+    or {
+      TsAsExpression(expression=$value, ty=$type),
+      TsTypeAssertionExpression(expression=$value, ty=$type)
+    } as $assertion where {
+      ! $assertion <: within or {
+        TsAsExpression(expression=through_parens(inner=$assertion)),
+        TsTypeAssertionExpression(expression=through_parens(inner=$assertion))
+      }
+    },
+    // A plain `=` only. The snippet `$target = $value` matches declarators instead, and a token
+    // cannot be named in a node pattern, so the operator is read off the text.
+    JsAssignmentExpression(left=JsIdentifierAssignment() as $target, right=$value) as $assignment where {
+      // A substring test first: the scope walk below costs milliseconds, and almost no assigned
+      // name is a `let`/`var` with a type written on it.
+      $typed_let = join(list=["let ", $target, ": "], separator=""),
+      $typed_var = join(list=["var ", $target, ": "], separator=""),
+      $program <: includes or {
+        $typed_let,
+        $typed_var
+      },
+      $after_target = split(string=$assignment, separator=$target),
+      $operator = $after_target[1],
+      $operator <: r"(?s)\s*=[^=].*",
+      $assignment <: within scope_of(name=$target) as $target_scope ,
+      $target_scope <: statements_with(statement=declaring(declaration=JsVariableDeclaration(declarators=some JsVariableDeclarator(id=$target, variable_annotation=TsTypeAnnotation(ty=$type)))))
+    }
+  }
+}
+
+// A flow into a bare use of the alias `$alias`, reported. This is its own pattern because a
+// pattern's variables are fresh on every call: written inline under `contains`, the use bound by
+// the first match would have to equal every later one, and only the first flow would be reported.
+pattern alias_flow($alias, $accumulator) {
+  flow(type=$use, value=$used) where {
+    $use <: TsReferenceType(name=$alias),
+    $use <: $alias,
+    or { $accumulator <: "no", ! $used <: empty_object() },
+    $used <: known(),
+    register_diagnostic(span=$used, message=join(list=[
+      "[no-known-value-widening] `",
+
+      $alias,
+
+      "` forgets what is known about this value. Let the type be inferred, check it with `satisfies`, or give it the owner's named contract.",
+    ], separator=""), severity="error")
+  }
+}
+
+// The value this is matched against is known and `$type` forgets it: reported.
+pattern widened_into($type) {
+  $value where {
+    or { $type <: forgetful(), and { $type <: dictionary(), ! $value <: empty_object() } },
+    $value <: known(),
+    or {
+      ! $type <: includes or {
+        "Record",
+        "Readonly",
+        "Partial",
+        "Required",
+        "NonNullable",
+        "PropertyKey"
+      },
+      ! $program <: contains own_utility_type()
+    },
+    register_diagnostic(span=$value, message=join(list=[
+      "[no-known-value-widening] `",
+
+      $type,
+
+      "` forgets what is known about this value. Let the type be inferred, check it with `satisfies`, or give it the owner's named contract.",
+    ], separator=""), severity="error")
+  }
+}
+
+// A `return` that belongs to `$function` itself, not to a function nested in it.
+pattern returned_from($function, $type) {
+  JsReturnStatement(argument=$value) as $return where {
+    $return <: within function_boundary() as $nearest ,
+    $nearest <: $function,
+    $value <: widened_into($type)
+  }
+}
+
+// `unknown`, as a type-predicate function's subject parameter has it.
+pattern unknown_0() { TsUnknownType() }
+
+pattern unknown_1() {
+  or {
+    unknown_0(),
+    TsParenthesizedType(ty=unknown_0()),
+    TsUnionType(types=some unknown_0())
+  }
+}
+
+pattern unknown_2() {
+  or {
+    unknown_1(),
+    TsParenthesizedType(ty=unknown_1()),
+    TsUnionType(types=some unknown_1())
+  }
+}
+
+pattern predicate_on($subject) {
+  TsReturnTypeAnnotation(ty=or {
+    TsPredicateReturnType(parameter_name=$subject),
+    TsAssertsReturnType(parameter_name=$subject)
+  })
+}
+
+pattern unknown_parameter($subject) {
+  JsFormalParameter(binding=$subject, type_annotation=TsTypeAnnotation(ty=unknown_2()))
+}
+
+// A declared type that says nothing: one of the four escape hatches, alone or in a union,
+// parenthesis or transparent wrapper.
+pattern says_nothing_0() {
+  or {
+    TsUnknownType(),
+    TsAnyType(),
+    TsNonPrimitiveType(),
+    TsObjectType() as $empty where { $empty <: r"\{\s*\}" }
+  }
+}
+
+pattern says_nothing() {
+  or {
+    says_nothing_0(),
+    TsParenthesizedType(ty=says_nothing_0()),
+    TsUnionType(types=some says_nothing_0()),
+    transparent(argument=says_nothing_0())
+  }
+}
+
+pattern loose($inner) {
+  or {
+    $inner,
+    JsParenthesizedExpression(expression=$inner),
+    TsNonNullAssertionExpression(expression=$inner),
+    TsSatisfiesExpression(expression=$inner),
+    JsParenthesizedExpression(expression=JsParenthesizedExpression(expression=$inner)),
+    TsSatisfiesExpression(expression=JsParenthesizedExpression(expression=$inner))
+  }
+}
+
+pattern asserted_to_something() {
+  or {
+    TsAsExpression(ty=$asserted),
+    TsTypeAssertionExpression(ty=$asserted)
+  } where { ! $asserted <: says_nothing() }
+}
+
+// A call of a function of this file whose declared return type says something.
+pattern typed_local_call() {
+  JsCallExpression(callee=JsIdentifierExpression(name=$callee)) where {
+    // A substring test first: the walk below visits the whole file.
+    $as_declaration = join(list=["function ", $callee, "("], separator=""),
+    $as_constant = join(list=["const ", $callee, " = "], separator=""),
+    $program <: includes or {
+      $as_declaration,
+      $as_constant
+    },
+    $program <: contains or {
+      JsFunctionDeclaration(id=$callee, return_type_annotation=TsReturnTypeAnnotation(ty=$result)),
+      JsVariableDeclarator(id=$callee, initializer=JsInitializerClause(expression=or {
+        JsArrowFunctionExpression(return_type_annotation=TsReturnTypeAnnotation(ty=$result)),
+        JsFunctionExpression(return_type_annotation=TsReturnTypeAnnotation(ty=$result))
+      }))
+    },
+    ! $result <: says_nothing()
+  }
+}
+
+// A name whose declared type says something, or an unannotated `const` holding a known value.
+pattern typed_name() {
+  JsIdentifierExpression(name=$argument_name) as $reference where {
+    $reference <: within scope_of(name=$argument_name) as $argument_scope ,
+    $argument_scope <: or {
+      function_with(parameters=or {
+        JsParameters(items=some JsFormalParameter(binding=$argument_name, type_annotation=TsTypeAnnotation(ty=$declared))),
+        JsConstructorParameters(parameters=some JsFormalParameter(binding=$argument_name, type_annotation=TsTypeAnnotation(ty=$declared)))
+      }) where { ! $declared <: says_nothing() },
+      statements_with(statement=declaring(declaration=JsVariableDeclaration(declarators=some JsVariableDeclarator(id=$argument_name, variable_annotation=TsTypeAnnotation(ty=$declared))))) where {
+        ! $declared <: says_nothing()
+      },
+      statements_with(statement=declaring(declaration=and { JsVariableDeclaration(declarators=some JsVariableDeclarator(id=$argument_name, initializer=JsInitializerClause(expression=loose(inner=or {
+        plain_from_syntax(),
+        asserted_to_something(),
+        typed_local_call()
+      }))) as $unannotated where {
+        ! $unannotated <: JsVariableDeclarator(variable_annotation=TsTypeAnnotation())
+      }),
+      is_const() }))
+    }
+  }
+}
+
+pattern known_argument() {
+  loose(inner=or {
+    plain_from_syntax(),
+    asserted_to_something(),
+    typed_local_call(),
+    typed_name()
+  })
+}
+
+// A call of the type-predicate function `$guard` whose subject argument is already known,
+// reported. Its own pattern, so each call under `contains` gets fresh variables.
+pattern guarded_first($guard) {
+  JsCallExpression(callee=JsIdentifierExpression(name=$guard), arguments=JsCallArguments(args=[
+    $argument, ...
+  ])) where {
+    $argument <: known_argument(),
+    register_diagnostic(span=$argument, message=join(list=[
+      "[no-known-value-widening] `",
+
+      $guard,
+
+      "` takes `unknown` to tell what a value is, and this argument's type is already known. Use the type it has; keep the guard for input nobody has decoded.",
+    ], separator=""), severity="error")
+  }
+}
+
+pattern guarded_second($guard) {
+  JsCallExpression(callee=JsIdentifierExpression(name=$guard), arguments=JsCallArguments(args=[
+    $_, $argument, ...
+  ])) where {
+    $argument <: known_argument(),
+    register_diagnostic(span=$argument, message=join(list=[
+      "[no-known-value-widening] `",
+
+      $guard,
+
+      "` takes `unknown` to tell what a value is, and this argument's type is already known. Use the type it has; keep the guard for input nobody has decoded.",
+    ], separator=""), severity="error")
+  }
+}
+
+or {
+  // A type-predicate function of this file whose subject is `unknown`: visit its calls.
+  or {
+    JsFunctionDeclaration(id=$guard, parameters=$parameters, return_type_annotation=predicate_on($subject)),
+    JsVariableDeclarator(id=$guard, initializer=JsInitializerClause(expression=or {
+      JsArrowFunctionExpression(parameters=$parameters, return_type_annotation=predicate_on($subject)),
+      JsFunctionExpression(parameters=$parameters, return_type_annotation=predicate_on($subject))
+    }))
+  } where {
+    // Each guard walks the whole file for its calls. The node test comes first in each `and`: a
+    // pattern call on every node of the file, once per guard, took this pass to 10 s.
+    or {
+      and {
+        $parameters <: JsParameters(items=[unknown_parameter($subject), ...]),
+        $program <: contains and { JsCallExpression(callee=JsIdentifierExpression(name=$guard)),
+        guarded_first($guard) }
+      },
+      and {
+        $parameters <: JsParameters(items=[$_, unknown_parameter($subject), ...]),
+        $program <: contains and { JsCallExpression(callee=JsIdentifierExpression(name=$guard)),
+        guarded_second($guard) }
+      }
+    }
+  },
+  // The flows whose type is written at the site. A substring test on the type comes before any
+  // pattern call: every forgetful type and dictionary holds one of these four spellings.
+  or {
+    JsVariableDeclarator(id=JsIdentifierBinding(), variable_annotation=TsTypeAnnotation(ty=$type), initializer=JsInitializerClause(expression=$value)),
+    JsPropertyClassMember(property_annotation=or {
+      TsTypeAnnotation(ty=$type),
+      TsOptionalPropertyAnnotation(type_annotation=TsTypeAnnotation(ty=$type))
+    }, value=JsInitializerClause(expression=$value)),
+    JsArrowFunctionExpression(return_type_annotation=TsReturnTypeAnnotation(ty=$type), body=$value),
+    TsAsExpression(expression=$value, ty=$type),
+    TsTypeAssertionExpression(expression=$value, ty=$type)
+  } as $site where {
+    $type <: includes or {
+      "unknown",
+      "object",
+      "Record",
+      "{"
+    },
+    $site <: flow($type, $value),
+    $value <: widened_into($type)
+  },
+  // A later assignment: the substring test on the declaration is inside `flow`.
+  JsAssignmentExpression(left=JsIdentifierAssignment()) as $site where {
+    $site <: flow($type, $value),
+    $value <: widened_into($type)
+  },
+  // `return`: from the function, since few functions declare such a return type and every one
+  // has returns.
+  or {
+    TsReturnTypeAnnotation(ty=$type),
+    JsGetterClassMember(return_type=TsTypeAnnotation(ty=$type)),
+    JsGetterObjectMember(return_type=TsTypeAnnotation(ty=$type))
+  } as $declared where {
+    $type <: includes or {
+      "unknown",
+      "object",
+      "Record",
+      "{"
+    },
+    $type <: or {
+      forgetful(),
+      dictionary()
+    },
+    $declared <: within function_boundary() as $function ,
+    $function <: returning($type),
+    $function <: contains and { JsReturnStatement(),
+    returned_from($function, $type) }
+  },
+  // A target behind an alias: start from the alias, which is rare, and visit its bare uses.
+  TsTypeAliasDeclaration(binding_identifier=$alias, ty=$aliased) as $declaration where {
+    ! $declaration <: TsTypeAliasDeclaration(type_parameters=TsTypeParameters()),
+    or {
+      and { $aliased <: aliased_forgetful(), $accumulator = "no" },
+      and { $aliased <: aliased_dictionary(), $accumulator = "yes" }
+    },
+    or {
+      ! $aliased <: includes or {
+        "Record",
+        "Readonly",
+        "Partial",
+        "Required",
+        "NonNullable",
+        "PropertyKey"
+      },
+      ! $program <: contains own_utility_type()
+    },
+    ! $program <: contains TsTypeParameterName() as $shadow where { $shadow <: $alias },
+    $program <: contains and { or {
+      JsVariableDeclarator(),
+      JsPropertyClassMember(),
+      JsArrowFunctionExpression(),
+      JsReturnStatement(),
+      TsAsExpression(),
+      TsTypeAssertionExpression(),
+      JsAssignmentExpression()
+    },
+    alias_flow($alias, $accumulator) }
+  }
+}

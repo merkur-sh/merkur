@@ -1,0 +1,42 @@
+[package]
+name = "merkur-tui"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+name = "merkur_tui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "merkur-tui"
+path = "src/main.rs"
+
+[dependencies]
+alacritty_terminal = { version = "0.26.0", default-features = false }
+libc = "0.2"
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+merkur-authorization = { path = "../../packages/merkur-authorization" }
+merkur-identity-seal = { path = "../../packages/merkur-identity-seal" }
+merkur-graphics = { path = "../../packages/merkur-graphics" }
+merkur-client = { path = "../../packages/merkur-client" }
+merkur-client-native = { path = "../../packages/merkur-client-native" }
+merkur-wire = { path = "../../packages/merkur-wire" }
+term-wasm = { path = "../../packages/term-wasm" }
+rustix = { version = "1.1", features = ["event", "fs", "termios"] }
+base64 = "0.22"
+png = "=0.18.1"
+serde_json = "1"
+tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+zeroize = "1.9"
+unicode-width = "0.2"
+url = "2"
+
+[dev-dependencies]
+merkur-codec = { path = "../../packages/merkur-codec" }
+rustix = { version = "1.1", features = ["pty", "time"] }
+
+[lints]
+workspace = true

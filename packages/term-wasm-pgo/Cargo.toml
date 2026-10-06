@@ -1,0 +1,23 @@
+[package]
+name = "term-wasm-pgo"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+# The profile-guided term-wasm build's training driver. wasm-bindgen cannot
+# post-process an instrumented crate (it interprets its generated descriptor
+# functions, which instrumentation also rewrites), so training runs this
+# plain-export module, which links term-wasm as a library and drives the
+# production staging and apply entry points. `scripts/term-wasm-pgo.ts` builds
+# it; nothing ships it.
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+term-wasm = { path = "../term-wasm", features = ["pgo-train"] }
+# Must carry the raw profile format rustc's LLVM writes; see term-wasm's pin.
+minicov = { version = "=0.3.8", default-features = false, features = ["alloc"] }
+
+[lints]
+workspace = true

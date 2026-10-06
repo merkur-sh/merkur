@@ -1,0 +1,38 @@
+# The simulator crate's manifest. `scripts/sim-tests.ts` writes it into the generated
+# workspace `test-results/sim/workspace` with absolute paths, the production
+# `[patch.crates-io]` table and lints, and the retained `tools/sim/Cargo.lock`. It is
+# never a member of the production workspace, so turmoil and tokio's `test-util`
+# never reach a shipped build or the production lockfile.
+[package]
+name = "merkur-sim"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+merkur-edge = { path = "../../apps/edge" }
+merkur-dataplane = { path = "../../apps/daemon/dataplane" }
+merkur-client = { path = "../../packages/merkur-client" }
+merkur-client-native = { path = "../../packages/merkur-client-native" }
+merkur-authorization = { path = "../../packages/merkur-authorization" }
+merkur-e2e = { path = "../../packages/merkur-e2e" }
+merkur-wire = { path = "../../packages/merkur-wire" }
+# The display oracle's terminal: the emulator the dataplane runs, patched as
+# production patches it.
+alacritty_terminal = { version = "0.26.0", default-features = false }
+turmoil = "=0.7.2"
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time", "test-util"] }
+wtransport = { version = "0.7", features = ["quinn"] }
+libc = "0.2"
+base64 = "0.22"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -1,0 +1,1991 @@
+[
+  {
+    "name": "zerofrom",
+    "version": "0.1.8",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zerofrom@0.1.8",
+    "license": "Unicode-3.0",
+    "license_file": null,
+    "description": "ZeroFrom trait for constructing",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "zerofrom-derive",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.1.6",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zerofrom",
+        "src_path": "@registry@/zerofrom-0.1.8/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      }
+    ],
+    "features": {
+      "alloc": [],
+      "default": ["alloc"],
+      "derive": ["dep:zerofrom-derive"]
+    },
+    "manifest_path": "@registry@/zerofrom-0.1.8/Cargo.toml",
+    "metadata": {
+      "workspaces": {
+        "independent": true
+      },
+      "docs": {
+        "rs": {
+          "all-features": true
+        }
+      },
+      "playground": {
+        "all-features": true
+      }
+    },
+    "publish": null,
+    "authors": ["The ICU4X Project Developers"],
+    "categories": ["data-structures", "caching", "no-std"],
+    "keywords": ["zero-copy", "serialization", "memory-efficiency"],
+    "readme": "README.md",
+    "repository": "https://github.com/unicode-org/icu4x",
+    "homepage": null,
+    "documentation": null,
+    "edition": "2021",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.71.1"
+  },
+  {
+    "name": "zerofrom-derive",
+    "version": "0.1.7",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zerofrom-derive@0.1.7",
+    "license": "Unicode-3.0",
+    "license_file": null,
+    "description": "Custom derive for the zerofrom crate",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "proc-macro2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.61",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "quote",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.44",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "syn",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^2.0.21",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": ["fold"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "synstructure",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.13.0",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["proc-macro"],
+        "crate_types": ["proc-macro"],
+        "name": "zerofrom_derive",
+        "src_path": "@registry@/zerofrom-derive-0.1.7/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "zf_derive",
+        "src_path": "@registry@/zerofrom-derive-0.1.7/examples/zf_derive.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      }
+    ],
+    "features": {},
+    "manifest_path": "@registry@/zerofrom-derive-0.1.7/Cargo.toml",
+    "metadata": {
+      "workspaces": {
+        "independent": true
+      }
+    },
+    "publish": null,
+    "authors": ["Manish Goregaokar <manishsmail@gmail.com>"],
+    "categories": ["data-structures", "memory-management", "caching", "no-std"],
+    "keywords": ["macros", "derive", "zero-copy", "serialization"],
+    "readme": "README.md",
+    "repository": "https://github.com/unicode-org/icu4x",
+    "homepage": null,
+    "documentation": null,
+    "edition": "2021",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.71.1"
+  },
+  {
+    "name": "zeroize",
+    "version": "1.9.0",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+    "license": "Apache-2.0 OR MIT",
+    "license_file": null,
+    "description": "Securely clear secrets from memory with a simple trait built on\nstable Rust primitives which guarantee memory is zeroed using an\noperation will not be 'optimized away' by the compiler.\nUses a portable pure Rust implementation that works everywhere,\neven WASM!\n",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "serde",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "zeroize_derive",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.5",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zeroize",
+        "src_path": "@registry@/zeroize-1.9.0/src/lib.rs",
+        "edition": "2024",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "alloc",
+        "src_path": "@registry@/zeroize-1.9.0/tests/alloc.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "zeroize",
+        "src_path": "@registry@/zeroize-1.9.0/tests/zeroize.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "zeroize_derive",
+        "src_path": "@registry@/zeroize-1.9.0/tests/zeroize_derive.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    ],
+    "features": {
+      "aarch64": [],
+      "alloc": [],
+      "default": ["alloc"],
+      "derive": ["zeroize_derive"],
+      "serde": ["dep:serde"],
+      "simd": [],
+      "std": ["alloc"],
+      "zeroize_derive": ["dep:zeroize_derive"]
+    },
+    "manifest_path": "@registry@/zeroize-1.9.0/Cargo.toml",
+    "metadata": {
+      "docs": {
+        "rs": {
+          "all-features": true
+        }
+      }
+    },
+    "publish": null,
+    "authors": ["The RustCrypto Project Developers"],
+    "categories": ["cryptography", "memory-management", "no-std", "os"],
+    "keywords": ["memory", "memset", "secure", "volatile", "zero"],
+    "readme": "README.md",
+    "repository": "https://github.com/RustCrypto/utils",
+    "homepage": null,
+    "documentation": "https://docs.rs/zeroize",
+    "edition": "2024",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.85"
+  },
+  {
+    "name": "zeroize_derive",
+    "version": "1.5.0",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize_derive@1.5.0",
+    "license": "Apache-2.0 OR MIT",
+    "license_file": null,
+    "description": "Custom derive support for zeroize",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "proc-macro2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "quote",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "syn",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^2",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": ["full", "extra-traits", "visit"],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["proc-macro"],
+        "crate_types": ["proc-macro"],
+        "name": "zeroize_derive",
+        "src_path": "@registry@/zeroize_derive-1.5.0/src/lib.rs",
+        "edition": "2024",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      }
+    ],
+    "features": {},
+    "manifest_path": "@registry@/zeroize_derive-1.5.0/Cargo.toml",
+    "metadata": {
+      "docs": {
+        "rs": {
+          "rustdoc-args": ["--document-private-items"]
+        }
+      }
+    },
+    "publish": null,
+    "authors": ["The RustCrypto Project Developers"],
+    "categories": ["cryptography", "memory-management", "no-std", "os"],
+    "keywords": ["memory", "memset", "secure", "volatile", "zero"],
+    "readme": "README.md",
+    "repository": "https://github.com/RustCrypto/utils",
+    "homepage": null,
+    "documentation": "https://docs.rs/zeroize_derive",
+    "edition": "2024",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.85"
+  },
+  {
+    "name": "zerotrie",
+    "version": "0.2.5",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zerotrie@0.2.5",
+    "license": "Unicode-3.0",
+    "license_file": null,
+    "description": "A data structure that efficiently maps strings to integers",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "databake",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.2.0",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "displaydoc",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.2.3",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "litemap",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.8.0",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": ["alloc"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde_core",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.220",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "yoke",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.8.3",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "zerofrom",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.1.6",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "zerovec",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.11.7",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "bincode",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.3.1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "icu_locale_core",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^2.3.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["alloc"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "itertools",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.14.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "postcard",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.3",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["alloc"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rand",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.9",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rand_pcg",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.9",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rmp-serde",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.2.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.220",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde_json",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.45",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "criterion",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.5.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": "cfg(not(target_arch = \"wasm32\"))",
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zerotrie",
+        "src_path": "@registry@/zerotrie-0.2.5/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "first_weekday_for_region",
+        "src_path": "@registry@/zerotrie-0.2.5/examples/first_weekday_for_region.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "asciitrie_test",
+        "src_path": "@registry@/zerotrie-0.2.5/tests/asciitrie_test.rs",
+        "edition": "2021",
+        "required-features": ["alloc", "litemap"],
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "builder_test",
+        "src_path": "@registry@/zerotrie-0.2.5/tests/builder_test.rs",
+        "edition": "2021",
+        "required-features": ["alloc", "litemap"],
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "dense_test",
+        "src_path": "@registry@/zerotrie-0.2.5/tests/dense_test.rs",
+        "edition": "2021",
+        "required-features": ["alloc", "dense"],
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "derive_test",
+        "src_path": "@registry@/zerotrie-0.2.5/tests/derive_test.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "ignorecase_test",
+        "src_path": "@registry@/zerotrie-0.2.5/tests/ignorecase_test.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "locale_aux_test",
+        "src_path": "@registry@/zerotrie-0.2.5/tests/locale_aux_test.rs",
+        "edition": "2021",
+        "required-features": ["alloc", "litemap"],
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["bench"],
+        "crate_types": ["bin"],
+        "name": "overview",
+        "src_path": "@registry@/zerotrie-0.2.5/benches/overview.rs",
+        "edition": "2021",
+        "required-features": ["alloc", "litemap"],
+        "doc": false,
+        "doctest": false,
+        "test": false
+      }
+    ],
+    "features": {
+      "alloc": ["zerovec?/alloc"],
+      "databake": ["dep:databake", "zerovec?/databake"],
+      "default": [],
+      "dense": ["dep:zerovec"],
+      "litemap": ["dep:litemap", "alloc"],
+      "serde": ["dep:serde_core", "dep:litemap", "alloc", "litemap/serde", "zerovec?/serde"],
+      "yoke": ["dep:yoke"],
+      "zerofrom": ["dep:zerofrom"],
+      "zerovec": ["dep:zerovec"]
+    },
+    "manifest_path": "@registry@/zerotrie-0.2.5/Cargo.toml",
+    "metadata": {
+      "docs": {
+        "rs": {
+          "all-features": true
+        }
+      },
+      "cargo-all-features": {
+        "max_combination_size": 3
+      }
+    },
+    "publish": null,
+    "authors": ["The ICU4X Project Developers"],
+    "categories": ["internationalization", "localization", "no-std", "embedded"],
+    "keywords": ["zero-copy", "serialization", "memory-efficiency", "trie"],
+    "readme": "README.md",
+    "repository": "https://github.com/unicode-org/icu4x",
+    "homepage": "https://icu4x.unicode.org",
+    "documentation": null,
+    "edition": "2021",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.82"
+  },
+  {
+    "name": "zerovec",
+    "version": "0.11.8",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zerovec@0.11.8",
+    "license": "Unicode-3.0",
+    "license_file": null,
+    "description": "Zero-copy vector backed by a byte array",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "databake",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.2.0",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "schemars",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.4",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.220",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "twox-hash",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^2.0.0",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": ["xxhash64"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "yoke",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.8.3",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "zerofrom",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.1.6",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "zerovec-derive",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.11.5",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "bincode",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.3.1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "getrandom",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.3",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": ["wasm_js"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "iai",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.1.1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "insta",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.43.2",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": ["json"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "postcard",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.3",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["use-std"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rand",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.9",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rand_distr",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.5",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rand_pcg",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.9",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rmp-serde",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.2.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.220",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde_json",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.45",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "yoke",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.8.3",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "criterion",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.5.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": "cfg(not(target_arch = \"wasm32\"))",
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zerovec",
+        "src_path": "@registry@/zerovec-0.11.8/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "zv_serde",
+        "src_path": "@registry@/zerovec-0.11.8/examples/zv_serde.rs",
+        "edition": "2021",
+        "required-features": ["serde"],
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["bench"],
+        "crate_types": ["bin"],
+        "name": "vzv",
+        "src_path": "@registry@/zerovec-0.11.8/benches/vzv.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["bench"],
+        "crate_types": ["bin"],
+        "name": "zeromap",
+        "src_path": "@registry@/zerovec-0.11.8/benches/zeromap.rs",
+        "edition": "2021",
+        "required-features": ["serde", "hashmap", "derive"],
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["bench"],
+        "crate_types": ["bin"],
+        "name": "zerovec",
+        "src_path": "@registry@/zerovec-0.11.8/benches/zerovec.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["bench"],
+        "crate_types": ["bin"],
+        "name": "zerovec_iai",
+        "src_path": "@registry@/zerovec-0.11.8/benches/zerovec_iai.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["bench"],
+        "crate_types": ["bin"],
+        "name": "zerovec_serde",
+        "src_path": "@registry@/zerovec-0.11.8/benches/zerovec_serde.rs",
+        "edition": "2021",
+        "required-features": ["serde"],
+        "doc": false,
+        "doctest": false,
+        "test": false
+      }
+    ],
+    "features": {
+      "alloc": ["serde?/alloc"],
+      "databake": ["dep:databake"],
+      "derive": ["dep:zerovec-derive"],
+      "hashmap": ["dep:twox-hash", "alloc"],
+      "schemars": ["dep:schemars", "alloc"],
+      "serde": ["dep:serde"],
+      "std": [],
+      "yoke": ["dep:yoke"]
+    },
+    "manifest_path": "@registry@/zerovec-0.11.8/Cargo.toml",
+    "metadata": {
+      "workspaces": {
+        "independent": true
+      },
+      "docs": {
+        "rs": {
+          "all-features": true
+        }
+      },
+      "cargo-all-features": {
+        "max_combination_size": 3
+      }
+    },
+    "publish": null,
+    "authors": ["The ICU4X Project Developers"],
+    "categories": ["rust-patterns", "memory-management", "caching", "no-std", "data-structures"],
+    "keywords": ["zero-copy", "serialization", "memory-efficiency", "serde"],
+    "readme": "README.md",
+    "repository": "https://github.com/unicode-org/icu4x",
+    "homepage": null,
+    "documentation": null,
+    "edition": "2021",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.83"
+  },
+  {
+    "name": "zerovec-derive",
+    "version": "0.11.6",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zerovec-derive@0.11.6",
+    "license": "Unicode-3.0",
+    "license_file": null,
+    "description": "Custom derive for the zerovec crate",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "proc-macro2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.61",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "quote",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.44",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "syn",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^3.0",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": ["extra-traits"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "bincode",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.3.1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.220",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "serde_json",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.45",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["proc-macro"],
+        "crate_types": ["proc-macro"],
+        "name": "zerovec_derive",
+        "src_path": "@registry@/zerovec-derive-0.11.6/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "derives",
+        "src_path": "@registry@/zerovec-derive-0.11.6/examples/derives.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "make",
+        "src_path": "@registry@/zerovec-derive-0.11.6/examples/make.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "make_var",
+        "src_path": "@registry@/zerovec-derive-0.11.6/examples/make_var.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "derive_ule_test",
+        "src_path": "@registry@/zerovec-derive-0.11.6/tests/derive_ule_test.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "make_varule_miri_test",
+        "src_path": "@registry@/zerovec-derive-0.11.6/tests/make_varule_miri_test.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "sparse_enum_test",
+        "src_path": "@registry@/zerovec-derive-0.11.6/tests/sparse_enum_test.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    ],
+    "features": {},
+    "manifest_path": "@registry@/zerovec-derive-0.11.6/Cargo.toml",
+    "metadata": {
+      "workspaces": {
+        "independent": true
+      }
+    },
+    "publish": null,
+    "authors": ["Manish Goregaokar <manishsmail@gmail.com>"],
+    "categories": ["rust-patterns", "memory-management", "caching", "no-std", "data-structures"],
+    "keywords": ["macros", "derive", "serialization", "zero-copy"],
+    "readme": "README.md",
+    "repository": "https://github.com/unicode-org/icu4x",
+    "homepage": null,
+    "documentation": null,
+    "edition": "2021",
+    "links": null,
+    "default_run": null,
+    "rust_version": null
+  },
+  {
+    "name": "zlib-rs",
+    "version": "0.6.8",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zlib-rs@0.6.8",
+    "license": "Zlib",
+    "license_file": null,
+    "description": "A memory-safe zlib implementation written in rust",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "arbitrary",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": true,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "quickcheck",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.3",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "crc32fast",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.3.2",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "memoffset",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.9.1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "quickcheck",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.3",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zlib_rs",
+        "src_path": "@registry@/zlib-rs-0.6.8/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      }
+    ],
+    "features": {
+      "ZLIB_DEBUG": [],
+      "__internal-api": [],
+      "__internal-fuzz": ["arbitrary"],
+      "__internal-fuzz-disable-checksum": [],
+      "__internal-test": ["quickcheck"],
+      "arbitrary": ["dep:arbitrary"],
+      "avx512": ["vpclmulqdq"],
+      "c-allocator": [],
+      "default": ["std", "c-allocator"],
+      "lsx": [],
+      "quickcheck": ["dep:quickcheck"],
+      "rust-allocator": [],
+      "std": ["rust-allocator"],
+      "vpclmulqdq": []
+    },
+    "manifest_path": "@registry@/zlib-rs-0.6.8/Cargo.toml",
+    "metadata": null,
+    "publish": null,
+    "authors": [],
+    "categories": [],
+    "keywords": [],
+    "readme": "README.md",
+    "repository": "https://github.com/trifectatechfoundation/zlib-rs",
+    "homepage": "https://github.com/trifectatechfoundation/zlib-rs",
+    "documentation": null,
+    "edition": "2021",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.75"
+  },
+  {
+    "name": "zmij",
+    "version": "1.0.23",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zmij@1.0.23",
+    "license": "MIT",
+    "license_file": null,
+    "description": "A double-to-string conversion algorithm based on Schubfach and xjb",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "no-panic",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.1.36",
+        "kind": null,
+        "rename": null,
+        "optional": true,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "num-bigint",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.5",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "num-integer",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "num_cpus",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.8",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "opt-level",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "rand",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.10",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "ryu",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "criterion",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.8",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": [],
+        "target": "cfg(not(miri))",
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zmij",
+        "src_path": "@registry@/zmij-1.0.23/src/lib.rs",
+        "edition": "2021",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "exhaustive",
+        "src_path": "@registry@/zmij-1.0.23/tests/exhaustive.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "ryu_comparison",
+        "src_path": "@registry@/zmij-1.0.23/tests/ryu_comparison.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "test",
+        "src_path": "@registry@/zmij-1.0.23/tests/test.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["bench"],
+        "crate_types": ["bin"],
+        "name": "bench",
+        "src_path": "@registry@/zmij-1.0.23/benches/bench.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["custom-build"],
+        "crate_types": ["bin"],
+        "name": "build-script-build",
+        "src_path": "@registry@/zmij-1.0.23/build.rs",
+        "edition": "2021",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      }
+    ],
+    "features": {
+      "no-panic": ["dep:no-panic"]
+    },
+    "manifest_path": "@registry@/zmij-1.0.23/Cargo.toml",
+    "metadata": {
+      "docs": {
+        "rs": {
+          "targets": ["x86_64-unknown-linux-gnu"],
+          "rustdoc-args": [
+            "--generate-link-to-definition",
+            "--generate-macro-expansion",
+            "--extern-html-root-url=core=https://doc.rust-lang.org"
+          ]
+        }
+      }
+    },
+    "publish": null,
+    "authors": ["David Tolnay <dtolnay@gmail.com>"],
+    "categories": ["value-formatting", "no-std", "no-std::no-alloc"],
+    "keywords": ["float"],
+    "readme": "README.md",
+    "repository": "https://github.com/dtolnay/zmij",
+    "homepage": null,
+    "documentation": "https://docs.rs/zmij",
+    "edition": "2021",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.71"
+  },
+  {
+    "name": "zstd",
+    "version": "0.13.3",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zstd@0.13.3",
+    "license": "MIT",
+    "license_file": null,
+    "description": "Binding for the zstd compression library.",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "zstd-safe",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^7.1.0",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": ["std"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "clap",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^4.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": ["derive"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "humansize",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^2.0",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "partial-io",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.5",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "walkdir",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^2.2",
+        "kind": "dev",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zstd",
+        "src_path": "@registry@/zstd-0.13.3/src/lib.rs",
+        "edition": "2018",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "basic",
+        "src_path": "@registry@/zstd-0.13.3/examples/basic.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "benchmark",
+        "src_path": "@registry@/zstd-0.13.3/examples/benchmark.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "stream",
+        "src_path": "@registry@/zstd-0.13.3/examples/stream.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "train",
+        "src_path": "@registry@/zstd-0.13.3/examples/train.rs",
+        "edition": "2018",
+        "required-features": ["zdict_builder"],
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "zstd",
+        "src_path": "@registry@/zstd-0.13.3/examples/zstd.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["example"],
+        "crate_types": ["bin"],
+        "name": "zstdcat",
+        "src_path": "@registry@/zstd-0.13.3/examples/zstdcat.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      },
+      {
+        "kind": ["test"],
+        "crate_types": ["bin"],
+        "name": "issue_182",
+        "src_path": "@registry@/zstd-0.13.3/tests/issue_182.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    ],
+    "features": {
+      "arrays": ["zstd-safe/arrays"],
+      "bindgen": ["zstd-safe/bindgen"],
+      "debug": ["zstd-safe/debug"],
+      "default": ["legacy", "arrays", "zdict_builder"],
+      "doc-cfg": [],
+      "experimental": ["zstd-safe/experimental"],
+      "fat-lto": ["zstd-safe/fat-lto"],
+      "legacy": ["zstd-safe/legacy"],
+      "no_asm": ["zstd-safe/no_asm"],
+      "pkg-config": ["zstd-safe/pkg-config"],
+      "thin": ["zstd-safe/thin"],
+      "thin-lto": ["zstd-safe/thin-lto"],
+      "wasm": [],
+      "zdict_builder": ["zstd-safe/zdict_builder"],
+      "zstdmt": ["zstd-safe/zstdmt"]
+    },
+    "manifest_path": "@registry@/zstd-0.13.3/Cargo.toml",
+    "metadata": {
+      "docs": {
+        "rs": {
+          "features": ["experimental", "zstdmt", "zdict_builder", "doc-cfg"]
+        }
+      }
+    },
+    "publish": null,
+    "authors": ["Alexandre Bury <alexandre.bury@gmail.com>"],
+    "categories": ["compression", "api-bindings"],
+    "keywords": ["zstd", "zstandard", "compression"],
+    "readme": "Readme.md",
+    "repository": "https://github.com/gyscos/zstd-rs",
+    "homepage": null,
+    "documentation": "https://docs.rs/zstd",
+    "edition": "2018",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.64"
+  },
+  {
+    "name": "zstd-fixture",
+    "version": "0.1.0",
+    "id": "path+file://@workspace@/packages/zstd-fixture#0.1.0",
+    "license": "AGPL-3.0-only",
+    "license_file": null,
+    "description": null,
+    "source": null,
+    "dependencies": [
+      {
+        "name": "merkur-codec",
+        "source": null,
+        "req": "*",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null,
+        "path": "@workspace@/packages/merkur-codec"
+      },
+      {
+        "name": "zstd",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.13",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["bin"],
+        "crate_types": ["bin"],
+        "name": "zstd-fixture",
+        "src_path": "@workspace@/packages/zstd-fixture/src/main.rs",
+        "edition": "2024",
+        "doc": true,
+        "doctest": false,
+        "test": true
+      }
+    ],
+    "features": {},
+    "manifest_path": "@workspace@/packages/zstd-fixture/Cargo.toml",
+    "metadata": null,
+    "publish": [],
+    "authors": [],
+    "categories": [],
+    "keywords": [],
+    "readme": null,
+    "repository": null,
+    "homepage": null,
+    "documentation": null,
+    "edition": "2024",
+    "links": null,
+    "default_run": null,
+    "rust_version": null
+  },
+  {
+    "name": "zstd-safe",
+    "version": "7.2.4",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@7.2.4",
+    "license": "MIT OR Apache-2.0",
+    "license_file": null,
+    "description": "Safe low-level bindings for the zstd compression library.",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "zstd-sys",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^2.0.15",
+        "kind": null,
+        "rename": null,
+        "optional": false,
+        "uses_default_features": false,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zstd_safe",
+        "src_path": "@registry@/zstd-safe-7.2.4/src/lib.rs",
+        "edition": "2018",
+        "doc": true,
+        "doctest": true,
+        "test": true
+      },
+      {
+        "kind": ["custom-build"],
+        "crate_types": ["bin"],
+        "name": "build-script-build",
+        "src_path": "@registry@/zstd-safe-7.2.4/build.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      }
+    ],
+    "features": {
+      "arrays": [],
+      "bindgen": ["zstd-sys/bindgen"],
+      "debug": ["zstd-sys/debug"],
+      "default": ["legacy", "arrays", "zdict_builder"],
+      "doc-cfg": [],
+      "experimental": ["zstd-sys/experimental"],
+      "fat-lto": ["zstd-sys/fat-lto"],
+      "legacy": ["zstd-sys/legacy"],
+      "no_asm": ["zstd-sys/no_asm"],
+      "pkg-config": ["zstd-sys/pkg-config"],
+      "seekable": ["zstd-sys/seekable"],
+      "std": ["zstd-sys/std"],
+      "thin": ["zstd-sys/thin"],
+      "thin-lto": ["zstd-sys/thin-lto"],
+      "zdict_builder": ["zstd-sys/zdict_builder"],
+      "zstdmt": ["zstd-sys/zstdmt"]
+    },
+    "manifest_path": "@registry@/zstd-safe-7.2.4/Cargo.toml",
+    "metadata": {
+      "docs": {
+        "rs": {
+          "features": ["experimental", "arrays", "std", "zdict_builder", "doc-cfg"]
+        }
+      }
+    },
+    "publish": null,
+    "authors": ["Alexandre Bury <alexandre.bury@gmail.com>"],
+    "categories": ["api-bindings", "compression"],
+    "keywords": ["zstd", "zstandard", "compression"],
+    "readme": "Readme.md",
+    "repository": "https://github.com/gyscos/zstd-rs",
+    "homepage": null,
+    "documentation": null,
+    "edition": "2018",
+    "links": null,
+    "default_run": null,
+    "rust_version": "1.64"
+  },
+  {
+    "name": "zstd-sys",
+    "version": "2.0.16+zstd.1.5.7",
+    "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.0.16+zstd.1.5.7",
+    "license": "MIT/Apache-2.0",
+    "license_file": null,
+    "description": "Low-level bindings for the zstd compression library.",
+    "source": "registry+https://github.com/rust-lang/crates.io-index",
+    "dependencies": [
+      {
+        "name": "bindgen",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.72",
+        "kind": "build",
+        "rename": null,
+        "optional": true,
+        "uses_default_features": false,
+        "features": ["runtime"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "cc",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^1.0.45",
+        "kind": "build",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": ["parallel"],
+        "target": null,
+        "registry": null
+      },
+      {
+        "name": "pkg-config",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "req": "^0.3.28",
+        "kind": "build",
+        "rename": null,
+        "optional": false,
+        "uses_default_features": true,
+        "features": [],
+        "target": null,
+        "registry": null
+      }
+    ],
+    "targets": [
+      {
+        "kind": ["lib"],
+        "crate_types": ["lib"],
+        "name": "zstd_sys",
+        "src_path": "@registry@/zstd-sys-2.0.16+zstd.1.5.7/src/lib.rs",
+        "edition": "2018",
+        "doc": true,
+        "doctest": false,
+        "test": true
+      },
+      {
+        "kind": ["custom-build"],
+        "crate_types": ["bin"],
+        "name": "build-script-build",
+        "src_path": "@registry@/zstd-sys-2.0.16+zstd.1.5.7/build.rs",
+        "edition": "2018",
+        "doc": false,
+        "doctest": false,
+        "test": false
+      }
+    ],
+    "features": {
+      "bindgen": ["dep:bindgen"],
+      "debug": [],
+      "default": ["legacy", "zdict_builder", "bindgen"],
+      "experimental": [],
+      "fat-lto": [],
+      "legacy": [],
+      "no_asm": [],
+      "no_wasm_shim": [],
+      "non-cargo": [],
+      "pkg-config": [],
+      "seekable": [],
+      "std": [],
+      "thin": [],
+      "thin-lto": [],
+      "zdict_builder": [],
+      "zstdmt": []
+    },
+    "manifest_path": "@registry@/zstd-sys-2.0.16+zstd.1.5.7/Cargo.toml",
+    "metadata": {
+      "docs": {
+        "rs": {
+          "features": ["experimental"]
+        }
+      }
+    },
+    "publish": null,
+    "authors": ["Alexandre Bury <alexandre.bury@gmail.com>"],
+    "categories": ["api-bindings", "compression"],
+    "keywords": ["zstd", "zstandard", "compression"],
+    "readme": "Readme.md",
+    "repository": "https://github.com/gyscos/zstd-rs",
+    "homepage": null,
+    "documentation": null,
+    "edition": "2018",
+    "links": "zstd",
+    "default_run": null,
+    "rust_version": "1.64"
+  }
+]

@@ -1,0 +1,102 @@
+--- a/Source/kwsys/SystemInformation.cxx
++++ b/Source/kwsys/SystemInformation.cxx
+@@ -919,34 +919,6 @@
+     return ierr;
+   }
+   value = values[0];
+-  return 0;
+-}
+-#endif
+-
+-// ****************************************************************************
+-#if defined(__APPLE__)
+-template <typename T>
+-int GetFieldsFromCommand(char const* command, char const** fieldNames,
+-                         T* values)
+-{
+-  FILE* file = popen(command, "r");
+-  if (!file) {
+-    return -1;
+-  }
+-  std::vector<std::string> fields;
+-  int nl = LoadLines(file, fields);
+-  pclose(file);
+-  if (nl == 0) {
+-    return -1;
+-  }
+-  int i = 0;
+-  while (fieldNames[i]) {
+-    int ierr = NameValue(fields, fieldNames[i], values[i]);
+-    if (ierr) {
+-      return -(i + 2);
+-    }
+-    i += 1;
+-  }
+   return 0;
+ }
+ #endif
+@@ -3833,14 +3805,17 @@
+   if (psz < 1) {
+     return -1;
+   }
+-  char const* names[3] = { "Pages wired down:", "Pages active:", nullptr };
+-  long long values[2] = { 0 };
+-  int ierr = GetFieldsFromCommand("vm_stat", names, values);
+-  if (ierr) {
++  vm_statistics_data_t statistics;
++  mach_msg_type_number_t count = HOST_VM_INFO_COUNT;
++  mach_port_t host = mach_host_self();
++  kern_return_t result = host_statistics(
++    host, HOST_VM_INFO, reinterpret_cast<host_info_t>(&statistics), &count);
++  mach_port_deallocate(mach_task_self(), host);
++  if (result != KERN_SUCCESS) {
+     return -1;
+   }
+-  long long& vmWired = values[0];
+-  long long& vmActive = values[1];
++  long long vmWired = statistics.wire_count;
++  long long vmActive = statistics.active_count;
+   return ((vmActive + vmWired) * psz) / 1024;
+ #else
+   return 0;
+@@ -3875,33 +3850,15 @@
+   }
+   return memUsed;
+ #elif defined(__APPLE__)
+-  long long memUsed = 0;
+-  pid_t pid = getpid();
+-  std::ostringstream oss;
+-  oss << "ps -o rss= -p " << pid;
+-  FILE* file = popen(oss.str().c_str(), "r");
+-  if (!file) {
+-    return -1;
+-  }
+-  oss.str("");
+-  while (!feof(file) && !ferror(file)) {
+-    char buf[256] = { '\0' };
+-    errno = 0;
+-    size_t nRead = fread(buf, 1, 256, file);
+-    if (ferror(file) && (errno == EINTR)) {
+-      clearerr(file);
+-    }
+-    if (nRead)
+-      oss << buf;
+-  }
+-  int ierr = ferror(file);
+-  pclose(file);
+-  if (ierr) {
++  mach_task_basic_info_data_t information;
++  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
++  kern_return_t result = task_info(
++    mach_task_self(), MACH_TASK_BASIC_INFO,
++    reinterpret_cast<task_info_t>(&information), &count);
++  if (result != KERN_SUCCESS) {
+     return -2;
+   }
+-  std::istringstream iss(oss.str());
+-  iss >> memUsed;
+-  return memUsed;
++  return information.resident_size / 1024;
+ #else
+   return 0;
+ #endif

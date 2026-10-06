@@ -1,0 +1,165 @@
+
+["badges"]
+
+["badges"."maintenance"]
+"status" = "actively-developed"
+
+["dependencies"]
+
+["dependencies"."anyhow"]
+"version" = "1.0"
+
+["dependencies"."bitvec"]
+"features" = ["alloc"]
+"version" = "1.0"
+
+["dependencies"."camino"]
+"version" = "1.1"
+
+["dependencies"."cfg-expr"]
+"version" = "0.20"
+
+["dependencies"."clap"]
+"features" = ["env"]
+"version" = "4.5"
+
+["dependencies"."codespan"]
+"features" = ["serialization"]
+"version" = "0.13"
+
+["dependencies"."codespan-reporting"]
+"features" = ["serialization"]
+"version" = "0.13"
+
+["dependencies"."crossbeam"]
+"version" = "0.8"
+
+["dependencies"."fern"]
+"version" = "0.7"
+
+["dependencies"."globset"]
+"version" = "0.4"
+
+["dependencies"."goblin"]
+"default-features" = false
+"features" = ["elf32", "elf64", "mach32", "mach64", "pe32", "pe64", "te"]
+"version" = "0.10"
+
+["dependencies"."jiff"]
+"default-features" = false
+"features" = ["std"]
+"version" = "0.2"
+
+["dependencies"."krates"]
+"features" = ["targets"]
+"version" = "0.21"
+
+["dependencies"."log"]
+"version" = "0.4"
+
+["dependencies"."memchr"]
+"version" = "2.7"
+
+["dependencies"."memmap2"]
+"version" = "0.9"
+
+["dependencies"."nu-ansi-term"]
+"version" = "0.50"
+
+["dependencies"."parking_lot"]
+"version" = "0.12"
+
+["dependencies"."rayon"]
+"version" = "1.11"
+
+["dependencies"."regex"]
+"version" = "1.12"
+
+["dependencies"."ring"]
+"version" = "0.17"
+
+["dependencies"."semver"]
+"version" = "1.0"
+
+["dependencies"."serde"]
+"features" = ["derive"]
+"version" = "1.0"
+
+["dependencies"."serde_json"]
+"version" = "1.0"
+
+["dependencies"."smallvec"]
+"version" = "1.14"
+
+["dependencies"."spdx"]
+"features" = ["detection-parallel", "detection-inline-cache"]
+"version" = "0.13"
+
+["dependencies"."strum"]
+"features" = ["derive"]
+"version" = "0.28"
+
+["dependencies"."tame-index"]
+"default-features" = false
+"features" = ["local"]
+"version" = "0.26"
+
+["dependencies"."toml-span"]
+"features" = ["reporting"]
+"version" = "0.7"
+
+["dependencies"."twox-hash"]
+"default-features" = false
+"features" = ["xxhash32"]
+"version" = "2.1"
+
+["dependencies"."url"]
+"version" = "2.5"
+
+["dependencies"."walkdir"]
+"version" = "2.3"
+
+["lib"]
+"path" = "empty.rs"
+
+["package"]
+"authors" = ["Embark <opensource@embark-studios.com>", "Jake Shadle <jake.shadle@embark-studios.com>"]
+"autobenches" = false
+"autobins" = false
+"autoexamples" = false
+"autolib" = false
+"autotests" = false
+"build" = false
+"categories" = ["development-tools::cargo-plugins"]
+"description" = "Cargo plugin to help you manage large dependency graphs"
+"documentation" = "https://docs.rs/cargo-deny"
+"edition" = "2024"
+"exclude" = ["docs/", "examples/", ".github/", "tests"]
+"homepage" = "https://github.com/EmbarkStudios/cargo-deny"
+"keywords" = ["cargo", "license", "spdx", "ci", "advisories"]
+"license" = "MIT OR Apache-2.0"
+"name" = "cargo-deny"
+"readme" = "README.md"
+"repository" = "https://github.com/EmbarkStudios/cargo-deny"
+"rust-version" = "1.88.0"
+"version" = "0.20.2"
+
+["profile"]
+
+["profile"."dev"]
+
+["profile"."dev"."package"]
+
+["profile"."dev"."package"."insta"]
+"opt-level" = 3
+
+["profile"."dev"."package"."similar"]
+"opt-level" = 3
+
+["profile"."release"]
+"codegen-units" = 1
+"lto" = "fat"
+"strip" = "symbols"
+
+["workspace"]
+"resolver" = "3"

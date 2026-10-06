@@ -1,0 +1,175 @@
+# Inactive integration recipe; every extended suite remains mandatory.
+# One controller reserves the shared Static8 and all five suites once.
+# Matrix jobs only project that complete command; reports never grant admission.
+# Simulation replay and the scheduled/manual 200-seed sweep belong to Assurance;
+# they do not replace any of these five native/browser environment suites.
+name: Extended CI
+on:
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  controller:
+    name: Complete extended controller batch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-bazel
+        id: engine
+        with:
+          ledger-origin: ${{ vars.MERKUR_VERIFICATION_LEDGER_ORIGIN }}
+          ledger-credential-helper: ${{ vars.MERKUR_VERIFICATION_LEDGER_CREDENTIAL_HELPER }}
+          credential-file: ${{ vars.MERKUR_VERIFICATION_CREDENTIAL_FILE }}
+      - run: python3 -I scripts/ci/bazel_admission.py .github/bazel/qualification.json extended
+      - name: Verify the complete fresh inventory through the owned controller
+        env:
+          VERIFICATION_BAZEL: ${{ steps.engine.outputs.executable }}
+          LEDGER_CLIENT: ${{ steps.engine.outputs.ledger-client }}
+          CREDENTIAL_FILE: ${{ steps.engine.outputs.credential-file }}
+          SOURCE_CANDIDATE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFICATION_BAZEL" == /* ]]
+          [[ "$LEDGER_CLIENT" == /* && "$CREDENTIAL_FILE" == /* ]]
+          [[ "$SOURCE_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          directory="$RUNNER_TEMP/extended-controller-$GITHUB_RUN_ATTEMPT"
+          mkdir "$directory"
+          report="$directory/controller.json"
+          expected="$directory/expected.json"
+          ci="$directory/ci.json"
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" run \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_download_outputs=all --symlink_prefix=/ //tools:verify -- --all --force --extended-suites \
+            --candidate "$SOURCE_CANDIDATE_SHA" --ledger-client "$LEDGER_CLIENT" \
+            --credential-file "$CREDENTIAL_FILE" --report-file "$report" \
+            --ci-report-file "$ci" --expected-context-file "$expected"
+      - name: Require all three retained controller diagnostic Files
+        if: always()
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/extended-controller-$GITHUB_RUN_ATTEMPT"
+          for file in "$directory/controller.json" "$directory/expected.json" "$directory/ci.json"; do
+            [[ -f "$file" && ! -L "$file" && -s "$file" ]]
+          done
+      - name: Retain complete controller diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: extended-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/extended-controller-${{ github.run_attempt }}/controller.json
+            ${{ runner.temp }}/extended-controller-${{ github.run_attempt }}/expected.json
+            ${{ runner.temp }}/extended-controller-${{ github.run_attempt }}/ci.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Copy only reported simulation diagnostics before storage retirement
+        id: simulation-artifacts
+        if: always()
+        env:
+          VERIFICATION_BAZEL: ${{ steps.engine.outputs.executable }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFICATION_BAZEL" == /* ]]
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          report="$RUNNER_TEMP/extended-controller-$GITHUB_RUN_ATTEMPT/controller.json"
+          archive="$RUNNER_TEMP/simulation-diagnostics-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          retained=$(env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" run \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_download_outputs=all --symlink_prefix=/ //tools/bazel/ci:simulation_artifacts -- \
+            --report-file "$report" --temporary-root "$TMPDIR" --output-directory "$archive")
+          [[ -z "$retained" || ( "$retained" == /* && "$retained" == */"${archive##*/}" ) ]]
+          printf 'directory=%s\n' "$retained" >> "$GITHUB_OUTPUT"
+      - name: Retain reported original simulation attempt Files
+        if: always() && steps.simulation-artifacts.outputs.directory != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: simulation-diagnostics-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.simulation-artifacts.outputs.directory }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retire the owned Bazel storage
+        if: always() && env.MERKUR_BAZEL_STORAGE_STATE != ''
+        shell: bash
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+        run: |
+          set -euo pipefail
+          shutdown_status=0
+          if [[ -n "$ENGINE" && -x "$ENGINE" ]]; then
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" shutdown || shutdown_status=$?
+          fi
+          cleanup_status=0
+          python3 -I -B tools/bazel/qualification/storage/storage.py cleanup --state "$MERKUR_BAZEL_STORAGE_STATE" || cleanup_status=$?
+          if (( shutdown_status != 0 || cleanup_status != 0 )); then
+            echo "Owned storage retirement: Bazel shutdown exited $shutdown_status; storage cleanup exited $cleanup_status" >&2
+          fi
+          if (( cleanup_status != 0 )); then
+            exit "$cleanup_status"
+          fi
+          exit "$shutdown_status"
+
+  native:
+    needs: controller
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [test:natlab, test:tpm-sim, test:graphics:long]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete extended controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same extended diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: extended-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/extended-controller-diagnostics
+      - name: Require complete ordinary extended diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/extended-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done
+
+  browser:
+    needs: controller
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [test:e2e:transport:impaired:functional, test:e2e:edge-topology]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CONTROLLER_RESULT: ${{ needs.controller.result }}
+    steps:
+      - name: Require the successful complete extended controller command
+        run: test "$CONTROLLER_RESULT" = success
+      - name: Retain access to the same extended diagnostic Files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: extended-controller-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/extended-controller-diagnostics
+      - name: Require complete ordinary extended diagnostic Files
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/extended-controller-diagnostics"
+          for file in controller.json ci.json expected.json; do
+            [[ -f "$directory/$file" && ! -L "$directory/$file" && -s "$directory/$file" ]]
+          done

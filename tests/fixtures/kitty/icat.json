@@ -1,0 +1,22 @@
+{
+  "producer": "kitten icat 0.48.2",
+  "command": [
+    "kitten",
+    "icat",
+    "--stdin=no",
+    "--engine=builtin",
+    "--transfer-mode=stream",
+    "--use-window-size=80,24,800,480",
+    "--place=12x6@0x0",
+    "--align=left",
+    "--image-id=314159",
+    "--passthrough=none",
+    "red.png"
+  ],
+  "binarySha256": "97963e3885012e3d8fa711cfc3201db3380002eb9927f230f3b08400f1aec7f0",
+  "inputSha256": "4f55763bbb5f30e77c6a573b1c56d42126c2febfa2686da24fc32e2e76d99ce0",
+  "sha256": "fad012a92f4cf97ddb857a362b67381117a461e214b5b71063f2eafddb169d14",
+  "bytes": 149,
+  "encoding": "zlib+base64",
+  "payload": "eJzjlY42tDb0kI53T7QN0Sm0NdJJszUy0cm3rdJxtjXUKbY1NDLQKQOTmbbGhiaGppbWqV5VxeVZrn6Ojo6eTj4eVUkVBcn6fsHZYeWOZIFyv3QPR0cXfX1znyjn8mzpGAC2rCiZ"
+}

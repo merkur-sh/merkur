@@ -1,0 +1,59 @@
+[package]
+name = "term-wasm"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+alacritty_terminal = { version = "0.26.0", default-features = false }
+wasm-bindgen = "=0.2.127"
+merkur-codec = { path = "../merkur-codec" }
+merkur-graphics = { path = "../merkur-graphics" }
+merkur-wire = { path = "../merkur-wire", default-features = false }
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+fontdue = "0.9"
+hashbrown = "0.17"
+unicode-width = "0.2"
+# Display-frame decompression with the same C library the daemon encodes with,
+# compiled to wasm32 through zstd-sys's wasm shim (its malloc routes to the Rust
+# allocator), so the WASM build needs a clang with the wasm32 target; see
+# scripts/wasm-toolchain.ts. One-shot decode measured 2.1-2.4x faster than the
+# pure-Rust `ruzstd` it replaced, byte-exact, on V8 and JavaScriptCore.
+# `std` only adds the `Vec<u8>` output buffer; legacy formats and the
+# dictionary builder stay out of the artifact. `experimental` exposes the
+# magicless frame format the display payload uses.
+zstd-safe = { version = "7.2", default-features = false, features = ["std", "experimental"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+merkur-client = { path = "../merkur-client" }
+
+[dev-dependencies]
+# Native tests build real zstd dictionaries and compressed frames to drive the
+# decode path.
+zstd = { version = "0.13", features = ["experimental"] }
+
+[features]
+# Links the LLVM profile runtime into the instrumented build that
+# `scripts/term-wasm-pgo.ts` trains through `packages/term-wasm-pgo`. The
+# shipped artifact never enables it.
+pgo-train = ["dep:minicov"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+merkur-client = { path = "../merkur-client", default-features = false, features = ["wasm"] }
+# Feature switch for the browser core's Noise RNG; the backend is selected by
+# the root target rustflags and obtains entropy from crypto.getRandomValues.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+# Exact: minicov carries a compiler-rt profile runtime for one raw profile
+# format. 0.3.8 is raw version 10, which rustc 1.97.1's LLVM 22 writes; 0.3.9
+# is version 11 and aborts in its version check. Move it with the toolchain.
+minicov = { version = "=0.3.8", default-features = false, features = ["alloc"], optional = true }
+
+[package.metadata.cargo-shear]
+ignored = ["getrandom"]
+
+[lints]
+workspace = true

@@ -1,0 +1,82 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// Every `as T` and `<T>value`, except `as const`, needs a `SAFETY: <reason>` comment directly
+// before the assertion itself or before one of the nodes around it, out to the statement that
+// owns it: an expression statement, `return`, `throw`, a `const`/`let`/`var` declaration (and its
+// `export`), or a class property. With no such statement around it, out to the top-level
+// statement.
+//
+// Biome keeps comments as trivia on tokens, not as nodes, and a node's text starts at its first
+// token. So the comment before a node is read off the nearest enclosing node that starts
+// earlier: that node's text is split on the inner node's text, and the piece in front has to end
+// with the comment. What that cannot see:
+//   - a comment before the first token of the file, which no node's text holds;
+//   - which occurrence is which: when the enclosing node holds the same text twice (two identical
+//     statements in one block), a comment before either one justifies both;
+//   - Biome's clause nodes start at a token (`= value`, `(arguments)`, `: Type`), so a comment
+//     placed directly before such a token also counts.
+
+// Ends with a comment that holds `SAFETY:` and a reason, then only blank space and comments.
+pattern ends_with_marker() {
+  r"(?s).*(?://(?:[^\n]*[^\p{L}\p{N}_\n])?SAFETY[ \t]*:[ \t]*[^\s][^\n]*\n|/\*(?:(?:[^*]|\*+[^*/])*?[^\p{L}\p{N}_])??SAFETY\s*:\s*(?:[^\s*]|\*+[^*/])(?:[^*]|\*+[^*/])*\*+/)(?:\s|//[^\n]*\n|/\*(?:[^*]|\*+[^*/])*\*+/)*"
+}
+
+pattern marked() {
+  $node where {
+    $node <: within $holder where {
+      $pieces = split(string=$holder, separator=$node),
+      $front = $pieces[0],
+      ! $front <: ""
+    } ,
+    $pieces <: some ends_with_marker()
+  }
+}
+
+pattern owner() {
+  or {
+    JsExpressionStatement(),
+    JsReturnStatement(),
+    JsThrowStatement(),
+    JsVariableDeclaration(),
+    JsForVariableDeclaration(),
+    JsPropertyClassMember()
+  }
+}
+
+pattern justified() {
+  $assertion where {
+    or {
+      and {
+        $assertion <: within owner() as $owner ,
+        or {
+          $assertion <: within $around where {
+            $owner <: includes $around,
+            ! $around <: [$_, ...],
+            $around <: marked()
+          } ,
+          $owner <: within JsExport(export_clause=JsVariableDeclarationClause(declaration=$owner)) as $export where {
+            $export <: marked()
+          }
+        }
+      },
+      and {
+        ! $assertion <: within owner() ,
+        $assertion <: within $around where { ! $around <: [$_, ...], $around <: marked() }
+      }
+    }
+  }
+}
+
+or {
+  TsAsExpression(ty=$asserted),
+  TsTypeAssertionExpression(ty=$asserted)
+} as $assertion where {
+  ! $asserted <: "const",
+  or {
+    // A file that never says SAFETY has no justification to look for.
+    ! $program <: includes "SAFETY",
+    ! $assertion <: justified()
+  },
+  register_diagnostic(span=$assertion, message="[require-safety-comment-for-type-assertion] The compiler takes this assertion on trust. Say what makes it true in a `// SAFETY: …` comment directly before the assertion or the statement it is in.", severity="error")
+}

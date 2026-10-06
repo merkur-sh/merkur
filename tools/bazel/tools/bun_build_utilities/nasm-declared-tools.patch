@@ -1,0 +1,21 @@
+diff --git a/configure b/configure
+--- a/configure
++++ b/configure
+@@ -1876,16 +1876,7 @@
+ uname -s = `(uname -s) 2>/dev/null || echo unknown`
+ uname -v = `(uname -v) 2>/dev/null || echo unknown`
+ 
+-/usr/bin/uname -p = `(/usr/bin/uname -p) 2>/dev/null || echo unknown`
+-/bin/uname -X     = `(/bin/uname -X) 2>/dev/null     || echo unknown`
+-
+-/bin/arch              = `(/bin/arch) 2>/dev/null              || echo unknown`
+-/usr/bin/arch -k       = `(/usr/bin/arch -k) 2>/dev/null       || echo unknown`
+-/usr/convex/getsysinfo = `(/usr/convex/getsysinfo) 2>/dev/null || echo unknown`
+-/usr/bin/hostinfo      = `(/usr/bin/hostinfo) 2>/dev/null      || echo unknown`
+-/bin/machine           = `(/bin/machine) 2>/dev/null           || echo unknown`
+-/usr/bin/oslevel       = `(/usr/bin/oslevel) 2>/dev/null       || echo unknown`
+-/bin/universe          = `(/bin/universe) 2>/dev/null          || echo unknown`
++# Absolute host-only diagnostic commands are not declared build inputs.
+ 
+ _ASUNAME
+ 

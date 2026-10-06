@@ -1,0 +1,88 @@
+{
+  "version": "v2.0.0",
+  "source_commit": "40553fd842c2850b65787ed4da908d95aeab8834",
+  "platforms": {
+    "linux_x64": {
+      "cpu": 62,
+      "binary": "dragonfly-x86_64",
+      "interpreter": "/lib64/ld-linux-x86-64.so.2",
+      "archives": [
+        {
+          "name": "dragonfly",
+          "archive": "dragonfly-x86_64.tar.gz",
+          "url": "https://github.com/dragonflydb/dragonfly/releases/download/v2.0.0/dragonfly-x86_64.tar.gz",
+          "sha256": "31060f32858f99a751cae8b54b7b5b556a9b7eb855c30b79bfc3ab7acb26928a"
+        },
+        {
+          "name": "libc6",
+          "version": "2.39-0ubuntu8.9",
+          "archive": "libc6_2.39-0ubuntu8.9_amd64.deb",
+          "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc6_2.39-0ubuntu8.9_amd64.deb",
+          "sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be"
+        },
+        {
+          "name": "zlib1g",
+          "version": "1:1.3.dfsg-3.1ubuntu2.2",
+          "archive": "zlib1g_1.3.dfsg-3.1ubuntu2.2_amd64.deb",
+          "url": "https://archive.ubuntu.com/ubuntu/pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2.2_amd64.deb",
+          "sha256": "84b9cf5752b29c9f92c27cd4c4ba9bbcc70b5ccf9b1b515421a28ae23212e273"
+        },
+        {
+          "name": "libgcc-s1",
+          "version": "14.2.0-4ubuntu2~24.04.1",
+          "archive": "libgcc-s1_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+          "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+          "sha256": "aa7fadbe33b78bcf99885318040601c550c208929565b179891d9a3cc2aa68cd"
+        },
+        {
+          "name": "gcc-14-base",
+          "version": "14.2.0-4ubuntu2~24.04.1",
+          "archive": "gcc-14-base_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+          "url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gcc-14/gcc-14-base_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+          "sha256": "b95c172411a7fdae70307cf33a9f5320ba5e056b556454543dd5b679d5ce1c4f"
+        }
+      ]
+    },
+    "linux_arm64": {
+      "cpu": 183,
+      "binary": "dragonfly-aarch64",
+      "interpreter": "/lib/ld-linux-aarch64.so.1",
+      "archives": [
+        {
+          "name": "dragonfly",
+          "archive": "dragonfly-aarch64.tar.gz",
+          "url": "https://github.com/dragonflydb/dragonfly/releases/download/v2.0.0/dragonfly-aarch64.tar.gz",
+          "sha256": "2206c052e8e255bf9c93c22db9e6377ae3aa62d509494e7627ead45a1c868ea8"
+        },
+        {
+          "name": "libc6",
+          "version": "2.39-0ubuntu8.9",
+          "archive": "libc6_2.39-0ubuntu8.9_arm64.deb",
+          "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/glibc/libc6_2.39-0ubuntu8.9_arm64.deb",
+          "sha256": "ad109797c5f78a5eeb6d4c296bfbaae68b239111a0c9ac0eb97b8d430284ac45"
+        },
+        {
+          "name": "zlib1g",
+          "version": "1:1.3.dfsg-3.1ubuntu2.2",
+          "archive": "zlib1g_1.3.dfsg-3.1ubuntu2.2_arm64.deb",
+          "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2.2_arm64.deb",
+          "sha256": "e55ab3b4fb7b6edc4a628e28ec13f8780b08abe427d33ae148f030d8586d0e9a"
+        },
+        {
+          "name": "libgcc-s1",
+          "version": "14.2.0-4ubuntu2~24.04.1",
+          "archive": "libgcc-s1_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+          "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+          "sha256": "5b191f79ad985a9a653dbba45214619f729f9178a9bdf92f7c68db06c50d070b"
+        },
+        {
+          "name": "gcc-14-base",
+          "version": "14.2.0-4ubuntu2~24.04.1",
+          "archive": "gcc-14-base_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+          "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-14/gcc-14-base_14.2.0-4ubuntu2~24.04.1_arm64.deb",
+          "sha256": "bddbe21061fdc73a23e7de79ece91693bf61aa22d634d1c69c5048385c114968"
+        }
+      ]
+    }
+  }
+}

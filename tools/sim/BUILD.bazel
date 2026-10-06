@@ -1,0 +1,42 @@
+load("//tools/bazel/packaging:rules.bzl", "package_controls_test")
+load("//tools/bazel/rust/simulator/aarch64-apple-darwin:roots.bzl", "SIMULATOR_BINDINGS")
+load(":sim_targets.bzl", "declare_simulator_targets")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["manifest.toml", "Cargo.lock", "regressions.json", "build.rs"])
+
+filegroup(
+    name = "sources",
+    srcs = ["manifest.toml", "Cargo.lock", "regressions.json", "build.rs"] + glob(["src/**/*.rs", "tests/*.rs"]),
+)
+
+# The original captured release roots feed manual native diagnostics.
+# Production runtime qualification remains required.
+
+exports_files(["BUILD.bazel", "README.md", "sim_targets.bzl"])
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "sim_targets.bzl", ":sources"])
+
+# Source groups required by the exact captured compiler_unit declarations.
+# Runnable simulator diagnostics remain explicitly unqualified.
+filegroup(
+    name = "rust_sources",
+    srcs = glob(["src/**/*.rs", "tests/*.rs", "build.rs"]),
+)
+filegroup(
+    name = "package_data",
+    srcs = [":sources"],
+)
+
+# Only this original captured host is declared; other native contexts remain absent.
+declare_simulator_targets(bindings = {"aarch64-apple-darwin": SIMULATOR_BINDINGS})
+
+
+exports_files(["sim_targets_test.py"])
+package_controls_test(
+    name = "simulator_targets_controls_test",
+    src = "sim_targets_test.py",
+    runner = "sim_targets.bzl",
+    data = [":sources"],
+    tags = ["manual"],
+)

@@ -1,0 +1,87 @@
+[workspace]
+resolver = "3"
+members = [
+  "apps/daemon/dataplane",
+  "apps/edge",
+  "apps/stun",
+  "apps/tui",
+  "packages/merkur-stun-protocol",
+  "packages/merkur-wire",
+  "packages/alacritty-terminal-patch",
+  "packages/e2e-wasm",
+  "packages/graphics-wasm",
+  "packages/graphics-codec-probe",
+  "packages/zstd-fixture",
+  "packages/merkur-authorization",
+  "packages/merkur-client",
+  "packages/merkur-client-native",
+  "packages/merkur-codec",
+  "packages/merkur-e2e",
+  "packages/merkur-edge-protocol",
+  "packages/merkur-fec",
+  "packages/merkur-graphics",
+  "packages/merkur-image-worker",
+  "packages/merkur-identity-seal",
+  "packages/term-wasm",
+  "packages/term-wasm-pgo",
+  "packages/vte-patch"
+]
+exclude = [
+  "packages/fontdue-patch",
+  "packages/quinn-patch",
+  "packages/quinn-proto-patch",
+  "packages/wtransport-patch"
+]
+
+# First-party crates opt in with `[lints] workspace = true`; the vendored patch crates keep
+# upstream's code as it is. `rust:lint` denies warnings, so these fail the build: every
+# suppression is an `#[expect]` with a reason, and an expectation the lint no longer meets
+# fails as `unfulfilled_lint_expectations`, so a stale suppression cannot outlive the code it
+# excused.
+[workspace.lints.rust]
+# Only the isolated Bolero workspace enables these test-source markers; `cargo kani`
+# sets `kani` there.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)"] }
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# Release builds compile `debug_assert!` out, side effects included: an owner-turn call
+# wrapped in one ran under every test and never in a shipped daemon.
+debug_assert_with_mut_call = "warn"
+# The imperative hot paths thread disjoint borrows and plain values as separate arguments
+# rather than packing them into single-use structs; 65 per-function suppressions said so
+# one at a time.
+too_many_arguments = "allow"
+
+# `wtransport-patch`, `quinn-patch` and `quinn-proto-patch` are deliberately NOT workspace
+# members, unlike the two vendored crates above. A member is a resolution root,
+# so cargo resolves its DEFAULT features rather than the ones its dependents ask
+# for -- which drags `aws-lc-rs`, `aws-lc-fips-sys` and `cmake` into the lock, a
+# C toolchain this workspace is deliberately free of. As patch targets only,
+# they resolve exactly as the registry crates did. Explicit exclusion also lets
+# each vendored crate run its own unit tests without becoming a workspace root.
+[patch.crates-io]
+fontdue = { path = "packages/fontdue-patch" }
+alacritty_terminal = { path = "packages/alacritty-terminal-patch" }
+vte = { path = "packages/vte-patch" }
+wtransport = { path = "packages/wtransport-patch" }
+quinn-proto = { path = "packages/quinn-proto-patch" }
+quinn = { path = "packages/quinn-patch" }
+
+# Dependencies are built once and cached, so optimizing them costs one cold build and
+# nothing per edit; nobody steps through them in a debugger.
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# The test suites are CPU-bound simulations: at opt-level 0 the dataplane suite took 78 s,
+# at 1 it takes 7 s, and a one-file incremental rebuild stays at ~3 s because line tables
+# are cheaper to emit than full debuginfo. Assertions and overflow checks stay on: they are
+# part of what the tests check. Release, which the edge harness and shipped binaries use,
+# is untouched.
+[profile.test]
+opt-level = 1
+debug = "line-tables-only"
+debug-assertions = true
+overflow-checks = true

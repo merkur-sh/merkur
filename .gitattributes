@@ -1,0 +1,41 @@
+# Generator output that Bazel loads from the checkout. GitHub leaves these paths out of
+# the language statistics and collapses their diffs.
+
+# tools/bazel/bun/generate_graph.py
+apps/**/BUILD.bazel linguist-generated
+packages/**/BUILD.bazel linguist-generated
+packages/*/bun_inputs.bzl linguist-generated
+scripts/BUILD.bazel linguist-generated
+tests/BUILD.bazel linguist-generated
+
+# tools/bazel/rust/units.py
+tools/bazel/rust/units/** linguist-generated
+tools/bazel/rust/operation_bindings.bzl linguist-generated
+tools/bazel/rust/package_targets.bzl linguist-generated
+tools/bazel/rust/sources.MODULE.bazel linguist-generated
+
+# The other Rust graph generators under tools/bazel/rust
+tools/bazel/rust/metadata_resolution_inputs.bzl linguist-generated
+tools/bazel/rust/policy_graphs.bzl linguist-generated
+tools/bazel/rust/shear_inputs.bzl linguist-generated
+tools/bazel/rust/rolldown_source_data.bzl linguist-generated
+tools/bazel/rust/rolldown_vite_source_data.bzl linguist-generated
+tools/bazel/rust/rolldown_native/crates.MODULE.bazel linguist-generated
+tools/bazel/rust/rolldown_native/units.bzl linguist-generated
+tools/bazel/rust/rolldown_vite/crates.MODULE.bazel linguist-generated
+tools/bazel/rust/rolldown_vite/additional-crates.MODULE.bazel linguist-generated
+tools/bazel/rust/rolldown_vite/units.bzl linguist-generated
+tools/bazel/rust/acquire/workspace-archives.MODULE.bazel linguist-generated
+tools/bazel/rust/acquire/workspace-sdk.bzl linguist-generated
+tools/bazel/rust/native_protocol/BUILD.bazel linguist-generated
+tools/bazel/rust/native_protocol/provenance/BUILD.bazel linguist-generated
+tools/bazel/rust/protocol_wasm/BUILD.bazel linguist-generated
+tools/bazel/rust/simulator/*/BUILD.bazel linguist-generated
+tools/bazel/rust/release_pgo/*/BUILD.bazel linguist-generated
+tools/bazel/rust/audit_tool/cargo_audit_units.bzl linguist-generated
+tools/bazel/rust/audit_tool/data.bzl linguist-generated
+
+# wasm-bindgen CLI graph and release attribution
+tools/bazel/wasm/bindgen_source/bindgen_units.bzl linguist-generated
+tools/bazel/wasm/bindgen_source/data.bzl linguist-generated
+tools/bazel/packaging/rust-providers.bzl linguist-generated

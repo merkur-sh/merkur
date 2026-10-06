@@ -1,0 +1,67 @@
+[package]
+name = "merkur-e2e"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+# The unit-test harness does not accept criterion's CLI flags, and would
+# otherwise intercept them when `cargo bench` runs every target.
+bench = false
+
+[features]
+default = ["std"]
+# Native builds prefer ring's accelerated ChaChaPoly, SHA, and RNG through
+# Snow's fallback resolver; X25519 remains on the default resolver. Browser
+# WASM deliberately keeps the pure-Rust resolver and does not enable ring.
+std = ["snow/default-resolver-crypto", "snow/ring-accelerated"]
+wasm = ["snow/default-resolver", "snow/default-resolver-crypto"]
+# Exposes the vector helpers to OTHER crates' tests. `cfg(test)` alone stops at
+# this crate's own test build.
+testing = []
+
+[dependencies]
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
+hkdf = { version = "=0.12.4", default-features = false }
+hmac = { version = "=0.12.1", default-features = false }
+libcrux-ml-dsa = { version = "=0.0.10", default-features = false, features = ["mldsa87"] }
+libcrux-ml-kem = { version = "=0.0.10", default-features = false, features = ["mlkem1024"] }
+sha2 = { version = "=0.10.9", default-features = false }
+subtle = { version = "=2.6.1", default-features = false }
+snow = { version = "0.10", default-features = false, features = ["risky-raw-split"] }
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+
+# The browser transport cipher (`src/wasm_chacha.rs`) keeps Poly1305 on the
+# audited crate snow's resolver already links; only ChaCha20 is replaced.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+poly1305 = { version = "=0.8.0", default-features = false }
+
+# The committed interop-vector test parses `packages/shared/test-vectors/`.
+[dev-dependencies]
+base64 = "0.22"
+serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+# `bun run test:wasm-cipher` runs the browser cipher's tests inside wasm32
+# under Node, differentially against the RustCrypto AEAD it replaces.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+chacha20poly1305 = { version = "=0.10.1", default-features = false }
+# The same `crypto.getRandomValues` backend e2e-wasm selects; a lone
+# merkur-e2e test build does not inherit that crate's features.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+wasm-bindgen-test = "=0.3.77"
+
+[[bench]]
+name = "e2e"
+harness = false
+
+# `getrandom` is a feature switch, never named in code, so `cargo shear` cannot see its use.
+[package.metadata.cargo-shear]
+ignored = ["getrandom"]
+
+[lints]
+workspace = true

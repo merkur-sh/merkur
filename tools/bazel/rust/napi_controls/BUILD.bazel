@@ -1,0 +1,15 @@
+load(":rules.bzl", "napi_output_test")
+
+package(default_visibility = ["//visibility:public"])
+exports_files(["rules.bzl", "check_output.py"])
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "rules.bzl", "check_output.py"])
+
+napi_output_test(
+    name = "compiler_output_test",
+    library = "//tools/bazel/rust/rolldown_native:u_de58a31e9d0c3ce4bc76710094b4f9ef14ebf59d89e0ad6e9f3ae9992f9ee4b5",
+    tags = ["manual"],
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+)

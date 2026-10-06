@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#08080c" />
+    <meta
+      name="description"
+      content="Your terminal, in any browser. Merkur connects you to your own machine over a direct, low-latency, post-quantum encrypted path."
+    />
+    <base href="/" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <!--
+      The wordmark face, fetched from the first byte of the document rather
+      than when the stylesheet first names it, so the boot splash below paints
+      "Merkur" in the right face rather than swapping into it a frame later.
+      Only the latin subset: that is every glyph the wordmark needs.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/InstrumentSerif-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <title>Merkur</title>
+  </head>
+  <body data-phase="bootstrapping" class="app-body">
+    <!--
+      The boot splash. The stylesheet is inlined into this shell at build time,
+      so this markup paints from the document's own bytes with no round trip —
+      which is the whole point: it is what stands between the navigation and the
+      app's first frame, and in Firefox that window used to be white.
+
+      
+      Deliberately the same layout as `SplashScreen`, reserving the orb's exact
+      96px box, so the live WebGL orb takes over without moving anything. The
+      disc here is a resting stand-in, not a second mark: the real orb is
+      raymarched and cannot exist before its shader does. `main.tsx` removes
+      this element once Solid has mounted.
+    -->
+    <div id="boot-splash">
+      <div id="boot-splash-orb" class="orb-rest"></div>
+      <div id="boot-splash-word">Merkur</div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

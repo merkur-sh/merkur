@@ -1,0 +1,99 @@
+---
+title: Every block,
+accent: in one post.
+dek: A post of the harness's that sets every block the blog has, three figures among them. It is never published.
+summary: The harness's own post, with every block the blog has and three figures.
+date: "2026-09-24"
+topic: Harness
+---
+
+This post belongs to the test harness. It holds one of every block a post can use, so the specs have a section to scroll to, a figure to wake and a button to press. Nothing in it is a claim about the product.
+
+## A figure near the top
+
+The first figure sits within a viewport of the top of the page, so its module is fetched as soon as the page has loaded. It shows two terminals after a break in the connection. Press **Reconnect** to play it.
+
+<Figure island="reconnect" label="Coming back after time away" setup="Two terminals, one link. Only what they send on reconnect differs.">
+Simulated. Every number in the figure comes from its model, which has tests of its own.
+</Figure>
+
+A paragraph after the figure carries the first margin note.[^first]
+
+[^first]: A margin note: short, and never needed to follow the text.
+
+## A note and a quote
+
+This section is plain prose, long enough to keep the second figure more than a viewport below the first. A spec counts on that: it opens the page, wakes the first figure and checks that nothing of the second or the third has been fetched. The paragraphs here have no other job, so they say what the page is for and stop.
+
+A further paragraph carries the second note, and a pull quote follows it.[^second]
+
+[^second]: A second note, so the template sets more than one.
+
+> A pull quote is one sentence, set large.
+
+## A figure that takes the keyboard
+
+The second figure is a terminal a reader types in. Rows flash <Swatch tone="sent">purple</Swatch> when they are sent, and <Swatch tone="moved">grey</Swatch> when they only moved up.
+
+<Figure island="rows" label="A terminal you can type in" setup={<>A simulated terminal. Try <code>ls</code>, <code>git log</code> or <code>clear</code>.</>}>
+A simulated session: one update for each write, and a scroll sent as a single shift.
+</Figure>
+
+A code block names its file and marks one line:
+
+```rust file=example/diff.rs mark=5
+pub fn diff(grid: &Grid, seen: &RowHashes) -> Update {
+    let rows = grid
+        .rows()
+        .enumerate()
+        .filter(|(i, row)| seen.get(*i) != Some(row.hash()))
+        .map(|(i, row)| RowPatch::new(i as u16, row.cells()))
+        .collect();
+    Update { version: grid.version(), rows }
+}
+```
+
+The block above is an example written for this page; no file of that name exists. A glyph the text faces lack is set alone: <code>~/project main <Glyph>❯</Glyph></code>.
+
+## When packets go missing
+
+The third figure plays by itself while it is on screen. Lost packets are outlined in <Swatch tone="lost">red</Swatch>, rebuilt ones in <Swatch tone="rebuilt">green</Swatch>, and one still on its way is <Swatch tone="waiting">dim</Swatch>. Click any packet to lose it.
+
+<Figure island="parity" label="Losing packets on purpose" setup="Four packets and a parity shard in each group. Newest at the top.">
+Simulated, with each packet lost independently of the others.
+</Figure>
+
+<Tangent title="A brief tangent: why not TCP?">
+TCP would resend the lost packet, and hold back every packet behind it until the resend arrived. This tangent is here to be opened and shut.
+
+It has a second paragraph, so it has a height worth animating.
+</Tangent>
+
+## Two lists and the end
+
+The last section sets the two lists, then how the post was made and where to respond.
+
+<TradeOffs>
+<Gains title="What you get">
+<Gain>A first entry on the side of the gains</Gain>
+<Gain>A second entry, a little longer than the first one</Gain>
+<Gain>A third entry</Gain>
+</Gains>
+<Costs title="What it costs">
+<Cost>A first entry on the side of the costs, with `code` in it</Cost>
+<Cost>A second entry</Cost>
+<Cost>A third entry</Cost>
+</Costs>
+</TradeOffs>
+
+<Colophon>
+<Made part="Words">Harness text. It was written to exercise the template, by whoever last changed the template.</Made>
+<Made part="Figures">The three figures are the harness's too. Each one's arithmetic is in a model beside it. [A link with a glyph <Glyph>↗</Glyph>](https://merkur.sh/)</Made>
+<Made part="Code">The code block is an example and comes from no file.</Made>
+</Colophon>
+
+<EndMatter>
+An end matter holds a link, such as [the home page](https://merkur.sh/), and `inline code`.
+
+**Revisions.** None: the harness's post is replaced, never revised.
+</EndMatter>

@@ -1,0 +1,27 @@
+load("//tools/bazel/packaging:release-notices.bzl", "declare_complete_release_notices")
+
+# Complete original platform artifacts; configured attribution and SDK gaps refuse analysis.
+# Building these cacheable bytes never grants verification, signing or deployment admission.
+package(default_visibility = ["//visibility:public"])
+
+# Native suppliers require the four original trained PGO graphs and complete selected attribution.
+# Their absence refuses analysis before actions/providers; the real deployment/OCI joins remain bound.
+declare_complete_release_notices(
+    name = "unsigned_complete",
+    deployment = "//tools/bazel/packaging:deployment_notices",
+    edge_image = "//tools/bazel/packaging:edge_image_unsigned",
+    stun_image = "//tools/bazel/packaging:stun_image_unsigned",
+    native_suppliers = {},
+)
+
+filegroup(
+    name = "unsigned",
+    srcs = [":unsigned_complete"],
+    output_group = "unsigned_artifacts",
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+filegroup(
+    name = "verification_inputs",
+    srcs = ["BUILD.bazel"],
+)

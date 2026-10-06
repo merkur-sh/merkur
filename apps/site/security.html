@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-rybbit-site="[[rybbit.siteId]]">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security model · Merkur</title>
+<meta name="description" content="Who holds which key in Merkur: OPAQUE sign-in, machine identities sealed in hardware, a fresh ML-KEM-1024 exchange for every connection, signed updates, and what is not covered.">
+<link rel="canonical" href="[[site.origin]]/security">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="[[color.ground]]">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Merkur">
+<meta property="og:url" content="[[site.origin]]/security">
+<meta property="og:title" content="Merkur's security model">
+<meta property="og:description" content="Who holds which key, and where the protection stops.">
+<meta property="og:image" content="[[site.origin]]/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/src/brand/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/src/fonts/Geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/src/fonts/InstrumentSerif-Italic-latin.woff2" as="font" type="font/woff2" crossorigin>
+<script type="module" src="/src/main.ts"></script>
+</head>
+<body class="prose-page">
+<link rel="stylesheet" href="/src/styles/site.css">
+[[part.header]]
+
+<main id="main" class="doc wrap">
+  <article class="doc-body">
+    <h1>Who holds which key, and where the protection stops</h1>
+    <p class="doc-lead">I run the server and the relay, and neither can read your terminal.</p>
+
+    <h2 id="who-sees-what">Who sees what</h2>
+    <dl class="doc-parts">
+      <div><dt>Your browser</dt><dd>takes your password and draws the terminal; it holds the delegation that keeps you signed in.</dd></div>
+      <div><dt>The relay</dt><dd>admits only connections my server ticketed, pairs a browser with a machine, and forwards frames. It sees which account and machine a connection belongs to, and the sizes and timing of its frames, never terminal contents or keys.</dd></div>
+      <div><dt>The daemon on your machine</dt><dd>runs the shell, proves it is your machine with its own identity, and encrypts the screen with keys made for that one connection.</dd></div>
+      <div><dt>My server, off the line</dt><dd>runs accounts, your machine list, presence and session tickets. It sees your account, your machines' public identities, IP addresses and timing. It never holds your password, a terminal key, or a private key in the clear.</dd></div>
+    </dl>
+
+    <h2 id="sign-in">Sign-in with OPAQUE</h2>
+    <p>Your password never leaves the browser. My server stores an OPAQUE record that can check a sign-in, and keeps no hash of the password. Your account key, an <span class="nw">ML-DSA-87</span> key, is made in your browser; the server keeps only an encrypted copy, which only your password can open.</p>
+    <p>Each browser you sign in from gets its own 30-day delegation, so a reload or a phone restart doesn't ask for the password again. Revoke each one from Settings.</p>
+
+    <h2 id="linking-a-machine">Linking a machine</h2>
+    <p>Linking takes two secrets: the one-use command from the app, good for five minutes, and the approval link or QR code the machine prints. The second one reaches your browser without passing through my server, so the server can't slip in a machine of its own. You approve from a device you're signed in on, with your password.</p>
+    <p>The machine's identity is sealed by its Secure Enclave (macOS 14+) or TPM 2.0 when it has one. On a machine that can use neither, linking stops until you ask for software custody with <code>--identity-backend none</code>. Software custody happens only if you ask for it, or on a box, which will always use it. In software, whoever copies the machine's key can speak as it; sealed in hardware, a copied disk isn't enough.</p>
+
+    <h2 id="keys-per-connection">Keys per connection</h2>
+    <p>Every terminal connection starts with a fresh, one-use <span class="nw">ML-KEM-1024</span> exchange, then runs <code>Noise_XXpsk3_25519_ChaChaPoly_SHA512</code>, so traffic is <span class="nw">ChaCha20-Poly1305</span>. X25519 inside Noise stays as a classical layer. The post-quantum work happens at setup, never per keystroke or per frame.</p>
+    <p>The claim stops at "post-quantum hardened terminal sessions": resistance to recording traffic now and decrypting it later.</p>
+
+    <h2 id="signed-updates">Signed updates</h2>
+    <p>Daemon releases are one <span class="nw">SHA-512</span> manifest signed with <span class="nw">ML-DSA-87</span>. The updater checks the pinned key, the manifest and a rollback floor, and has no skip mode.</p>
+    <p>The first install trusts HTTPS. The installer prints the release key's fingerprint; compare it with this one, and don't link the machine if they differ:</p>
+    <p class="fingerprint">[[release.fingerprint]]</p>
+
+    <h2 id="not-covered">Not covered</h2>
+    <ul>
+      <li>When you type, how much, and how large the screen updates are.</li>
+      <li>A browser or a machine that's already compromised.</li>
+      <li>Trust in the JavaScript [[app.host]] serves you.</li>
+      <li>Account APIs, code delivery, daemon control and the relay's own transport, which run on ordinary TLS.</li>
+      <li>A break-in to the job that signs releases.</li>
+      <li>Certification: Merkur isn't FIPS 140 validated and has had no independent audit.</li>
+      <li>A box's disk, once Boxes open. It will sit on my servers, and I'll be able to read it.</li>
+    </ul>
+
+    <h2 id="reporting-a-flaw">Reporting a flaw</h2>
+    <p>Email me at <a href="mailto:dmitriy.pletenskoy@gmail.com">dmitriy.pletenskoy@gmail.com</a>. Say what you found and how to reproduce it, with the version from <code>merkur version</code> or Settings. Fixes ship as a signed release.</p>
+    <p class="lost-links"><a class="btn-site btn-site-primary" href="[[app.origin]]/" data-rybbit-event="cta_start_free" data-rybbit-prop-section="security-page">Start free</a></p>
+  </article>
+</main>
+
+[[part.footer]]
+</body>
+</html>

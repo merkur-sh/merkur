@@ -1,0 +1,43 @@
+{
+  "description": "Merkur shared agent hooks. Same scripts as .claude/settings.json; both harnesses pass the same stdin JSON and honour the same deny shape.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bun scripts/agent-hooks/pre-tool-use.ts", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun scripts/agent-hooks/post-tool-use.ts",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun scripts/agent-hooks/session-start.ts",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bun scripts/agent-hooks/stop.ts", "timeout": 60 }
+        ]
+      }
+    ]
+  }
+}

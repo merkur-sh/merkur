@@ -1,0 +1,1 @@
+Rules for this tree (read before editing): ../../.claude/rules/frontend.md. A change here changes every surface's stylesheet: build the web app and diff its emitted CSS against the previous build to see exactly what moved.

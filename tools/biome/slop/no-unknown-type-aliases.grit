@@ -1,0 +1,83 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A type alias that is only another name for `unknown`: `unknown` itself, a union or parenthesis
+// with `unknown` in it, or another alias of this file that is one.
+//
+// What GritQL cannot see:
+//   - nesting is followed three steps of union/parenthesis and two aliases deep;
+//   - an alias is found by name in the whole file, not by lexical scope, and counts only when
+//     every alias of that name in the file is unknown;
+//   - a generic alias is not instantiated, so `Identity<unknown>` is not followed.
+
+// `unknown`, as written.
+pattern written_0() { TsUnknownType() }
+
+pattern written_1() {
+  or {
+    written_0(),
+    TsParenthesizedType(ty=written_0()),
+    TsUnionType(types=some written_0())
+  }
+}
+
+pattern written_2() {
+  or {
+    written_1(),
+    TsParenthesizedType(ty=written_1()),
+    TsUnionType(types=some written_1())
+  }
+}
+
+pattern written_3() {
+  or {
+    written_2(),
+    TsParenthesizedType(ty=written_2()),
+    TsUnionType(types=some written_2())
+  }
+}
+
+// A bare reference to another alias of this file whose own type is `$target`. The substring test
+// keeps the file walk for names the file does declare with `type`.
+pattern alias_of($target) {
+  TsReferenceType(name=$inner) as $reference where {
+    $reference <: $inner,
+    $declared = join(list=["type ", $inner], separator=""),
+    $program <: includes $declared,
+    $program <: contains TsTypeAliasDeclaration(binding_identifier=$inner, ty=$target) as $found where {
+      ! $found <: TsTypeAliasDeclaration(type_parameters=TsTypeParameters())
+    },
+    ! $program <: contains TsTypeAliasDeclaration(binding_identifier=$inner, ty=$other) where {
+      ! $other <: $target
+    }
+  }
+}
+
+pattern aliased_1() {
+  or {
+    written_3(),
+    alias_of(target=written_3()),
+    TsParenthesizedType(ty=alias_of(target=written_3())),
+    TsUnionType(types=some alias_of(target=written_3()))
+  }
+}
+
+pattern aliased_2() {
+  or {
+    aliased_1(),
+    alias_of(target=aliased_1()),
+    TsParenthesizedType(ty=alias_of(target=aliased_1())),
+    TsUnionType(types=some alias_of(target=aliased_1()))
+  }
+}
+
+TsTypeAliasDeclaration(binding_identifier=$name, ty=$aliased) where {
+  $aliased <: aliased_2(),
+  register_diagnostic(span=$name, message=join(list=[
+    "[no-unknown-type-aliases] `",
+
+    $name,
+
+    "` is `unknown` under another name. Write `unknown` where the value is decoded, or on a `cause` field, and use the decoded owner type everywhere else.",
+  ], separator=""), severity="error")
+}

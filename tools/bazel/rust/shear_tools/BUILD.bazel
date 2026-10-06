@@ -1,0 +1,61 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+# Exact Cargo.lock direct edges; external labels are acquired only for compile targets.
+_NORMAL_DEPS = [
+    "@crates_shear_tools//anyhow-1.0.103",
+    "@crates_shear_tools//bpaf-0.9.26",
+    "@crates_shear_tools//cargo_metadata-0.23.1",
+    "@crates_shear_tools//compact_str-0.9.1",
+    "@crates_shear_tools//globset-0.4.18",
+    "@crates_shear_tools//ignore-0.4.27",
+    "@crates_shear_tools//miette-7.6.0",
+    "@crates_shear_tools//owo-colors-4.3.0",
+    "@crates_shear_tools//pulldown-cmark-0.13.4",
+    "@crates_shear_tools//ra_ap_syntax-0.0.340",
+    "@crates_shear_tools//rayon-1.12.0",
+    "@crates_shear_tools//rustc-hash-2.1.3",
+    "@crates_shear_tools//serde-1.0.228",
+    "@crates_shear_tools//serde_json-1.0.150",
+    "@crates_shear_tools//simdutf8-0.1.5",
+    "@crates_shear_tools//toml-1.1.2+spec-1.1.0",
+    "@crates_shear_tools//toml_edit-0.25.12+spec-1.1.0",
+]
+
+package(default_visibility = ["//visibility:public"])
+exports_files(["Cargo.toml", "Cargo.lock", "Bazel.lock", "cargo-shear-1.13.2-metadata.patch"])
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "Cargo.toml", "Cargo.lock", "Bazel.lock", "empty.rs", "runner.rs", "controls.rs", "semantic-fixtures.json", "cargo-shear-1.13.2-metadata.patch"])
+
+rust_library(
+    name = "cargo_shear_lib",
+    crate_name = "cargo_shear",
+    crate_root = "@cargo_shear_source//:src/lib.rs",
+    srcs = ["@cargo_shear_source//:rust_sources"],
+    compile_data = ["@cargo_shear_source//:package_data"],
+    edition = "2024",
+    version = "1.13.2",
+    deps = _NORMAL_DEPS,
+    aliases = {},
+    tags = ["manual"],
+)
+
+rust_binary(
+    name = "cargo_shear",
+    crate_name = "merkur_cargo_shear",
+    crate_root = "runner.rs",
+    srcs = ["runner.rs"],
+    edition = "2024",
+    deps = [":cargo_shear_lib", "@crates_shear_tools//:serde_json"],
+    tags = ["manual"],
+)
+
+rust_test(
+    name = "semantic_controls",
+    crate_root = "controls.rs",
+    srcs = ["controls.rs"],
+    compile_data = ["semantic-fixtures.json"],
+    data = [":cargo_shear"],
+    env = {"MERKUR_SHEAR_ANALYZER": "$(rootpath :cargo_shear)"},
+    edition = "2024",
+    deps = ["@crates_shear_tools//:serde_json"],
+    tags = ["manual"],
+)

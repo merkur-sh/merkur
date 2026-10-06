@@ -1,0 +1,56 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+# Exact Cargo.lock direct edges; external labels are acquired only for compile targets.
+_NORMAL_DEPS = [
+    "@crates_policy_tools//base64-stream-1.2.7",
+    "@crates_policy_tools//bytes-1.12.1",
+    "@crates_policy_tools//cargo-config2-0.1.27",
+    "@crates_policy_tools//cargo_metadata-0.20.0",
+    "@crates_policy_tools//chrono-0.4.23",
+    "@crates_policy_tools//clap-4.5.39",
+    "@crates_policy_tools//clap-cargo-0.15.2",
+    "@crates_policy_tools//console-0.15.0",
+    "@crates_policy_tools//crates-index-3.10.0",
+    "@crates_policy_tools//dirs-6.0.0",
+    "@crates_policy_tools//filetime-0.2.16",
+    "@crates_policy_tools//flate2-1.0.24",
+    "@crates_policy_tools//futures-util-0.3.34",
+    "@crates_policy_tools//home-0.5.11",
+    "@crates_policy_tools//indicatif-0.17.0",
+    "@crates_policy_tools//lazy_static-1.4.0",
+    "@crates_policy_tools//libc-0.2.172",
+    "@crates_policy_tools//miette-5.9.0",
+    "@crates_policy_tools//nom-7.1.1",
+    "@crates_policy_tools//open-5.3.2",
+    "@crates_policy_tools//reqwest-0.12.28",
+    "@crates_policy_tools//serde-1.0.219",
+    "@crates_policy_tools//serde_json-1.0.140",
+    "@crates_policy_tools//similar-2.7.0",
+    "@crates_policy_tools//tar-0.4.46",
+    "@crates_policy_tools//tempfile-3.20.0",
+    "@crates_policy_tools//textwrap-0.16.2",
+    "@crates_policy_tools//thiserror-2.0.12",
+    "@crates_policy_tools//tokio-1.45.1",
+    "@crates_policy_tools//toml-0.8.22",
+    "@crates_policy_tools//toml_edit-0.22.26",
+    "@crates_policy_tools//tracing-0.1.35",
+    "@crates_policy_tools//tracing-subscriber-0.3.23",
+    "@crates_policy_tools//url-2.5.4",
+]
+
+package(default_visibility = ["//visibility:public"])
+alias(name = "cargo_deny", actual = "//tools/bazel/rust/deny_tools:cargo_deny")
+exports_files(["Cargo.toml", "Cargo.lock", "cargo-vet-0.10.2-metadata.patch"])
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "Cargo.toml", "Cargo.lock", "empty.rs", "cargo-vet-0.10.2-metadata.patch"])
+
+rust_binary(
+    name = "cargo_vet",
+    crate_name = "cargo_vet",
+    crate_root = "@cargo_vet_source//:src/main.rs",
+    srcs = ["@cargo_vet_source//:rust_sources"],
+    compile_data = ["@cargo_vet_source//:package_data"],
+    edition = "2021",
+    version = "0.10.2",
+    deps = _NORMAL_DEPS,
+    aliases = {},
+    tags = ["manual"],
+)

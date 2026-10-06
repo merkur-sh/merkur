@@ -1,0 +1,142 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "scripts/*.ts",
+    "tests/**/*.ts",
+    "apps/web/src/main.tsx",
+    "apps/web/src/sw.ts",
+    "apps/web/src/terminal-worker.ts",
+    "uno.config.ts",
+    "apps/web/vite.config.ts",
+    "apps/web/uno.config.ts",
+    "apps/site/src/main.ts",
+    "apps/site/src/blog/page.ts",
+    "apps/site/src/blog/render.tsx",
+    "apps/site/blog/posts/*/cover.tsx",
+    "apps/site/blog/posts/*/figures/*.tsx",
+    "apps/site/blog/posts/*/figures/*.test.ts",
+    "apps/site/fixtures/blog/posts/*/cover.tsx",
+    "apps/site/fixtures/blog/posts/*/figures/*.tsx",
+    "apps/site/fixtures/blog/posts/*/figures/*.test.ts",
+    "apps/site/server/index.ts",
+    "apps/site/server/build.ts",
+    "apps/site/server/*.test.ts",
+    "apps/site/scripts/*.ts",
+    "apps/site/vite.config.ts",
+    "apps/site/uno.config.ts",
+    "apps/server/src/index.ts",
+    "apps/*/src/**/*.test.ts",
+    "apps/server/scripts/*.ts",
+    "apps/server/migrations/*.ts",
+    "apps/daemon/src/index.ts",
+    "packages/*/src/index.ts",
+    "packages/*/src/*.test.ts",
+    "packages/merkur-client-native/scripts/browser-registration-oracle.ts",
+    "tools/bazel/bun/brotli-build.ts",
+    "tools/bazel/bun/bun-runtime-build.ts",
+    "tools/bazel/bun/compile-platform-probe.ts",
+    "tools/bazel/bun/declared-tool.ts",
+    "tools/bazel/bun/import-inventory.ts",
+    "tools/bazel/bun/nested-cwd.ts",
+    "tools/bazel/bun/refresh-npm-lock.ts",
+    "tools/bazel/bun/npm-attribution.ts",
+    "tools/bazel/bun/native-typescript.ts",
+    "tools/bazel/bun/package-oracle.ts",
+    "tools/bazel/bun/release-fixture-key.ts",
+    "tools/bazel/bun/run-test.ts",
+    "tools/bazel/wasm/frontend-check.ts",
+    "tools/bazel/wasm/optimize.ts",
+    "tools/bazel/wasm/package.ts",
+    "tools/bazel/wasm/project.ts",
+    "tools/bazel/wasm/project-sources.ts",
+    "tools/bazel/wasm/train-profile.ts",
+    "tools/bazel/verification/static-tools.ts",
+    "tools/bazel/verification/cli.ts",
+    "tools/bazel/verification/unit.ts",
+    "tools/bazel/bun/prepare-oracle-cli.ts",
+    "tools/bazel/verification/dragonfly-run.ts",
+    "tools/bazel/packaging/ci-admission.ts",
+    "tools/bazel/rust/acquire/runner.ts",
+    "tools/bazel/rust/shear.ts",
+    "tools/bazel/**/*.test.ts",
+    "tools/bazel/bun/vite-build.ts",
+    "tools/bazel/remote/native-runtime-probe.ts"
+  ],
+  "dynamicallyLoaded": [
+    "apps/web/public/legal/legal.css",
+    "apps/site/src/blog/blog.css",
+    "apps/site/blog/**/*.mdx",
+    "apps/site/fixtures/blog/**/*.mdx",
+    "playwright.edge-topology.config.mjs",
+    "spikes/webtransport-ios/worker/main.ts",
+    "spikes/webtransport-ios/worker/drain-worker.ts"
+  ],
+  "includeEntryExports": true,
+  "publicPackages": ["@merkur/keyboard"],
+  "ignoreDependencies": ["bench-web-input-v8:keybinds"],
+  "ignoreExports": [
+    {
+      "file": "scripts/perf/historical-webgl-module.d.ts",
+      "exports": ["WebGl2Renderer", "createTaskPollScheduler"]
+    },
+    {
+      "file": "apps/daemon/src/text-imports.d.ts",
+      "exports": ["default"]
+    },
+    {
+      "file": "apps/server/migrations/*.ts",
+      "exports": ["up", "down"]
+    },
+    {
+      "file": "playwright.*.config.mjs",
+      "exports": ["default"]
+    },
+    {
+      "file": "tests/e2e/global-setup.ts",
+      "exports": ["default"]
+    },
+    {
+      "file": "tests/e2e/global-teardown.ts",
+      "exports": ["default"]
+    },
+    {
+      "file": "uno.config.ts",
+      "exports": ["default"]
+    },
+    {
+      "file": "apps/site/uno.config.ts",
+      "exports": ["default"]
+    },
+    {
+      "file": "apps/site/src/blog/render.tsx",
+      "exports": ["renderPost", "renderIndex", "renderPolicy", "renderFeedContent"]
+    },
+    {
+      "file": "apps/site/src/blog/islands.d.ts",
+      "exports": ["islands"]
+    },
+    {
+      "file": "apps/site/{blog,fixtures/blog}/posts/*/{cover,figures/*}.tsx",
+      "exports": ["default"]
+    }
+  ],
+  "ignoreExportsUsedInFile": true,
+  "duplicates": {
+    "ignore": ["apps/server/migrations/**"],
+    "threshold": 10.0
+  },
+  "health": {
+    "maxCyclomatic": 33,
+    "maxCognitive": 45,
+    "maxCrap": 1057.0
+  },
+  "overrides": [
+    {
+      "files": ["apps/server/src/db/generated-types.ts"],
+      "rules": {
+        "unused-exports": "off",
+        "unused-types": "off"
+      }
+    }
+  ]
+}

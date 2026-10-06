@@ -1,0 +1,24 @@
+[package]
+name = "merkur-ownership-proofs"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+# This workspace intentionally excludes production dependencies and toolchains.
+[workspace]
+
+[build-dependencies]
+syn = { version = "=2.0.119", features = ["full"] }
+quote = "=1.0.45"
+
+[dev-dependencies]
+loom = "=0.7.2"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+# Clippy reads the repository's `clippy.toml` from here too. Its timer list is for the
+# modules on a latency path, which deny it themselves; this tool is not one.
+[lints.clippy]
+disallowed_methods = "allow"

@@ -1,0 +1,85 @@
+# IPv6 STUN vantage point, for the box host.
+#
+# # Why this exists separately from the Fly deployment
+#
+# Fly does not deliver public IPv6 UDP into a VM — `fly-global-services`
+# resolves to IPv4 only, and a bound v6-only socket there receives nothing while
+# `ping6` to the same address answers. So the Fly app answers IPv4 and can never
+# answer the address-change half of RFC 5780, because its dedicated IPv4 belongs
+# to the app and is anycast: a second region is not a second address.
+#
+# The box host is the opposite. Hetzner routes it a /64, of which it uses one
+# address, so two more addresses out of that prefix cost nothing — and two
+# addresses are exactly what `change_ip` requires. That matters because IPv6 has
+# no NAT: whether a `host6` candidate is dialable turns entirely on whether the
+# CPE firewall passes a datagram from an address the daemon never spoke to,
+# which is the one thing `change_ip` tests.
+#
+# # Why it rides on the box host rather than a machine of its own
+#
+# It is a stateless responder whose work per packet is one HMAC verify and one
+# HMAC sign, and STUN is startup-and-reprobe traffic rather than a hot path. A
+# dedicated machine would be an entire host for a service that is idle almost
+# always.
+#
+# # Install
+#
+#   install -m 0755 merkur-stun /usr/local/bin/merkur-stun
+#   install -m 0644 merkur-stun.service /etc/systemd/system/
+#   systemctl edit merkur-stun    # set MERKUR_STUN_TICKET_KEY, the same
+#                                  # secret the application server holds
+#   systemctl enable --now merkur-stun
+#
+# `MERKUR_STUN_BIND` is filled in by `provision-host.sh`: the host's public
+# IPv4 plus two addresses from its routed /64. The IPv4 makes this host the
+# second IPv4 mapping observer the daemon's `infer_nat_behavior` needs — the
+# Fly responder's three ports share one address, and equal mappings from one
+# address prove nothing about address independence. Leaving it empty makes the
+# responder fall back to the IPv4 wildcard, so a missing value is a
+# misconfiguration, not a default.
+
+[Unit]
+Description=Merkur IPv6 STUN vantage point
+Documentation=https://github.com/merkur-sh/merkur
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/merkur-stun
+Restart=always
+RestartSec=2s
+EnvironmentFile=/etc/merkur-stun.env
+
+# Two observer ports so the combined change_ip+change_port form is answerable,
+# plus one change-only port that never receives a mapping probe: a CHANGE-PORT
+# answer from an observer port is discounted by the daemon's contact ledger and
+# collides with its later probe to that port on a conntrack NAT.
+Environment=MERKUR_STUN_PORTS=34780,34781
+Environment=MERKUR_STUN_CHANGE_PORTS=34782
+Environment=RUST_LOG=info
+
+# This process is reachable by anyone with a UDP socket and holds no state, so
+# it gets nothing it does not need. It does not read the filesystem, does not
+# need a writable home, and never executes anything.
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+[Install]
+WantedBy=multi-user.target

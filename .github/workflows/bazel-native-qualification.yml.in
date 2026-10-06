@@ -1,0 +1,294 @@
+# Inactive optional runner controls. These GitHub runners are not the standing execution pools.
+# Requires trusted-controller captured nonce repository binding at initial/final analysis and execution.
+# --override_repository=verification_revocations=ABS_CAPTURED_DIRECTORY is internal, not admission authority.
+# No required workflow, hook or qualification is activated.
+name: Bazel optional GitHub runner controls
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, platform: linux_x64}
+          - {runner: ubuntu-24.04-arm, platform: linux_arm64}
+          - {runner: macos-15, platform: macos_arm64}
+          - {runner: macos-15-intel, platform: macos_x64}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bazel
+        id: engine
+        with:
+          ledger-origin: ${{ vars.MERKUR_VERIFICATION_LEDGER_ORIGIN }}
+          ledger-credential-helper: ${{ vars.MERKUR_VERIFICATION_LEDGER_CREDENTIAL_HELPER }}
+          credential-file: ${{ vars.MERKUR_VERIFICATION_CREDENTIAL_FILE }}
+      - name: Create private evidence directories
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          mkdir "$evidence"
+          mkdir "$evidence/private" "$evidence/retained" "$evidence/home"
+      # The bounded acquisition/consumer controls do not qualify full product/SDK execution.
+      # No shared cache or remote worker is contacted by this native runner experiment.
+      - name: Execute fresh declared native acquisition and evidence controls
+        id: controls
+        continue-on-error: true
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          [[ "$ENGINE" == /* ]]
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$evidence/home" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" \
+            test --platforms="//tools/bazel/platforms:$PLATFORM" --jobs=4 \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_cache= --remote_executor= --disk_cache= \
+            --remote_accept_cached=false --remote_upload_local_results=false \
+            --cache_test_results=no --test_output=errors --symlink_prefix=/ \
+            --build_event_json_file="$evidence/private/controls.bep.jsonl" \
+            //tools/bazel/tools/engine:engine_test \
+            //tools/bazel/packaging:ci_evidence_test \
+            //tools/bazel/packaging:shipping_evidence_test \
+            //tools/bazel/packaging:ci_admission_cli_test \
+            //tools/bazel/bun:native_typescript_version \
+            //tools/bazel/bun:native_typescript_test
+      - name: Execute declared runtime and browser controls
+        id: runtime
+        continue-on-error: true
+        if: always()
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$evidence/home" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" \
+            test --platforms="//tools/bazel/platforms:$PLATFORM" --jobs=4 \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_cache= --remote_executor= --disk_cache= \
+            --remote_accept_cached=false --remote_upload_local_results=false \
+            --cache_test_results=no --test_output=errors --symlink_prefix=/ \
+            --build_event_json_file="$evidence/private/runtime.bep.jsonl" \
+            //tools/bazel/bun:runtime_test //tools/bazel/bun:configuration_runtime_test \
+            //tools/bazel/bun:runtime_isolation_test //tools/bazel/bun:build_isolation_test \
+            //tools/bazel/bun:launcher_controls_test \
+            //tools/bazel/tools:node_test //tools/bazel/tools/native:sdk_loader_test \
+            //scripts:test__bench-retained-wire-payload-pool.test.ts \
+            //scripts:test__bench-webgpu-renderer.test.ts
+      - name: Execute declared native SDK controls
+        id: sdk
+        continue-on-error: true
+        if: always()
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          if [[ "$PLATFORM" == linux_* ]]; then
+            echo 'Missing declared GitHub-native Linux utility/Redis SDK; hosted GNU-image receipts cannot qualify this runner' >&2
+            exit 1
+          fi
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$evidence/home" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" \
+            test --platforms="//tools/bazel/platforms:$PLATFORM" --jobs=4 \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_cache= --remote_executor= --disk_cache= \
+            --remote_accept_cached=false --remote_upload_local_results=false \
+            --cache_test_results=no --test_output=errors --symlink_prefix=/ \
+            --build_event_json_file="$evidence/private/sdk.bep.jsonl" \
+            //tools/bazel/tools/native:python_test //tools/bazel/tools/native:sdk_test
+      - name: Retain sanitized bounded engine evidence
+        if: always()
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          for scope in controls runtime sdk; do
+            raw="$evidence/private/$scope.bep.jsonl"
+            if [[ ! -f "$raw" ]]; then
+              echo "No engine evidence for scope $scope; qualification remains pending" >&2
+              continue
+            fi
+            [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+            env -i HOME="$evidence/home" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+              TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+              "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" \
+              run --platforms="//tools/bazel/platforms:$PLATFORM" --jobs=4 \
+              --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+              --remote_cache= --remote_executor= --disk_cache= \
+              --remote_accept_cached=false --remote_upload_local_results=false --symlink_prefix=/ \
+              //tools/bazel/packaging:ci_admit -- sanitize-bep "$raw" \
+              > "$evidence/retained/$scope.bep.jsonl"
+          done
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          logs=$(env -i HOME="$evidence/home" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" \
+            info --platforms="//tools/bazel/platforms:$PLATFORM" \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_cache= --remote_executor= --disk_cache= \
+            --remote_accept_cached=false --remote_upload_local_results=false bazel-testlogs)
+          labels=(
+            //tools/bazel/tools/engine:engine_test
+            //tools/bazel/packaging:ci_evidence_test
+            //tools/bazel/packaging:shipping_evidence_test
+            //tools/bazel/packaging:ci_admission_cli_test
+            //tools/bazel/bun:native_typescript_version
+            //tools/bazel/bun:native_typescript_test
+            //tools/bazel/bun:runtime_test
+            //tools/bazel/bun:configuration_runtime_test
+            //tools/bazel/bun:runtime_isolation_test
+            //tools/bazel/bun:build_isolation_test
+            //tools/bazel/bun:launcher_controls_test
+            //tools/bazel/tools:node_test
+            //tools/bazel/tools/native:sdk_loader_test
+            //scripts:test__bench-retained-wire-payload-pool.test.ts
+            //scripts:test__bench-webgpu-renderer.test.ts
+          )
+          if [[ "$PLATFORM" == macos_* ]]; then
+            labels+=(//tools/bazel/tools/native:python_test //tools/bazel/tools/native:sdk_test)
+          fi
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$evidence/home" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" \
+            run --platforms="//tools/bazel/platforms:$PLATFORM" --jobs=4 \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_cache= --remote_executor= --disk_cache= \
+            --remote_accept_cached=false --remote_upload_local_results=false --symlink_prefix=/ \
+            //tools/bazel/packaging:ci_admit -- retain-tests "$logs" "${labels[@]}" \
+            > "$evidence/retained/original-test-outputs.json"
+      - name: Capture complete frontend result without clearing pending qualifications
+        id: frontend
+        if: always()
+        continue-on-error: true
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+          LEDGER_CLIENT: ${{ steps.engine.outputs.ledger-client }}
+          CREDENTIAL_FILE: ${{ steps.engine.outputs.credential-file }}
+          PLATFORM: ${{ matrix.platform }}
+          CANDIDATE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$LEDGER_CLIENT" == /* && "$CREDENTIAL_FILE" == /* ]]
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$evidence/home" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" \
+            run --platforms="//tools/bazel/platforms:$PLATFORM" --jobs=4 \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_cache= --remote_executor= --disk_cache= \
+            --remote_accept_cached=false --remote_upload_local_results=false --symlink_prefix=/ \
+            //tools:verify -- --all --candidate "$CANDIDATE" \
+            --ledger-client "$LEDGER_CLIENT" --credential-file "$CREDENTIAL_FILE" \
+            --report-file "$evidence/retained/verification.json" \
+            --ci-report-file "$evidence/retained/reconstructed-verdict.json" \
+            --expected-context-file "$evidence/retained/controller-expected.json"
+      # The frontend constructs the CI report from its actual owned controller result.
+      # Report Files remain retention only; the runner bootstrap and pool qualification
+      # must establish authority before this inactive recipe can be used.
+      - name: Require all three retained native controller diagnostic Files
+        if: always()
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          for file in "$evidence/retained/verification.json" "$evidence/retained/reconstructed-verdict.json" "$evidence/retained/controller-expected.json"; do
+            [[ -f "$file" && ! -L "$file" && -s "$file" ]]
+          done
+      - name: Require successful controls and owned frontend publication
+        if: always()
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          CONTROL_OUTCOME: ${{ steps.controls.outcome }}
+          FRONTEND_OUTCOME: ${{ steps.frontend.outcome }}
+          RUNTIME_OUTCOME: ${{ steps.runtime.outcome }}
+          SDK_OUTCOME: ${{ steps.sdk.outcome }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM"
+          [[ "$CONTROL_OUTCOME" == success && "$FRONTEND_OUTCOME" == success && "$RUNTIME_OUTCOME" == success && "$SDK_OUTCOME" == success ]]
+      - name: Upload sanitized evidence including blocked frontend reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-qualification-${{ matrix.platform }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/merkur-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}/retained/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Copy only reported simulation diagnostics before storage retirement
+        id: simulation-artifacts
+        if: always()
+        env:
+          VERIFICATION_BAZEL: ${{ steps.engine.outputs.executable }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFICATION_BAZEL" == /* ]]
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          report="$RUNNER_TEMP/merkur-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$PLATFORM/retained/verification.json"
+          archive="$RUNNER_TEMP/simulation-diagnostics-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          retained=$(env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" run \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_download_outputs=all --symlink_prefix=/ //tools/bazel/ci:simulation_artifacts -- \
+            --report-file "$report" --temporary-root "$TMPDIR" --output-directory "$archive")
+          [[ -z "$retained" || ( "$retained" == /* && "$retained" == */"${archive##*/}" ) ]]
+          printf 'directory=%s\n' "$retained" >> "$GITHUB_OUTPUT"
+      - name: Retain reported original simulation attempt Files
+        if: always() && steps.simulation-artifacts.outputs.directory != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: simulation-diagnostics-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.simulation-artifacts.outputs.directory }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retire the owned Bazel storage
+        if: always() && env.MERKUR_BAZEL_STORAGE_STATE != ''
+        shell: bash
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+        run: |
+          set -euo pipefail
+          shutdown_status=0
+          if [[ -n "$ENGINE" && -x "$ENGINE" ]]; then
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" shutdown || shutdown_status=$?
+          fi
+          cleanup_status=0
+          python3 -I -B tools/bazel/qualification/storage/storage.py cleanup --state "$MERKUR_BAZEL_STORAGE_STATE" || cleanup_status=$?
+          if (( shutdown_status != 0 || cleanup_status != 0 )); then
+            echo "Owned storage retirement: Bazel shutdown exited $shutdown_status; storage cleanup exited $cleanup_status" >&2
+          fi
+          if (( cleanup_status != 0 )); then
+            exit "$cleanup_status"
+          fi
+          exit "$shutdown_status"

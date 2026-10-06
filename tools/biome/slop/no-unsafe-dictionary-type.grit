@@ -1,0 +1,208 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A dictionary type whose values are `unknown`, `any`, `object` or `{}`:
+//   `Record<K, V>`, `{ [key: K]: V }`, `{ [P in K]: V }`,
+//   any of those inside `Readonly`/`Partial`/`Required`/`NonNullable`/`Pick`/`Omit` or parentheses.
+// `V` counts as unsafe when it is one of the four, a union with one of them in it, an intersection
+// of nothing else (or with `any` in it), or one of them inside a transparent wrapper. The
+// outermost such type is reported once; a type-parameter constraint (`T extends Record<…>`) is
+// left alone. An index signature in an interface or class is reported on the signature.
+//
+// What GritQL cannot see:
+//   - type aliases and interfaces of the file are not resolved: `Record<string, Escape>` with
+//     `type Escape = unknown` or an empty `interface Escape {}`, a wrapper around an alias
+//     (`Readonly<Dict>`), a generic alias (`Index<unknown>`), and an alias of an unsafe alias
+//     (`type Also = Unsafe`) are not findings here;
+//   - a `{ brand?: never }` object type is not recognised as empty;
+//   - a file that declares or imports its own `Record`, `Readonly`, `Partial`, `Required`,
+//     `NonNullable`, `Pick` or `Omit` gets no finding on those names at all, not only where the
+//     local declaration shadows the global one;
+//   - nesting is followed three wrappers deep.
+
+pattern first_argument($argument) { TsTypeArguments(ts_type_argument_list=[$argument, ...]) }
+
+pattern transparent($argument) {
+  TsReferenceType(name=$wrapper, type_arguments=first_argument($argument)) where {
+    $wrapper <: or {
+      "Readonly",
+      "Partial",
+      "Required",
+      "NonNullable"
+    }
+  }
+}
+
+pattern value_0() {
+  or {
+    TsUnknownType(),
+    TsAnyType(),
+    TsNonPrimitiveType(),
+    TsObjectType() as $empty where { $empty <: r"\{\s*\}" }
+  }
+}
+
+pattern value_1() {
+  or {
+    value_0(),
+    TsParenthesizedType(ty=value_0()),
+    TsUnionType(types=some value_0()),
+    TsIntersectionType(types=some TsAnyType()),
+    TsIntersectionType(types=every value_0()),
+    transparent(argument=value_0())
+  }
+}
+
+pattern value_2() {
+  or {
+    value_1(),
+    TsParenthesizedType(ty=value_1()),
+    TsUnionType(types=some value_1()),
+    TsIntersectionType(types=every value_1()),
+    transparent(argument=value_1())
+  }
+}
+
+pattern dictionary_0() {
+  or {
+    TsObjectType(members=some TsIndexSignatureTypeMember(type_annotation=TsTypeAnnotation(ty=value_2()))),
+    TsMappedType(mapped_type=TsTypeAnnotation(ty=value_2())),
+    TsReferenceType(name="Record", type_arguments=TsTypeArguments(ts_type_argument_list=[
+      $_, value_2()
+    ]))
+  }
+}
+
+pattern sourced($source) {
+  or {
+    TsParenthesizedType(ty=$source),
+    transparent(argument=$source),
+    TsReferenceType(name=$picker, type_arguments=first_argument(argument=$source)) where {
+      $picker <: or {
+        "Pick",
+        "Omit"
+      }
+    }
+  }
+}
+
+pattern dictionary_1() {
+  or {
+    dictionary_0(),
+    sourced(source=dictionary_0())
+  }
+}
+
+pattern dictionary_2() {
+  or {
+    dictionary_1(),
+    sourced(source=dictionary_1())
+  }
+}
+
+pattern dictionary_3() {
+  or {
+    dictionary_2(),
+    sourced(source=dictionary_2())
+  }
+}
+
+pattern own_utility_type() {
+  or {
+    TsTypeAliasDeclaration(binding_identifier=$own),
+    TsInterfaceDeclaration(id=$own),
+    JsClassDeclaration(id=$own),
+    TsEnumDeclaration(id=$own),
+    JsNamedImportSpecifier(local_name=$own),
+    JsShorthandNamedImportSpecifier(local_name=$own),
+    JsDefaultImportSpecifier(local_name=$own)
+  } where {
+    $own <: or {
+      "Record",
+      "Readonly",
+      "Partial",
+      "Required",
+      "NonNullable",
+      "Pick",
+      "Omit"
+    }
+  }
+}
+
+// A use of the unsafe alias `$alias` that is itself a finding: the bare name inside another alias
+// declaration, or the name inside a transparent wrapper, `Pick` or `Omit` anywhere.
+pattern alias_use($alias) {
+  or {
+    TsReferenceType(name=$alias) as $bare where {
+      $bare <: $alias,
+      $bare <: within TsTypeAliasDeclaration() ,
+      ! $bare <: within sourced(source=$bare)
+    },
+    sourced(source= TsReferenceType(name=$alias) as $bare where { $bare <: $alias }),
+    sourced(source=sourced(source= TsReferenceType(name=$alias) as $bare where { $bare <: $alias }))
+  }
+}
+
+// This is its own pattern because a pattern's variables are fresh on every call: written inline
+// under `contains`, the use bound by the first match would have to equal every later one.
+pattern reported_alias_use($alias) {
+  alias_use($alias) as $use where {
+    ! $use <: within TsTypeConstraintClause() ,
+    ! $use <: within dictionary_3() ,
+    ! $use <: within sourced(source=$use) ,
+    register_diagnostic(span=$use, message=join(list=[
+      "[no-unsafe-dictionary-type] The values of this dictionary, `",
+
+      $alias,
+
+      "`, have no type a caller can rely on. Give them the owner's type or one derived from its schema, and decode outside payloads before they go in.",
+    ], separator=""), severity="error")
+  }
+}
+
+or {
+  or {
+    TsReferenceType(),
+    TsObjectType(),
+    TsMappedType()
+  } as $dictionary where {
+    // A substring test first: this runs on every type reference and object type in the tree.
+    $dictionary <: includes or {
+      "unknown",
+      "any",
+      "object",
+      "{}"
+    },
+    $dictionary <: dictionary_3(),
+    ! $dictionary <: within TsTypeConstraintClause() ,
+    ! $dictionary <: within dictionary_3() as $outer where { ! $outer <: $dictionary } ,
+    // `interface A extends Record<…>` and `implements Record<…>` name a heritage, not the type of
+    // a value.
+    ! $dictionary <: within or {
+      TsExtendsClause(types=some $dictionary),
+      TsImplementsClause(types=some $dictionary)
+    } ,
+    or { ! $dictionary <: TsReferenceType(), ! $program <: contains own_utility_type() },
+    register_diagnostic(span=$dictionary, message="[no-unsafe-dictionary-type] The values of this dictionary have no type a caller can rely on. Give them the owner's type or one derived from its schema, and decode outside payloads before they go in.", severity="error")
+  },
+  TsTypeAliasDeclaration(binding_identifier=$alias, ty=$aliased) as $declaration where {
+    $aliased <: dictionary_3(),
+    ! $declaration <: TsTypeAliasDeclaration(type_parameters=TsTypeParameters()),
+    ! $program <: contains TsTypeParameterName() as $shadow where { $shadow <: $alias },
+    $program <: contains reported_alias_use($alias)
+  },
+  or {
+    TsIndexSignatureTypeMember(type_annotation=TsTypeAnnotation(ty=$value)),
+    TsIndexSignatureClassMember(type_annotation=TsTypeAnnotation(ty=$value))
+  } as $signature where {
+    $value <: value_2(),
+    $signature <: within or {
+      TsObjectType(),
+      TsInterfaceDeclaration(),
+      JsClassDeclaration(),
+      JsClassExpression()
+    } as $holder ,
+    ! $holder <: TsObjectType(),
+    register_diagnostic(span=$signature, message="[no-unsafe-dictionary-type] The values of this index signature have no type a caller can rely on. Give them the owner's type or one derived from its schema, and decode outside payloads before they go in.", severity="error")
+  }
+}

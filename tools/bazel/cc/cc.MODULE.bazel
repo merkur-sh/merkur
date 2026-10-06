@@ -1,0 +1,44 @@
+# Clang LLVM22 matches the pinned Rust LLVM22 profile record ABI.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+register_toolchains("//tools/bazel/cc/native:linux_x64", "//tools/bazel/cc/native:linux_arm64")
+
+http_archive(
+    name = "wasi_sdk_arm64_linux",
+    urls = ["https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-arm64-linux.tar.gz"],
+    sha256 = "4f98ee738c7abb45c81a94d1461fc53cc569d1cd01498951c8184d841a027844",
+    strip_prefix = "wasi-sdk-33.0-arm64-linux",
+    build_file = "//tools/bazel/cc:sdk.BUILD.bazel",
+)
+
+register_toolchains("//tools/bazel/cc:wasi_sdk_arm64_linux_toolchain")
+
+http_archive(
+    name = "wasi_sdk_arm64_macos",
+    urls = ["https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-arm64-macos.tar.gz"],
+    sha256 = "85c997a2665ead91673b5bb88b7d0df3fc8900df3bfa244f720d478187bbdc78",
+    strip_prefix = "wasi-sdk-33.0-arm64-macos",
+    build_file = "//tools/bazel/cc:sdk.BUILD.bazel",
+)
+
+register_toolchains("//tools/bazel/cc:wasi_sdk_arm64_macos_toolchain")
+
+http_archive(
+    name = "wasi_sdk_x86_64_linux",
+    urls = ["https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz"],
+    sha256 = "0ba8b5bfaeb2adf3f29bab5841d76cf5318ab8e1642ea195f88baba1abd47bce",
+    strip_prefix = "wasi-sdk-33.0-x86_64-linux",
+    build_file = "//tools/bazel/cc:sdk.BUILD.bazel",
+)
+
+register_toolchains("//tools/bazel/cc:wasi_sdk_x86_64_linux_toolchain")
+
+http_archive(
+    name = "wasi_sdk_x86_64_macos",
+    urls = ["https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-macos.tar.gz"],
+    sha256 = "18f3f201ba9734e6a4455b0b6410690395a55e9ffa9f6f5066f66083a94b93b3",
+    strip_prefix = "wasi-sdk-33.0-x86_64-macos",
+    build_file = "//tools/bazel/cc:sdk.BUILD.bazel",
+)
+
+register_toolchains("//tools/bazel/cc:wasi_sdk_x86_64_macos_toolchain")

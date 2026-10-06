@@ -1,0 +1,37 @@
+{
+  "name": "@merkur/web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@elysia/eden": "catalog:",
+    "@merkur/config": "workspace:*",
+    "@merkur/keyboard": "workspace:*",
+    "@merkur/logger": "workspace:*",
+    "@merkur/protocol": "workspace:*",
+    "@merkur/quicksilver": "workspace:*",
+    "@merkur/server": "workspace:*",
+    "@merkur/shared": "workspace:*",
+    "@serenity-kit/opaque": "catalog:",
+    "@solidjs/web": "2.0.0-rc.1",
+    "effect": "catalog:",
+    "linkify-it": "6.1.0",
+    "motion": "^13.1.1",
+    "solid-js": "2.0.0-rc.1"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.31",
+    "@unocss/preset-uno": "^66.8.1",
+    "unocss": "^66.8.1",
+    "vite": "^8.2.2"
+  },
+  "scripts": {
+    "sync:term-wasm": "bun run ../../scripts/sync-term-wasm.ts",
+    "predev": "bun run sync:term-wasm",
+    "dev": "vite --host 0.0.0.0 --strictPort",
+    "prebuild": "bun run sync:term-wasm",
+    "build": "vite build",
+    "build:watch": "vite build --watch"
+  }
+}

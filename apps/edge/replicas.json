@@ -1,0 +1,13 @@
+{
+  "replicas": [
+    {
+      "edgeId": "fra-1",
+      "app": "mercury-edge-tntcl",
+      "region": "fra",
+      "publicUrl": "https://37.16.4.174:4433",
+      "egressRateMbit": 200,
+      "egressBudgetGB": 2400,
+      "signalingReserveGB": 100
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[
+  {
+    "seed": 1023,
+    "failure": "Outage { direction: Downlink, partition: 62s, at_repair: Nothing, blackout: 0ns }: recovered 6.111s after the network healed: Recovered { after_heal: Some(6.111s), issued: 1, cancelled: 0, statuses: [\"Connecting\", \"Authenticating\", \"Ready\", \"Reconnecting\", \"Ready\"], rows: [\"$ before after\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\"], input: [98, 101, 102, 111, 114, 101, 32, 97, 102, 116, 101, 114], daemon_rows: [\"$ before after\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\", \"\"], counted: 0 }",
+    "found": "2026-10-03"
+  }
+]

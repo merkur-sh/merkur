@@ -1,0 +1,38 @@
+load("//tools/bazel/rust:check.bzl", "rust_check")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "dependency.rs", "consumer.rs", "type_error.rs"])
+
+rust_check(
+    name = "dependency",
+    crate_name = "check_dependency",
+    crate_types = ["lib"],
+    crate_root = "dependency.rs",
+    srcs = ["dependency.rs"],
+    edition = "2024",
+    rustc_flags = ["-Copt-level=0", "-Cdebuginfo=2", "-Cdebug-assertions=yes", "-Coverflow-checks=yes"],
+    tags = ["manual"],
+)
+
+rust_check(
+    name = "consumer",
+    crate_name = "check_consumer",
+    crate_types = ["bin"],
+    crate_root = "consumer.rs",
+    srcs = ["consumer.rs"],
+    deps = [":dependency"],
+    edition = "2024",
+    rustc_flags = ["-Copt-level=0", "-Cdebuginfo=2", "-Cdebug-assertions=yes", "-Coverflow-checks=yes"],
+    tags = ["manual"],
+)
+
+rust_check(
+    name = "type_error",
+    crate_name = "check_type_error",
+    crate_types = ["lib", "cdylib"],
+    crate_root = "type_error.rs",
+    srcs = ["type_error.rs"],
+    edition = "2024",
+    tags = ["manual"],
+)

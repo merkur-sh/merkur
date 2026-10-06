@@ -1,0 +1,69 @@
+
+["dependencies"]
+"serde_json" = "1"
+"unicode-width" = "0.2"
+
+["dependencies"."base64"]
+"default-features" = false
+"features" = ["alloc"]
+"version" = "0.22"
+
+["dependencies"."merkur-authorization"]
+"default-features" = false
+"path" = "../../../../../../packages/merkur-authorization"
+
+["dependencies"."merkur-codec"]
+"path" = "../../../../../../packages/merkur-codec"
+
+["dependencies"."merkur-e2e"]
+"default-features" = false
+"path" = "../../../../../../packages/merkur-e2e"
+
+["dependencies"."merkur-edge-protocol"]
+"path" = "../../../../../../packages/merkur-edge-protocol"
+
+["dependencies"."merkur-fec"]
+"path" = "../../../../../../packages/merkur-fec"
+
+["dependencies"."merkur-graphics"]
+"path" = "../../../../../../packages/merkur-graphics"
+
+["dependencies"."merkur-wire"]
+"default-features" = false
+"path" = "../../../../../../packages/merkur-wire"
+
+["dependencies"."serde"]
+"features" = ["derive"]
+"version" = "1"
+
+["dependencies"."zeroize"]
+"default-features" = false
+"features" = ["alloc"]
+"version" = "=1.9.0"
+
+["dev-dependencies"]
+"bolero" = "=0.13.6"
+
+["features"]
+"default" = ["std"]
+"std" = ["merkur-e2e/std", "merkur-authorization/std", "merkur-wire/std"]
+"wasm" = ["merkur-e2e/wasm", "merkur-authorization/wasm", "merkur-wire/wasm"]
+
+["lib"]
+"name" = "merkur_client"
+"path" = "../../../../../../packages/merkur-client/src/lib.rs"
+
+["lints"]
+"workspace" = true
+
+["package"]
+"autotests" = false
+"edition" = "2024"
+"license" = "AGPL-3.0-only"
+"name" = "merkur-client-fuzz"
+"publish" = false
+"version" = "0.1.0"
+
+[["test"]]
+"name" = "fuzz"
+"path" = "../../../../../bolero/client.rs"

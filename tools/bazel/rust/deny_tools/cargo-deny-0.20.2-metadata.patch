@@ -1,0 +1,66 @@
+diff --git a/src/cargo-deny/common.rs b/src/cargo-deny/common.rs
+--- a/src/cargo-deny/common.rs
++++ b/src/cargo-deny/common.rs
+@@ -223,6 +223,10 @@
+ 
+     #[inline]
+     pub fn fetch_krates(&self, cfg_targets: &[Target]) -> anyhow::Result<()> {
++        // Declared metadata binds acquired sources; never run another resolver.
++        if self.metadata_path.is_some() {
++            return Ok(());
++        }
+         fetch(
+             MetadataOptions {
+                 no_default_features: false,
+@@ -247,10 +251,26 @@
+         let start = std::time::Instant::now();
+ 
+         log::debug!("gathering crate metadata");
+-        let metadata = if let Some(md) = self.metadata_path {
++        let mut declared_index = None;
++        let metadata: krates::cm::Metadata = if let Some(md) = self.metadata_path {
+             let data = std::fs::read_to_string(&md)
+                 .with_context(|| format!("failed to read metadata JSON from {md}"))?;
+-            serde_json::from_str(&data)
++            let document: serde_json::Value = serde_json::from_str(&data)?;
++            let records = document.get("merkur_registry_index")
++                .and_then(serde_json::Value::as_array)
++                .context("declared metadata must include complete registry index feature facts")?;
++            let mut index = std::collections::BTreeMap::<String, krates::index::IndexKrate>::new();
++            for record in records {
++                let name = record["name"].as_str().context("index fact missing name")?;
++                let version = record["version"].as_str().context("index fact missing version")?.parse()?;
++                let features = serde_json::from_value(record["features"].clone())?;
++                let entry = index.entry(name.to_owned())
++                    .or_insert_with(|| krates::index::IndexKrate { versions: Vec::new() });
++                anyhow::ensure!(!entry.versions.iter().any(|v| v.version == version), "duplicate declared index version");
++                entry.versions.push(krates::index::IndexKrateVersion { version, features });
++            }
++            declared_index = Some(index);
++            serde_json::from_value(document)
+                 .with_context(|| format!("failed to deserialize metadata JSON from {md}"))?
+         } else {
+             Self::get_metadata(
+@@ -327,10 +347,18 @@
+         // see https://github.com/rust-lang/cargo/issues/11319 for an example of
+         // what this can look like in practice if we don't have the index metadata
+         // to supplement/fix the cargo metadata
+-        if let Err(err) = cargo_deny::krates_with_index(&mut gb, None, None) {
+-            log::error!(
+-                "failed to open the local crates.io index, feature sets for crates may not be correct: {err}"
+-            );
++        if let Some(index) = declared_index {
++            for package in &metadata.packages {
++                if package.source.as_ref().is_some_and(|source| source.is_crates_io()) {
++                    anyhow::ensure!(index.get(package.name.as_str()).is_some_and(|entry|
++                        entry.versions.iter().any(|version| version.version == package.version)),
++                        "missing declared registry features for {} {}", package.name, package.version);
++                }
++            }
++            gb.with_crates_io_index(Box::new(move |names| names.into_iter()
++                .map(|name| { let entry = index.get(&name).cloned(); (name, entry) }).collect()));
++        } else {
++            cargo_deny::krates_with_index(&mut gb, None, None)?;
+         }
+ 
+         let graph = gb.build_with_metadata(metadata, |filtered: krates::cm::Package| {

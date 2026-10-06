@@ -1,0 +1,315 @@
+# Generated subset of rolldown_vite/crates.MODULE.bazel.
+# Common repository definitions are byte-identical to rolldown_native/crates.MODULE.bazel.
+rolldown_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+rolldown_archive(
+    name = "merkur_rolldown_crate_eb3485959a118497ce59f013d60182a9db5fdf056a8beb7f85ea1f86890391ab",
+    urls = ["https://static.crates.io/crates/futures-channel/futures-channel-0.3.33.crate"],
+    sha256 = "262590f4fe6afeb0bc83be1daa64e52657fe185690a958af7f3ad0e92085c5ae",
+    strip_prefix = "futures-channel-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_18ee50b64b837b39448b8631651634573a7f70125b7c505afb5b63a4c1d7b3df",
+    urls = ["https://static.crates.io/crates/futures-core/futures-core-0.3.33.crate"],
+    sha256 = "2cd50c473c80f6d7c3670a752354b8e569b1a7cbfdc0419ec88e5edad85e0dc7",
+    strip_prefix = "futures-core-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_70f24ab41a00f3b0a950c2236b31430d42449bd15e23aef8a0b2af1cd0202986",
+    urls = ["https://static.crates.io/crates/futures-executor/futures-executor-0.3.33.crate"],
+    sha256 = "6754879cc9f2c66f88c6e5c35344bb0bdb0708b0352b1201815667c7eabc7458",
+    strip_prefix = "futures-executor-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_922779cfbd75919b012f9d7c79d9269dc05b2118b557a5e1649f78ba3a77e0cd",
+    urls = ["https://static.crates.io/crates/futures-io/futures-io-0.3.33.crate"],
+    sha256 = "4577ecaa3c4f96589d473f679a71b596316f6641bc350038b962a5daf0085d7a",
+    strip_prefix = "futures-io-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_432326a98fe7b6b36855093e8be6f6bf57ee25685faad1ef95ee699674ed4099",
+    urls = ["https://static.crates.io/crates/futures-macro/futures-macro-0.3.33.crate"],
+    sha256 = "2d6d3cde68c518367be28956066ddfef33813991b77a55005a69dae04bf3b10b",
+    strip_prefix = "futures-macro-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_3257b2d8c2efe122211c15422f3b9748aadf4afff46a7ee6ed88f45a5016eb27",
+    urls = ["https://static.crates.io/crates/futures-sink/futures-sink-0.3.33.crate"],
+    sha256 = "e34418ac499d6305c2fb5ad0ed2f6ac998c5f8ca209b4510f7f94242c647e307",
+    strip_prefix = "futures-sink-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_c154030310e00fe35f8e4101e4001e386ed0583fe8a631dbefc36392bdeb352e",
+    urls = ["https://static.crates.io/crates/futures-task/futures-task-0.3.33.crate"],
+    sha256 = "b231ed28831efb4a61a08580c4bc233ec56bc009f4cd8f52da2c3cb97df0c109",
+    strip_prefix = "futures-task-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_4e8b764032631cff1ca46e5d25d3b7ec6e5ad1e9f25289c6614e10512bb0fa7d",
+    urls = ["https://static.crates.io/crates/futures-util/futures-util-0.3.33.crate"],
+    sha256 = "a77a90a256fce34da66415271e30f94ee91c57b04b8a2c042d9cf3220179deaa",
+    strip_prefix = "futures-util-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_ca0e19745a36ffcd44f1c443f49c4d12b4b46709a4267dca6323857d0cc45c79",
+    urls = ["https://static.crates.io/crates/futures/futures-0.3.33.crate"],
+    sha256 = "a88cf1f829d945f548cf8fec32c61b1f202b6d93b45848602fc02af4b12ad218",
+    strip_prefix = "futures-0.3.33",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_a4fced88fdaca5eb41bafc3f60a3e3970ff9c31a7375bb77821431f6a9ec665a",
+    urls = ["https://static.crates.io/crates/oxc-browserslist/oxc-browserslist-3.0.11.crate"],
+    sha256 = "50a403a3c6be65be7bc7730d07d959ec6c143e4ff8117da485df78cd5582260a",
+    strip_prefix = "oxc-browserslist-3.0.11",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_31dc73fcec30daa6bfc93d45246c4cb4bf691ff74a102ccaba9f20121d213787",
+    urls = ["https://static.crates.io/crates/oxc-miette/oxc-miette-4.0.0.crate"],
+    sha256 = "330e07b3807046e0afa8fcc94f1fe976e93831b370d148bfe1168cb53da1b913",
+    strip_prefix = "oxc-miette-4.0.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_06addf661314e4cd93aaa3d3bcc32f9624896faac29144f91f5d625501d378aa",
+    urls = ["https://static.crates.io/crates/oxc/oxc-0.144.0.crate"],
+    sha256 = "dbbeaf92280ba8365dc2f25390a388cfe74d48a6d3de6ff2f5ec6469777f8b92",
+    strip_prefix = "oxc-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_a79c816c102482d266d0c0ff08ad6163f1fe673f51a1b62e5b84c22b50be89fe",
+    urls = ["https://static.crates.io/crates/oxc_allocator/oxc_allocator-0.144.0.crate"],
+    sha256 = "9262c7bbd58c8c32c2c60d1a7b6c274cd2aeaff1b726a2fb86081b75084698cb",
+    strip_prefix = "oxc_allocator-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_2c0c748e1cc07807121691d4782e496069cb40f4af0df4e48735d31008c59681",
+    urls = ["https://static.crates.io/crates/oxc_ast/oxc_ast-0.144.0.crate"],
+    sha256 = "e8134809b665d524d9a0ddeee87a5d3602776aa2410a10a0439fd25eeb594a5d",
+    strip_prefix = "oxc_ast-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_755f7773e627e40e627e96294de26482d3d6703609e188e7746f573af68f0adf",
+    urls = ["https://static.crates.io/crates/oxc_ast_macros/oxc_ast_macros-0.144.0.crate"],
+    sha256 = "ac120c6863a9d036c78a42a5e4d2f58bb27c5df795d61d904f6e19e48c681a37",
+    strip_prefix = "oxc_ast_macros-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_91d114057b55ba28a9815e63c05e24dc5d1ed1e7f0a4cd614a202480cc08cb31",
+    urls = ["https://static.crates.io/crates/oxc_ast_visit/oxc_ast_visit-0.144.0.crate"],
+    sha256 = "4a57626cd6ef87f5173110a301868e3c438fd8e0576f489d9a61540ef133f686",
+    strip_prefix = "oxc_ast_visit-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_2ed6fef89c05434e34900c8181424e719221ee87c92b6d1b27227ee6b3ca155b",
+    urls = ["https://static.crates.io/crates/oxc_codegen/oxc_codegen-0.144.0.crate"],
+    sha256 = "5f8a30cbe510caef092aa75fe29e8d37576ca8eb2ab3e9ab34a453a92863e7f0",
+    strip_prefix = "oxc_codegen-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_c0fa0489e8ad6607dfa11a93c14357441dd240f84ca2a9987d89eec7edd7c636",
+    urls = ["https://static.crates.io/crates/oxc_compat/oxc_compat-0.144.0.crate"],
+    sha256 = "2ca8b4e5fc1b038d063aef726deeb0639460b0a3f4dfa9cc3f1b52b4b231bbf7",
+    strip_prefix = "oxc_compat-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_f79b5afde19a3fa4666012d9d6d0e2a829ef082bb98213573bd54e5f55b6f615",
+    urls = ["https://static.crates.io/crates/oxc_data_structures/oxc_data_structures-0.144.0.crate"],
+    sha256 = "2a71efea56db93d3ce9e88e1d9f74f6d50fc2b06092444cdd08579f5827fd8db",
+    strip_prefix = "oxc_data_structures-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_046e866d94e56e2f786e49133818579709f9acf91c072ff867e5f6daef9256f1",
+    urls = ["https://static.crates.io/crates/oxc_diagnostics/oxc_diagnostics-0.144.0.crate"],
+    sha256 = "e5ff8638533094ecdcd38a63930c003c261d81650e4531c3bc805c797aec2a52",
+    strip_prefix = "oxc_diagnostics-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_176fee43653549a63aa0fad9fb326f841650d14986ad46f2800f9ed6d96322bb",
+    urls = ["https://static.crates.io/crates/oxc_ecmascript/oxc_ecmascript-0.144.0.crate"],
+    sha256 = "77c7a326f49f06da37affdcad2fb3ebab46ac4ada8953a428f7cbd04e5cc9e6e",
+    strip_prefix = "oxc_ecmascript-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_07c6d5d5f4a847cf93d170488af4cd901b1573b701e4214d94bdbc3d2b2f9290",
+    urls = ["https://static.crates.io/crates/oxc_estree/oxc_estree-0.144.0.crate"],
+    sha256 = "8275fcb9674a1c320f0bdbc2f534ba9bb09fcb8b1c9fe306c9595d262a06bfcb",
+    strip_prefix = "oxc_estree-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_601cd412cd4ddcb6745b7bb2c07653f4d58ed1df2d51cc969336a58e49148277",
+    urls = ["https://static.crates.io/crates/oxc_isolated_declarations/oxc_isolated_declarations-0.144.0.crate"],
+    sha256 = "aba22c46bf2b6dc717be28b0cb5bfdd7c6dadb81b6ff47e3bee85ba0a9637733",
+    strip_prefix = "oxc_isolated_declarations-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_03f6c460531beea6ff07e87e082bca58fd7dac03b08e08e671431a2a0e737111",
+    urls = ["https://static.crates.io/crates/oxc_mangler/oxc_mangler-0.144.0.crate"],
+    sha256 = "0d44069ca70dbae736cd232b04fe21f5ed354396be2365b5ed16adcf86248a09",
+    strip_prefix = "oxc_mangler-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_915570fc25a6a055dd2bf3028e75e1ec0d0b2267a27163295da4a3d7dc8e6f45",
+    urls = ["https://static.crates.io/crates/oxc_minifier/oxc_minifier-0.144.0.crate"],
+    sha256 = "edb4a27820aa9c98438a7ed41d72747690111fc2075fbd178e81f94e55ae16ea",
+    strip_prefix = "oxc_minifier-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_a83065342ad44e9055cd0d32111b49efd3f5cf99acd4e7a6e36d104fbc032ef7",
+    urls = ["https://static.crates.io/crates/oxc_minify_napi/oxc_minify_napi-0.144.0.crate"],
+    sha256 = "59664968ec86932143f0ce439d85b84f6193dab60678572d44c34a26a2f638db",
+    strip_prefix = "oxc_minify_napi-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_e0724e080bbe669725526ea4d74b222a8d4fd2234942c8bd5a460d3e3736fb29",
+    urls = ["https://static.crates.io/crates/oxc_napi/oxc_napi-0.144.0.crate"],
+    sha256 = "c37292d00477aef3aa4abd697b0856c677ae992e50e41ba0435575ca69bc64d6",
+    strip_prefix = "oxc_napi-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_91819b59ebafd9df21a9baca916500c426100e9df3b0dc0585205905db968ce2",
+    urls = ["https://static.crates.io/crates/oxc_parser/oxc_parser-0.144.0.crate"],
+    sha256 = "d13016de81370106ea4065cfabe4a278dc09e82523cfe22bb6a8ab8e993b4c3a",
+    strip_prefix = "oxc_parser-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_b41cebcf5dd2c5ea0d375500041db1e0aab7cceecb892ebb259fb7950b1735d3",
+    urls = ["https://static.crates.io/crates/oxc_parser_napi/oxc_parser_napi-0.144.0.crate"],
+    sha256 = "db092436303bbd448889c4ca3cf122a6eebc7dac97aab695710b5619330b6c12",
+    strip_prefix = "oxc_parser_napi-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_d959089da34b390a75d29d994ee148f0bea3495e05e0088c410c0d7b3875382f",
+    urls = ["https://static.crates.io/crates/oxc_regular_expression/oxc_regular_expression-0.144.0.crate"],
+    sha256 = "c375b89d88ec03301b0e62528715699551871861197aa39148e95a1422e1ae9b",
+    strip_prefix = "oxc_regular_expression-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_4eff850f5f84c604f757c8319eda584386d76b5568834929aee3adecf469175b",
+    urls = ["https://static.crates.io/crates/oxc_semantic/oxc_semantic-0.144.0.crate"],
+    sha256 = "0d8d80604c4220c8f5b1c19682216921397fb45a616db47d3a044474662f0c2e",
+    strip_prefix = "oxc_semantic-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_71d669bc64f289d2e71fb2458e84ec581e9eb3b4e21c3955cbbfba45f4a944c6",
+    urls = ["https://static.crates.io/crates/oxc_span/oxc_span-0.144.0.crate"],
+    sha256 = "abd732008dbfb09984106925f7ff7268687c8020b89bd7ee0f0b695c5bb07950",
+    strip_prefix = "oxc_span-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_6118f8def245411033c18e827a2f8842a05d880f729b9b041229d0e12b8133de",
+    urls = ["https://static.crates.io/crates/oxc_str/oxc_str-0.144.0.crate"],
+    sha256 = "e1d2ccb0f5aa4da9fc98ef70f59553c2779e28e064a8b271fcb1e88c11a63607",
+    strip_prefix = "oxc_str-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_90f7bc41d0fd064b0de8a32cc2b4bf9f28ce85e416cf572c3c4f78bd5d9465bd",
+    urls = ["https://static.crates.io/crates/oxc_syntax/oxc_syntax-0.144.0.crate"],
+    sha256 = "15ff0e987ab15a71dae36fd544b9859513e76639e2cc6c5e25895081162755b1",
+    strip_prefix = "oxc_syntax-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_3b3b7cd1c6b4c8db7f136f6d88582eacc492d3079970211749fb303172703f2c",
+    urls = ["https://static.crates.io/crates/oxc_transform_napi/oxc_transform_napi-0.144.0.crate"],
+    sha256 = "2182d00b6cb0b1fce0d9a93f2f160ac88b14236d768c00a868d07e4bb59d1508",
+    strip_prefix = "oxc_transform_napi-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_79f2a916a68f1cd968f76f451f827ecb94b15475143f16264e7220af2212fb8a",
+    urls = ["https://static.crates.io/crates/oxc_transformer/oxc_transformer-0.144.0.crate"],
+    sha256 = "1f78841ae7b3fdeb86cbc6ee625e2ea844e663fd7b0b320cd361a8514eae34f7",
+    strip_prefix = "oxc_transformer-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_e75fc1defae0462b61f800a738f69d90cd86df211a8c9d8f763c87370b0947f2",
+    urls = ["https://static.crates.io/crates/oxc_transformer_plugins/oxc_transformer_plugins-0.144.0.crate"],
+    sha256 = "ee9b1a4f823435ac5c089a8692a76887b16603ac33781a96f7925f5b0b86e102",
+    strip_prefix = "oxc_transformer_plugins-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_2db0ee60ce0af7029bc70838cb40001186e0a56912ccadd3c4c401d045762a52",
+    urls = ["https://static.crates.io/crates/oxc_traverse/oxc_traverse-0.144.0.crate"],
+    sha256 = "8cb740c9102d898615f894864044ca0b7926374981cef1b6c667e59e2b397ff9",
+    strip_prefix = "oxc_traverse-0.144.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)
+rolldown_archive(
+    name = "merkur_rolldown_crate_c5456d54a1a4df8fe4bcfe0adf52d423442f73f0c3fc6b78f736ab53a2e9bf0c",
+    urls = ["https://static.crates.io/crates/uuid/uuid-1.24.0.crate"],
+    sha256 = "bf3923a6f5c4c6382e0b653c4117f48d631ea17f38ed86e2a828e6f7412f5239",
+    strip_prefix = "uuid-1.24.0",
+    type = "tar.gz",
+    build_file = "//tools/bazel/rust:crate_sources.BUILD.bazel",
+)

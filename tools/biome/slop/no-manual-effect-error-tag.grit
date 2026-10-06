@@ -1,0 +1,152 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A `_tag` member compared to a string literal, or switched on, directly inside the handler passed
+// to `Effect.catch`, `Effect.catchAll` or `Effect.catchIf`. A `reason._tag` member gets the
+// reason-handler wording.
+//
+// A member that is part of an optional chain is exempt, as in `no-manual-tag-comparison`.
+
+// Parentheses do not change what an expression is; they are followed two deep.
+pattern through_parens($inner) {
+  or {
+    $inner,
+    JsParenthesizedExpression(expression=$inner),
+    JsParenthesizedExpression(expression=JsParenthesizedExpression(expression=$inner))
+  }
+}
+
+// One step of a member/call chain that is taken with `?.`. A token cannot be named in a node
+// pattern, so the operator is read off the text that follows the step's object.
+pattern optional_step() {
+  or {
+    JsStaticMemberExpression(object=$before),
+    JsComputedMemberExpression(object=$before),
+    JsCallExpression(callee=$before)
+  } as $step where {
+    $after = split(string=$step, separator=$before),
+    $operator = $after[1],
+    $operator <: r"(?s)\s*\?\..*"
+  }
+}
+
+pattern step_over($inner) {
+  or {
+    JsStaticMemberExpression(object=$inner),
+    JsComputedMemberExpression(object=$inner),
+    JsCallExpression(callee=$inner),
+    TsNonNullAssertionExpression(expression=$inner)
+  }
+}
+
+// Part of an optional chain, looked for four steps down the chain.
+pattern in_optional_chain() {
+  or {
+    optional_step(),
+    step_over(inner=optional_step()),
+    step_over(inner=step_over(inner=optional_step())),
+    step_over(inner=step_over(inner=step_over(inner=optional_step())))
+  }
+}
+
+pattern tag_member() {
+  through_parens(inner= or {
+    JsStaticMemberExpression(member="_tag"),
+    JsComputedMemberExpression(member=JsStringLiteralExpression() as $name) where {
+      $name <: or {
+        "'_tag'",
+        r"\"_tag\""
+      }
+    }
+  } as $member where { ! $member <: in_optional_chain() })
+}
+
+pattern reason_tag_member() {
+  through_parens(inner= or {
+    JsStaticMemberExpression(object=$owner),
+    JsComputedMemberExpression(object=$owner)
+  } where {
+    $owner <: through_parens(inner=or {
+      JsStaticMemberExpression(member="reason"),
+      JsComputedMemberExpression(member=JsStringLiteralExpression() as $name) where {
+        $name <: or {
+          "'reason'",
+          r"\"reason\""
+        }
+      }
+    })
+  })
+}
+
+pattern tag_comparison($tag) {
+  or {
+    `$left === $right`,
+    `$left !== $right`,
+    `$left == $right`,
+    `$left != $right`
+  } where {
+    or {
+      and {
+        $left <: tag_member(),
+        $right <: through_parens(inner=JsStringLiteralExpression()),
+        $tag = $left
+      },
+      and {
+        $right <: tag_member(),
+        $left <: through_parens(inner=JsStringLiteralExpression()),
+        $tag = $right
+      }
+    }
+  }
+}
+
+pattern function_boundary() {
+  or {
+    JsArrowFunctionExpression(),
+    JsFunctionExpression(),
+    JsMethodClassMember(),
+    JsMethodObjectMember(),
+    JsConstructorClassMember(),
+    JsGetterClassMember(),
+    JsSetterClassMember(),
+    JsGetterObjectMember(),
+    JsSetterObjectMember()
+  }
+}
+
+pattern in_broad_effect_handler() {
+  $node where {
+    $node <: within function_boundary() as $handler ,
+    $handler <: or {
+      JsArrowFunctionExpression(),
+      JsFunctionExpression()
+    },
+    $handler <: within JsCallExpression(callee=JsStaticMemberExpression(object=`Effect`, member=$method), arguments=JsCallArguments(args=$arguments)) where {
+      $method <: or {
+        "catch",
+        "catchAll",
+        "catchIf"
+      },
+      $arguments <: some $handler
+    }
+  }
+}
+
+// The query names node kinds directly: a pattern call there is run against every node of the file.
+or {
+  JsBinaryExpression(),
+  JsSwitchStatement()
+} as $branch where {
+  // A substring test first: this runs on every binary expression and switch in the tree.
+  $branch <: includes "_tag",
+  $branch <: or {
+    tag_comparison($tag),
+    JsSwitchStatement(discriminant=tag_member() as $tag)
+  },
+  $branch <: in_broad_effect_handler(),
+  if ($tag <: reason_tag_member()) {
+    register_diagnostic(span=$branch, message="[no-manual-effect-error-tag] This catch-everything handler sorts a tagged `reason` by hand. Handle each reason with `Effect.catchReason` or `Effect.catchReasons`.", severity="error")
+  } else {
+    register_diagnostic(span=$branch, message="[no-manual-effect-error-tag] This catch-everything handler sorts tagged errors by hand. Handle each tag with `Effect.catchTag` or `Effect.catchTags`.", severity="error")
+  }
+}

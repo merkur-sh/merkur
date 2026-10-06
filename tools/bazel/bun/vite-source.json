@@ -1,0 +1,29 @@
+{
+  "package": "vite",
+  "version": "8.2.2",
+  "repository": {
+    "url": "git+https://github.com/vitejs/vite.git",
+    "type": "git",
+    "directory": "packages/vite"
+  },
+  "published": {
+    "metadata_url": "https://registry.npmjs.org/vite/8.2.2",
+    "git_head": null,
+    "tarball": "https://registry.npmjs.org/vite/-/vite-8.2.2.tgz",
+    "integrity": "sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==",
+    "provenance_url": "https://registry.npmjs.org/-/npm/v1/attestations/vite@8.2.2",
+    "provenance_predicate": "https://slsa.dev/provenance/v1",
+    "source_ref": "refs/tags/v8.2.2",
+    "git_commit": "de1111ab0be00879b404e7ed3b2a80e264edddc1"
+  },
+  "source": {
+    "url": "https://codeload.github.com/vitejs/vite/tar.gz/de1111ab0be00879b404e7ed3b2a80e264edddc1",
+    "sha256": "b88221f7747919b36ee63bc4be2847891a11b9b6e70ded8c237ddbdc9cea8950",
+    "size": 12922806,
+    "strip_prefix": "vite-de1111ab0be00879b404e7ed3b2a80e264edddc1"
+  },
+  "import_analysis_build": {
+    "path": "packages/vite/src/node/plugins/importAnalysisBuild.ts",
+    "sha256": "f8578a73cd04624556c13d13a094128b25a84d598ef8b921d90ce8aa17a2373e"
+  }
+}

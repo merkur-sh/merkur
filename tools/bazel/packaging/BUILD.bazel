@@ -1,0 +1,390 @@
+load(":stdlib-native-graph.bzl", "stock_stdlib_native_graph")
+load(":oci-release.bzl", "declare_unsigned_service_images")
+load(":native-release-test.bzl", "native_release_test_suite")
+load(":rules.bzl", "package_controls_test", "unsigned_deployment")
+load(":rust-providers.bzl", "declared_compiled_rust_attribution", "declared_rust_attribution", "declared_shipping_stdlib_attribution", "declared_wasm_rust_attribution")
+load(":notices.bzl", "declared_package_tree", "deployment_notices", "first_party_attribution", "npm_attribution")
+load("//tools/bazel/bun:rules.bzl", "bun_binary", "bun_test")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["release-notices.bzl"])
+
+exports_files([
+    "wasm-inputs.py",
+    "rust-link-map.bzl","pack.py", "rules.bzl", "first-party-notices.py", "deployment-pack.py", "deployment-notices.py", "package-tree.py", "output-tree.py", "rust-notices.py", "npm-notices.py", "license-closure.py", "license-inputs.py", "rust-license-metadata.py"])
+filegroup(name = "verification_inputs", srcs = glob(["**"], exclude = ["**/__pycache__/**", "**/*.pyc"]))
+js_library(name = "ci_sources", srcs = ["ci-admission.ts", "ci-preparation.ts", "ci-evidence.ts", "shipping-evidence.ts", "configured-artifacts.ts", "release-staging.ts", "ci-artifact-staging.ts", "release-contract.json"])
+
+package_controls_test(name = "controls_test", src = "pack_test.py", data = ["unpack.py"], tags = [])
+package_controls_test(name = "deployment_package_test", src = "deployment-pack-test.py", runner = "deployment-pack.py", data = ["pack.py", "release-layout.py", "deployment-notices.py", "license-closure.py", "license-inputs.py"], tags = [])
+package_controls_test(name = "deployment_notices_test", src = "deployment-notices-test.py", runner = "deployment-notices.py", data = ["deployment-pack-test.py", "deployment-pack.py", "pack.py", "release-layout.py", "license-closure.py", "license-inputs.py"], tags = [])
+package_controls_test(name = "first_party_notices_test", src = "first-party-notices-test.py", runner = "first-party-notices.py", data = ["wasm-inputs.py","deployment-pack.py", "pack.py", "npm-notices.py", "license-closure.py", "license-inputs.py", "rust-notices.py", "rust-license-metadata.py"], tags = [])
+package_controls_test(name = "ci_admission_test", src = "//scripts:ci/bazel_admission_test.py", runner = "//scripts:ci/bazel_admission.py", tags = [])
+package_controls_test(name = "release_layout_test", src = "release-layout-test.py", data = ["release-layout.py", "release-contract.json"], tags = [])
+package_controls_test(name = "license_inputs_test", src = "license-inputs-test.py", data = ["license-inputs.py"], tags = [])
+package_controls_test(name = "license_closure_test", src = "license-closure-test.py", data = ["license-closure.py", "license-inputs.py"], tags = [])
+package_controls_test(name = "rust_license_metadata_test", src = "rust-license-metadata-test.py", data = ["rust-license-metadata.py", "rust-compiled.bzl", "rust-link-map.bzl", "rust-notices.py", "license-inputs.py", "license-closure.py", "//tools/bazel/rust:units.py", "//tools/bazel/rust:configured_parity.py", "//tools/bazel/rust:license_metadata.py", "//tools/bazel/rust:native_receipts.py", "//tools/bazel/rust:stdlib_attribution.py", "deployment-pack.py", "pack.py"], tags = [])
+package_controls_test(name = "package_tree_test", src = "package-tree-test.py", data = ["package-tree.py", "output-tree.py", "license-inputs.py"], tags = [])
+package_controls_test(name = "rust_notices_test", src = "rust-notices-test.py", data = ["rust-notices.py", "license-inputs.py", "rust-license-metadata.py"], tags = [])
+package_controls_test(name = "npm_notices_test", src = "npm-notices-test.py", data = ["npm-notices.py", "deployment-pack.py", "pack.py", "license-closure.py", "rust-notices.py", "license-inputs.py", "rust-license-metadata.py"], tags = [])
+package_controls_test(name = "attribution_generator_test", src = "generator-test.py", data = ["generator.py", "//tools/bazel/rust:units.bzl", "rust-compiled.bzl"], tags = [])
+
+# Exact unsigned service producer; complete external NOTICES and native release
+# qualifications are mandatory before any protected consumer accepts these bytes.
+unsigned_deployment(
+    name = "deployment_unsigned",
+    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+npm_attribution(
+    name = "server_npm_notices",
+    producer = "//tools/bazel/bun:server_npm_attribution",
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+
+npm_attribution(
+    name = "migrations_npm_notices",
+    producer = "//tools/bazel/bun:migrations_npm_attribution",
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+npm_attribution(
+    name = "web_npm_notices",
+    producer = "//tools/bazel/bun:frontend_npm_attribution",
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+# Exact authored package source declarations. Only compiler-selected source
+# members enter the first-party attribution; unused packages are not components.
+declared_package_tree(
+    name = "first_party_source_apps_daemon",
+    sources = "//apps/daemon:verification_inputs",
+    manifest = "//apps/daemon:package.json",
+    source_label = "//apps/daemon:verification_inputs",
+    manifest_label = "//apps/daemon:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_apps_server",
+    sources = "//apps/server:verification_inputs",
+    manifest = "//apps/server:package.json",
+    source_label = "//apps/server:verification_inputs",
+    manifest_label = "//apps/server:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_apps_web",
+    sources = "//apps/web:verification_inputs",
+    manifest = "//apps/web:package.json",
+    source_label = "//apps/web:verification_inputs",
+    manifest_label = "//apps/web:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_auth",
+    sources = "//packages/auth:verification_inputs",
+    manifest = "//packages/auth:package.json",
+    source_label = "//packages/auth:verification_inputs",
+    manifest_label = "//packages/auth:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_config",
+    sources = "//packages/config:verification_inputs",
+    manifest = "//packages/config:package.json",
+    source_label = "//packages/config:verification_inputs",
+    manifest_label = "//packages/config:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_daemon_control_protocol",
+    sources = "//packages/daemon-control-protocol:verification_inputs",
+    manifest = "//packages/daemon-control-protocol:package.json",
+    source_label = "//packages/daemon-control-protocol:verification_inputs",
+    manifest_label = "//packages/daemon-control-protocol:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_keyboard",
+    sources = "//packages/keyboard:verification_inputs",
+    manifest = "//packages/keyboard:package.json",
+    source_label = "//packages/keyboard:verification_inputs",
+    manifest_label = "//packages/keyboard:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_logger",
+    sources = "//packages/logger:verification_inputs",
+    manifest = "//packages/logger:package.json",
+    source_label = "//packages/logger:verification_inputs",
+    manifest_label = "//packages/logger:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_protocol",
+    sources = "//packages/protocol:verification_inputs",
+    manifest = "//packages/protocol:package.json",
+    source_label = "//packages/protocol:verification_inputs",
+    manifest_label = "//packages/protocol:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_quicksilver",
+    sources = "//packages/quicksilver:verification_inputs",
+    manifest = "//packages/quicksilver:package.json",
+    source_label = "//packages/quicksilver:verification_inputs",
+    manifest_label = "//packages/quicksilver:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_shared",
+    sources = "//packages/shared:verification_inputs",
+    manifest = "//packages/shared:package.json",
+    source_label = "//packages/shared:verification_inputs",
+    manifest_label = "//packages/shared:package.json",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "first_party_source_packages_user_agent",
+    sources = "//packages/user-agent:verification_inputs",
+    manifest = "//packages/user-agent:package.json",
+    source_label = "//packages/user-agent:verification_inputs",
+    manifest_label = "//packages/user-agent:package.json",
+    tags = ["manual"],
+)
+
+first_party_attribution(
+    name = "server_first_party_notices",
+    producer = "//apps/server:server",
+    packages = [
+        ":first_party_source_apps_daemon",
+        ":first_party_source_apps_server",
+        ":first_party_source_apps_web",
+        ":first_party_source_packages_auth",
+        ":first_party_source_packages_config",
+        ":first_party_source_packages_daemon_control_protocol",
+        ":first_party_source_packages_keyboard",
+        ":first_party_source_packages_logger",
+        ":first_party_source_packages_protocol",
+        ":first_party_source_packages_quicksilver",
+        ":first_party_source_packages_shared",
+        ":first_party_source_packages_user_agent",
+    ],
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+first_party_attribution(
+    name = "migrations_first_party_notices",
+    producer = "//apps/server:migrations",
+    packages = [
+        ":first_party_source_apps_daemon",
+        ":first_party_source_apps_server",
+        ":first_party_source_apps_web",
+        ":first_party_source_packages_auth",
+        ":first_party_source_packages_config",
+        ":first_party_source_packages_daemon_control_protocol",
+        ":first_party_source_packages_keyboard",
+        ":first_party_source_packages_logger",
+        ":first_party_source_packages_protocol",
+        ":first_party_source_packages_quicksilver",
+        ":first_party_source_packages_shared",
+        ":first_party_source_packages_user_agent",
+    ],
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+
+first_party_attribution(
+    name = "web_first_party_notices",
+    producer = "//apps/web:frontend_precompressed",
+    compiler_tooling_packages = [
+        ":frontend_compiler_source_rolldown_binding",
+        ":frontend_compiler_source_rolldown_plugin_vite_module_preload_polyfill",
+        ":frontend_compiler_source_rolldown_plugin_vite_build_import_analysis",
+    ],
+    compiler_tooling_bindings = ["//tools/bazel/rust/rolldown_vite:binding_aarch64_apple_darwin"],
+    packages = [
+        ":first_party_source_apps_daemon",
+        ":first_party_source_apps_server",
+        ":first_party_source_apps_web",
+        ":first_party_source_packages_auth",
+        ":first_party_source_packages_config",
+        ":first_party_source_packages_daemon_control_protocol",
+        ":first_party_source_packages_keyboard",
+        ":first_party_source_packages_logger",
+        ":first_party_source_packages_protocol",
+        ":first_party_source_packages_quicksilver",
+        ":first_party_source_packages_shared",
+        ":first_party_source_packages_user_agent",
+    ],
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+# Genuine server/npm and authored source providers are available. Every other
+# exact selected scope remains mandatory; incomplete production sets refuse.
+deployment_notices(
+    name = "deployment_notices",
+    attributions = [":server_npm_notices", ":server_first_party_notices", ":migrations_first_party_notices", ":migrations_npm_notices", ":web_first_party_notices", ":web_npm_notices"],
+    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
+    tags = ["manual", "unqualified-release-inventory"],
+)
+
+bun_test(
+    name = "shipping_evidence_test",
+    test_files = ["tools/bazel/packaging/shipping-evidence.test.ts"],
+    data = ["shipping-evidence.test.ts", "shipping-evidence.ts", "evidence-fixture.ts", "//tools/bazel/bun:source__owned-files.ts", "//tools/bazel/verification:verification_inputs"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = [],
+)
+
+bun_test(
+    name = "ci_evidence_test",
+    test_files = ["tools/bazel/packaging/ci-evidence.test.ts"],
+    data = ["ci-evidence.test.ts", "ci-evidence.ts", "shipping-evidence.ts", "evidence-fixture.ts", "//tools/bazel/bun:source__owned-files.ts", "//tools/bazel/verification:verification_inputs"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = [],
+)
+
+declared_rust_attribution()
+
+declared_compiled_rust_attribution(declared_shipping_stdlib_attribution(
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    source = "//tools/bazel/worker:prepared_compiler_sources",
+    source_archive = "@merkur_worker_compiler_source//file",
+    stdlib_archives = {'aarch64-apple-darwin': '@merkur_stock_std_darwin_arm64//file', 'x86_64-apple-darwin': '@merkur_stock_std_darwin_x64//file', 'aarch64-unknown-linux-gnu': '@merkur_stock_std_linux_arm64//file', 'x86_64-unknown-linux-gnu': '@merkur_stock_std_linux_x64//file'},
+    rustc_archives = {'aarch64-apple-darwin': '@merkur_stock_rustc_darwin_arm64//file', 'x86_64-apple-darwin': '@merkur_stock_rustc_darwin_x64//file', 'aarch64-unknown-linux-gnu': '@merkur_stock_rustc_linux_arm64//file', 'x86_64-unknown-linux-gnu': '@merkur_stock_rustc_linux_x64//file'},
+))
+
+wasm_rust_inputs = declared_wasm_rust_attribution(
+    sdk = "//tools/bazel/rust/acquire:production_sdk",
+    source = "//tools/bazel/worker:prepared_compiler_sources",
+    source_archive = "@merkur_worker_compiler_source//file",
+    wasm_stdlib_archive = "@merkur_stock_std_wasm32//file",
+    host_stdlib_archives = {"aarch64-apple-darwin": "@merkur_stock_std_darwin_arm64//file"},
+    rustc_archives = {"aarch64-apple-darwin": "@merkur_stock_rustc_darwin_arm64//file"},
+)
+
+bun_binary(
+    name = "ci_admit",
+    entry_point = "ci-admission.ts",
+    data = [":ci_sources", "//tools/bazel/bun:source__owned-files.ts", "//tools/bazel/verification:tooling_sources"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+)
+
+bun_test(
+    name = "ci_admission_cli_test",
+    test_files = ["tools/bazel/packaging/ci-admission.test.ts"],
+    data = ["ci-admission.test.ts", ":ci_sources", "evidence-fixture.ts", "//tools/bazel/bun:source__owned-files.ts", "//tools/bazel/verification:tooling_sources"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = [],
+)
+
+bun_test(
+    name = "ci_preparation_test",
+    test_files = ["tools/bazel/packaging/ci-preparation.test.ts"],
+    data = ["ci-preparation.test.ts", ":ci_sources", "//tools/bazel/verification:tooling_sources", "//:ci_entrypoint_templates"],
+    tools = {"//tools/bazel/tools:sh": "sh"},
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = [],
+)
+
+bun_test(
+    name = "configured_artifacts_test",
+    test_files = ["tools/bazel/packaging/configured-artifacts.test.ts"],
+    data = ["configured-artifacts.test.ts", ":ci_sources", "evidence-fixture.ts", "//tools/bazel/verification:verification_inputs", "//tools/bazel/bun:owned_files_sources"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = [],
+)
+
+exports_files(["native-release.bzl", "native-release.py", "native-release-test.bzl", "native-release-test.py"])
+native_release_test_suite(name = "native_release_declarations_test")
+package_controls_test(name = "native_release_test", src = "native-release-test.py", runner = "native-release.py", data = ["deployment-pack.py", "deployment-notices.py", "pack.py", "license-closure.py", "license-inputs.py", "release-layout.py", "release-contract.json"], tags = [])
+
+exports_files(["rust-compiled.bzl", "native-bun-attribution.bzl"])
+
+package_controls_test(name = "oci_release_test", src = "oci-release-test.py", data = ["oci-release.py", "native-release.py", "native-release-test.py", "release-layout.py", "deployment-pack.py", "deployment-notices.py", "pack.py", "license-closure.py", "license-inputs.py", "fixtures/bookworm-index.oci", "fixtures/bookworm-manifest.oci", "fixtures/bookworm-config.oci"], tags = [])
+package_controls_test(name = "release_notices_test", src = "release-notices-test.py", data = ["oci-release.py", "native-release.py", "native-release-test.py", "release-layout.py", "deployment-pack.py", "deployment-notices.py", "pack.py", "license-closure.py", "license-inputs.py", "fixtures/bookworm-index.oci", "fixtures/bookworm-manifest.oci", "fixtures/bookworm-config.oci", "release-notices.py", "oci-release-test.py", "deployment-pack-test.py"], tags = [])
+bun_test(name = "release_staging_test", test_files = ["tools/bazel/packaging/release-staging.test.ts", "tools/bazel/packaging/release-staging-integration.test.ts"], data = ["release-staging.test.ts", "release-staging-integration.test.ts", ":ci_sources", "evidence-fixture.ts", "//tools/bazel/bun:owned_files_sources", "//tools/bazel/verification:tooling_sources", "//packages/e2e-wasm:wasm_artifacts"], tags = [])
+
+bun_test(name = "ci_artifact_staging_test", test_files = ["tools/bazel/packaging/ci-artifact-staging.test.ts"], data = ["ci-artifact-staging.test.ts", ":ci_sources", "evidence-fixture.ts", "//tools/bazel/bun:owned_files_sources", "//tools/bazel/verification:tooling_sources", "//packages/e2e-wasm:wasm_artifacts"], tags = [])
+
+exports_files(["stdlib-native-graph.bzl", "stdlib-native-graph.py", "stdlib-native-graph-test.py", "stdlib-native-stock.py", "stdlib-native-stock-test.py", "stdlib-native-pair.py"])
+
+stock_stdlib_native_graph(
+    name = "stock_stdlib_native_graph_darwin_arm64_control",
+    sdk = "//tools/bazel/rust/acquire:archive_sdk_control",
+    producer = "//tools/bazel/rust:declared_cmake_driver",
+    source = "//tools/bazel/worker:prepared_compiler_sources",
+    stdlib_archive = "@merkur_stock_std_darwin_arm64//file",
+    compiler_archive = "@merkur_stock_rustc_darwin_arm64//file",
+    target_compatible_with = ["@platforms//os:macos", "@platforms//cpu:aarch64"],
+    exec_compatible_with = ["@platforms//os:macos", "@platforms//cpu:aarch64"],
+    tags = ["manual"],
+)
+
+bun_test(
+    name = "editor_entrypoint_test",
+    test_files = ["tools/bazel/packaging/editor-entrypoint.test.ts"],
+    data = ["editor-entrypoint.test.ts", ":ci_sources", "//tools/bazel/verification:tooling_sources", "//:ci_entrypoint_templates"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = [],
+)
+
+exports_files(["native-suppliers.bzl", "native-suppliers-test.py"])
+package_controls_test(
+    name = "native_suppliers_test",
+    src = "native-suppliers-test.py",
+    data = ["native-suppliers.bzl", "native-release.bzl"],
+    tags = ["manual"],
+)
+
+declare_unsigned_service_images(
+    edge_runtime = "//tools/bazel/verification:debian_runtime_edge_amd64",
+    stun_runtime = "//tools/bazel/verification:debian_runtime_stun_amd64",
+    edge_attribution = ":compiled_rust_attribution_merkur_edge__release__x86_64_unknown_linux_gnu",
+    stun_attribution = ":compiled_rust_attribution_merkur_stun__release__x86_64_unknown_linux_gnu",
+)
+
+declared_package_tree(
+    name = "frontend_compiler_source_rolldown_binding",
+    sources = "@merkur_vite_rolldown_source//crates/rolldown_binding:package_data",
+    manifest = "@merkur_vite_rolldown_source//crates/rolldown_binding:Cargo.toml",
+    source_label = "@merkur_vite_rolldown_source//crates/rolldown_binding:package_data",
+    manifest_label = "@merkur_vite_rolldown_source//crates/rolldown_binding:Cargo.toml",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "frontend_compiler_source_rolldown_plugin_vite_module_preload_polyfill",
+    sources = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_module_preload_polyfill:package_data",
+    manifest = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_module_preload_polyfill:Cargo.toml",
+    source_label = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_module_preload_polyfill:package_data",
+    manifest_label = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_module_preload_polyfill:Cargo.toml",
+    tags = ["manual"],
+)
+
+declared_package_tree(
+    name = "frontend_compiler_source_rolldown_plugin_vite_build_import_analysis",
+    sources = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_build_import_analysis:package_data",
+    manifest = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_build_import_analysis:Cargo.toml",
+    source_label = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_build_import_analysis:package_data",
+    manifest_label = "@merkur_vite_rolldown_source//crates/rolldown_plugin_vite_build_import_analysis:Cargo.toml",
+    tags = ["manual"],
+)
+
+package_controls_test(name = "release_wiring_test", src = "release-wiring-test.py", data = ["native-release.bzl", "release-notices.bzl"], tags = [])

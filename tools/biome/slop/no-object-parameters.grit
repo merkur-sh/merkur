@@ -1,0 +1,154 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A parameter annotated `object`: written out, inside a union or parentheses, or behind a type
+// alias of this file. Functions, methods, signatures and function types are all covered.
+//
+// What GritQL cannot see:
+//   - nesting is followed three steps of union/parenthesis and two aliases deep;
+//   - an alias is found by name in the whole file, not by lexical scope: a name that is also a
+//     type parameter, mapped-type key or `infer` binding anywhere in the file is never treated as
+//     the alias, and an alias counts only when every alias of that name in the file is `object`;
+//   - a generic alias is not instantiated, so `Identity<object>` is not followed.
+//
+// The alias case starts from the alias declaration and visits its uses; looking the alias up from
+// every parameter walks the whole file once per reference.
+
+// `object`, as written.
+pattern written_0() { TsNonPrimitiveType() }
+
+pattern written_1() {
+  or {
+    written_0(),
+    TsParenthesizedType(ty=written_0()),
+    TsUnionType(types=some written_0())
+  }
+}
+
+pattern written_2() {
+  or {
+    written_1(),
+    TsParenthesizedType(ty=written_1()),
+    TsUnionType(types=some written_1())
+  }
+}
+
+pattern written_3() {
+  or {
+    written_2(),
+    TsParenthesizedType(ty=written_2()),
+    TsUnionType(types=some written_2())
+  }
+}
+
+// A bare reference to another alias of this file whose own type is `$target`. The substring test
+// keeps the file walk for names the file does declare with `type`.
+pattern alias_of($target) {
+  TsReferenceType(name=$inner) as $reference where {
+    $reference <: $inner,
+    $declared = join(list=["type ", $inner], separator=""),
+    $program <: includes $declared,
+    $program <: contains TsTypeAliasDeclaration(binding_identifier=$inner, ty=$target) as $found where {
+      ! $found <: TsTypeAliasDeclaration(type_parameters=TsTypeParameters())
+    },
+    ! $program <: contains TsTypeAliasDeclaration(binding_identifier=$inner, ty=$other) where {
+      ! $other <: $target
+    }
+  }
+}
+
+pattern aliased_1() {
+  or {
+    written_3(),
+    alias_of(target=written_3()),
+    TsParenthesizedType(ty=alias_of(target=written_3())),
+    TsUnionType(types=some alias_of(target=written_3()))
+  }
+}
+
+pattern aliased_2() {
+  or {
+    aliased_1(),
+    alias_of(target=aliased_1()),
+    TsParenthesizedType(ty=alias_of(target=aliased_1())),
+    TsUnionType(types=some alias_of(target=aliased_1()))
+  }
+}
+
+// A parameter type that reaches the alias `$alias` without type arguments.
+pattern through_0($alias) {
+  TsReferenceType(name=$alias) as $reference where { $reference <: $alias }
+}
+
+pattern through_1($alias) {
+  or {
+    through_0($alias),
+    TsParenthesizedType(ty=through_0($alias)),
+    TsUnionType(types=some through_0($alias))
+  }
+}
+
+pattern through_2($alias) {
+  or {
+    through_1($alias),
+    TsParenthesizedType(ty=through_1($alias)),
+    TsUnionType(types=some through_1($alias))
+  }
+}
+
+pattern parameter($binding, $type) {
+  or {
+    JsFormalParameter(binding=$binding, type_annotation=TsTypeAnnotation(ty=$type)),
+    JsRestParameter(binding=$binding, type_annotation=TsTypeAnnotation(ty=$type)),
+    TsThisParameter(type_annotation=TsTypeAnnotation(ty=$type)) where { $binding = `this` }
+  }
+}
+
+// A parameter whose type reaches the alias, reported. This is its own pattern because a
+// pattern's variables are fresh on every call: written inline under `contains`, the parameter
+// bound by the first match would have to equal every later one, and only it would be reported.
+pattern aliased_parameter($alias) {
+  parameter(binding=$use_binding, type=$use) where {
+    $use <: through_2($alias),
+    ! $use <: written_3(),
+    register_diagnostic(span=$use, message=join(list=[
+      "[no-object-parameters] Parameter `",
+
+      $use_binding,
+
+      "` accepts any `object`, as `",
+
+      $alias,
+
+      "`. Give it the owner's named type, and decode outside input where it enters, before this call.",
+    ], separator=""), severity="error")
+  }
+}
+
+or {
+  or {
+    JsFormalParameter(binding=$binding, type_annotation=TsTypeAnnotation(ty=$type)),
+    JsRestParameter(binding=$binding, type_annotation=TsTypeAnnotation(ty=$type)),
+    TsThisParameter(type_annotation=TsTypeAnnotation(ty=$type)) where { $binding = `this` }
+  } where {
+    // A substring test first: this runs on every typed parameter in the tree.
+    $type <: includes "object",
+    $type <: written_3(),
+    register_diagnostic(span=$type, message=join(list=[
+      "[no-object-parameters] Parameter `",
+
+      $binding,
+
+      "` accepts any `object`. Give it the owner's named type, and decode outside input where it enters, before this call.",
+    ], separator=""), severity="error")
+  },
+  TsTypeAliasDeclaration(binding_identifier=$alias, ty=$aliased) as $declaration where {
+    $aliased <: aliased_2(),
+    ! $declaration <: TsTypeAliasDeclaration(type_parameters=TsTypeParameters()),
+    ! $program <: contains TsTypeAliasDeclaration(binding_identifier=$alias, ty=$other) where {
+      ! $other <: aliased_2()
+    },
+    ! $program <: contains TsTypeParameterName() as $shadow where { $shadow <: $alias },
+    $program <: contains aliased_parameter($alias)
+  }
+}

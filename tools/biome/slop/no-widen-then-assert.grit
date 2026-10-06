@@ -1,0 +1,271 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// `name as T` (or `<T>name`) where `name` is a `const` that was given a broad type on purpose
+// (`: unknown`, `: any`, `: object`, `: Record<string, unknown>`, or `= value as unknown`) although
+// its initialiser's type was plain from the syntax, and `T` is narrower than that broad type. The
+// evidence was thrown away at the declaration and is asserted back here.
+//
+// What GritQL cannot see:
+//   - order: node positions cannot be compared, so an assertion above its `const` in the same
+//     scope matches as one below it does;
+//   - scope is rebuilt from syntax (nearest statement list declaring the name), and "same
+//     function" is tested by the two nearest functions having the same text;
+//   - the initialiser's evidence is followed one `const` deep, and asserting back the exact type
+//     the evidence had is exempt only for the top types, where it is always true.
+
+pattern through_parens($inner) {
+  or {
+    $inner,
+    JsParenthesizedExpression(expression=$inner),
+    JsParenthesizedExpression(expression=JsParenthesizedExpression(expression=$inner))
+  }
+}
+
+pattern top() {
+  or {
+    TsUnknownType(),
+    TsAnyType(),
+    TsParenthesizedType(ty=or {
+      TsUnknownType(),
+      TsAnyType()
+    })
+  }
+}
+
+pattern broad_key() {
+  or {
+    TsStringType(),
+    TsNumberType(),
+    TsSymbolType(),
+    TsReferenceType() as $key where { $key <: "PropertyKey" },
+    TsUnionType(types=every or {
+      TsStringType(),
+      TsNumberType(),
+      TsSymbolType()
+    })
+  }
+}
+
+pattern broad_record_0() {
+  or {
+    TsReferenceType(name="Record", type_arguments=TsTypeArguments(ts_type_argument_list=[
+      broad_key(), top()
+    ])),
+    TsObjectType(members=[
+      TsIndexSignatureTypeMember(parameter=TsIndexSignatureParameter(type_annotation=TsTypeAnnotation(ty=broad_key())), type_annotation=TsTypeAnnotation(ty=top())),
+    ])
+  }
+}
+
+pattern broad_record() {
+  or {
+    broad_record_0(),
+    TsParenthesizedType(ty=broad_record_0()),
+    TsReferenceType(name="Readonly", type_arguments=TsTypeArguments(ts_type_argument_list=[
+      broad_record_0()
+    ]))
+  }
+}
+
+pattern object_keyword() {
+  or {
+    TsNonPrimitiveType(),
+    TsParenthesizedType(ty=TsNonPrimitiveType())
+  }
+}
+
+pattern broad() {
+  or {
+    top(),
+    object_keyword(),
+    broad_record()
+  }
+}
+
+pattern plain_from_syntax() {
+  through_parens(inner=or {
+    JsObjectExpression(),
+    JsArrayExpression(),
+    JsArrowFunctionExpression(),
+    JsFunctionExpression(),
+    JsClassExpression(),
+    JsNewExpression(),
+    JsStringLiteralExpression(),
+    JsNumberLiteralExpression(),
+    JsBigintLiteralExpression(),
+    JsBooleanLiteralExpression(),
+    JsNullLiteralExpression(),
+    JsRegexLiteralExpression(),
+    JsTemplateExpression() as $template where { $template <: r"(?s)`.*" },
+    TsAsExpression(ty=$kept) where { ! $kept <: broad() },
+    TsTypeAssertionExpression(ty=$kept) where { ! $kept <: broad() }
+  })
+}
+
+pattern declaring($declaration) {
+  or {
+    JsVariableStatement(declaration=$declaration),
+    JsExport(export_clause=JsVariableDeclarationClause(declaration=$declaration))
+  }
+}
+
+pattern statements_with($statement) {
+  or {
+    JsFunctionBody(statements=some $statement),
+    JsBlockStatement(statements=some $statement),
+    JsModule(items=some $statement),
+    JsScript(statements=some $statement),
+    TsModuleBlock(items=some $statement),
+    JsCaseClause(consequent=some $statement),
+    JsDefaultClause(consequent=some $statement),
+    JsStaticInitializationBlockClassMember(statements=some $statement)
+  }
+}
+
+pattern binds($name) { contains JsIdentifierBinding() as $bound where { $bound <: $name } }
+
+pattern function_with($parameters) {
+  or {
+    JsArrowFunctionExpression(parameters=$parameters),
+    JsFunctionDeclaration(parameters=$parameters),
+    JsFunctionExpression(parameters=$parameters),
+    JsMethodClassMember(parameters=$parameters),
+    JsMethodObjectMember(parameters=$parameters),
+    JsConstructorClassMember(parameters=$parameters)
+  }
+}
+
+pattern scope_of($name) {
+  or {
+    function_with(parameters=binds($name)),
+    statements_with(statement=declaring(declaration=JsVariableDeclaration(declarators=some JsVariableDeclarator(id=binds($name))))),
+    JsForOfStatement(initializer=binds($name)),
+    JsForInStatement(initializer=binds($name)),
+    JsForStatement(initializer=binds($name)),
+    JsCatchClause(declaration=binds($name))
+  }
+}
+
+pattern is_const() {
+  JsVariableDeclaration() as $declaration where {
+    $around_keyword = split(string=$declaration, separator="const "),
+    $before_keyword = $around_keyword[0],
+    $before_keyword <: ""
+  }
+}
+
+// The initialiser's type is plain from the syntax, directly or through one `const`.
+pattern evident() {
+  or {
+    plain_from_syntax(),
+    through_parens(inner= JsIdentifierExpression(name=$source) as $reference where {
+      $reference <: within scope_of(name=$source) as $source_scope ,
+      $source_scope <: statements_with(statement=declaring(declaration=and { JsVariableDeclaration(declarators=some JsVariableDeclarator(id=$source, initializer=JsInitializerClause(expression=plain_from_syntax()))),
+      is_const() }))
+    })
+  }
+}
+
+// `const name: <broad> = <evident>` or `const name = <evident> as <broad>`, the broad type bound.
+pattern widened_declarator($name, $widened_to) {
+  or {
+    JsVariableDeclarator(id=$name, variable_annotation=TsTypeAnnotation(ty=$widened_to), initializer=JsInitializerClause(expression=$initial)) where {
+      $widened_to <: broad(),
+      $initial <: or {
+        evident(),
+        through_parens(inner=or {
+          TsAsExpression(expression=evident()),
+          TsTypeAssertionExpression(expression=evident())
+        })
+      }
+    },
+    JsVariableDeclarator(id=$name, initializer=JsInitializerClause(expression=through_parens(inner=or {
+      TsAsExpression(expression=evident(), ty=$widened_to),
+      TsTypeAssertionExpression(expression=evident(), ty=$widened_to)
+    }))) as $asserted_declarator where {
+      $widened_to <: broad(),
+      ! $asserted_declarator <: JsVariableDeclarator(variable_annotation=TsTypeAnnotation())
+    }
+  }
+}
+
+pattern surely_object() {
+  or {
+    TsArrayType(),
+    TsTupleType(),
+    TsFunctionType(),
+    TsConstructorType(),
+    TsMappedType(),
+    TsNonPrimitiveType(),
+    TsObjectType(members=[$_, ...])
+  }
+}
+
+pattern narrower_record() {
+  or {
+    TsObjectType(members=some or {
+      TsPropertySignatureTypeMember(),
+      TsMethodSignatureTypeMember(),
+      TsCallSignatureTypeMember(),
+      TsConstructSignatureTypeMember(),
+      TsGetterSignatureTypeMember(),
+      TsSetterSignatureTypeMember()
+    }),
+    TsReferenceType(name="Record", type_arguments=TsTypeArguments(ts_type_argument_list=[
+      $_, $value
+    ])) where { ! $value <: top() }
+  }
+}
+
+pattern function_boundary() {
+  or {
+    JsArrowFunctionExpression(),
+    JsFunctionDeclaration(),
+    JsFunctionExpression(),
+    JsFunctionExportDefaultDeclaration(),
+    JsMethodClassMember(),
+    JsMethodObjectMember(),
+    JsConstructorClassMember(),
+    JsGetterClassMember(),
+    JsSetterClassMember(),
+    JsGetterObjectMember(),
+    JsSetterObjectMember()
+  }
+}
+
+or {
+  TsAsExpression(expression=$operand, ty=$asserted),
+  TsTypeAssertionExpression(expression=$operand, ty=$asserted)
+} as $assertion where {
+  $operand <: through_parens(inner=JsIdentifierExpression(name=$name)),
+  ! $asserted <: broad(),
+  $assertion <: within scope_of($name) as $scope ,
+  $scope <: statements_with(statement=declaring(declaration=and { JsVariableDeclaration(declarators=some widened_declarator($name, $widened_to)),
+  is_const() })),
+  or {
+    $widened_to <: top(),
+    and { $widened_to <: object_keyword(), $asserted <: surely_object() },
+    and { $widened_to <: broad_record(), $asserted <: narrower_record() }
+  },
+  or {
+    and { ! $assertion <: within function_boundary() , ! $scope <: within function_boundary() },
+    and {
+      $assertion <: within function_boundary() as $asserting_function ,
+      $scope <: within function_boundary() as $declaring_function ,
+      $asserting_function <: $declaring_function
+    }
+  },
+  ! $scope <: contains JsIdentifierAssignment() as $written where { $written <: $name },
+  register_diagnostic(span=$assertion, message=join(list=[
+    "[no-widen-then-assert] `",
+
+    $name,
+
+    "` was declared `",
+
+    $widened_to,
+
+    "` although its value's type was known, and is asserted back here. Keep the precise type from the declaration on; decode outside input once.",
+  ], separator=""), severity="error")
+}

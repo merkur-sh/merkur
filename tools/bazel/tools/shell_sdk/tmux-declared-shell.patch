@@ -1,0 +1,139 @@
+diff --git a/cmd-display-menu.c b/cmd-display-menu.c
+--- a/cmd-display-menu.c
++++ b/cmd-display-menu.c
+@@ -454,7 +454,7 @@
+ 			shellcmd = NULL;
+ 			shell = options_get_string(s->options, "default-shell");
+ 			if (!checkshell(shell))
+-				shell = _PATH_BSHELL;
++				shell = tmux_declared_shell();
+ 			cmd_append_argv(&argc, &argv, shell);
+ 		} else
+ 			args_to_vector(args, &argc, &argv);
+diff --git a/cmd-pipe-pane.c b/cmd-pipe-pane.c
+--- a/cmd-pipe-pane.c
++++ b/cmd-pipe-pane.c
+@@ -162,7 +162,7 @@
+ 			_exit(1);
+ 		closefrom(STDERR_FILENO + 1);
+ 
+-		execl(_PATH_BSHELL, "sh", "-c", cmd, (char *) NULL);
++		execl(tmux_declared_shell(), "sh", "-c", cmd, (char *) NULL);
+ 		_exit(1);
+ 	default:
+ 		/* Parent process. */
+diff --git a/job.c b/job.c
+--- a/job.c
++++ b/job.c
+@@ -94,7 +94,7 @@
+ 		environ_copy(e, env);
+ 
+ 	if (~flags & JOB_DEFAULTSHELL)
+-		shell = _PATH_BSHELL;
++		shell = tmux_declared_shell();
+ 	else {
+ 		if (s != NULL)
+ 			oo = s->options;
+@@ -102,7 +102,7 @@
+ 			oo = global_s_options;
+ 		shell = options_get_string(oo, "default-shell");
+ 		if (!checkshell(shell))
+-			shell = _PATH_BSHELL;
++			shell = tmux_declared_shell();
+ 	}
+ 	argv0 = shell_argv0(shell, 0);
+ 
+diff --git a/popup.c b/popup.c
+--- a/popup.c
++++ b/popup.c
+@@ -443,7 +443,7 @@
+ 
+ 	shell = options_get_string(s->options, "default-shell");
+ 	if (!checkshell(shell))
+-		shell = _PATH_BSHELL;
++		shell = tmux_declared_shell();
+ 	new_wp->shell = xstrdup(shell);
+ 
+ 	window_pane_set_event(new_wp);
+diff --git a/server-client.c b/server-client.c
+--- a/server-client.c
++++ b/server-client.c
+@@ -587,7 +587,7 @@
+ 	else
+ 		shell = options_get_string(global_s_options, "default-shell");
+ 	if (!checkshell(shell))
+-		shell = _PATH_BSHELL;
++		shell = tmux_declared_shell();
+ 	shellsize = strlen(shell) + 1;
+ 
+ 	msg = xmalloc(cmdsize + shellsize);
+@@ -2591,7 +2591,7 @@
+ 
+ 	shell = options_get_string(global_s_options, "default-shell");
+ 	if (!checkshell(shell))
+-		shell = _PATH_BSHELL;
++		shell = tmux_declared_shell();
+ 	proc_send(c->peer, MSG_SHELL, -1, shell, strlen(shell) + 1);
+ 
+ 	proc_kill_peer(c->peer);
+diff --git a/spawn.c b/spawn.c
+--- a/spawn.c
++++ b/spawn.c
+@@ -341,7 +341,7 @@
+ 	if (~sc->flags & SPAWN_RESPAWN) {
+ 		tmp = options_get_string(s->options, "default-shell");
+ 		if (!checkshell(tmp))
+-			tmp = _PATH_BSHELL;
++			tmp = tmux_declared_shell();
+ 		free(new_wp->shell);
+ 		new_wp->shell = xstrdup(tmp);
+ 	}
+diff --git a/tmux.c b/tmux.c
+--- a/tmux.c
++++ b/tmux.c
+@@ -59,21 +59,23 @@
+ 	exit(status);
+ }
+ 
++/* The verification engine's shell is an explicit declared runtime input. */
++const char *
++tmux_declared_shell(void)
++{
++	const char *shell = getenv("MERKUR_TMUX_SHELL");
++
++	if (shell == NULL || shell[0] != '/' || access(shell, X_OK) != 0) {
++		fprintf(stderr, "tmux requires the executable declared MERKUR_TMUX_SHELL\n");
++		exit(1);
++	}
++	return (shell);
++}
++
+ static const char *
+ getshell(void)
+ {
+-	struct passwd	*pw;
+-	const char	*shell;
+-
+-	shell = getenv("SHELL");
+-	if (checkshell(shell))
+-		return (shell);
+-
+-	pw = getpwuid(getuid());
+-	if (pw != NULL && checkshell(pw->pw_shell))
+-		return (pw->pw_shell);
+-
+-	return (_PATH_BSHELL);
++	return (tmux_declared_shell());
+ }
+ 
+ int
+diff --git a/tmux.h b/tmux.h
+--- a/tmux.h
++++ b/tmux.h
+@@ -3886,3 +3886,6 @@
+ void			 hyperlinks_free(struct hyperlinks *);
+ 
+ #endif /* TMUX_H */
++
++/* Declared native shell used by the verification engine. */
++const char *tmux_declared_shell(void);

@@ -1,0 +1,220 @@
+diff --git a/Modules/Platform/Darwin-Initialize.cmake b/Modules/Platform/Darwin-Initialize.cmake
+--- a/Modules/Platform/Darwin-Initialize.cmake
++++ b/Modules/Platform/Darwin-Initialize.cmake
+@@ -290,7 +290,7 @@
+ # CMAKE_OSX_DEPLOYMENT_TARGET
+ 
+ if(NOT CMAKE_CROSSCOMPILING)
+-  execute_process(COMMAND sw_vers -productVersion
++  execute_process(COMMAND "${CMAKE_COMMAND}" -E native-system-version -productVersion
+     OUTPUT_VARIABLE _CMAKE_HOST_OSX_VERSION
+     OUTPUT_STRIP_TRAILING_WHITESPACE
+     RESULT_VARIABLE _result)
+diff --git a/Source/cmcmd.cxx b/Source/cmcmd.cxx
+--- a/Source/cmcmd.cxx
++++ b/Source/cmcmd.cxx
+@@ -1,6 +1,10 @@
+ /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
+    file LICENSE.rst or https://cmake.org/licensing for details.  */
+ #include "cmcmd.h"
++
++#ifdef __APPLE__
++#  include "kwsys/SystemVersionDarwin.hxx"
++#endif
+ 
+ #include <functional>
+ #include <iomanip>
+@@ -1485,6 +1489,18 @@
+       return 0;
+     }
+ 
++#ifdef __APPLE__
++    if (args[1] == "native-system-version") {
++      std::string version;
++      if (args.size() != 3 || !kwsysSystemVersionDarwin(args[2].c_str(), version)) {
++        std::cerr << "cmake -E native-system-version requires an available macOS version field\n";
++        return 1;
++      }
++      std::cout << version << '\n';
++      return 0;
++    }
++#endif
++
+     // capabilities
+     if (args[1] == "capabilities") {
+       if (args.size() > 2) {
+diff --git a/Source/kwsys/CMakeLists.txt b/Source/kwsys/CMakeLists.txt
+--- a/Source/kwsys/CMakeLists.txt
++++ b/Source/kwsys/CMakeLists.txt
+@@ -769,6 +769,10 @@
+   endif()
+ 
+   if(KWSYS_USE_SystemInformation)
++    if(APPLE)
++      target_link_libraries(${KWSYS_TARGET_INTERFACE} ${KWSYS_LINK_DEPENDENCY}
++        "-framework CoreFoundation")
++    endif()
+     if(WIN32)
+       target_link_libraries(${KWSYS_TARGET_INTERFACE} ${KWSYS_LINK_DEPENDENCY} ws2_32 powrprof)
+       # link in dbghelp.dll for symbol lookup if MSVC 1800 or later
+diff --git a/Source/kwsys/ProcessUNIX.c b/Source/kwsys/ProcessUNIX.c
+--- a/Source/kwsys/ProcessUNIX.c
++++ b/Source/kwsys/ProcessUNIX.c
+@@ -68,6 +68,12 @@
+ #include <sys/wait.h>  /* waitpid */
+ #include <time.h>      /* gettimeofday */
+ #include <unistd.h>    /* pipe, close, fork, execvp, select, _exit */
++
++#ifdef __APPLE__
++#  include <limits.h>
++#  include <libproc.h>
++#  include <sys/proc_info.h>
++#endif
+ 
+ #if defined(__VMS)
+ #  define KWSYSPE_VMS_NONBLOCK , O_NONBLOCK
+@@ -2541,6 +2547,39 @@
+ #endif
+ 
+ /* Kill all children if we can find them.  */
++#if defined(__APPLE__)
++  {
++    int capacity = 16 * (int)sizeof(pid_t);
++    pid_t* children = NULL;
++    int bytes;
++    for (;;) {
++      pid_t* resized = (pid_t*)realloc(children, (size_t)capacity);
++      if (!resized) {
++        free(children);
++        children = NULL;
++        break;
++      }
++      children = resized;
++      /* Only enumerate this stopped child process's immediate descendants. */
++      bytes = proc_listpids(PROC_PPID_ONLY, (uint32_t)process_id,
++                           children, capacity);
++      if (bytes < capacity) {
++        int index;
++        for (index = 0; index < bytes / (int)sizeof(pid_t); ++index) {
++          if (children[index] > 0 && children[index] != process_id) {
++            kwsysProcessKill(children[index]);
++          }
++        }
++        break;
++      }
++      if (capacity > INT_MAX / 2) {
++        break;
++      }
++      capacity *= 2;
++    }
++    free(children);
++  }
++#else
+ #if defined(__linux__) || defined(__CYGWIN__)
+   /* First try using the /proc filesystem.  */
+   if ((procdir = opendir("/proc"))) {
+@@ -2615,6 +2654,8 @@
+ #endif
+   }
+ 
++#endif /* !defined(__APPLE__) */
++
+   /* Kill the process.  */
+   kill(process_id, SIGKILL);
+ 
+diff --git a/Source/kwsys/SystemInformation.cxx b/Source/kwsys/SystemInformation.cxx
+--- a/Source/kwsys/SystemInformation.cxx
++++ b/Source/kwsys/SystemInformation.cxx
+@@ -101,6 +101,7 @@
+ #endif
+ 
+ #ifdef __APPLE__
++#  include "SystemVersionDarwin.hxx"
+ #  include <mach/host_info.h>
+ #  include <mach/mach.h>
+ #  include <mach/mach_types.h>
+@@ -5462,12 +5463,9 @@
+                                                 std::string& ver)
+ {
+ #ifdef __APPLE__
+-  std::vector<char const*> args;
+-  args.push_back("sw_vers");
+-  args.push_back(arg);
+-  args.push_back(nullptr);
+-  ver = this->RunProcess(args);
+-  this->TrimNewline(ver);
++  if (!kwsysSystemVersionDarwin(arg, ver)) {
++    return -1;
++  }
+ #else
+   // avoid C4100
+   (void)arg;
+diff --git a/Source/kwsys/SystemVersionDarwin.hxx b/Source/kwsys/SystemVersionDarwin.hxx
+new file mode 100644
+--- /dev/null
++++ b/Source/kwsys/SystemVersionDarwin.hxx
+@@ -0,0 +1,64 @@
++/* Read the same public platform facts as sw_vers without a child process. */
++#pragma once
++
++#ifdef __APPLE__
++#  include <CoreFoundation/CoreFoundation.h>
++#  include <cstring>
++#  include <string>
++#  include <vector>
++
++inline bool kwsysSystemVersionDarwin(char const* argument, std::string& value)
++{
++  CFStringRef key;
++  if (std::strcmp(argument, "-productName") == 0) {
++    key = CFSTR("ProductName");
++  } else if (std::strcmp(argument, "-productVersion") == 0) {
++    key = CFSTR("ProductVersion");
++  } else if (std::strcmp(argument, "-buildVersion") == 0) {
++    key = CFSTR("ProductBuildVersion");
++  } else {
++    return false;
++  }
++  CFURLRef url = CFURLCreateWithFileSystemPath(
++    kCFAllocatorDefault,
++    CFSTR("/System/Library/CoreServices/SystemVersion.plist"),
++    kCFURLPOSIXPathStyle, false);
++  if (!url) {
++    return false;
++  }
++  CFReadStreamRef stream = CFReadStreamCreateWithFile(kCFAllocatorDefault, url);
++  CFRelease(url);
++  if (!stream) {
++    return false;
++  }
++  if (!CFReadStreamOpen(stream)) {
++    CFRelease(stream);
++    return false;
++  }
++  CFPropertyListRef plist = CFPropertyListCreateWithStream(
++    kCFAllocatorDefault, stream, 0, kCFPropertyListImmutable, nullptr, nullptr);
++  CFReadStreamClose(stream);
++  CFRelease(stream);
++  if (!plist) {
++    return false;
++  }
++  bool success = false;
++  if (CFGetTypeID(plist) == CFDictionaryGetTypeID()) {
++    CFTypeRef field = CFDictionaryGetValue(static_cast<CFDictionaryRef>(plist), key);
++    if (field && CFGetTypeID(field) == CFStringGetTypeID()) {
++      CFStringRef text = static_cast<CFStringRef>(field);
++      CFIndex size = CFStringGetMaximumSizeForEncoding(
++        CFStringGetLength(text), kCFStringEncodingUTF8);
++      if (size >= 0) {
++        std::vector<char> buffer(static_cast<std::size_t>(size) + 1);
++        if (CFStringGetCString(text, buffer.data(), buffer.size(), kCFStringEncodingUTF8)) {
++          value.assign(buffer.data());
++          success = true;
++        }
++      }
++    }
++  }
++  CFRelease(plist);
++  return success;
++}
++#endif

@@ -1,0 +1,1468 @@
+diff --git a/cargo/private/cargo_build_script.bzl b/cargo/private/cargo_build_script.bzl
+index 12a2271..6f76c48 100644
+--- a/cargo/private/cargo_build_script.bzl
++++ b/cargo/private/cargo_build_script.bzl
+@@ -235,6 +235,32 @@ def _pwd_flags_compiler_response_file(args):
+     # Fixing its content requires reading the file at exec time from cargo_build_script_runner/bin.rs.
+     return _prefix_pwd_to_flag(args, ["@"])
+ 
++def _validate_declared_linker_flags(args, files):
++    """An explicit Clang linker path must name a declared toolchain File."""
++    declared = files.to_list()
++    ordinary = {file.path: True for file in declared if not file.is_directory}
++    trees = [file.path + "/" for file in declared if file.is_directory]
++    for arg in args:
++        if arg.startswith("/clang:"):
++            arg = arg[len("/clang:"):]
++        if not arg.startswith("--ld-path="):
++            continue
++        path = arg[len("--ld-path="):]
++        if path.startswith("${pwd}/"):
++            path = path[len("${pwd}/"):]
++        if not path or path.startswith("/") or any([part in ["", ".", ".."] for part in path.split("/")]):
++            fail("Clang linker path must be a normalized declared execution-root-relative File: " + path)
++        if path not in ordinary and not any([path.startswith(tree) for tree in trees]):
++            fail("Clang linker path is absent from the declared C/C++ toolchain Files: " + path)
++
++def _pwd_flags_linker(args):
++    """Relocate Clang's explicit linker executable from package working directories."""
++    return _prefix_pwd_to_flag(args, ["--ld-path="])
++
++def _pwd_flags_framework(args):
++    """Relocate Darwin framework search directories from package working directories."""
++    return _prefix_pwd_to_flag(args, ["-F"])
++
+ def _pwd_flags_resource_dir(args):
+     """Prefix execroot-relative paths in -resource-dir arguments with ${pwd}."""
+     return _prefix_pwd_to_flag(args, ["-resource-dir=", "-resource-dir"])
+@@ -279,6 +305,8 @@ def _pwd_paths(args):
+     return _prefix_pwd_to_paths(args)
+ 
+ _PWD_FLAG_PASSES = [
++    _pwd_flags_linker,
++    _pwd_flags_framework,
+     _pwd_flags_sysroot,
+     _pwd_flags_resource_dir,
+     _pwd_flags_B,
+@@ -501,6 +529,8 @@ def _cargo_build_script_impl(ctx):
+     linker, _, link_args, linker_env = get_linker_and_args(ctx, "bin", toolchain, cc_toolchain, feature_configuration, None)
+     env.update(**linker_env)
+     env["LD"] = linker
++    if cc_toolchain:
++        _validate_declared_linker_flags(link_args, cc_toolchain.all_files)
+     env["LDFLAGS"] = " ".join(_pwd_flags(link_args))
+ 
+     # Defaults for cxx flags.
+@@ -555,12 +585,24 @@ def _cargo_build_script_impl(ctx):
+         # Populate CFLAGS and CXXFLAGS that cc-rs relies on when building from source, in particular
+         # to determine the deployment target when building for apple platforms (`macosx-version-min`
+         # for example, itself derived from the `macos_minimum_os` Bazel argument).
++        _validate_declared_linker_flags(cc_c_args, cc_toolchain.all_files)
++        _validate_declared_linker_flags(cc_cxx_args, cc_toolchain.all_files)
+         env["CFLAGS"] = " ".join(_pwd_flags(cc_c_args))
+         env["CXXFLAGS"] = " ".join(_pwd_flags(cc_cxx_args))
+         # It may be tempting to forward ARFLAGS, but cc-rs is opinionated enough
+         # that doing so is more likely to hurt than help. If you need to change
+         # ARFLAGS, make changes to cc-rs.
+ 
++    if ctx.attr.declared_cc_path:
++        if not cc_toolchain:
++            fail("declared_cc_path requires a declared C/C++ toolchain")
++        compiler = env["CC"]
++        if compiler.startswith("/") or "/" not in compiler:
++            fail("declared_cc_path requires an execution-root-relative compiler")
++        # Some upstream build scripts explicitly request `clang`, bypassing CC.
++        # Resolve that request solely inside the already-declared toolchain.
++        env["PATH"] = "${pwd}/" + compiler.rsplit("/", 1)[0]
++
+     # Inform build scripts of rustc flags
+     # https://github.com/rust-lang/cargo/issues/9600
+     env["CARGO_ENCODED_RUSTFLAGS"] = "\\x1f".join([
+@@ -568,7 +610,12 @@ def _cargo_build_script_impl(ctx):
+         "--sysroot=${{pwd}}/{}".format(toolchain.sysroot),
+         # Keep build scripts from baking the exec root into their output
+         "--remap-path-prefix=${pwd}=.",
+-    ] + ctx.attr.rustc_flags)
++    ] + [
++        # Build scripts run from the owning package; declared action paths must
++        # be expanded and rooted at the execroot before cc-rs inherits them.
++        ctx.expand_location(flag.replace("$(location ", "${pwd}/$(location "), targets = ctx.attr.data)
++        for flag in ctx.attr.rustc_flags
++    ])
+ 
+     for f in ctx.attr.crate_features:
+         env["CARGO_FEATURE_" + f.upper().replace("-", "_")] = "1"
+@@ -750,6 +797,10 @@ cargo_build_script = rule(
+     ),
+     implementation = _cargo_build_script_impl,
+     attrs = {
++        "declared_cc_path": attr.bool(
++            doc = "Resolve build-script compiler names exclusively inside the declared C toolchain.",
++            default = False,
++        ),
+         "build_script_env": attr.string_dict(
+             doc = "Environment variables for build scripts.",
+         ),
+diff --git a/cargo/private/cargo_build_script_runner/bin.rs b/cargo/private/cargo_build_script_runner/bin.rs
+index 210d5d9..f28175b 100644
+--- a/cargo/private/cargo_build_script_runner/bin.rs
++++ b/cargo/private/cargo_build_script_runner/bin.rs
+@@ -154,12 +154,6 @@ fn run_buildrs() -> Result<(), String> {
+         }
+     }
+ 
+-    for tool_env_var in &["CC", "CXX", "LD"] {
+-        if let Some(tool_path) = env::var_os(tool_env_var) {
+-            command.env(tool_env_var, exec_root.join(tool_path));
+-        }
+-    }
+-
+     if let Some(ar_path) = env::var_os("AR") {
+         // The default OSX toolchain uses libtool as ar_executable not ar.
+         // This doesn't work when used as $AR, so simply don't set it - tools will probably fall back to
+@@ -184,6 +178,14 @@ fn run_buildrs() -> Result<(), String> {
+         }
+     }
+ 
++    // The build script runs from its package directory; declared native SDK
++    // paths need the same execroot relocation as compiler and linker paths.
++    for tool_env_var in &["CC", "CXX", "LD", "SDKROOT"] {
++        if let Some(tool_path) = env::var_os(tool_env_var) {
++            command.env(tool_env_var, exec_root.join(tool_path));
++        }
++    }
++
+     // Bazel does not support byte strings so in order to correctly represent `CARGO_ENCODED_RUSTFLAGS`
+     // the escaped `\x1f` sequences need to be unescaped
+     if let Ok(encoded_rustflags) = env::var("CARGO_ENCODED_RUSTFLAGS") {
+diff --git a/rust/private/lint_test.bzl b/rust/private/lint_test.bzl
+index eef61a6..3f2e846 100644
+--- a/rust/private/lint_test.bzl
++++ b/rust/private/lint_test.bzl
+@@ -12,6 +12,8 @@ let each rule file supply only what actually differs (the provider type
+ and the output-group names it collects).
+ """
+ 
++load("//rust/private:merkur_test_nonce.bzl", "MERKUR_TEST_ATTRIBUTES", "MerkurTestRuntimeInfo", "merkur_test_runfiles")
++
+ def rlocationpath(file, workspace_name):
+     """Compute the runfile rlocationpath for a `File`.
+ 
+@@ -43,6 +45,7 @@ platform_transition = transition(
+ # Attrs every lint-test rule needs alongside its own `targets`. Callers
+ # merge this dict into their `attrs = {...}`.
+ LINT_TEST_COMMON_ATTRS = {
++    "_revocation_epochs": MERKUR_TEST_ATTRIBUTES["_revocation_epochs"],
+     "platform": attr.label(
+         doc = "Optional platform to transition `targets` to before running the aspect. When set, `--platforms` is switched to this label for the duration of this rule's aspect actions.",
+     ),
+@@ -146,9 +149,10 @@ def lint_test_rule_impl(ctx, info_provider, output_group_names):
+     ])
+ 
+     return [
++        MerkurTestRuntimeInfo(runfiles = runfiles),
+         DefaultInfo(
+             files = depset([runner]),
+-            runfiles = runfiles,
++            runfiles = merkur_test_runfiles(ctx, runfiles),
+             executable = runner,
+         ),
+         RunEnvironmentInfo(environment = {
+diff --git a/rust/private/merkur_test_nonce.bzl b/rust/private/merkur_test_nonce.bzl
+new file mode 100644
+index 0000000..76d87f6
+--- /dev/null
++++ b/rust/private/merkur_test_nonce.bzl
+@@ -0,0 +1,9 @@
++"""Project test epochs are attached after compilation, only to the owning runtime."""
++
++load("@@//tools/bazel/verification:test-nonce.bzl", "TEST_EPOCH_ATTRIBUTE", "TestRuntimeInfo", "test_nonce_file")
++
++MERKUR_TEST_ATTRIBUTES = {"_revocation_epochs": TEST_EPOCH_ATTRIBUTE}
++MerkurTestRuntimeInfo = TestRuntimeInfo
++
++def merkur_test_runfiles(ctx, runfiles):
++    return runfiles.merge(ctx.runfiles(files = [test_nonce_file(ctx)]))
+diff --git a/rust/private/rust.bzl b/rust/private/rust.bzl
+index a69202a..fc4bbcd 100644
+--- a/rust/private/rust.bzl
++++ b/rust/private/rust.bzl
+@@ -14,6 +14,8 @@
+ 
+ """Rust rule implementations"""
+ 
++load("//rust/private:merkur_test_nonce.bzl", "MERKUR_TEST_ATTRIBUTES")
++
+ load("@bazel_skylib//lib:paths.bzl", "paths")
+ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+@@ -307,7 +309,7 @@ def _rust_library_common(ctx, crate_type):
+             srcs = srcs,
+             deps = deps,
+             proc_macro_deps = proc_macro_deps,
+-            aliases = ctx.attr.aliases,
++            aliases = _configured_aliases(ctx),
+             output = rust_lib,
+             rustc_output = generate_output_diagnostics(ctx, rust_lib),
+             metadata = rust_metadata,
+@@ -376,7 +378,7 @@ def _rust_binary_impl(ctx):
+             srcs = srcs,
+             deps = deps,
+             proc_macro_deps = proc_macro_deps,
+-            aliases = ctx.attr.aliases,
++            aliases = _configured_aliases(ctx),
+             output = output,
+             rustc_output = generate_output_diagnostics(ctx, output),
+             metadata = rust_metadata,
+@@ -492,6 +494,7 @@ def _rust_test_impl(ctx):
+             ))
+         aliases = dict(crate.aliases)
+         aliases.update(ctx.attr.aliases)
++        aliases.update(ctx.attr.proc_macro_aliases)
+ 
+         # Build the test binary using the dependency's srcs.
+         crate_info_dict = dict(
+@@ -560,7 +563,7 @@ def _rust_test_impl(ctx):
+             srcs = srcs,
+             deps = deps,
+             proc_macro_deps = proc_macro_deps,
+-            aliases = ctx.attr.aliases,
++            aliases = _configured_aliases(ctx),
+             output = output,
+             rustc_output = generate_output_diagnostics(ctx, output),
+             metadata = rust_metadata,
+@@ -626,6 +629,11 @@ def _rust_test_impl(ctx):
+ 
+     return providers
+ 
++def _configured_aliases(ctx):
++    aliases = dict(ctx.attr.aliases)
++    aliases.update(ctx.attr.proc_macro_aliases)
++    return aliases
++
+ def _rust_library_group_impl(ctx):
+     dep_variant_infos = []
+     dep_variant_transitive_infos = []
+@@ -687,6 +695,9 @@ def _stamp_attribute(default_value):
+ 
+ # Internal attributes core to Rustc actions.
+ RUSTC_ATTRS = {
++    "semantic_metadata": attr.string(
++        doc = "Explicit stable compiler crate identity for matched PGO instrument/use configurations; output names remain distinct.",
++    ),
+     "_always_enable_metadata_output_groups": attr.label(
+         default = Label("//rust/settings:always_enable_metadata_output_groups"),
+     ),
+@@ -727,6 +738,31 @@ RUSTC_ATTRS = {
+ }
+ 
+ _COMMON_ATTRS = {
++    "incremental_confiner": attr.label(
++        doc = "Declared single-threaded local compiler confinement executable.",
++        executable = True,
++        cfg = "exec",
++    ),
++    "incremental_process_scope": attr.label(
++        doc = "Original declared Linux PID namespace supervisor; required for Linux workers.",
++        executable = True,
++        cfg = "exec",
++    ),
++    "incremental_runtime": attr.label_keyed_string_dict(
++        doc = "Exact original loader/runtime Files mapped to absolute Linux destinations; required for Linux workers.",
++        allow_files = True,
++        cfg = "exec",
++    ),
++    "incremental_worker": attr.label(
++        doc = "Repository-owned local persistent compiler worker; full Rustc actions only.",
++        executable = True,
++        cfg = "exec",
++    ),
++
++    "proc_macro_aliases": attr.label_keyed_string_dict(
++        doc = "Remap procedural macro dependencies in their execution configuration.",
++        cfg = "exec",
++    ),
+     "aliases": attr.label_keyed_string_dict(
+         doc = dedent("""\
+             Remap crates to a new name or moniker for linkage to this target
+@@ -811,10 +847,22 @@ _COMMON_ATTRS = {
+         """),
+         providers = [[CcInfo], [rust_common.crate_info]],
+     ),
++    "native_link_map": attr.bool(
++        default = False,
++        doc = "Publish the actual native linker map from the same non-test binary or proc-macro action.",
++    ),
++    "wasm_link_map": attr.bool(
++        default = False,
++        doc = "Publish the actual wasm-lld map from the same non-test wasm32 cdylib action.",
++    ),
+     "lint_config": attr.label(
+         doc = "Set of lints to apply when building this crate.",
+         providers = [LintsInfo],
+     ),
++    "apply_lints_in_exec": attr.bool(
++        doc = "Preserve explicit first-party manifest lints in execution configurations.",
++        default = False,
++    ),
+     # Previously `proc_macro_deps` were a part of `deps`, and then proc_macro_host_transition was
+     # used into cfg="host" using `@local_config_platform//:host`.
+     # This fails for remote execution, which needs cfg="exec", and there isn't anything like
+@@ -1026,6 +1074,7 @@ _RUST_TEST_ATTRS = {
+             E.g. `bazel test //src:rust_test --test_arg=foo::test::test_fn`.
+         """),
+     ),
++    "_revocation_epochs": MERKUR_TEST_ATTRIBUTES["_revocation_epochs"],
+ } | _COVERAGE_ATTRS | _EXPERIMENTAL_USE_CC_COMMON_LINK_ATTRS
+ 
+ rust_library = rule(
+@@ -1237,7 +1286,12 @@ _rust_shared_library_transition = transition(
+ 
+ rust_cdylib_library = rule(
+     implementation = _rust_cdylib_library_impl,
+-    attrs = _COMMON_ATTRS | _PLATFORM_ATTRS | _EXPERIMENTAL_USE_CC_COMMON_LINK_ATTRS,
++    attrs = _COMMON_ATTRS | _PLATFORM_ATTRS | _EXPERIMENTAL_USE_CC_COMMON_LINK_ATTRS | {
++        "napi_type_defs": attr.bool(
++            default = False,
++            doc = "Capture napi-derive JSON lines as a declared Rustc directory output.",
++        ),
++    },
+     fragments = ["cpp"],
+     cfg = _rust_shared_library_transition,
+     toolchains = [
+diff --git a/rust/private/rustc.bzl b/rust/private/rustc.bzl
+index d447c97..84cec26 100644
+--- a/rust/private/rustc.bzl
++++ b/rust/private/rustc.bzl
+@@ -14,6 +14,9 @@
+ 
+ """Functionality for constructing actions that invoke the Rust compiler"""
+ 
++load("//rust/private:merkur_test_nonce.bzl", "MerkurTestRuntimeInfo", "merkur_test_runfiles")
++load("@@//tools/bazel/packaging:rust-link-map.bzl", "declare_link_map", "link_map_info")
++
+ load("@bazel_skylib//lib:paths.bzl", "paths")
+ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+ load(
+@@ -438,6 +441,12 @@ def get_linker_and_args(ctx, crate_type, toolchain, cc_toolchain, feature_config
+             action_name = action_name,
+             variables = link_variables,
+         )
++        # rustc rejects relative Apple SDKROOT values and otherwise invokes
++        # xcrun. Relocate the same configured Cc SDK through the existing
++        # process wrapper, without selecting a second target/exec SDK.
++        sdkroot = link_env.get("SDKROOT")
++        if toolchain.target_os in ["darwin", "macos"] and sdkroot and not paths.is_absolute(sdkroot):
++            link_env = dict(link_env, SDKROOT = "${pwd}/" + sdkroot)
+         ld = cc_common.get_tool_for_action(
+             feature_configuration = feature_configuration,
+             action_name = action_name,
+@@ -667,6 +676,18 @@ def _depend_on_metadata(crate_info, force_depend_on_objects):
+ 
+     return crate_info.type in ("rlib", "lib")
+ 
++def _is_native_rlib_compile(crate_info, toolchain, include_linker_inputs):
++    # An rlib contains native objects, but does not run the Cc linker. Native
++    # Rust's archive writer is part of the original compiler runtime. Explicit
++    # crate data, proc-macro inputs and build-script outputs remain separate inputs.
++    return (
++        crate_info.type in ("lib", "rlib") and
++        not include_linker_inputs and
++        toolchain.target_triple != None and
++        toolchain.exec_triple.str == toolchain.target_triple.str and
++        toolchain.target_triple.str in ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
++    )
++
+ def collect_inputs(
+         ctx,
+         file,
+@@ -719,6 +740,7 @@ def collect_inputs(
+             - (dict[String, File]): Ambiguous libs, see `_disambiguate_libs`.
+     """
+     linker_script = getattr(file, "linker_script", None)
++    native_rlib_compile = _is_native_rlib_compile(crate_info, toolchain, include_linker_inputs)
+ 
+     # TODO: As of writing this comment Bazel used Java CcToolchainInfo.
+     # However there is ongoing work to rewrite provider in Starlark.
+@@ -799,8 +821,8 @@ def collect_inputs(
+             transitive_crate_outputs,
+             crate_info.compile_data,
+             dep_info.transitive_proc_macro_data,
+-            toolchain.all_files,
+-        ] + ([] if experimental_use_cc_common_link else [
++            toolchain._compiler_files if native_rlib_compile else toolchain.all_files,
++        ] + ([] if experimental_use_cc_common_link or native_rlib_compile else [
+             runtime_libs,
+             linker_depset,
+         ]),
+@@ -984,7 +1006,8 @@ def construct_arguments(
+         require_explicit_unstable_features = False,
+         error_format = None,
+         allowed_unstable_rust_features = None,
+-        link_std_dylib = False):
++        link_std_dylib = False,
++        worker_spec = None):
+     """Builds an Args object containing common rustc flags
+ 
+     Args:
+@@ -1238,8 +1261,12 @@ def construct_arguments(
+     # For final artifacts intended for distribution outside of Bazel, such as
+     # rust_binary, rust_static_library and rust_shared_library, output_hash
+     # is None and these flags are not added.
+-    if output_hash:
++    semantic_metadata = getattr(ctx.attr, "semantic_metadata", "")
++    if semantic_metadata:
++        rustc_flags.add(semantic_metadata, format = "--codegen=metadata=%s")
++    elif output_hash:
+         rustc_flags.add(output_hash, format = "--codegen=metadata=-%s")
++    if output_hash:
+         rustc_flags.add(output_hash, format = "--codegen=extra-filename=-%s")
+ 
+     if output_dir:
+@@ -1527,6 +1554,8 @@ def construct_arguments(
+     #   `unstable_rust_features_config` should keep using the list form.
+     rust_flags_args = None
+     if type(rust_flags) == "Args":
++        if worker_spec:
++            fail("Incremental worker requires explicit Rust flags, not opaque Args")
+         rust_flags_args = rust_flags
+     elif rust_flags:
+         for flag in _extract_allowed_unstable_features_from_flags(rust_flags, all_allowed_unstable_features):
+@@ -1563,6 +1592,14 @@ def construct_arguments(
+     # struct as `extra_rustc_flags` and is appended to `all` so it
+     # survives independently end-to-end.
+     all_args = [process_wrapper_flags, rustc_path, rustc_flags]
++    if worker_spec:
++        worker_header = ctx.actions.args()
++        worker_header.add("--spec", worker_spec)
++        worker_header.add("--command", ctx.executable._process_wrapper)
++        all_args = [worker_header] + all_args
++        for part in [worker_header, process_wrapper_flags, rustc_path]:
++            part.set_param_file_format("multiline")
++            part.use_param_file("@%s", use_always = True)
+     if rust_flags_args != None:
+         all_args.append(rust_flags_args)
+ 
+@@ -1669,6 +1706,60 @@ def setup_zself_profile(ctx, crate_info):
+ 
+     return profiling_dir, profiling_flags
+ 
++def _declare_napi_type_defs(ctx, attr, crate_info, build_metadata):
++    if not getattr(attr, "napi_type_defs", False):
++        return None
++    if crate_info.type != "cdylib" or crate_info.is_test or build_metadata:
++        fail("napi_type_defs requires one full non-test cdylib compiler action")
++    if not ctx.executable._process_wrapper:
++        fail("napi_type_defs requires the declared Rust process wrapper")
++    if "NAPI_TYPE_DEF_TMP_FOLDER" in crate_info.rustc_env:
++        fail("napi_type_defs owns NAPI_TYPE_DEF_TMP_FOLDER")
++    return ctx.actions.declare_directory(crate_info.output.basename + ".napi_type_defs", sibling = crate_info.output)
++
++
++def _worker_runtime_destination(path):
++    if not path.startswith("/") or path == "/" or "\\" in path:
++        fail("Linux worker runtime destination must be an exact absolute File path")
++    if any([part in ["", ".", ".."] for part in path.split("/")[1:]]):
++        fail("Linux worker runtime destination is not normalized")
++    controls = json.decode('"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008\\u0009\\u000a\\u000b\\u000c\\u000d\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\\u007f"')
++    if any([c in controls for c in path.elems()]):
++        fail("Linux worker runtime destination contains a control character")
++    if path == "/dev/null" or path.startswith("/dev/null/"):
++        fail("Linux worker /dev/null is an exact kernel resource, not a runtime File")
++
++def _worker_linux_bindings(ctx, target_os):
++    if target_os != "linux":
++        return struct(spec = {}, files = [], tools = [])
++    supervisor = ctx.executable.incremental_process_scope
++    if not supervisor or supervisor.is_directory:
++        fail("Linux worker requires an original declared PID namespace supervisor executable")
++    supervisor_info = ctx.attr.incremental_process_scope[DefaultInfo].files_to_run
++    if supervisor_info.executable != supervisor:
++        fail("Linux worker supervisor differs from its declared executable")
++    if not ctx.attr.incremental_runtime:
++        fail("Linux worker requires explicit original loader/runtime File mappings")
++    files = []
++    mappings = []
++    destinations = []
++    for target, destination in ctx.attr.incremental_runtime.items():
++        original = target[DefaultInfo].files.to_list()
++        if len(original) != 1 or original[0].is_directory:
++            fail("Linux worker runtime binding requires exactly one original ordinary File")
++        _worker_runtime_destination(destination)
++        for prior in destinations:
++            if destination == prior or destination.startswith(prior + "/") or prior.startswith(destination + "/"):
++                fail("Linux worker runtime destinations overlap")
++        destinations.append(destination)
++        files.append(original[0])
++        mappings.append({"input": original[0].path, "path": destination})
++    return struct(
++        spec = {"process_scope": supervisor.path, "linux_runtime": mappings},
++        files = files,
++        tools = [supervisor_info],
++    )
++
+ def rustc_compile_action(
+         *,
+         ctx,
+@@ -1759,7 +1850,8 @@ def rustc_compile_action(
+     # Exclude lints if we're building in the exec configuration to prevent crates
+     # used in build scripts from generating warnings.
+     lint_files = []
+-    if hasattr(ctx.attr, "lint_config") and ctx.attr.lint_config and not is_exec_configuration(ctx):
++    apply_lints_in_exec = getattr(ctx.attr, "apply_lints_in_exec", False)
++    if hasattr(ctx.attr, "lint_config") and ctx.attr.lint_config and (apply_lints_in_exec or not is_exec_configuration(ctx)):
+         rust_flags = rust_flags + ctx.attr.lint_config[LintsInfo].rustc_lint_flags
+         lint_files = lint_files + ctx.attr.lint_config[LintsInfo].rustc_lint_files
+ 
+@@ -1855,6 +1947,21 @@ def rustc_compile_action(
+     else:
+         link_std_dylib = toolchain._link_std_dylib
+ 
++    incremental_worker = getattr(ctx.executable, "incremental_worker", None)
++    worker_spec = None
++    worker_linux = struct(spec = {}, files = [], tools = [])
++    if incremental_worker:
++        if crate_info.type not in ["rlib", "lib"] or crate_info.is_test:
++            fail("Incremental worker currently requires a pure Rust library compiler leaf")
++        if proc_macro_deps:
++            fail("Executable proc macros are ineligible for the incremental worker")
++        if not ctx.executable.incremental_confiner:
++            fail("Incremental worker requires an explicit compiler confinement tool")
++        worker_linux = _worker_linux_bindings(ctx, toolchain.target_os)
++        if toolchain.target_os not in ["darwin", "macos"]:
++            fail("Incremental worker confinement is qualified only on macOS")
++        worker_spec = ctx.actions.declare_file(crate_info.output.basename + ".worker.json", sibling = crate_info.output)
++
+     args, env_from_args = construct_arguments(
+         ctx = ctx,
+         attr = attr,
+@@ -1880,6 +1987,7 @@ def rustc_compile_action(
+         require_explicit_unstable_features = require_explicit_unstable_features,
+         allowed_unstable_rust_features = allowed_unstable_rust_features,
+         link_std_dylib = link_std_dylib,
++        worker_spec = worker_spec,
+     )
+ 
+     args_metadata = None
+@@ -1911,11 +2019,37 @@ def rustc_compile_action(
+             link_std_dylib = link_std_dylib,
+         )
+ 
++    if worker_spec and args_metadata:
++        # Early metadata must match the worker's incremental mode and virtual
++        # source identity. The wrapper owns fresh scratch for this stateless action.
++        args_metadata.process_wrapper_flags.add("--rustc-metadata-incremental-dir")
++        args_metadata.process_wrapper_flags.add(build_metadata, format = "%s.incremental")
++
++    linked_map = declare_link_map(ctx, attr, crate_info, toolchain, build_metadata, experimental_use_cc_common_link)
++    if linked_map:
++        # Retain a typed output File so Bazel maps its path with the compile action.
++        args.rustc_flags.add(linked_map.link_map, format = linked_map.flag_format)
++
+     env = dict(ctx.configuration.default_shell_env)
+ 
+     # this is the final list of env vars
+     env.update(env_from_args)
+ 
++    napi_type_defs = _declare_napi_type_defs(ctx, attr, crate_info, build_metadata)
++    napi_type_defs_file = None
++    if napi_type_defs:
++        # Args.add cannot accept a directory File: pass this declared path
++        # without expanding the side output into its generated members.
++        args.process_wrapper_flags.add("--napi-type-def-dir", napi_type_defs.path)
++        env["NAPI_TYPE_DEF_TMP_FOLDER"] = "${pwd}/" + napi_type_defs.path
++        napi_type_defs_file = ctx.actions.declare_file(crate_info.output.basename + ".napi.jsonl", sibling = crate_info.output)
++        # napi-derive names its original output with the configured Cargo package.
++        # Copy it before this same action finishes, using the pinned wrapper's
++        # existing copy primitive. Consumers receive an ordinary declared File.
++        args.process_wrapper_flags.add("--copy-output")
++        args.process_wrapper_flags.add(napi_type_defs.path + "/" + crate_info.rustc_env["CARGO_PKG_NAME"])
++        args.process_wrapper_flags.add(napi_type_defs_file)
++
+     if hasattr(attr, "version") and attr.version != "0.0.0":
+         formatted_version = " v{}".format(attr.version)
+     else:
+@@ -1932,6 +2066,10 @@ def rustc_compile_action(
+ 
+     # The action might generate extra output that we don't want to include in the `DefaultInfo` files.
+     action_outputs = list(outputs)
++    if linked_map:
++        action_outputs.append(linked_map.link_map)
++    if napi_type_defs:
++        action_outputs.extend([napi_type_defs, napi_type_defs_file])
+     if rustc_output:
+         action_outputs.append(rustc_output)
+     if profiling_dir:
+@@ -1955,26 +2093,60 @@ def rustc_compile_action(
+     if use_split_debuginfo:
+         action_outputs.append(dwo_outputs)  # buildifier: disable=uninitialized
+ 
+-    if ctx.executable._process_wrapper:
+-        # Run as normal
++    if worker_spec:
++        if env.get("RUSTC_BOOTSTRAP"):
++            fail("Incremental worker must not inherit RUSTC_BOOTSTRAP")
++        if worker_linux.spec:
++            # This stable relative scratch directory is owned by the worker policy.
++            env["TMPDIR"] = ".merkur-scratch"
++        specification = {
++            "crate": str(ctx.label),
++            "confiner": ctx.executable.incremental_confiner.path,
++            "env": env,
++            "sources": [source.path for source in srcs],
++            "outputs": [{"path": output.path, "directory": output.is_directory} for output in action_outputs],
++        }
++        specification.update(worker_linux.spec)
++        ctx.actions.write(worker_spec, json.encode(specification))
+         ctx.actions.run(
+-            executable = ctx.executable._process_wrapper,
+-            inputs = compile_inputs,
++            executable = incremental_worker,
++            tools = [ctx.executable._process_wrapper, ctx.executable.incremental_confiner] + worker_linux.tools,
++            inputs = depset([worker_spec] + worker_linux.files, transitive = [compile_inputs]),
+             outputs = action_outputs,
+-            env = env,
++            env = {},
+             arguments = args.all,
+-            mnemonic = "Rustc",
+-            progress_message = "Compiling Rust {} {}{} ({} file{})".format(
+-                crate_info.type,
+-                ctx.label.name,
+-                formatted_version,
+-                len(srcs),
+-                "" if len(srcs) == 1 else "s",
+-            ),
++            mnemonic = "MerkurRustcIncremental",
++            progress_message = "Compiling Rust incrementally {} {}".format(crate_info.type, ctx.label.name),
+             toolchain = "@rules_rust//rust:toolchain_type",
+             resource_set = get_rustc_resource_set(toolchain),
+-            execution_requirements = {"supports-path-mapping": ""} if args.supports_path_mapping else None,
++            execution_requirements = {
++                "supports-workers": "1",
++                "requires-worker-protocol": "json",
++                "supports-worker-cancellation": "1",
++                "no-remote": "1",
++            },
+         )
++    if ctx.executable._process_wrapper:
++        # Metadata actions stay stateless; the stock process wrapper can stop rustc early.
++        if not worker_spec:
++            ctx.actions.run(
++                executable = ctx.executable._process_wrapper,
++                inputs = compile_inputs,
++                outputs = action_outputs,
++                env = env,
++                arguments = args.all,
++                mnemonic = "Rustc",
++                progress_message = "Compiling Rust {} {}{} ({} file{})".format(
++                    crate_info.type,
++                    ctx.label.name,
++                    formatted_version,
++                    len(srcs),
++                    "" if len(srcs) == 1 else "s",
++                ),
++                toolchain = "@rules_rust//rust:toolchain_type",
++                resource_set = get_rustc_resource_set(toolchain),
++                execution_requirements = {"supports-path-mapping": ""} if args.supports_path_mapping else None,
++            )
+         if args_metadata:
+             ctx.actions.run(
+                 executable = ctx.executable._process_wrapper,
+@@ -2137,7 +2309,12 @@ def rustc_compile_action(
+         if not runfiles_attr:
+             continue
+         for target in runfiles_attr:
+-            transitive_runfiles.append(target[DefaultInfo].default_runfiles)
++            # A dependency's test nonce belongs only to its own TestRunner.
++            # Ordinary non-test dependencies keep their complete runtime data.
++            if MerkurTestRuntimeInfo in target:
++                transitive_runfiles.append(target[MerkurTestRuntimeInfo].runfiles)
++            else:
++                transitive_runfiles.append(target[DefaultInfo].default_runfiles)
+     dep_dylib_files = []
+     if crate_info.type in ["bin", "cdylib", "dylib", "staticlib"]:
+         dep_dylib_files = [
+@@ -2179,14 +2356,20 @@ def rustc_compile_action(
+             "metadata_files": coverage_runfiles + [executable] if executable else [],
+         })
+ 
++    # Epochs never enter compilation or aspect outputs; only owning test runtime.
++    owned_test = crate_info.is_test and hasattr(ctx.attr, "_revocation_epochs")
++    runtime_provider = [MerkurTestRuntimeInfo(runfiles = runfiles)] if owned_test else []
++    test_runfiles = merkur_test_runfiles(ctx, runfiles) if owned_test else runfiles
+     providers = [
+         DefaultInfo(
+             # nb. This field is required for cc_library to depend on our output.
+             files = depset(outputs),
+-            runfiles = runfiles,
++            runfiles = test_runfiles,
+             executable = executable,
+         ),
+-    ]
++    ] + runtime_provider
++    if linked_map:
++        providers.append(link_map_info(linked_map, crate_info, toolchain))
+ 
+     # When invoked by aspects (and when running `bazel coverage`), the
+     # baseline_coverage.dat created here will conflict with the baseline_coverage.dat of the
+@@ -2235,7 +2418,12 @@ def rustc_compile_action(
+     providers += establish_cc_info(ctx, attr, crate_info, toolchain, cc_toolchain, feature_configuration, interface_library, use_pic, debug_context)
+ 
+     output_group_info = {}
++    if linked_map:
++        output_group_info[linked_map.output_group] = depset([linked_map.link_map])
+ 
++    if napi_type_defs:
++        output_group_info["napi_type_defs"] = depset([napi_type_defs])
++        output_group_info["napi_type_defs_file"] = depset([napi_type_defs_file])
+     if pdb_file:
+         output_group_info["pdb_file"] = depset([pdb_file])
+     if dsym_folder:
+diff --git a/rust/private/rustdoc_test.bzl b/rust/private/rustdoc_test.bzl
+index 664878c..05c18f6 100644
+--- a/rust/private/rustdoc_test.bzl
++++ b/rust/private/rustdoc_test.bzl
+@@ -14,6 +14,8 @@
+ 
+ """Rules for performing `rustdoc --test` on Bazel built crates"""
+ 
++load("//rust/private:merkur_test_nonce.bzl", "MERKUR_TEST_ATTRIBUTES", "MerkurTestRuntimeInfo", "merkur_test_runfiles")
++
+ load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load("//rust/private:common.bzl", "rust_common")
+ load("//rust/private:providers.bzl", "CrateInfo")
+@@ -216,13 +218,15 @@ def _compiled_rust_doc_test_impl(ctx, toolchain, crate_info):
+         is_executable = True,
+     )
+ 
++    runtime = ctx.runfiles(
++        files = [doctest_dir, test_metadata, ctx.executable._test_runner_bin],
++        transitive_files = action.inputs,
++    )
+     return [
++        MerkurTestRuntimeInfo(runfiles = runtime),
+         DefaultInfo(
+             files = depset([test_runner]),
+-            runfiles = ctx.runfiles(
+-                files = [doctest_dir, test_metadata, ctx.executable._test_runner_bin],
+-                transitive_files = action.inputs,
+-            ),
++            runfiles = merkur_test_runfiles(ctx, runtime),
+             executable = test_runner,
+         ),
+         RunEnvironmentInfo(
+@@ -304,9 +308,10 @@ def _legacy_rust_doc_test_impl(ctx, toolchain, crate_info):
+         outputs = [test_runner, opt_test_params],
+     )
+ 
+-    return [DefaultInfo(
++    runtime = ctx.runfiles(files = tools + [opt_test_params], transitive_files = action.inputs)
++    return [MerkurTestRuntimeInfo(runfiles = runtime), DefaultInfo(
+         files = depset([test_runner]),
+-        runfiles = ctx.runfiles(files = tools + [opt_test_params], transitive_files = action.inputs),
++        runfiles = merkur_test_runfiles(ctx, runtime),
+         executable = test_runner,
+     )]
+ 
+@@ -335,6 +340,7 @@ def _rust_doc_test_impl(ctx):
+ rust_doc_test = rule(
+     implementation = _rust_doc_test_impl,
+     attrs = {
++        "_revocation_epochs": MERKUR_TEST_ATTRIBUTES["_revocation_epochs"],
+         "crate": attr.label(
+             doc = (
+                 "The label of the target to generate code documentation for. " +
+diff --git a/rust/private/toolchain.bzl b/rust/private/toolchain.bzl
+index b31e5e8..05f4fe4 100644
+--- a/rust/private/toolchain.bzl
++++ b/rust/private/toolchain.bzl
+@@ -593,6 +593,9 @@ def _rust_toolchain_impl(ctx):
+ 
+     toolchain = platform_common.ToolchainInfo(
+         all_files = depset(transitive = all_files_depsets),
++        # Native rlib compilation uses the original Rust sysroot and LLVM archive writer.
++        # Keep the full Cc closure in all_files for every linking/cross compiler role.
++        _compiler_files = sysroot.all_files,
+         binary_ext = ctx.attr.binary_ext,
+         cargo = sysroot.cargo,
+         channel = ctx.attr.channel,
+diff --git a/util/process_wrapper/main.rs b/util/process_wrapper/main.rs
+index 39a6d6d..2af801c 100644
+--- a/util/process_wrapper/main.rs
++++ b/util/process_wrapper/main.rs
+@@ -17,6 +17,7 @@ mod options;
+ mod output;
+ mod rustc;
+ mod util;
++mod worker_child;
+ 
+ use std::collections::HashMap;
+ use std::fmt;
+@@ -117,10 +118,135 @@ fn process_line(
+     }
+ }
+ 
++#[cfg(target_os = "macos")]
++fn confine_wrapper(profile: &str) -> Result<(), ProcessWrapperError> {
++    use std::ffi::{CStr, CString};
++    #[link(name = "sandbox")]
++    unsafe extern "C" {
++        fn sandbox_init(profile: *const std::ffi::c_char, flags: u64, error: *mut *mut std::ffi::c_char) -> std::ffi::c_int;
++        fn sandbox_free_error(error: *mut std::ffi::c_char);
++    }
++    let profile = CString::new(profile).map_err(|e| ProcessWrapperError(e.to_string()))?;
++    let mut detail = std::ptr::null_mut();
++    unsafe {
++        if sandbox_init(profile.as_ptr(), 0, &mut detail) != 0 {
++            let message = if detail.is_null() {
++                "wrapper sandbox initialization failed".to_owned()
++            } else {
++                let message = CStr::from_ptr(detail).to_string_lossy().into_owned();
++                sandbox_free_error(detail);
++                message
++            };
++            return Err(ProcessWrapperError(message));
++        }
++    }
++    Ok(())
++}
++#[cfg(target_os = "linux")]
++fn confine_wrapper(_profile: &str) -> Result<(), ProcessWrapperError> {
++    use std::ffi::{c_int, c_ulong};
++    #[repr(C)]
++    struct Header { version: u32, pid: i32 }
++    #[repr(C)]
++    #[derive(Clone, Copy)]
++    struct Capabilities { effective: u32, permitted: u32, inheritable: u32 }
++    unsafe extern "C" {
++        fn prctl(option: c_int, ...) -> c_int;
++        fn capget(header: *const Header, data: *mut Capabilities) -> c_int;
++        fn getpid() -> c_int;
++    }
++    let header = Header { version: 0x20080522, pid: 0 };
++    let mut data = [Capabilities { effective: 0, permitted: 0, inheritable: 0 }; 2];
++    // The worker's supervisor makes this exact wrapper namespace init. The outer
++    // confiner has already closed ambient FDs and installed immutable mounts before
++    // any option/env/status File parser runs. The leaf gets a tighter filter itself.
++    if unsafe { getpid() } != 1
++        || unsafe { prctl(39, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong) } != 1
++        || unsafe { prctl(21, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong, 0 as c_ulong) } != 2
++        || unsafe { capget(&header, data.as_mut_ptr()) } != 0
++        || data.iter().any(|c| c.effective | c.permitted | c.inheritable != 0)
++    {
++        return Err(ProcessWrapperError("missing mandatory Linux namespace confinement".to_owned()));
++    }
++    Ok(())
++}
++#[cfg(not(any(target_os = "macos", target_os = "linux")))]
++fn confine_wrapper(_profile: &str) -> Result<(), ProcessWrapperError> {
++    Err(ProcessWrapperError("no qualified worker compiler confinement on this platform".to_owned()))
++}
++
++// This directory belongs to this one metadata action, never to retained worker state.
++struct MetadataScratch {
++    path: std::path::PathBuf,
++    identity: std::fs::Metadata,
++    active: bool,
++}
++
++impl MetadataScratch {
++    fn create(path: &str) -> Result<Self, ProcessWrapperError> {
++        if path.starts_with('/') || path.split('/').any(|part| matches!(part, "" | "." | "..")) {
++            return Err(ProcessWrapperError("metadata scratch must be an execution-root-relative path".to_owned()));
++        }
++        let path = std::env::current_dir().map_err(|e| ProcessWrapperError(e.to_string()))?.join(path);
++        // create_dir refuses an existing directory, File or alias; no prior state is reused.
++        std::fs::create_dir(&path).map_err(|e| ProcessWrapperError(format!("failed to create fresh metadata scratch: {e}")))?;
++        let identity = std::fs::symlink_metadata(&path).map_err(|e| ProcessWrapperError(e.to_string()))?;
++        Ok(Self { path, identity, active: true })
++    }
++
++    fn cleanup(&mut self) -> Result<(), ProcessWrapperError> {
++        if !self.active { return Ok(()); }
++        let current = std::fs::symlink_metadata(&self.path).map_err(|e| ProcessWrapperError(e.to_string()))?;
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::MetadataExt;
++            if current.dev() != self.identity.dev() || current.ino() != self.identity.ino() {
++                return Err(ProcessWrapperError("metadata scratch ownership changed".to_owned()));
++            }
++        }
++        if !current.is_dir() || current.file_type().is_symlink() {
++            return Err(ProcessWrapperError("metadata scratch is no longer the owned directory".to_owned()));
++        }
++        std::fs::remove_dir_all(&self.path).map_err(|e| ProcessWrapperError(format!("failed to retire metadata scratch: {e}")))?;
++        self.active = false;
++        Ok(())
++    }
++}
++
++impl Drop for MetadataScratch {
++    fn drop(&mut self) {
++        if let Err(error) = self.cleanup() { eprintln!("{error}"); }
++    }
++}
++
+ fn main() -> Result<(), ProcessWrapperError> {
++    #[cfg(target_os = "linux")]
++    if std::env::args_os().skip(1).take_while(|arg| arg != "--")
++        .any(|arg| arg == "--rustc-confiner")
++    {
++        // Ordinary non-worker invocations retain their original behavior.
++        confine_wrapper("")?;
++    }
+     let opts = options().map_err(|e| ProcessWrapperError(e.to_string()))?;
+ 
+-    let mut command = Command::new(opts.executable);
++    let mut metadata_scratch = opts.metadata_incremental_dir.as_deref().map(MetadataScratch::create).transpose()?;
++    let cooperative = opts.rustc_confiner.is_some();
++    #[cfg(target_os = "linux")]
++    if cooperative && opts.child_environment.get("TMPDIR").map(String::as_str) != Some(".merkur-scratch") {
++        return Err(ProcessWrapperError("Linux worker child TMPDIR differs from the owned scratch directory".to_owned()));
++    }
++    worker_child::install(cooperative).map_err(|e| ProcessWrapperError(format!("failed to install compiler-child cancellation: {e}")))?;
++    let wrapper_profile = opts.rustc_confiner.as_ref()
++        .map(|(_, path)| std::fs::read_to_string(path)
++            .map_err(|e| ProcessWrapperError(format!("failed to read owned compiler policy: {e}"))))
++        .transpose()?;
++    let mut command = if let Some((confiner, profile)) = opts.rustc_confiner {
++        let mut command = Command::new(confiner);
++        command.args(["--profile-file", &profile, "--"]).arg(opts.executable);
++        command
++    } else {
++        Command::new(opts.executable)
++    };
+     command
+         .args(opts.child_arguments)
+         .env_clear()
+@@ -137,10 +263,23 @@ fn main() -> Result<(), ProcessWrapperError> {
+             Stdio::inherit()
+         })
+         .stderr(Stdio::piped());
++    if let Some(scratch) = &metadata_scratch {
++        command.arg(format!("-Cincremental={}", scratch.path.display()));
++        command.arg(format!("--remap-path-prefix={}=/merkur/execroot", std::env::current_dir().map_err(|e| ProcessWrapperError(e.to_string()))?.display()));
++    }
+     debug_log!("{:#?}", command);
+-    let mut child = command
++    let mut child = worker_child::OwnedChild::new(command
+         .spawn()
+-        .map_err(|e| ProcessWrapperError(format!("failed to spawn child process: {}", e)))?;
++        .map_err(|e| ProcessWrapperError(format!("failed to spawn child process: {}", e)))?, cooperative);
++    // The compiler child applies its own profile once. macOS forbids reinitializing an
++    // inherited sandbox, so confine this single-threaded parent after its one spawn.
++    if let Some(profile) = wrapper_profile {
++        if let Err(error) = confine_wrapper(&profile) {
++            let _ = child.kill();
++            let _ = child.wait();
++            return Err(error);
++        }
++    }
+ 
+     let mut stderr: Box<dyn io::Write> = if let Some(stderr_file) = opts.stderr_file {
+         Box::new(
+@@ -155,7 +294,7 @@ fn main() -> Result<(), ProcessWrapperError> {
+         Box::new(io::stderr())
+     };
+ 
+-    let mut child_stderr = child.stderr.take().ok_or(ProcessWrapperError(
++    let mut child_stderr = child.take_stderr().ok_or(ProcessWrapperError(
+         "unable to get child stderr".to_string(),
+     ))?;
+ 
+@@ -206,6 +345,7 @@ fn main() -> Result<(), ProcessWrapperError> {
+     let status = child
+         .wait()
+         .map_err(|e| ProcessWrapperError(format!("failed to wait for child process: {}", e)))?;
++    if let Some(scratch) = &mut metadata_scratch { scratch.cleanup()?; }
+     // If the child process is rustc and is killed after metadata generation, that's also a success.
+     let code = status_code(status, was_killed);
+     let success = code == 0;
+diff --git a/util/process_wrapper/options.rs b/util/process_wrapper/options.rs
+index cca227b..fe42bf9 100644
+--- a/util/process_wrapper/options.rs
++++ b/util/process_wrapper/options.rs
+@@ -26,6 +26,9 @@ impl fmt::Display for OptionError {
+ 
+ #[derive(Debug)]
+ pub(crate) struct Options {
++    // Optional declared compiler-leaf confinement. Both options must be supplied together.
++    pub(crate) rustc_confiner: Option<(String, String)>,
++    pub(crate) metadata_incremental_dir: Option<String>,
+     // Contains the path to the child executable
+     pub(crate) executable: String,
+     // Contains arguments for the child process fetched from files.
+@@ -54,11 +57,15 @@ pub(crate) struct Options {
+ pub(crate) fn options() -> Result<Options, OptionError> {
+     // Process argument list until -- is encountered.
+     // Everything after is sent to the child process.
++    let mut metadata_incremental_dir = None;
++    let mut rustc_confiner = None;
++    let mut rustc_confinement_profile = None;
+     let mut subst_mapping_raw = None;
+     let mut stable_status_file_raw = None;
+     let mut volatile_status_file_raw = None;
+     let mut env_file_raw = None;
+     let mut out_dir_raw = None;
++    let mut napi_type_def_dir = None;
+     let mut arg_file_raw = None;
+     let mut touch_file = None;
+     let mut copy_output_raw = None;
+@@ -69,6 +76,9 @@ pub(crate) fn options() -> Result<Options, OptionError> {
+     let mut rustc_output_format_raw = None;
+     let mut flags = Flags::new();
+     let mut require_explicit_unstable_features = None;
++    flags.define_flag("--rustc-metadata-incremental-dir", "Fresh incremental scratch for worker-compatible metadata", &mut metadata_incremental_dir);
++    flags.define_flag("--rustc-confiner", "Declared compiler-leaf confiner executable", &mut rustc_confiner);
++    flags.define_flag("--rustc-confinement-profile-file", "Owned compiler-leaf policy File", &mut rustc_confinement_profile);
+     flags.define_repeated_flag("--subst", "", &mut subst_mapping_raw);
+     flags.define_flag("--stable-status-file", "", &mut stable_status_file_raw);
+     flags.define_flag("--volatile-status-file", "", &mut volatile_status_file_raw);
+@@ -87,6 +97,11 @@ pub(crate) fn options() -> Result<Options, OptionError> {
+          action advertises `supports-path-mapping`.",
+         &mut out_dir_raw,
+     );
++    flags.define_flag(
++        "--napi-type-def-dir",
++        "Declared napi-derive directory output; created before the compiler runs.",
++        &mut napi_type_def_dir,
++    );
+     flags.define_repeated_flag(
+         "--arg-file",
+         "File(s) containing command line arguments to pass to the child process.",
+@@ -264,12 +279,16 @@ pub(crate) fn options() -> Result<Options, OptionError> {
+ 
+     // Prepare the environment variables, unifying those read from files with the ones
+     // of the current process.
+-    let vars = environment_block(
++    let mut vars = environment_block(
+         environment_file_block,
+         &stable_stamp_mappings,
+         &volatile_stamp_mappings,
+         &subst_mappings,
+     );
++    if let Some(directory) = napi_type_def_dir.as_deref() {
++        let root = env::current_dir().map_err(|e| OptionError::Generic(e.to_string()))?;
++        prepare_napi_type_def_dir(directory, &root, &mut vars)?;
++    }
+ 
+     let require_explicit_unstable_features =
+         require_explicit_unstable_features.is_some_and(|s| s == "true");
+@@ -290,7 +309,17 @@ pub(crate) fn options() -> Result<Options, OptionError> {
+         )
+     })?;
+ 
++    let rustc_confiner = match (rustc_confiner, rustc_confinement_profile) {
++        (None, None) => None,
++        (Some(tool), Some(profile)) => Some((tool, profile)),
++        _ => return Err(OptionError::Generic("compiler-leaf confiner and policy must be supplied together".to_owned())),
++    };
++    if metadata_incremental_dir.is_some() && (!rustc_quit_on_rmeta || rustc_output_format.is_none()) {
++        return Err(OptionError::Generic("incremental metadata requires the original JSON completion path".to_owned()));
++    }
+     Ok(Options {
++        metadata_incremental_dir,
++        rustc_confiner,
+         executable: exec_path.to_owned(),
+         child_arguments: args.to_vec(),
+         child_environment: vars,
+@@ -440,6 +469,66 @@ fn prepare_args(
+     Ok(processed_args)
+ }
+ 
++fn prepare_napi_type_def_dir(
++    directory: &str,
++    root: &std::path::Path,
++    environment: &mut HashMap<String, String>,
++) -> Result<(), OptionError> {
++    let path = std::path::Path::new(directory);
++    if directory.is_empty()
++        || directory
++            .split('/')
++            .any(|part| part.is_empty() || part == "." || part == "..")
++        || directory.contains('\\')
++        || path.is_absolute()
++        || path
++            .components()
++            .any(|part| !matches!(part, std::path::Component::Normal(_)))
++    {
++        return Err(OptionError::Generic(
++            "invalid declared NAPI directory".to_owned(),
++        ));
++    }
++    let package = environment.get("CARGO_PKG_NAME").ok_or_else(|| {
++        OptionError::Generic("NAPI type definitions require CARGO_PKG_NAME".to_owned())
++    })?;
++    if package.is_empty()
++        || !package
++            .bytes()
++            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
++    {
++        return Err(OptionError::Generic(
++            "invalid NAPI Cargo package name".to_owned(),
++        ));
++    }
++    let absolute = root.join(path);
++    match std::fs::create_dir(&absolute) {
++        Ok(()) => (),
++        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
++            let info = std::fs::symlink_metadata(&absolute)
++                .map_err(|e| OptionError::Generic(e.to_string()))?;
++            if !info.is_dir()
++                || info.file_type().is_symlink()
++                || std::fs::read_dir(&absolute)
++                    .map_err(|e| OptionError::Generic(e.to_string()))?
++                    .next()
++                    .is_some()
++            {
++                return Err(OptionError::Generic(
++                    "NAPI output directory is not an empty ordinary directory".to_owned(),
++                ));
++            }
++        }
++        Err(e) => return Err(OptionError::Generic(e.to_string())),
++    }
++    environment.insert(
++        "NAPI_TYPE_DEF_TMP_FOLDER".to_owned(),
++        absolute.to_string_lossy().into_owned(),
++    );
++    Ok(())
++}
++
++
+ fn environment_block(
+     environment_file_block: HashMap<String, String>,
+     stable_stamp_mappings: &[(String, String)],
+@@ -472,8 +561,101 @@ fn environment_block(
+ 
+ #[cfg(test)]
+ mod test {
++    struct NapiRoot(std::path::PathBuf);
++    impl NapiRoot {
++        fn new() -> Self {
++            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++            let root = std::env::temp_dir().join(format!(
++                "rules-rust-napi-{}-{}",
++                std::process::id(),
++                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
++            ));
++            std::fs::create_dir(&root).unwrap();
++            Self(root)
++        }
++    }
++    impl Drop for NapiRoot {
++        fn drop(&mut self) {
++            std::fs::remove_dir_all(&self.0).unwrap();
++        }
++    }
++    fn napi_env() -> HashMap<String, String> {
++        HashMap::from([
++            ("CARGO_PKG_NAME".to_owned(), "rolldown_binding".to_owned()),
++            (
++                "NAPI_TYPE_DEF_TMP_FOLDER".to_owned(),
++                "/outside/stale".to_owned(),
++            ),
++        ])
++    }
++    #[test]
++    fn napi_output_directory_is_created_and_final_environment_bound() {
++        let root = NapiRoot::new();
++        let mut environment = napi_env();
++        prepare_napi_type_def_dir("types", &root.0, &mut environment).unwrap();
++        assert!(root.0.join("types").is_dir());
++        assert_eq!(
++            environment["NAPI_TYPE_DEF_TMP_FOLDER"],
++            root.0.join("types").to_string_lossy()
++        );
++        std::fs::write(
++            root.0.join("types/rolldown_binding"),
++            b"{\"kind\":\"fn\"}\n",
++        )
++        .unwrap();
++        assert!(prepare_napi_type_def_dir("types", &root.0, &mut environment).is_err());
++    }
++    #[test]
++    fn napi_empty_engine_output_directory_is_supported() {
++        let root = NapiRoot::new();
++        std::fs::create_dir(root.0.join("types")).unwrap();
++        prepare_napi_type_def_dir("types", &root.0, &mut napi_env()).unwrap();
++    }
++    #[test]
++    fn napi_invalid_output_spelling_refuses_without_writes() {
++        let root = NapiRoot::new();
++        for bad in [
++            "",
++            "/absolute",
++            "../outside",
++            "./types",
++            "a//b",
++            "a/../b",
++            "a\\b",
++        ] {
++            assert!(
++                prepare_napi_type_def_dir(bad, &root.0, &mut napi_env()).is_err(),
++                "{}", bad
++            );
++        }
++        assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
++    }
++    #[test]
++    fn napi_missing_or_escaping_package_refuses_before_output() {
++        let root = NapiRoot::new();
++        for package in [None, Some(""), Some("../outside"), Some("a/b"), Some("a.b")] {
++            let mut environment = napi_env();
++            environment.remove("CARGO_PKG_NAME");
++            if let Some(package) = package {
++                environment.insert("CARGO_PKG_NAME".to_owned(), package.to_owned());
++            }
++            assert!(prepare_napi_type_def_dir("types", &root.0, &mut environment).is_err());
++        }
++        assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
++    }
++    #[test]
++    #[cfg(unix)]
++    fn napi_output_symlink_refuses_and_preserves_referent() {
++        let root = NapiRoot::new();
++        std::fs::create_dir(root.0.join("outside")).unwrap();
++        std::os::unix::fs::symlink("outside", root.0.join("types")).unwrap();
++        assert!(prepare_napi_type_def_dir("types", &root.0, &mut napi_env()).is_err());
++        assert_eq!(
++            std::fs::read_dir(root.0.join("outside")).unwrap().count(),
++            0
++        );
++    }
+     use super::*;
+-
+     #[test]
+     fn test_enforce_allow_features_flag_user_didnt_say() {
+         let args = vec!["rustc".to_string()];
+diff --git a/util/process_wrapper/private/process_wrapper.sh b/util/process_wrapper/private/process_wrapper.sh
+index f0ea720..60e028e 100755
+--- a/util/process_wrapper/private/process_wrapper.sh
++++ b/util/process_wrapper/private/process_wrapper.sh
+@@ -9,6 +9,13 @@ shift
+ # in rustc flags (e.g. --remap-path-prefix, -oso_prefix). This mirrors
+ # the logic in options.rs used by the real process wrapper.
+ phys_pwd=$(cd -P . && pwd)
++# Match the real wrapper's environment relocation for the configured Apple SDK.
++case "${SDKROOT-}" in
++    '${pwd}/'*)
++        SDKROOT="${phys_pwd}${SDKROOT#\$\{pwd\}}"
++        export SDKROOT
++        ;;
++esac
+ if [ -d "external" ]; then
+     output_base=$(cd -P external/.. && pwd)
+ else
+diff --git a/util/process_wrapper/worker_child.rs b/util/process_wrapper/worker_child.rs
+new file mode 100644
+index 0000000..ae2c913
+--- /dev/null
++++ b/util/process_wrapper/worker_child.rs
+@@ -0,0 +1,206 @@
++//! Exact compiler-child ownership for the opt-in incremental worker.
++//! The wrapper stays single-threaded. A handler only records cancellation and calls
++//! async-signal-safe kill; the PID remains unreaped until cancellation is blocked.
++use std::io;
++use std::process::{Child, ExitStatus};
++
++#[cfg(target_os = "macos")]
++mod darwin {
++    use super::*;
++    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
++    static CHILD: AtomicI32 = AtomicI32::new(0);
++    static CANCELLED: AtomicBool = AtomicBool::new(false);
++    const SIGTERM: i32 = 15;
++    const SIGKILL: i32 = 9;
++    // Darwin SDK sys/signal.h and sys/wait.h, identical on supported 64-bit CPUs.
++    #[repr(C)]
++    struct SigInfo {
++        integers: [i32; 6],
++        address: *mut std::ffi::c_void,
++        value: usize,
++        band: i64,
++        pad: [usize; 7],
++    }
++    unsafe extern "C" {
++        fn signal(signo: i32, handler: usize) -> usize;
++        fn __error() -> *mut i32;
++        fn kill(pid: i32, signal: i32) -> i32;
++        fn sigprocmask(how: i32, set: *const u32, old: *mut u32) -> i32;
++        fn waitid(kind: i32, pid: u32, info: *mut SigInfo, options: i32) -> i32;
++    }
++    extern "C" fn cancel(_signal: i32) {
++        let saved_errno = unsafe { *__error() };
++        CANCELLED.store(true, Ordering::SeqCst);
++        let pid = CHILD.load(Ordering::SeqCst);
++        if pid != 0 { unsafe { kill(pid, SIGKILL); } }
++        unsafe { *__error() = saved_errno; }
++    }
++    pub fn install() -> io::Result<()> {
++        if unsafe { signal(SIGTERM, cancel as *const () as usize) } == usize::MAX {
++            return Err(io::Error::last_os_error());
++        }
++        Ok(())
++    }
++    pub fn publish(pid: u32) {
++        CHILD.store(pid as i32, Ordering::SeqCst);
++        // Cancellation between spawn and PID publication cannot lose the child.
++        if CANCELLED.load(Ordering::SeqCst) { unsafe { kill(pid as i32, SIGKILL); } }
++    }
++    pub fn exited(pid: u32) -> io::Result<()> {
++        loop {
++            let mut info = std::mem::MaybeUninit::<SigInfo>::zeroed();
++            if unsafe { waitid(1, pid, info.as_mut_ptr(), 0x4 | 0x20) } == 0 { return Ok(()); }
++            let failure = io::Error::last_os_error();
++            if failure.kind() != io::ErrorKind::Interrupted { return Err(failure); }
++        }
++    }
++    pub struct Blocked(u32);
++    impl Blocked {
++        pub fn new() -> io::Result<Self> {
++            let signal = 1_u32 << (SIGTERM - 1);
++            let mut previous = 0;
++            if unsafe { sigprocmask(1, &signal, &mut previous) } != 0 {
++                return Err(io::Error::last_os_error());
++            }
++            Ok(Self(previous))
++        }
++    }
++    impl Drop for Blocked {
++        fn drop(&mut self) { unsafe { sigprocmask(3, &self.0, std::ptr::null_mut()); } }
++    }
++    pub fn clear() { CHILD.store(0, Ordering::SeqCst); }
++}
++
++// Linux wrapper is PID 1 inside the mandatory worker process_scope namespace.
++// Killing that init through the owner-bound supervisor tears down all descendants;
++// this handler additionally owns the exact direct compiler child on wrapper errors
++// and SIGTERM, without permitting PID reuse between cancellation and reaping.
++#[cfg(target_os = "linux")]
++mod linux {
++    use super::*;
++    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
++    static CHILD: AtomicI32 = AtomicI32::new(0);
++    static CANCELLED: AtomicBool = AtomicBool::new(false);
++    const SIGTERM: i32 = 15;
++    const SIGKILL: i32 = 9;
++    // The supported Linux x86_64/aarch64 libc sigset_t is 1024 bits. waitid's
++    // siginfo_t is 128 bytes; no fields are interpreted or inferred here.
++    #[repr(C)]
++    struct SignalSet([u64; 16]);
++    #[repr(C, align(8))]
++    struct SignalInfo([u8; 128]);
++    unsafe extern "C" {
++        fn getpid() -> i32;
++        fn signal(signo: i32, handler: usize) -> usize;
++        fn __errno_location() -> *mut i32;
++        fn kill(pid: i32, signal: i32) -> i32;
++        fn sigprocmask(how: i32, set: *const SignalSet, old: *mut SignalSet) -> i32;
++        fn waitid(kind: i32, pid: u32, info: *mut SignalInfo, options: i32) -> i32;
++    }
++    extern "C" fn cancel(_signal: i32) {
++        let saved_errno = unsafe { *__errno_location() };
++        CANCELLED.store(true, Ordering::SeqCst);
++        let pid = CHILD.load(Ordering::SeqCst);
++        if pid != 0 { unsafe { kill(pid, SIGKILL); } }
++        unsafe { *__errno_location() = saved_errno; }
++    }
++    pub fn install() -> io::Result<()> {
++        if unsafe { getpid() } != 1 {
++            return Err(io::Error::other("Linux compiler wrapper is not namespace init"));
++        }
++        if unsafe { signal(SIGTERM, cancel as *const () as usize) } == usize::MAX {
++            return Err(io::Error::last_os_error());
++        }
++        Ok(())
++    }
++    pub fn publish(pid: u32) {
++        CHILD.store(pid as i32, Ordering::SeqCst);
++        if CANCELLED.load(Ordering::SeqCst) { unsafe { kill(pid as i32, SIGKILL); } }
++    }
++    pub fn exited(pid: u32) -> io::Result<()> {
++        loop {
++            let mut info = std::mem::MaybeUninit::<SignalInfo>::zeroed();
++            // P_PID, WEXITED | WNOWAIT: keep the PID owned until SIGTERM is blocked.
++            if unsafe { waitid(1, pid, info.as_mut_ptr(), 0x4 | 0x0100_0000) } == 0 {
++                return Ok(());
++            }
++            let failure = io::Error::last_os_error();
++            if failure.kind() != io::ErrorKind::Interrupted { return Err(failure); }
++        }
++    }
++    pub struct Blocked(SignalSet);
++    impl Blocked {
++        pub fn new() -> io::Result<Self> {
++            let mut signals = SignalSet([0; 16]);
++            signals.0[0] = 1_u64 << (SIGTERM - 1);
++            let mut previous = SignalSet([0; 16]);
++            // SIG_BLOCK. This is the libc interface, not rt_sigprocmask's ABI.
++            if unsafe { sigprocmask(0, &signals, &mut previous) } != 0 {
++                return Err(io::Error::last_os_error());
++            }
++            Ok(Self(previous))
++        }
++    }
++    impl Drop for Blocked {
++        fn drop(&mut self) {
++            // SIG_SETMASK; CHILD has already been cleared before unblocking.
++            unsafe { sigprocmask(2, &self.0, std::ptr::null_mut()); }
++        }
++    }
++    pub fn clear() { CHILD.store(0, Ordering::SeqCst); }
++    pub fn completed() -> io::Result<()> {
++        if CANCELLED.load(Ordering::SeqCst) {
++            return Err(io::Error::new(io::ErrorKind::Interrupted, "compiler child cancelled"));
++        }
++        Ok(())
++    }
++}
++
++#[cfg(target_os = "macos")]
++use darwin as lifecycle;
++#[cfg(target_os = "linux")]
++use linux as lifecycle;
++
++pub fn install(cooperative: bool) -> io::Result<()> {
++    #[cfg(any(target_os = "macos", target_os = "linux"))]
++    if cooperative { lifecycle::install()?; }
++    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
++    if cooperative { return Err(io::Error::other("unqualified compiler-child cancellation platform")); }
++    Ok(())
++}
++
++pub struct OwnedChild { child: Child, cooperative: bool, reaped: bool }
++impl OwnedChild {
++    pub fn new(child: Child, cooperative: bool) -> Self {
++        #[cfg(any(target_os = "macos", target_os = "linux"))]
++        if cooperative { lifecycle::publish(child.id()); }
++        Self { child, cooperative, reaped: false }
++    }
++    pub fn take_stderr(&mut self) -> Option<std::process::ChildStderr> { self.child.stderr.take() }
++    pub fn kill(&mut self) -> io::Result<()> { self.child.kill() }
++    pub fn wait(&mut self) -> io::Result<ExitStatus> {
++        #[cfg(any(target_os = "macos", target_os = "linux"))]
++        let _blocked = if self.cooperative {
++            lifecycle::exited(self.child.id())?;
++            Some(lifecycle::Blocked::new()?)
++        } else { None };
++        let status = self.child.wait()?;
++        self.reaped = true;
++        #[cfg(any(target_os = "macos", target_os = "linux"))]
++        if self.cooperative { lifecycle::clear(); }
++        #[cfg(target_os = "linux")]
++        if self.cooperative {
++            drop(_blocked);
++            linux::completed()?;
++        }
++        Ok(status)
++    }
++}
++impl Drop for OwnedChild {
++    fn drop(&mut self) {
++        if self.reaped { return; }
++        // No wrapper error can orphan the leaf, including stderr parser/I/O failures.
++        let _ = self.child.kill();
++        let _ = self.wait();
++    }
++}

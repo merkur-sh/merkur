@@ -1,0 +1,175 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A declared return type that is `unknown`: written out, inside a union or parentheses, as the
+// value of `Promise<…>`/`PromiseLike<…>`, or behind a type alias of this file. Functions, methods,
+// getters, call/construct/method signatures and function types are all covered.
+//
+// What GritQL cannot see:
+//   - nesting is followed three steps (alias, union, parenthesis or Promise each count one);
+//   - an alias is found by name in the whole file, not by lexical scope: a name that is also a
+//     type parameter, mapped-type key or `infer` binding anywhere in the file is never treated as
+//     the alias, and an alias counts only when every alias of that name in the file is unknown;
+//   - a generic alias is not instantiated, so `Identity<unknown>` is not followed.
+//
+// The alias case starts from the alias declaration and visits its uses. Looking the alias up
+// from every return type instead walks the whole file once per reference; that took the run from
+// 3 s to 99 s.
+
+pattern promise_of($value) {
+  TsReferenceType(name=$promise, type_arguments=TsTypeArguments(ts_type_argument_list=[
+    $value, ...
+  ])) where {
+    $promise <: or {
+      `Promise`,
+      `PromiseLike`
+    }
+  }
+}
+
+// `unknown`, as written.
+pattern written_0() { TsUnknownType() }
+
+pattern written_1() {
+  or {
+    written_0(),
+    TsParenthesizedType(ty=written_0()),
+    TsUnionType(types=some written_0()),
+    promise_of(value=written_0())
+  }
+}
+
+pattern written_2() {
+  or {
+    written_1(),
+    TsParenthesizedType(ty=written_1()),
+    TsUnionType(types=some written_1()),
+    promise_of(value=written_1())
+  }
+}
+
+pattern written_3() {
+  or {
+    written_2(),
+    TsParenthesizedType(ty=written_2()),
+    TsUnionType(types=some written_2()),
+    promise_of(value=written_2())
+  }
+}
+
+// A bare reference to another alias of this file whose own type is `$target`. The substring test
+// keeps the file walk for names the file does declare with `type`.
+pattern alias_of($target) {
+  TsReferenceType(name=$inner) as $reference where {
+    $reference <: $inner,
+    $declared = join(list=["type ", $inner], separator=""),
+    $program <: includes $declared,
+    $program <: contains TsTypeAliasDeclaration(binding_identifier=$inner, ty=$target) as $found where {
+      ! $found <: TsTypeAliasDeclaration(type_parameters=TsTypeParameters())
+    },
+    ! $program <: contains TsTypeAliasDeclaration(binding_identifier=$inner, ty=$other) where {
+      ! $other <: $target
+    }
+  }
+}
+
+// What an alias declaration's own type has to be for the alias to stand for `unknown`.
+pattern aliased_1() {
+  or {
+    written_3(),
+    alias_of(target=written_3()),
+    TsParenthesizedType(ty=alias_of(target=written_3())),
+    TsUnionType(types=some alias_of(target=written_3())),
+    promise_of(value=alias_of(target=written_3()))
+  }
+}
+
+pattern aliased_2() {
+  or {
+    aliased_1(),
+    alias_of(target=aliased_1()),
+    TsParenthesizedType(ty=alias_of(target=aliased_1())),
+    TsUnionType(types=some alias_of(target=aliased_1())),
+    promise_of(value=alias_of(target=aliased_1()))
+  }
+}
+
+// A return type that reaches the alias `$alias` without type arguments.
+pattern through_0($alias) {
+  TsReferenceType(name=$alias) as $reference where { $reference <: $alias }
+}
+
+pattern through_1($alias) {
+  or {
+    through_0($alias),
+    TsParenthesizedType(ty=through_0($alias)),
+    TsUnionType(types=some through_0($alias)),
+    promise_of(value=through_0($alias))
+  }
+}
+
+pattern through_2($alias) {
+  or {
+    through_1($alias),
+    TsParenthesizedType(ty=through_1($alias)),
+    TsUnionType(types=some through_1($alias)),
+    promise_of(value=through_1($alias))
+  }
+}
+
+pattern return_type($returned) {
+  or {
+    TsReturnTypeAnnotation(ty=$returned),
+    TsFunctionType(return_type=$returned),
+    TsConstructorType(return_type=$returned),
+    JsGetterClassMember(return_type=TsTypeAnnotation(ty=$returned)),
+    JsGetterObjectMember(return_type=TsTypeAnnotation(ty=$returned)),
+    TsGetterSignatureClassMember(return_type=TsTypeAnnotation(ty=$returned)),
+    TsGetterSignatureTypeMember(type_annotation=TsTypeAnnotation(ty=$returned)),
+    TsConstructSignatureTypeMember(type_annotation=TsTypeAnnotation(ty=$returned))
+  }
+}
+
+// A return type that reaches the alias, reported. This is its own pattern because a pattern's
+// variables are fresh on every call: written inline under `contains`, the type bound by the first
+// match would have to equal every later one, and only uses spelled the same would be reported.
+pattern aliased_return($alias) {
+  return_type($use) where {
+    $use <: through_2($alias),
+    ! $use <: written_3(),
+    register_diagnostic(span=$use, message=join(list=[
+      "[no-unknown-returns] This function hands its caller `unknown`, as `",
+
+      $alias,
+
+      "`. Decode the value where it enters and return the named domain type."
+    ], separator=""), severity="error")
+  }
+}
+
+or {
+  or {
+    TsReturnTypeAnnotation(ty=$returned),
+    TsFunctionType(return_type=$returned),
+    TsConstructorType(return_type=$returned),
+    JsGetterClassMember(return_type=TsTypeAnnotation(ty=$returned)),
+    JsGetterObjectMember(return_type=TsTypeAnnotation(ty=$returned)),
+    TsGetterSignatureClassMember(return_type=TsTypeAnnotation(ty=$returned)),
+    TsGetterSignatureTypeMember(type_annotation=TsTypeAnnotation(ty=$returned)),
+    TsConstructSignatureTypeMember(type_annotation=TsTypeAnnotation(ty=$returned))
+  } where {
+    // A substring test first: this runs on every declared return type in the tree.
+    $returned <: includes "unknown",
+    $returned <: written_3(),
+    register_diagnostic(span=$returned, message="[no-unknown-returns] This function hands its caller `unknown`. Decode the value where it enters and return the named domain type.", severity="error")
+  },
+  TsTypeAliasDeclaration(binding_identifier=$alias, ty=$aliased) as $declaration where {
+    $aliased <: aliased_2(),
+    ! $declaration <: TsTypeAliasDeclaration(type_parameters=TsTypeParameters()),
+    ! $program <: contains TsTypeAliasDeclaration(binding_identifier=$alias, ty=$other) where {
+      ! $other <: aliased_2()
+    },
+    ! $program <: contains TsTypeParameterName() as $parameter where { $parameter <: $alias },
+    $program <: contains aliased_return($alias)
+  }
+}

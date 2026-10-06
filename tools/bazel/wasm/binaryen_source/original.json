@@ -1,0 +1,102 @@
+{
+  "name": "binaryen",
+  "version": "117",
+  "tag": "version_117",
+  "commit": "c62a0c97168e88f97bca4bd96298a5ffc041844d",
+  "source": {
+    "url": "https://codeload.github.com/WebAssembly/binaryen/tar.gz/c62a0c97168e88f97bca4bd96298a5ffc041844d",
+    "sha256": "7b33f3d4cc4ca41d01a55de6812a2cbafcc3bcf07308caeb787b27cbb6394fb3",
+    "size": 4989038,
+    "prefix": "binaryen-c62a0c97168e88f97bca4bd96298a5ffc041844d"
+  },
+  "googletest": {
+    "url": "https://codeload.github.com/google/googletest/tar.gz/e2239ee6043f73722e7aa812a459f54a28552929",
+    "sha256": "2765fbfaa978e90d1c8477bc2f2b9705be65b1b562bb215dbfaa76567d508fe1",
+    "size": 887296,
+    "prefix": "googletest-e2239ee6043f73722e7aa812a459f54a28552929",
+    "commit": "e2239ee6043f73722e7aa812a459f54a28552929",
+    "mount": "third_party/googletest"
+  },
+  "bazel_members": [
+    "third_party/googletest/BUILD.bazel",
+    "third_party/googletest/googlemock/test/BUILD.bazel",
+    "third_party/googletest/googletest/test/BUILD.bazel"
+  ],
+  "llvm": {
+    "commit": "6c86d6efaf129c42d37121f1e7e9a7adffb54c1a",
+    "readme": "third_party/llvm-project/readme.txt",
+    "license": {
+      "member": "third_party/llvm-project/include/llvm/LICENSE.TXT",
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/6c86d6efaf129c42d37121f1e7e9a7adffb54c1a/llvm/LICENSE.TXT",
+      "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee",
+      "size": 15141
+    },
+    "support_notice": "third_party/llvm-project/include/llvm/Support/LICENSE.TXT",
+    "embedded_licenses": [
+      {
+        "member": "third_party/llvm-project/MD5.cpp",
+        "offset": 0,
+        "length": 1685,
+        "sha256": "90d7d30cf625f43473a51a44e4ef01d984bd5aa2acd0e312298404899f4bf924"
+      },
+      {
+        "member": "third_party/llvm-project/include/llvm/Support/MD5.h",
+        "offset": 0,
+        "length": 994,
+        "sha256": "fdecaa9e0f79d55ea347598a8b1f7fd5a4775fe427504f831fd2e7c2f9355907"
+      }
+    ]
+  },
+  "unicode": {
+    "source_member": "third_party/llvm-project/UnicodeCaseFold.cpp",
+    "source_uri": "http://www.unicode.org/Public/9.0.0/ucd/CaseFolding.txt",
+    "generator": {
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/6c86d6efaf129c42d37121f1e7e9a7adffb54c1a/llvm/utils/unicode-case-fold.py",
+      "size": 4673,
+      "sha256": "821f54206449e636bbd158458fb1a99ef2c09003f6eda1fc1cea93918d4d700b",
+      "file": "unicode-generator"
+    },
+    "data": {
+      "url": "https://www.unicode.org/Public/9.0.0/ucd/CaseFolding.txt",
+      "size": 78161,
+      "sha256": "37d40cf8c2c35637f4a04e746814e1fc4eb764c272bed9238a87ee96a4866857",
+      "file": "unicode-data"
+    },
+    "readme": {
+      "url": "https://www.unicode.org/Public/9.0.0/ucd/ReadMe.txt",
+      "size": 612,
+      "sha256": "50daa3432617c1dfc6434256463b093afd958e1cb44bf5206d39ffccb1df65a1",
+      "file": "unicode-readme"
+    },
+    "original_cpp": {
+      "url": "https://raw.githubusercontent.com/llvm/llvm-project/6c86d6efaf129c42d37121f1e7e9a7adffb54c1a/llvm/lib/Support/UnicodeCaseFold.cpp",
+      "size": 15684,
+      "sha256": "758f1a9a87980826c98954706eec5ac8d1039edeab328219a4ca975a938125c2",
+      "file": "unicode-original_cpp"
+    },
+    "license": {
+      "url": "https://www.unicode.org/license.txt",
+      "size": 1995,
+      "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96",
+      "file": "unicode-license"
+    },
+    "terms": {
+      "url": "https://www.unicode.org/terms_of_use.html",
+      "effective": "https://www.unicode.org/copyright.html",
+      "size": 17115,
+      "sha256": "9f83fb0a046180c87d22c2678e79300475125611ac8dfc2da303db6c6b347251",
+      "file": "unicode-terms"
+    },
+    "publisher_source_edits": [
+      {
+        "offset": 315,
+        "removed": " \\"
+      },
+      {
+        "offset": 382,
+        "removed": " \\"
+      }
+    ],
+    "published_cpp_sha256": "ee211adc2e00c2edf96f3c5ea17edc57beb1f32e2fe252dab252e590d8d8cd8b"
+  }
+}

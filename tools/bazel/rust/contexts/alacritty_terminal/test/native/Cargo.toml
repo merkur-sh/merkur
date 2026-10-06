@@ -1,0 +1,348 @@
+
+["dependencies"]
+
+["dependencies"."base64"]
+"version" = "0.23.1"
+
+["dependencies"."bitflags"]
+"version" = "2.13.1"
+
+["dependencies"."libc"]
+"version" = "0.2"
+
+["dependencies"."log"]
+"version" = "0.4"
+
+["dependencies"."parking_lot"]
+"version" = "0.12.5"
+
+["dependencies"."regex-automata"]
+"version" = "0.4.18"
+
+["dependencies"."serde"]
+"features" = ["derive", "rc"]
+"optional" = true
+"version" = "1"
+
+["dependencies"."unicode-width"]
+"version" = "0.2.2"
+
+["dependencies"."vte"]
+"default-features" = false
+"features" = ["std", "ansi"]
+"version" = "0.15.0"
+
+["dev-dependencies"]
+
+["dev-dependencies"."serde_json"]
+"version" = "1.0.151"
+
+["features"]
+"default" = ["serde"]
+"serde" = ["dep:serde", "bitflags/serde", "vte/serde"]
+
+["lib"]
+"name" = "alacritty_terminal"
+"path" = "../../../../../../../packages/alacritty-terminal-patch/src/lib.rs"
+
+["package"]
+"authors" = ["Christian Duerr <contact@christianduerr.com>", "Joe Wilm <joe@jwilm.com>"]
+"autobenches" = false
+"autobins" = false
+"autoexamples" = false
+"autolib" = false
+"autotests" = false
+"build" = false
+"description" = "Library for writing terminal emulators"
+"edition" = "2024"
+"homepage" = "https://alacritty.org"
+"license" = "Apache-2.0"
+"name" = "alacritty_terminal"
+"readme" = "README.md"
+"repository" = "https://github.com/alacritty/alacritty"
+"rust-version" = "1.85.0"
+"version" = "0.26.0"
+
+["patch"]
+
+["patch"."crates-io"]
+
+["patch"."crates-io"."alacritty_terminal"]
+"path" = "../../../../../../../packages/alacritty-terminal-patch"
+
+["patch"."crates-io"."fontdue"]
+"path" = "../../../../../../../packages/fontdue-patch"
+
+["patch"."crates-io"."quinn"]
+"path" = "../../../../../../../packages/quinn-patch"
+
+["patch"."crates-io"."quinn-proto"]
+"path" = "../../../../../../../packages/quinn-proto-patch"
+
+["patch"."crates-io"."vte"]
+"path" = "../../../../../../../packages/vte-patch"
+
+["patch"."crates-io"."wtransport"]
+"path" = "../../../../../../../packages/wtransport-patch"
+
+["profile"]
+
+["profile"."dev"]
+
+["profile"."dev"."package"]
+
+["profile"."dev"."package"."*"]
+"debug" = false
+"opt-level" = 3
+
+["profile"."dev"."package"."alacritty_terminal"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."e2e-wasm"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."graphics-codec-probe"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."graphics-wasm"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-authorization"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-client"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-client-native"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-codec"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-dataplane"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-e2e"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-edge"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-edge-protocol"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-fec"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-graphics"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-identity-seal"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-image-worker"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-stun"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-stun-protocol"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-tui"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."merkur-wire"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."term-wasm"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."term-wasm-pgo"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."vte"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."dev"."package"."zstd-fixture"]
+"debug" = 2
+"opt-level" = 0
+
+["profile"."test"]
+"debug" = "line-tables-only"
+"debug-assertions" = true
+"opt-level" = 1
+"overflow-checks" = true
+
+["profile"."test"."package"]
+
+["profile"."test"."package"."alacritty_terminal"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."e2e-wasm"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."graphics-codec-probe"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."graphics-wasm"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-authorization"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-client"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-client-native"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-codec"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-dataplane"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-e2e"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-edge"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-edge-protocol"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-fec"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-graphics"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-identity-seal"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-image-worker"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-stun"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-stun-protocol"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-tui"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."merkur-wire"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."term-wasm"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."term-wasm-pgo"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."vte"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["profile"."test"."package"."zstd-fixture"]
+"debug" = "line-tables-only"
+"opt-level" = 1
+
+["target"]
+
+["target"."cfg(not(target_arch = \"wasm32\"))"]
+
+["target"."cfg(not(target_arch = \"wasm32\"))"."dependencies"]
+
+["target"."cfg(not(target_arch = \"wasm32\"))"."dependencies"."home"]
+"version" = "0.5.11"
+
+["target"."cfg(not(target_arch = \"wasm32\"))"."dependencies"."polling"]
+"version" = "3.11.0"
+
+["target"."cfg(unix)"]
+
+["target"."cfg(unix)"."dependencies"]
+
+["target"."cfg(unix)"."dependencies"."rustix"]
+"default-features" = false
+"features" = ["std"]
+"version" = "1.1.4"
+
+["target"."cfg(unix)"."dependencies"."rustix-openpty"]
+"version" = "0.2.0"
+
+["target"."cfg(unix)"."dependencies"."signal-hook"]
+"version" = "0.4.4"
+
+["target"."cfg(windows)"]
+
+["target"."cfg(windows)"."dependencies"]
+
+["target"."cfg(windows)"."dependencies"."miow"]
+"version" = "0.6.1"
+
+["target"."cfg(windows)"."dependencies"."piper"]
+"version" = "0.2.5"
+
+["target"."cfg(windows)"."dependencies"."windows-sys"]
+"features" = ["Win32_System_Console", "Win32_Foundation", "Win32_Security", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_WindowsProgramming"]
+"version" = "0.61.2"
+
+[["test"]]
+"name" = "ref"
+"path" = "../../../../../../../packages/alacritty-terminal-patch/tests/ref.rs"
+
+[["test"]]
+"name" = "anchor_allocations"
+"path" = "../../../../../../../packages/alacritty-terminal-patch/tests/anchor_allocations.rs"
+
+["workspace"]
+"resolver" = "3"

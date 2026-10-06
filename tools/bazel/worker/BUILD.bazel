@@ -1,0 +1,180 @@
+load(":pipeline_controls.bzl", "stable_pipeline_controls_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test", "rust_library")
+load(":prepare_compiler.bzl", "prepare_compiler_sources")
+load(":bootstrap_inputs.bzl", "compiler_bootstrap_inputs")
+load("//tools/bazel/packaging:rules.bzl", "package_controls_test")
+package(default_visibility = ["//visibility:public"])
+exports_files(["split-compiler-sdk.py", "split-compiler-sdk-test.py", "qualify-compiler-worker.py","rules_rust-0.74.0.patch", "rustc-1.97.1-deterministic-worker-temporaries.patch", "compiler-patch.json"])
+filegroup(name = "verification_inputs", srcs = glob(["*.rs", "*.patch", "*.py", "*.json", "*.md", "*.bzl", "BUILD.bazel"], allow_empty = True))
+exports_files(["prepare-compiler.py", "bootstrap-inputs.py", "bootstrap-pins.json"])
+prepare_compiler_sources(
+    name = "prepared_compiler_sources",
+    archive = "@merkur_worker_compiler_source//file",
+    pins = "compiler-patch.json",
+    patch = "rustc-1.97.1-deterministic-worker-temporaries.patch",
+    git = "//tools/bazel/tools/native:git",
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:osx"],
+    exec_compatible_with = ["@platforms//os:osx"],
+)
+compiler_bootstrap_inputs(
+    name = "compiler_bootstrap_inputs",
+    sources = ":prepared_compiler_sources",
+    pins = "bootstrap-pins.json",
+    rustc = "@merkur_worker_stage0_rustc//file",
+    cargo = "@merkur_worker_stage0_cargo//file",
+    rust_std = "@merkur_worker_stage0_std//file",
+    llvm = "@merkur_worker_bootstrap_llvm//file",
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"],
+    exec_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"],
+)
+package_controls_test(
+    name = "bootstrap_inputs_test",
+    src = "bootstrap-inputs-test.py",
+    runner = "bootstrap-inputs.py",
+    data = ["bootstrap-pins.json", "compiler-patch.json"],
+    tags = ["manual"],
+)
+rust_binary(
+    name = "rustc_worker",
+    crate_root = "worker.rs",
+    srcs = ["worker.rs", "linux_policy.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:serde_core", "@crates_parser//:serde_json", "@crates_parser//:sha2", "@crates_parser//:libc"],
+)
+rust_binary(
+    name = "confiner",
+    crate_root = "confiner.rs",
+    srcs = ["confiner.rs", "linux_policy.rs", "linux_confinement.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:serde_core", "@crates_parser//:serde_json", "@crates_parser//:libc"],
+)
+rust_test(
+    name = "linux_policy_test",
+    crate_root = "linux_policy.rs",
+    srcs = ["linux_policy.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:serde_core", "@crates_parser//:serde_json"],
+    tags = ["manual"],
+)
+rust_test(
+    name = "linux_confinement_test",
+    crate_name = "linux_confinement_controls",
+    crate_root = "linux-confiner-controls.rs",
+    srcs = ["linux-confiner-controls.rs", "linux_policy.rs", "linux_confinement.rs"],
+    edition = "2024",
+    use_libtest_harness = False,
+    deps = ["@crates_parser//:serde_core", "@crates_parser//:serde_json", "@crates_parser//:libc"],
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
+    exec_compatible_with = ["@platforms//os:linux"],
+)
+rust_binary(
+    name = "process_scope",
+    crate_root = "process_scope.rs",
+    srcs = ["process_scope.rs"],
+    edition = "2024",
+    deps = ["@crates_parser//:libc"],
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
+    exec_compatible_with = ["@platforms//os:linux"],
+)
+package_controls_test(
+    name = "process_scope_test",
+    src = "process-scope-test.py",
+    runner = ":process_scope",
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
+    exec_compatible_with = ["@platforms//os:linux"],
+)
+rust_binary(name = "fixture_compiler", crate_root = "fixture_compiler.rs", srcs = ["fixture_compiler.rs"], edition = "2024", tags = ["manual"])
+rust_test(name = "worker_test", crate = ":rustc_worker", data = [":rustc_worker", ":confiner", ":fixture_compiler", "@rules_rust//util/process_wrapper"], rustc_env = {"MERKUR_WORKER": "$(rootpath :rustc_worker)", "MERKUR_CONFINER": "$(rootpath :confiner)", "MERKUR_FIXTURE_COMPILER": "$(rootpath :fixture_compiler)", "MERKUR_PROCESS_WRAPPER": "$(rootpath @rules_rust//util/process_wrapper)"}, tags = ["no-sandbox", "no-remote", "external", "no-cache"])
+rust_library(
+    name = "qualification",
+    crate_root = "qualification.rs",
+    srcs = ["qualification.rs"],
+    edition = "2024",
+    incremental_worker = ":rustc_worker",
+    incremental_confiner = ":confiner",
+    tags = ["manual"],
+)
+rust_test(
+    name = "qualification_test",
+    crate_root = "qualification_test.rs",
+    srcs = ["qualification_test.rs"],
+    deps = [":qualification"],
+    edition = "2024",
+    tags = ["manual"],
+)
+
+exports_files(["build-compiler.py", "build-compiler-test.py", "build_compiler.bzl"])
+
+load(":linux_typecheck.bzl", "linux_typecheck_controls_test", "linux_worker_typecheck")
+
+exports_files(["linux-typecheck.py"])
+linux_typecheck_controls_test(
+    name = "linux_typecheck_inputs_test",
+    archive = "@merkur_rules_rust_original//file",
+    patch = ":rules_rust-0.74.0.patch",
+    python = "//tools/bazel/tools/native:python3",
+    tags = ["manual"],
+)
+
+linux_worker_typecheck(
+    name = "linux_worker_metadata",
+    crate = ":rustc_worker",
+    compiler_archive = "@merkur_stock_rustc_darwin_arm64//file",
+    std_archive = select({
+        "@platforms//cpu:aarch64": "@merkur_stock_std_linux_arm64//file",
+        "@platforms//cpu:x86_64": "@merkur_stock_std_linux_x64//file",
+    }),
+    python = "//tools/bazel/tools/native:python3",
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
+    exec_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"],
+)
+
+linux_worker_typecheck(
+    name = "linux_confiner_metadata",
+    crate = ":confiner",
+    compiler_archive = "@merkur_stock_rustc_darwin_arm64//file",
+    std_archive = select({
+        "@platforms//cpu:aarch64": "@merkur_stock_std_linux_arm64//file",
+        "@platforms//cpu:x86_64": "@merkur_stock_std_linux_x64//file",
+    }),
+    python = "//tools/bazel/tools/native:python3",
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
+    exec_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"],
+)
+
+linux_worker_typecheck(
+    name = "linux_wrapper_metadata",
+    crate = "@rules_rust//util/process_wrapper:process_wrapper",
+    compiler_archive = "@merkur_stock_rustc_darwin_arm64//file",
+    std_archive = select({
+        "@platforms//cpu:aarch64": "@merkur_stock_std_linux_arm64//file",
+        "@platforms//cpu:x86_64": "@merkur_stock_std_linux_x64//file",
+    }),
+    python = "//tools/bazel/tools/native:python3",
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//os:linux"],
+    exec_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"],
+)
+
+stable_pipeline_controls_test(
+    name = "stable_pipeline_controls_test",
+    python = "//tools/bazel/tools/native:python",
+    tags = ["manual"],
+)
+
+exports_files(["pipeline_factory_test.py"])
+
+# Existing package_controls_test load is already present in worker BUILD.
+package_controls_test(
+    name = "pipeline_factory_test",
+    src = "pipeline_factory_test.py",
+    runner = "pipeline_controls.bzl",
+    tags = ["manual"],
+)

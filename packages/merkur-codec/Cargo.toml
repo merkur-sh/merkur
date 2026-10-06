@@ -1,0 +1,22 @@
+[package]
+name = "merkur-codec"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+merkur-graphics = { path = "../merkur-graphics" }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+alacritty_terminal = { version = "0.26.0", default-features = false }
+
+[dev-dependencies]
+criterion = "0.8"
+proptest = "1.11"
+
+[[bench]]
+name = "codec"
+harness = false
+
+[lints]
+workspace = true

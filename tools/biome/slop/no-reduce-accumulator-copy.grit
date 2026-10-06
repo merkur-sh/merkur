@@ -1,0 +1,235 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// Inside the callback of `.reduce`/`.reduceRight`, a call that copies the accumulator on every
+// step: `Object.assign({…}, …, acc)`, `Array.from(acc)`, or, when the reduction starts from a
+// known array, `acc.concat/slice/toSpliced/toSorted/toReversed/with(…)`. The accumulator may be
+// reached through one `const` alias. Spread copies (`[...acc, x]`, `{ ...acc }`) are another
+// rule's and are left alone, as is a copy made in a function nested inside the callback.
+//
+// What GritQL cannot see:
+//   - scope is rebuilt from syntax: the accumulator is the callback's first parameter unless a
+//     nearer `const`/`let`/`var`, parameter, `for` or `catch` binds the same name;
+//   - `Object` and `Array` count as the globals when the file binds neither name anywhere;
+//   - the initial value is a known array when it is an array literal or a `const` initialised
+//     with one (one step); an annotation or a method chain is not followed;
+//   - type wrappers (parentheses, `as`, `satisfies`, `!`) are followed two deep.
+
+pattern wrapped($inner) {
+  or {
+    JsParenthesizedExpression(expression=$inner),
+    TsAsExpression(expression=$inner),
+    TsSatisfiesExpression(expression=$inner),
+    TsNonNullAssertionExpression(expression=$inner),
+    TsTypeAssertionExpression(expression=$inner)
+  }
+}
+
+pattern bare($inner) {
+  or {
+    $inner,
+    wrapped($inner),
+    wrapped(inner=wrapped($inner))
+  }
+}
+
+// `object.method` or `object['method']`, for the methods this rule names.
+pattern member($object, $method) {
+  or {
+    JsStaticMemberExpression(object=$object, member=$method),
+    JsComputedMemberExpression(object=$object, member=JsStringLiteralExpression() as $quoted) where {
+      $quoted <: or {
+        r"['\"]reduce['\"]" where { $method = "reduce" },
+        r"['\"]reduceRight['\"]" where { $method = "reduceRight" },
+        r"['\"]assign['\"]" where { $method = "assign" },
+        r"['\"]from['\"]" where { $method = "from" },
+        r"['\"]concat['\"]" where { $method = "concat" },
+        r"['\"]slice['\"]" where { $method = "slice" },
+        r"['\"]toSpliced['\"]" where { $method = "toSpliced" },
+        r"['\"]toSorted['\"]" where { $method = "toSorted" },
+        r"['\"]toReversed['\"]" where { $method = "toReversed" },
+        r"['\"]with['\"]" where { $method = "with" }
+      }
+    }
+  }
+}
+
+pattern declaring($declaration) {
+  or {
+    JsVariableStatement(declaration=$declaration),
+    JsExport(export_clause=JsVariableDeclarationClause(declaration=$declaration))
+  }
+}
+
+pattern statements_with($statement) {
+  or {
+    JsFunctionBody(statements=some $statement),
+    JsBlockStatement(statements=some $statement),
+    JsModule(items=some $statement),
+    JsScript(statements=some $statement),
+    TsModuleBlock(items=some $statement),
+    JsCaseClause(consequent=some $statement),
+    JsDefaultClause(consequent=some $statement),
+    JsStaticInitializationBlockClassMember(statements=some $statement)
+  }
+}
+
+pattern binds($name) { contains JsIdentifierBinding() as $bound where { $bound <: $name } }
+
+pattern function_with($parameters) {
+  or {
+    JsArrowFunctionExpression(parameters=$parameters),
+    JsFunctionDeclaration(parameters=$parameters),
+    JsFunctionExpression(parameters=$parameters),
+    JsMethodClassMember(parameters=$parameters),
+    JsMethodObjectMember(parameters=$parameters),
+    JsConstructorClassMember(parameters=$parameters)
+  }
+}
+
+pattern scope_of($name) {
+  or {
+    function_with(parameters=binds($name)),
+    statements_with(statement=declaring(declaration=JsVariableDeclaration(declarators=some JsVariableDeclarator(id=binds($name))))),
+    JsForOfStatement(initializer=binds($name)),
+    JsForInStatement(initializer=binds($name)),
+    JsForStatement(initializer=binds($name)),
+    JsCatchClause(declaration=binds($name))
+  }
+}
+
+pattern is_const() {
+  JsVariableDeclaration() as $declaration where {
+    $around_keyword = split(string=$declaration, separator="const "),
+    $before_keyword = $around_keyword[0],
+    $before_keyword <: ""
+  }
+}
+
+pattern function_boundary() {
+  or {
+    JsArrowFunctionExpression(),
+    JsFunctionExpression(),
+    JsFunctionDeclaration(),
+    JsFunctionExportDefaultDeclaration(),
+    JsMethodClassMember(),
+    JsMethodObjectMember(),
+    JsConstructorClassMember(),
+    JsGetterClassMember(),
+    JsSetterClassMember(),
+    JsGetterObjectMember(),
+    JsSetterObjectMember()
+  }
+}
+
+// A reference to the accumulator `$accumulator` of `$callback`, not shadowed on the way.
+pattern accumulator_itself($accumulator, $callback) {
+  JsIdentifierExpression(name=$accumulator) as $reference where {
+    $reference <: within scope_of(name=$accumulator) as $owner ,
+    $owner <: $callback
+  }
+}
+
+// The accumulator, directly or through one `const` alias of it.
+pattern accumulator_reference($accumulator, $callback) {
+  bare(inner=or {
+    accumulator_itself($accumulator, $callback),
+    JsIdentifierExpression(name=$alias) as $aliased where {
+      $aliased <: within scope_of(name=$alias) as $alias_scope ,
+      $alias_scope <: statements_with(statement=declaring(declaration=and { JsVariableDeclaration(declarators=some JsVariableDeclarator(id=$alias, initializer=JsInitializerClause(expression=bare(inner=accumulator_itself($accumulator, $callback))))),
+      is_const() }))
+    }
+  })
+}
+
+pattern known_array() {
+  bare(inner=or {
+    JsArrayExpression(),
+    JsIdentifierExpression(name=$initial_name) as $initial_reference where {
+      $initial_reference <: within scope_of(name=$initial_name) as $initial_scope ,
+      $initial_scope <: statements_with(statement=declaring(declaration=and { JsVariableDeclaration(declarators=some JsVariableDeclarator(id=$initial_name, initializer=JsInitializerClause(expression=bare(inner=JsArrayExpression())))),
+      is_const() }))
+    }
+  })
+}
+
+JsCallExpression(callee=$callee, arguments=JsCallArguments(args=$arguments)) as $copy where {
+  // A cheap test first: this runs on every call in the tree, and a pattern call costs far more
+  // than a node test.
+  $callee <: or {
+    JsStaticMemberExpression(member=or {
+      "assign",
+      "from",
+      "concat",
+      "slice",
+      "toSpliced",
+      "toSorted",
+      "toReversed",
+      "with"
+    }),
+    JsComputedMemberExpression(member=JsStringLiteralExpression()),
+    JsParenthesizedExpression(),
+    TsAsExpression(),
+    TsSatisfiesExpression(),
+    TsNonNullAssertionExpression(),
+    TsTypeAssertionExpression()
+  },
+  $callee <: bare(inner=member($object, $method)),
+  $method <: or {
+    "assign",
+    "from",
+    "concat",
+    "slice",
+    "toSpliced",
+    "toSorted",
+    "toReversed",
+    "with"
+  },
+  $copy <: within function_boundary() as $callback ,
+  $callback <: or {
+    JsArrowFunctionExpression(parameters=$parameters),
+    JsFunctionExpression(parameters=$parameters)
+  },
+  $parameters <: or {
+    JsIdentifierBinding() as $accumulator,
+    JsParameters(items=[JsFormalParameter(binding=JsIdentifierBinding() as $accumulator), ...])
+  },
+  $callback <: within JsCallExpression(callee=bare(inner=member(object=$_, method=$reducing)), arguments=JsCallArguments(args=$reducer_arguments)) where {
+    $reducing <: or {
+      "reduce",
+      "reduceRight"
+    },
+    $reducer_arguments <: or {
+      [bare(inner=$callback)],
+      [bare(inner=$callback), $initial]
+    }
+  } ,
+  or {
+    and {
+      $method <: "assign",
+      $object <: bare(inner= JsIdentifierExpression() as $global where { $global <: "Object" }),
+      ! $program <: contains JsIdentifierBinding() as $own where { $own <: "Object" },
+      $arguments <: [bare(inner=JsObjectExpression()), ...],
+      $arguments <: some accumulator_reference($accumulator, $callback)
+    },
+    and {
+      $method <: "from",
+      $object <: bare(inner= JsIdentifierExpression() as $global where { $global <: "Array" }),
+      ! $program <: contains JsIdentifierBinding() as $own where { $own <: "Array" },
+      $arguments <: [accumulator_reference($accumulator, $callback), ...]
+    },
+    and {
+      $method <: or {
+        "concat",
+        "slice",
+        "toSpliced",
+        "toSorted",
+        "toReversed",
+        "with"
+      },
+      $initial <: known_array(),
+      $object <: accumulator_reference($accumulator, $callback)
+    }
+  },
+  register_diagnostic(span=$copy, message="[no-reduce-accumulator-copy] This copies the accumulator on every step, so the reduction does quadratic work as it grows. Change a fresh accumulator in place and return it, or use an iterator pipeline or `flatMap`.", severity="error")
+}

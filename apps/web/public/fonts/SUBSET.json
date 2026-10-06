@@ -1,0 +1,113 @@
+{
+  "$comment": [
+    "Provenance for the terminal font binaries in this directory. None of them are",
+    "the upstream files. The four full faces had dead tables dropped with no change",
+    "to coverage; Boot is additionally reduced to the glyphs first paint needs, and",
+    "is replaced by Regular once the terminal has painted. Reversible by re-running",
+    "each face's argv against upstream. There is deliberately no generator script -",
+    "see the note at the end."
+  ],
+  "upstream": {
+    "family": "JetBrains Mono Nerd Font",
+    "version": "Version 2.304; Nerd Fonts 3.5.1",
+    "copyright": "Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)",
+    "license": "SIL Open Font License, Version 1.1",
+    "licenseUrl": "https://scripts.sil.org/OFL"
+  },
+  "tool": "hb-subset (HarfBuzz) 14.2.1",
+  "sharedArgv": [
+    "--no-hinting",
+    "--layout-features=",
+    "--drop-tables+=PfEd",
+    "--name-IDs+=7,8,9,13,14"
+  ],
+  "sharedArgvNotes": {
+    "--name-IDs+=7,8,9,13,14": "Retains trademark, manufacturer, designer and the OFL license description and URL, which OFL redistribution requires.",
+    "omitted:--glyph-names": "Would retain the 222 KB PostScript `post` names that fontdue never reads.",
+    "omitted:--retain-gids": "Would block the glyph-id renumbering that prunes substitution-only outlines."
+  },
+  "invariants": {
+    "unitsPerEm": 1000,
+    "hheaAscent": 1020,
+    "hheaDescent": -300,
+    "hheaLineGap": 0,
+    "advanceWidthM": 600,
+    "$comment": "Global on purpose: identical across EVERY face including Boot. Cell size is derived from the 'M' advance and ascent-descent in packages/term-wasm/src/lib.rs::apply_cell_metrics_to_atlas, so a Boot face whose metrics differed would reflow the grid the moment promotion swapped it in - a PTY resize and a visible jump. Pinned by tests in packages/term-wasm/src/atlas.rs."
+  },
+  "faces": [
+    {
+      "file": "JetBrainsMonoNF-Boot.ttf",
+      "role": "blocking",
+      "unicodes": [
+        "--unicodes=*",
+        "--unicodes-=E000-F8FF",
+        "--unicodes-=F0000-FFFFD",
+        "--unicodes+=E0A0-E0A3,E0B0-E0D7"
+      ],
+      "unicodesNote": "Everything non-private-use, plus Powerline. No other icons, deliberately: measured against a real starship prompt, partial icon tiers do not close the gap. That prompt draws 41 non-ASCII codepoints spread across FA-Ext, Devicons, Font Logos, Octicons and Material Design, so covering it needs 1,025,076 brotli bytes - the whole regular face. An intermediate tier costs 3x the bytes for a third of the coverage and still shows gaps, so the boot face optimises for being small and fast instead, and the eagerly prefetched regular face closes the gap. Powerline stays because those separators are background-coloured wedges whose absence reads as rendering corruption rather than a missing glyph. Coverage must stay a subset of Regular, or promotion would lose glyphs.",
+      "upstreamSha256": "1c680e8cde9fcf8b88a5605ce8d1fb94dd3fb15841f7ca7bf4c55664855e5611",
+      "sha256": "d56d1b4a315bf6eb6554d5b27b1684ab083c47b557c99e77ae7bd9f35afdb3f7",
+      "bytes": 129160,
+      "glyphs": 1689,
+      "mappedCodepoints": 1656
+    },
+    {
+      "file": "JetBrainsMonoNF-Regular.ttf",
+      "role": "promotion",
+      "unicodes": ["--unicodes=*"],
+      "upstreamSha256": "1c680e8cde9fcf8b88a5605ce8d1fb94dd3fb15841f7ca7bf4c55664855e5611",
+      "sha256": "341b73de8799b91f6d19c35457bb21150966263220ac37bfcd466ac0fc4642d3",
+      "upstreamBytes": 2571596,
+      "bytes": 2157320,
+      "upstreamGlyphs": 12608,
+      "glyphs": 12259,
+      "mappedCodepoints": 12226
+    },
+    {
+      "file": "JetBrainsMonoNF-Bold.ttf",
+      "role": "promotion",
+      "unicodes": ["--unicodes=*"],
+      "upstreamSha256": "e490660ad75e0b152c93b1604c2ea1a4ea675f1b8a3fe0d005b1998568f99f1f",
+      "sha256": "01dfaf29b7c60d0f85f90d196091815edcb760c547d3635822c2c0dc93d9acd3",
+      "upstreamBytes": 2575364,
+      "bytes": 2157176,
+      "upstreamGlyphs": 12608,
+      "glyphs": 12259,
+      "mappedCodepoints": 12226
+    },
+    {
+      "file": "JetBrainsMonoNF-Italic.ttf",
+      "role": "promotion",
+      "unicodes": ["--unicodes=*"],
+      "upstreamSha256": "71d5466cc3ab31bee38b4e2c5cc99c2b41a749c4973ed4579b814ec992b0738e",
+      "sha256": "768eb6916869c6b7749933583cb20f0de97ee7b864bbf2f675b8742a702144f3",
+      "upstreamBytes": 2573684,
+      "bytes": 2160948,
+      "upstreamGlyphs": 12595,
+      "glyphs": 12259,
+      "mappedCodepoints": 12226
+    },
+    {
+      "file": "JetBrainsMonoNF-BoldItalic.ttf",
+      "role": "promotion",
+      "unicodes": ["--unicodes=*"],
+      "upstreamSha256": "19a2e3af8ccf99954941ea07e0a29df27574500f12016d86d6c4c059b825ffe1",
+      "sha256": "d881cacbb8919f55480f4c5742b6edbb3daf42edd309ccce0013ef0ffe275911",
+      "upstreamBytes": 2576592,
+      "bytes": 2160848,
+      "upstreamGlyphs": 12595,
+      "glyphs": 12259,
+      "mappedCodepoints": 12226
+    }
+  ],
+  "regenerating": [
+    "hb-subset is a Homebrew binary, not a bun dependency, and this runs about once",
+    "per upstream font bump. A committed generator script would pin a tool this repo",
+    "cannot install and would be the only script whose output must be committed, so",
+    "the commands above are documented rather than automated. Run sharedArgv plus the",
+    "face's own `unicodes` for each file. After regenerating, update",
+    "TERMINAL_FONT_ASSET_VERSION in apps/web/src/terminal/fonts.ts to",
+    "sha256(Boot || Regular || Bold || Italic || BoldItalic) truncated to 12 hex",
+    "chars, in that order; apps/web/src/terminal/fonts.test.ts fails until it matches."
+  ]
+}

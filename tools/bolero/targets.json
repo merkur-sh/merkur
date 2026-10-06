@@ -1,0 +1,44 @@
+[
+  {
+    "crate": "merkur-wire",
+    "source": "wire.rs",
+    "tests": ["fuzz_wire"],
+    "maxLength": 4096,
+    "proofs": ["proof_proto_frame", "proof_data_handshake"]
+  },
+  {
+    "crate": "merkur-stun-protocol",
+    "source": "stun.rs",
+    "tests": ["fuzz_stun"],
+    "maxLength": 4096
+  },
+  {
+    "crate": "merkur-codec",
+    "source": "codec.rs",
+    "tests": [],
+    "maxLength": 4096,
+    "proofs": ["proof_frame_header"]
+  },
+  {
+    "crate": "merkur-client",
+    "source": "client.rs",
+    "tests": [],
+    "maxLength": 4096,
+    "proofs": ["proof_input_mapping", "proof_input_serial_order"]
+  },
+  {
+    "crate": "merkur-e2e",
+    "tests": [],
+    "maxLength": 4096,
+    "proofs": ["proof_rebind_keeper_chain"]
+  },
+  {
+    "crate": "term-wasm",
+    "tests": [
+      "tests::fuzz::fuzz_display_ingress",
+      "tests::fuzz::fuzz_display_zstd",
+      "tests::fuzz::fuzz_display_roundtrip"
+    ],
+    "maxLength": 4096
+  }
+]

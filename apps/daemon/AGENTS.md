@@ -1,0 +1,1 @@
+Rules for this tree (read before editing): ../../.claude/rules/effect.md, ../../.claude/rules/ipc.md, ../../.claude/rules/speculative-echo.md, ../../.claude/rules/daemon-identity.md. Docs: docs/processes.md, docs/security.md.

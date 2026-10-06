@@ -1,0 +1,71 @@
+# IPv6 vantage addresses for merkur-stun, made to survive a reboot.
+#
+# # Why this is a unit and not a line in provision-host.sh
+#
+# The addresses were originally added with `ip -6 addr add` from the
+# provisioning script. That is runtime state: it survives a re-run of the
+# script and does not survive a reboot. On the production box host they were
+# silently gone after the 2026-08-10 boot, which left `MERKUR_STUN_BIND`
+# naming two addresses that no longer existed and made
+# `probe_ipv6_reachability` answer `Unknown` for every daemon on the host —
+# the one measurement that decides whether a filtered `host6` candidate is
+# worth a PCP v6 pinhole.
+#
+# "Idempotent" and "persistent" are different properties, and the script only
+# ever had the first.
+#
+# # Why a unit rather than an interfaces.d snippet or a .network file
+#
+# The host runs ifupdown (`/etc/network/interfaces.d/50-cloud-init`), and
+# systemd-networkd is disabled and inactive, so a `.network` file would be
+# read by nothing. An ifupdown snippet would work but only until the host is
+# rebuilt on an image that manages the network differently, and cloud-init
+# owns the file eth0's stanza lives in. A oneshot ordered after
+# `network-online.target` is correct under every one of those.
+#
+# It is also what makes the addresses *assertable*: `systemctl is-enabled
+# merkur-stun-addrs` is a question with an answer, which is what
+# a box host's reachability and precondition checks ask.
+#
+# # Install
+#
+# `provision-host.sh` installs and enables this. By hand:
+#
+#   install -m 0644 merkur-stun-addrs.service /etc/systemd/system/
+#   systemctl enable --now merkur-stun-addrs
+#
+# The addresses themselves come from /etc/merkur-stun.env, which
+# provision-host.sh derives from the host's routed /64.
+
+[Unit]
+Description=Merkur IPv6 STUN vantage addresses
+Documentation=https://github.com/merkur-sh/merkur
+After=network-online.target
+Wants=network-online.target
+# The responder binds these addresses, so it must not start before they exist.
+# `Before=` rather than the responder's `After=`, so the ordering holds even if
+# someone starts the responder directly.
+Before=merkur-stun.service
+
+[Service]
+Type=oneshot
+# The addresses are the unit's whole product; without this systemd would
+# consider the unit inactive the moment `ip` exits and re-run it on every
+# dependency activation.
+RemainAfterExit=yes
+EnvironmentFile=/etc/merkur-stun.env
+
+# `replace` rather than `add`: adding an address that is already present exits
+# non-zero, which would make a re-run of an enabled unit a failure rather than
+# a no-op. Each ${VAR} is substituted as a single argument, so no shell is
+# involved and the values need no quoting.
+ExecStart=/usr/sbin/ip -6 addr replace ${MERKUR_STUN_ADDR_A} dev ${MERKUR_STUN_IFACE}
+ExecStart=/usr/sbin/ip -6 addr replace ${MERKUR_STUN_ADDR_B} dev ${MERKUR_STUN_IFACE}
+
+# Deliberately no ExecStop. These addresses are host network identity that the
+# host's firewall rules name; tearing them down because a
+# unit was restarted would take the responder's vantage points away from it
+# mid-probe.
+
+[Install]
+WantedBy=multi-user.target

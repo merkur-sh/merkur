@@ -1,0 +1,31 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// `{ ...(present ? { field } : {}) }`: a spread inside an object literal whose operand, through
+// parentheses, is a conditional with an empty object literal on either branch.
+
+pattern through_parens($inner) {
+  or {
+    $inner,
+    JsParenthesizedExpression(expression=$inner),
+    JsParenthesizedExpression(expression=JsParenthesizedExpression(expression=$inner))
+  }
+}
+
+pattern empty_object() {
+  through_parens(inner= JsObjectExpression() as $object where { $object <: r"\{\s*\}" })
+}
+
+JsSpread(argument=$argument) as $spread where {
+  $argument <: through_parens(inner=or {
+    JsConditionalExpression(consequent=empty_object()),
+    JsConditionalExpression(alternate=empty_object())
+  }),
+  $spread <: within or {
+    JsObjectExpression(),
+    JsArrayExpression(),
+    JsCallArguments()
+  } as $holder ,
+  $holder <: JsObjectExpression(),
+  register_diagnostic(span=$spread, message="[no-conditional-empty-object-spread] Spreading an empty object to leave a field out hides the omission. Build the object first, then assign the field in an `if` when it is present.", severity="error")
+}

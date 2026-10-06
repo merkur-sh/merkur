@@ -1,0 +1,9 @@
+[package]
+name = "merkur-acquisition-archive-control"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+itoa = "=1.0.18"

@@ -1,0 +1,87 @@
+name: Dependency audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: dependency-audit-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      # Both audits read lockfiles; do not execute dependency installation scripts.
+      - name: Cache pinned cargo-audit executable
+        id: cargo-audit
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          # package.json owns the setup:audit version pin.
+          key: cargo-audit-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package.json', 'rust-toolchain.toml') }}
+      - if: steps.cargo-audit.outputs.cache-hit != 'true'
+        run: bun run setup:audit
+      - run: bun run check:audit
+      - name: Cache pinned cargo-shear executable
+        id: cargo-shear
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-shear
+          # package.json owns the setup:shear version pin.
+          key: cargo-shear-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package.json', 'rust-toolchain.toml') }}
+      - if: steps.cargo-shear.outputs.cache-hit != 'true'
+        run: bun run setup:shear
+      - run: bun run rust:deps
+      - name: Cache locked registry sources
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+          key: assurance-registry-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'tools/ownership-proofs/Cargo.lock', 'tools/edge-kernel-profile/Cargo.lock', 'tools/bolero/Cargo.lock') }}
+      - name: Cache pinned dependency policy executables
+        id: dependency-policy
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/bin/cargo-vet
+          key: dependency-policy-deny-0.20.2-vet-0.10.2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'package.json') }}
+      - if: steps.dependency-policy.outputs.cache-hit != 'true'
+        name: Install pinned dependency policy tools
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/assurance/policy-install
+        run: bun run setup:dependency-policy
+      - name: Enforce production and diagnostic dependency policies
+        run: |
+          mkdir -p test-results/assurance/dependency-policy
+          bun run check:dependency-policy 2>&1 | tee test-results/assurance/dependency-policy/production.log
+          cargo deny --locked --manifest-path tools/ownership-proofs/Cargo.toml --config deny.toml check bans licenses sources 2>&1 | tee test-results/assurance/dependency-policy/ownership.log
+          cargo deny --locked --manifest-path tools/edge-kernel-profile/Cargo.toml --config deny.toml check bans licenses sources 2>&1 | tee test-results/assurance/dependency-policy/kernel-profile.log
+          bun run scripts/fuzz-tests.ts policy 2>&1 | tee test-results/assurance/dependency-policy/bolero.log
+      - name: Verify nine offline dependency policy controls
+        run: python3 scripts/dependency-policy.test.py 2>&1 | tee test-results/assurance/dependency-policy/controls.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: dependency-policy-results-${{ github.run_id }}
+          path: test-results/assurance/dependency-policy/
+          retention-days: 7

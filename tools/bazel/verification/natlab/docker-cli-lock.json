@@ -1,0 +1,21 @@
+{
+  "version": "29.8.2",
+  "platforms": {
+    "x86_64": {
+      "url": "https://download.docker.com/linux/static/stable/x86_64/docker-29.8.2.tgz",
+      "sha256": "995d1ef289677f74fd58d8d2c35727b6a4ee389c69db8638a3e42d0487aa5b0f",
+      "size": 85591344,
+      "binary_sha256": "6f7a95d27f98fc8c5f6b220898988bf8f61dd9b040936797917cbdc72c6cabe6"
+    },
+    "aarch64": {
+      "url": "https://download.docker.com/linux/static/stable/aarch64/docker-29.8.2.tgz",
+      "sha256": "76a624e4a8e5da654d1150e808175125efb5a6f1b6aa1cbd9caee18f51047a50",
+      "size": 77262121,
+      "binary_sha256": "37a53fed3445028a49443fd6f9338ccedeeeda9776de5d7fd4d7e7c936b789cc"
+    }
+  },
+  "license": {
+    "url": "https://raw.githubusercontent.com/docker/cli/v29.8.2/LICENSE",
+    "sha256": "2d81ea060825006fc8f3fe28aa5dc0ffeb80faf325b612c955229157b8c10dc0"
+  }
+}

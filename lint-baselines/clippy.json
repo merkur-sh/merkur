@@ -1,0 +1,1091 @@
+{
+  "host": "aarch64-apple-darwin",
+  "files": {
+    "apps/daemon/dataplane/benches/fec.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "apps/daemon/dataplane/benches/zstd.rs": {
+      "clippy::cast_possible_truncation": 5
+    },
+    "apps/daemon/dataplane/src/assets.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::let_underscore_must_use": 3,
+      "clippy::map_err_ignore": 14
+    },
+    "apps/daemon/dataplane/src/assets/replies.rs": {
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/daemon/dataplane/src/assets/tests.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::let_underscore_must_use": 3
+    },
+    "apps/daemon/dataplane/src/auth.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::map_err_ignore": 33,
+      "clippy::too_many_lines": 2
+    },
+    "apps/daemon/dataplane/src/connection.rs": {
+      "clippy::cast_possible_truncation": 12,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::cast_sign_loss": 2,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/display/compressor.rs": {
+      "clippy::cast_possible_truncation": 15,
+      "clippy::map_err_ignore": 4
+    },
+    "apps/daemon/dataplane/src/display/credit_loop.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_sign_loss": 2
+    },
+    "apps/daemon/dataplane/src/display/cursor_lab.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::let_underscore_must_use": 7
+    },
+    "apps/daemon/dataplane/src/display/encoder.rs": {
+      "clippy::cast_possible_truncation": 8,
+      "clippy::map_err_ignore": 3,
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/display/fec.rs": {
+      "clippy::cast_possible_truncation": 4
+    },
+    "apps/daemon/dataplane/src/display/fec/profile.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "apps/daemon/dataplane/src/display/graphics_convergence.rs": {
+      "clippy::cast_possible_truncation": 23,
+      "clippy::cast_possible_wrap": 2,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/display/planner.rs": {
+      "clippy::cast_possible_truncation": 35,
+      "clippy::cast_possible_wrap": 7,
+      "clippy::cast_sign_loss": 4,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/display/planner/profile.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/display/recv.rs": {
+      "clippy::cast_possible_truncation": 11,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/display/send.rs": {
+      "clippy::cast_possible_truncation": 35,
+      "clippy::cast_sign_loss": 5,
+      "clippy::too_many_lines": 8
+    },
+    "apps/daemon/dataplane/src/display/send/tests.rs": {
+      "clippy::cast_possible_truncation": 71,
+      "clippy::cast_sign_loss": 14,
+      "clippy::too_many_lines": 28
+    },
+    "apps/daemon/dataplane/src/display/sim.rs": {
+      "clippy::cast_possible_truncation": 5
+    },
+    "apps/daemon/dataplane/src/display/viewer.rs": {
+      "clippy::cast_possible_truncation": 16,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 2
+    },
+    "apps/daemon/dataplane/src/display/viewer/closure_tests.rs": {
+      "clippy::cast_possible_truncation": 4
+    },
+    "apps/daemon/dataplane/src/display/wire/profile.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "apps/daemon/dataplane/src/edge_candidate.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 6
+    },
+    "apps/daemon/dataplane/src/edge_tunnel.rs": {
+      "clippy::cast_possible_truncation": 12,
+      "clippy::cast_sign_loss": 3,
+      "clippy::let_underscore_must_use": 5,
+      "clippy::map_err_ignore": 8,
+      "clippy::too_many_lines": 2
+    },
+    "apps/daemon/dataplane/src/edge_tunnel_congestion_tests.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/geometry.rs": {
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/daemon/dataplane/src/identity_cli.rs": {
+      "clippy::map_err_ignore": 3
+    },
+    "apps/daemon/dataplane/src/identity_signer.rs": {
+      "clippy::let_underscore_must_use": 2,
+      "clippy::map_err_ignore": 2,
+      "clippy::unwrap_in_result": 2
+    },
+    "apps/daemon/dataplane/src/input.rs": {
+      "clippy::unwrap_in_result": 2
+    },
+    "apps/daemon/dataplane/src/ipc/events.rs": {
+      "clippy::let_underscore_must_use": 4,
+      "clippy::unwrap_in_result": 2
+    },
+    "apps/daemon/dataplane/src/ipc/mod.rs": {
+      "clippy::map_err_ignore": 1
+    },
+    "apps/daemon/dataplane/src/lib.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::let_underscore_must_use": 11,
+      "clippy::map_err_ignore": 4,
+      "clippy::too_many_lines": 10
+    },
+    "apps/daemon/dataplane/src/main_tests/data_handshake_tests.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/main_tests/e2e_dispatch_tests.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::too_many_lines": 3,
+      "clippy::unwrap_in_result": 1
+    },
+    "apps/daemon/dataplane/src/main_tests/start_session_edge_config_tests.rs": {
+      "clippy::too_many_lines": 4
+    },
+    "apps/daemon/dataplane/src/network/daemon_io_profile.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/network/path_watch.rs": {
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/daemon/dataplane/src/network/peer.rs": {
+      "clippy::cast_possible_truncation": 7,
+      "clippy::cast_sign_loss": 1
+    },
+    "apps/daemon/dataplane/src/perf_timing.rs": {
+      "clippy::cast_possible_truncation": 22,
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/daemon/dataplane/src/perf_trace.rs": {
+      "clippy::cast_possible_truncation": 6
+    },
+    "apps/daemon/dataplane/src/pty/dimensions.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "apps/daemon/dataplane/src/pty/input_encoder.rs": {
+      "clippy::cast_possible_truncation": 3
+    },
+    "apps/daemon/dataplane/src/pty/input_encoder_tests.rs": {
+      "clippy::cast_sign_loss": 1
+    },
+    "apps/daemon/dataplane/src/pty/mod.rs": {
+      "clippy::let_underscore_must_use": 3,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/pty/open_url.rs": {
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/daemon/dataplane/src/pty/redraw_probe.rs": {
+      "clippy::let_underscore_must_use": 3,
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/pty/terminal.rs": {
+      "clippy::cast_possible_truncation": 11,
+      "clippy::cast_possible_wrap": 3,
+      "clippy::cast_sign_loss": 1,
+      "clippy::let_underscore_must_use": 2
+    },
+    "apps/daemon/dataplane/src/pty/terminal/graphics.rs": {
+      "clippy::cast_possible_truncation": 13,
+      "clippy::cast_possible_wrap": 6,
+      "clippy::let_underscore_must_use": 2,
+      "clippy::too_many_lines": 5
+    },
+    "apps/daemon/dataplane/src/pty/terminal/graphics/animation.rs": {
+      "clippy::let_underscore_must_use": 2
+    },
+    "apps/daemon/dataplane/src/pty/terminal/graphics/native.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 5,
+      "clippy::map_err_ignore": 2
+    },
+    "apps/daemon/dataplane/src/pty/terminal/graphics/native/tests.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "apps/daemon/dataplane/src/pty/terminal/graphics/placeholders.rs": {
+      "clippy::cast_possible_truncation": 5,
+      "clippy::cast_possible_wrap": 2,
+      "clippy::too_many_lines": 2,
+      "clippy::unwrap_in_result": 3
+    },
+    "apps/daemon/dataplane/src/pty/terminal/graphics/projector.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/pty/terminal/graphics/visibility.rs": {
+      "clippy::cast_possible_truncation": 6
+    },
+    "apps/daemon/dataplane/src/pty/writer.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::unwrap_in_result": 4
+    },
+    "apps/daemon/dataplane/src/session/auth_flow.rs": {
+      "clippy::cast_possible_truncation": 5,
+      "clippy::cast_sign_loss": 1,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::too_many_lines": 6
+    },
+    "apps/daemon/dataplane/src/session/liveness.rs": {
+      "clippy::cast_possible_truncation": 8,
+      "clippy::cast_sign_loss": 2,
+      "clippy::let_underscore_must_use": 2,
+      "clippy::too_many_lines": 2
+    },
+    "apps/daemon/dataplane/src/session/rebind_flow.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::too_many_lines": 3
+    },
+    "apps/daemon/dataplane/src/session/renewal_flow.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/session/resume.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/session/wt_upgrade_flow.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/telemetry.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_sign_loss": 2
+    },
+    "apps/daemon/dataplane/src/webtransport/discovery_socket.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 1
+    },
+    "apps/daemon/dataplane/src/webtransport/mod.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1,
+      "clippy::let_underscore_must_use": 6,
+      "clippy::map_err_ignore": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/webtransport/portmap/fixture_tests.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 2
+    },
+    "apps/daemon/dataplane/src/webtransport/portmap/mod.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 8,
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/webtransport/portmap/natpmp.rs": {
+      "clippy::map_err_ignore": 2
+    },
+    "apps/daemon/dataplane/src/webtransport/portmap/pcp.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 4
+    },
+    "apps/daemon/dataplane/src/webtransport/portmap/upnp.rs": {
+      "clippy::cast_possible_truncation": 6,
+      "clippy::let_underscore_must_use": 15
+    },
+    "apps/daemon/dataplane/src/webtransport/side_channel.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "apps/daemon/dataplane/src/webtransport/stun.rs": {
+      "clippy::map_err_ignore": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/daemon/dataplane/src/webtransport/traversal.rs": {
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/edge/src/attach_ticket.rs": {
+      "clippy::indexing_slicing": 5,
+      "clippy::map_err_ignore": 5,
+      "clippy::string_slice": 1
+    },
+    "apps/edge/src/bin/bulk_competitor.rs": {
+      "clippy::expect_used": 8,
+      "clippy::panic": 3
+    },
+    "apps/edge/src/bin/delay_proxy.rs": {
+      "clippy::cast_possible_truncation": 7,
+      "clippy::expect_used": 30,
+      "clippy::indexing_slicing": 32,
+      "clippy::let_underscore_must_use": 24,
+      "clippy::panic": 9,
+      "clippy::too_many_lines": 4,
+      "clippy::unwrap_in_result": 1
+    },
+    "apps/edge/src/bin/delay_proxy/link.rs": {
+      "clippy::expect_used": 16,
+      "clippy::indexing_slicing": 14,
+      "clippy::map_err_ignore": 1
+    },
+    "apps/edge/src/bin/hol_probe.rs": {
+      "clippy::cast_possible_truncation": 6,
+      "clippy::cast_sign_loss": 1,
+      "clippy::expect_used": 21,
+      "clippy::indexing_slicing": 4,
+      "clippy::let_underscore_must_use": 3,
+      "clippy::map_err_ignore": 3,
+      "clippy::too_many_lines": 2
+    },
+    "apps/edge/src/bin/migration_probe.rs": {
+      "clippy::expect_used": 2,
+      "clippy::indexing_slicing": 5,
+      "clippy::let_underscore_must_use": 4
+    },
+    "apps/edge/src/bin/probe.rs": {
+      "clippy::expect_used": 14,
+      "clippy::indexing_slicing": 2,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/edge/src/cert.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::map_err_ignore": 1
+    },
+    "apps/edge/src/egress_budget.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::indexing_slicing": 6,
+      "clippy::string_slice": 1
+    },
+    "apps/edge/src/endpoint_secret.rs": {
+      "clippy::indexing_slicing": 1,
+      "clippy::map_err_ignore": 2
+    },
+    "apps/edge/src/lib.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/edge/src/profile_support.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1,
+      "clippy::expect_used": 3,
+      "clippy::indexing_slicing": 1
+    },
+    "apps/edge/src/register.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::expect_used": 1,
+      "clippy::indexing_slicing": 2,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 3
+    },
+    "apps/edge/src/register_profile.rs": {
+      "clippy::expect_used": 1
+    },
+    "apps/edge/src/relay.rs": {
+      "clippy::cast_possible_truncation": 14,
+      "clippy::expect_used": 3,
+      "clippy::indexing_slicing": 3,
+      "clippy::let_underscore_must_use": 10,
+      "clippy::map_err_ignore": 19,
+      "clippy::too_many_lines": 4
+    },
+    "apps/edge/src/relay_budget_tests.rs": {
+      "clippy::cast_possible_truncation": 3
+    },
+    "apps/edge/src/relay_candidate.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 16,
+      "clippy::too_many_lines": 1
+    },
+    "apps/edge/src/relay_finite.rs": {
+      "clippy::expect_used": 1,
+      "clippy::indexing_slicing": 2,
+      "clippy::let_underscore_must_use": 2,
+      "clippy::too_many_lines": 1
+    },
+    "apps/edge/src/relay_finite_tests.rs": {
+      "clippy::cast_possible_truncation": 13,
+      "clippy::cast_sign_loss": 8
+    },
+    "apps/edge/src/relay_forward_profile.rs": {
+      "clippy::cast_possible_truncation": 4
+    },
+    "apps/edge/src/relay_liveness_tests.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 1,
+      "clippy::let_underscore_must_use": 2
+    },
+    "apps/edge/src/relay_ownership_tests.rs": {
+      "clippy::cast_possible_truncation": 5,
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/edge/src/relay_record.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::indexing_slicing": 4
+    },
+    "apps/edge/src/relay_record_profile.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::expect_used": 3,
+      "clippy::indexing_slicing": 1
+    },
+    "apps/edge/src/splice.rs": {
+      "clippy::cast_possible_truncation": 10,
+      "clippy::cast_possible_wrap": 2,
+      "clippy::expect_used": 1,
+      "clippy::indexing_slicing": 2,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 2
+    },
+    "apps/edge/src/telemetry.rs": {
+      "clippy::let_underscore_must_use": 3,
+      "clippy::too_many_lines": 1
+    },
+    "apps/edge/src/telemetry_profile.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/stun/src/main.rs": {
+      "clippy::cast_possible_truncation": 6,
+      "clippy::expect_used": 1,
+      "clippy::indexing_slicing": 2,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 4
+    },
+    "apps/stun/src/packet_profile.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 4,
+      "clippy::expect_used": 10,
+      "clippy::indexing_slicing": 3,
+      "clippy::too_many_lines": 1
+    },
+    "apps/stun/src/ticket.rs": {
+      "clippy::indexing_slicing": 5,
+      "clippy::map_err_ignore": 1
+    },
+    "apps/tui/src/account_store.rs": {
+      "clippy::map_err_ignore": 20
+    },
+    "apps/tui/src/chrome.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 1
+    },
+    "apps/tui/src/composer.rs": {
+      "clippy::cast_possible_truncation": 3
+    },
+    "apps/tui/src/composer/tests.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "apps/tui/src/graphics.rs": {
+      "clippy::cast_possible_truncation": 12,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::cast_sign_loss": 11,
+      "clippy::map_err_ignore": 1,
+      "clippy::unwrap_in_result": 2
+    },
+    "apps/tui/src/graphics/tests.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "apps/tui/src/graphics/worker.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 1
+    },
+    "apps/tui/src/headless_input.rs": {
+      "clippy::let_underscore_must_use": 1
+    },
+    "apps/tui/src/host.rs": {
+      "clippy::let_underscore_must_use": 5
+    },
+    "apps/tui/src/host/tests.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::too_many_lines": 1
+    },
+    "apps/tui/src/interactive.rs": {
+      "clippy::cast_possible_truncation": 5,
+      "clippy::cast_sign_loss": 3,
+      "clippy::too_many_lines": 1
+    },
+    "apps/tui/src/main.rs": {
+      "clippy::let_underscore_must_use": 6,
+      "clippy::too_many_lines": 1
+    },
+    "apps/tui/src/password_line.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::map_err_ignore": 1
+    },
+    "apps/tui/src/session_view.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::cast_sign_loss": 3
+    },
+    "apps/tui/src/session_view/tests.rs": {
+      "clippy::cast_possible_truncation": 7
+    },
+    "apps/tui/src/ui.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 1
+    },
+    "apps/tui/src/workspace.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::cast_possible_wrap": 2,
+      "clippy::cast_sign_loss": 1,
+      "clippy::let_underscore_must_use": 9,
+      "clippy::too_many_lines": 3
+    },
+    "apps/tui/src/workspace/management.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::map_err_ignore": 1,
+      "clippy::too_many_lines": 2
+    },
+    "apps/tui/tests/interactive_host.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "apps/tui/tests/interactive_live.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::let_underscore_must_use": 4,
+      "clippy::panic": 1,
+      "clippy::too_many_lines": 1
+    },
+    "packages/e2e-wasm/src/authorization.rs": {
+      "clippy::map_err_ignore": 1
+    },
+    "packages/e2e-wasm/src/client_session.rs": {
+      "clippy::cast_possible_truncation": 8,
+      "clippy::cast_sign_loss": 2,
+      "clippy::map_err_ignore": 1,
+      "clippy::too_many_lines": 1
+    },
+    "packages/e2e-wasm/src/content.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_possible_wrap": 2,
+      "clippy::map_err_ignore": 1
+    },
+    "packages/e2e-wasm/src/lib.rs": {
+      "clippy::map_err_ignore": 2
+    },
+    "packages/graphics-codec-probe/src/lib.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_possible_wrap": 1
+    },
+    "packages/graphics-codec-probe/src/tile.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::map_err_ignore": 3
+    },
+    "packages/merkur-authorization/src/canonical.rs": {
+      "clippy::map_err_ignore": 1
+    },
+    "packages/merkur-authorization/src/lib.rs": {
+      "clippy::map_err_ignore": 4
+    },
+    "packages/merkur-authorization/src/link.rs": {
+      "clippy::map_err_ignore": 1
+    },
+    "packages/merkur-authorization/src/records.rs": {
+      "clippy::map_err_ignore": 3
+    },
+    "packages/merkur-authorization/src/root_envelope.rs": {
+      "clippy::map_err_ignore": 5
+    },
+    "packages/merkur-client-native/src/account.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 9
+    },
+    "packages/merkur-client-native/src/account/devices.rs": {
+      "clippy::map_err_ignore": 3
+    },
+    "packages/merkur-client-native/src/account/management.rs": {
+      "clippy::map_err_ignore": 9,
+      "clippy::unwrap_in_result": 1
+    },
+    "packages/merkur-client-native/src/carrier.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::let_underscore_must_use": 3
+    },
+    "packages/merkur-client-native/src/credit.rs": {
+      "clippy::cast_possible_truncation": 2
+    },
+    "packages/merkur-client-native/src/driver.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 5,
+      "clippy::too_many_lines": 2
+    },
+    "packages/merkur-client-native/src/driver/command.rs": {
+      "clippy::map_err_ignore": 2
+    },
+    "packages/merkur-client-native/src/grid/tests.rs": {
+      "clippy::cast_possible_truncation": 5
+    },
+    "packages/merkur-client-native/src/grid/tests/prediction.rs": {
+      "clippy::cast_possible_truncation": 4
+    },
+    "packages/merkur-client-native/src/opaque.rs": {
+      "clippy::map_err_ignore": 3
+    },
+    "packages/merkur-client/examples/browser_session_oracle.rs": {
+      "clippy::cast_possible_truncation": 5,
+      "clippy::panic": 1,
+      "clippy::too_many_lines": 2
+    },
+    "packages/merkur-client/src/auth.rs": {
+      "clippy::map_err_ignore": 25
+    },
+    "packages/merkur-client/src/auth/tests.rs": {
+      "clippy::cast_possible_truncation": 2
+    },
+    "packages/merkur-client/src/liveness.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-client/src/rebind.rs": {
+      "clippy::map_err_ignore": 12
+    },
+    "packages/merkur-client/src/session.rs": {
+      "clippy::cast_possible_truncation": 7,
+      "clippy::cast_sign_loss": 6,
+      "clippy::too_many_lines": 2
+    },
+    "packages/merkur-client/src/session/display_ack.rs": {
+      "clippy::cast_possible_wrap": 1,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-client/src/session/graphics.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::map_err_ignore": 1,
+      "clippy::unwrap_in_result": 1
+    },
+    "packages/merkur-client/src/session/graphics/tests.rs": {
+      "clippy::cast_possible_truncation": 10
+    },
+    "packages/merkur-client/src/session/input_retry.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "packages/merkur-client/src/session/outbox.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-client/src/session/outbox/tests.rs": {
+      "clippy::cast_possible_truncation": 3
+    },
+    "packages/merkur-client/src/session/tests.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-client/src/session/tests/direct.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-client/src/session/tests/recovery.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-client/src/test_support.rs": {
+      "clippy::panic": 5,
+      "clippy::unwrap_in_result": 1
+    },
+    "packages/merkur-client/src/viewer/demand.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "packages/merkur-client/src/viewer/demand/tests.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-client/src/viewer/fec.rs": {
+      "clippy::cast_possible_truncation": 4
+    },
+    "packages/merkur-client/src/viewer/fec/tests.rs": {
+      "clippy::cast_possible_truncation": 7
+    },
+    "packages/merkur-client/src/viewer/graphics.rs": {
+      "clippy::cast_possible_truncation": 11,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::cast_sign_loss": 10,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-client/src/viewer/graphics/tests.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-client/src/viewer/links.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-client/src/viewer/playback.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-client/src/viewer/presentation.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-client/src/viewer/presentation/tests.rs": {
+      "clippy::cast_possible_truncation": 2
+    },
+    "packages/merkur-client/src/viewer/receive.rs": {
+      "clippy::cast_possible_truncation": 7,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-client/src/viewer/receive/tests.rs": {
+      "clippy::cast_possible_truncation": 9
+    },
+    "packages/merkur-client/src/viewer/repaint_hold/tests.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-codec/benches/codec.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::too_many_lines": 1,
+      "clippy::unwrap_used": 2
+    },
+    "packages/merkur-codec/src/decode.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::expect_used": 1,
+      "clippy::indexing_slicing": 28
+    },
+    "packages/merkur-codec/src/encode.rs": {
+      "clippy::cast_possible_truncation": 12,
+      "clippy::expect_used": 3,
+      "clippy::indexing_slicing": 9,
+      "clippy::let_underscore_must_use": 2,
+      "clippy::map_err_ignore": 2,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-codec/src/graphics.rs": {
+      "clippy::cast_possible_truncation": 5,
+      "clippy::expect_used": 3,
+      "clippy::indexing_slicing": 12,
+      "clippy::map_err_ignore": 5,
+      "clippy::unwrap_in_result": 1
+    },
+    "packages/merkur-codec/src/hash.rs": {
+      "clippy::cast_possible_truncation": 13,
+      "clippy::cast_sign_loss": 14,
+      "clippy::indexing_slicing": 5
+    },
+    "packages/merkur-codec/src/split.rs": {
+      "clippy::cast_possible_truncation": 11,
+      "clippy::indexing_slicing": 44,
+      "clippy::map_err_ignore": 2,
+      "clippy::too_many_lines": 2
+    },
+    "packages/merkur-codec/src/stream.rs": {
+      "clippy::expect_used": 1,
+      "clippy::indexing_slicing": 9
+    },
+    "packages/merkur-codec/src/tests.rs": {
+      "clippy::cast_possible_truncation": 9,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-codec/src/theme.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::indexing_slicing": 13
+    },
+    "packages/merkur-codec/src/validate.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::indexing_slicing": 5,
+      "clippy::map_err_ignore": 5
+    },
+    "packages/merkur-codec/src/varint.rs": {
+      "clippy::cast_possible_truncation": 2
+    },
+    "packages/merkur-codec/tests/cell_repr_equivalence.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-codec/tests/kernel_profile.rs": {
+      "clippy::cast_possible_truncation": 11,
+      "clippy::indexing_slicing": 2
+    },
+    "packages/merkur-e2e/benches/e2e.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::expect_used": 17,
+      "clippy::indexing_slicing": 2
+    },
+    "packages/merkur-e2e/src/content.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::expect_used": 8,
+      "clippy::indexing_slicing": 22,
+      "clippy::map_err_ignore": 8,
+      "clippy::unwrap_in_result": 4
+    },
+    "packages/merkur-e2e/src/content/requests.rs": {
+      "clippy::indexing_slicing": 1
+    },
+    "packages/merkur-e2e/src/content/tests.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::unwrap_in_result": 1
+    },
+    "packages/merkur-e2e/src/hybrid.rs": {
+      "clippy::expect_used": 4,
+      "clippy::indexing_slicing": 7,
+      "clippy::map_err_ignore": 13
+    },
+    "packages/merkur-e2e/src/identity.rs": {
+      "clippy::map_err_ignore": 6
+    },
+    "packages/merkur-e2e/src/lib.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::indexing_slicing": 15,
+      "clippy::map_err_ignore": 7,
+      "clippy::string_slice": 1
+    },
+    "packages/merkur-e2e/src/rebind.rs": {
+      "clippy::expect_used": 8,
+      "clippy::indexing_slicing": 2,
+      "clippy::map_err_ignore": 3
+    },
+    "packages/merkur-e2e/src/rebind_commit.rs": {
+      "clippy::indexing_slicing": 1
+    },
+    "packages/merkur-e2e/src/renewal.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-e2e/tests/content_allocations.rs": {
+      "clippy::cast_possible_truncation": 4
+    },
+    "packages/merkur-edge-protocol/src/lib.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-fec/src/codec.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::indexing_slicing": 33,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-fec/src/field.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::indexing_slicing": 17
+    },
+    "packages/merkur-fec/src/repair.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::indexing_slicing": 15
+    },
+    "packages/merkur-fec/src/simd.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::indexing_slicing": 32
+    },
+    "packages/merkur-fec/tests/kernel_profile.rs": {
+      "clippy::cast_possible_truncation": 5,
+      "clippy::expect_used": 1,
+      "clippy::indexing_slicing": 5
+    },
+    "packages/merkur-fec/tests/roundtrip.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::indexing_slicing": 4,
+      "clippy::unwrap_used": 1
+    },
+    "packages/merkur-graphics/src/animation.rs": {
+      "clippy::cast_possible_truncation": 5
+    },
+    "packages/merkur-graphics/src/command.rs": {
+      "clippy::cast_possible_wrap": 1
+    },
+    "packages/merkur-graphics/src/geometry.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 3,
+      "clippy::map_err_ignore": 2
+    },
+    "packages/merkur-graphics/src/placeholder.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-graphics/src/projection.rs": {
+      "clippy::cast_possible_truncation": 2
+    },
+    "packages/merkur-graphics/src/tile.rs": {
+      "clippy::cast_possible_truncation": 4
+    },
+    "packages/merkur-graphics/tests/allocation.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_possible_wrap": 8,
+      "clippy::cast_sign_loss": 5
+    },
+    "packages/merkur-graphics/tests/integration/animation.rs": {
+      "clippy::cast_possible_truncation": 3
+    },
+    "packages/merkur-graphics/tests/integration/projection.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-graphics/tests/integration/publication.rs": {
+      "clippy::panic": 1
+    },
+    "packages/merkur-graphics/tests/integration/scene.rs": {
+      "clippy::panic": 2
+    },
+    "packages/merkur-graphics/tests/integration/scene_model.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::cast_possible_wrap": 2,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-identity-seal/build.rs": {
+      "clippy::panic": 2
+    },
+    "packages/merkur-identity-seal/src/hardware.rs": {
+      "clippy::map_err_ignore": 4
+    },
+    "packages/merkur-identity-seal/src/keychain.rs": {
+      "clippy::cast_sign_loss": 1,
+      "clippy::map_err_ignore": 3
+    },
+    "packages/merkur-identity-seal/src/lib.rs": {
+      "clippy::map_err_ignore": 3
+    },
+    "packages/merkur-identity-seal/src/macos.rs": {
+      "clippy::cast_possible_wrap": 6,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-identity-seal/src/memory.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::cast_sign_loss": 3
+    },
+    "packages/merkur-identity-seal/src/software.rs": {
+      "clippy::map_err_ignore": 2
+    },
+    "packages/merkur-image-worker/examples/tile-codec-bench.rs": {
+      "clippy::cast_possible_truncation": 18,
+      "clippy::cast_sign_loss": 1,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-image-worker/src/compose.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 2,
+      "clippy::map_err_ignore": 4
+    },
+    "packages/merkur-image-worker/src/composition.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::map_err_ignore": 1
+    },
+    "packages/merkur-image-worker/src/compressor.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "packages/merkur-image-worker/src/content.rs": {
+      "clippy::let_underscore_must_use": 1
+    },
+    "packages/merkur-image-worker/src/edit.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::cast_sign_loss": 2,
+      "clippy::map_err_ignore": 7,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-image-worker/src/encoding.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::map_err_ignore": 2
+    },
+    "packages/merkur-image-worker/src/frame.rs": {
+      "clippy::cast_possible_truncation": 5
+    },
+    "packages/merkur-image-worker/src/gamma.rs": {
+      "clippy::cast_possible_truncation": 4,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-image-worker/src/inflate.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "packages/merkur-image-worker/src/lib.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 2,
+      "clippy::map_err_ignore": 11
+    },
+    "packages/merkur-image-worker/src/main.rs": {
+      "clippy::cast_possible_truncation": 7,
+      "clippy::cast_sign_loss": 1,
+      "clippy::map_err_ignore": 9
+    },
+    "packages/merkur-image-worker/src/pyramid.rs": {
+      "clippy::cast_possible_truncation": 12
+    },
+    "packages/merkur-image-worker/src/sandbox/macos.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::cast_possible_wrap": 2,
+      "clippy::cast_sign_loss": 2
+    },
+    "packages/merkur-image-worker/src/strict_base64.rs": {
+      "clippy::cast_possible_truncation": 5
+    },
+    "packages/merkur-image-worker/src/tile.rs": {
+      "clippy::cast_possible_truncation": 20
+    },
+    "packages/merkur-image-worker/src/upload.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 1
+    },
+    "packages/merkur-image-worker/tests/descriptor.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-image-worker/tests/encoding_allocations.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "packages/merkur-image-worker/tests/isolation.rs": {
+      "clippy::cast_possible_truncation": 3,
+      "clippy::cast_sign_loss": 1,
+      "clippy::panic": 1,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-stun-protocol/src/message.rs": {
+      "clippy::cast_possible_truncation": 6,
+      "clippy::let_underscore_must_use": 1
+    },
+    "packages/merkur-wire/src/input_record.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-wire/src/protocol.rs": {
+      "clippy::cast_possible_truncation": 12
+    },
+    "packages/merkur-wire/src/signaling.rs": {
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-wire/src/terminal_ui.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/term-wasm/src/animation.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_possible_wrap": 1,
+      "clippy::cast_sign_loss": 1
+    },
+    "packages/term-wasm/src/atlas.rs": {
+      "clippy::cast_possible_truncation": 13,
+      "clippy::cast_possible_wrap": 1
+    },
+    "packages/term-wasm/src/atlas_profile.rs": {
+      "clippy::cast_possible_truncation": 2
+    },
+    "packages/term-wasm/src/builtin_glyph.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/term-wasm/src/client_grid.rs": {
+      "clippy::cast_possible_truncation": 1
+    },
+    "packages/term-wasm/src/client_viewer.rs": {
+      "clippy::cast_possible_truncation": 12,
+      "clippy::cast_sign_loss": 1
+    },
+    "packages/term-wasm/src/graphics.rs": {
+      "clippy::cast_possible_truncation": 8
+    },
+    "packages/term-wasm/src/lib.rs": {
+      "clippy::cast_possible_truncation": 46,
+      "clippy::cast_possible_wrap": 16,
+      "clippy::cast_sign_loss": 1,
+      "clippy::map_err_ignore": 1,
+      "clippy::too_many_lines": 6,
+      "clippy::unwrap_in_result": 1
+    },
+    "packages/term-wasm/src/tests.rs": {
+      "clippy::cast_possible_truncation": 44,
+      "clippy::let_underscore_must_use": 2,
+      "clippy::too_many_lines": 1
+    },
+    "packages/zstd-fixture/src/main.rs": {
+      "clippy::cast_possible_truncation": 2,
+      "clippy::map_err_ignore": 3
+    }
+  }
+}

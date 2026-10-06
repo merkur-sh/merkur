@@ -1,0 +1,16 @@
+load(":rules.bzl", "cargo_flag_capture_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cargo_flag_capture_test(
+    name = "native_flags_test",
+    contexts = "//tools/bazel/rust:contexts.py",
+    controls = "controls.py",
+    tags = ["manual"],
+    timeout = "short",
+)
+
+filegroup(
+    name = "verification_inputs",
+    srcs = ["BUILD.bazel", "controls.py", "rules.bzl"],
+)

@@ -1,0 +1,6 @@
+package(default_visibility = ["//visibility:public"])
+
+# Unbound default data is never an acquired audit result.
+exports_files(["BUILD.bazel", "REPO.bazel", "request", "snapshot"])
+
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "REPO.bazel", "request", "snapshot"])

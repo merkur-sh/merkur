@@ -1,0 +1,24 @@
+[package]
+name = "merkur-rust-input-parser"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace]
+resolver = "3"
+
+[[bin]]
+name = "source-inputs"
+path = "../source_inputs.rs"
+
+[dependencies]
+proc-macro2 = "=1.0.106"
+quote = "=1.0.45"
+syn = { version = "=2.0.119", features = ["full"] }
+serde_json = "=1.0.151"
+serde_core = "=1.0.229"
+
+# Local compiler worker tools share content, never shipping feature contexts.
+sha2 = "=0.10.9"
+libc = "=0.2.189"

@@ -1,0 +1,25 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+# Exact Cargo.lock direct edges; external labels are acquired only for compile targets.
+_NORMAL_DEPS = [
+    "@crates_profile//aya-0.14.0",
+    "@crates_profile//libc-0.2.189",
+    "@crates_profile//serde_json-1.0.151",
+]
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml", "Cargo.lock"])
+
+filegroup(name = "verification_inputs", srcs = glob(["**"], exclude = ["node_modules/**", "target/**", "dist/**", "pkg/**", "test-results/**", ".*", "**/.*", ".*/**", "**/.*/**", "__pycache__/**", "**/__pycache__/**", "*.pyc", "**/*.pyc", ".env", ".env.*", "**/.env", "**/.env.*", ".bazelrc.local", "**/.bazelrc.local", ".DS_Store", "**/.DS_Store"]))
+
+rust_binary(
+    name = "merkur_edge_kernel_profile",
+    crate_root = "src/main.rs",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2024",
+    aliases = {},
+    deps = _NORMAL_DEPS,
+    target_compatible_with = ["@platforms//os:linux"],
+    tags = ["manual"],
+)

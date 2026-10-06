@@ -1,0 +1,205 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Bazel: captured changed verification (inactive integration)",
+      "type": "process",
+      "command": "${env:MERKUR_VERIFICATION_BAZEL}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "args": [
+        "--ignore_all_rc_files",
+        "--host_jvm_args=-XX:+ExitOnOutOfMemoryError",
+        "run",
+        "--incompatible_strict_action_env",
+        "--guard_against_concurrent_changes",
+        "--remote_verify_downloads",
+        "--remote_download_outputs=all",
+        "--symlink_prefix=/",
+        "//tools:verify",
+        "--",
+        "--ledger-client",
+        "${input:merkurVerificationLedger}",
+        "--credential-file",
+        "${input:merkurVerificationCredential}",
+        "--changed",
+        "--report-file",
+        "${input:merkurVerificationReport}",
+        "--expected-context-file",
+        "${input:merkurVerificationExpectation}",
+        "--ci-report-file",
+        "${input:merkurVerificationCiReport}"
+      ],
+      "detail": "Inactive until qualification. One controller owns nonce reservation, execution, complete retention, CI report publication and failure retirement. Use a fresh output path for each run."
+    },
+    {
+      "label": "Bazel: staged verification (inactive integration)",
+      "type": "process",
+      "command": "${env:MERKUR_VERIFICATION_BAZEL}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "args": [
+        "--ignore_all_rc_files",
+        "--host_jvm_args=-XX:+ExitOnOutOfMemoryError",
+        "run",
+        "--incompatible_strict_action_env",
+        "--guard_against_concurrent_changes",
+        "--remote_verify_downloads",
+        "--remote_download_outputs=all",
+        "--symlink_prefix=/",
+        "//tools:verify",
+        "--",
+        "--ledger-client",
+        "${input:merkurVerificationLedger}",
+        "--credential-file",
+        "${input:merkurVerificationCredential}",
+        "--staged",
+        "--report-file",
+        "${input:merkurVerificationReport}",
+        "--expected-context-file",
+        "${input:merkurVerificationExpectation}",
+        "--ci-report-file",
+        "${input:merkurVerificationCiReport}"
+      ],
+      "detail": "Inactive until staged qualification. One controller captures exact index bytes and HEAD, selects staged secret scanning and index/base ratchet, validates the captured index before admission and retires failures."
+    },
+    {
+      "label": "Bazel: complete fresh verification (inactive integration)",
+      "type": "process",
+      "command": "${env:MERKUR_VERIFICATION_BAZEL}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "args": [
+        "--ignore_all_rc_files",
+        "--host_jvm_args=-XX:+ExitOnOutOfMemoryError",
+        "run",
+        "--incompatible_strict_action_env",
+        "--guard_against_concurrent_changes",
+        "--remote_verify_downloads",
+        "--remote_download_outputs=all",
+        "--symlink_prefix=/",
+        "//tools:verify",
+        "--",
+        "--ledger-client",
+        "${input:merkurVerificationLedger}",
+        "--credential-file",
+        "${input:merkurVerificationCredential}",
+        "--all",
+        "--force",
+        "--report-file",
+        "${input:merkurVerificationReport}",
+        "--expected-context-file",
+        "${input:merkurVerificationExpectation}",
+        "--ci-report-file",
+        "${input:merkurVerificationCiReport}"
+      ],
+      "detail": "Inactive until qualification. One controller owns nonce reservation, execution, complete retention, CI report publication and failure retirement. Use a fresh output path for each run."
+    },
+    {
+      "label": "Bazel: unsigned package verification (inactive integration)",
+      "type": "process",
+      "command": "${env:MERKUR_VERIFICATION_BAZEL}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "args": [
+        "--ignore_all_rc_files",
+        "--host_jvm_args=-XX:+ExitOnOutOfMemoryError",
+        "run",
+        "--incompatible_strict_action_env",
+        "--guard_against_concurrent_changes",
+        "--remote_verify_downloads",
+        "--remote_download_outputs=all",
+        "--symlink_prefix=/",
+        "//tools:verify",
+        "--",
+        "--all",
+        "--force",
+        "--unsigned",
+        "--native-platforms",
+        "--executor-policy-file",
+        "${input:merkurVerificationExecutorPolicy}",
+        "--ledger-client",
+        "${input:merkurVerificationLedger}",
+        "--credential-file",
+        "${input:merkurVerificationCredential}",
+        "--report-file",
+        "${input:merkurVerificationReport}",
+        "--ci-report-file",
+        "${input:merkurVerificationCiReport}",
+        "--expected-context-file",
+        "${input:merkurVerificationExpectation}",
+        "--unsigned-output-directory",
+        "${input:merkurVerificationUnsignedOutput}"
+      ],
+      "detail": "Inactive until qualification. One complete four-platform controller batch requires all ten original unsigned shipping artifacts and an explicit executor policy, stages original signing metadata separately, and retires created Files on late source, nonce or publication failure. Missing producer or executor authority refuses admission. This task does not authorize signing."
+    },
+    {
+      "label": "Bazel: format current owned file (inactive integration)",
+      "type": "process",
+      "command": "${env:MERKUR_VERIFICATION_BAZEL}",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "args": [
+        "--ignore_all_rc_files",
+        "--host_jvm_args=-XX:+ExitOnOutOfMemoryError",
+        "run",
+        "--incompatible_strict_action_env",
+        "--guard_against_concurrent_changes",
+        "--remote_verify_downloads",
+        "--remote_download_outputs=all",
+        "--symlink_prefix=/",
+        "//tools:format",
+        "--",
+        "${file}"
+      ],
+      "detail": "Inactive until formatter/tool qualification. Formats only the explicit current file inside this workspace using declared Biome and checked configuration. Review the change and stage it before staged verification; this task does not stage files."
+    }
+  ],
+  "inputs": [
+    {
+      "id": "merkurVerificationReport",
+      "type": "promptString",
+      "description": "New absolute ControllerResult report path outside the repository (nested results[], admitted, problems); existing files are refused"
+    },
+    {
+      "id": "merkurVerificationExpectation",
+      "type": "promptString",
+      "description": "Fresh absolute canonical expected-context ARRAY path outside source, including for one platform; existing files refuse overwrite"
+    },
+    {
+      "id": "merkurVerificationLedger",
+      "type": "promptString",
+      "description": "Absolute bootstrap-provisioned bare Git client with canonical HTTPS origin and original declared credential helper; the controller isolates this configuration in its private ledger client"
+    },
+    {
+      "id": "merkurVerificationCredential",
+      "type": "promptString",
+      "description": "Absolute private .bazelrc.local credential source path; the declared helper validates it without logging credentials"
+    },
+    {
+      "id": "merkurVerificationCiReport",
+      "type": "promptString",
+      "description": "Fresh absolute CI diagnostic report path outside source; its JSON does not recreate controller authority"
+    },
+    {
+      "id": "merkurVerificationUnsignedOutput",
+      "type": "promptString",
+      "description": "Fresh absolute unsigned output directory below an existing parent outside the repository; existing directories are refused"
+    },
+    {
+      "id": "merkurVerificationExecutorPolicy",
+      "type": "promptString",
+      "description": "Absolute ordinary executor-policy File with explicit hosted Linux and quiet standing macOS pool, image and SDK identities for all four native platforms; configured values require qualification"
+    }
+  ]
+}

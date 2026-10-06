@@ -1,0 +1,354 @@
+# Inactive integration recipe; protected signing/deployment boundaries are preserved.
+# Unsigned artifacts must use the same owned verifyReservedBatch/captured CI confirmation
+# as workflow report admission; uploaded ControllerResult.results alone is untrusted.
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: merkur-production-release
+  queue: max
+
+env:
+  MERKUR_RELEASE_MLDSA87_PUBLIC_KEY: ${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
+  VERSION: ${{ github.ref_name }}
+  STUN_APPS: ${{ vars.STUN_APPS }}
+  SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+  OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
+  MINIMUM_SEQUENCE: ${{ vars.RELEASE_MINIMUM_SEQUENCE }}
+  RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+  RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+  RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+
+jobs:
+  validate:
+    if: github.event.created == true && github.event.deleted != true && github.event.forced != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      sequence: ${{ steps.reserve.outputs.sequence }}
+      commit: ${{ steps.reserve.outputs.commit }}
+      resume: ${{ steps.reserve.outputs.resume }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate deployment inventory and public configuration
+        env:
+          STUN_APPS: ${{ vars.STUN_APPS }}
+          ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+          OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
+        run: python3 scripts/ci/release_inventory.py
+      - id: reserve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          python3 scripts/ci/release_state.py reserve
+  checks:
+    needs: validate
+    uses: ./.github/workflows/bazel-ci.yml
+  extended:
+    needs: [validate, checks]
+    uses: ./.github/workflows/bazel-extended-ci.yml
+  unsigned-verification:
+    needs: [validate, checks, extended]
+    if: needs.validate.outputs.resume == 'false'
+    # Trusted controller only; native actions use qualified registered executor pools.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bazel
+        with:
+          ledger-origin: ${{ vars.MERKUR_VERIFICATION_LEDGER_ORIGIN }}
+          ledger-credential-helper: ${{ vars.MERKUR_VERIFICATION_LEDGER_CREDENTIAL_HELPER }}
+          credential-file: ${{ vars.MERKUR_VERIFICATION_CREDENTIAL_FILE }}
+        id: engine
+      - name: Require complete unsigned-release qualification
+        run: python3 -I scripts/ci/bazel_admission.py .github/bazel/qualification.json unsigned-release
+      # Native daemon suppliers require the generated host dataplane_release root.
+      # Its library-harness training/profile-use dependencies belong to this same batch;
+      # a plain release build or a separate uploaded profile cannot satisfy the role.
+      - name: Verify unsigned release inputs through the one controller lifecycle
+        id: unsigned
+        env:
+          SOURCE_CANDIDATE_SHA: ${{ needs.validate.outputs.commit }}
+          MERKUR_VERIFICATION_LEDGER_CLIENT: ${{ steps.engine.outputs.ledger-client }}
+          MERKUR_VERIFICATION_CREDENTIAL_FILE: ${{ steps.engine.outputs.credential-file }}
+          MERKUR_VERIFICATION_BAZEL: ${{ steps.engine.outputs.executable }}
+          MERKUR_VERIFICATION_EXECUTOR_POLICY_FILE: ${{ vars.MERKUR_VERIFICATION_EXECUTOR_POLICY_FILE }}
+        run: |
+          set -euo pipefail
+          : "${MERKUR_VERIFICATION_LEDGER_CLIENT:?Missing authoritative ledger bootstrap}"
+          : "${MERKUR_VERIFICATION_CREDENTIAL_FILE:?Missing declared credential source}"
+          [[ "$MERKUR_VERIFICATION_BAZEL" == /* ]]
+          [[ "$MERKUR_VERIFICATION_LEDGER_CLIENT" == /* && "$MERKUR_VERIFICATION_CREDENTIAL_FILE" == /* ]]
+          [[ "$SOURCE_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$MERKUR_VERIFICATION_EXECUTOR_POLICY_FILE" == /* ]]
+          [[ -f "$MERKUR_VERIFICATION_EXECUTOR_POLICY_FILE" && ! -L "$MERKUR_VERIFICATION_EXECUTOR_POLICY_FILE" && -s "$MERKUR_VERIFICATION_EXECUTOR_POLICY_FILE" ]]
+          directory="$RUNNER_TEMP/unsigned-verification-$GITHUB_RUN_ATTEMPT"
+          mkdir "$directory"
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$MERKUR_VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" run \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_download_outputs=all --symlink_prefix=/ //tools:verify -- \
+            --all --force --unsigned --native-platforms --candidate "$SOURCE_CANDIDATE_SHA" \
+            --executor-policy-file "$MERKUR_VERIFICATION_EXECUTOR_POLICY_FILE" \
+            --unsigned-output-directory "$directory/artifacts" \
+            --ledger-client "$MERKUR_VERIFICATION_LEDGER_CLIENT" \
+            --credential-file "$MERKUR_VERIFICATION_CREDENTIAL_FILE" \
+            --report-file "$directory/controller.json" \
+            --ci-report-file "$directory/ci.json" \
+            --expected-context-file "$directory/expected.json"
+      - name: Require complete unsigned controller diagnostic Files
+        if: always()
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/unsigned-verification-$GITHUB_RUN_ATTEMPT"
+          for file in "$directory/controller.json" "$directory/ci.json" "$directory/expected.json"; do
+            [[ -f "$file" && ! -L "$file" && -s "$file" ]]
+          done
+      - name: Retain unsigned verification diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-verification-diagnostics
+          path: |
+            ${{ runner.temp }}/unsigned-verification-${{ github.run_attempt }}/controller.json
+            ${{ runner.temp }}/unsigned-verification-${{ github.run_attempt }}/ci.json
+            ${{ runner.temp }}/unsigned-verification-${{ github.run_attempt }}/expected.json
+          if-no-files-found: error
+          retention-days: 7
+      # The complete native controller copies exactly the ten ordinary shipping Files.
+      # Original signing metadata stays in the separate .evidence sibling; neither uploaded
+      # diagnostics nor these Files can reconstruct the controller's live admission handle.
+      - name: Retain the controller-bound complete unsigned shipping directory
+        if: success() && steps.unsigned.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-controller
+          path: ${{ runner.temp }}/unsigned-verification-${{ github.run_attempt }}/artifacts/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Retain the original auxiliary signing metadata separately
+        if: success() && steps.unsigned.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-signing-evidence
+          path: ${{ runner.temp }}/unsigned-verification-${{ github.run_attempt }}/artifacts.evidence/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+  # Preserve the original required release job names and shipping platform names. These
+  # project the complete controller command; they never reserve or reexecute a second batch.
+      - name: Copy only reported simulation diagnostics before storage retirement
+        id: simulation-artifacts
+        if: always()
+        env:
+          VERIFICATION_BAZEL: ${{ steps.engine.outputs.executable }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFICATION_BAZEL" == /* ]]
+          [[ "$TMPDIR" == "${BAZEL_OUTPUT_USER_ROOT%/bazel}/tmp" && -d "$TMPDIR" ]]
+          report="$RUNNER_TEMP/unsigned-verification-$GITHUB_RUN_ATTEMPT/controller.json"
+          archive="$RUNNER_TEMP/simulation-diagnostics-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          retained=$(env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+            TMPDIR="${TMPDIR:?Missing owned Bazel temporary storage}" PATH=/usr/bin:/bin \
+            "$VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" run \
+            --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+            --remote_download_outputs=all --symlink_prefix=/ //tools/bazel/ci:simulation_artifacts -- \
+            --report-file "$report" --temporary-root "$TMPDIR" --output-directory "$archive")
+          [[ -z "$retained" || ( "$retained" == /* && "$retained" == */"${archive##*/}" ) ]]
+          printf 'directory=%s\n' "$retained" >> "$GITHUB_OUTPUT"
+      - name: Retain reported original simulation attempt Files
+        if: always() && steps.simulation-artifacts.outputs.directory != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: simulation-diagnostics-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.simulation-artifacts.outputs.directory }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Retire the owned Bazel storage
+        if: always() && env.MERKUR_BAZEL_STORAGE_STATE != ''
+        shell: bash
+        env:
+          ENGINE: ${{ steps.engine.outputs.executable }}
+        run: |
+          set -euo pipefail
+          shutdown_status=0
+          if [[ -n "$ENGINE" && -x "$ENGINE" ]]; then
+            "$ENGINE" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT" shutdown || shutdown_status=$?
+          fi
+          cleanup_status=0
+          python3 -I -B tools/bazel/qualification/storage/storage.py cleanup --state "$MERKUR_BAZEL_STORAGE_STATE" || cleanup_status=$?
+          if (( shutdown_status != 0 || cleanup_status != 0 )); then
+            echo "Owned storage retirement: Bazel shutdown exited $shutdown_status; storage cleanup exited $cleanup_status" >&2
+          fi
+          if (( cleanup_status != 0 )); then
+            exit "$cleanup_status"
+          fi
+          exit "$shutdown_status"
+
+  daemon:
+    needs: [validate, unsigned-verification]
+    if: needs.validate.outputs.resume == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x64, linux-arm64, darwin-arm64, darwin-x64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CONTROLLER_RESULT: ${{ needs.unsigned-verification.result }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Require the successful complete native unsigned controller command
+        run: |
+          test "$CONTROLLER_RESULT" = success
+  services:
+    needs: [validate, unsigned-verification]
+    if: needs.validate.outputs.resume == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CONTROLLER_RESULT: ${{ needs.unsigned-verification.result }}
+    steps:
+      - name: Require the successful complete native unsigned controller command
+        run: |
+          test "$CONTROLLER_RESULT" = success
+  sign:
+    needs: [validate, checks, extended, daemon, services]
+    if: >-
+      !cancelled() && needs.validate.result == 'success' &&
+      needs.checks.result == 'success' && needs.extended.result == 'success' &&
+      (needs.validate.outputs.resume == 'true' ||
+       (needs.daemon.result == 'success' && needs.services.result == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release-signing
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      COMMIT: ${{ needs.validate.outputs.commit }}
+      SEQUENCE: ${{ needs.validate.outputs.sequence }}
+      MINIMUM_SEQUENCE: ${{ vars.RELEASE_MINIMUM_SEQUENCE }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - id: state
+        run: python3 scripts/ci/release_state.py inspect
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: steps.state.outputs.resume == 'false'
+        with:
+          pattern: release-*
+          path: dist/ci-release
+          merge-multiple: true
+      - name: Validate exact unsigned artifact inventory
+        if: steps.state.outputs.resume == 'false'
+        run: python3 scripts/ci/release_assets.py validate-unsigned dist/ci-release
+      - name: Sign and durably retain exact artifacts
+        if: steps.state.outputs.resume == 'false'
+        env:
+          RELEASE_SEED_BASE64: ${{ secrets.RELEASE_SEED_BASE64 }}
+        run: bash scripts/ci/sign-release.sh
+      - name: Verify retained artifacts on resume
+        if: steps.state.outputs.resume == 'true'
+        run: |
+          python3 scripts/ci/release_assets.py restore dist/ci-release
+          bun run scripts/ci-release-verify.ts dist/ci-release "$VERSION" "$SEQUENCE"
+          bun run deployment:verify -- --directory deployment --commit "$COMMIT"
+  package-smoke:
+    needs: [validate, sign]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+    # Post-signing native consumers preserve the original release runner boundary.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: write # Draft release download requires push access.
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SEQUENCE: ${{ needs.validate.outputs.sequence }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exercise the actual installer against signed bytes
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/release_assets.py restore dist/ci-release
+          mkdir dist/smoke
+          tar -xzf "dist/ci-release/merkur-daemon-$PLATFORM.tar.gz" -C dist/smoke
+          python3 scripts/ci/release_smoke.py dist/smoke "$VERSION" "$SEQUENCE" dist/ci-release "$PLATFORM"
+  deploy:
+    needs: [validate, package-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      COMMIT: ${{ needs.validate.outputs.commit }}
+      SEQUENCE: ${{ needs.validate.outputs.sequence }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+      RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+      SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+      STUN_APPS: ${{ vars.STUN_APPS }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: python3 scripts/ci/release_assets.py restore dist/ci-release
+      - run: npm install --global @railway/cli@5.12.1
+      - name: Install verified Fly CLI
+        run: |
+          curl --fail --silent --show-error --location https://github.com/superfly/flyctl/releases/download/v0.4.104/flyctl_0.4.104_Linux_x86_64.tar.gz -o "$RUNNER_TEMP/flyctl.tar.gz"
+          printf '4023d2a4f5e76198197f80bde74271184b200b9034bb16d799acba373714bfbc  %s\n' "$RUNNER_TEMP/flyctl.tar.gz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/fly-bin"
+          tar -xzf "$RUNNER_TEMP/flyctl.tar.gz" -C "$RUNNER_TEMP/fly-bin" flyctl
+          echo "$RUNNER_TEMP/fly-bin" >> "$GITHUB_PATH"
+      - name: Deploy retained services and publish
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          gh auth setup-git
+          bash scripts/ci/deploy-services.sh

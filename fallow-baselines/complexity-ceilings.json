@@ -1,0 +1,350 @@
+{
+  "apps/daemon/src/services/daemon-control-client.ts::<anonymous>": {
+    "cyclomatic": 52,
+    "cognitive": 119
+  },
+  "apps/daemon/src/services/dataplane-client.ts::handleTransportStats": {
+    "cyclomatic": 40,
+    "cognitive": 39
+  },
+  "apps/server/src/services/daemon-control-service.ts::livenessTick": {
+    "cyclomatic": 26,
+    "cognitive": 48
+  },
+  "apps/server/src/services/edge-registry-service.test.ts::execute": {
+    "cyclomatic": 32,
+    "cognitive": 49
+  },
+  "apps/server/src/services/realtime-coordination-service.test.ts::eval": {
+    "cyclomatic": 52,
+    "cognitive": 66
+  },
+  "apps/server/src/services/session-issuance-service.test.ts::eval": {
+    "cyclomatic": 37,
+    "cognitive": 62
+  },
+  "apps/web/src/graphics/compositor.ts::prepare": {
+    "cyclomatic": 34,
+    "cognitive": 62
+  },
+  "apps/web/src/graphics/compositor.ts::setScene": {
+    "cyclomatic": 26,
+    "cognitive": 48
+  },
+  "apps/web/src/perf/perf-event-codec.ts::decodePerfEvent": {
+    "cyclomatic": 114,
+    "cognitive": 110
+  },
+  "apps/web/src/perf/perf-event-codec.ts::encodePerfEvent": {
+    "cyclomatic": 40,
+    "cognitive": 1
+  },
+  "apps/web/src/perf/perf-row.ts::perfEventToRow": {
+    "cyclomatic": 51,
+    "cognitive": 23
+  },
+  "apps/web/src/perf/terminal-latency.ts::analyzeTerminalLatency": {
+    "cyclomatic": 617,
+    "cognitive": 746
+  },
+  "apps/web/src/perf/terminal-latency.ts::validBrowserDisplayIoPerfEvent": {
+    "cyclomatic": 36,
+    "cognitive": 12
+  },
+  "apps/web/src/perf/terminal-latency.ts::validDisplayPerfEvent": {
+    "cyclomatic": 34,
+    "cognitive": 9
+  },
+  "apps/web/src/perf/terminal-latency.ts::validPresentationCommitPerfEvent": {
+    "cyclomatic": 39,
+    "cognitive": 2
+  },
+  "apps/web/src/perf/terminal-latency.ts::validRenderStartPerfEvent": {
+    "cyclomatic": 36,
+    "cognitive": 12
+  },
+  "apps/web/src/renderer-webgpu.ts::render": {
+    "cyclomatic": 62,
+    "cognitive": 38
+  },
+  "apps/web/src/terminal-worker-client.ts::<arrow>": {
+    "cyclomatic": 39,
+    "cognitive": 43
+  },
+  "apps/web/src/terminal/display-receiver-calibration.ts::step": {
+    "cyclomatic": 33,
+    "cognitive": 49
+  },
+  "apps/web/src/terminal/input-controller.ts::onKeyDown": {
+    "cyclomatic": 48,
+    "cognitive": 34
+  },
+  "apps/web/src/transport-worker-client.ts::handleWorkerMessage": {
+    "cyclomatic": 94,
+    "cognitive": 116
+  },
+  "packages/keyboard/src/engine.ts::endPointerAt": {
+    "cyclomatic": 37,
+    "cognitive": 41
+  },
+  "packages/keyboard/src/geometry.ts::buildCandidateAtlas": {
+    "cyclomatic": 52,
+    "cognitive": 92
+  },
+  "packages/keyboard/src/keyboard.test.ts::buildExhaustiveCandidateAtlas": {
+    "cyclomatic": 23,
+    "cognitive": 48
+  },
+  "packages/protocol/src/input-record.ts::decodeInputRecord": {
+    "cyclomatic": 51,
+    "cognitive": 77
+  },
+  "packages/shared/src/native-perf-trace.ts::isNativePerfTraceChunk": {
+    "cyclomatic": 42,
+    "cognitive": 13
+  },
+  "scripts/agent-hooks/guards/source-grep.ts::parseWithSpec": {
+    "cyclomatic": 34,
+    "cognitive": 63
+  },
+  "scripts/agent-hooks/shell-command.ts::segment": {
+    "cyclomatic": 36,
+    "cognitive": 54
+  },
+  "scripts/agent-hooks/shell-command.ts::stripPrefixes": {
+    "cyclomatic": 38,
+    "cognitive": 54
+  },
+  "scripts/analyze-terminal-gpu-trace.ts::<arrow>": {
+    "cyclomatic": 34,
+    "cognitive": 31
+  },
+  "scripts/analyze-terminal-gpu-trace.ts::correlateWorkerGpuFlushes": {
+    "cyclomatic": 42,
+    "cognitive": 28
+  },
+  "scripts/bench-graphics-codec-worker.ts::<arrow>": {
+    "cyclomatic": 21,
+    "cognitive": 73
+  },
+  "scripts/bench-immutable-image.ts::run": {
+    "cyclomatic": 37,
+    "cognitive": 56
+  },
+  "scripts/bench-term-wasm-ingress.ts::runIngressTrial": {
+    "cyclomatic": 37,
+    "cognitive": 72
+  },
+  "scripts/bench-webgpu-terminal.ts::run": {
+    "cyclomatic": 62,
+    "cognitive": 110
+  },
+  "scripts/ci-release-verify.ts::verifyCIRelease": {
+    "cyclomatic": 34,
+    "cognitive": 47
+  },
+  "scripts/current-protocol-hard-cut.ts::findMatchingRustBrace": {
+    "cyclomatic": 39,
+    "cognitive": 64
+  },
+  "scripts/edge-network-stats.ts::configuredProxyFaultEvidenceErrors": {
+    "cyclomatic": 67,
+    "cognitive": 83
+  },
+  "scripts/edge-network-stats.ts::parseDelayDistribution": {
+    "cyclomatic": 41,
+    "cognitive": 13
+  },
+  "scripts/edge-network-stats.ts::parseProxyImpairmentStats": {
+    "cyclomatic": 46,
+    "cognitive": 7
+  },
+  "scripts/extract-touch-residuals.ts::extractResiduals": {
+    "cyclomatic": 48,
+    "cognitive": 66
+  },
+  "scripts/keyboard-accuracy-simulator.ts::runKeyboardAccuracySimulation": {
+    "cyclomatic": 44,
+    "cognitive": 131
+  },
+  "scripts/perf/harness.ts::compareProfileReports": {
+    "cyclomatic": 36,
+    "cognitive": 56
+  },
+  "scripts/perf/harness.ts::isWorkloadReport": {
+    "cyclomatic": 36,
+    "cognitive": 8
+  },
+  "scripts/perf/render-admission-bench.ts::simulateRenderAdmission": {
+    "cyclomatic": 46,
+    "cognitive": 58
+  },
+  "scripts/perf/replay-native-packing.test.ts::fixture": {
+    "cyclomatic": 13,
+    "cognitive": 50
+  },
+  "scripts/perf/replay-native-packing.ts::parse": {
+    "cyclomatic": 53,
+    "cognitive": 77
+  },
+  "scripts/perf/replay-native-packing.ts::replayNativePacking": {
+    "cyclomatic": 33,
+    "cognitive": 95
+  },
+  "scripts/perf/row-layout-worker.ts::measure": {
+    "cyclomatic": 56,
+    "cognitive": 110
+  },
+  "scripts/perf/webgpu-renderer-benchmark.ts::result": {
+    "cyclomatic": 37,
+    "cognitive": 71
+  },
+  "scripts/run-edge-harness.ts::main": {
+    "cyclomatic": 54,
+    "cognitive": 47
+  },
+  "scripts/run-keyboard-replay.ts::analyzeGripSmoothness": {
+    "cyclomatic": 35,
+    "cognitive": 82
+  },
+  "scripts/run-terminal-network-matrix.ts::captureLatencySummaries": {
+    "cyclomatic": 77,
+    "cognitive": 117
+  },
+  "scripts/run-terminal-network-matrix.ts::inspectDaemonTransportLogLine": {
+    "cyclomatic": 40,
+    "cognitive": 35
+  },
+  "scripts/run-terminal-network-matrix.ts::loadCompatibleMatrixCheckpoint": {
+    "cyclomatic": 43,
+    "cognitive": 29
+  },
+  "scripts/run-terminal-network-matrix.ts::validateBrowserRuntimeEvidence": {
+    "cyclomatic": 86,
+    "cognitive": 94
+  },
+  "scripts/run-terminal-network-matrix.ts::validateForcedResyncPresentationEvidence": {
+    "cyclomatic": 38,
+    "cognitive": 25
+  },
+  "scripts/run-terminal-network-matrix.ts::validateWorkloadPresentationEvidence": {
+    "cyclomatic": 35,
+    "cognitive": 30
+  },
+  "scripts/run-terminal-redraw-reference.ts::validateArtifact": {
+    "cyclomatic": 36,
+    "cognitive": 21
+  },
+  "scripts/select-gates.ts::selectGates": {
+    "cyclomatic": 40,
+    "cognitive": 76
+  },
+  "scripts/verification-cargo.ts::cargoTestExecutions": {
+    "cyclomatic": 33,
+    "cognitive": 58
+  },
+  "scripts/web-build-signature.ts::runWebBuildSignature": {
+    "cyclomatic": 43,
+    "cognitive": 46
+  },
+  "tests/e2e/fixtures/direct-cdp-trace.ts::validateDirectTraceClockCoverage": {
+    "cyclomatic": 36,
+    "cognitive": 38
+  },
+  "tests/e2e/fixtures/direct-neovim-transactions.ts::buildNonmemberEvidence": {
+    "cyclomatic": 38,
+    "cognitive": 3
+  },
+  "tests/e2e/fixtures/direct-neovim-transactions.ts::buildRenderedSegmentEvidence": {
+    "cyclomatic": 62,
+    "cognitive": 18
+  },
+  "tests/e2e/fixtures/direct-neovim-transactions.ts::buildSenderPresentationGroup": {
+    "cyclomatic": 51,
+    "cognitive": 18
+  },
+  "tests/e2e/fixtures/direct-neovim-transactions.ts::summarizeDirectNeovimTransactions": {
+    "cyclomatic": 141,
+    "cognitive": 155
+  },
+  "tests/e2e/fixtures/direct-reference-events.ts::analyzeDirectReferenceInputs": {
+    "cyclomatic": 64,
+    "cognitive": 73
+  },
+  "tests/e2e/fixtures/direct-reference-events.ts::validateDirectReferenceNetworkEvidence": {
+    "cyclomatic": 41,
+    "cognitive": 30
+  },
+  "tests/e2e/fixtures/direct-segmented-redraw.ts::combineDirectRedrawObservationSegments": {
+    "cyclomatic": 75,
+    "cognitive": 84
+  },
+  "tests/e2e/fixtures/direct-tui-workloads.ts::findDirectTuiActivationFence": {
+    "cyclomatic": 59,
+    "cognitive": 49
+  },
+  "tests/e2e/fixtures/direct-tui-workloads.ts::summarizeDirectCoherentInputWindows": {
+    "cyclomatic": 36,
+    "cognitive": 50
+  },
+  "tests/e2e/fixtures/direct-typing-populations.ts::summarizeDirectTypingPopulations": {
+    "cyclomatic": 39,
+    "cognitive": 40
+  },
+  "tests/e2e/fixtures/native-display-boundaries.ts::summarizeNativeDisplayBoundaries": {
+    "cyclomatic": 71,
+    "cognitive": 102
+  },
+  "tests/e2e/fixtures/presentation-measurement-settle.ts::waitForPresentationDrain": {
+    "cyclomatic": 49,
+    "cognitive": 54
+  },
+  "tests/e2e/fixtures/terminal-perf-artifacts.ts::collectApplicationDisplayOutcome": {
+    "cyclomatic": 66,
+    "cognitive": 107
+  },
+  "tests/e2e/fixtures/terminal-perf-artifacts.ts::validateApplicationDisplayOutcomeEvidence": {
+    "cyclomatic": 35,
+    "cognitive": 37
+  },
+  "tests/e2e/fixtures/test.ts::terminalPerf": {
+    "cyclomatic": 56,
+    "cognitive": 51
+  },
+  "tests/e2e/terminal-direct-latency.e2e.ts::<arrow>": {
+    "cyclomatic": 51,
+    "cognitive": 102
+  },
+  "tests/e2e/terminal-direct-latency.e2e.ts::assertDirectPerformance": {
+    "cyclomatic": 35,
+    "cognitive": 46
+  },
+  "tests/e2e/terminal-direct-latency.e2e.ts::capture": {
+    "cyclomatic": 85,
+    "cognitive": 98
+  },
+  "tests/e2e/terminal-direct-latency.e2e.ts::captureMainThreadControl": {
+    "cyclomatic": 45,
+    "cognitive": 43
+  },
+  "tests/e2e/terminal-direct-latency.e2e.ts::runDirectGpuTracePhase": {
+    "cyclomatic": 34,
+    "cognitive": 45
+  },
+  "tests/e2e/terminal-packing-delivery.e2e.ts::<arrow>": {
+    "cyclomatic": 36,
+    "cognitive": 41
+  },
+  "tests/e2e/terminal-performance-matrix.e2e.ts::<arrow>": {
+    "cyclomatic": 47,
+    "cognitive": 8
+  },
+  "tests/e2e/terminal-performance-matrix.e2e.ts::observeGraphicsTypingMember": {
+    "cyclomatic": 38,
+    "cognitive": 43
+  },
+  "tests/e2e/terminal-performance-matrix.e2e.ts::runGraphicsTypingBatch": {
+    "cyclomatic": 34,
+    "cognitive": 36
+  }
+}

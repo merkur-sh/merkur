@@ -1,0 +1,51 @@
+# Local-development coordination backend for Merkur.
+#
+#   docker compose -f docker-compose.dev.yaml up -d     # start
+#   docker compose -f docker-compose.dev.yaml down       # stop
+#   docker compose -f docker-compose.dev.yaml down -v    # stop + wipe data
+#
+# Exposes Redis on 127.0.0.1:6379: the REDIS_URL `bun run setup` writes into
+# apps/server/.env, and the value apps/server/.env.example documents. `bun run
+# dev` and `bun run dev:doctor` read that file, and dev:doctor names
+# `bun run infra:up` when its PING finds nothing there.
+#
+# E2E runs never use this service. Each server in tests/e2e/start-server.ts
+# spawns its own non-persistent `redis-server` binary on a private port, so the
+# binary has to exist locally even when this container is up.
+#
+# Dragonfly (used in production via Railway) is wire-compatible, but swapping it
+# in here is not an image change alone: the `command` below names `redis-server`,
+# which the Dragonfly image does not provide, and `--save` is not one of its
+# flags. `bun run test:dragonfly` already runs every Redis-backed service against
+# docker.dragonflydb.io/dragonflydb/dragonfly:v2.0.0, pinned in
+# scripts/dragonfly-container.ts.
+
+# Fixed so the project — and therefore the container, network and volume — does
+# not depend on the checkout directory. Compose otherwise derives it from the
+# directory name, and `bun run infra:up` from a worktree builds a second project
+# that collides on both `merkur-dev-redis` and 127.0.0.1:6379.
+name: merkur-dev
+
+services:
+  redis:
+    image: redis:8-alpine@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0
+    container_name: merkur-dev-redis
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:6379:6379'
+    command: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
+    volumes:
+      - merkur-dev-redis-data:/data
+    # `infra:up --wait` gates the whole dev stack on this, so the check reads the
+    # reply itself rather than trusting `redis-cli`'s exit status. `grep -qx`
+    # anchors the whole line, which is what the Dragonfly container's check in
+    # scripts/dragonfly-container.ts does with an explicit `^PONG$`; written
+    # without the `$` because Compose interpolates the string.
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli ping | grep -qx PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  merkur-dev-redis-data:

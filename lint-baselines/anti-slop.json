@@ -1,0 +1,3015 @@
+{
+  "apps/daemon/dataplane/src/input.rs": {
+    "comment-temporary": 1
+  },
+  "apps/daemon/dataplane/src/lib.rs": {
+    "comment-temporary": 6
+  },
+  "apps/daemon/dataplane/src/webtransport/mod.rs": {
+    "comment-temporary": 4
+  },
+  "apps/daemon/src/cli/cli-output.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/daemon/src/cli/cli-output.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 2
+  },
+  "apps/daemon/src/cli/help.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/daemon/src/cli/identity-seal.ts": {
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/daemon/src/cli/launchctl.ts": {
+    "no-runtime-typeof": 1
+  },
+  "apps/daemon/src/cli/legacy-daemon-config-migration.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unsafe-dictionary-type": 9
+  },
+  "apps/daemon/src/cli/legacy-daemon-config-migration.ts": {
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 4
+  },
+  "apps/daemon/src/cli/link.test.ts": {
+    "no-runtime-typeof": 4,
+    "no-unsafe-dictionary-type": 1
+  },
+  "apps/daemon/src/cli/link.ts": {
+    "no-known-value-widening": 2,
+    "no-manual-tag-comparison": 4,
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 4
+  },
+  "apps/daemon/src/cli/open.test.ts": {
+    "no-known-value-widening": 2
+  },
+  "apps/daemon/src/cli/setup.ts": {
+    "no-known-value-widening": 4
+  },
+  "apps/daemon/src/cli/shell-integration.test.ts": {
+    "no-known-value-widening": 4
+  },
+  "apps/daemon/src/cli/shell-integration.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/daemon/src/cli/update.test.ts": {
+    "no-known-value-widening": 3,
+    "no-unknown-parameters": 2
+  },
+  "apps/daemon/src/cli/update.ts": {
+    "comment-temporary": 1,
+    "no-known-value-widening": 3,
+    "no-manual-tag-comparison": 2,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "apps/daemon/src/index.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/daemon/src/process-utils.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 3
+  },
+  "apps/daemon/src/services/bell-report-scheduler.ts": {
+    "no-manual-tag-comparison": 6,
+    "no-manual-tagged-construction": 12
+  },
+  "apps/daemon/src/services/daemon-control-client.test.ts": {
+    "no-array-filter-map": 1,
+    "no-known-value-widening": 1,
+    "no-manual-tagged-construction": 1,
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 4
+  },
+  "apps/daemon/src/services/daemon-control-client.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-manual-tagged-construction": 1,
+    "prefer-effect-match": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/daemon/src/services/daemon-metrics.test.ts": {
+    "no-runtime-typeof": 1
+  },
+  "apps/daemon/src/services/daemon-perf-reporter.ts": {
+    "no-manual-tag-comparison": 1,
+    "no-manual-tagged-construction": 3
+  },
+  "apps/daemon/src/services/daemon-runtime.test.ts": {
+    "no-manual-tagged-construction": 2
+  },
+  "apps/daemon/src/services/daemon-runtime.ts": {
+    "no-conditional-empty-object-spread": 1
+  },
+  "apps/daemon/src/services/dataplane-client.test.ts": {
+    "no-known-value-widening": 1,
+    "no-object-parameters": 1,
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 5,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/daemon/src/services/dataplane-client.ts": {
+    "no-known-value-widening": 4,
+    "no-object-parameters": 2,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 19,
+    "no-unknown-returns": 1,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/daemon/src/services/terminal-bell-reporter.ts": {
+    "no-manual-tag-comparison": 1,
+    "no-manual-tagged-construction": 3
+  },
+  "apps/daemon/src/single-instance.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/scripts/auth-continue-rate-limit-benchmark.ts": {
+    "no-runtime-typeof": 2,
+    "no-shape-in-symbol-names": 5,
+    "no-unknown-parameters": 1,
+    "prefer-effect-match": 1
+  },
+  "apps/server/scripts/bench-daemon-control.ts": {
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/scripts/bench-daemon-requests.ts": {
+    "no-chained-type-assertions": 1,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 5
+  },
+  "apps/server/scripts/bench-daemon-trace-export.ts": {
+    "no-array-filter-map": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/scripts/bench-logger-sink.ts": {
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "apps/server/scripts/bench-sqlite-query-compile.ts": {
+    "no-unknown-returns": 3
+  },
+  "apps/server/scripts/bench-sqlite-statements.ts": {
+    "no-known-value-widening": 2,
+    "no-object-parameters": 1,
+    "no-reflect-apply": 2,
+    "no-reflect-get": 1,
+    "no-runtime-typeof": 1,
+    "no-unknown-returns": 11,
+    "require-safety-comment-for-type-assertion": 5
+  },
+  "apps/server/scripts/bench-telemetry-ingest.ts": {
+    "no-chained-type-assertions": 1,
+    "no-unknown-returns": 3,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/scripts/database-backup.ts": {
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/scripts/run-db-codegen.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/server/scripts/session-issuance-benchmark.ts": {
+    "no-runtime-typeof": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/scripts/session-start-benchmark-artifact.ts": {
+    "no-array-filter-map": 1,
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 3
+  },
+  "apps/server/scripts/session-start-benchmark.ts": {
+    "no-runtime-typeof": 1
+  },
+  "apps/server/scripts/telemetry-smoke.ts": {
+    "no-chained-type-assertions": 1,
+    "no-unsafe-dictionary-type": 8,
+    "require-safety-comment-for-type-assertion": 14
+  },
+  "apps/server/src/db/libsql-dialect.ts": {
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/http/api-errors.ts": {
+    "no-runtime-typeof": 2
+  },
+  "apps/server/src/http/api-models.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "apps/server/src/http/daemon-auth-fixture.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/src/http/daemon-request-auth.ts": {
+    "no-unknown-returns": 1
+  },
+  "apps/server/src/http/effect-route.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/http/effect-route.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 4
+  },
+  "apps/server/src/http/routes/auth-routes.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/http/routes/auth-routes.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 9,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 2
+  },
+  "apps/server/src/http/routes/box-access-routes.test.ts": {
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/http/routes/box-access-routes.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/http/routes/box-waitlist-routes.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/http/routes/box-waitlist-routes.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/http/routes/browser-session-routes.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/http/routes/daemon-control-auth.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/http/routes/daemon-control-routes.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/http/routes/daemon-control-routes.ts": {
+    "no-runtime-typeof": 1
+  },
+  "apps/server/src/http/routes/daemon-link-claim-routes.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/http/routes/device-routes.test.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/src/http/routes/device-routes.ts": {
+    "no-manual-tagged-construction": 1,
+    "no-unknown-parameters": 2
+  },
+  "apps/server/src/http/routes/edge-routes.test.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 6,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/src/http/routes/edge-routes.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/http/routes/health-routes.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/http/routes/keyboard-settings-routes.test.ts": {
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/http/routes/session-routes.test.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 6,
+    "require-safety-comment-for-type-assertion": 13
+  },
+  "apps/server/src/http/routes/session-routes.ts": {
+    "no-manual-tag-comparison": 3
+  },
+  "apps/server/src/http/routes/telemetry-routes.test.ts": {
+    "no-runtime-typeof": 7,
+    "no-shape-in-symbol-names": 4,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "apps/server/src/http/routes/telemetry-routes.ts": {
+    "no-runtime-typeof": 3
+  },
+  "apps/server/src/http/routes/web-routes.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/server/src/http/server-app.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/http/sse.test.ts": {
+    "no-manual-tagged-construction": 13
+  },
+  "apps/server/src/http/sse.ts": {
+    "no-manual-tag-comparison": 4,
+    "no-unknown-parameters": 2
+  },
+  "apps/server/src/http/web-ui.ts": {
+    "no-known-value-widening": 3
+  },
+  "apps/server/src/index.ts": {
+    "no-unknown-parameters": 6
+  },
+  "apps/server/src/middleware/security-headers.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1
+  },
+  "apps/server/src/observability/metrics.ts": {
+    "no-conditional-empty-object-spread": 2,
+    "no-runtime-typeof": 5,
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/observability/tail-sampling-tracer.test.ts": {
+    "no-chained-type-assertions": 2,
+    "no-known-value-widening": 2,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/server/src/observability/tail-sampling-tracer.ts": {
+    "no-chained-type-assertions": 2,
+    "no-manual-tag-comparison": 5,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 3,
+    "require-safety-comment-for-type-assertion": 5
+  },
+  "apps/server/src/observability/telemetry.ts": {
+    "no-known-value-widening": 1,
+    "no-service-constructor-imports": 1
+  },
+  "apps/server/src/observability/trace-topology.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/account-deletion-sweep.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-unsafe-dictionary-type": 2
+  },
+  "apps/server/src/services/auth-flow-store.ts": {
+    "no-runtime-typeof": 12,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 3
+  },
+  "apps/server/src/services/auth-service-fixture.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/auth-service-password.test.ts": {
+    "no-manual-tagged-construction": 1
+  },
+  "apps/server/src/services/auth-service.ts": {
+    "no-array-filter-map": 1,
+    "no-conditional-empty-object-spread": 2,
+    "no-manual-tag-comparison": 1,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/box-host-service.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/server/src/services/box-host-service.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 1
+  },
+  "apps/server/src/services/box-removal.test.ts": {
+    "no-manual-tagged-construction": 1
+  },
+  "apps/server/src/services/browser-session-presence.dragonfly.test.ts": {
+    "no-manual-tag-comparison": 4
+  },
+  "apps/server/src/services/browser-session-presence.test.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/src/services/browser-session-presence.ts": {
+    "no-manual-tagged-construction": 7,
+    "no-runtime-typeof": 11
+  },
+  "apps/server/src/services/daemon-control-service.dragonfly.test.ts": {
+    "no-unknown-returns": 2
+  },
+  "apps/server/src/services/daemon-control-service.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-manual-tagged-construction": 9,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/server/src/services/daemon-control-service.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-manual-tag-comparison": 7,
+    "no-manual-tagged-construction": 6,
+    "no-runtime-typeof": 10,
+    "no-unknown-parameters": 6,
+    "no-unsafe-dictionary-type": 6
+  },
+  "apps/server/src/services/daemon-link-claim-service.ts": {
+    "no-unknown-parameters": 2
+  },
+  "apps/server/src/services/device-events-service.test.ts": {
+    "no-chained-type-assertions": 4,
+    "no-known-value-widening": 1,
+    "no-manual-tag-comparison": 1,
+    "no-manual-tagged-construction": 1,
+    "require-safety-comment-for-type-assertion": 10
+  },
+  "apps/server/src/services/edge-registry-service.dragonfly.test.ts": {
+    "no-manual-tag-comparison": 1,
+    "no-runtime-typeof": 1,
+    "no-unknown-returns": 2
+  },
+  "apps/server/src/services/edge-registry-service.test.ts": {
+    "no-known-value-widening": 13,
+    "no-unknown-parameters": 2,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/edge-registry-service.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 8,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/services/edge-selection.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/email-admission.test.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/services/email-admission.ts": {
+    "no-runtime-typeof": 2
+  },
+  "apps/server/src/services/health-service.ts": {
+    "no-conditional-empty-object-spread": 1
+  },
+  "apps/server/src/services/ip-region.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/services/ip-region.ts": {
+    "no-known-value-widening": 3
+  },
+  "apps/server/src/services/mail-sender.ts": {
+    "no-manual-tag-comparison": 1
+  },
+  "apps/server/src/services/notification-outbox-service.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/notification-outbox-service.ts": {
+    "no-manual-tag-comparison": 2
+  },
+  "apps/server/src/services/push-notification-service.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/server/src/services/push-notification-service.ts": {
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 4,
+    "no-unknown-returns": 2,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/services/rate-limit-service.test.ts": {
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "apps/server/src/services/rate-limit-service.ts": {
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/services/realtime-coordination-service.dragonfly.test.ts": {
+    "no-manual-tag-comparison": 2
+  },
+  "apps/server/src/services/realtime-coordination-service.test.ts": {
+    "no-known-value-widening": 31,
+    "no-manual-tag-comparison": 1,
+    "no-manual-tagged-construction": 1,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 3,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/realtime-coordination-service.ts": {
+    "no-manual-tag-comparison": 3,
+    "no-manual-tagged-construction": 7,
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 5,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/redis-reply.ts": {
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 11
+  },
+  "apps/server/src/services/redis-service.ts": {
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 1
+  },
+  "apps/server/src/services/refresh-token-store.test.ts": {
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/server/src/services/rybbit-events.test.ts": {
+    "no-unsafe-dictionary-type": 2
+  },
+  "apps/server/src/services/rybbit-events.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/server/src/services/session-issuance-codec.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 6,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/server/src/services/session-issuance-service.dragonfly.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-manual-tagged-construction": 3,
+    "no-unknown-returns": 1
+  },
+  "apps/server/src/services/session-issuance-service.test.ts": {
+    "no-known-value-widening": 17,
+    "no-manual-tagged-construction": 7,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 4,
+    "no-unknown-returns": 2,
+    "no-unsafe-dictionary-type": 1,
+    "prefer-effect-match": 2,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "apps/server/src/services/session-issuance-service.ts": {
+    "no-manual-tagged-construction": 1
+  },
+  "apps/server/src/services/session-issuance-store.ts": {
+    "no-runtime-typeof": 3
+  },
+  "apps/server/src/services/session-service.ts": {
+    "no-manual-tag-comparison": 2
+  },
+  "apps/server/src/services/session-test-fixture.ts": {
+    "no-manual-tagged-construction": 2
+  },
+  "apps/site/scripts/dist-server.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/site/scripts/render-marks.ts": {
+    "no-shape-in-symbol-names": 2
+  },
+  "apps/site/scripts/render-og.ts": {
+    "no-array-filter-map": 1
+  },
+  "apps/site/scripts/subset-fonts.ts": {
+    "no-conditional-empty-object-spread": 2,
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/site/server/build.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1
+  },
+  "apps/site/server/manifest.test.ts": {
+    "no-known-value-widening": 2,
+    "no-unsafe-dictionary-type": 5
+  },
+  "apps/site/server/manifest.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 9,
+    "no-unsafe-dictionary-type": 2
+  },
+  "apps/site/server/rybbit-proxy.ts": {
+    "no-known-value-widening": 2,
+    "no-unsafe-dictionary-type": 1
+  },
+  "apps/site/server/site-server.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 3
+  },
+  "apps/site/server/test-support.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/site/src/blog/code-meta.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/site/src/blog/templates/blocks.tsx": {
+    "no-known-value-widening": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/site/src/blog/templates/feed.tsx": {
+    "no-known-value-widening": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/site/src/blog/templates/pages.tsx": {
+    "no-known-value-widening": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/site/src/gfx/client.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/site/src/motion/security.ts": {
+    "prefer-effect-match": 1
+  },
+  "apps/site/src/motion/sim.ts": {
+    "no-known-value-widening": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/site/src/sim-script.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/site/src/vite/blog-pages.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 9,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/site/src/vite/blog-remark.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1
+  },
+  "apps/site/src/vite/font-coverage.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/site/src/vite/page-facts.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/site/src/vite/site-manifest.ts": {
+    "no-known-value-widening": 2
+  },
+  "apps/site/src/vite/structured-data.test.ts": {
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/site/src/vite/structured-data.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/site/src/waitlist.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1
+  },
+  "apps/site/uno.config.ts": {
+    "no-reflect-get": 1,
+    "no-runtime-typeof": 3
+  },
+  "apps/site/vite.config.ts": {
+    "no-runtime-typeof": 1
+  },
+  "apps/web/src/api.refresh.test.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/web/src/api.ts": {
+    "no-conditional-empty-object-spread": 3,
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 4,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/app/browser-sessions-controller.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/app/commands.ts": {
+    "prefer-effect-match": 1
+  },
+  "apps/web/src/app/connection-attempt.ts": {
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/app/createAppController.ts": {
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/app/createDeviceListController.ts": {
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/app/device-snapshot-reconciliation.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/app/link-command-refresh.test.ts": {
+    "no-known-value-widening": 2
+  },
+  "apps/web/src/app/link-command-refresh.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/app/link-url.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/auth/account-api.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/auth/account-api.ts": {
+    "no-conditional-empty-object-spread": 4,
+    "no-runtime-typeof": 3,
+    "no-unknown-returns": 1
+  },
+  "apps/web/src/auth/account-opaque-finish.test.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/auth/account-opaque-finish.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/auth/account-opaque.ts": {
+    "no-runtime-typeof": 1
+  },
+  "apps/web/src/auth/account-workflow.recovery.test.ts": {
+    "no-known-value-widening": 2,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 6,
+    "require-safety-comment-for-type-assertion": 7
+  },
+  "apps/web/src/auth/browser-delegation.ts": {
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/auth/delegation-vault.test.ts": {
+    "no-known-value-widening": 5,
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/auth/delegation-vault.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 4,
+    "no-unknown-returns": 1
+  },
+  "apps/web/src/auth/revocation-outbox.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/auth/revocation-outbox.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/components/LinkStatus.tsx": {
+    "prefer-effect-match": 2
+  },
+  "apps/web/src/components/OverlayHost.tsx": {
+    "no-shape-in-symbol-names": 7
+  },
+  "apps/web/src/components/PhaseHost.tsx": {
+    "no-runtime-typeof": 1
+  },
+  "apps/web/src/components/link-strip.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/event-stream-worker-client.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/event-stream-worker.ts": {
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/graphics/compositor.test.ts": {
+    "no-chained-type-assertions": 9,
+    "no-object-parameters": 3,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 22
+  },
+  "apps/web/src/graphics/compositor.ts": {
+    "comment-temporary": 1,
+    "no-known-value-widening": 2,
+    "no-shape-in-symbol-names": 10,
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/hooks/createAuth.logout.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/web/src/hooks/createAuth.reset.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/hooks/createAuth.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 6,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 5
+  },
+  "apps/web/src/hooks/createKeybinds.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/hooks/device-events-recovery.test.ts": {
+    "no-known-value-widening": 6,
+    "no-manual-tagged-construction": 2,
+    "no-unknown-parameters": 7
+  },
+  "apps/web/src/hooks/device-events-recovery.ts": {
+    "no-manual-tag-comparison": 17,
+    "no-manual-tagged-construction": 3,
+    "no-runtime-typeof": 1
+  },
+  "apps/web/src/hooks/device-events-source.ts": {
+    "no-known-value-widening": 1,
+    "no-manual-tagged-construction": 8,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/hooks/useServiceWorkerLifecycle.test.ts": {
+    "no-module-mocking": 1,
+    "no-object-parameters": 2,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/web/src/hooks/useServiceWorkerLifecycle.ts": {
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/lib/api-error.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/lib/authenticated-transport.test.ts": {
+    "no-chained-type-assertions": 3,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "apps/web/src/lib/authenticated-transport.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/lib/device-list-cache.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/lib/device-list-cache.ts": {
+    "no-runtime-typeof": 2
+  },
+  "apps/web/src/lib/display-resume-schema.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/web/src/lib/display-resume-store.test.ts": {
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 2,
+    "no-unknown-returns": 1
+  },
+  "apps/web/src/lib/e2e-wasm-module.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/lib/edge-path-schema.ts": {
+    "no-runtime-typeof": 5,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/lib/fuzzy.test.ts": {
+    "no-array-filter-map": 1
+  },
+  "apps/web/src/lib/key-record.test.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/lib/key-record.ts": {
+    "no-known-value-widening": 6
+  },
+  "apps/web/src/lib/keybinds.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/lib/lifecycle-runtime.ts": {
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/lib/motion.ts": {
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 1
+  },
+  "apps/web/src/lib/owned-scheduled-callback.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/lib/relative-time.ts": {
+    "no-conditional-empty-object-spread": 1
+  },
+  "apps/web/src/lib/task-wake.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/lib/transport-autotuner.ts": {
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/lib/wt-path-schema.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/perf/bootstrap-spans.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/perf/bootstrap-spans.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/perf/browser-display-ingress.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/perf/client-session-observation.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/perf/error-reporter.test.ts": {
+    "no-chained-type-assertions": 3,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 10
+  },
+  "apps/web/src/perf/error-reporter.ts": {
+    "no-unknown-parameters": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/perf/main-thread-frame-monitor.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/perf/perf-event-codec.test.ts": {
+    "no-shape-in-symbol-names": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/perf/perf-event-codec.ts": {
+    "no-shape-in-symbol-names": 11,
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/perf/perf-ring.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/perf/perf-row.test.ts": {
+    "no-runtime-typeof": 1,
+    "no-shape-in-symbol-names": 2
+  },
+  "apps/web/src/perf/perf-row.ts": {
+    "no-conditional-empty-object-spread": 11,
+    "no-known-value-widening": 38,
+    "no-shape-in-symbol-names": 2
+  },
+  "apps/web/src/perf/telemetry-reporter.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/perf/terminal-latency.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/perf/terminal-latency.ts": {
+    "no-array-filter-map": 4,
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 17,
+    "no-shape-in-symbol-names": 2,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/renderer-webgpu.test.ts": {
+    "no-object-parameters": 2,
+    "no-unknown-parameters": 2,
+    "require-safety-comment-for-type-assertion": 10
+  },
+  "apps/web/src/renderer-webgpu.ts": {
+    "no-unknown-parameters": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/screens/ChangePasswordForm.tsx": {
+    "no-runtime-typeof": 2,
+    "prefer-effect-match": 1
+  },
+  "apps/web/src/screens/CreateBoxDialog.tsx": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/screens/DeleteAccountForm.tsx": {
+    "no-runtime-typeof": 1
+  },
+  "apps/web/src/screens/DeviceList.tsx": {
+    "prefer-effect-match": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/screens/KeyboardMacrosEditor.tsx": {
+    "no-array-filter-map": 1
+  },
+  "apps/web/src/screens/KeyboardPreferencesEditor.tsx": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/screens/TerminalPanel.tsx": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/screens/TerminalSettings.tsx": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/screens/VirtualTerminalKeyboard.tsx": {
+    "no-runtime-typeof": 1
+  },
+  "apps/web/src/session/browser-network-signals.test.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/web/src/session/browser-network-signals.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/session/session-response.ts": {
+    "no-runtime-typeof": 13,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/session/session-state.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/sw.ts": {
+    "no-chained-type-assertions": 2,
+    "no-runtime-typeof": 9,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/web/src/telemetry-worker-client.test.ts": {
+    "require-safety-comment-for-type-assertion": 15
+  },
+  "apps/web/src/telemetry-worker-client.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/telemetry-worker-protocol.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/telemetry-worker-protocol.ts": {
+    "no-runtime-typeof": 3
+  },
+  "apps/web/src/terminal-worker-client.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/terminal-worker-control-scheduling.test.ts": {
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1
+  },
+  "apps/web/src/terminal-worker-cursor-presentation.test.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/terminal-worker-display-owner.test.ts": {
+    "prefer-effect-match": 1
+  },
+  "apps/web/src/terminal-worker-font-ownership.test.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/terminal-worker-prediction-visibility.test.ts": {
+    "no-shape-in-symbol-names": 2
+  },
+  "apps/web/src/terminal-worker-render-abort.test.ts": {
+    "no-unknown-parameters": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal-worker-render-scheduling.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal-worker-surface-replacement.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal-worker.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 2,
+    "no-shape-in-symbol-names": 3,
+    "no-unknown-parameters": 5,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/terminal/accessibility-mirror.test.ts": {
+    "no-chained-type-assertions": 4,
+    "require-safety-comment-for-type-assertion": 14
+  },
+  "apps/web/src/terminal/appearance.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/web/src/terminal/display-receiver-calibration.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal/display-receiver-calibration.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/terminal/editing-surface.test.ts": {
+    "prefer-effect-match": 1
+  },
+  "apps/web/src/terminal/editing-surface.ts": {
+    "no-chained-type-assertions": 1,
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 16
+  },
+  "apps/web/src/terminal/font-loader.ts": {
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal/fonts.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal/input-controller.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 1,
+    "no-object-parameters": 1,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/web/src/terminal/input-controller.ts": {
+    "no-runtime-typeof": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/terminal/keyboard-diagnostics-store.ts": {
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/terminal/keyboard-offset-store.ts": {
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "apps/web/src/terminal/keyboard-settings-sync.test.ts": {
+    "no-module-mocking": 1,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal/notifications.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal/prediction-admission-model.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal/prediction-fast-path.test.ts": {
+    "no-runtime-typeof": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/terminal/prediction-fast-path.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "apps/web/src/terminal/profiling-viewport-read.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/terminal/provisional-preview.test.ts": {
+    "no-shape-in-symbol-names": 2
+  },
+  "apps/web/src/terminal/provisional-preview.ts": {
+    "no-known-value-widening": 1,
+    "no-shape-in-symbol-names": 4
+  },
+  "apps/web/src/terminal/refresh-rate-calibrator.test.ts": {
+    "no-chained-type-assertions": 2,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "apps/web/src/terminal/selection-layer.test.ts": {
+    "no-chained-type-assertions": 4,
+    "require-safety-comment-for-type-assertion": 8
+  },
+  "apps/web/src/terminal/selection-layer.ts": {
+    "no-known-value-widening": 7
+  },
+  "apps/web/src/terminal/shared-ring.ts": {
+    "no-unknown-returns": 2
+  },
+  "apps/web/src/terminal/status-presentation.ts": {
+    "no-known-value-widening": 1
+  },
+  "apps/web/src/terminal/viewer-output-ring.ts": {
+    "no-unknown-returns": 2
+  },
+  "apps/web/src/terminal/virtual-keyboard.test.ts": {
+    "no-unknown-parameters": 1
+  },
+  "apps/web/src/terminal/virtual-keyboard.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 8,
+    "no-unknown-parameters": 4,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 5
+  },
+  "apps/web/src/transport-worker-client.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 9,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "apps/web/src/transport-worker-client.ts": {
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/transport-worker.ts": {
+    "no-chained-type-assertions": 1,
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/transport/browser-client-session-clock.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/transport/browser-client-session-drain.test.ts": {
+    "no-unknown-parameters": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/transport/browser-client-session.ts": {
+    "no-unknown-parameters": 3,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/web/src/transport/client-carrier.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/transport/input-ring.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/transport/input-ring.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "apps/web/src/transport/start-owned-rpc-registry.test.ts": {
+    "no-unknown-parameters": 2
+  },
+  "apps/web/src/wasm-loader.ts": {
+    "no-chained-type-assertions": 3,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/web/vite.config.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1,
+    "prefer-effect-match": 1
+  },
+  "packages/auth/src/daemon-proof.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/auth/src/index.ts": {
+    "no-runtime-typeof": 4
+  },
+  "packages/auth/src/session-authorization.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/auth/src/session-authorization.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 2
+  },
+  "packages/config/src/daemon-config.test.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/config/src/daemon-config.ts": {
+    "no-runtime-typeof": 9,
+    "no-unknown-parameters": 6,
+    "no-unsafe-dictionary-type": 6
+  },
+  "packages/config/src/server-config.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/config/src/server-config.ts": {
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/daemon-control-protocol/src/index.test.ts": {
+    "no-unknown-parameters": 1
+  },
+  "packages/daemon-control-protocol/src/index.ts": {
+    "no-runtime-typeof": 15,
+    "no-unknown-parameters": 17,
+    "no-unknown-returns": 3,
+    "no-unsafe-dictionary-type": 9
+  },
+  "packages/e2e-wasm/conformance.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/keyboard/src/dom.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 5,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/keyboard/src/engine.ts": {
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/keyboard/src/hotpaths-replay.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 2,
+    "prefer-effect-match": 1
+  },
+  "packages/keyboard/src/input-stream.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "packages/keyboard/src/keyboard.test.ts": {
+    "no-known-value-widening": 4
+  },
+  "packages/keyboard/src/offset-model.ts": {
+    "no-runtime-typeof": 8,
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/keyboard/src/touch-model.test.ts": {
+    "no-known-value-widening": 2
+  },
+  "packages/logger/src/effect-logger.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 4,
+    "no-unsafe-dictionary-type": 4,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/logger/src/index.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/logger/src/index.ts": {
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 13,
+    "prefer-effect-match": 1
+  },
+  "packages/logger/src/sink.test.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/logger/src/sink.ts": {
+    "no-known-value-widening": 8,
+    "no-object-parameters": 1,
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 5,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/logger/src/span-tree-tracer.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "packages/logger/src/span-tree-tracer.ts": {
+    "no-manual-tag-comparison": 4,
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/logger/src/trace-correlation.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/merkur-codec/src/encode.rs": {
+    "comment-temporary": 1
+  },
+  "packages/merkur-graphics/src/placements.rs": {
+    "comment-temporary": 1
+  },
+  "packages/protocol/src/input-record.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "packages/quicksilver/src/preset.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/quicksilver/src/vite.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 2,
+    "no-unknown-parameters": 2,
+    "no-unknown-returns": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/quicksilver/src/vite.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1
+  },
+  "packages/shared/src/api-contract.ts": {
+    "no-runtime-typeof": 4,
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/shared/src/auth-header.ts": {
+    "no-known-value-widening": 1
+  },
+  "packages/shared/src/browser-presence.ts": {
+    "no-runtime-typeof": 1
+  },
+  "packages/shared/src/build-identity.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/shared/src/device-events.ts": {
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/shared/src/e2e-wasm-bun.ts": {
+    "no-runtime-typeof": 1
+  },
+  "packages/shared/src/edge-signaling.ts": {
+    "no-object-parameters": 1
+  },
+  "packages/shared/src/edge-webtransport.ts": {
+    "no-runtime-typeof": 1
+  },
+  "packages/shared/src/errors.ts": {
+    "no-unknown-parameters": 1
+  },
+  "packages/shared/src/ip-address.ts": {
+    "no-runtime-typeof": 1
+  },
+  "packages/shared/src/keyboard-settings.test.ts": {
+    "no-known-value-widening": 1,
+    "no-shape-in-symbol-names": 2,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/shared/src/keyboard-settings.ts": {
+    "no-runtime-typeof": 8,
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/shared/src/native-perf-trace.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 2
+  },
+  "packages/shared/src/node-sidecar.ts": {
+    "no-object-parameters": 2,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 2
+  },
+  "packages/shared/src/parsing.ts": {
+    "no-runtime-typeof": 5,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/shared/src/recovery-outcome.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/shared/src/release.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/shared/src/schema-check.test.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 7,
+    "no-unknown-returns": 1
+  },
+  "packages/shared/src/schema-check.ts": {
+    "no-runtime-typeof": 10,
+    "no-unknown-parameters": 4,
+    "no-unsafe-dictionary-type": 1
+  },
+  "packages/shared/src/span-attributes.ts": {
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/shared/src/terminal.ts": {
+    "no-known-value-widening": 1
+  },
+  "packages/shared/src/traceparent.ts": {
+    "no-known-value-widening": 1
+  },
+  "packages/shared/src/transport.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "packages/shared/src/user-authorization.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/shared/src/user-authorization.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 8,
+    "no-unknown-parameters": 24,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "packages/term-wasm/src/client_viewer.rs": {
+    "comment-temporary": 1
+  },
+  "packages/user-agent/src/index.test.ts": {
+    "prefer-effect-match": 1
+  },
+  "packages/user-agent/src/index.ts": {
+    "no-known-value-widening": 1
+  },
+  "packages/zstd-fixture/src/main.rs": {
+    "comment-temporary": 1
+  },
+  "scripts/agent-hooks/guards/authored-prose.ts": {
+    "no-runtime-typeof": 1
+  },
+  "scripts/agent-hooks/guards/plan-gate.ts": {
+    "no-runtime-typeof": 1
+  },
+  "scripts/agent-hooks/guards/source-grep.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/agent-hooks/hook-io.ts": {
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 4
+  },
+  "scripts/agent-hooks/post-tool-use.test.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/agent-hooks/post-tool-use.ts": {
+    "no-array-filter-map": 3,
+    "no-runtime-typeof": 3
+  },
+  "scripts/agent-hooks/pre-tool-use.ts": {
+    "no-runtime-typeof": 2
+  },
+  "scripts/agent-hooks/shell-command.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/agent-hooks/stop.test.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/analyze-quic-netlog.test.ts": {
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/analyze-quic-netlog.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "scripts/analyze-terminal-gpu-trace.test.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/analyze-terminal-gpu-trace.ts": {
+    "no-runtime-typeof": 24,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 4
+  },
+  "scripts/bench-browser-display-pipeline.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1
+  },
+  "scripts/bench-display-ack-drain.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-display-encoding.ts": {
+    "no-known-value-widening": 1,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-e2e-crypto.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-graphics-codec-browser.ts": {
+    "no-runtime-typeof": 1
+  },
+  "scripts/bench-graphics-codec-worker.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-immutable-image.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1
+  },
+  "scripts/bench-kernels-row-geometry.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-kernels-row-geometry.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-keyboard-hotpaths.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-keyboard.ts": {
+    "no-chained-type-assertions": 3,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "scripts/bench-perf-ring.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-reconnect-latency.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-retained-wire-payload-pool.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-terminal-render-readers.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-wasm-font-init.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-wasm-font-style-upgrade.ts": {
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/bench-web-display-link-hover.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-web-display-owned-callback.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-web-display-perf-ring-drain.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-web-display-periodic-paths.ts": {
+    "no-known-value-widening": 2
+  },
+  "scripts/bench-web-display-refresh-estimator.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-web-input-keybinds.ts": {
+    "no-shape-in-symbol-names": 2,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "scripts/bench-web-input-keystroke.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/bench-web-input-keystroke.ts": {
+    "no-chained-type-assertions": 3,
+    "no-known-value-widening": 3,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 7
+  },
+  "scripts/bench-web-input-v8-entry.ts": {
+    "no-shape-in-symbol-names": 2,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/bench-webgl-fence-cadence.ts": {
+    "no-runtime-typeof": 1
+  },
+  "scripts/bench-webgpu-row-diff.ts": {
+    "no-object-parameters": 6,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/bench-webgpu-terminal.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1
+  },
+  "scripts/bench-webtransport-frame-parser.test.ts": {
+    "no-runtime-typeof": 9,
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/build-daemon-artifacts.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 5
+  },
+  "scripts/build-daemon-dist.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/build-daemon-dist.ts": {
+    "no-known-value-widening": 3
+  },
+  "scripts/build-keyboard-bigram.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/build-web.ts": {
+    "no-manual-tag-comparison": 1
+  },
+  "scripts/check-dead.ts": {
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/check-docs.test.ts": {
+    "no-known-value-widening": 2
+  },
+  "scripts/check-docs.ts": {
+    "no-array-filter-map": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 5
+  },
+  "scripts/check-ratchet.test.ts": {
+    "no-unsafe-dictionary-type": 7,
+    "prefer-effect-match": 1
+  },
+  "scripts/check-ratchet.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 9
+  },
+  "scripts/ci-plan.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/ci/provision-ledger.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/deployment-signature.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/dev-doctor.ts": {
+    "no-manual-tag-comparison": 5,
+    "no-runtime-typeof": 6
+  },
+  "scripts/dev-environment.ts": {
+    "no-known-value-widening": 1,
+    "prefer-effect-match": 1
+  },
+  "scripts/dev-server-env.ts": {
+    "no-unknown-parameters": 1
+  },
+  "scripts/doc-drift.ts": {
+    "no-array-filter-map": 2
+  },
+  "scripts/dragonfly-container.ts": {
+    "no-known-value-widening": 3,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/e2e-wasm-entry-points.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/e2e-web-artifacts.ts": {
+    "no-runtime-typeof": 1
+  },
+  "scripts/edge-entrypoint.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/edge-fly-config.ts": {
+    "no-runtime-typeof": 5,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "scripts/edge-harness-native-artifacts.test.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/edge-harness-native-artifacts.ts": {
+    "no-runtime-typeof": 12,
+    "no-unknown-parameters": 6,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "scripts/edge-network-control.test.ts": {
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/edge-network-control.ts": {
+    "no-unknown-parameters": 1
+  },
+  "scripts/edge-network-profile.ts": {
+    "no-conditional-empty-object-spread": 3,
+    "no-known-value-widening": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/edge-network-stats.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 11,
+    "no-unknown-parameters": 18,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 53
+  },
+  "scripts/extract-touch-residuals.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/fuzz-tests.ts": {
+    "no-runtime-typeof": 1
+  },
+  "scripts/gate-policy.ts": {
+    "no-runtime-typeof": 1
+  },
+  "scripts/generate-cli-orb.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/generate-docs.test.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/generate-docs.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 3,
+    "no-manual-tag-comparison": 2,
+    "no-runtime-typeof": 6,
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/generate-third-party-notices.ts": {
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "scripts/generated-cargo-workspace.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 3,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/keyboard-accuracy-simulator.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/keyboard-decoder-lab.ts": {
+    "no-conditional-empty-object-spread": 4,
+    "no-known-value-widening": 1
+  },
+  "scripts/perf/client-session-fixture.ts": {
+    "no-known-value-widening": 1,
+    "no-object-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/perf/client-session-oracle-test-fixture.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/perf/client-session-oracle.ts": {
+    "no-runtime-typeof": 8,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "scripts/perf/completion-observer-worker.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/perf/criterion.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/perf/harness.ts": {
+    "no-array-filter-map": 2,
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 40,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 1
+  },
+  "scripts/perf/historical-webgl.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/perf/immutable-image-worker.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1
+  },
+  "scripts/perf/paired-tail.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/perf/render-admission-browser-worker.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/perf/replay-native-packing.test.ts": {
+    "no-shape-in-symbol-names": 3
+  },
+  "scripts/perf/replay-native-packing.ts": {
+    "no-known-value-widening": 1,
+    "no-shape-in-symbol-names": 5
+  },
+  "scripts/perf/report-io.ts": {
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 5,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/perf/row-layout-worker.ts": {
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/perf/webgl-fence-cadence-worker.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1
+  },
+  "scripts/perf/webgpu-renderer-benchmark.ts": {
+    "no-object-parameters": 2,
+    "no-reflect-apply": 1,
+    "no-reflect-get": 1,
+    "no-runtime-typeof": 5,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/perf/webgpu-terminal-renderer.ts": {
+    "no-runtime-typeof": 5,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/perf/webgpu-terminal-worker.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1
+  },
+  "scripts/prepare-client-session-oracle.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/profile-project.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/profile-project.ts": {
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 1,
+    "no-shape-in-symbol-names": 2,
+    "no-unknown-parameters": 2,
+    "prefer-effect-match": 1
+  },
+  "scripts/run-auth-continue-rate-limit-benchmark.ts": {
+    "no-conditional-empty-object-spread": 2
+  },
+  "scripts/run-edge-harness.test.ts": {
+    "no-known-value-widening": 3,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/run-edge-harness.ts": {
+    "no-conditional-empty-object-spread": 1
+  },
+  "scripts/run-edge-topology-harness.ts": {
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/run-ios-webkit-harness.ts": {
+    "no-runtime-typeof": 5,
+    "no-unknown-parameters": 3,
+    "no-unknown-returns": 3,
+    "require-safety-comment-for-type-assertion": 6
+  },
+  "scripts/run-keyboard-decoder-lab.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "scripts/run-keyboard-replay.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "prefer-effect-match": 1
+  },
+  "scripts/run-relay-keystroke-packets.ts": {
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/run-rust-tests.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/run-session-issuance-benchmark.ts": {
+    "no-conditional-empty-object-spread": 2
+  },
+  "scripts/run-session-start-benchmark.ts": {
+    "no-conditional-empty-object-spread": 4,
+    "no-known-value-widening": 1
+  },
+  "scripts/run-terminal-direct-reference.test.ts": {
+    "no-known-value-widening": 2,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/run-terminal-direct-reference.ts": {
+    "comment-temporary": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 5,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/run-terminal-network-matrix.test.ts": {
+    "no-known-value-widening": 6,
+    "no-unsafe-dictionary-type": 10,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "scripts/run-terminal-network-matrix.ts": {
+    "comment-temporary": 3,
+    "no-array-filter-map": 2,
+    "no-known-value-widening": 5,
+    "no-runtime-typeof": 53,
+    "no-shape-in-symbol-names": 2,
+    "no-unknown-parameters": 10,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 10
+  },
+  "scripts/run-terminal-packing-delivery.ts": {
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/run-terminal-redraw-reference.ts": {
+    "no-runtime-typeof": 7,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/secret-scanning.ts": {
+    "no-unknown-parameters": 1
+  },
+  "scripts/select-gates.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 3,
+    "prefer-effect-match": 1
+  },
+  "scripts/sign-release-manifest.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1
+  },
+  "scripts/sim-tests.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/stun-entrypoint.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/term-wasm-pgo.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/term-wasm-provenance.ts": {
+    "no-runtime-typeof": 12,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/test-executables.test.ts": {
+    "no-runtime-typeof": 2
+  },
+  "scripts/test-inert-finalization.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "scripts/test-inventory.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/verification-cache.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "scripts/verification-cache.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 5
+  },
+  "scripts/verification-cargo.ts": {
+    "no-runtime-typeof": 6,
+    "no-unsafe-dictionary-type": 1,
+    "prefer-effect-match": 1
+  },
+  "scripts/verification-executor.ts": {
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1
+  },
+  "scripts/verification-junit.ts": {
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 2
+  },
+  "scripts/wasm-toolchain.ts": {
+    "no-conditional-empty-object-spread": 2,
+    "no-known-value-widening": 1
+  },
+  "scripts/web-build-signature.ts": {
+    "no-runtime-typeof": 2
+  },
+  "spikes/webtransport-ios/worker/drain-worker.ts": {
+    "no-chained-type-assertions": 3,
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 10
+  },
+  "spikes/webtransport-ios/worker/main.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "tests/e2e/auth-cross-tab.e2e.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/auth-email.e2e.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/auth-resilience.e2e.ts": {
+    "no-known-value-widening": 2
+  },
+  "tests/e2e/carrier-rebind.e2e.ts": {
+    "no-reflect-get": 12,
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/client-idle-work.e2e.ts": {
+    "no-chained-type-assertions": 4,
+    "no-known-value-widening": 1,
+    "no-reflect-apply": 1,
+    "no-runtime-typeof": 4,
+    "require-safety-comment-for-type-assertion": 10
+  },
+  "tests/e2e/display-burst-paint.e2e.ts": {
+    "no-chained-type-assertions": 2,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "tests/e2e/edge-handshake-reorder.e2e.ts": {
+    "no-array-filter-map": 1
+  },
+  "tests/e2e/edge-sweep.e2e.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/edge-topology.e2e.ts": {
+    "no-chained-type-assertions": 3,
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "tests/e2e/edge-wt-probe.e2e.ts": {
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/fake-rybbit.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/fixtures/daemon-perf-trace-capture.test.ts": {
+    "no-object-parameters": 2
+  },
+  "tests/e2e/fixtures/daemon-perf-trace-capture.ts": {
+    "no-runtime-typeof": 4,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tests/e2e/fixtures/daemon-process.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tests/e2e/fixtures/daemon-transport-capture.ts": {
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tests/e2e/fixtures/direct-cdp-trace.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-unknown-parameters": 1
+  },
+  "tests/e2e/fixtures/direct-cdp-trace.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 2,
+    "no-unknown-returns": 4,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tests/e2e/fixtures/direct-frame-control.ts": {
+    "no-array-filter-map": 1
+  },
+  "tests/e2e/fixtures/direct-neovim-transactions.test.ts": {
+    "no-conditional-empty-object-spread": 3,
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/fixtures/direct-neovim-transactions.ts": {
+    "no-array-filter-map": 3
+  },
+  "tests/e2e/fixtures/direct-network-proxy.test.ts": {
+    "no-object-parameters": 1
+  },
+  "tests/e2e/fixtures/direct-network-proxy.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/fixtures/direct-reference-events.ts": {
+    "no-array-filter-map": 2,
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 5,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/fixtures/direct-segmented-redraw.test.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tests/e2e/fixtures/direct-segmented-redraw.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tests/e2e/fixtures/direct-tui-workloads.test.ts": {
+    "no-unknown-returns": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/fixtures/direct-tui-workloads.ts": {
+    "no-array-filter-map": 1,
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/fixtures/direct-typing-populations.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/fixtures/direct-typing-populations.ts": {
+    "no-array-filter-map": 3,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/fixtures/graphics-typing-batch.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/fixtures/grid-convergence-failure.ts": {
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/fixtures/headless-client.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/fixtures/packing-delivery-inputs.ts": {
+    "prefer-effect-match": 1
+  },
+  "tests/e2e/fixtures/packing-delivery-provenance.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tests/e2e/fixtures/packing-delivery-query.ts": {
+    "no-runtime-typeof": 8,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tests/e2e/fixtures/packing-delivery-workload.test.ts": {
+    "no-shape-in-symbol-names": 5
+  },
+  "tests/e2e/fixtures/packing-delivery-workload.ts": {
+    "no-shape-in-symbol-names": 20
+  },
+  "tests/e2e/fixtures/presentation-measurement-boundary.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/fixtures/presentation-measurement-boundary.ts": {
+    "no-chained-type-assertions": 3,
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 5,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 7
+  },
+  "tests/e2e/fixtures/reference-redraw-content.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/fixtures/reference-render-content.ts": {
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/fixtures/terminal-perf-artifacts.test.ts": {
+    "no-chained-type-assertions": 2,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 5
+  },
+  "tests/e2e/fixtures/terminal-perf-artifacts.ts": {
+    "no-chained-type-assertions": 2,
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 14,
+    "no-unknown-parameters": 9,
+    "no-unsafe-dictionary-type": 15,
+    "require-safety-comment-for-type-assertion": 7
+  },
+  "tests/e2e/fixtures/terminal-perf-replay.ts": {
+    "no-conditional-empty-object-spread": 2,
+    "no-known-value-widening": 2,
+    "no-object-parameters": 1,
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 7,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/fixtures/terminal-redraw-reference.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 5,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/fixtures/test.ts": {
+    "no-chained-type-assertions": 4,
+    "no-conditional-empty-object-spread": 2,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 21,
+    "no-unknown-parameters": 3,
+    "no-unknown-returns": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 17
+  },
+  "tests/e2e/fixtures/transport-worker-prelude.test.ts": {
+    "no-chained-type-assertions": 4,
+    "require-safety-comment-for-type-assertion": 8
+  },
+  "tests/e2e/fixtures/tui-redraw-census.ts": {
+    "no-runtime-typeof": 9,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tests/e2e/fixtures/webgpu-identity.ts": {
+    "no-reflect-get": 1,
+    "no-runtime-typeof": 1
+  },
+  "tests/e2e/global-setup.ts": {
+    "no-runtime-typeof": 3
+  },
+  "tests/e2e/ios-webkit-startup.e2e.ts": {
+    "no-runtime-typeof": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/network-handover.e2e.ts": {
+    "no-runtime-typeof": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/playwright-edge-config.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/runtime-files.ts": {
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tests/e2e/site-blog.e2e.ts": {
+    "no-chained-type-assertions": 4,
+    "no-shape-in-symbol-names": 12,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "tests/e2e/site.e2e.ts": {
+    "no-chained-type-assertions": 2,
+    "no-known-value-widening": 1,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 13
+  },
+  "tests/e2e/start-server.ts": {
+    "no-known-value-widening": 3
+  },
+  "tests/e2e/startup-latency.e2e.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/terminal-cursor-motion.e2e.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 2,
+    "no-shape-in-symbol-names": 12,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/terminal-direct-latency.e2e.ts": {
+    "no-array-filter-map": 2,
+    "no-known-value-widening": 13,
+    "no-runtime-typeof": 2,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tests/e2e/terminal-direct-reference.e2e.ts": {
+    "no-known-value-widening": 2,
+    "no-reflect-get": 10,
+    "no-runtime-typeof": 13,
+    "no-unknown-parameters": 4,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/terminal-e2e-helpers.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/terminal-geometry-matrix.e2e.ts": {
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/terminal-graphics.e2e.ts": {
+    "comment-temporary": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/terminal-links.e2e.ts": {
+    "no-known-value-widening": 1
+  },
+  "tests/e2e/terminal-packing-delivery.e2e.ts": {
+    "no-known-value-widening": 2,
+    "no-shape-in-symbol-names": 19
+  },
+  "tests/e2e/terminal-performance-matrix.e2e.ts": {
+    "no-array-filter-map": 1,
+    "no-known-value-widening": 2,
+    "no-unknown-parameters": 5,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tests/e2e/terminal-redraw-reference.e2e.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tests/e2e/tui-headless.e2e.ts": {
+    "no-runtime-typeof": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tests/e2e/wait-edge-registration.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tests/helpers/lifecycle-clock.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/brotli-build.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/bun/brotli-build.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 5,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 5,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/bun/build-isolation.test.ts": {
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/build.ts": {
+    "no-runtime-typeof": 4
+  },
+  "tools/bazel/bun/bun-runtime-build-native.test.ts": {
+    "no-known-value-widening": 2,
+    "no-unsafe-dictionary-type": 2
+  },
+  "tools/bazel/bun/bun-runtime-build-native.ts": {
+    "no-chained-type-assertions": 6,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 20,
+    "no-unknown-parameters": 4,
+    "no-unknown-returns": 4,
+    "no-unsafe-dictionary-type": 7,
+    "require-safety-comment-for-type-assertion": 14
+  },
+  "tools/bazel/bun/bun-runtime-build.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 11,
+    "no-unknown-returns": 2,
+    "no-unsafe-dictionary-type": 4,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/bun/compiler-inventory.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-unknown-parameters": 1
+  },
+  "tools/bazel/bun/compiler-inventory.ts": {
+    "no-conditional-empty-object-spread": 2,
+    "no-runtime-typeof": 12,
+    "no-unknown-parameters": 5,
+    "no-unsafe-dictionary-type": 6,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/bun/configuration-runtime.test.ts": {
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/declared-tools.test.ts": {
+    "no-runtime-typeof": 2
+  },
+  "tools/bazel/bun/environment-files.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 1
+  },
+  "tools/bazel/bun/frontend-source-provider.test.ts": {
+    "no-known-value-widening": 1,
+    "no-reflect-apply": 3,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 8,
+    "no-unknown-returns": 2,
+    "prefer-effect-match": 2,
+    "require-safety-comment-for-type-assertion": 7
+  },
+  "tools/bazel/bun/frontend-source-provider.ts": {
+    "no-runtime-typeof": 7,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/import-inventory.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/bun/module-requests.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 18,
+    "no-unknown-parameters": 26,
+    "no-unknown-returns": 2,
+    "no-unsafe-dictionary-type": 16,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/nested-cwd.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/bun/npm-attribution.test.ts": {
+    "no-conditional-empty-object-spread": 2,
+    "no-known-value-widening": 1,
+    "no-shape-in-symbol-names": 2,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/npm-attribution.ts": {
+    "no-runtime-typeof": 34,
+    "no-unknown-parameters": 8,
+    "no-unsafe-dictionary-type": 17,
+    "require-safety-comment-for-type-assertion": 11
+  },
+  "tools/bazel/bun/npm-publisher-notices.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/owned-files.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/bun/package-oracle.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/bun/prepare-oracle-cli.ts": {
+    "comment-temporary": 1,
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/bun/prepare-oracle.test.ts": {
+    "no-conditional-empty-object-spread": 1
+  },
+  "tools/bazel/bun/public-release-context.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 4
+  },
+  "tools/bazel/bun/rolldown-glue.ts": {
+    "no-runtime-typeof": 14,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/bun/rolldown-native-transform-origin.test.ts": {
+    "no-unknown-parameters": 5,
+    "no-unknown-returns": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/bun/rolldown-package-runtime.test.ts": {
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/rolldown-package-runtime.ts": {
+    "no-runtime-typeof": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/bun/test-closure.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/bun/vite-preload-generator.test.ts": {
+    "no-runtime-typeof": 2
+  },
+  "tools/bazel/bun/vite-preload-generator.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/bun/vite-runtime.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/bun/vite-source-build.test.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/bun/vite-source-build.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 9,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/ci/simulation-artifacts.test.ts": {
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/ci/simulation-artifacts.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/credentials/buildbuddy.ts": {
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 1
+  },
+  "tools/bazel/packaging/ci-admission.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/packaging/ci-artifact-staging.test.ts": {
+    "no-conditional-empty-object-spread": 3,
+    "no-unknown-parameters": 1,
+    "prefer-effect-match": 1
+  },
+  "tools/bazel/packaging/ci-evidence.test.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/packaging/ci-evidence.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1
+  },
+  "tools/bazel/packaging/ci-preparation.test.ts": {
+    "no-chained-type-assertions": 1,
+    "no-runtime-typeof": 1,
+    "prefer-effect-match": 4,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/packaging/ci-preparation.ts": {
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 2,
+    "no-unknown-returns": 1
+  },
+  "tools/bazel/packaging/configured-artifacts.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 2
+  },
+  "tools/bazel/packaging/configured-artifacts.ts": {
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/packaging/evidence-fixture.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/packaging/release-staging-integration.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/packaging/release-staging.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/packaging/release-staging.ts": {
+    "no-known-value-widening": 2
+  },
+  "tools/bazel/packaging/shipping-evidence.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/packaging/shipping-evidence.ts": {
+    "no-runtime-typeof": 19,
+    "no-unknown-parameters": 5,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/rust/acquire/runner.ts": {
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 5,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/rust/shear.ts": {
+    "no-array-filter-map": 2,
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 4,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/rust/sim_runner.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 2
+  },
+  "tools/bazel/tools/engine/engine.test.ts": {
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/tools/linux-sdk-tools.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/tools/native/darwin-provider.test.ts": {
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/tools/native/python.test.ts": {
+    "no-runtime-typeof": 4,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/tools/node.test.ts": {
+    "no-runtime-typeof": 4,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/action-inputs.ts": {
+    "no-runtime-typeof": 11,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 26,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/artifacts.test.ts": {
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/artifacts.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 9,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 4
+  },
+  "tools/bazel/verification/audit-controller.test.ts": {
+    "no-reflect-apply": 2,
+    "no-reflect-get": 5,
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/verification/bazel-development.test.ts": {
+    "no-known-value-widening": 1,
+    "no-reflect-get": 1
+  },
+  "tools/bazel/verification/bazel-engine.test.ts": {
+    "no-known-value-widening": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/bazel-engine.ts": {
+    "no-chained-type-assertions": 2,
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 19,
+    "no-unknown-parameters": 4,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 5,
+    "require-safety-comment-for-type-assertion": 9
+  },
+  "tools/bazel/verification/bazel-simulation-integration.test.ts": {
+    "no-reflect-get": 1
+  },
+  "tools/bazel/verification/captured-source.ts": {
+    "no-runtime-typeof": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/cli-publication.test.ts": {
+    "no-reflect-get": 3,
+    "no-runtime-typeof": 2,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/cli.ts": {
+    "comment-temporary": 1,
+    "no-array-filter-map": 2,
+    "no-conditional-empty-object-spread": 28,
+    "no-known-value-widening": 3,
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/verification/concurrent-commands.ts": {
+    "no-runtime-typeof": 11,
+    "no-unknown-parameters": 4,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/verification/configured-catalog.test.ts": {
+    "no-unknown-parameters": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/verification/configured-catalog.ts": {
+    "no-array-filter-map": 1,
+    "no-conditional-empty-object-spread": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 7,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 2,
+    "prefer-effect-match": 1
+  },
+  "tools/bazel/verification/configured-inputs.test.ts": {
+    "prefer-effect-match": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/configured-kinds.ts": {
+    "no-runtime-typeof": 8,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/controller.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/coverage.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/verification/dev-stack.test.ts": {
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/verification/dev-stack.ts": {
+    "no-conditional-empty-object-spread": 2,
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 13,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 2,
+    "require-safety-comment-for-type-assertion": 5
+  },
+  "tools/bazel/verification/docs.ts": {
+    "no-unknown-parameters": 1
+  },
+  "tools/bazel/verification/dragonfly-runtime-qualification.test.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/verification/dragonfly-runtime.ts": {
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/engine-catalog.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 2
+  },
+  "tools/bazel/verification/engine-process.ts": {
+    "no-conditional-empty-object-spread": 3,
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 2
+  },
+  "tools/bazel/verification/events.test.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/events.ts": {
+    "no-runtime-typeof": 14,
+    "no-unknown-parameters": 2,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/executor-policy.test.ts": {
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/verification/executor-policy.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 5,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "tools/bazel/verification/format.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/verification/front-end.ts": {
+    "no-conditional-empty-object-spread": 1,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 2,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/git-context.ts": {
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/git-inputs.ts": {
+    "no-known-value-widening": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/loading-inputs.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/verification/loading-inputs.ts": {
+    "no-runtime-typeof": 5
+  },
+  "tools/bazel/verification/plan-cache.ts": {
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 1,
+    "no-unknown-returns": 1
+  },
+  "tools/bazel/verification/qualifications.ts": {
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/ratchet-policy.ts": {
+    "no-runtime-typeof": 10,
+    "no-unknown-parameters": 2,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/ratchet.ts": {
+    "comment-temporary": 3,
+    "no-array-filter-map": 1
+  },
+  "tools/bazel/verification/real-helper.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 3,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/report.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/verification/report.ts": {
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/verification/revocation-git.test.ts": {
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/verification/revocation-git.ts": {
+    "no-known-value-widening": 1
+  },
+  "tools/bazel/verification/revocation-inputs.test.ts": {
+    "no-array-filter-map": 1
+  },
+  "tools/bazel/verification/revocation.ts": {
+    "no-known-value-widening": 4,
+    "no-runtime-typeof": 2,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/sanitize.ts": {
+    "no-array-filter-map": 1,
+    "no-conditional-empty-object-spread": 4,
+    "no-known-value-widening": 2,
+    "no-runtime-typeof": 1,
+    "no-unknown-parameters": 5,
+    "no-unsafe-dictionary-type": 2
+  },
+  "tools/bazel/verification/simulation-outputs.test.ts": {
+    "no-known-value-widening": 2,
+    "no-unsafe-dictionary-type": 3
+  },
+  "tools/bazel/verification/simulation-outputs.ts": {
+    "no-runtime-typeof": 6,
+    "no-unknown-parameters": 3,
+    "no-unsafe-dictionary-type": 5
+  },
+  "tools/bazel/verification/snapshot.ts": {
+    "no-runtime-typeof": 11,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/source-tree.ts": {
+    "comment-temporary": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 4,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/verification/staged-gates.ts": {
+    "no-runtime-typeof": 8,
+    "no-unknown-returns": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 4
+  },
+  "tools/bazel/verification/static-sources.ts": {
+    "comment-temporary": 1,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
+  },
+  "tools/bazel/verification/tpm-runtime.test.ts": {
+    "prefer-effect-match": 1
+  },
+  "tools/bazel/verification/tpm-runtime.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 1,
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/verification/workflow-selection.test.ts": {
+    "no-chained-type-assertions": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/verification/workflow-selection.ts": {
+    "no-runtime-typeof": 1
+  },
+  "tools/bazel/wasm/frontend-check.ts": {
+    "no-runtime-typeof": 3,
+    "no-unsafe-dictionary-type": 3,
+    "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/wasm/input-tree.ts": {
+    "no-runtime-typeof": 2
+  },
+  "tools/bazel/wasm/package.ts": {
+    "no-runtime-typeof": 5,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/wasm/project-sources.ts": {
+    "no-runtime-typeof": 4,
+    "no-unknown-parameters": 6,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 1
+  },
+  "tools/bazel/wasm/train-profile.ts": {
+    "no-chained-type-assertions": 1,
+    "no-known-value-widening": 1,
+    "require-safety-comment-for-type-assertion": 2
+  },
+  "tools/bazel/wasm/wasm-test.test.ts": {
+    "require-safety-comment-for-type-assertion": 1
+  }
+}

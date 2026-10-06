@@ -1,0 +1,4 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["original.json", "repositories.bzl", "rules.bzl", "build.py", "control.py", "unicode-source.py"])
+filegroup(name = "verification_inputs", srcs = glob(["*.py", "*.json", "*.bzl", "*.md", "BUILD.bazel"]))

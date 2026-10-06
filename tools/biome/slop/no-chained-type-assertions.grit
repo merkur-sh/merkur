@@ -1,0 +1,40 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// An assertion whose operand, through parentheses, is another assertion. The outermost assertion
+// of the chain is reported once; a chain made only of `as const` is left alone.
+//
+// GritQL patterns cannot recurse here (Biome 2.5.10 overflows its stack), so parentheses are
+// followed two deep and the all-`const` exemption three assertions deep.
+
+pattern through_parens($inner) {
+  or {
+    $inner,
+    JsParenthesizedExpression(expression=$inner),
+    JsParenthesizedExpression(expression=JsParenthesizedExpression(expression=$inner))
+  }
+}
+
+pattern assertion_of($operand, $asserted) {
+  or {
+    TsAsExpression(expression=$operand, ty=$asserted),
+    TsTypeAssertionExpression(expression=$operand, ty=$asserted)
+  }
+}
+
+// The query names node kinds directly: a pattern call there is run against every node of the file.
+or {
+  TsAsExpression(expression=$operand, ty=$asserted),
+  TsTypeAssertionExpression(expression=$operand, ty=$asserted)
+} as $chain where {
+  $operand <: through_parens(inner=assertion_of(operand=$second_operand, asserted=$second)),
+  or {
+    ! $asserted <: r"const",
+    ! $second <: r"const",
+    $second_operand <: through_parens(inner=assertion_of(operand=$_, asserted=$third)) where {
+      ! $third <: r"const"
+    }
+  },
+  ! $chain <: within assertion_of(operand=through_parens(inner=$chain), asserted=$_) ,
+  register_diagnostic(span=$chain, message="[no-chained-type-assertions] Two assertions in a row erase what the compiler knew about this value. Keep its own type, or decode untrusted input once where it enters and narrow from the decoded result.", severity="error")
+}

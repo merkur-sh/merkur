@@ -1,0 +1,2 @@
+exports_files(["git-context.json", "source-aliases.json", "source-manifest.json", "git-objects.json", "objects.pack"], visibility = ["//visibility:public"])
+filegroup(name = "verification_inputs", srcs = ["BUILD.bazel", "REPO.bazel", "git-context.json", "source-aliases.json", "source-manifest.json", "git-objects.json", "objects.pack"], visibility = ["//visibility:public"])

@@ -1,0 +1,24 @@
+# `merkur-wire`, `merkur-stun-protocol` and `merkur-edge-protocol` deny every panicking form
+# in their `lib.rs`, because they parse bytes an attacker controls. A test that unwraps,
+# indexes or panics fails the test, which is what a test is for.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-panic-in-tests = true
+
+# The timer calls. `clippy::disallowed_methods` is allowed across the workspace
+# (`[workspace.lints.clippy]` in `Cargo.toml`) and denied by the modules on a latency path,
+# each at the head of its own file: there a wait is for the event itself, never for a clock.
+disallowed-methods = [
+  { path = "tokio::time::sleep", reason = "a timer: a latency path waits on the event the delay stands in for" },
+  { path = "tokio::time::sleep_until", reason = "a timer: a latency path waits on the event the delay stands in for" },
+  { path = "tokio::time::interval", reason = "a timer: a latency path waits on the event the tick stands in for" },
+  { path = "tokio::time::interval_at", reason = "a timer: a latency path waits on the event the tick stands in for" },
+  { path = "tokio::time::timeout", reason = "a timer: a latency path waits on the event, not on a bound for it" },
+  { path = "tokio::time::timeout_at", reason = "a timer: a latency path waits on the event, not on a bound for it" },
+  { path = "std::thread::sleep", reason = "a timer: a latency path waits on the event the delay stands in for" },
+  { path = "std::thread::park_timeout", reason = "a timer: a latency path waits on the event, not on a bound for it" },
+  { path = "std::sync::Condvar::wait_timeout", reason = "a timer: a latency path waits on the event, not on a bound for it" },
+  { path = "std::sync::Condvar::wait_timeout_while", reason = "a timer: a latency path waits on the event, not on a bound for it" },
+  { path = "std::sync::mpsc::Receiver::recv_timeout", reason = "a timer: a latency path waits on the event, not on a bound for it" },
+]

@@ -1,0 +1,50 @@
+load(":rules.bzl", "browser_executable")
+load(":burst.bzl", "declare_burst_test")
+load("//tools/bazel/bun:rules.bzl", "bun_test")
+
+package(default_visibility = ["//visibility:public"])
+filegroup(name = "verification_inputs", srcs = glob(["*.bzl", "*.bazel", "*.json", "*.ts"]))
+exports_files(["burst.bzl", "burst.ts", "burst.test.ts"])
+
+declare_burst_test(name = "burst_test")
+bun_test(
+    name = "burst_controls_test",
+    test_files = ["tools/bazel/browser/burst.test.ts"],
+    data = ["burst.ts", "burst.test.ts"],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+)
+
+config_setting(name = "mac_arm64", constraint_values = ["@platforms//os:macos", "@platforms//cpu:aarch64"])
+browser_executable(name = "chromium_mac_arm64", binary = "@chromium_mac_arm64//:chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing", payload = "@chromium_mac_arm64//:payload")
+browser_executable(name = "chromium_headless_shell_mac_arm64", binary = "@chromium_headless_shell_mac_arm64//:chrome-headless-shell-mac-arm64/chrome-headless-shell", payload = "@chromium_headless_shell_mac_arm64//:payload")
+config_setting(name = "mac_x64", constraint_values = ["@platforms//os:macos", "@platforms//cpu:x86_64"])
+browser_executable(name = "chromium_mac_x64", binary = "@chromium_mac_x64//:chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing", payload = "@chromium_mac_x64//:payload")
+browser_executable(name = "chromium_headless_shell_mac_x64", binary = "@chromium_headless_shell_mac_x64//:chrome-headless-shell-mac-x64/chrome-headless-shell", payload = "@chromium_headless_shell_mac_x64//:payload")
+config_setting(name = "linux64", constraint_values = ["@platforms//os:linux", "@platforms//cpu:x86_64"])
+browser_executable(name = "chromium_linux64", binary = "@chromium_linux64//:chrome-linux64/chrome", payload = "@chromium_linux64//:payload")
+browser_executable(name = "chromium_headless_shell_linux64", binary = "@chromium_headless_shell_linux64//:chrome-headless-shell-linux64/chrome-headless-shell", payload = "@chromium_headless_shell_linux64//:payload")
+config_setting(name = "linux_arm64", constraint_values = ["@platforms//os:linux", "@platforms//cpu:aarch64"])
+browser_executable(name = "chromium_linux_arm64", binary = "@chromium_linux_arm64//:chrome-linux/chrome", payload = "@chromium_linux_arm64//:payload")
+browser_executable(name = "chromium_headless_shell_linux_arm64", binary = "@chromium_headless_shell_linux_arm64//:chrome-linux/headless_shell", payload = "@chromium_headless_shell_linux_arm64//:payload")
+alias(name = "chromium", actual = select({":mac_arm64": ":chromium_mac_arm64", ":mac_x64": ":chromium_mac_x64", ":linux64": ":chromium_linux64", ":linux_arm64": ":chromium_linux_arm64"}))
+alias(name = "headless_shell", actual = select({":mac_arm64": ":chromium_headless_shell_mac_arm64", ":mac_x64": ":chromium_headless_shell_mac_x64", ":linux64": ":chromium_headless_shell_linux64", ":linux_arm64": ":chromium_headless_shell_linux_arm64"}))
+
+# Qualification executes the original browser payload; activation remains manual.
+bun_test(
+    name = "runtime_test",
+    test_files = ["tools/bazel/tools/browser-runtime.test.ts"],
+    data = [
+        "//tools/bazel/tools:browser-runtime.test.ts",
+        "//scripts:perf/browser-runtime.ts",
+    ],
+    tools = {
+        ":chromium": "chromium",
+        ":headless_shell": "headless_shell",
+    },
+    tool_environment = {
+        "chromium": "MERKUR_CHROMIUM_EXECUTABLE",
+        "headless_shell": "MERKUR_HEADLESS_SHELL_EXECUTABLE",
+    },
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+    tags = ["manual", "unqualified-browser-runtime"],
+)

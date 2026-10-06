@@ -1,0 +1,102 @@
+[
+  {
+    "name": "title",
+    "bodyHex": "006e76696d20c2b720cebb",
+    "expected": {
+      "kind": "title",
+      "title": "nvim · λ"
+    }
+  },
+  {
+    "name": "reset",
+    "bodyHex": "00",
+    "expected": {
+      "kind": "title",
+      "title": ""
+    }
+  },
+  {
+    "name": "bell",
+    "bodyHex": "01",
+    "expected": {
+      "kind": "bell"
+    }
+  },
+  {
+    "name": "notification",
+    "bodyHex": "020004646f6e65613b623b63",
+    "expected": {
+      "kind": "notification",
+      "title": "done",
+      "body": "a;b;c"
+    }
+  },
+  {
+    "name": "clipboard",
+    "bodyHex": "03637365637265740a1b5b33316d",
+    "expected": {
+      "kind": "clipboard",
+      "selection": "c",
+      "text": "secret\n\u001b[31m"
+    }
+  },
+  {
+    "name": "primary",
+    "bodyHex": "0370",
+    "expected": {
+      "kind": "clipboard",
+      "selection": "p",
+      "text": ""
+    }
+  },
+  {
+    "name": "empty",
+    "bodyHex": "",
+    "expected": null
+  },
+  {
+    "name": "unknown",
+    "bodyHex": "04",
+    "expected": null
+  },
+  {
+    "name": "controlTitle",
+    "bodyHex": "00781b5d3532",
+    "expected": null
+  },
+  {
+    "name": "c1Title",
+    "bodyHex": "00c29c",
+    "expected": null
+  },
+  {
+    "name": "bellBody",
+    "bodyHex": "0178",
+    "expected": null
+  },
+  {
+    "name": "truncatedNotification",
+    "bodyHex": "02000878",
+    "expected": null
+  },
+  {
+    "name": "notificationTitleDelimiter",
+    "bodyHex": "0200013b78",
+    "expected": null
+  },
+  {
+    "name": "clipboardRead",
+    "bodyHex": "033f64617461",
+    "expected": null
+  },
+  {
+    "name": "clipboardSelection",
+    "bodyHex": "037364617461",
+    "expected": null
+  },
+  {
+    "name": "invalidUtf8",
+    "bodyHex": "00ff",
+    "expected": null
+  }
+]

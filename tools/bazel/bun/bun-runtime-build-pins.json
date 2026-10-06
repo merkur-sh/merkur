@@ -1,0 +1,263 @@
+{
+  "bun_commit": "744846f844374847c902b5e7fd59b4342a51ef99",
+  "nightly": {
+    "channel": "nightly-2026-07-20",
+    "date": "2026-07-20",
+    "manifest": {
+      "url": "https://static.rust-lang.org/dist/2026-07-20/channel-rust-nightly.toml",
+      "sha256": "1bf70a4f1406732dd79957ccc0d0afc78bdc69cdfa3b5f57857ab56727e05d56"
+    },
+    "components": {
+      "rustc": {
+        "version": "1.99.0-nightly (9f36de775 2026-07-19)",
+        "targets": {
+          "aarch64-apple-darwin": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-aarch64-apple-darwin.tar.xz",
+            "sha256": "d7bae1d1f860fb12cc17c1649136e6be0c3967559f3f4c4e22455efb8cb6435e"
+          },
+          "aarch64-unknown-linux-gnu": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-aarch64-unknown-linux-gnu.tar.xz",
+            "sha256": "93158a3c5c8fa18b0bd10f52b0511a9bafa670b6333268ee42e41f289e6ac708"
+          },
+          "x86_64-apple-darwin": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-x86_64-apple-darwin.tar.xz",
+            "sha256": "58d46f8aca3343b1210e4a5e8d2d8b1299cccf41365002557c20a9e85c57c33e"
+          },
+          "x86_64-unknown-linux-gnu": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz",
+            "sha256": "a0e461ac8f2ec75b38cd9590188db2d90e0acde3279434194a0ecebd7c099fa0"
+          }
+        }
+      },
+      "cargo": {
+        "version": "0.100.0-nightly (3efb1f477 2026-07-17)",
+        "targets": {
+          "aarch64-apple-darwin": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-aarch64-apple-darwin.tar.xz",
+            "sha256": "1f52e7439b9a5d79e153c86979b1e859b3180b69454520ab4e9c7f618b6905d0"
+          },
+          "aarch64-unknown-linux-gnu": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-aarch64-unknown-linux-gnu.tar.xz",
+            "sha256": "fd53e13dd63638d59d8c43f40da60b0650551916c3c70f3f16f7eca0f72fec25"
+          },
+          "x86_64-apple-darwin": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-x86_64-apple-darwin.tar.xz",
+            "sha256": "7db4bdaa3734e0a26d914641b5dfd3336d2d71253866c51085e0577bf4eb03ac"
+          },
+          "x86_64-unknown-linux-gnu": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz",
+            "sha256": "4e5500fc62034d3b42450a921f408ee9e4aacd5e6de52a78fd736d6215889a38"
+          }
+        }
+      },
+      "rust-std": {
+        "version": "1.99.0-nightly (9f36de775 2026-07-19)",
+        "targets": {
+          "aarch64-apple-darwin": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-aarch64-apple-darwin.tar.xz",
+            "sha256": "26e71f6c916374821d05d7d3b9c4f80430228d834d4fea7dd91330c62f1884de"
+          },
+          "aarch64-unknown-linux-gnu": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-aarch64-unknown-linux-gnu.tar.xz",
+            "sha256": "997c94ea0fecc7ce95d212030cba2772cbed34fdb348ce15def6bedb645d0fb3"
+          },
+          "x86_64-apple-darwin": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-x86_64-apple-darwin.tar.xz",
+            "sha256": "10bf53acde39c9935b3c4a46a6fb7867c999b811f0eaf4ed0b6d72d7b304221b"
+          },
+          "x86_64-unknown-linux-gnu": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz",
+            "sha256": "4b746e74f07cc3e3a16e1c0d367183eb5ca5374d6e87b9ab2002bbd463b3f8f0"
+          }
+        }
+      },
+      "rust-src": {
+        "version": "1.99.0-nightly (9f36de775 2026-07-19)",
+        "targets": {
+          "*": {
+            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-src-nightly.tar.xz",
+            "sha256": "d4ffe57cc99d8846761bdbefc631bfd8f06fc001d7208576887e381c5709341a"
+          }
+        }
+      }
+    }
+  },
+  "llvm": {
+    "version": "21.1.8",
+    "source": {
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/llvm-project-21.1.8.src.tar.xz",
+      "sha256": "4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142",
+      "prefix": "llvm-project-21.1.8.src"
+    }
+  },
+  "dependencies": {
+    "picohttpparser": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/h2o/picohttpparser/tar.gz/066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+      "original_url": "https://github.com/h2o/picohttpparser/archive/066d2b1e9ab820703db0837a7255d92d30f0c9f5.tar.gz",
+      "sha256": "637ff2ab6f5c7f7e05a5b5dc393d5cf2fea8d4754fcaceaaf935ffff5c1323ee",
+      "revision": "066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+      "repository": "h2o/picohttpparser"
+    },
+    "nodejs": {
+      "kind": "prebuilt",
+      "url": "https://nodejs.org/dist/v26.3.0/node-v26.3.0-headers.tar.gz",
+      "original_url": "https://nodejs.org/dist/v26.3.0/node-v26.3.0-headers.tar.gz",
+      "sha256": "fca113c5d5add8bfb1aa31129a24acb8d49aa69ab3c22a2cc569aec88960526d",
+      "revision": null,
+      "repository": null
+    },
+    "zlib": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/zlib-ng/zlib-ng/tar.gz/12731092979c6d07f42da27da673a9f6c7b13586",
+      "original_url": "https://github.com/zlib-ng/zlib-ng/archive/12731092979c6d07f42da27da673a9f6c7b13586.tar.gz",
+      "sha256": "a0d2a5d122c84b56a793a1553a9c3327fb2eb7469bf7a86b79e3c7be5d92e8d6",
+      "revision": "12731092979c6d07f42da27da673a9f6c7b13586",
+      "repository": "zlib-ng/zlib-ng"
+    },
+    "zstd": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/facebook/zstd/tar.gz/f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "original_url": "https://github.com/facebook/zstd/archive/f8745da6ff1ad1e7bab384bd1f9d742439278e99.tar.gz",
+      "sha256": "4b0bd1f0cfb25e61b9103c35f27395530ff5b4c0d2513a00fd745849e85ea52c",
+      "revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "repository": "facebook/zstd"
+    },
+    "brotli": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/google/brotli/tar.gz/v1.1.0",
+      "original_url": "https://github.com/google/brotli/archive/v1.1.0.tar.gz",
+      "sha256": "e720a6ca29428b803f4ad165371771f5398faba397edf6778837a18599ea13ff",
+      "revision": "v1.1.0",
+      "repository": "google/brotli"
+    },
+    "libdeflate": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/ebiggers/libdeflate/tar.gz/c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+      "original_url": "https://github.com/ebiggers/libdeflate/archive/c8c56a20f8f621e6a966b716b31f1dedab6a41e3.tar.gz",
+      "sha256": "1e5cc06bdbf3e1245d8b89c9e3588f507e3c8bc53fe8b8229770a9e8661dea81",
+      "revision": "c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+      "repository": "ebiggers/libdeflate"
+    },
+    "libarchive": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/libarchive/libarchive/tar.gz/ded82291ab41d5e355831b96b0e1ff49e24d8939",
+      "original_url": "https://github.com/libarchive/libarchive/archive/ded82291ab41d5e355831b96b0e1ff49e24d8939.tar.gz",
+      "sha256": "042f0efe7147063ff9ba10f1a38ed080e949bcbd04bdbf3592b8846dd11b1da2",
+      "revision": "ded82291ab41d5e355831b96b0e1ff49e24d8939",
+      "repository": "libarchive/libarchive"
+    },
+    "libjpeg-turbo": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/tar.gz/e352b02f794f701407b39af08576035ba3360d60",
+      "original_url": "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/e352b02f794f701407b39af08576035ba3360d60.tar.gz",
+      "sha256": "440f3a94390c78eab88f74b92944d2f6b248e592e984412e389885dfb5796bf0",
+      "revision": "e352b02f794f701407b39af08576035ba3360d60",
+      "repository": "libjpeg-turbo/libjpeg-turbo"
+    },
+    "libspng": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/randy408/libspng/tar.gz/fb768002d4288590083a476af628e51c3f1d47cd",
+      "original_url": "https://github.com/randy408/libspng/archive/fb768002d4288590083a476af628e51c3f1d47cd.tar.gz",
+      "sha256": "d656813290d70a750b69e768323ff3b3875adf8c2e8c2fdb4e57ca1467abf86a",
+      "revision": "fb768002d4288590083a476af628e51c3f1d47cd",
+      "repository": "randy408/libspng"
+    },
+    "libwebp": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/webmproject/libwebp/tar.gz/b7e29b9d75bd31422b00c2a446d49d7af06c328d",
+      "original_url": "https://github.com/webmproject/libwebp/archive/b7e29b9d75bd31422b00c2a446d49d7af06c328d.tar.gz",
+      "sha256": "76fb89b4454ff2161bb0cca2cf832e19b8b4001b0ef42fbcc2b4a437c945b2b6",
+      "revision": "b7e29b9d75bd31422b00c2a446d49d7af06c328d",
+      "repository": "webmproject/libwebp"
+    },
+    "cares": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/c-ares/c-ares/tar.gz/c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab",
+      "original_url": "https://github.com/c-ares/c-ares/archive/c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab.tar.gz",
+      "sha256": "c9ea1b3029b23b04376c229bd519489cee180874ec48cd863a5dcba628c0fe03",
+      "revision": "c7a3138dcfe3bb0eaaf10c0c24c36dc66dc790ab",
+      "repository": "c-ares/c-ares"
+    },
+    "hdrhistogram": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/HdrHistogram/HdrHistogram_c/tar.gz/be60a9987ee48d0abf0d7b6a175bad8d6c1585d1",
+      "original_url": "https://github.com/HdrHistogram/HdrHistogram_c/archive/be60a9987ee48d0abf0d7b6a175bad8d6c1585d1.tar.gz",
+      "sha256": "811c5e5ae5303a75ade50688880af6aad5d2f951ec5785f68186bd18635cdfc9",
+      "revision": "be60a9987ee48d0abf0d7b6a175bad8d6c1585d1",
+      "repository": "HdrHistogram/HdrHistogram_c"
+    },
+    "highway": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/google/highway/tar.gz/2607d3b5b0113992fe84d3848859eae13b3b52c1",
+      "original_url": "https://github.com/google/highway/archive/2607d3b5b0113992fe84d3848859eae13b3b52c1.tar.gz",
+      "sha256": "741d705781e0b3e406beda8f1f994fbae01321237ce8023a1ad90fbaf7940c25",
+      "revision": "2607d3b5b0113992fe84d3848859eae13b3b52c1",
+      "repository": "google/highway"
+    },
+    "lolhtml": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/oven-sh/lol-html/tar.gz/725ce499aa9b71e38b7a2d0a9fbb6d7294a4079e",
+      "original_url": "https://github.com/oven-sh/lol-html/archive/725ce499aa9b71e38b7a2d0a9fbb6d7294a4079e.tar.gz",
+      "sha256": "afd83edbe1a2d4accb72e869cd4218bb8665fda2b7cb2c5106fc4be80001a748",
+      "revision": "725ce499aa9b71e38b7a2d0a9fbb6d7294a4079e",
+      "repository": "oven-sh/lol-html"
+    },
+    "rust-argon2": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/sru-systems/rust-argon2/tar.gz/ed81866f163f0c7026aa6fd8388adf37242eb32a",
+      "original_url": "https://github.com/sru-systems/rust-argon2/archive/ed81866f163f0c7026aa6fd8388adf37242eb32a.tar.gz",
+      "sha256": "e77c797444f191faf488d49c76c4f45c10b3d9275e0364ee10b6d05cfbe57baf",
+      "revision": "ed81866f163f0c7026aa6fd8388adf37242eb32a",
+      "repository": "sru-systems/rust-argon2"
+    },
+    "lshpack": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/litespeedtech/ls-hpack/tar.gz/8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+      "original_url": "https://github.com/litespeedtech/ls-hpack/archive/8905c024b6d052f083a3d11d0a169b3c2735c8a1.tar.gz",
+      "sha256": "07d8bf901bb1b15543f38eabd23938519e1210eebadb52f3d651d6ef130ef973",
+      "revision": "8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+      "repository": "litespeedtech/ls-hpack"
+    },
+    "lsqpack": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/litespeedtech/ls-qpack/tar.gz/1e9c5b8e59f8161c54f168a570c8bfdc59ded0c3",
+      "original_url": "https://github.com/litespeedtech/ls-qpack/archive/1e9c5b8e59f8161c54f168a570c8bfdc59ded0c3.tar.gz",
+      "sha256": "e9d8abe5b7c1e35b9908a9521e2acd7c1d17547babc01d73c7297e02aebbcc2d",
+      "revision": "1e9c5b8e59f8161c54f168a570c8bfdc59ded0c3",
+      "repository": "litespeedtech/ls-qpack"
+    },
+    "mimalloc": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/oven-sh/mimalloc/tar.gz/6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
+      "original_url": "https://github.com/oven-sh/mimalloc/archive/6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a.tar.gz",
+      "sha256": "f36343416ad823dfcca61bd18ad4bb7f0d8814ab77e0fd5ef169f4a9cddeb8b8",
+      "revision": "6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
+      "repository": "oven-sh/mimalloc"
+    },
+    "tinycc": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/oven-sh/tinycc/tar.gz/05f0fafaa3be31e31d7b4b5c17dc60f62c991171",
+      "original_url": "https://github.com/oven-sh/tinycc/archive/05f0fafaa3be31e31d7b4b5c17dc60f62c991171.tar.gz",
+      "sha256": "50750680312923a59fdd36ae41f7091d8e35e51909d0e0b25b0b33ea9534bc08",
+      "revision": "05f0fafaa3be31e31d7b4b5c17dc60f62c991171",
+      "repository": "oven-sh/tinycc"
+    },
+    "boringssl": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/oven-sh/boringssl/tar.gz/41bf9b59c2ebf277a7aa427e1ecad5cc80dd4d4f",
+      "original_url": "https://github.com/oven-sh/boringssl/archive/41bf9b59c2ebf277a7aa427e1ecad5cc80dd4d4f.tar.gz",
+      "sha256": "a5028d5475f1eaf0ad785c18666b330027a923121d601129f4a61e7bfc89a1dd",
+      "revision": "41bf9b59c2ebf277a7aa427e1ecad5cc80dd4d4f",
+      "repository": "oven-sh/boringssl"
+    },
+    "lsquic": {
+      "kind": "github-archive",
+      "url": "https://codeload.github.com/litespeedtech/lsquic/tar.gz/3181911301b1aa4f54c1ed690901abc674ee08fb",
+      "original_url": "https://github.com/litespeedtech/lsquic/archive/3181911301b1aa4f54c1ed690901abc674ee08fb.tar.gz",
+      "sha256": "f8cb90fb327eb91597c23163bf596c0d1882560be35b661d9ba84891cc461735",
+      "revision": "3181911301b1aa4f54c1ed690901abc674ee08fb",
+      "repository": "litespeedtech/lsquic"
+    }
+  }
+}

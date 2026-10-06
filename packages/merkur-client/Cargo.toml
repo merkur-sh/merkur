@@ -1,0 +1,35 @@
+[package]
+name = "merkur-client"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+# The client core: the protocol logic a Merkur client runs between its
+# transport and its terminal, sans-IO. It owns no socket, no clock and no
+# randomness source — the driver hands it events, the time and entropy, and
+# carries out the actions it returns — so the native client and (later) the
+# browser's workers run the same state machine.
+[features]
+default = ["std"]
+std = ["merkur-e2e/std", "merkur-authorization/std", "merkur-wire/std"]
+wasm = ["merkur-e2e/wasm", "merkur-authorization/wasm", "merkur-wire/wasm"]
+
+[dependencies]
+merkur-authorization = { path = "../merkur-authorization", default-features = false }
+merkur-codec = { path = "../merkur-codec" }
+merkur-e2e = { path = "../merkur-e2e", default-features = false }
+merkur-edge-protocol = { path = "../merkur-edge-protocol" }
+merkur-fec = { path = "../merkur-fec" }
+merkur-graphics = { path = "../merkur-graphics" }
+merkur-wire = { path = "../merkur-wire", default-features = false }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same width table the terminal grid lays cells out by, so a prediction
+# never claims a cell the grid would give two.
+unicode-width = "0.2"
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+
+[lints]
+workspace = true

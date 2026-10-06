@@ -1,0 +1,22 @@
+[package]
+name = "wt-echo-server"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "wt-echo-server"
+path = "src/main.rs"
+
+[dependencies]
+wtransport = "0.7"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+base64 = "0.23"
+anyhow = "1"
+
+# Standalone: this empty [workspace] table detaches the crate from the parent
+# Merkur cargo workspace so `cargo check` here is isolated and
+# `bun run rust:check` at the repo root never sees this device harness crate.
+[workspace]

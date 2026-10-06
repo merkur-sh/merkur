@@ -1,0 +1,37 @@
+{
+  "name": "@merkur/server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "dependencies": {
+    "@block65/webcrypto-web-push": "^2.0.0",
+    "@libsql/client": "0.18.0",
+    "@merkur/auth": "workspace:*",
+    "@merkur/config": "workspace:*",
+    "@merkur/daemon-control-protocol": "workspace:*",
+    "@merkur/logger": "workspace:*",
+    "@merkur/shared": "workspace:*",
+    "@merkur/user-agent": "workspace:*",
+    "disposable-email-domains-js": "^1.26.0",
+    "effect": "catalog:",
+    "elysia": "catalog:",
+    "exact-mirror": "catalog:",
+    "fakefilter": "^1.1.1677",
+    "kysely": "^0.29.5",
+    "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "@serenity-kit/opaque": "catalog:"
+  },
+  "scripts": {
+    "bench:session-issuance": "bun run scripts/session-issuance-benchmark.ts",
+    "bench:session-start": "bun run scripts/session-start-benchmark.ts",
+    "build": "rm -rf dist && mkdir -p dist && bun build src/index.ts --target bun --compile --define process.env.NODE_ENV='\"production\"' --outfile dist/server",
+    "db:codegen": "bun run scripts/run-db-codegen.ts",
+    "db:dump": "bun run scripts/database-backup.ts dump",
+    "db:restore": "bun run scripts/database-backup.ts restore",
+    "dev": "bun --watch run src/index.ts",
+    "telemetry:smoke": "bun run scripts/telemetry-smoke.ts"
+  }
+}

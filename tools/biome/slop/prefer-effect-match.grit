@@ -1,0 +1,80 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A ternary whose test compares a value to a literal, and whose `else` branch is again a ternary
+// comparing the same value to a literal, all the way down the chain. The outermost ternary is
+// reported; one whose parent is itself a ternary is that parent's business. Parentheses around a
+// branch, a test or an operand do not change that.
+//
+// GritQL patterns cannot recurse, so "all the way down" is checked five ternaries deep and
+// parentheses two deep; a longer chain is judged on its first five links.
+
+pattern through_parens($inner) {
+  or {
+    $inner,
+    JsParenthesizedExpression(expression=$inner),
+    JsParenthesizedExpression(expression=JsParenthesizedExpression(expression=$inner))
+  }
+}
+
+pattern literal() {
+  through_parens(inner=or {
+    JsStringLiteralExpression(),
+    JsNumberLiteralExpression(),
+    JsBigintLiteralExpression(),
+    JsBooleanLiteralExpression(),
+    JsNullLiteralExpression(),
+    JsRegexLiteralExpression(),
+    JsTemplateExpression() as $template where { $template <: r"`(?:[^$\\`]|\\.|\$[^{`])*\$?`" }
+  })
+}
+
+// The side that is not the literal; the left side is tried first.
+pattern compares($value) {
+  through_parens(inner= or {
+    `$left === $right`,
+    `$left !== $right`,
+    `$left == $right`,
+    `$left != $right`
+  } where {
+    if ($left <: literal()) { $right <: through_parens(inner=$value) } else {
+      $right <: literal(),
+      $left <: through_parens(inner=$value)
+    }
+  })
+}
+
+pattern ternary() { through_parens(inner=JsConditionalExpression()) }
+
+pattern same_value_or_end($value) {
+  or {
+    through_parens(inner=JsConditionalExpression(test=compares($value), alternate=$next)) where {
+      $next <: or {
+        through_parens(inner=JsConditionalExpression(test=compares($value), alternate=$third)) where {
+          $third <: or {
+            through_parens(inner=JsConditionalExpression(test=compares($value), alternate=$fourth)) where {
+              $fourth <: or {
+                through_parens(inner=JsConditionalExpression(test=compares($value))),
+                not ternary()
+              }
+            },
+            not ternary()
+          }
+        },
+        not ternary()
+      }
+    },
+    not ternary()
+  }
+}
+
+JsConditionalExpression(test=compares($value), alternate=$alternate) as $chain where {
+  $alternate <: through_parens(inner=JsConditionalExpression(test=compares($value), alternate=$rest)),
+  $rest <: same_value_or_end($value),
+  ! $chain <: within or {
+    JsConditionalExpression(test=through_parens(inner=$chain)),
+    JsConditionalExpression(consequent=through_parens(inner=$chain)),
+    JsConditionalExpression(alternate=through_parens(inner=$chain))
+  } ,
+  register_diagnostic(span=$chain, message="[prefer-effect-match] A ternary chain tests one value against literal after literal. Write it as `Match.value(…)` with one `Match.when` per case, so a missing case is a type error.", severity="error")
+}

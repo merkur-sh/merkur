@@ -1,0 +1,31 @@
+load("//tools/bazel/bun:rules.bzl", "bun_binary", "bun_test")
+package(default_visibility = ["//visibility:public"])
+
+bun_binary(
+    name = "simulation_artifacts",
+    entry_point = "simulation-artifacts.ts",
+    data = [
+        "simulation-artifacts.ts",
+        "//tools/bazel/bun:owned-files.ts",
+        "//tools/bazel/verification:artifacts.ts",
+    ],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+)
+
+bun_test(
+    name = "simulation_artifacts_test",
+    test_files = ["tools/bazel/ci/simulation-artifacts.test.ts"],
+    data = [
+        "simulation-artifacts.ts",
+        "simulation-artifacts.test.ts",
+        "//tools/bazel/bun:owned-files.ts",
+        "//tools/bazel/verification:artifacts.ts",
+        "//:ci_entrypoint_templates",
+    ],
+    bun_config = "//tools/bazel/bun:empty-bunfig.toml",
+)
+
+filegroup(
+    name = "verification_inputs",
+    srcs = glob(["**"], exclude = [".*", "**/.*", "**/__pycache__/**", "**/*.pyc"]),
+)

@@ -1,0 +1,10 @@
+{
+  "merkur-authorization": [
+    "packages/shared/test-vectors/user-authorization-mldsa87.json",
+    "packages/shared/test-vectors/user-root-envelope.json"
+  ],
+  "merkur-e2e": [
+    "packages/shared/test-vectors/content-transfer.json",
+    "packages/shared/test-vectors/noise-xxpsk3.json"
+  ]
+}

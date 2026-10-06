@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "../..",
+    "lib": ["ES2024", "DOM", "DOM.Iterable", "WebWorker"],
+    "types": ["bun-types", "vite/client"],
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web"
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "blog/**/*.ts",
+    "blog/**/*.tsx",
+    "fixtures/**/*.ts",
+    "fixtures/**/*.tsx",
+    "scripts/**/*.ts",
+    "server/**/*.ts",
+    "vite.config.ts",
+    "uno.config.ts"
+  ]
+}

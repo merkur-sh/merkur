@@ -1,0 +1,234 @@
+{
+  "configuration": {
+    "captured_execution_hosts": [
+      "aarch64-apple-darwin"
+    ],
+    "compiler_root": "host-proc-macro/f813790940338e96c08716ac3edf4100bb704d467e2060f16dc2216ba385cd80",
+    "public_release_context": "//tools/bazel/bun:public_release_context",
+    "target": "aarch64-apple-darwin"
+  },
+  "license_sources": {
+    "packages": {
+      "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": "@merkur_rust_source_rustversion_1_0_23//:package_data"
+    },
+    "workspace": {
+      "manifest": "//:Cargo.toml",
+      "text": "//:LICENSE"
+    }
+  },
+  "macro_inputs": {
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": []
+  },
+  "package_manifests": {
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": "@merkur_rust_source_rustversion_1_0_23//:Cargo.toml"
+  },
+  "package_sources": {
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": "@merkur_rust_source_rustversion_1_0_23//:package_data"
+  },
+  "packages": {
+    "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23": {
+      "archive_checksum": "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f",
+      "authors": [
+        "David Tolnay <dtolnay@gmail.com>"
+      ],
+      "description": "Conditional compilation according to rustc compiler version",
+      "edition": "2018",
+      "features": {},
+      "homepage": null,
+      "id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "license": "MIT OR Apache-2.0",
+      "license_file": null,
+      "links": null,
+      "name": "rustversion",
+      "repository": "https://github.com/dtolnay/rustversion",
+      "rust_version": "1.31",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "1.0.23"
+    }
+  },
+  "pending": [
+    "Native release PGO and SDK/compiler receipts",
+    "Configured Cargo resolution on every supported execution host",
+    "Compiled public account-pin and release configuration assertions"
+  ],
+  "roots": [
+    "f813790940338e96c08716ac3edf4100bb704d467e2060f16dc2216ba385cd80"
+  ],
+  "shipping_qualified": false,
+  "source_membership": [
+    ".cargo/config.toml",
+    "Cargo.lock",
+    "Cargo.toml",
+    "LICENSE",
+    "MODULE.bazel",
+    "packages/term-wasm/.cargo/config.toml",
+    "rust-toolchain.toml",
+    "tools/bazel/bun/BUILD.bazel",
+    "tools/bazel/bun/public-release-context.ts",
+    "tools/bazel/bun/rules.bzl",
+    "tools/bazel/cc/cc.MODULE.bazel",
+    "tools/bazel/cc/sdk.BUILD.bazel",
+    "tools/bazel/cc/wasm_config.bzl",
+    "tools/bazel/rust/contexts.py",
+    "tools/bazel/rust/license_metadata.json",
+    "tools/bazel/rust/license_metadata.py",
+    "tools/bazel/rust/llvm_tools.bzl",
+    "tools/bazel/rust/rust.MODULE.bazel",
+    "tools/bazel/rust/source_inputs.json",
+    "tools/bazel/rust/source_inputs.rs",
+    "tools/bazel/rust/units.bzl",
+    "tools/bazel/rust/units.py",
+    "tools/bazel/rust/units/provenance/host_proc_macro_f813790940338e96c08716ac3edf4100bb704d467e2060f16dc2216ba385cd80.json",
+    "tools/bazel/worker/rules_rust-0.74.0.patch"
+  ],
+  "units": {
+    "63a0623ea845aa5e9d7e0e2ea562454c07baf0f2b608538fcaac4a142192386f": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "ec1a8ded624fff06d8b399c6e541764887a4c7e5b7607351b8a4f85ee533a6d8"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "run-custom-build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2018",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build/build.rs",
+        "test": false
+      }
+    },
+    "ec1a8ded624fff06d8b399c6e541764887a4c7e5b7607351b8a4f85ee533a6d8": {
+      "compiler": "1.97.1",
+      "dependencies": [],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "bin"
+        ],
+        "doc": false,
+        "doctest": false,
+        "edition": "2018",
+        "kind": [
+          "custom-build"
+        ],
+        "name": "build-script-build",
+        "src_path": "build/build.rs",
+        "test": false
+      }
+    },
+    "f813790940338e96c08716ac3edf4100bb704d467e2060f16dc2216ba385cd80": {
+      "compiler": "1.97.1",
+      "dependencies": [
+        {
+          "extern_crate_name": "build_script_build",
+          "noprelude": false,
+          "nounused": false,
+          "public": false,
+          "unit": "63a0623ea845aa5e9d7e0e2ea562454c07baf0f2b608538fcaac4a142192386f"
+        }
+      ],
+      "emit_cdylib": false,
+      "execution_host": "aarch64-apple-darwin",
+      "features": [],
+      "mode": "build",
+      "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rustversion@1.0.23",
+      "platform": null,
+      "profile": {
+        "codegen_backend": null,
+        "codegen_units": null,
+        "debug_assertions": false,
+        "debuginfo": 0,
+        "incremental": false,
+        "lto": "false",
+        "name": "release",
+        "opt_level": "0",
+        "overflow_checks": false,
+        "panic": "unwind",
+        "rpath": false,
+        "split_debuginfo": null,
+        "strip": {
+          "resolved": {
+            "Named": "debuginfo"
+          }
+        }
+      },
+      "rust_flags": [],
+      "target": {
+        "crate_types": [
+          "proc-macro"
+        ],
+        "doc": true,
+        "doctest": true,
+        "edition": "2018",
+        "kind": [
+          "proc-macro"
+        ],
+        "name": "rustversion",
+        "src_path": "src/lib.rs",
+        "test": true
+      }
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "artifacts": [
+    {
+      "name": "NOTICES.txt",
+      "platform": "all",
+      "consumers": ["release attribution publisher"],
+      "inputs": {}
+    },
+    {
+      "name": "deployment.tar.gz",
+      "platform": "linux-x64",
+      "consumers": ["protected web/deployment signer", "Railway deployment"],
+      "inputs": {
+        "server/server": "//apps/server:server",
+        "migrations/": "//apps/server:migrations",
+        "web/": "//apps/web:frontend_precompressed"
+      }
+    },
+    {
+      "name": "edge-image.tar.gz",
+      "platform": "linux-x64",
+      "consumers": ["Docker image loader", "Fly deployment"],
+      "inputs": {
+        "merkur-edge": "//apps/edge:merkur_edge"
+      }
+    },
+    {
+      "name": "merkur-daemon-darwin-arm64.tar.gz",
+      "platform": "darwin-arm64",
+      "consumers": [
+        "protected release signer",
+        "native signed installer smoke",
+        "native installer"
+      ],
+      "inputs": {
+        "merkur": "//apps/daemon:daemon",
+        "merkur-dataplane": "//apps/daemon/dataplane:merkur_dataplane",
+        "merkur-image-worker": "//packages/merkur-image-worker:bin_merkur_image_worker",
+        "merkur-tui": "//apps/tui:bin_merkur_tui"
+      }
+    },
+    {
+      "name": "merkur-daemon-darwin-x64.tar.gz",
+      "platform": "darwin-x64",
+      "consumers": [
+        "protected release signer",
+        "native signed installer smoke",
+        "native installer"
+      ],
+      "inputs": {
+        "merkur": "//apps/daemon:daemon",
+        "merkur-dataplane": "//apps/daemon/dataplane:merkur_dataplane",
+        "merkur-image-worker": "//packages/merkur-image-worker:bin_merkur_image_worker",
+        "merkur-tui": "//apps/tui:bin_merkur_tui"
+      }
+    },
+    {
+      "name": "merkur-daemon-linux-arm64.tar.gz",
+      "platform": "linux-arm64",
+      "consumers": [
+        "protected release signer",
+        "native signed installer smoke",
+        "native installer"
+      ],
+      "inputs": {
+        "merkur": "//apps/daemon:daemon",
+        "merkur-dataplane": "//apps/daemon/dataplane:merkur_dataplane",
+        "merkur-image-worker": "//packages/merkur-image-worker:bin_merkur_image_worker",
+        "merkur-tui": "//apps/tui:bin_merkur_tui"
+      }
+    },
+    {
+      "name": "merkur-daemon-linux-x64.tar.gz",
+      "platform": "linux-x64",
+      "consumers": [
+        "protected release signer",
+        "native signed installer smoke",
+        "native installer"
+      ],
+      "inputs": {
+        "merkur": "//apps/daemon:daemon",
+        "merkur-dataplane": "//apps/daemon/dataplane:merkur_dataplane",
+        "merkur-image-worker": "//packages/merkur-image-worker:bin_merkur_image_worker",
+        "merkur-tui": "//apps/tui:bin_merkur_tui"
+      }
+    },
+    {
+      "name": "stun-image.tar.gz",
+      "platform": "linux-x64",
+      "consumers": ["Docker image loader", "Fly deployment"],
+      "inputs": {
+        "merkur-stun": "//apps/stun:merkur_stun"
+      }
+    },
+    {
+      "name": "verify-linux-arm64",
+      "platform": "linux-arm64",
+      "consumers": ["host release verification"],
+      "inputs": {
+        "verify": "//scripts:release_verifier"
+      }
+    },
+    {
+      "name": "verify-linux-x64",
+      "platform": "linux-x64",
+      "consumers": ["host release verification"],
+      "inputs": {
+        "verify": "//scripts:release_verifier"
+      }
+    }
+  ],
+  "requiredReceipts": [
+    "complete locked dependency license inventory",
+    "exact current source and immutable release configuration",
+    "declared action inputs and producer output digests",
+    "native execution and target architecture",
+    "compiler and native SDK closure",
+    "terminal PGO profile and optimization context",
+    "frontend build identity and Brotli roundtrip",
+    "canonical archive and Docker image closure"
+  ],
+  "pendingProducers": [
+    "complete dependency NOTICES",
+    "native four-platform linked artifact qualification",
+    "declared edge and STUN runtime image layers",
+    "engine reconstructed artifact qualification receipts"
+  ]
+}

@@ -1,0 +1,35 @@
+#!/bin/sh
+# Inactive staged verification hook. Install only after staged/controller qualification.
+set -eu
+: "${MERKUR_VERIFICATION_BAZEL:?Set the declared absolute Bazel executable}"
+: "${MERKUR_VERIFICATION_LEDGER_CLIENT:?Set the authoritative bare ledger client}"
+: "${MERKUR_VERIFICATION_CREDENTIAL_FILE:?Set the private declared credential source}"
+: "${MERKUR_VERIFICATION_REPORT:?Set a fresh absolute controller report path}"
+: "${MERKUR_VERIFICATION_CI_REPORT:?Set a fresh absolute CI report path}"
+: "${MERKUR_VERIFICATION_EXPECTED_CONTEXT:?Set a fresh absolute expected-context path}"
+for file in "$MERKUR_VERIFICATION_BAZEL" "$MERKUR_VERIFICATION_LEDGER_CLIENT" \
+  "$MERKUR_VERIFICATION_CREDENTIAL_FILE" "$MERKUR_VERIFICATION_REPORT" \
+  "$MERKUR_VERIFICATION_CI_REPORT" "$MERKUR_VERIFICATION_EXPECTED_CONTEXT"; do
+  case "$file" in
+    /*) ;;
+    *) echo 'Staged verification requires explicit absolute declared paths' >&2; exit 1 ;;
+  esac
+done
+[ "$MERKUR_VERIFICATION_REPORT" != "$MERKUR_VERIFICATION_CI_REPORT" ] &&
+  [ "$MERKUR_VERIFICATION_REPORT" != "$MERKUR_VERIFICATION_EXPECTED_CONTEXT" ] &&
+  [ "$MERKUR_VERIFICATION_CI_REPORT" != "$MERKUR_VERIFICATION_EXPECTED_CONTEXT" ] || {
+    echo 'Staged verification requires distinct report, CI report and expected-context paths' >&2
+    exit 1
+  }
+# The controller captures index bytes, HEAD and index identities. It runs declared
+# secret scanning and the exact index/base ratchet and retires failed reservations.
+# Working-tree --changed verification does not satisfy this staged boundary.
+exec "$MERKUR_VERIFICATION_BAZEL" --ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError run \
+  --incompatible_strict_action_env --guard_against_concurrent_changes --remote_verify_downloads \
+  --remote_download_outputs=all --symlink_prefix=/ //tools:verify -- \
+  --staged \
+  --ledger-client "$MERKUR_VERIFICATION_LEDGER_CLIENT" \
+  --credential-file "$MERKUR_VERIFICATION_CREDENTIAL_FILE" \
+  --report-file "$MERKUR_VERIFICATION_REPORT" \
+  --ci-report-file "$MERKUR_VERIFICATION_CI_REPORT" \
+  --expected-context-file "$MERKUR_VERIFICATION_EXPECTED_CONTEXT"
