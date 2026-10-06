@@ -89,10 +89,7 @@ const ISLAND_SOURCES = [/\/blog\/posts\/[^/]+\/figures\/[^/]+\.tsx$/, /\/src\/bl
  * where a figure wakes in a page. Neither side hydrates, so the markup carries
  * no hydration key.
  *
- * Babel compiles the JSX. The native compiler (`@dom-expressions/compiler`
- * 0.50.0-next) folds a `let` it sees initialised with a literal into the
- * template even when a closure reassigns it, so a counter read in JSX stays at
- * its first value.
+ * Babel compiles the JSX (`@solidjs/babel-plugin`).
  */
 export function blogSolid(target: 'strings' | 'dom'): Plugin[] {
   const plugin =

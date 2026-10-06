@@ -14,14 +14,14 @@
     "@merkur/server": "workspace:*",
     "@merkur/shared": "workspace:*",
     "@serenity-kit/opaque": "catalog:",
-    "@solidjs/web": "2.0.0-rc.1",
+    "@solidjs/web": "2.0.0-rc.8",
     "effect": "catalog:",
     "linkify-it": "6.1.0",
     "motion": "^13.1.1",
-    "solid-js": "2.0.0-rc.1"
+    "solid-js": "2.0.0-rc.8"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.31",
+    "@solidjs/vite-plugin": "3.0.0-next.43",
     "@unocss/preset-uno": "^66.8.1",
     "unocss": "^66.8.1",
     "vite": "^8.2.2"

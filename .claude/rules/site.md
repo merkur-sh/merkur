@@ -160,10 +160,9 @@ blog: no route, no header link, nothing started.
     every sheet is inlined and the CSP refuses a linked one.
 - After several edits to `vite.config.ts` the dev server can answer 504 for its own
   pre-bundled `motion` and the blog's script stops silently; restart it.
-- **Solid 2 here** compiles with Babel (`blogSolid`): the native compiler folds a
-  reassigned `let` into the template. `render()` listens on the element it is given, so a
-  figure is rendered in place, never moved. `Dynamic` marks its element for hydration, so
-  every tag MDX asks for is a written-out component.
+- **Solid 2 here** compiles with Babel (`blogSolid`). `render()` listens on the element it
+  is given, so a figure is rendered in place, never moved. `Dynamic` marks its element for
+  hydration, so every tag MDX asks for is a written-out component.
 - **Nothing of the blog is in another page.** Blog markup sets no UnoCSS utility (the build
   refuses one), Literata is declared in `blog.css`, and the e2e spec fails on a blog asset
   requested by the landing page. The faces are cut from the build that has the fixtures.
