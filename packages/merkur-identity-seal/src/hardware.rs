@@ -327,10 +327,12 @@ pub(crate) mod tests {
     /// The public keys a created custody reported, kept so the custody (and
     /// its chip connection) can be dropped before the material is reopened:
     /// a TPM simulator serves one client at a time.
+    #[cfg(any(target_os = "macos", feature = "tpm-sim"))]
     pub(crate) struct Expected {
         mldsa: MlDsaPublicKey,
         p256: [u8; 65],
     }
+    #[cfg(any(target_os = "macos", feature = "tpm-sim"))]
     impl Expected {
         pub(crate) fn of(created: Box<dyn KeyCustody>) -> Self {
             Self {
@@ -344,6 +346,7 @@ pub(crate) mod tests {
     /// flipped byte in either key field refuses to open. One chip connection
     /// at a time; the material digest refuses the tampered copies before any
     /// chip sees them.
+    #[cfg(any(target_os = "macos", feature = "tpm-sim"))]
     pub(crate) fn exercise<C: Chip>(material: &[u8], expected: &Expected) {
         let opened = open_on::<C>(material).unwrap();
         assert_eq!(opened.public_key(), &*expected.mldsa);
