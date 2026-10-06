@@ -46,7 +46,9 @@ export async function productionWorkspaceTables(): Promise<{ lints: unknown; pat
 /**
  * Cargo's environment without the ambient toolchain or flag overrides: the
  * pinned toolchain applies, and encoded flags would take precedence over the
- * `RUSTFLAGS` a generated workspace sets.
+ * `RUSTFLAGS` a generated workspace sets. `RUSTFLAGS` also replaces the
+ * rustflags of the workspace `.cargo/config.toml`, so the x86_64 CPU floor
+ * that file sets is repeated here.
  */
 export function cargoEnvironment(
   rustflags: string,
@@ -56,7 +58,7 @@ export function cargoEnvironment(
   const env: Record<string, string | undefined> = { ...process.env, ...overrides };
   delete env.RUSTUP_TOOLCHAIN;
   delete env.CARGO_ENCODED_RUSTFLAGS;
-  env.RUSTFLAGS = rustflags;
+  env.RUSTFLAGS = process.arch === 'x64' ? `${rustflags} -C target-feature=+ssse3` : rustflags;
   env.CARGO_TARGET_DIR = targetDir;
   return Object.fromEntries(
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),

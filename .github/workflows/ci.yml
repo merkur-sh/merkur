@@ -82,9 +82,10 @@ jobs:
           bun run check:span-attributes
           bun run check:dead
       # The pre-commit hook runs the ratchet on every staged diff; this catches a commit that
-      # skipped it, measured against what the push or pull request actually changed.
+      # skipped it, measured against what the push or pull request actually changed. The push
+      # that creates the branch has no commit before it, so there is nothing to measure against.
       - name: Ratchet
-        if: needs.plan.outputs.source == 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+        if: needs.plan.outputs.source == 'true' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.created))
         env:
           RATCHET_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: bun run check:ratchet --base "$RATCHET_BASE"

@@ -35,7 +35,7 @@ test('missing, malformed, noncanonical and unreserved public trust fails closed'
     { releasePublicKey: settings.releasePublicKey + '=' },
     { origin: 'http://merkur.example' },
     { origin: 'https://merkur.example/' },
-    { origin: 'https://user:secret@merkur.example' },
+    { origin: 'https://user:secret@merkur.example' }, // trufflehog:ignore
     { origin: 'https://MERKUR.example' },
     { opaquePublicKey: '' },
     { opaquePublicKey: settings.opaquePublicKey + '=' },

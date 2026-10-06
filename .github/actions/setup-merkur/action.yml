@@ -37,6 +37,11 @@ runs:
     - if: inputs.rust == 'true'
       shell: bash
       run: rustup show active-toolchain
+    # The Secure Enclave bridge compiles against CryptoKit's SecureEnclave.MLDSA87, which the
+    # macOS 26 SDK declares; the image's default Xcode carries the macOS 15 SDK.
+    - if: runner.os == 'macOS' && inputs.rust == 'true'
+      shell: bash
+      run: sudo xcode-select --switch /Applications/Xcode_26.3.app
     - name: Cache Rust dependencies
       if: inputs.rust == 'true' && inputs.rust-cache == 'true'
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

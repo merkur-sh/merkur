@@ -15,7 +15,9 @@
 //!   enables SSSE3 for every x86_64 target, and a build without it fails here
 //!   rather than silently running a byte-at-a-time lane.
 //! * WASM `simd128`: `i8x16.swizzle`.
-//! * Portable: the same tables one byte at a time, for any other target.
+//! * Portable: the same tables one byte at a time, for any other target, and
+//!   for x86_64 under Kani, whose compiler verifies the baseline CPU and takes
+//!   no `-C target-feature`.
 
 pub(crate) const MAX_SOURCES: usize = 4;
 pub(crate) const MAX_OUTPUTS: usize = 2;
@@ -26,7 +28,7 @@ pub(crate) type NibbleTable = ([u8; 16], [u8; 16]);
 
 const ZERO_TABLE: NibbleTable = ([0; 16], [0; 16]);
 
-#[cfg(all(target_arch = "x86_64", not(target_feature = "ssse3")))]
+#[cfg(all(target_arch = "x86_64", not(target_feature = "ssse3"), not(kani)))]
 compile_error!(
     "merkur-fec's x86_64 lane needs SSSE3; the workspace .cargo/config.toml enables it"
 );
@@ -241,7 +243,7 @@ impl Lane for Simd128 {
     test,
     not(any(
         target_arch = "aarch64",
-        target_arch = "x86_64",
+        all(target_arch = "x86_64", target_feature = "ssse3"),
         all(target_arch = "wasm32", target_feature = "simd128")
     ))
 ))]
@@ -251,7 +253,7 @@ struct Portable;
     test,
     not(any(
         target_arch = "aarch64",
-        target_arch = "x86_64",
+        all(target_arch = "x86_64", target_feature = "ssse3"),
         all(target_arch = "wasm32", target_feature = "simd128")
     ))
 ))]
@@ -301,7 +303,7 @@ type Target = Ssse3;
 type Target = Simd128;
 #[cfg(not(any(
     target_arch = "aarch64",
-    target_arch = "x86_64",
+    all(target_arch = "x86_64", target_feature = "ssse3"),
     all(target_arch = "wasm32", target_feature = "simd128")
 )))]
 type Target = Portable;

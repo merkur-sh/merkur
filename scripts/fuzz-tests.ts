@@ -96,11 +96,10 @@ async function linkOnce(target: string, link: string): Promise<void> {
 }
 
 function cargoEnv(args: string[], overrides: Record<string, string>): Record<string, string> {
-  // This cfg compiles only test modules in the generated workspace. Preserve the
-  // native x86 CPU floor when taking ownership of the instrumented build's flags.
+  // This cfg compiles only test modules in the generated workspace.
   // cargo-bolero appends engine cfg/sanitizer flags to RUSTFLAGS. Encoded flags
   // take precedence in Cargo and would silently disable its instrumentation.
-  const rustflags = `--cfg merkur_fuzz${args[1] === 'bolero' ? ' --cfg merkur_libfuzzer' : ''}${process.arch === 'x64' ? ' -C target-feature=+ssse3' : ''}`;
+  const rustflags = `--cfg merkur_fuzz${args[1] === 'bolero' ? ' --cfg merkur_libfuzzer' : ''}`;
   return cargoEnvironment(rustflags, path.join(workspace, 'target'), overrides);
 }
 
