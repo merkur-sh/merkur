@@ -80,10 +80,13 @@ function wireCopy(button: HTMLButtonElement): void {
   button.addEventListener('click', async () => {
     await navigator.clipboard.writeText(source.textContent ?? '');
     button.textContent = 'Copied';
+    // A button that changes colour while it says so (`.mail-copy`) reads this.
+    button.dataset.copied = '';
     if (!reducedMotion.matches) animate(button, { scale: [0.92, 1] }, COPIED);
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       button.textContent = label;
+      delete button.dataset.copied;
     }, COPIED_HOLD_MS);
   });
 }

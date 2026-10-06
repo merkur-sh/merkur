@@ -41,6 +41,7 @@ export const ROUTES: Readonly<Record<string, string>> = {
   '/security': 'security.html',
   '/privacy': 'privacy.html',
   '/terms': 'terms.html',
+  '/contact': 'contact.html',
 };
 export const NOT_FOUND = '404.html';
 

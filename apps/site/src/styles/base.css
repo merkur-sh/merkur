@@ -301,7 +301,8 @@ svg {
 }
 
 .top-links a:hover,
-.foot-links a:hover {
+.foot-links a:hover,
+.foot-links a[aria-current="page"] {
   color: var(--ink);
 }
 
@@ -397,6 +398,13 @@ svg {
 
 @media (max-width: 899px) {
   .top-links {
+    display: none;
+  }
+}
+
+/* The footer's longer wording, while its mark, note and links fit on one line. */
+@media (max-width: 959px) {
+  :root .foot .wide-only {
     display: none;
   }
 }

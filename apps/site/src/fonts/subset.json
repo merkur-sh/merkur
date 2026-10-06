@@ -4,18 +4,18 @@
     "weight": "400 600",
     "source": "packages/quicksilver/fonts/Geist-latin.woff2",
     "sourceSha256": "9b6f5ff45b278c744b5f379a2c4ecbaf858a842b8eaf82ac8d21b699ca16c608",
-    "sha256": "51c48abf350aae9170fdb70f81badd45bfe57addf06eaae288e939e22d77bbac",
-    "bytes": 13480,
-    "characters": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·×é–—’…‹›↑−"
+    "sha256": "5e36faf5779b89dc30da4440cbc2fb5979e03bfd3188f0a8397d6ec7a7c35052",
+    "bytes": 13816,
+    "characters": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~§·×ßäé–—’…‹›↑−"
   },
   "JetBrainsMono-latin.woff2": {
     "family": "JetBrains Mono",
     "weight": "400 700",
     "source": "packages/quicksilver/fonts/JetBrainsMono-latin.woff2",
     "sourceSha256": "2c32b9b3ee358c119e210f6f5195f9bd34894d78a785ff2e95d60e718e400af4",
-    "sha256": "67a83b036735a4b82cb2348beda1067158fcfc7379f406c9368fc540a8bddc97",
-    "bytes": 23632,
-    "characters": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·×é–—’…‹›↑−"
+    "sha256": "f9152ccdec4c46b606b23d2679c27e91b8b1c0cf9385242ddb5a4bf0d034e587",
+    "bytes": 24064,
+    "characters": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~§·×ßäé–—’…‹›↑−"
   },
   "InstrumentSerif-latin.woff2": {
     "family": "Instrument Serif",

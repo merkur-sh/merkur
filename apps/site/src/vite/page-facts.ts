@@ -107,6 +107,10 @@ const PARTS = {
 const BLOG_LINK =
   '<a href="/blog" data-rybbit-event="nav_click" data-rybbit-prop-to="blog">Blog</a>';
 
+/** The contact page, and the footer's link to it as `src/parts/footer.html` opens it. */
+const CONTACT_PAGE = '/contact.html';
+const CONTACT_LINK = '<a href="/contact">';
+
 export function collectPageFacts(
   paths: PageFactPaths,
   environment: SiteEnvironment,
@@ -187,10 +191,13 @@ export function pageFacts(paths: PageFactPaths, environment: SiteEnvironment): P
       handler(html, context) {
         facts ??= collectPageFacts(paths, environment);
         const named = fillPageFacts(html, facts, context.path);
-        // On a page of the blog the header's link to it is the current one.
+        // On a page of the blog the header's link to it is the current one, and
+        // on the contact page the footer's.
         const filled = context.path.startsWith('/blog')
           ? named.replace(BLOG_LINK, BLOG_LINK.replace('>', ' aria-current="page">'))
-          : named;
+          : context.path === CONTACT_PAGE
+            ? named.replace(CONTACT_LINK, CONTACT_LINK.replace('>', ' aria-current="page">'))
+            : named;
         return filled.includes(STRUCTURED_DATA_MARK)
           ? filled.replace(STRUCTURED_DATA_MARK, structuredData(filled, environment.siteOrigin))
           : filled;

@@ -143,6 +143,7 @@ const PAGE_EVENTS = {
   ],
   '/privacy': [...HEADER_EVENTS, ...FOOTER_EVENTS],
   '/terms': [...HEADER_EVENTS, ...FOOTER_EVENTS],
+  '/contact': [...HEADER_EVENTS, ['cta_github', { section: 'contact' }], ...FOOTER_EVENTS],
   [NO_SUCH_PAGE]: [...HEADER_EVENTS, ['cta_open_app', {}], ...FOOTER_EVENTS],
   '/blog': [...HEADER_EVENTS, ...BLOG_FOOTER_EVENTS],
   '/blog/authorship': [...HEADER_EVENTS, ...BLOG_FOOTER_EVENTS],
@@ -362,7 +363,7 @@ test.describe('what a crawler reads', () => {
   test.describe('in the markup alone', () => {
     test.use({ javaScriptEnabled: false });
 
-    for (const route of ['/', '/security', '/privacy', '/terms']) {
+    for (const route of ['/', '/security', '/privacy', '/terms', '/contact']) {
       test(`${route} has one heading, its own address and a description`, async ({ page }) => {
         await page.goto(route);
 
@@ -736,7 +737,7 @@ for (const { name, viewport, device } of [
   test.describe(`at ${name}`, () => {
     test.use({ viewport, ...device });
 
-    for (const at of ['/', '/security', '/privacy', '/terms', NO_SUCH_PAGE]) {
+    for (const at of ['/', '/security', '/privacy', '/terms', '/contact', NO_SUCH_PAGE]) {
       test(`${at} has no fault and no sideways scroll, top to bottom`, async ({ page }) => {
         const faults = await watchFaults(page);
         await page.goto(at);
@@ -998,6 +999,32 @@ test.describe('what moves', () => {
     expect(await places()).toEqual(before);
     await expect(copy).toHaveText('Copy');
     expect(await places()).toEqual(before);
+  });
+
+  test('the contact page copies its address, says so, and marks its own link in the footer', async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/contact');
+    await motionStarted(page);
+    await expect(page.locator('footer a[aria-current="page"]')).toHaveAttribute('href', '/contact');
+    const copy = page.locator('.mail [data-copy]');
+    const width = () => copy.evaluate((button) => Math.round(button.getBoundingClientRect().width));
+    const before = await width();
+
+    await copy.click();
+    await expect(copy).toHaveText('Copied');
+    await expect(copy).toHaveAttribute('data-copied', '');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      await page.locator('.imprint-mail a').textContent(),
+    );
+    await expect
+      .poll(() => copy.evaluate((button) => getComputedStyle(button).transform))
+      .toMatch(/^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
+    expect(await width()).toBe(before);
+    await expect(copy).toHaveText('Copy address');
+    await expect(copy).not.toHaveAttribute('data-copied', /.*/);
   });
 
   test('a question named by the address opens on its answer', async ({ page }) => {

@@ -192,7 +192,7 @@ event. Nothing else is recorded, and no script of the site's calls Rybbit.
 | `cta_open_app` | | "Back to orbit" on the 404 page |
 | `cta_install_copy` | | "Copy" beside the install command |
 | `cta_waitlist_submit` | | "Join the waitlist", with an address the form will send |
-| `cta_github` | `section`: `source`, `footer`, `blog-footer`, `post` | A link to the repository |
+| `cta_github` | `section`: `source`, `footer`, `blog-footer`, `post`, `contact` | A link to the repository |
 | `cta_how_it_works` | | The hero's second button |
 | `cta_security_model` | | The security section's link to `/security` |
 | `nav_click` | `to`: `product`, `security`, `source`, `blog`, `boxes`, `faq` | A link in the header |

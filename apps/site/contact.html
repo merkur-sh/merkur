@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en" data-rybbit-site="[[rybbit.siteId]]">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact and Impressum · Merkur</title>
+<meta name="description" content="One email address for questions, support and legal requests about Merkur, where to report a bug, and the Impressum.">
+<link rel="canonical" href="[[site.origin]]/contact">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="[[color.ground]]">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Merkur">
+<meta property="og:url" content="[[site.origin]]/contact">
+<meta property="og:title" content="Contact Merkur">
+<meta property="og:description" content="One email address, read by the person who built it, and the Impressum.">
+<meta property="og:image" content="[[site.origin]]/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/src/brand/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/src/fonts/Geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/src/fonts/InstrumentSerif-Italic-latin.woff2" as="font" type="font/woff2" crossorigin>
+<script type="module" src="/src/main.ts"></script>
+</head>
+<body>
+<link rel="stylesheet" href="/src/styles/site.css">
+[[part.header]]
+
+<main id="main" class="contact wrap">
+  <div class="contact-head">
+    <p class="contact-label">Contact</p>
+    <h1 class="contact-title">Write to the person <span class="serif-i">who built it.</span></h1>
+    <p class="contact-deck">Questions, support or legal requests. One address, read by me, not a ticket queue.</p>
+  </div>
+
+  <div class="contact-cols">
+    <section class="mail" aria-labelledby="mail-label">
+      <div class="mail-main">
+        <h2 class="contact-label" id="mail-label">Email</h2>
+        <a class="mail-address" href="mailto:dmitriy.pletenskoy@gmail.com" data-copy-text>dmitriy.pletenskoy@gmail.com</a>
+        <a class="btn-site btn-site-primary" href="mailto:dmitriy.pletenskoy@gmail.com">Open mail app</a>
+        <button type="button" class="btn-site btn-site-quiet mail-copy" data-copy>Copy address</button>
+      </div>
+      <ul class="mail-topics">
+        <li><a class="mail-topic" href="mailto:dmitriy.pletenskoy@gmail.com?subject=Merkur%20support"><span class="mail-topic-name">Support</span><span class="mail-topic-note">Include your OS, browser and daemon version<span class="wide-only"> if you can</span>.</span><span class="tg" aria-hidden="true">→</span></a></li>
+        <li><a class="mail-topic" href="mailto:dmitriy.pletenskoy@gmail.com?subject=Merkur%20feedback"><span class="mail-topic-name">Feedback</span><span class="mail-topic-note">Rough ideas are welcome.</span><span class="tg" aria-hidden="true">→</span></a></li>
+        <li><a class="mail-topic" href="mailto:dmitriy.pletenskoy@gmail.com?subject=Legal%20request"><span class="mail-topic-name">Legal</span><span class="mail-topic-note">Include your full name and postal address.</span><span class="tg" aria-hidden="true">→</span></a></li>
+      </ul>
+    </section>
+
+    <aside class="contact-side">
+      <section class="contact-block" aria-labelledby="bugs-label">
+        <h2 class="contact-label" id="bugs-label">Bugs</h2>
+        <a class="contact-issue" href="https://github.com/merkur-sh/merkur/issues" data-rybbit-event="cta_github" data-rybbit-prop-section="contact">Open an issue on GitHub<span class="tg" aria-hidden="true">↗</span></a>
+        <p class="contact-note wide-only">Merkur is open source. Public issues help the next person too.</p>
+      </section>
+      <section class="contact-block" lang="de" aria-labelledby="imprint-label">
+        <h2 class="contact-label" id="imprint-label">Impressum</h2>
+        <p class="imprint-basis">Angaben gemäß § 5 DDG und § 18 Abs. 1 MStV</p>
+        <address class="imprint-address">Dmytro Pletenskyi<br>Kachanivska 21<br>61124 Kharkiv<br>Ukraine</address>
+        <p class="imprint-mail"><span>E-Mail</span><a href="mailto:dmitriy.pletenskoy@gmail.com">dmitriy.pletenskoy@gmail.com</a></p>
+      </section>
+    </aside>
+  </div>
+</main>
+
+[[part.footer]]
+</body>
+</html>
