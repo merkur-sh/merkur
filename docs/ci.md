@@ -74,7 +74,7 @@ Additional workflows run beside CI:
 | [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `bun audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, cargo-vet exact-version review coverage and nine offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
 | [Assurance](../.github/workflows/assurance.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | Parser replay, Kani custody proofs, Loom schedules and negative controls, real-session network simulation, and unprivileged profiling-tool checks. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
-| [Deploy site](../.github/workflows/deploy-site.yml) | Manual dispatch on `main` | Builds the website through `apps/site/Dockerfile`, serves the result locally, deploys it to its own Railway service, purges the CDN's HTML and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
+| [Deploy site](../.github/workflows/deploy-site.yml) | A green CI run of a push to `main`, manual dispatch on `main` | Builds the website through `apps/site/Dockerfile`, serves the result locally, deploys it to its own Railway service, purges the CDN's HTML and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
 
 The assurance aggregate requires successful parser, ownership, bounded-proof, simulation
 and diagnostic-tool jobs. Simulation replays every scenario seed and recorded regression;
@@ -169,7 +169,7 @@ tag; the workflow fails closed on missing state or credentials.
    the **tag** deployment policy `v*` with no branch rule and no required reviewers; a
    `main`-only policy rejects tag workflows. Disconnect any hosting provider's direct Git
    integration so only the release workflow deploys. The website has its own `site`
-   environment with the **branch** policy `main`, because it deploys by hand from `main`
+   environment with the **branch** policy `main`, because it deploys from `main`
    ([releases](releases.md#website-merkursh)).
 4. Configure the variables and scoped secrets below. Reuse the existing release seed; never
    generate a new key or change installed pins.

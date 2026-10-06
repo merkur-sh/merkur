@@ -1,8 +1,13 @@
 name: Deploy site
 
 # merkur.sh. The site holds no auth, cookies or keys, so unlike the app it is
-# deployed from main on demand, without offline signing (docs/releases.md).
+# deployed from main without offline signing (docs/releases.md): each commit
+# whose CI run on main ends green, and on demand.
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -12,9 +17,39 @@ concurrency:
   group: deploy-site
   cancel-in-progress: false
 
+env:
+  # A run CI started names the commit CI tested; a dispatch names main's own.
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
 jobs:
+  # The site only moves to the newest commit of main. A CI run that ends after
+  # main has moved on, or an old one run again, deploys nothing: the newest
+  # commit's own run does.
+  newest:
+    # CI's run for a push to main of this repository, ended green, or a
+    # dispatch. A pull request's run deploys nothing, whatever its branch is called.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.main.outputs.sha }}
+    steps:
+      - id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          newest=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$newest" = "$DEPLOY_SHA" ]; then echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"; fi
+
   deploy:
-    if: github.ref == 'refs/heads/main'
+    needs: newest
+    if: needs.newest.outputs.sha != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     # Its own environment: `production` admits release tags only, and its
@@ -34,10 +69,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.DEPLOY_SHA }}
           persist-credentials: false
       - name: Require the deployment inventory and a green CI run of this commit
         env:
           GH_TOKEN: ${{ github.token }}
+          HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
         run: |
           test -n "$RAILWAY_PROJECT_ID"
           test -n "$RAILWAY_ENVIRONMENT_ID"
@@ -45,7 +82,8 @@ jobs:
           test -n "$SITE_ORIGIN"
           test -n "$SITE_API_ORIGIN"
           test -n "$SITE_RYBBIT_SITE_ID"
-          conclusion=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
+          test "$HAS_RAILWAY_TOKEN" = true
+          conclusion=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$DEPLOY_SHA" \
             --event push --json conclusion --jq '.[0].conclusion')
           test "$conclusion" = success
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
@@ -108,7 +146,7 @@ jobs:
           cp apps/site/Dockerfile apps/site/Dockerfile.dockerignore "$upload_dir/apps/site/"
           cp -R site-deployment "$upload_dir/site-deployment"
           railway up "$upload_dir" --path-as-root --no-gitignore --detach --json "${scope[@]}" \
-            --message "site ($GITHUB_SHA)" > "$RUNNER_TEMP/railway-up.json"
+            --message "site ($DEPLOY_SHA)" > "$RUNNER_TEMP/railway-up.json"
           deployment_id=$(jq -er '.deploymentId' "$RUNNER_TEMP/railway-up.json")
           for attempt in $(seq 1 60); do
             deploy_state=$(railway deployment list "${scope[@]}" --json \

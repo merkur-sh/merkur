@@ -219,5 +219,6 @@ The site answers `/install` with a 308 to the app's installer and a `www.` host 
 to the bare host. The Boxes waitlist posts to the app server's `/api/box-waitlist`, which
 exists only while that server has `SITE_ORIGIN` set.
 
-It deploys by hand from `main` (`gh workflow run deploy-site.yml --ref main`), unsigned and
-separately from a release tag.
+It deploys from `main` by itself, once the CI run of a push ends green, unsigned and
+separately from a release tag: a pushed site change goes live without another step.
+`gh workflow run deploy-site.yml --ref main` deploys the newest commit again.

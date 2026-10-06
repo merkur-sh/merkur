@@ -397,7 +397,8 @@ with a 308 to the bare host. The app is a different origin, `https://app.merkur.
 maps a custom domain to one service and cannot route by path, and the app's origin is bound
 into OPAQUE and delegation. The site answers one path on the app's behalf, `/install`, with a
 308 to the app's installer, so `curl -fsSL merkur.sh/install | sh` works as the page prints it.
-[Deploy site](../.github/workflows/deploy-site.yml) is dispatched by hand on `main`.
+[Deploy site](../.github/workflows/deploy-site.yml) runs for each commit of `main` whose CI
+run ends green, and can be dispatched by hand. The app is released only by a tag.
 
 ### No signing, by design
 
@@ -485,6 +486,12 @@ description and questions, then every other page under its `og:title` with its d
    submit `https://merkur.sh/sitemap.xml` to each.
 
 ### Deploy
+
+A push to `main` deploys the site once its CI run ends green; nothing else is needed. The
+workflow deploys only the newest commit of `main`: a CI run that ends after `main` has moved
+on, or an old run started again, deploys nothing, and the newest commit's own run does. A
+commit whose CI run is red is not deployed, so the site stays on the last green one until a
+later commit passes. To deploy the newest commit again by hand:
 
 ```sh
 gh workflow run deploy-site.yml --ref main
