@@ -742,48 +742,6 @@
     },
     "tarball": "https://registry.npmjs.org/@mdx-js/rollup/-/rollup-3.1.1.tgz"
   },
-  "@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4": {
-    "cpu": ["arm64"],
-    "integrity": "sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==",
-    "lifecycleScripts": {},
-    "os": ["darwin"],
-    "tarball": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-darwin-arm64/-/msgpackr-extract-darwin-arm64-3.0.4.tgz"
-  },
-  "@msgpackr-extract/msgpackr-extract-darwin-x64@3.0.4": {
-    "cpu": ["x64"],
-    "integrity": "sha512-zExlW9zUJKZH/tOtVMttwjKa4Xm/3KcNjnE3dPN92uCktwavMxpgCA3MoJK/DOnTWsQgo224OaST27/mPNAf+w==",
-    "lifecycleScripts": {},
-    "os": ["darwin"],
-    "tarball": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-darwin-x64/-/msgpackr-extract-darwin-x64-3.0.4.tgz"
-  },
-  "@msgpackr-extract/msgpackr-extract-linux-arm64@3.0.4": {
-    "cpu": ["arm64"],
-    "integrity": "sha512-dgX0P/9wGPJeHFBG+ZmhgE6bmtMt7NP5CRBGyyktpopdk/mW4POnrpQsSLtKI1dwpc+pPLuXHDh6vvskyQE/sw==",
-    "lifecycleScripts": {},
-    "os": ["linux"],
-    "tarball": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-arm64/-/msgpackr-extract-linux-arm64-3.0.4.tgz"
-  },
-  "@msgpackr-extract/msgpackr-extract-linux-arm@3.0.4": {
-    "cpu": ["arm"],
-    "integrity": "sha512-Tg3yX65f5GbtXLkrYEHE5oibZG9epyYWas7FogTTEJeDEF9JlXJzKgXaNhT3UXlTOeA+AfZpYZYZ0uPj7Cfquw==",
-    "lifecycleScripts": {},
-    "os": ["linux"],
-    "tarball": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-arm/-/msgpackr-extract-linux-arm-3.0.4.tgz"
-  },
-  "@msgpackr-extract/msgpackr-extract-linux-x64@3.0.4": {
-    "cpu": ["x64"],
-    "integrity": "sha512-8TNXMEjJc3QEy7R/x1INhgiU+XakDAFUzBhaz7+Rbrs8NH5UQeHQxxmzsSBJGyV6I1jW79undiQm8tOI+D+8FQ==",
-    "lifecycleScripts": {},
-    "os": ["linux"],
-    "tarball": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-x64/-/msgpackr-extract-linux-x64-3.0.4.tgz"
-  },
-  "@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4": {
-    "cpu": ["x64"],
-    "integrity": "sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ==",
-    "lifecycleScripts": {},
-    "os": ["win32"],
-    "tarball": "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-win32-x64/-/msgpackr-extract-win32-x64-3.0.4.tgz"
-  },
   "@napi-rs/lzma-linux-x64-gnu@1.5.1": {
     "cpu": ["x64"],
     "engines": {
@@ -1921,11 +1879,6 @@
     },
     "tarball": "https://registry.npmjs.org/@solidjs/web/-/web-2.0.0-rc.8.tgz"
   },
-  "@standard-schema/spec@1.1.0": {
-    "integrity": "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==",
-    "lifecycleScripts": {},
-    "tarball": "https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz"
-  },
   "@tybys/wasm-util@0.10.3": {
     "dependencies": {
       "tslib": "^2.4.0"
@@ -2751,15 +2704,10 @@
     "lifecycleScripts": {},
     "tarball": "https://registry.npmjs.org/duplexer/-/duplexer-0.1.2.tgz"
   },
-  "effect@4.0.0-rc.111": {
-    "dependencies": {
-      "@standard-schema/spec": "^1.1.0",
-      "fast-check": "^4.9.0",
-      "msgpackr": "^2.0.5"
-    },
-    "integrity": "sha512-ASd5L58EIR0CUNueZNKKjSsyOCd+2alxOAIaTcHaqkJkPsaYSsw5Cg/cfANk5K4Jr2YsX756xvX11shzqsreWA==",
+  "effect@4.0.1": {
+    "integrity": "sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==",
     "lifecycleScripts": {},
-    "tarball": "https://registry.npmjs.org/effect/-/effect-4.0.0-rc.111.tgz"
+    "tarball": "https://registry.npmjs.org/effect/-/effect-4.0.1.tgz"
   },
   "electron-to-chromium@1.5.419": {
     "integrity": "sha512-nHMPn8x4yCxCI0iSnL+LlHL5sUoUfjLXkcRIagZ4GBdrfFLFaiLNvzJWbJqZhFT9IAhw5tUSNlhggWN+otvp/A==",
@@ -2978,17 +2926,6 @@
       "fallow-type-aware": "3.17.0"
     },
     "tarball": "https://registry.npmjs.org/fallow/-/fallow-3.17.0.tgz"
-  },
-  "fast-check@4.9.0": {
-    "dependencies": {
-      "pure-rand": "^8.0.0"
-    },
-    "engines": {
-      "node": ">=12.17.0"
-    },
-    "integrity": "sha512-7ms6T7SybUev/PQITciI0yLM2pOSFy5zpG8Ty7tQofcVaQUvrMXp6CBwqF6fThLCLOrfBtuHAtwq6Yu4XPCllg==",
-    "lifecycleScripts": {},
-    "tarball": "https://registry.npmjs.org/fast-check/-/fast-check-4.9.0.tgz"
   },
   "fast-xml-builder@1.3.1": {
     "dependencies": {
@@ -4237,37 +4174,6 @@
     "lifecycleScripts": {},
     "tarball": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz"
   },
-  "msgpackr-extract@3.0.4": {
-    "bin": {
-      "download-msgpackr-prebuilds": "./bin/download-prebuilds.js"
-    },
-    "dependencies": {
-      "node-gyp-build-optional-packages": "5.2.2"
-    },
-    "integrity": "sha512-4kmO/MdyUIkLIvTPr8VHLil4AtoKIoniWPIEk5+CDy0xnWC84azhSFmuJ7PxZdsYtiP5kEeQsORAVIeMgxT+Hw==",
-    "lifecycleScripts": {
-      "install": "node-gyp-build-optional-packages"
-    },
-    "optionalDependencies": {
-      "@msgpackr-extract/msgpackr-extract-darwin-arm64": "3.0.4",
-      "@msgpackr-extract/msgpackr-extract-darwin-x64": "3.0.4",
-      "@msgpackr-extract/msgpackr-extract-linux-arm": "3.0.4",
-      "@msgpackr-extract/msgpackr-extract-linux-arm64": "3.0.4",
-      "@msgpackr-extract/msgpackr-extract-linux-x64": "3.0.4",
-      "@msgpackr-extract/msgpackr-extract-win32-x64": "3.0.4"
-    },
-    "tarball": "https://registry.npmjs.org/msgpackr-extract/-/msgpackr-extract-3.0.4.tgz"
-  },
-  "msgpackr@2.0.5": {
-    "integrity": "sha512-cef05H/dSYpLpqp3sj/qyZh5vhUYCalnaLO7j1yOmpsR0y/XwLVtK7r5gn+U/F7CTEfMowcGhlUQJDLcLf7jcA==",
-    "lifecycleScripts": {
-      "prepare": "npm run build"
-    },
-    "optionalDependencies": {
-      "msgpackr-extract": "^3.0.4"
-    },
-    "tarball": "https://registry.npmjs.org/msgpackr/-/msgpackr-2.0.5.tgz"
-  },
   "nanoid@3.3.18": {
     "bin": "./bin/nanoid.cjs",
     "engines": {
@@ -4290,19 +4196,6 @@
     "integrity": "sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==",
     "lifecycleScripts": {},
     "tarball": "https://registry.npmjs.org/node-fetch-native/-/node-fetch-native-1.6.7.tgz"
-  },
-  "node-gyp-build-optional-packages@5.2.2": {
-    "bin": {
-      "node-gyp-build-optional-packages": "./bin.js",
-      "node-gyp-build-optional-packages-optional": "./optional.js",
-      "node-gyp-build-optional-packages-test": "./build-test.js"
-    },
-    "dependencies": {
-      "detect-libc": "^2.0.1"
-    },
-    "integrity": "sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==",
-    "lifecycleScripts": {},
-    "tarball": "https://registry.npmjs.org/node-gyp-build-optional-packages/-/node-gyp-build-optional-packages-5.2.2.tgz"
   },
   "node-releases@2.0.54": {
     "engines": {
@@ -4539,11 +4432,6 @@
     "integrity": "sha512-IAtzIB6sUiWaJYrX9smp3V46pBGbBeLFRGdh25kg1334VcBlD8HzhPeNIWQH9zhGmo2itIe25EHt9dQP7G5hmg==",
     "lifecycleScripts": {},
     "tarball": "https://registry.npmjs.org/property-information/-/property-information-7.2.0.tgz"
-  },
-  "pure-rand@8.4.0": {
-    "integrity": "sha512-IoM8YF/jY0hiugFo/wOWqfmarlE6J0wc6fDK1PhftMk7MGhVZl88sZimmqBBFomLOCSmcCCpsfj7wXASCpvK9A==",
-    "lifecycleScripts": {},
-    "tarball": "https://registry.npmjs.org/pure-rand/-/pure-rand-8.4.0.tgz"
   },
   "quansync@1.0.0": {
     "integrity": "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA==",
