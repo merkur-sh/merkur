@@ -19,7 +19,7 @@
 export type WaitlistOutcome = 'done' | 'refused' | 'limited' | 'unreached';
 
 export const WAITLIST_MESSAGES = {
-  idle: 'One email when boxes open. Nothing else.',
+  idle: "We'll email you once when Boxes are available. Nothing else.",
   sending: 'Sending…',
   invalid: 'Enter the whole address, like name@example.com.',
   done: "You're on the list. I'll write when boxes open.",

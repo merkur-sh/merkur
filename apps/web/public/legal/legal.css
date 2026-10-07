@@ -230,16 +230,6 @@ h1 {
   color: var(--meta);
 }
 
-.summary {
-  margin: 32px 0 8px;
-  padding: 20px 24px;
-  border: 1px solid var(--line2);
-  border-radius: 14px;
-  corner-shape: superellipse(1.6);
-  background: var(--panel);
-  box-shadow: var(--lift);
-}
-
 h2 {
   margin: 48px 0 12px;
   font-size: 22px;
@@ -248,14 +238,6 @@ h2 {
   letter-spacing: -0.022em;
   color: var(--ink);
   text-wrap: balance;
-}
-
-h3 {
-  margin: 28px 0 8px;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--ink);
 }
 
 p,
@@ -274,14 +256,6 @@ li {
 
 li::marker {
   color: var(--faint);
-}
-
-.summary p {
-  margin: 0;
-}
-
-.summary ul {
-  margin: 10px 0 0;
 }
 
 strong {

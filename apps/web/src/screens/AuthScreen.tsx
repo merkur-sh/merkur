@@ -195,15 +195,26 @@ const AuthScreen: Component<Props> = (props) => {
                 agreement sits under it rather than behind a checkbox. The
                 pages are documents of their own; a new tab keeps the form. */}
                 <p class="text-center text-[12px] leading-[1.5] text-meta">
-                  By continuing you agree to the{' '}
+                  By continuing you accept the{' '}
                   <a class="text-body underline" href="/terms" target="_blank" rel="noopener">
-                    Terms
+                    Terms of Service
                   </a>{' '}
-                  and{' '}
+                  and confirm you have read the{' '}
                   <a class="text-body underline" href="/privacy" target="_blank" rel="noopener">
                     Privacy Policy
                   </a>
                   .
+                </p>
+                {/* Who operates the service, one step from the first screen. */}
+                <p class="text-center text-[12px] leading-[1.5] text-meta">
+                  <a
+                    class="text-body underline"
+                    href="https://merkur.sh/contact"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Contact / Impressum
+                  </a>
                 </p>
               </form>
             }

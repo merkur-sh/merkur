@@ -1957,6 +1957,15 @@
   display: none;
 }
 
+/* Under the status line whatever it says, set in from the edge as far as its
+   words are by the dot. */
+.waitlist-privacy {
+  padding-left: 14px;
+  color: var(--meta);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .is-done .waitlist-button {
   border-color: rgba(63, 202, 127, 0.38);
   background: rgba(63, 202, 127, 0.12);
@@ -2688,6 +2697,13 @@
   text-wrap: pretty;
 }
 
+/* A link set in a line of the page's own words: an answer, the waitlist's note. */
+.inline-link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* The close, and the footer */
 
 .closing-sec {
@@ -2865,24 +2881,6 @@
 .doc-body .doc-lead {
   margin: 14px 0 0;
   color: var(--meta);
-}
-
-.summary {
-  margin: 32px 0 8px;
-  padding: 20px 24px;
-  border: 1px solid var(--line2);
-  border-radius: var(--radius-lg);
-  corner-shape: superellipse(1.6);
-  background: var(--panel);
-  box-shadow: var(--shadow-lift);
-}
-
-.summary p {
-  margin: 0;
-}
-
-.summary ul {
-  margin: 10px 0 0;
 }
 
 .table-wrap {
