@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
+import * as AtomRegistry from 'effect/reactivity/AtomRegistry';
 
 // `api.ts` reads `location.origin` while it is being evaluated, and the atoms
 // import it for the credential rotation the loop performs. Install the global

@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 
 import { Deferred, Effect, Fiber, Queue, Redacted } from 'effect';
+import { dual } from 'effect/Function';
 import { TestClock } from 'effect/testing';
 import { createMigratedKyselyDatabase } from '../db/migrate';
 import type { DatabaseSchema } from '../db/types';
@@ -40,7 +41,7 @@ describe('push operation ownership', () => {
     const release = Deferred.makeUnsafe<void>();
     const originalOffer = Queue.offer;
     let admitted = 0;
-    const offerMock = spyOn(Queue, 'offer').mockImplementation((queue, message) =>
+    const gatedOffer: typeof Queue.offer = dual(2, <A, E>(queue: Queue.Enqueue<A, E>, message: A) =>
       Effect.gen(function* () {
         entered.resolve();
         yield* Deferred.await(release);
@@ -49,6 +50,7 @@ describe('push operation ownership', () => {
         return accepted;
       }),
     );
+    const offerMock = spyOn(Queue, 'offer').mockImplementation(gatedOffer);
     const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(
       fetchReplacement(async () => new Response('accepted')),
     );

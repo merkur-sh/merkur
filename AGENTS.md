@@ -113,7 +113,7 @@ older clients, no migration window.
 
 ## Effect, Briefly
 
-The repo is on Effect 4 (`effect-smol`); recalled APIs are usually Effect 3 and fail
+The repo is on Effect 4; recalled APIs are usually Effect 3 or a release candidate and fail
 `check:types`, so read `node_modules/effect/src`. The `effect` rule carries the coding
 rules and settled divergences. Browser hot-path modules (enforced by
 `scripts/check-latency-boundaries.ts`) and the Rust dataplane never use Effect.

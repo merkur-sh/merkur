@@ -5,8 +5,8 @@ import {
 } from '@merkur/config/retry-schedules';
 import { DEVICE_EVENTS_SINCE_HEADER, type Device } from '@merkur/shared';
 import { Duration, Effect, Schedule } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
+import * as AtomRegistry from 'effect/reactivity/AtomRegistry';
 import { ApiError } from '../lib/api-error';
 import { EventStreamHttpError } from '../lib/authenticated-transport';
 import type { NetworkChangeEvent } from '../session/network-monitor';

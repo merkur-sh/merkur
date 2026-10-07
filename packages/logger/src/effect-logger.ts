@@ -29,7 +29,7 @@ export const MerkurJsonLogger = Logger.make(({ logLevel, message, fiber, date })
 
   // The same source `OtlpLogger` reads, so stdout and the exported record agree on which
   // trace a line belongs to.
-  const span = fiber.currentSpan;
+  const span = fiber.cache.span;
 
   writeMerkurLog({
     ts: date.toISOString(),

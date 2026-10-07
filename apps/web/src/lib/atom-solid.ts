@@ -16,8 +16,8 @@
  *   phase, which is an owned scope. That is exactly what `ownedWrite` marks: the
  *   signal is hook-internal state, not app state written from a computation.
  */
-import type * as Atom from 'effect/unstable/reactivity/Atom';
-import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
+import type * as Atom from 'effect/reactivity/Atom';
+import * as AtomRegistry from 'effect/reactivity/AtomRegistry';
 import {
   type Accessor,
   createComponent,

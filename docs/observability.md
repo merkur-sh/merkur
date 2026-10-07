@@ -375,7 +375,7 @@ with `detail: "server_shutdown"` before the listener drains.
 
 The server is the only Merkur process with a full export path: traces, logs, and metrics over
 OTLP/HTTP, plus the relay routes through which daemons and browsers reach the same backend.
-Everything goes through Effect's own `effect/unstable/observability` modules. There is no
+Everything goes through Effect's own `effect/observability` modules. There is no
 OpenTelemetry SDK and no `@opentelemetry/*` dependency anywhere in the repository, because
 an SDK exists to share a global mutable context, and ambient trace state is adopted by
 accident: a span that never ends fuses unrelated requests into one trace. The trace topology

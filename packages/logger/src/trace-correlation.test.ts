@@ -8,14 +8,14 @@ import type { MerkurLogRecord } from './sink';
 /**
  * Trace correlation on log records.
  *
- * `OtlpLogger` stamps `traceId`/`spanId` from `fiber.currentSpan`, and the stdout record now
+ * `OtlpLogger` stamps `traceId`/`spanId` from `fiber.cache.span`, and the stdout record now
  * reads the same source — so a line is pivotable to its trace wherever one exists, in both
  * places, or in neither. What must never happen is the two disagreeing.
  */
 function captureRecords(): { layer: typeof MerkurLoggerLayer; records: MerkurLogRecord[] } {
   const records: MerkurLogRecord[] = [];
   const capturing = Logger.make((options) => {
-    const span = options.fiber.currentSpan;
+    const span = options.fiber.cache.span;
     records.push({
       ts: options.date.toISOString(),
       level: 'info',

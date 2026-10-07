@@ -1,8 +1,8 @@
 import type { DeviceEventsCursor } from '@merkur/shared';
 import { Data, Duration, Effect, Latch, Queue, Ref, Schedule, type Scope, Stream } from 'effect';
-import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import * as Atom from 'effect/unstable/reactivity/Atom';
-import { AtomRegistry } from 'effect/unstable/reactivity/AtomRegistry';
+import type * as AsyncResult from 'effect/reactivity/AsyncResult';
+import * as Atom from 'effect/reactivity/Atom';
+import { AtomRegistry } from 'effect/reactivity/AtomRegistry';
 import { isApiError } from '../lib/api-error';
 import type { NetworkChangeEvent } from '../session/network-monitor';
 import {

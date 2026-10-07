@@ -25,7 +25,7 @@ const DEFAULT_TRACE_SLOW_THRESHOLD_MS = 1_000;
 /** Server settings, parsing, ownership, and operator documentation. */
 export const serverEnvironment = {
   HOST: {
-    config: Config.nonEmptyString('HOST').pipe(Config.withDefault(DEFAULT_HOST)),
+    config: Config.NonEmptyString('HOST').pipe(Config.withDefault(DEFAULT_HOST)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -33,7 +33,7 @@ export const serverEnvironment = {
     example: '0.0.0.0',
   },
   PORT: {
-    config: Config.int('PORT').pipe(Config.withDefault(DEFAULT_PORT)),
+    config: Config.Int('PORT').pipe(Config.withDefault(DEFAULT_PORT)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -41,7 +41,7 @@ export const serverEnvironment = {
     example: '3000',
   },
   PUBLIC_ORIGIN: {
-    config: Config.nonEmptyString('PUBLIC_ORIGIN').pipe(Config.withDefault(DEFAULT_PUBLIC_ORIGIN)),
+    config: Config.NonEmptyString('PUBLIC_ORIGIN').pipe(Config.withDefault(DEFAULT_PUBLIC_ORIGIN)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -50,7 +50,7 @@ export const serverEnvironment = {
     example: 'https://example.com',
   },
   DB_URL: {
-    config: Config.nonEmptyString('DB_URL').pipe(Config.withDefault(DEFAULT_DB_URL)),
+    config: Config.NonEmptyString('DB_URL').pipe(Config.withDefault(DEFAULT_DB_URL)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -59,7 +59,7 @@ export const serverEnvironment = {
     example: 'file:./data/merkur.db',
   },
   DB_AUTH_TOKEN: {
-    config: Config.option(Config.redacted('DB_AUTH_TOKEN')),
+    config: Config.option(Config.Redacted('DB_AUTH_TOKEN')),
     required: false,
     secret: true,
     requirement: 'No',
@@ -67,7 +67,7 @@ export const serverEnvironment = {
     example: '',
   },
   REDIS_URL: {
-    config: Config.redacted('REDIS_URL'),
+    config: Config.Redacted('REDIS_URL'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -75,7 +75,7 @@ export const serverEnvironment = {
     example: 'redis://127.0.0.1:6379',
   },
   ACCESS_TOKEN_HMAC_KEY: {
-    config: Config.redacted('ACCESS_TOKEN_HMAC_KEY'),
+    config: Config.Redacted('ACCESS_TOKEN_HMAC_KEY'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -84,7 +84,7 @@ export const serverEnvironment = {
     example: '',
   },
   JWT_ISSUER: {
-    config: Config.nonEmptyString('JWT_ISSUER').pipe(Config.withDefault(DEFAULT_JWT_ISSUER)),
+    config: Config.NonEmptyString('JWT_ISSUER').pipe(Config.withDefault(DEFAULT_JWT_ISSUER)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -92,7 +92,7 @@ export const serverEnvironment = {
     example: '',
   },
   JWT_AUDIENCE: {
-    config: Config.nonEmptyString('JWT_AUDIENCE').pipe(Config.withDefault(DEFAULT_JWT_AUDIENCE)),
+    config: Config.NonEmptyString('JWT_AUDIENCE').pipe(Config.withDefault(DEFAULT_JWT_AUDIENCE)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -100,7 +100,7 @@ export const serverEnvironment = {
     example: '',
   },
   TOKEN_HMAC_SECRET: {
-    config: Config.redacted('TOKEN_HMAC_SECRET'),
+    config: Config.Redacted('TOKEN_HMAC_SECRET'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -109,7 +109,7 @@ export const serverEnvironment = {
     example: '',
   },
   AUTH_ALLOW_REGISTRATION: {
-    config: Config.boolean('AUTH_ALLOW_REGISTRATION'),
+    config: Config.Boolean('AUTH_ALLOW_REGISTRATION'),
     required: true,
     secret: false,
     requirement: 'Yes',
@@ -118,7 +118,7 @@ export const serverEnvironment = {
     example: 'false',
   },
   AUTH_IDENTITY: {
-    config: Config.string('AUTH_IDENTITY'),
+    config: Config.String('AUTH_IDENTITY'),
     required: true,
     secret: false,
     requirement: 'Yes',
@@ -127,7 +127,7 @@ export const serverEnvironment = {
     example: 'username',
   },
   RESEND_API_KEY: {
-    config: Config.option(Config.redacted('RESEND_API_KEY')),
+    config: Config.option(Config.Redacted('RESEND_API_KEY')),
     required: false,
     secret: true,
     requirement: 'With `AUTH_IDENTITY=email`',
@@ -135,7 +135,7 @@ export const serverEnvironment = {
     example: '',
   },
   EMAIL_FROM: {
-    config: Config.option(Config.nonEmptyString('EMAIL_FROM')),
+    config: Config.option(Config.NonEmptyString('EMAIL_FROM')),
     required: false,
     secret: false,
     requirement: 'With `AUTH_IDENTITY=email`',
@@ -144,7 +144,7 @@ export const serverEnvironment = {
     example: '',
   },
   RESEND_API_URL: {
-    config: Config.option(Config.nonEmptyString('RESEND_API_URL')),
+    config: Config.option(Config.NonEmptyString('RESEND_API_URL')),
     required: false,
     secret: false,
     requirement: 'No',
@@ -152,7 +152,7 @@ export const serverEnvironment = {
     example: '',
   },
   SITE_ORIGIN: {
-    config: Config.option(Config.nonEmptyString('SITE_ORIGIN')),
+    config: Config.option(Config.NonEmptyString('SITE_ORIGIN')),
     required: false,
     secret: false,
     requirement: 'No',
@@ -161,7 +161,7 @@ export const serverEnvironment = {
     example: '',
   },
   RYBBIT_HOST: {
-    config: Config.option(Config.nonEmptyString('RYBBIT_HOST')),
+    config: Config.option(Config.NonEmptyString('RYBBIT_HOST')),
     required: false,
     secret: false,
     requirement: 'With `RYBBIT_SITE_ID` and `RYBBIT_API_KEY`',
@@ -170,7 +170,7 @@ export const serverEnvironment = {
     example: '',
   },
   RYBBIT_SITE_ID: {
-    config: Config.option(Config.nonEmptyString('RYBBIT_SITE_ID')),
+    config: Config.option(Config.NonEmptyString('RYBBIT_SITE_ID')),
     required: false,
     secret: false,
     requirement: 'With `RYBBIT_HOST` and `RYBBIT_API_KEY`',
@@ -178,7 +178,7 @@ export const serverEnvironment = {
     example: '',
   },
   RYBBIT_API_KEY: {
-    config: Config.option(Config.redacted('RYBBIT_API_KEY')),
+    config: Config.option(Config.Redacted('RYBBIT_API_KEY')),
     required: false,
     secret: true,
     requirement: 'With `RYBBIT_HOST` and `RYBBIT_SITE_ID`',
@@ -187,7 +187,7 @@ export const serverEnvironment = {
     example: '',
   },
   OPAQUE_SERVER_SETUP: {
-    config: Config.redacted('OPAQUE_SERVER_SETUP'),
+    config: Config.Redacted('OPAQUE_SERVER_SETUP'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -196,7 +196,7 @@ export const serverEnvironment = {
     example: '',
   },
   OPAQUE_SERVER_PUBLIC_KEY: {
-    config: Config.redacted('OPAQUE_SERVER_PUBLIC_KEY'),
+    config: Config.Redacted('OPAQUE_SERVER_PUBLIC_KEY'),
     required: true,
     secret: false,
     requirement: 'Yes',
@@ -205,7 +205,7 @@ export const serverEnvironment = {
     example: '',
   },
   VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY: {
-    config: Config.nonEmptyString('VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY'),
+    config: Config.NonEmptyString('VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY'),
     required: true,
     secret: false,
     requirement: 'Build + standalone startup',
@@ -214,7 +214,7 @@ export const serverEnvironment = {
     example: '',
   },
   TRUSTED_PROXY_HOPS: {
-    config: Config.int('TRUSTED_PROXY_HOPS'),
+    config: Config.Int('TRUSTED_PROXY_HOPS'),
     required: true,
     secret: false,
     requirement: 'Yes',
@@ -223,7 +223,7 @@ export const serverEnvironment = {
     example: '0',
   },
   SESSION_TOKEN_MLDSA87_SEED: {
-    config: Config.redacted('SESSION_TOKEN_MLDSA87_SEED'),
+    config: Config.Redacted('SESSION_TOKEN_MLDSA87_SEED'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -232,7 +232,7 @@ export const serverEnvironment = {
     example: '',
   },
   SESSION_TOKEN_TTL_MS: {
-    config: Config.int('SESSION_TOKEN_TTL_MS').pipe(Config.withDefault(60_000)),
+    config: Config.Int('SESSION_TOKEN_TTL_MS').pipe(Config.withDefault(60_000)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -241,7 +241,7 @@ export const serverEnvironment = {
     example: '',
   },
   BOX_HOST_URL: {
-    config: Config.string('BOX_HOST_URL').pipe(Config.withDefault('')),
+    config: Config.String('BOX_HOST_URL').pipe(Config.withDefault('')),
     required: false,
     secret: false,
     requirement: 'No',
@@ -250,7 +250,7 @@ export const serverEnvironment = {
     example: '',
   },
   BOX_HOST_TOKEN: {
-    config: Config.option(Config.redacted('BOX_HOST_TOKEN')),
+    config: Config.option(Config.Redacted('BOX_HOST_TOKEN')),
     required: false,
     secret: true,
     requirement: 'With `BOX_HOST_URL`',
@@ -258,7 +258,7 @@ export const serverEnvironment = {
     example: '',
   },
   BOX_HOST_TIMEOUT_MS: {
-    config: Config.int('BOX_HOST_TIMEOUT_MS').pipe(Config.withDefault(120_000)),
+    config: Config.Int('BOX_HOST_TIMEOUT_MS').pipe(Config.withDefault(120_000)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -266,7 +266,7 @@ export const serverEnvironment = {
     example: '',
   },
   EDGE_REGISTRATION_KEYS_JSON: {
-    config: Config.redacted('EDGE_REGISTRATION_KEYS_JSON'),
+    config: Config.Redacted('EDGE_REGISTRATION_KEYS_JSON'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -275,7 +275,7 @@ export const serverEnvironment = {
     example: '',
   },
   EDGE_ATTACH_TICKET_KEY: {
-    config: Config.redacted('EDGE_ATTACH_TICKET_KEY'),
+    config: Config.Redacted('EDGE_ATTACH_TICKET_KEY'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -284,7 +284,7 @@ export const serverEnvironment = {
     example: '',
   },
   STUN_TICKET_KEY: {
-    config: Config.redacted('STUN_TICKET_KEY'),
+    config: Config.Redacted('STUN_TICKET_KEY'),
     required: true,
     secret: true,
     requirement: 'Yes',
@@ -293,7 +293,7 @@ export const serverEnvironment = {
     example: '',
   },
   STUN_SERVERS: {
-    config: Config.string('STUN_SERVERS'),
+    config: Config.String('STUN_SERVERS'),
     required: true,
     secret: false,
     requirement: 'Yes',
@@ -302,7 +302,7 @@ export const serverEnvironment = {
     example: '192.0.2.1:3478,192.0.2.1:3479',
   },
   BOX_HOST_STUN_OBSERVERS: {
-    config: Config.string('BOX_HOST_STUN_OBSERVERS').pipe(Config.withDefault('')),
+    config: Config.String('BOX_HOST_STUN_OBSERVERS').pipe(Config.withDefault('')),
     required: false,
     secret: false,
     requirement: 'No',
@@ -311,7 +311,7 @@ export const serverEnvironment = {
     example: '',
   },
   WEB_PUSH_VAPID_PUBLIC_KEY: {
-    config: Config.option(Config.nonEmptyString('WEB_PUSH_VAPID_PUBLIC_KEY')),
+    config: Config.option(Config.NonEmptyString('WEB_PUSH_VAPID_PUBLIC_KEY')),
     required: false,
     secret: false,
     requirement: 'Optional group',
@@ -320,7 +320,7 @@ export const serverEnvironment = {
     example: '',
   },
   WEB_PUSH_VAPID_PRIVATE_KEY: {
-    config: Config.option(Config.redacted('WEB_PUSH_VAPID_PRIVATE_KEY')),
+    config: Config.option(Config.Redacted('WEB_PUSH_VAPID_PRIVATE_KEY')),
     required: false,
     secret: true,
     requirement: 'Optional group',
@@ -329,7 +329,7 @@ export const serverEnvironment = {
     example: '',
   },
   WEB_PUSH_CONTACT: {
-    config: Config.option(Config.nonEmptyString('WEB_PUSH_CONTACT')),
+    config: Config.option(Config.NonEmptyString('WEB_PUSH_CONTACT')),
     required: false,
     secret: false,
     requirement: 'Optional group',
@@ -338,7 +338,7 @@ export const serverEnvironment = {
     example: '',
   },
   AXIOM_TOKEN: {
-    config: Config.option(Config.redacted('AXIOM_TOKEN')),
+    config: Config.option(Config.Redacted('AXIOM_TOKEN')),
     required: false,
     secret: true,
     requirement: 'Optional group',
@@ -347,7 +347,7 @@ export const serverEnvironment = {
     example: '',
   },
   AXIOM_DATASET: {
-    config: Config.option(Config.nonEmptyString('AXIOM_DATASET')),
+    config: Config.option(Config.NonEmptyString('AXIOM_DATASET')),
     required: false,
     secret: false,
     requirement: 'Optional group',
@@ -355,7 +355,7 @@ export const serverEnvironment = {
     example: '',
   },
   AXIOM_METRICS_DATASET: {
-    config: Config.option(Config.nonEmptyString('AXIOM_METRICS_DATASET')),
+    config: Config.option(Config.NonEmptyString('AXIOM_METRICS_DATASET')),
     required: false,
     secret: false,
     requirement: 'Optional group',
@@ -364,7 +364,7 @@ export const serverEnvironment = {
     example: '',
   },
   AXIOM_PERF_DATASET: {
-    config: Config.option(Config.nonEmptyString('AXIOM_PERF_DATASET')),
+    config: Config.option(Config.NonEmptyString('AXIOM_PERF_DATASET')),
     required: false,
     secret: false,
     requirement: 'Optional group',
@@ -373,7 +373,7 @@ export const serverEnvironment = {
     example: '',
   },
   AXIOM_ENDPOINT: {
-    config: Config.nonEmptyString('AXIOM_ENDPOINT').pipe(
+    config: Config.NonEmptyString('AXIOM_ENDPOINT').pipe(
       Config.withDefault(DEFAULT_AXIOM_ENDPOINT),
     ),
     required: false,
@@ -384,7 +384,7 @@ export const serverEnvironment = {
     example: '',
   },
   TELEMETRY_ENVIRONMENT: {
-    config: Config.nonEmptyString('TELEMETRY_ENVIRONMENT').pipe(
+    config: Config.NonEmptyString('TELEMETRY_ENVIRONMENT').pipe(
       Config.withDefault(DEFAULT_TELEMETRY_ENVIRONMENT),
     ),
     required: false,
@@ -395,7 +395,7 @@ export const serverEnvironment = {
     example: '',
   },
   TRACE_LEVEL: {
-    config: Config.nonEmptyString('TRACE_LEVEL').pipe(Config.withDefault(DEFAULT_TRACE_LEVEL)),
+    config: Config.NonEmptyString('TRACE_LEVEL').pipe(Config.withDefault(DEFAULT_TRACE_LEVEL)),
     required: false,
     secret: false,
     requirement: 'No',
@@ -404,7 +404,7 @@ export const serverEnvironment = {
     example: '',
   },
   TRACE_SAMPLE_RATIO: {
-    config: Config.number('TRACE_SAMPLE_RATIO').pipe(
+    config: Config.Number('TRACE_SAMPLE_RATIO').pipe(
       Config.withDefault(DEFAULT_TRACE_SAMPLE_RATIO),
     ),
     required: false,
@@ -415,7 +415,7 @@ export const serverEnvironment = {
     example: '',
   },
   TRACE_SLOW_THRESHOLD_MS: {
-    config: Config.number('TRACE_SLOW_THRESHOLD_MS').pipe(
+    config: Config.Number('TRACE_SLOW_THRESHOLD_MS').pipe(
       Config.withDefault(DEFAULT_TRACE_SLOW_THRESHOLD_MS),
     ),
     required: false,
@@ -425,7 +425,7 @@ export const serverEnvironment = {
     example: '',
   },
   LOG_LEVEL: {
-    config: Config.option(Config.nonEmptyString('LOG_LEVEL')),
+    config: Config.option(Config.NonEmptyString('LOG_LEVEL')),
     required: false,
     secret: false,
     requirement: 'No',

@@ -1,14 +1,14 @@
 import { SpanTreeTracerLayer } from '@merkur/logger';
 import { merkurVersion, spanAttributes } from '@merkur/shared';
 import { Context, Effect, Layer, Redacted, Tracer } from 'effect';
-import { FetchHttpClient } from 'effect/unstable/http';
+import { FetchHttpClient } from 'effect/http';
 import {
   OtlpExporter,
   OtlpLogger,
   OtlpMetrics,
   OtlpSerialization,
   OtlpTracer,
-} from 'effect/unstable/observability';
+} from 'effect/observability';
 
 import { type ServerConfig, ServerConfigService, type TelemetryConfig } from '../config';
 import { traceSamplingFrequency } from './metrics';

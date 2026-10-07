@@ -6,9 +6,9 @@ import {
   reduceDeviceDelta,
 } from '@merkur/shared';
 import { Data, type Duration, Effect } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import * as Atom from 'effect/unstable/reactivity/Atom';
-import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
+import * as Atom from 'effect/reactivity/Atom';
+import * as AtomRegistry from 'effect/reactivity/AtomRegistry';
 import { refreshAccessToken } from '../api';
 import { reconcileDeviceSnapshot } from '../app/device-snapshot-reconciliation';
 import { openAuthenticatedEventStream } from '../event-stream-worker-client';

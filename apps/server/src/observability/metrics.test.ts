@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { Effect, Layer, Metric } from 'effect';
-import { FetchHttpClient } from 'effect/unstable/http';
-import { OtlpMetrics, OtlpSerialization } from 'effect/unstable/observability';
+import { FetchHttpClient } from 'effect/http';
+import { OtlpMetrics, OtlpSerialization } from 'effect/observability';
 
 import * as merkurMetrics from './metrics';
 

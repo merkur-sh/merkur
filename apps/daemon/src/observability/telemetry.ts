@@ -1,8 +1,8 @@
 import type { DaemonConfig } from '@merkur/config';
 import { merkurVersion } from '@merkur/shared';
 import { Layer, Tracer } from 'effect';
-import { FetchHttpClient } from 'effect/unstable/http';
-import { OtlpSerialization, OtlpTracer } from 'effect/unstable/observability';
+import { FetchHttpClient } from 'effect/http';
+import { OtlpSerialization, OtlpTracer } from 'effect/observability';
 import { createDaemonFetch } from '../services/daemon-fetch';
 import type { DaemonProofSigner } from '../services/daemon-proof-signer';
 

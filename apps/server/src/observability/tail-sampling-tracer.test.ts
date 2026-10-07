@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Effect, Layer, Option, Tracer } from 'effect';
-import { FetchHttpClient } from 'effect/unstable/http';
-import { OtlpExporter, OtlpSerialization, OtlpTracer } from 'effect/unstable/observability';
+import { FetchHttpClient } from 'effect/http';
+import { OtlpExporter, OtlpSerialization, OtlpTracer } from 'effect/observability';
 
 import { makeTailSamplingTracer, type TailSamplingDecision } from './tail-sampling-tracer';
 

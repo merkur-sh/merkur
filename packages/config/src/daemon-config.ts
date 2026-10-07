@@ -112,10 +112,10 @@ export class DaemonConfigService extends Context.Service<DaemonConfigService, Da
 export const DaemonEnvironmentLive = Layer.effect(
   DaemonEnvironmentService,
   Effect.gen(function* () {
-    const home = yield* Config.nonEmptyString('MERKUR_DAEMON_HOME').pipe(
-      Config.orElse(() => Config.nonEmptyString('HOME')),
+    const home = yield* Config.NonEmptyString('MERKUR_DAEMON_HOME').pipe(
+      Config.orElse(() => Config.NonEmptyString('HOME')),
     );
-    const publicWebtransportEndpoint = yield* Config.nonEmptyString(
+    const publicWebtransportEndpoint = yield* Config.NonEmptyString(
       'MERKUR_PUBLIC_WT_ENDPOINT',
     ).pipe(
       Config.map(validatePublicWebtransportEndpoint),

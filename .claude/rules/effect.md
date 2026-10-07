@@ -21,13 +21,16 @@ paths:
 
 # Effect 4 in Merkur
 
-This repo is on Effect 4, the merged `effect-smol` codebase: http, sql, rpc, schema,
-observability, and reactivity all live inside `effect/unstable/*` (no `platform` subtree,
-only a top-level `PlatformError`), and much of the Effect 3 core API was renamed or
-removed. It leans hardest on `effect/unstable/reactivity`: Atom and `AtomRegistry` come
-from there, not from an `@effect/atom` package. Nearly every Effect answer on the web, and
-nearly every remembered API, is Effect 3 and will fail `bun run check:types`. Treat any
-recalled Effect API as unverified.
+This repo is on Effect 4: http, sql, rpc, schema, observability, and reactivity all live
+inside the one `effect` package, as `effect/http`, `effect/observability`,
+`effect/reactivity` and so on (no `platform` subtree, only a top-level `PlatformError`),
+and much of the Effect 3 core API was renamed or removed. It leans hardest on
+`effect/reactivity`: Atom and `AtomRegistry` come from there, not from an `@effect/atom`
+package. Nearly every Effect answer on the web, and nearly every remembered API, is
+Effect 3 or an Effect 4 release candidate and will fail `bun run check:types`: the
+candidates imported these modules from `effect/unstable/*` and spelled the `Config`
+constructors in lower case (`Config.String`, `Config.Redacted`, `Config.Int` are the
+names). Treat any recalled Effect API as unverified.
 
 ## Source of truth
 
@@ -94,14 +97,13 @@ and CLI wrappers; keep it orchestration only.
   points) or `Base64Url` (bytes); a request body that writes a stored field uses the same
   schema object as the responses that return it. Elsewhere, shared
   validators where they exist and hand-written guards otherwise.
-- **Elysia for HTTP and Kysely over libSQL**, not `effect/unstable/http` or
+- **Elysia for HTTP and Kysely over libSQL**, not `effect/http` or
   `@effect/sql-sqlite-bun`. Swapping either is a rewrite, not a cleanup.
 
-Do not add `@effect/*` packages casually. Several still publish their Effect 3 build on
-the `latest` npm tag, so a plain `bun add @effect/…` installs something incompatible with
-the installed core; the Effect 4 builds sit behind the `beta` tag and move independently
-of this repo's version. Check both the dist-tag and the resulting version against the
-installed `effect` before adding one, and raise any skew rather than working around it.
+Do not add `@effect/*` packages casually. They are released with the core under the same
+version number and peer-depend on it, so one that is newer than the installed `effect`
+does not fit it. Check the resulting version and the package's peer ranges against what is
+installed before adding one, and raise any skew rather than working around it.
 
 ## Coding rules
 
