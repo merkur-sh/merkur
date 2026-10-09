@@ -112,6 +112,8 @@ under `/deployment`, with the identical signed migrations copied to `/migrations
 
 All Docker base images and the Dockerfile frontend are pinned by multi-platform digest.
 Rust and Debian images are pulled from Docker's official Amazon ECR Public repositories.
+The Dockerfile frontend and CI's BuildKit image come from Google's public Docker Hub mirror
+at their pinned digests. An unavailable pinned image fails the build.
 Bun is installed from its versioned GitHub release archives, checked against pinned SHA-256
 digests for Linux x64 baseline and arm64.
 The Rust builders use the official pinned Debian 12 Rust image, without executing a downloaded

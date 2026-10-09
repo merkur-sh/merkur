@@ -87,6 +87,8 @@ jobs:
             --event push --json conclusion --jq '.[0].conclusion')
           test "$conclusion" = success
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
       # The dependency stage is the root Dockerfile's, so the app build's cache
       # (the default scope) supplies it; the site writes its own scope so
       # neither build evicts the other's index.
