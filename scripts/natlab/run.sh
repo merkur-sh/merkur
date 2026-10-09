@@ -40,7 +40,7 @@ fi
 
 docker run --rm --privileged \
   -v "${LAB_DIR}/lab.sh:/lab.sh:ro" \
-  debian:stable-slim \
+  public.ecr.aws/docker/library/debian:stable-slim@sha256:eb593cf2c358cacef45ca0a424bbc7d30cfa3466265fc2662b9466a0ca6ba1c5 \
   sh -c '
     export DEBIAN_FRONTEND=noninteractive PATH=/usr/sbin:/sbin:$PATH
     apt-get update -qq >/dev/null 2>&1

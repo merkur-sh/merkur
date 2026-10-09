@@ -4,7 +4,7 @@ FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1
 
 # Debian 12 is Merkur's Linux ABI floor. Building on a newer distribution
 # can silently introduce glibc symbols that are unavailable to users.
-FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS builder
+FROM public.ecr.aws/docker/library/rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS builder
 
 ARG MERKUR_PUBLIC_ORIGIN
 ARG MERKUR_OPAQUE_SERVER_PUBLIC_KEY

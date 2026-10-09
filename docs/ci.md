@@ -105,6 +105,9 @@ not run in CI. A release additionally builds and runs all four daemon binaries n
 four platforms: Linux x64 and arm64 on Debian 12, and macOS on Apple Silicon and Intel.
 Native macOS runner tests do not attest a physical Secure Enclave.
 
+Release builders, Linux smoke tests, NAT labs and the TPM simulator pull digest-pinned
+Rust and Debian images from Docker's official Amazon ECR Public repositories.
+
 ## Cutting a release
 
 A release is one annotated tag on a commit that `main`-push CI has already passed. There is

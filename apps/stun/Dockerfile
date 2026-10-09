@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 # Built from the repository root with the same lock and WT patches as the daemon.
 # fly deploy --config apps/stun/fly.toml --dockerfile apps/stun/Dockerfile
-FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS build
+FROM public.ecr.aws/docker/library/rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS build
 WORKDIR /build
 COPY rust-toolchain.toml ./
 COPY .cargo/ .cargo/
@@ -13,7 +13,7 @@ COPY apps/tui/ apps/tui/
 COPY apps/edge/ apps/edge/
 RUN cargo build --release --locked -p merkur-stun --bin merkur-stun
 
-FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
 # Verification pins the requested certificate; it does not use a public CA store.
 RUN apt-get update && apt-get install -y --no-install-recommends iproute2 util-linux \
     && rm -rf /var/lib/apt/lists/*

@@ -76,7 +76,7 @@ FROM scratch AS artifacts
 COPY --from=builder /app/apps/site/server/dist/site-server /site-server
 COPY --from=builder /app/apps/site/dist/ /dist/
 
-FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runner
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runner
 
 WORKDIR /site
 

@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 exec docker run --rm --privileged \
   -v "$REPO_ROOT:/repo:ro" -v merkur-discovery-cargo:/usr/local/cargo \
   -v merkur-discovery-target:/target -w /repo \
-  -e CARGO_TARGET_DIR=/target rust:1-trixie bash -c '
+  -e CARGO_TARGET_DIR=/target public.ecr.aws/docker/library/rust:1-trixie@sha256:6ff07edce8775d0f64be7aba9197229407301bddf2054d62c27b541a6238a181 bash -c '
     set -euo pipefail
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq

@@ -34,7 +34,7 @@ if (import.meta.main) {
       name,
       '-p',
       '127.0.0.1::2321',
-      'debian:12-slim',
+      'public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171',
       'sh',
       '-c',
       startup,

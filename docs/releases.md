@@ -111,6 +111,7 @@ fail packaging. The final image runs as `merkur`; signed files are root-owned an
 under `/deployment`, with the identical signed migrations copied to `/migrations`.
 
 All Docker base images and the Dockerfile frontend are pinned by multi-platform digest.
+Rust and Debian images are pulled from Docker's official Amazon ECR Public repositories.
 The Rust builders use the official pinned Debian 12 Rust image, without executing a downloaded
 installer; `wasm-pack` is pinned to 0.15.0 and the wasm-bindgen CLI to the version `Cargo.lock`
 resolves, both built from source with locked dependencies. Review and refresh these
