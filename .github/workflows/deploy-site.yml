@@ -100,6 +100,7 @@ jobs:
           platforms: linux/amd64
           outputs: type=local,dest=site-deployment
           build-args: |
+            BUILDKIT_SYNTAX=mirror.gcr.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
             MERKUR_SITE_ORIGIN=${{ vars.MERKUR_SITE_ORIGIN }}
             MERKUR_SITE_API_ORIGIN=${{ vars.MERKUR_SERVER_ORIGIN }}
             MERKUR_SITE_RYBBIT_SITE_ID=${{ vars.MERKUR_SITE_RYBBIT_SITE_ID }}

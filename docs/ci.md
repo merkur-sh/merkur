@@ -108,8 +108,10 @@ Native macOS runner tests do not attest a physical Secure Enclave.
 Release builders, Linux smoke tests, NAT labs and the TPM simulator pull digest-pinned
 Rust and Debian images from Docker's official Amazon ECR Public repositories.
 Buildx bootstraps a digest-pinned BuildKit image from Google's public Docker Hub mirror.
-Dockerfiles load their pinned frontend from that same mirror; builds fail if the pinned
-image is unavailable.
+CI selects its digest-pinned Dockerfile frontend from that same mirror with
+`BUILDKIT_SYNTAX`. The app and site Dockerfiles keep the canonical `docker/dockerfile`
+syntax reference required by Railway's builder, at the identical digest. Builds fail if
+their selected pinned image is unavailable.
 
 ## Cutting a release
 

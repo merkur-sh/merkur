@@ -118,6 +118,7 @@ jobs:
         run: |
           mkdir -p dist/ci-release
           docker buildx build --target artifacts --platform linux/amd64 \
+            --build-arg BUILDKIT_SYNTAX=mirror.gcr.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32 \
             --build-arg "MERKUR_BUILD_COMMIT=$COMMIT" \
             --build-arg "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
             --build-arg "VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY=$OPAQUE_PIN" \
