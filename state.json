@@ -34,6 +34,38 @@
           }
         ]
       }
+    },
+    {
+      "version": "v0.71.2",
+      "commit": "b6e00dff2506dda85f9bcb758022f1faf5bdaccc",
+      "run": "37989703155",
+      "attempt": 1,
+      "sequence": 101,
+      "phase": "reserved",
+      "events": [],
+      "configuration": {
+        "SERVER_ORIGIN": "https://app.merkur.sh",
+        "OPAQUE_PIN": "qpMulzjGpC5aU5PgOeL9-H4_9qsCPbEMcCtae7N_UAM",
+        "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY": "bE1UXziBakJz_E-xCqhUj-oAYoozFK88yjkhUiId4k-IXT2nB0zraIdGuYe7HdMfxUog0NSFwZ6CTQW9_HkmWO-XbQPx8x0Rc6r4P7GNS6-GR5_yb6SGeOxluizCcSIazL907ITDfdN3uBkYDSBN9279KaLZv8m3Ja_WZIsL0bm1BF4lUYXm-2vFm76SD6RNgBMkIPH6AWFP06UBGUpvOvAu5k53dVotVay50AhARbOJAQBZmOQRlA7jvEwEwGnRKkGXSNlpLOrnJFAGcy5NHT65QPQawiExJm298jumvEcG3UGNKilCm89nJx4K8-st6qBkeNOt2PjmZGJDDfIIY4sohliq5Y7k9UFd_Cvw58aLV4vT2XhVbDG4oOkQeEAKCgO7BggooIt-9gMBBk2hfLCAscAPJDtURrSMmLmD_4A9VDz3xPQnkkLMytfbPXfMQGeVwqsv6q_eBqLqLbFVa5lOwZIwaq1BkQW2wi7x32rLoPKnwxOoGL4b2XtXEXTelSyaJAhPirpPuRz2bElLbXgcG2yXi-L-GOItXBiW3VsBpz1NgyRRjy0XB65tHgkOZqnNsgeAJCAjrfUy7H7Bn66ZIBZ4Qws7b-pXbhKuClmnq7qYXY5XTMk7ctYi7YZ5kyTyZ5Ec1p__p5TYZQcNUJtN5SlUK-Up8_X4efO-Kw-S-L85FsIxAVNHfIN4WWhIS9sL3jnVifvKa5lXDWcgBV89dFY5VY_LQYnRCptd592LgHg349ekXs-a3h6rDFg7fisfEgszb32NSAK0As5GmA9Bq9W2vKFiGmRKkZak2ZwmQqC1RfZWSW2OVNaAdx11Fy00Fa1lzmEvU-k3AB0XHF-r1h0bztGTdgs-vz1f0rAKseF7qk_Fh5AW7sxtoCB5ux19mSWHLHPJkD-PUPFeC_WeIBLdZRHYxQ5fCcdRaeUW-cjkPA5zEEQUnxXD4_HQf9Qq7Nfw1fy8Di1ir4u1JOJxwPd2i1ex4jqxGNSfK5pNa7CmfQ1GY42hOnWLAFj-tCsUPJWFvPgZjUnhEUsgMl1SnISzeTWBg7Au9jY7yuy_rypoNPy8STdRUbNXBrv0KTkBD5AOgmG6uPT0hNrUQpkub8oOVGwMvJKe-WgZbiS5pBZA5PDT6J9-AhiD8Prac4zqTp8sqrU-SNlSWy69768pUic5HP_h1-RI29cpRyc4QKTuvmsX-YEKVb23-_3NPcfO7VhNwqUZ5b0IEw7p0Pb-MSPZkM29NFrMn8qYEMJbbNGdfCL8qmbaZde-MJ_7ysM_wg_cd1mLlEvpGtPuwR8K8WNpEQ1AI-W7hSUmP8-3ot23l1o3C2W1wVpAheGxFg2g1JPI7FsE4roUpHhWaRJtSTEZBtjkvbFG7u8kijPW1rnaVpcRT_3jXLedIkfe9sQY7mNnenc88tC5iICaB81GdMLdVo7LfyfOGdUH1niulBNGU9NrxtzITEhKNIN7X_6F91RNhc4uVuTVoY61Ak9VgloTlC5OQo44ElMvtRe7SinVdJ-6x74NEDvQ8_tld3bGURxXxTx7uWlr74r62njwtljV8R5I5rS5lPNoZpFKXjdorGqLD-9a2QVBkV8OQqFhiq3u4pyLQt1Kl0xUqgX_XipGW_RpJoAYJ-PlxzkP1Jhei6H3kaKd-5XqrDZ_-66xzaQlxD9P2TqQHP56IvIcZn86deIJ-17q6jUtvSq5IiEkqD3b5lfz510EX4f69toGi8UrcXrOPyZ9z-zgVp619fPECj9yJBJIoepzvNmnObowzUhjzUj_wP2iywq6cLJ09UUDQRosDxTHO012G_8zcTmAeLz9wPs-SL7Q9MFOxZDHburxyENif1f_pRaP4ZztCgJ6EV24mYigDpvGf6-3XOObcSjIU47VmwwQQO60IWkYoiFsHe4vN-xvlAf0CpKhtml3my9LW47stix3BQm2Y-3xKnt96mNfoRxwj0i6Y86-3FsYgnWTKN5vVh2UAXBA44lHU7rOsBH7Fn-ShNgoj932bQ6VBJ7O-xf91d7f6kYQ_FhBwYy6BMtq81ga0tXCkepLj9aguZmOsoUZOFkZ2HqnerLN4RLi5bORPfQevKWfaZWW3Af_v8jyPA30Xlls5usOQj2_j91MYN9hln00NU0t7x8C_FtUD8MEedWgACm7Fl1jdNHyC2YjhrMUHcr9ErAZkjCsMulA5sZ9jTMkf5V6f_oRUjJKcNFAryQ6n5fLfOqLQS93aw-dzoMvDqcmkzQOWGrwMLNmk1waXM8k-_OOyT2OevrxjttBJgITMfHhzf4VIdzPJhCaSrcnznOKUi5iqnSD1GB2ZjVLM84WyAu3LSDPyDumZG5Bhy7p5BUA5Xky6sXvXPZp0HXbP8jhrEEj2qEmKXzyO40h-4OWWuYfmg3LPUXsXuUBxGxIs864wnuehcq3uOqIyYf-ikKYQxw9MfsI0fIYuawTDVF5oFBrdz5ieYa0YQJmir_8mISxlkKxPsNUUjQJL6BC5q-TK3l9mF859TsSqbbZdfNa7VoUZtoYv4N8Sx7PSWAUS11gfFHFqu7wtvQrgmmeetJOFaR0TlPlVTCj0_703yKcVQibmV0GpGzxsAyNvpfS4hv7-Y2O8yIecrYGMk__wb-UhIWqgHERak_No4-6ATKgD25CJWc4ihg_0aOR6qqt2spkoWG8e9QxKdfCtOmbDW_s9KFYkpvl9VoLGmovoKadBS1HQ18xlFrCklCwZ7PqV_Swn4mTxRAuJMlOHyBwlgGT50fPmgqqtPtsLbV3esy4MhcB5OkGQXZsC6Ncx6oE64gs4ucB7rZMUpsT129g6iSKPhlejjPCNWARpIOohcl291fU0WrInKvOfibwjrR2csO4t0JYzOoom2TdJRs0UEjr-txko_WzPBPRnGTPNJjSvIKgamiltEilc08eT_uRrLObt1j-YuSpAYLu2-pq26xhknT9PvqjfaFC65OGHddMntpTIBwHKd0kIp40XWeqB2VovoAX6HmRojdiRCRcn08yWBwyoHRA0wWk0Eh47DT6ZXbEWzNaVfHplHMzZjkl0sPM7fkjRiixVvZPEI_kov78ZpkiGa2YCmNnkCglIQeR60wvK_eLfIkpd3r0qM7s0_qnh_lJPIybms5iBsqAAjHcFVVBY4h1lLeOd8LG2AOMnezVkVDKxICjWjRVy-sNfO8_1JCKdq1SEC1zAdqdmrfQI0Io7gcGqCSlHLPlDzIhbl9NLYqCQL1YKlu69OAmTGjXYoxMzyKxNAtUcjr1k7eiMv8yuGal5Oa08_yuyxaTLTOYAcRWgmZYbAVo_irqjVOkBPNBErLQMXrqnwf6DHaHFC-BQS6qEmeiJkZzTqR1eTZhjbkzJq1VZMb-pnp8Dk4n1_9MRIzIXL2K4YEJr3bCJycuC3TV1UXUAPd950Eo0GzPz_ehhg4sejiF64VbSQjwp7Yp8LqCDBTtA2zy",
+        "MINIMUM_SEQUENCE": "1",
+        "RAILWAY_PROJECT_ID": "6b3b902b-7764-4998-bd34-72bb78dac507",
+        "RAILWAY_ENVIRONMENT_ID": "55f03253-2831-49d5-90de-69070999f114",
+        "RAILWAY_SERVICE_ID": "ff8892df-61b7-44bf-98b6-1091845f55b5",
+        "stunApps": [
+          "mercury-stun-tntcl"
+        ],
+        "edges": [
+          {
+            "edgeId": "fra-1",
+            "app": "mercury-edge-tntcl",
+            "region": "fra",
+            "publicUrl": "https://37.16.4.174:4433",
+            "egressRateMbit": 200,
+            "egressBudgetGB": 2400,
+            "signalingReserveGB": 100
+          }
+        ]
+      }
     }
   ]
 }
