@@ -11,7 +11,7 @@ import { readAccountBoxes } from './device-service';
 import { infrastructureError } from './errors';
 import { createResendMailSender, type MailSender } from './mail-sender';
 
-export const DATA_RETENTION_INTERVAL = '1 hour';
+export const DATA_RETENTION_INTERVAL = '1 day';
 const NOTICE_PERIOD_MS = 30 * 24 * 60 * 60 * 1_000;
 
 /** UTC calendar months, rather than treating every year as 365 days. */

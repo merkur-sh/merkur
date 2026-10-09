@@ -698,7 +698,7 @@ check, refresh, and session issuance matches no delegation of it, so the account
 fails. Clearing `suspended_at` lets unexpired delegations work again, except that a browser which
 tried to refresh while suspended has lost its refresh token and signs in again.
 
-The server runs database retention immediately after migrations and hourly thereafter.
+The server runs database retention immediately after migrations and every 24 hours thereafter.
 `box_waitlist.created_at` expires after 12 UTC calendar months. Suspended accounts are erased,
 including their identifiers and account-owned rows, after 24 months from `suspended_at`.
 Every successful authentication that issues a browser session records `users.last_sign_in_at`
