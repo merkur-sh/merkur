@@ -43,6 +43,8 @@ describe('database backup', () => {
           deletion_scheduled_at: null,
           suspended_at: null,
           privileged_at: null,
+          last_sign_in_at: 20,
+          inactivity_notice_sent_at: 30,
         },
       ]);
       const daemons = await restored.selectFrom('daemons').select(['id', 'name']).execute();
@@ -117,6 +119,8 @@ async function seed(url: string): Promise<void> {
         root_envelope_nonce: 'nonce',
         root_envelope_ciphertext: 'ciphertext',
         created_at: 10,
+        last_sign_in_at: 20,
+        inactivity_notice_sent_at: 30,
       })
       .execute();
     await db

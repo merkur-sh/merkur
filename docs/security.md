@@ -698,6 +698,24 @@ check, refresh, and session issuance matches no delegation of it, so the account
 fails. Clearing `suspended_at` lets unexpired delegations work again, except that a browser which
 tried to refresh while suspended has lost its refresh token and signs in again.
 
+The server runs database retention immediately after migrations and hourly thereafter.
+`box_waitlist.created_at` expires after 12 UTC calendar months. Suspended accounts are erased,
+including their identifiers and account-owned rows, after 24 months from `suspended_at`.
+Every successful authentication that issues a browser session records `users.last_sign_in_at`
+and clears `inactivity_notice_sent_at`; refreshes do neither. Under email identity, 12 months
+without sign-in sends an inactivity notice. The database records provider acceptance before
+starting the 30-day notice period; a failed send leaves the account unscheduled. A sign-in
+during delivery prevents that notice from starting a countdown. Username identity has no
+verified mailbox, so it never deletes accounts for inactivity.
+
+Retention expiry reads eligibility, records owned hosted boxes in `box_removals`, and erases
+the account in one transaction. Cascades delete account-owned rows; box removals remain durable
+until the host confirms destruction. A contested box is not queued. No email address is retained
+as a suspension tombstone after account erasure. Abuse reports arrive at the contact mailbox,
+outside this database; their 12-month retention requires deletion there. Logs, relay data and
+performance reports are stored in Axiom; their 30-day retention is a dataset or organization
+setting, independent of the database sweep.
+
 `TRUSTED_PROXY_HOPS` has no default. It is the number of trusted proxies that append to
 `X-Forwarded-For`; use `0` for a directly reachable server. Overstating it trusts an
 attacker-controlled entry; understating it turns the limiter into a denial of service.

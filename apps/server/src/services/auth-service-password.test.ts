@@ -73,6 +73,7 @@ describe('password changes', () => {
     const after = await db.selectFrom('users').selectAll().executeTakeFirstOrThrow();
     expect(after).toEqual({
       ...before,
+      last_sign_in_at: changed.serverTimeMs,
       opaque_registration_record: input.registrationRecord,
       root_envelope_nonce: input.rootEnvelope.nonce,
       root_envelope_ciphertext: input.rootEnvelope.ciphertext,

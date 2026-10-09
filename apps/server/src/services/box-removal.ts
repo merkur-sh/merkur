@@ -13,7 +13,7 @@ import { type InfrastructureError, infrastructureError } from './errors';
  * A queued box is already unreachable: its device row is gone and its sessions
  * are revoked. This only paces how long the container outlives that, and how
  * soon a host that refused is asked again. The queue is empty except after a
- * password reset, so a pass is one read of an empty table.
+ * password reset or retention expiry, so a pass is one read of an empty table.
  */
 export const BOX_REMOVAL_INTERVAL = '1 minute';
 
@@ -62,7 +62,7 @@ export function requireNoPendingBoxRemoval(
 }
 
 /**
- * Destroys every box a password reset queued, oldest first.
+ * Destroys every box a password reset or retention expiry queued, oldest first.
  *
  * Runs on the maintenance loop rather than in the reset's request, so a reset
  * never waits on the box host and a host that was down is asked again. A row

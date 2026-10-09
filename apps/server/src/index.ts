@@ -24,6 +24,7 @@ import {
 } from './services/account-deletion-sweep';
 import { BOX_REMOVAL_INTERVAL, drainBoxRemovalsEffect } from './services/box-removal';
 import { DaemonControlServiceTag } from './services/daemon-control-service';
+import { DATA_RETENTION_INTERVAL, enforceDataRetentionEffect } from './services/data-retention';
 import { HealthServiceTag, SERVER_HEALTH_COMPONENTS } from './services/health-service';
 import { NotificationOutboxServiceTag } from './services/notification-outbox-service';
 import { RealtimeCoordinationServiceTag } from './services/realtime-coordination-service';
@@ -134,7 +135,15 @@ export async function startServer(webDistDirectory: string): Promise<void> {
         Effect.forkScoped,
       );
 
-      // A password reset queues its account's boxes for destruction instead of
+      yield* enforceDataRetentionEffect(logger).pipe(
+        Effect.catch((error) =>
+          logEffect('error', 'server', 'data_retention_failed', errorLogContext(error)),
+        ),
+        Effect.repeat(Schedule.spaced(DATA_RETENTION_INTERVAL)),
+        Effect.forkScoped,
+      );
+
+      // A password reset or retention expiry queues boxes for destruction instead of
       // waiting on the box host; this is what carries the queue out.
       yield* drainBoxRemovalsEffect(logger).pipe(
         Effect.catch((error: unknown) =>

@@ -10,14 +10,18 @@ import { type InfrastructureError, infrastructureError } from './errors';
 const SEND_TIMEOUT = '10 seconds';
 
 /**
- * The only mail the server sends: what email-identity sign-up and password
- * reset need.
+ * Email-identity sign-up, password reset and account inactivity notices.
  *
- * Every message but the last goes to an address somebody typed, so each call is
+ * Authentication messages go to an address somebody typed, so each call is
  * one send and nothing else: no account lookup, no retries that would make the
  * response time say which message of a pair was sent.
  */
 export interface MailSender {
+  /** Starts the 30-day notice period for an account inactive for 12 months. */
+  sendInactivityNotice(input: {
+    readonly to: string;
+    readonly idempotencyKey: string;
+  }): Effect.Effect<void, InfrastructureError>;
   sendSignUpCode(input: {
     readonly to: string;
     readonly code: string;
@@ -87,6 +91,18 @@ export function createResendMailSender(
     );
 
   return {
+    sendInactivityNotice: ({ to, idempotencyKey }) =>
+      send('send-inactivity-notice', idempotencyKey, {
+        to,
+        subject: 'Your inactive Merkur account will be deleted',
+        text: [
+          `You have not signed in to your Merkur account on ${host} for 12 months.`,
+          'Your account, linked machines and hosted boxes with everything on them',
+          'will be deleted in 30 days. Files on your own machines are unaffected.',
+          '',
+          `To keep your account, sign in at ${publicOrigin} within 30 days.`,
+        ].join('\n'),
+      }),
     sendSignUpCode: ({ to, code, idempotencyKey }) =>
       send('send-sign-up-code', idempotencyKey, {
         to,

@@ -79,7 +79,13 @@ export function setService(next: AuthService): void {
 }
 
 export interface SentMail {
-  readonly kind: 'code' | 'already-registered' | 'reset-code' | 'reset-no-account' | 'reset-done';
+  readonly kind:
+    | 'code'
+    | 'already-registered'
+    | 'reset-code'
+    | 'reset-no-account'
+    | 'reset-done'
+    | 'inactivity';
   readonly to: string;
   readonly code: string | null;
   readonly idempotencyKey: string;
@@ -96,6 +102,7 @@ export function recordingMail(sent: SentMail[]): MailSender {
         sent.push({ kind, to: input.to, code: input.code, idempotencyKey: input.idempotencyKey });
       });
   return {
+    sendInactivityNotice: notice('inactivity'),
     sendSignUpCode: code('code'),
     sendAlreadyRegistered: notice('already-registered'),
     sendPasswordResetCode: code('reset-code'),

@@ -138,6 +138,8 @@ export interface Users {
   created_at: number;
   deletion_scheduled_at: number | null;
   id: string | null;
+  inactivity_notice_sent_at: number | null;
+  last_sign_in_at: Generated<number>;
   opaque_registration_record: string;
   privileged_at: number | null;
   root_envelope_ciphertext: string;

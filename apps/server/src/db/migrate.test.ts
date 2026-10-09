@@ -55,6 +55,8 @@ describe('schema migration', () => {
         'deletion_scheduled_at',
         'suspended_at',
         'privileged_at',
+        'last_sign_in_at',
+        'inactivity_notice_sent_at',
       ]);
       expect(await tableColumns(db, 'daemons')).toContain('identity_seal_backend');
       for (const table of ['link_tokens', 'daemon_link_claims', 'daemons']) {

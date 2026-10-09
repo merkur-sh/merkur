@@ -167,6 +167,12 @@ describe('account deletion', () => {
 
   test('signing in calls the deletion off and says so', async () => {
     const actor = await registerAccount(OLD_PASSWORD, 0x22, 'current');
+    const issued = await db
+      .selectFrom('users')
+      .select('last_sign_in_at')
+      .where('id', '=', actor.userId)
+      .executeTakeFirstOrThrow();
+    expect(issued.last_sign_in_at).toBe(actor.session.serverTimeMs);
     await Effect.runPromise(
       service.scheduleAccountDeletion(
         browser(actor),
@@ -175,15 +181,22 @@ describe('account deletion', () => {
       ),
     );
 
+    await db
+      .updateTable('users')
+      .set({ inactivity_notice_sent_at: Date.now() })
+      .where('id', '=', actor.userId)
+      .execute();
     const session = await loginWithNewDelegation(OLD_PASSWORD, 0x24, 'returned');
 
     expect(session.session.deletionCancelled).toBe(true);
     const stored = await db
       .selectFrom('users')
-      .select('deletion_scheduled_at')
+      .select(['deletion_scheduled_at', 'last_sign_in_at', 'inactivity_notice_sent_at'])
       .where('id', '=', actor.userId)
       .executeTakeFirstOrThrow();
     expect(stored.deletion_scheduled_at).toBeNull();
+    expect(stored.inactivity_notice_sent_at).toBeNull();
+    expect(stored.last_sign_in_at).toBe(session.session.serverTimeMs);
     expect(await Effect.runPromise(service.accountsDueForDeletion())).toEqual([]);
   });
 

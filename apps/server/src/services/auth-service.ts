@@ -1459,7 +1459,7 @@ async function issueAuthSession(
   // because a row created moments ago has nothing set.
   const standing = await db
     .selectFrom('users')
-    .select('suspended_at')
+    .select(['suspended_at', 'deletion_scheduled_at'])
     .where('id', '=', certificate.userId)
     .executeTakeFirst();
   if (standing?.suspended_at != null) {
@@ -1473,11 +1473,14 @@ async function issueAuthSession(
   // that authenticates an account ends here, so none of them can forget to
   // call off a pending erasure. A refresh cannot reach this — scheduling the
   // deletion deletes the account's refresh tokens.
-  const cancelled = await db
+  await db
     .updateTable('users')
-    .set({ deletion_scheduled_at: null })
+    .set({
+      deletion_scheduled_at: null,
+      last_sign_in_at: now,
+      inactivity_notice_sent_at: null,
+    })
     .where('id', '=', certificate.userId)
-    .where('deletion_scheduled_at', 'is not', null)
     .executeTakeFirst();
   const accessToken = await createAccessToken(
     certificate.userId,
@@ -1496,7 +1499,7 @@ async function issueAuthSession(
     refresh.record.id,
     refresh.token,
     now,
-    Number(cancelled.numUpdatedRows ?? 0n) > 0,
+    standing?.deletion_scheduled_at != null,
   );
 }
 
