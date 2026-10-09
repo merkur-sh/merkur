@@ -10,6 +10,10 @@
  *   publication with every bucket window full (at most every 250 ms).
  * - `receiver-profile-read`: the transport worker's `readIfChanged` of that
  *   publication.
+ * - `receiver-profile-compressed` / `receiver-profile-raw-compressed`: sample
+ *   admission with an unchanged raw baseline and with one updated per sample.
+ * - `receiver-profile-publish-one` / `receiver-profile-publish-all`: publication
+ *   after one bucket changes and after every bucket changes.
  *
  * Every workload calls the production function. Cells are `bun:jsc`
  * object-type counts with a full collection before each snapshot.
@@ -106,6 +110,38 @@ function workloads(): Record<string, (ops: number) => void> {
         now += 250;
         profile.writer.publish(1_000, now);
         sink += profile.reader.readIfChanged()?.buckets.length ?? -1;
+      }
+    },
+    'receiver-profile-compressed': (ops) => {
+      for (let op = 0; op < ops; op += 1) {
+        profile.writer.recordCompressed(1_800, 720, false, 50 + (op % 32));
+      }
+    },
+    'receiver-profile-raw-compressed': (ops) => {
+      for (let op = 0; op < ops; op += 1) {
+        profile.writer.recordRaw(1_800, 20 + (op % 32));
+        profile.writer.recordCompressed(1_800, 720, false, 50 + (op % 32));
+      }
+    },
+    'receiver-profile-publish-one': (ops) => {
+      for (let op = 0; op < ops; op += 1) {
+        profile.writer.recordCompressed(1_800, 720, false, 50 + (op % 32));
+        now += 250;
+        profile.writer.publish(1_000, now);
+      }
+    },
+    'receiver-profile-publish-all': (ops) => {
+      const sizes = [256, 900, 1_800, 3_600, 7_000, 12_000];
+      const ratios = [0.1, 0.2, 0.4, 0.8];
+      for (let op = 0; op < ops; op += 1) {
+        for (const raw of sizes) {
+          for (const ratio of ratios) {
+            profile.writer.recordCompressed(raw, raw * ratio, false, 50 + (op % 32));
+            profile.writer.recordCompressed(raw, raw * ratio, true, 50 + (op % 32));
+          }
+        }
+        now += 250;
+        profile.writer.publish(1_000, now);
       }
     },
   };

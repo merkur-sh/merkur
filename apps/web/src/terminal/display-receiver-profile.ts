@@ -84,10 +84,14 @@ export function createDisplayReceiverProfileWriter(
   const rawValues = new Float64Array(DISPLAY_RECEIVER_SIZE_CLASSES * WINDOW_SAMPLES);
   const rawCounts = new Uint8Array(DISPLAY_RECEIVER_SIZE_CLASSES);
   const rawCursors = new Uint8Array(DISPLAY_RECEIVER_SIZE_CLASSES);
+  // Raw costs are non-negative, so -1 marks a mean invalidated by a new sample.
+  const rawMeans = new Float64Array(DISPLAY_RECEIVER_SIZE_CLASSES);
   const penaltyValues = new Float64Array(DISPLAY_RECEIVER_PROFILE_BUCKETS * WINDOW_SAMPLES);
   const ratioValues = new Float64Array(DISPLAY_RECEIVER_PROFILE_BUCKETS * WINDOW_SAMPLES);
   const counts = new Uint8Array(DISPLAY_RECEIVER_PROFILE_BUCKETS);
   const cursors = new Uint8Array(DISPLAY_RECEIVER_PROFILE_BUCKETS);
+  // The first publication also clears any preceding writer's bucket state.
+  const dirty = new Uint8Array(DISPLAY_RECEIVER_PROFILE_BUCKETS).fill(1);
 
   function insert(
     values: Float64Array,
@@ -103,18 +107,23 @@ export function createDisplayReceiverProfileWriter(
   }
 
   function rawMean(sizeClass: number): number {
+    const cached = rawMeans[sizeClass] ?? 0;
+    if (cached !== -1) return cached;
     const count = rawCounts[sizeClass] ?? 0;
     if (count === 0) return 0;
     let sum = 0;
     const start = sizeClass * WINDOW_SAMPLES;
     for (let index = 0; index < count; index += 1) sum += rawValues[start + index] ?? 0;
-    return sum / count;
+    const mean = sum / count;
+    rawMeans[sizeClass] = mean;
+    return mean;
   }
 
   return {
     recordRaw(rawBytes, validationApplyUs): void {
       const sizeClass = displayReceiverSizeClass(rawBytes);
       insert(rawValues, sizeClass, rawCounts, rawCursors, validationApplyUs);
+      rawMeans[sizeClass] = -1;
     },
 
     recordCompressed(rawBytes, wireBytes, dictionary, fusedValidationApplyUs): void {
@@ -134,6 +143,7 @@ export function createDisplayReceiverProfileWriter(
       ratioValues[at] = wireBytes / Math.max(1, rawBytes);
       cursors[bucket] = (cursor + 1) % WINDOW_SAMPLES;
       counts[bucket] = Math.min(WINDOW_SAMPLES, (counts[bucket] ?? 0) + 1);
+      dirty[bucket] = 1;
     },
 
     publish(serviceDebtUs, nowMs = Date.now()): void {
@@ -148,6 +158,7 @@ export function createDisplayReceiverProfileWriter(
       Atomics.store(words, PUBLISHED_AT_WORD, (Math.trunc(nowMs / 1_000) >>> 0) | 0);
       Atomics.store(words, SERVICE_DEBT_WORD, saturatingU32(serviceDebtUs) | 0);
       for (let bucket = 0; bucket < DISPLAY_RECEIVER_PROFILE_BUCKETS; bucket += 1) {
+        if (dirty[bucket] === 0) continue;
         const count = counts[bucket] ?? 0;
         let mean = 0;
         let ratio = 0;
@@ -168,6 +179,7 @@ export function createDisplayReceiverProfileWriter(
         Atomics.store(words, at + 2, saturatingU32(mean) | 0);
         Atomics.store(words, at + 3, saturatingU32(variance) | 0);
         Atomics.store(words, at + 4, saturatingU32(mean + 1.645 * predictiveDeviation) | 0);
+        dirty[bucket] = 0;
       }
       Atomics.store(words, VERSION_WORD, (version + 2) & ~1);
     },

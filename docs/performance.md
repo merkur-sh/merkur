@@ -843,6 +843,16 @@ selects row partitions and raw or zstd representations using sender cost, receiv
 carrier delivery quotes, and measured loss. Acknowledged per-peer dictionaries are an
 input to that decision. Benchmarks must exercise the shared planner, not a per-class policy.
 
+The browser receiver-cost profile retains each raw-window mean until a raw observation changes
+that size class. Publication recomputes and writes only buckets with new compressed observations;
+unchanged buckets retain their shared-memory statistics under the same seqlock. Each publication
+still advances its revision, timestamp and service debt. A new writer recomputes every bucket on
+its first publication, clearing its predecessor's observations. Window order, sample variance,
+predictive upper bounds and the wire representation stay identical. The caches add 96 bytes of
+typed-array backing storage per writer. `scripts/bench-web-display-periodic-paths.ts` measures
+unchanged, single-bucket and full-bucket publication, plus compressed sampling with a retained or
+fresh raw baseline. Those CPU and allocation measurements exclude network and GPU work.
+
 The remaining native write paths use kernel or transport readiness instead of retry polling. The
 PTY master is blocking, with one FIFO and a hard 320 KiB combined allocation cap (including its
 64 KiB terminal-reply reserve); accounting is released only when the owner observes completion.
