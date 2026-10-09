@@ -22,7 +22,7 @@ export interface TransportHint {
 interface TunerState {
   readonly counts: number[];
   readonly values: number[];
-  readonly activeArm: number;
+  activeArm: number;
 }
 
 interface TunerArm {
@@ -63,13 +63,13 @@ export interface TransportAutotuner {
 
 export function createTransportAutotuner(contextId: string): TransportAutotuner {
   const storageKey = `${STORAGE_PREFIX}:${contextId}`;
-  let state = loadState(storageKey);
+  const state = loadState(storageKey);
 
   return {
     observeAndMaybeSample(rttMs: number, pathType: 'direct' | 'relay' | 'unknown'): TransportHint {
       const reward = scoreReward(rttMs, pathType);
-      state = updateArm(state, state.activeArm, reward);
-      state = { ...state, activeArm: chooseArm(state) };
+      updateArm(state, state.activeArm, reward);
+      state.activeArm = chooseArm(state);
       saveState(storageKey, state);
       return getActiveHint(state);
     },
@@ -131,19 +131,13 @@ function saveState(storageKey: string, state: TunerState): void {
   }
 }
 
-function updateArm(state: TunerState, arm: number, reward: number): TunerState {
-  const counts = state.counts.slice();
-  const values = state.values.slice();
+function updateArm(state: TunerState, arm: number, reward: number): void {
+  const { counts, values } = state;
   const previousCount = counts[arm] ?? 0;
   const nextCount = previousCount + 1;
   counts[arm] = nextCount;
   const previousValue = values[arm] ?? 0;
   values[arm] = previousValue + (reward - previousValue) / nextCount;
-  return {
-    ...state,
-    counts,
-    values,
-  };
 }
 
 function chooseArm(state: TunerState): number {

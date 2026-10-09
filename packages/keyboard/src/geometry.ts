@@ -205,8 +205,7 @@ function buildCandidateAtlas(
   atlasHeight: number,
 ): Uint8Array {
   const atlas = new Uint8Array(width * atlasHeight * KEYBOARD_CANDIDATE_COUNT);
-  atlas.fill(NO_KEY);
-  if (keys.length === 0) return atlas;
+  if (keys.length === 0) return atlas.fill(NO_KEY);
 
   const rowCount = keys.reduce((count, key) => Math.max(count, key.row + 1), 0);
   const rowKeys: number[][] = Array.from({ length: rowCount }, () => []);
@@ -322,10 +321,12 @@ function buildCandidateAtlas(
         const xOffset = row * rowStride + x * KEYBOARD_CANDIDATE_COUNT;
         for (let position = 0; position < KEYBOARD_CANDIDATE_COUNT; position += 1) {
           const keyIndex = xCandidateIndices[xOffset + position] ?? NO_KEY;
-          if (keyIndex === NO_KEY) continue;
           const distance =
             (xCandidateDistances[xOffset + position] ?? Number.POSITIVE_INFINITY) +
             verticalDistance;
+          // This row's candidates are sorted by distance. Once one exceeds
+          // the global fourth distance, every remaining candidate does too.
+          if (distance > distance3) break;
 
           if (distance < distance0 || (distance === distance0 && keyIndex < index0)) {
             distance3 = distance2;

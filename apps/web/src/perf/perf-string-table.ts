@@ -36,6 +36,12 @@ export const PERF_STRING_TABLE_BYTES = META_BYTES + PERF_STRING_TABLE_SLOTS * SL
 /** Id 0 always means "absent"; real ids are slot index + 1. */
 export const PERF_STRING_ABSENT = 0;
 
+// Interning is synchronous within a JS realm; bytes reach the owning slot
+// before another interner can use this scratch. Worker realms own separate copies.
+const encoder = new TextEncoder();
+// Finish a UTF-8 scalar crossing the slot boundary, then retain the same byte prefix.
+const encoded = new Uint8Array(SLOT_TEXT_BYTES + 3);
+
 export function createPerfStringTableBuffer(): SharedArrayBuffer {
   return new SharedArrayBuffer(PERF_STRING_TABLE_BYTES);
 }
@@ -51,7 +57,6 @@ export interface PerfStringResolver {
 export function createPerfStringInterner(sab: SharedArrayBuffer): PerfStringInterner {
   const meta = new Int32Array(sab, 0, META_BYTES / 4);
   const bytes = new Uint8Array(sab, META_BYTES);
-  const encoder = new TextEncoder();
   const ids = new Map<string, number>();
   let published = 0;
 
@@ -66,9 +71,11 @@ export function createPerfStringInterner(sab: SharedArrayBuffer): PerfStringInte
 
       const slot = published;
       const offset = slot * SLOT_BYTES;
-      const encoded = encoder.encode(value);
-      const length = Math.min(encoded.length, SLOT_TEXT_BYTES);
-      bytes.set(encoded.subarray(0, length), offset + SLOT_HEADER_BYTES);
+      // Small inputs have bounded encoding cost; large inputs write only the slot prefix.
+      const text = value.length <= SLOT_TEXT_BYTES ? encoder.encode(value) : encoded;
+      const written = text === encoded ? encoder.encodeInto(value, encoded).written : text.length;
+      const length = Math.min(written, SLOT_TEXT_BYTES);
+      bytes.set(text.subarray(0, length), offset + SLOT_HEADER_BYTES);
       // Little-endian u16 length, written before the count is published.
       bytes[offset] = length & 0xff;
       bytes[offset + 1] = (length >>> 8) & 0xff;
@@ -91,12 +98,12 @@ export function createPerfStringResolver(sab: SharedArrayBuffer): PerfStringReso
   const decoder = new TextDecoder();
   // Decoding is cached because a resolve happens per decoded record, while a
   // slot's bytes never change once published.
-  const cache = new Map<number, string>();
+  const cache: (string | undefined)[] = [];
 
   return {
     resolve(id: number): string | null {
       if (id === PERF_STRING_ABSENT) return null;
-      const cached = cache.get(id);
+      const cached = cache[id];
       if (cached !== undefined) return cached;
 
       const slot = id - 1;
@@ -115,11 +122,9 @@ export function createPerfStringResolver(sab: SharedArrayBuffer): PerfStringReso
       // nothing. The copy costs one small allocation per *distinct id*, not
       // per record, because the cache below is what the record path hits.
       const value = decoder.decode(
-        new Uint8Array(
-          bytes.subarray(offset + SLOT_HEADER_BYTES, offset + SLOT_HEADER_BYTES + length),
-        ),
+        bytes.slice(offset + SLOT_HEADER_BYTES, offset + SLOT_HEADER_BYTES + length),
       );
-      cache.set(id, value);
+      cache[id] = value;
       return value;
     },
   };

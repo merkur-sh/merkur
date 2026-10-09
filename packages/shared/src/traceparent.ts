@@ -39,10 +39,12 @@ export interface TraceContext {
   readonly sampled: boolean;
 }
 
-function toHex(bytes: Uint8Array): string {
+const HEX_BYTES = Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, '0'));
+
+function toHex(bytes: Uint8Array, start = 0, end = bytes.length): string {
   let hex = '';
-  for (const byte of bytes) {
-    hex += byte.toString(16).padStart(2, '0');
+  for (let index = start; index < end; index += 1) {
+    hex += HEX_BYTES[bytes[index] ?? 0];
   }
   return hex;
 }
@@ -79,7 +81,9 @@ export function parseTraceparent(header: string | null | undefined): TraceContex
   return {
     traceId,
     spanId,
-    sampled: (Number.parseInt(flags, 16) & SAMPLED_FLAG) === SAMPLED_FLAG,
+    sampled:
+      ((flags.charCodeAt(1) - (flags.charCodeAt(1) <= 57 ? 48 : 87)) & SAMPLED_FLAG) ===
+      SAMPLED_FLAG,
   };
 }
 
@@ -103,8 +107,8 @@ export function mintTraceContext(): TraceContext {
   const bytes = new Uint8Array(TRACE_ID_BYTES + SPAN_ID_BYTES);
   crypto.getRandomValues(bytes);
   return {
-    traceId: toHex(bytes.subarray(0, TRACE_ID_BYTES)),
-    spanId: toHex(bytes.subarray(TRACE_ID_BYTES)),
+    traceId: toHex(bytes, 0, TRACE_ID_BYTES),
+    spanId: toHex(bytes, TRACE_ID_BYTES),
     sampled: true,
   };
 }

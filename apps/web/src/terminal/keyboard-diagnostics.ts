@@ -906,7 +906,11 @@ export function formatKeyboardDiagnostics(summary: KeyboardDiagnosticsSummary): 
     '',
     'per-key landing offset from the drawn centre, residual from the learned centre (px), most-typed first:',
   ];
-  for (const key of summary.keys.filter((entry) => entry.count > 0).slice(0, 20)) {
+  let shown = 0;
+  for (const key of summary.keys) {
+    if (!(key.count > 0)) continue;
+    if (shown === 20) break;
+    shown += 1;
     lines.push(
       `  ${key.layerId}/${key.keyId.padEnd(14)} n=${String(key.count).padStart(4)}  ` +
         `offset=(${signed(key.offsetX)}, ${signed(key.offsetY)})  ` +

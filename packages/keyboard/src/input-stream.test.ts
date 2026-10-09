@@ -40,6 +40,18 @@ function noticed(stream: string): Record<number, number> {
 // Every expectation below is the classification Wobbrock and Myers (2006) give
 // for the figure named, with the final text standing for the presented string.
 describe('input-stream analysis, P = T', () => {
+  test('classifies uncorrected input before visitors can change its source', () => {
+    const symbols = ['a', 'b', 'c'];
+    const kept: (string | null)[] = [];
+    createInputStreamAnalyzer().analyze(symbols, symbols.length, (index, kind, intended, after) => {
+      if (index === 0) symbols[1] = 'changed';
+      expect(kind).toBe(INPUT_STREAM_KEPT);
+      expect(after).toBe(-1);
+      kept.push(intended);
+    });
+    expect(kept).toEqual(['a', 'b', 'c']);
+  });
+
   test('Fig. 5: repeated misses before the right key are substitutions for it', () => {
     expect(erased('qv<w<uickly')).toEqual(['v:substitution:u', 'w:substitution:u']);
   });

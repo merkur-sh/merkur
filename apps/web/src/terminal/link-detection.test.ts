@@ -177,6 +177,95 @@ describe('findLinkAt', () => {
     expect(findLinkAt(screen, 1, 0, noDefinitions, matcher)).toBeNull();
     expect(findLinkAt(screen, 0, 20, noDefinitions, matcher)).toBeNull();
   });
+
+  test('a long wrapped URL keeps exact row spans at every cell', () => {
+    const url = `https://example.com/${'segment/'.repeat(30)}end`;
+    const text = `see ${url} done`;
+    for (const cols of [1, 2, 8, 31, 120]) {
+      const rows: string[] = [];
+      const wrapped: number[] = [];
+      for (let offset = 0; offset < text.length; offset += cols) {
+        rows.push(text.slice(offset, offset + cols));
+        if (offset + cols < text.length) wrapped.push(rows.length - 1);
+      }
+      const screen = viewport(rows, cols, { wrapped });
+      const spans = [];
+      const first = 4;
+      const last = first + url.length - 1;
+      const firstRow = Math.floor(first / cols);
+      for (let row = firstRow; row <= Math.floor(last / cols); row += 1) {
+        spans.push({
+          row,
+          left: row === firstRow ? first % cols : 0,
+          right: row === Math.floor(last / cols) ? last % cols : cols - 1,
+        });
+      }
+      for (let cell = first; cell <= last; cell += 1) {
+        expect(
+          findLinkAt(screen, Math.floor(cell / cols), cell % cols, noDefinitions, matcher),
+        ).toEqual({
+          url,
+          spans,
+        });
+      }
+    }
+  });
+
+  test('surrogate units and wide spacers preserve each wrapped row extent', () => {
+    const screen: LinkViewport = {
+      cols: 6,
+      rows: 3,
+      text: 'a😀界\n\nb界',
+      wrapBits: Uint8Array.of(3),
+      columns: Uint16Array.of(0, 1, 1, 2, 0, 1),
+      links: new Uint32Array(18),
+    };
+    const matchAll = (text: string) => [
+      { index: 0, lastIndex: text.length, url: 'https://example.com/' },
+    ];
+    const expected = {
+      url: 'https://example.com/',
+      spans: [
+        { row: 0, left: 0, right: 5 },
+        { row: 2, left: 0, right: 5 },
+      ],
+    };
+    expect(findLinkAt(screen, 0, 3, noDefinitions, matchAll)).toEqual(expected);
+    expect(findLinkAt(screen, 2, 2, noDefinitions, matchAll)).toEqual(expected);
+  });
+
+  test('every subrange keeps the first and last cell on each nonempty row', () => {
+    const screen: LinkViewport = {
+      cols: 6,
+      rows: 4,
+      text: 'abcd\n\nef\nghi',
+      wrapBits: Uint8Array.of(7),
+      columns: Uint16Array.of(0, 1, 2, 3, 0, 1, 0, 1, 2),
+      links: new Uint32Array(24),
+    };
+    const cells = [0, 1, 2, 3, 12, 13, 18, 19, 20];
+    const ends = [0, 1, 2, 5, 12, 17, 18, 19, 23];
+    for (let first = 0; first < cells.length; first += 1) {
+      for (let end = first + 1; end <= cells.length; end += 1) {
+        const match = () => [{ index: first, lastIndex: end, url: 'https://example.com/' }];
+        const spans = [];
+        for (let row = 0; row < screen.rows; row += 1) {
+          const units = cells.slice(first, end).filter((cell) => Math.floor(cell / 6) === row);
+          if (units.length === 0) continue;
+          const last = cells.indexOf(units.at(-1) ?? 0);
+          spans.push({
+            row,
+            left: (units[0] ?? 0) - row * 6,
+            right: (ends[last] ?? 0) - row * 6,
+          });
+        }
+        const cell = cells[first] ?? 0;
+        expect(
+          findLinkAt(screen, Math.floor(cell / 6), cell % 6, noDefinitions, match)?.spans,
+        ).toEqual(spans);
+      }
+    }
+  });
 });
 
 describe('openableUrl', () => {

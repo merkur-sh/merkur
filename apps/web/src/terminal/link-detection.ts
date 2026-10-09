@@ -101,6 +101,9 @@ function spansBetween(cols: number, first: number, last: number): LinkRowSpan[] 
 
 interface LogicalLine {
   readonly matcher: UrlMatcher;
+  /** Existing viewport row boundaries, rebased by the logical line's first unit. */
+  readonly columnStarts: Int32Array;
+  readonly columnOffset: number;
   /** First cell of every UTF-16 unit of the line's text. */
   readonly cells: readonly number[];
   /** Last cell of every unit: the spacer of a wide character, the margin at a row's end. */
@@ -110,7 +113,7 @@ interface LogicalLine {
 
 interface RowIndex {
   readonly texts: readonly string[];
-  /** Offset into `LinkViewport.columns` of each row's first text unit. */
+  /** Row starts in `LinkViewport.columns`, followed by the viewport's final unit offset. */
   readonly columnStarts: Int32Array;
   /** Unit index of each row's first and last text unit, -1 for a row without text. */
   readonly firstInk: Int32Array;
@@ -127,7 +130,7 @@ function rowIndexOf(viewport: LinkViewport): RowIndex {
   if (cached !== undefined) return cached;
   const { rows } = viewport;
   const texts = viewport.text.split('\n');
-  const columnStarts = new Int32Array(rows);
+  const columnStarts = new Int32Array(rows + 1);
   const firstInk = new Int32Array(rows).fill(-1);
   const lastInk = new Int32Array(rows).fill(-1);
   let columnStart = 0;
@@ -143,6 +146,7 @@ function rowIndexOf(viewport: LinkViewport): RowIndex {
     firstInk[row] = first;
     lastInk[row] = last;
   }
+  columnStarts[rows] = columnStart;
   const index = { texts, columnStarts, firstInk, lastInk, lines: new Map() };
   rowIndexes.set(viewport, index);
   return index;
@@ -191,6 +195,8 @@ function logicalLineAt(
   }
   const logical = {
     matcher: matchUrls,
+    columnStarts: index.columnStarts,
+    columnOffset: index.columnStarts[start] ?? 0,
     cells,
     ends,
     // A frame unit is one UTF-16 unit, so blanking it keeps every offset.
@@ -203,16 +209,19 @@ function logicalLineAt(
 /** Per-row spans of the cells under text units `[first, end)`. */
 function textSpans(line: LogicalLine, cols: number, first: number, end: number): LinkRowSpan[] {
   const spans: LinkRowSpan[] = [];
-  for (let unit = first; unit < end; unit++) {
-    const cell = line.cells[unit] ?? 0;
+  const { cells, ends, columnStarts, columnOffset } = line;
+  let unit = first;
+  while (unit < end) {
+    const cell = cells[unit] ?? 0;
     const row = Math.floor(cell / cols);
-    const right = (line.ends[unit] ?? cell) - row * cols;
-    const previous = spans.at(-1);
-    if (previous !== undefined && previous.row === row) {
-      spans[spans.length - 1] = { row, left: previous.left, right };
-    } else {
-      spans.push({ row, left: cell - row * cols, right });
-    }
+    const rowEnd = (columnStarts[row + 1] ?? 0) - columnOffset;
+    const next = rowEnd < end ? rowEnd : end;
+    spans.push({
+      row,
+      left: cell - row * cols,
+      right: (ends[next - 1] ?? cell) - row * cols,
+    });
+    unit = next;
   }
   return spans;
 }

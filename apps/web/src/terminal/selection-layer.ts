@@ -58,6 +58,7 @@ const ROW_STYLE = 'position:absolute;left:0;margin:0;padding:0;white-space:pre';
 
 /** A codepoint measuring past this multiple of the narrow advance covers two cells. */
 const WIDE_ADVANCE_RATIO = 1.5;
+const TRAILING_SPACES = / +$/u;
 
 /**
  * Assemble the clipboard text for a row range.
@@ -88,7 +89,9 @@ export function assembleSelectionText(
     // Blank tails are grid padding on a row that ended, but a row that wraps is
     // full and its trailing spaces are content the next row continues from —
     // trimming those would corrupt the join rather than tidy it.
-    if (to >= rowText.length && !wrapped) slice = slice.replace(/ +$/u, '');
+    if (to >= rowText.length && !wrapped && slice.charCodeAt(slice.length - 1) === 32) {
+      slice = slice.replace(TRAILING_SPACES, '');
+    }
     out += slice;
     if (row < endRow && !wrapped) out += '\n';
   }

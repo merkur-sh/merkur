@@ -172,9 +172,11 @@ export function createRefreshRateEstimator(): RefreshRateEstimator {
    * `lastFoldFrames` carries how many of them folded, without an allocation.
    */
   let lastFoldFrames = 0;
+  const foldCandidates = new Float64Array(SEED_WINDOW);
   function foldPeriod(deltas: number[]): number | null {
-    const candidates = [...deltas].sort((a, b) => a - b);
-    for (const candidate of candidates) {
+    foldCandidates.set(deltas);
+    foldCandidates.sort();
+    for (const candidate of foldCandidates) {
       let foldCount = 0;
       let periodSum = 0;
       for (const delta of deltas) {

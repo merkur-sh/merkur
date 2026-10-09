@@ -111,10 +111,9 @@ export function createPerfRingWriter(sab: SharedArrayBuffer): PerfRingWriter {
       f64Base = index * (PERF_RECORD_BYTES / 8);
       u32Base = index * (PERF_RECORD_BYTES / 4) + F64_BLOCK_BYTES / 4;
       // Clearing is what lets every decoder read a fixed slot set without the
-      // encoder having to write slots its event kind does not use. Two typed
-      // array fills over 128 bytes are cheaper than the branching alternative.
-      f64.fill(0, f64Base, f64Base + PERF_RECORD_F64_SLOTS);
-      u32.fill(0, u32Base, u32Base + PERF_RECORD_U32_SLOTS);
+      // encoder having to write slots its event kind does not use. One fill
+      // clears both blocks: all-zero bits represent f64 +0 and u32 0.
+      u32.fill(0, u32Base - F64_BLOCK_BYTES / 4, u32Base + PERF_RECORD_U32_SLOTS);
       u32[u32Base] = kind >>> 0;
     },
     f64(slot: number, value: number): void {

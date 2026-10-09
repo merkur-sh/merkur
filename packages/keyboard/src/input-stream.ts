@@ -97,7 +97,16 @@ export function createInputStreamAnalyzer(): InputStreamAnalyzer {
     visit: InputStreamVisitor,
   ): void {
     reserve(length);
-    flag(symbols, length);
+    if (!flag(symbols, length)) {
+      transcribed.length = 0;
+      for (let index = 0; index < length; index += 1) {
+        transcribed.push(symbols[index] ?? '');
+      }
+      for (let index = 0; index < length; index += 1) {
+        visit(index, INPUT_STREAM_KEPT, transcribed[index] ?? null, -1);
+      }
+      return;
+    }
     measureNoticing(symbols, length);
     assignPositions(symbols, length);
     determine(symbols, length, visit);
@@ -108,10 +117,14 @@ export function createInputStreamAnalyzer(): InputStreamAnalyzer {
    * with nothing of this line left to erase deletes text from before it, which
    * the count simply never spends.
    */
-  function flag(symbols: readonly (string | null)[], length: number): void {
+  function flag(symbols: readonly (string | null)[], length: number): boolean {
     let erasures = 0;
+    let needsAnalysis = false;
     for (let index = length - 1; index >= 0; index -= 1) {
-      if (symbols[index] === null) {
+      const symbol = symbols[index];
+      if (symbol === undefined) needsAnalysis = true;
+      if (symbol === null) {
+        needsAnalysis = true;
         erasures += 1;
         flagged[index] = 0;
       } else if (erasures === 0) {
@@ -121,6 +134,7 @@ export function createInputStreamAnalyzer(): InputStreamAnalyzer {
         flagged[index] = 0;
       }
     }
+    return needsAnalysis;
   }
 
   /** How late each erasure was noticed: its Backspace's place within its run. */

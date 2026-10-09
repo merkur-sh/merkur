@@ -348,12 +348,14 @@ export function createKeyboardOffsetModel(
     // The residual is measured from the combined prediction — field plus
     // per-key offset, clamps included — exactly as `apply` computes it. That
     // is what makes this an EM step rather than a one-shot truncated mean.
+    const fieldX = fieldAt(thetaX, su, sv) * keyPitch;
+    const fieldY = fieldAt(thetaY, su, sv) * rowPitch;
     const totalX = clamp(
-      fieldAt(thetaX, su, sv) * keyPitch + clamp(offset.x, boundX) * key.rect.width,
+      fieldX + clamp(offset.x, boundX) * key.rect.width,
       MAXIMUM_OFFSET_PITCHES * keyPitch,
     );
     const totalY = clamp(
-      fieldAt(thetaY, su, sv) * rowPitch + clamp(offset.y, boundY) * key.rect.height,
+      fieldY + clamp(offset.y, boundY) * key.rect.height,
       MAXIMUM_OFFSET_PITCHES * rowPitch,
     );
     const errorX = trace.downX - (centerX + totalX);
@@ -388,8 +390,8 @@ export function createKeyboardOffsetModel(
       // cost is a small bounded transient: the residual briefly fits what the
       // still-moving field later absorbs, overshooting the bias by ~13% at its
       // worst before decaying, always inside the half-pitch total clamp.
-      const fieldOwnX = trace.downX - (centerX + fieldAt(thetaX, su, sv) * keyPitch);
-      const fieldOwnY = trace.downY - (centerY + fieldAt(thetaY, su, sv) * rowPitch);
+      const fieldOwnX = trace.downX - (centerX + fieldX);
+      const fieldOwnY = trace.downY - (centerY + fieldY);
       if (key.rect.width <= FIELD_WIDE_KEY_PITCHES * keyPitch) {
         fieldStep(px, thetaX, clamp(fieldOwnX / keyPitch, FIELD_ERROR_CLIP_PITCHES), su, sv);
       }
@@ -490,8 +492,12 @@ export function createKeyboardOffsetModel(
     byLayer.clear();
     thetaX.fill(0);
     thetaY.fill(0);
-    px.set(createRidgeCovariance());
-    py.set(createRidgeCovariance());
+    px.fill(0);
+    py.fill(0);
+    for (let diagonal = 0; diagonal < FIELD_DIMS; diagonal += 1) {
+      px[diagonal * FIELD_DIMS + diagonal] = 1 / FIELD_RIDGE_PSEUDO_TAPS;
+      py[diagonal * FIELD_DIMS + diagonal] = 1 / FIELD_RIDGE_PSEUDO_TAPS;
+    }
     fieldCount = 0;
   }
 
