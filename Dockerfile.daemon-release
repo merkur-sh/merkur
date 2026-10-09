@@ -1,6 +1,22 @@
 # syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 
-FROM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS bun
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS bun
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+  && case "$(dpkg --print-architecture)" in \
+    amd64) build=x64-baseline; digest=c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f ;; \
+    arm64) build=aarch64; digest=54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7 ;; \
+    *) echo "unsupported Bun architecture" >&2; exit 1 ;; \
+  esac \
+  && curl --fail --silent --show-error --location "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-$build.zip" -o /tmp/bun.zip \
+  && printf '%s  /tmp/bun.zip\n' "$digest" | sha256sum --check \
+  && unzip -p /tmp/bun.zip "bun-linux-$build/bun" > /usr/local/bin/bun \
+  && chmod 0755 /usr/local/bin/bun \
+  && ln -s bun /usr/local/bin/bunx \
+  && ln -s bun /usr/local/bin/node \
+  && test "$(bun --version)" = 1.4.2 \
+  && rm -rf /tmp/bun.zip /var/lib/apt/lists/*
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin
 
 # Debian 12 is Merkur's Linux ABI floor. Building on a newer distribution
 # can silently introduce glibc symbols that are unavailable to users.
