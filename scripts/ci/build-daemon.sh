@@ -10,8 +10,10 @@ if [[ "$PLATFORM" == linux-* ]]; then
     --build-arg "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
     --output type=local,dest=dist/ci-release .
   tar -xzf "dist/ci-release/merkur-daemon-$PLATFORM.tar.gz" -C dist/smoke
-  docker run --rm --platform "$DOCKER_PLATFORM" -v "$PWD:/work:ro" public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 \
-    sh -ec 'apt-get update -qq; apt-get install -y -qq python3; python3 /work/scripts/ci/release_smoke.py /work/dist/smoke "$1" "$2" -' sh "$VERSION" "$SEQUENCE"
+  docker buildx build --platform "$DOCKER_PLATFORM" --file Dockerfile.daemon-release \
+    --target smoke-runtime --load --tag merkur-daemon-smoke:release .
+  docker run --rm --pull never --platform "$DOCKER_PLATFORM" -v "$PWD:/work:ro" merkur-daemon-smoke:release \
+    python3 /work/scripts/ci/release_smoke.py /work/dist/smoke "$VERSION" "$SEQUENCE" -
 else
   MERKUR_PUBLIC_ORIGIN="$SERVER_ORIGIN" MERKUR_OPAQUE_SERVER_PUBLIC_KEY="$OPAQUE_PIN" \
     bun run scripts/build-daemon-dist.ts --version "$VERSION" --sequence "$SEQUENCE" --platform "$PLATFORM"

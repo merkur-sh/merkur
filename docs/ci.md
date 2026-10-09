@@ -107,6 +107,9 @@ Native macOS runner tests do not attest a physical Secure Enclave.
 
 Release builders, Linux smoke tests, NAT labs and the TPM simulator pull digest-pinned
 Rust and Debian images from Docker's official Amazon ECR Public repositories.
+Linux daemon smoke tests load their Debian runtime through the release's BuildKit builder,
+then run the loaded image with pulls disabled. This reuses the builder's base-image content
+instead of downloading the same runtime again through Docker Engine.
 Buildx bootstraps a digest-pinned BuildKit image from Google's public Docker Hub mirror.
 CI selects its digest-pinned Dockerfile frontend from that same mirror with
 `BUILDKIT_SYNTAX`. The app and site Dockerfiles keep the canonical `docker/dockerfile`

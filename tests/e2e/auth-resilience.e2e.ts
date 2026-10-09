@@ -229,26 +229,28 @@ test.describe('OPAQUE account and trusted-browser resilience', () => {
     await registerIdentity(page, identity);
     await logout(page);
 
-    await page.route(
-      `**${AUTH_START_PATH}`,
-      async (route) => {
-        const response = await route.fetch();
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        await route.fulfill({ response });
-      },
-      { times: 1 },
-    );
+    const startResponse = Promise.withResolvers<void>();
+    await page.route(`**${AUTH_START_PATH}`, async (route) => {
+      const response = await route.fetch();
+      await startResponse.promise;
+      await route.fulfill({ response });
+    });
     const failedStart = page.waitForResponse(
       (response) => new URL(response.url()).pathname === AUTH_START_PATH,
     );
 
-    await signIn(page, identity.username, WRONG_PASSWORD);
     const form = page.locator('#auth-form');
-    await expect(form.getByRole('button', { name: 'Continuing…' })).toBeDisabled();
+    try {
+      await signIn(page, identity.username, WRONG_PASSWORD);
+      await expect(form.getByRole('button', { name: 'Continuing…' })).toBeDisabled();
+    } finally {
+      startResponse.resolve();
+    }
     expect((await failedStart).status()).toBe(200);
     await expect(page.locator('#auth-feedback')).toHaveText(AUTH_FEEDBACK);
     await expect(form.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled();
     await expectLoggedOut(page);
+    await page.unroute(`**${AUTH_START_PATH}`);
 
     await signIn(page, identity.username, PASSWORD);
     await expectLoggedIn(page);

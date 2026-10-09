@@ -102,5 +102,10 @@ RUN --mount=type=cache,id=merkur-cargo-registry,target=/usr/local/cargo/registry
     -C apps/daemon/dist merkur merkur-dataplane merkur-image-worker merkur-tui \
   && bun build scripts/ci-release-verify.ts --compile --outfile "/release/verify-${platform}"
 
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS smoke-runtime
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 \
+  && rm -rf /var/lib/apt/lists/*
+
 FROM scratch AS artifacts
 COPY --from=builder /release/ /
