@@ -43,7 +43,9 @@ function makeEvents(inputCount: number, correlated: boolean): TerminalPerfEvent[
     });
     events.push({
       kind: 'render_end',
-      atMs: atMs + 5,
+      // The presentation is committed inside the render, before its submission
+      // ends. A commit after render_end cannot belong to that GPU completion.
+      atMs: atMs + 5.5,
       renderSeq: inputSeq,
       displayInputSeq: correlatedSeq,
       predictionInputSeq: 0,

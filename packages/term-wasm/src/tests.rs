@@ -74,6 +74,189 @@ use merkur_codec::{
     FrameKind, RowRef, STREAM_HEADER_BYTES, encode_frame_into,
 };
 
+#[test]
+#[ignore = "production row application timing; run alone in release mode"]
+fn production_row_application_benchmark() {
+    const COLS: usize = 512;
+    const ROWS: usize = 40;
+    const ITERATIONS: u32 = 500;
+    let mut grid = Grid::<Cell>::new(ROWS, COLS, 0);
+    let mut versions = vec![0; ROWS * COLS];
+    let mut revisions = vec![0; ROWS * COLS];
+    let mut links = vec![0; ROWS * COLS];
+    let mut row_links = [0; ROWS];
+    let cells: Vec<_> = (0..COLS)
+        .map(|col| CellRepr {
+            codepoint: 0x20 + u32::try_from(col % 95).expect("ASCII offset"),
+            fg: [
+                col.to_le_bytes()[0],
+                (col * 3).to_le_bytes()[0],
+                (col * 7).to_le_bytes()[0],
+            ],
+            bg: DEFAULT_BACKGROUND,
+            attrs: CellAttrs::NONE.with(CellAttrs::BOLD, col % 3 == 0),
+            link: if col % 7 == 0 {
+                u32::try_from(col).expect("column fits a link ID") + 1
+            } else {
+                0
+            },
+        })
+        .collect();
+    let mut samples = Vec::new();
+    let mut sequence = 0;
+    for sample in 0..110 {
+        let start = std::time::Instant::now();
+        for _ in 0..ITERATIONS {
+            sequence += 1;
+            for (row, row_links) in row_links.iter_mut().enumerate() {
+                std::hint::black_box(apply_row_cells(
+                    &mut grid,
+                    &mut versions,
+                    &mut revisions,
+                    &mut links,
+                    row_links,
+                    std::hint::black_box(&cells),
+                    row,
+                    0,
+                    COLS,
+                    sequence,
+                    false,
+                    sequence,
+                ));
+            }
+        }
+        if sample >= 10 {
+            samples.push(start.elapsed().as_nanos() as f64 / f64::from(ITERATIONS) / ROWS as f64);
+        }
+    }
+    assert!(versions.iter().all(|version| *version == sequence));
+    assert!(revisions.iter().all(|revision| *revision == sequence));
+    assert!(
+        row_links
+            .iter()
+            .all(|count| usize::from(*count) == COLS.div_ceil(7))
+    );
+    samples.sort_by(f64::total_cmp);
+    println!(
+        "production row application: cols={COLS} rows={ROWS} p50={:.3}ns/row p95={:.3}ns/row",
+        samples[49], samples[94]
+    );
+}
+
+#[test]
+fn row_application_preserves_sparse_cell_ordering_damage_and_occupancy() {
+    let mut grid = Grid::<Cell>::new(2, 8, 0);
+    let mut versions = vec![0; 16];
+    let mut revisions = vec![0; 16];
+    let mut links = vec![0; 16];
+    let mut row_links = 0;
+    // Adjacent cells can have different authority after an earlier partial row.
+    versions[10..14].copy_from_slice(&[u32::MAX, 3, 0, 0x8000_0001]);
+    let mut cells = [test_cell('x'); 4];
+    cells[0].link = 11;
+    cells[2].link = 22;
+    assert_eq!(
+        apply_row_cells(
+            &mut grid,
+            &mut versions,
+            &mut revisions,
+            &mut links,
+            &mut row_links,
+            &cells,
+            1,
+            2,
+            8,
+            1,
+            false,
+            17
+        ),
+        (true, Some((2, 4)), true),
+    );
+    assert_eq!(versions[10..14], [1, 3, 1, 0x8000_0001]);
+    assert_eq!(revisions[10..14], [17, 0, 17, 0]);
+    assert_eq!(links[10..14], [11, 0, 22, 0]);
+    assert_eq!(row_links, 2);
+    assert_eq!(grid[Line(1)][Column(2)].c, 'x');
+    assert_eq!(grid[Line(1)][Column(3)].c, ' ');
+    assert_eq!(grid[Line(1)][Column(4)].c, 'x');
+
+    let before = grid.clone();
+    assert_eq!(
+        apply_row_cells(
+            &mut grid,
+            &mut versions,
+            &mut revisions,
+            &mut links,
+            &mut row_links,
+            &cells,
+            0,
+            4,
+            8,
+            0,
+            false,
+            18
+        ),
+        (false, None, false),
+    );
+    // Refused writes must not mark the blank row occupied: that changes reflow.
+    assert_eq!(grid, before);
+    assert_eq!(
+        apply_row_cells(
+            &mut grid,
+            &mut versions,
+            &mut revisions,
+            &mut links,
+            &mut row_links,
+            &[],
+            0,
+            8,
+            8,
+            2,
+            false,
+            19
+        ),
+        (false, None, false),
+    );
+    assert_eq!(grid, before);
+}
+
+#[test]
+fn every_display_style_round_trips_without_losing_wrap_or_background_provenance() {
+    for bits in 0u8..128 {
+        let attrs = CellAttrs::NONE
+            .with(CellAttrs::WIDE, bits & 1 != 0)
+            .with(CellAttrs::BOLD, bits & 2 != 0)
+            .with(CellAttrs::ITALIC, bits & 4 != 0)
+            .with(CellAttrs::UNDERLINE, bits & 8 != 0)
+            .with(CellAttrs::INVERSE, bits & 16 != 0)
+            .with(CellAttrs::WRAPPED, bits & 32 != 0)
+            .with(CellAttrs::EXPLICIT_DEFAULT_BG, bits & 64 != 0);
+        let repr = CellRepr {
+            attrs,
+            ..test_cell('x')
+        };
+        let mut cell = Cell {
+            flags: Flags::DIM | Flags::STRIKEOUT,
+            ..Cell::default()
+        };
+        cell.push_zerowidth('\u{0301}');
+        assert!(write_cell(&mut cell, repr));
+        assert!(cell.extra.is_none());
+        assert_eq!(cell_wraps(&cell), repr.wrapped());
+        // The row builder owns WRAPPED; individual cell conversion leaves it
+        // clear. Every other encoded style and explicit paint must survive.
+        assert_eq!(
+            CellRepr::from_alacritty_with_colors(&cell, repr.fg, repr.bg),
+            CellRepr {
+                attrs: attrs.with(CellAttrs::WRAPPED, false),
+                ..repr
+            },
+            "attrs={bits}",
+        );
+        assert!(!write_cell(&mut cell, repr), "identical style attrs={bits}");
+    }
+}
+
 // Existing semantic/geometry fixtures model already-eligible transactions.
 // Receive-only isolation tests below deliberately use the real apply APIs.
 impl Terminal {

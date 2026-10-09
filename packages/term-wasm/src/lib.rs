@@ -5865,6 +5865,37 @@ fn stamp_row_wrap_digest(row: &alacritty_terminal::grid::Row<Cell>, digest: &mut
     }
 }
 
+// The attribute byte has a finite domain. Derive its exact alacritty mapping
+// once at compile time instead of reconstructing it at every admitted cell.
+// Source and destination masks stay named by their owners; no bit positions
+// from either format are duplicated here.
+static DISPLAY_CELL_FLAGS: [Flags; 256] = {
+    let mappings = [
+        (merkur_codec::CellAttrs::WRAPPED, Flags::WRAPLINE),
+        (merkur_codec::CellAttrs::WIDE, Flags::WIDE_CHAR),
+        (merkur_codec::CellAttrs::BOLD, Flags::BOLD),
+        (merkur_codec::CellAttrs::ITALIC, Flags::ITALIC),
+        (merkur_codec::CellAttrs::UNDERLINE, Flags::UNDERLINE),
+        (merkur_codec::CellAttrs::INVERSE, Flags::INVERSE),
+    ];
+    let mut table = [Flags::empty(); 256];
+    let mut attrs = 0;
+    while attrs < table.len() {
+        let mut bits = 0;
+        let mut mapping = 0;
+        while mapping < mappings.len() {
+            let (source, destination) = mappings[mapping];
+            if attrs & source.bits() as usize != 0 {
+                bits |= destination.bits();
+            }
+            mapping += 1;
+        }
+        table[attrs] = Flags::from_bits_retain(bits);
+        attrs += 1;
+    }
+    table
+};
+
 /// Canonicalize every admitted write, but report only semantic cell damage.
 /// Named/indexed and explicit colors can differ structurally while resolving
 /// identically. Extra alacritty state is conservatively dirty when stripped.
@@ -5896,26 +5927,7 @@ fn write_cell(cell: &mut Cell, repr: CellRepr) -> bool {
             b: repr.bg[2],
         });
     }
-    let mut flags = Flags::empty();
-    if repr.wrapped() {
-        flags.insert(Flags::WRAPLINE);
-    }
-    if repr.wide() {
-        flags.insert(Flags::WIDE_CHAR);
-    }
-    if repr.bold() {
-        flags.insert(Flags::BOLD);
-    }
-    if repr.italic() {
-        flags.insert(Flags::ITALIC);
-    }
-    if repr.underline() {
-        flags.insert(Flags::UNDERLINE);
-    }
-    if repr.inverse() {
-        flags.insert(Flags::INVERSE);
-    }
-    next.flags = flags;
+    next.flags = DISPLAY_CELL_FLAGS[usize::from(repr.attrs.bits())];
     let visually_changed = cell.c != next.c
         || cell.flags != next.flags
         || (cell.fg != next.fg && resolve_color(cell.fg) != repr.fg)
