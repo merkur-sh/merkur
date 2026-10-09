@@ -1,1 +1,0 @@
-Rules for this tree (read before editing): ../../.claude/rules/frontend.md, ../../.claude/rules/effect.md, ../../.claude/rules/display.md, ../../.claude/rules/keyboard.md. Docs: docs/display-invariants.md, docs/performance.md.

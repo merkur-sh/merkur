@@ -1,1 +1,0 @@
-Rules for this tree (read before editing): ../../../.claude/rules/dataplane.md, ../../../.claude/rules/display.md, ../../../.claude/rules/protocol.md, ../../../.claude/rules/ipc.md, ../../../.claude/rules/crypto-bootstrap.md. Docs: docs/display-invariants.md, docs/transport.md.

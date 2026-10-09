@@ -1,6 +1,0 @@
-load(":targets.bzl", "shell_runtime_targets")
-package(default_visibility = ["//visibility:public"])
-exports_files(['build-control.py', 'extract.py', 'fish-pins.json', 'repositories.bzl', 'runtime-control.py', 'runtime-pins.json', 'targets.bzl', 'tmux-build.py', 'tmux-declared-shell.patch', 'tmux-pins.json', 'tmux.bzl'])
-shell_runtime_targets()
-
-filegroup(name = "verification_inputs", srcs = glob(["**"], exclude = [".*", "**/.*", ".*/**", "**/.*/**", "__pycache__/**", "**/__pycache__/**", "*.pyc", "**/*.pyc", ".env", ".env.*", "**/.env", "**/.env.*", ".bazelrc.local", "**/.bazelrc.local", ".DS_Store", "**/.DS_Store"]))

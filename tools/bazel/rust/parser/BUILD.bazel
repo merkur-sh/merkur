@@ -1,3 +1,0 @@
-package(default_visibility = ["//visibility:public"])
-exports_files(["Cargo.toml", "Cargo.lock"])
-filegroup(name = "verification_inputs", srcs = glob(["**"]))

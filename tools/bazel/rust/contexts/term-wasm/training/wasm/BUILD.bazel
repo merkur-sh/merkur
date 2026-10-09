@@ -1,4 +1,0 @@
-# Generated locked terminal training context.
-package(default_visibility = ["//visibility:public"])
-exports_files(["Cargo.toml", "Cargo.lock", "metadata.json"])
-filegroup(name = "verification_inputs", srcs = ["Cargo.toml", "Cargo.lock", "metadata.json", "BUILD.bazel"])

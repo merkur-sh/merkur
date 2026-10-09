@@ -1,8 +1,0 @@
-load(":rules.bzl", "declared_ninja_sdk")
-load("//tools/bazel/packaging:rules.bzl", "package_controls_test")
-
-package(default_visibility = ["//visibility:public"])
-exports_files(["repositories.bzl", "rules.bzl", "pins.json", "declared-shell.patch", "build.py", "build-test.py", "runtime-control.py"])
-filegroup(name = "verification_inputs", srcs = glob(["**"], exclude = [".*", "**/.*", ".*/**", "**/.*/**", "__pycache__/**", "**/__pycache__/**", "*.pyc", "**/*.pyc", ".env", ".env.*", "**/.env", "**/.env.*", ".bazelrc.local", "**/.bazelrc.local", ".DS_Store", "**/.DS_Store"]))
-declared_ninja_sdk(name = "ninja", source = "@ninja_declared_shell_source//:source", shell = "//tools/bazel/tools/native:build_bash")
-package_controls_test(name = "controls_test", src = "build-test.py", runner = "build.py", tags = ["manual"])
