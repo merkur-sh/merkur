@@ -135,6 +135,9 @@ the seed on exit including failure. No other stage and no deployed host receives
 compromise of the signing runner or the release workflow can forge updates. Keep an offline
 backup of the seed.
 
+Signing and deployment restore the verified WASM bundle from the release run's required CI
+producer before loading the cryptographic helpers. Neither job compiles that bundle.
+
 ## Recovery
 
 The `release-state` Git branch is the durable journal. Each update is a child commit made

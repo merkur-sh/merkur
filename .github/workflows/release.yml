@@ -157,6 +157,9 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/restore-ci-artifacts
+        with:
+          scope: required
       - id: state
         run: python3 scripts/ci/release_state.py inspect
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -235,6 +238,9 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/restore-ci-artifacts
+        with:
+          scope: required
       - run: python3 scripts/ci/release_assets.py restore dist/ci-release
       - run: npm install --global @railway/cli@5.12.1
       - name: Install verified Fly CLI
