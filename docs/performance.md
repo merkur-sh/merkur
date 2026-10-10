@@ -1138,10 +1138,14 @@ excluded. The `dataplane/display-fec` Criterion workload measures daemon FEC sep
 The impaired browser suite's UDP delay proxy is also deliberately bounded so harness behavior
 cannot masquerade as an application tail. It owns at most 64 active client relays, one pending
 admission packet, and 4,096 least-recently-active flow tombstones, and each relay holds at most
-65,535 delayed packets, its lease. The relay bound covers every connection the harness keeps
-live: reclaiming a live relay hands the edge a new source address mid-connection, a migration no
-profile configures, and the worker-scoped daemon keeps each finished spec's peer for its 60 s
-rebind window with three connections. Settle and mark replies list every live relay, so they
+65,535 delayed packets, its lease. A received packet retries the pending admission against
+current relay capacity before offering another source, so an unconsumed quiescence
+notification cannot cause a handoff overflow after capacity returns. The browser fixture
+stops and reaps its test daemon after closing each test's page, retiring that test's peers
+and carriers before the next test starts. Its linked identity and trusted browser profile
+remain worker-scoped; the daemon and PTY remain live throughout each test, including recovery.
+Reclaiming a live relay hands the edge a new source address mid-connection, a migration no
+profile configures. Settle and mark replies list every live relay, so they
 arrive in the same bounded chunks as the full snapshot. A flow is the destination listener plus the source address and
 port; source-port reuse across listeners creates independent relays with separate role accounting.
 A valid QUIC Initial admits a new flow; a tombstone lets a previously validated flow rebind from a

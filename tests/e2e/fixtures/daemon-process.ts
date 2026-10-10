@@ -77,7 +77,7 @@ interface LinkedDaemonResources {
   readonly daemonName: string;
   readonly daemonHome: string;
   readonly webTransportPort: number;
-  readonly process: DaemonChildProcess;
+  process: DaemonChildProcess;
   readonly logChunks: string[];
   readonly context: BrowserContext;
 }
@@ -445,9 +445,9 @@ interface LinkedDaemonFixture {
   /**
    * Everything the daemon (and, through it, the dataplane) has logged so far.
    *
-   * The daemon is worker-scoped, so this accumulates across the tests in a
-   * file; a test that wants only its own window records the length first and
-   * slices. Exposed because some behaviour is only observable on the daemon
+   * Logs are cleared when the daemon restarts for the next test; a test that
+   * wants a narrower window records the length first and slices. Exposed
+   * because some behaviour is only observable on the daemon
    * side — a carrier rebind, for instance, leaves the browser looking exactly
    * like a session that never dropped, which is the point of it.
    */
@@ -456,7 +456,7 @@ interface LinkedDaemonFixture {
   capturePerfTrace(): Promise<DaemonPerfTraceCapture>;
 }
 
-// The daemon, PTY, and trusted browser profile are worker-scoped. A fresh page
+// The linked identity and trusted browser profile are worker-scoped. A fresh page
 // is created for every test, while the live profile retains the nonextractable
 // IndexedDB CryptoKey that Playwright storage-state serialization cannot clone.
 // Context emulation is also a worker option so suites with different touch or
@@ -499,6 +499,15 @@ export const test = base.extend<
     { scope: 'worker' },
   ],
   page: async ({ linkedDaemonWorker }, use, testInfo) => {
+    if (
+      linkedDaemonWorker.process.exitCode !== null ||
+      linkedDaemonWorker.process.signalCode !== null
+    ) {
+      linkedDaemonWorker.logChunks.length = 0;
+      const daemon = await spawnDaemon(linkedDaemonWorker.daemonHome, linkedDaemonWorker.logChunks);
+      linkedDaemonWorker.process = daemon.process;
+      await waitForWebTransportListener(daemon, linkedDaemonWorker.webTransportPort);
+    }
     const page = await linkedDaemonWorker.context.newPage();
     // This override replaces the base `page` fixture outright, so the telemetry
     // seed it installs does not apply here. Profiling has to be on before
@@ -534,6 +543,9 @@ export const test = base.extend<
           });
         }
         await page.close().catch(() => undefined);
+        // Retire every peer and carrier owned by this test before another page
+        // creates a session. The linked identity and trusted profile stay warm.
+        await killDaemon(linkedDaemonWorker.process);
       }
     }
   },

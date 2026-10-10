@@ -2244,6 +2244,25 @@ struct ProxyRuntime {
 }
 
 impl ProxyRuntime {
+    async fn retry_pending_admission(&mut self, handoff: &mut AdmissionHandoff) {
+        let Some(pending) = handoff.take() else {
+            return;
+        };
+        match self
+            .forward_client_packet(
+                pending.listener,
+                pending.client,
+                &pending.packet,
+                Some(pending.kind),
+            )
+            .await
+        {
+            ForwardResult::Handled => {}
+            ForwardResult::Orphan => record_orphan(),
+            ForwardResult::CapacityBusy { .. } => handoff.restore(pending),
+        }
+    }
+
     fn prune_finished_relays(&mut self) {
         let mut removed = false;
         self.clients.retain(|client, relay| {
@@ -2955,6 +2974,10 @@ async fn on_client_datagram(
         return;
     }
     runtime.prune_finished_relays();
+    // A receive can win the select after a packet lease returns capacity but
+    // before its notification is consumed. Drain the owned admission against
+    // current state before another source can observe a full handoff.
+    runtime.retry_pending_admission(handoff).await;
     let data = &buf[..n];
 
     // Retain the exact first packet already owned by this source's handoff;
@@ -3981,6 +4004,78 @@ mod tests {
         other.listener = 1;
         assert!(matches!(handoff.offer(other), HandoffOffer::Full(_)));
         assert_eq!(handoff.pending().expect("original packet").packet, b"first");
+    }
+
+    #[tokio::test]
+    async fn a_received_candidate_rechecks_pending_admission_after_capacity_returns() {
+        let activity_clock = Arc::new(AtomicU64::new(0));
+        let network_impairment = test_impairment();
+        let (clients, states) = full_test_table(&activity_clock, &network_impairment);
+        let mut leases: Vec<_> = states
+            .iter()
+            .map(|state| {
+                Some(
+                    state
+                        .try_acquire_packet(&activity_clock)
+                        .expect("packet lease"),
+                )
+            })
+            .collect();
+        let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.expect("listener"));
+        let upstream = UdpSocket::bind("[::1]:0").await.expect("upstream");
+        let quiescence = Arc::new(Notify::new());
+        let mut runtime = ProxyRuntime {
+            listeners: vec![Listener {
+                id: TEST_LISTENER,
+                socket,
+                upstream: upstream.local_addr().expect("upstream address"),
+            }],
+            clients,
+            tombstones: KnownSourceTombstones::default(),
+            activity_clock,
+            network_impairment,
+            split_one_rtt: false,
+            partition: Arc::new(Partition::default()),
+            quiescence: quiescence.clone(),
+            admission_seq: 30_000,
+            browser_source: UpstreamSource::Configured,
+        };
+        let packet = valid_initial(QUIC_V1);
+        let first = SocketAddr::from(([127, 0, 0, 1], 20_000));
+        let second = SocketAddr::from(([127, 0, 0, 1], 20_001));
+        let mut handoff = AdmissionHandoff::default();
+        on_client_datagram(
+            &mut runtime,
+            &mut handoff,
+            &quiescence,
+            0,
+            Ok((packet.len(), first)),
+            &packet,
+        )
+        .await;
+        assert!(handoff.source_is_pending(0, first));
+        runtime.retry_pending_admission(&mut handoff).await;
+        assert_eq!(
+            handoff.pending().expect("busy admission retained").packet,
+            packet,
+        );
+        // Capacity changes before the owner consumes its quiescence notification.
+        // Receiving another candidate must inspect that exact state first.
+        drop(leases[0].take());
+        drop(leases[1].take());
+        on_client_datagram(
+            &mut runtime,
+            &mut handoff,
+            &quiescence,
+            0,
+            Ok((packet.len(), second)),
+            &packet,
+        )
+        .await;
+        assert!(!handoff.is_pending());
+        assert!(runtime.clients.contains_key(&(0, first)));
+        assert!(runtime.clients.contains_key(&(0, second)));
+        assert_eq!(runtime.clients.len(), MAX_PROXY_CLIENTS);
     }
 
     #[test]
