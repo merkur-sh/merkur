@@ -201,7 +201,7 @@
       "run": "38031750211",
       "attempt": 1,
       "sequence": 106,
-      "phase": "services",
+      "phase": "published",
       "events": [
         {
           "phase": "signing",
@@ -245,6 +245,10 @@
             "mercury-edge-tntcl": "registry.fly.io/mercury-edge-tntcl@sha256:fe0e1983fe878109fb4a704fafab4c5b05d015d3c62d21a7f178a3027536b7ce",
             "railway": "082da145-0524-4fc1-98fa-1efc1e92386b"
           }
+        },
+        {
+          "phase": "published",
+          "evidence": {}
         }
       ],
       "configuration": {
