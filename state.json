@@ -229,6 +229,14 @@
           "targetIdentities": {
             "railway": "082da145-0524-4fc1-98fa-1efc1e92386b"
           }
+        },
+        {
+          "phase": "retained",
+          "targetIdentities": {
+            "mercury-stun-tntcl": "registry.fly.io/mercury-stun-tntcl@sha256:efe3e64cc6a0724a04a6d6551d7c21fffc310f897a2b0e8c00a89fd0f8b458e2",
+            "mercury-edge-tntcl": "registry.fly.io/mercury-edge-tntcl@sha256:fe0e1983fe878109fb4a704fafab4c5b05d015d3c62d21a7f178a3027536b7ce",
+            "railway": "082da145-0524-4fc1-98fa-1efc1e92386b"
+          }
         }
       ],
       "configuration": {
