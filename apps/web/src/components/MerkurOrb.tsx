@@ -18,8 +18,8 @@ import { useViewShown } from './view-visibility';
  * and its clock live in `@merkur/quicksilver/orb`, shared with the legal pages;
  * this component adds the app's half of "on screen".
  *
- * It appears in exactly three places — the boot splash, sign-in, and the top
- * left of the machine list — at one intensity. It is never a gauge: it does not
+ * It appears in exactly three places — the boot splash, sign-in with its
+ * password reset page, and the top left of the machine list — at one intensity. It is never a gauge: it does not
  * read round trip, relay state or loss, and it is never shown on the terminal
  * screen where those facts live.
  *

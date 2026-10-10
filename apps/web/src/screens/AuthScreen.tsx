@@ -2,20 +2,11 @@ import type { JSX } from '@solidjs/web';
 import { animate } from 'motion';
 import { type Component, createEffect, onSettled, Show } from 'solid-js';
 
-import type { PasswordResetDevice } from '../auth/account-api';
 import { warmAccountOpaque } from '../auth/account-opaque';
+import MailedCodeForm from '../components/MailedCodeForm';
 import MerkurOrb from '../components/MerkurOrb';
 import { ariaBool } from '../lib/aria';
 import { NAV_SPRING, springTransition } from '../lib/motion';
-
-/** A password reset in progress: waiting for its mailed code, or proven and awaiting the new password. */
-type ResetView =
-  | { readonly step: 'code'; readonly address: string }
-  | {
-      readonly step: 'confirm';
-      readonly address: string;
-      readonly devices: readonly PasswordResetDevice[];
-    };
 
 interface Props {
   pending: boolean;
@@ -24,19 +15,14 @@ interface Props {
   identity: 'username' | 'email' | null;
   /** Set while a sign-up waits for the code mailed to this address. */
   codeAddress: string | null;
-  /** Set while a password reset is in progress; it takes the card over. */
-  reset: ResetView | null;
   /** The screen is on: read what the form needs to ask for. */
   onShown: () => void;
   onSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent>;
   onCodeSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent>;
   onCodeResend: () => void;
   onCodeCancel: () => void;
-  onResetStart: (address: string) => void;
-  onResetCodeSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent>;
-  onResetCodeResend: () => void;
-  onResetConfirm: JSX.EventHandler<HTMLFormElement, SubmitEvent>;
-  onResetCancel: () => void;
+  /** Leave for the password reset page, with whatever address is typed. */
+  onResetOpen: (address: string) => void;
 }
 
 /**
@@ -59,28 +45,19 @@ interface Props {
  * until the code mailed to it comes back: the same card then asks for that
  * code instead of the password. The field that was wrong takes focus.
  *
- * Such a server also resets a forgotten password, in the same card: a code
- * mailed to the address in the form, then a second step that names every
- * machine the reset unlinks and every box it deletes before it takes the new
- * password. Nothing is destroyed until that step is submitted.
+ * Such a server also resets a forgotten password, on a page of its own:
+ * `PasswordResetScreen`, which this one only links to.
  */
 const AuthScreen: Component<Props> = (props) => {
   let sectionEl!: HTMLElement;
   let usernameEl: HTMLInputElement | undefined;
   let passwordEl: HTMLInputElement | undefined;
 
-  function startReset(): void {
-    // The reset is for the address already in the form; the browser's own
-    // validation says so when it is missing or is not an address.
-    if (usernameEl === undefined || !usernameEl.reportValidity()) return;
-    props.onResetStart(usernameEl.value.trim());
-  }
-
   createEffect(
     () => props.error,
     (error) => {
-      // A code step and a reset step each own their own field.
-      if (error.length === 0 || props.codeAddress !== null || props.reset !== null) return;
+      // The code step owns its own field.
+      if (error.length === 0 || props.codeAddress !== null) return;
       requestAnimationFrame(() => {
         passwordEl?.focus();
         passwordEl?.select();
@@ -114,165 +91,124 @@ const AuthScreen: Component<Props> = (props) => {
       <p class="wordmark vt-wordmark">Merkur</p>
 
       <Show
-        when={props.reset}
+        when={props.codeAddress}
         fallback={
-          <Show
-            when={props.codeAddress}
-            fallback={
-              <form
-                id="auth-form"
-                class="mt-[6px] flex w-full flex-col gap-[14px] text-left"
-                onSubmit={props.onSubmit}
-              >
-                {/* Nothing to fill in until the server has said what an account is
-                named by; the button alone asks it again after a failed read. */}
-                <Show when={props.identity}>
-                  {(identity) => (
-                    <>
-                      <label class="field-label" for="field-username">
-                        <span class="field-cap">
-                          {identity() === 'email' ? 'Email' : 'Username'}
-                        </span>
-                        <input
-                          ref={usernameEl}
-                          id="field-username"
-                          name="username"
-                          type={identity() === 'email' ? 'email' : 'text'}
-                          inputmode={identity() === 'email' ? 'email' : undefined}
-                          autocomplete="username"
-                          spellcheck={false}
-                          required
-                          disabled={props.pending}
-                          class="field"
-                        />
-                      </label>
-
-                      <label class="field-label" for="field-password">
-                        <span class="field-cap">Password</span>
-                        <input
-                          ref={passwordEl}
-                          id="field-password"
-                          name="password"
-                          type="password"
-                          autocomplete="current-password"
-                          minlength={12}
-                          required
-                          disabled={props.pending}
-                          class={['field', { 'field-bad': props.error.length > 0 }]}
-                        />
-                      </label>
-                      <Show when={identity() === 'email'}>
-                        <button
-                          type="button"
-                          class="btn-quiet btn-sm -mt-1.5 self-end"
-                          disabled={props.pending}
-                          onClick={startReset}
-                        >
-                          Forgot password?
-                        </button>
-                      </Show>
-                    </>
-                  )}
-                </Show>
-
-                {/* Disabled while the request is in flight, and deliberately drawn at
-                its own pressed colour rather than dimmed: the button has not become
-                unavailable, it is busy doing the thing it was pressed for. */}
-                <button
-                  type="submit"
-                  disabled={props.pending}
-                  class={[
-                    'btn-primary btn-lg mt-1 w-full shadow-glow disabled:cursor-wait',
-                    { 'bg-accentdn disabled:opacity-100': props.pending },
-                  ]}
-                >
-                  <Show when={props.pending}>
-                    <span class="spinner spinner--on-fill h-3.5 w-3.5" />
-                  </Show>
-                  {props.pending ? 'Continuing…' : 'Continue'}
-                </button>
-                {/* Continue creates the account when the name is new, so the
-                agreement sits under it rather than behind a checkbox. The
-                pages are documents of their own; a new tab keeps the form. */}
-                <p class="text-center text-[12px] leading-[1.5] text-meta">
-                  By continuing you accept the{' '}
-                  <a class="text-body underline" href="/terms" target="_blank" rel="noopener">
-                    Terms of Service
-                  </a>{' '}
-                  and confirm you have read the{' '}
-                  <a class="text-body underline" href="/privacy" target="_blank" rel="noopener">
-                    Privacy Policy
-                  </a>
-                  .
-                </p>
-                {/* Who operates the service, one step from the first screen. */}
-                <p class="text-center text-[12px] leading-[1.5] text-meta">
-                  <a
-                    class="text-body underline"
-                    href="https://merkur.sh/contact"
-                    target="_blank"
-                    rel="noopener"
-                  >
-                    Contact / Impressum
-                  </a>
-                </p>
-              </form>
-            }
+          <form
+            id="auth-form"
+            class="mt-[6px] flex w-full flex-col gap-[14px] text-left"
+            onSubmit={props.onSubmit}
           >
-            {(address) => (
-              <MailedCodeForm
-                id="auth-code-form"
-                fieldId="field-code"
-                submitLabel="Create account"
-                pendingLabel="Creating account…"
-                cancelLabel="Use a different email"
-                pending={props.pending}
-                error={props.error}
-                onSubmit={props.onCodeSubmit}
-                onResend={props.onCodeResend}
-                onCancel={props.onCodeCancel}
+            {/* Nothing to fill in until the server has said what an account is
+            named by; the button alone asks it again after a failed read. */}
+            <Show when={props.identity}>
+              {(identity) => (
+                <>
+                  <label class="field-label" for="field-username">
+                    <span class="field-cap">{identity() === 'email' ? 'Email' : 'Username'}</span>
+                    <input
+                      ref={usernameEl}
+                      id="field-username"
+                      name="username"
+                      type={identity() === 'email' ? 'email' : 'text'}
+                      inputmode={identity() === 'email' ? 'email' : undefined}
+                      autocomplete="username"
+                      spellcheck={false}
+                      required
+                      disabled={props.pending}
+                      class="field"
+                    />
+                  </label>
+
+                  <label class="field-label" for="field-password">
+                    <span class="field-cap">Password</span>
+                    <input
+                      ref={passwordEl}
+                      id="field-password"
+                      name="password"
+                      type="password"
+                      autocomplete="current-password"
+                      minlength={12}
+                      required
+                      disabled={props.pending}
+                      class={['field', { 'field-bad': props.error.length > 0 }]}
+                    />
+                  </label>
+                  <Show when={identity() === 'email'}>
+                    {/* The reset page asks for the address itself, so nothing
+                    has to be typed here first; what is typed goes along. */}
+                    <button
+                      type="button"
+                      class="btn-quiet btn-sm -mt-1.5 self-end"
+                      disabled={props.pending}
+                      onClick={() => props.onResetOpen(usernameEl?.value.trim() ?? '')}
+                    >
+                      Forgot password?
+                    </button>
+                  </Show>
+                </>
+              )}
+            </Show>
+
+            {/* Disabled while the request is in flight, and deliberately drawn at
+            its own pressed colour rather than dimmed: the button has not become
+            unavailable, it is busy doing the thing it was pressed for. */}
+            <button
+              type="submit"
+              disabled={props.pending}
+              class={[
+                'btn-primary btn-lg mt-1 w-full shadow-glow disabled:cursor-wait',
+                { 'bg-accentdn disabled:opacity-100': props.pending },
+              ]}
+            >
+              <Show when={props.pending}>
+                <span class="spinner spinner--on-fill h-3.5 w-3.5" />
+              </Show>
+              {props.pending ? 'Continuing…' : 'Continue'}
+            </button>
+            {/* Continue creates the account when the name is new, so the
+            agreement sits under it rather than behind a checkbox. The
+            pages are documents of their own; a new tab keeps the form. */}
+            <p class="text-center text-[12px] leading-[1.5] text-meta">
+              By continuing you accept the{' '}
+              <a class="text-body underline" href="/terms" target="_blank" rel="noopener">
+                Terms of Service
+              </a>{' '}
+              and confirm you have read the{' '}
+              <a class="text-body underline" href="/privacy" target="_blank" rel="noopener">
+                Privacy Policy
+              </a>
+              .
+            </p>
+            {/* Who operates the service, one step from the first screen. */}
+            <p class="text-center text-[12px] leading-[1.5] text-meta">
+              <a
+                class="text-body underline"
+                href="https://merkur.sh/contact"
+                target="_blank"
+                rel="noopener"
               >
-                We sent a six-digit code to <span class="text-ink">{address()}</span>. Enter it to
-                create your account; it expires in 10 minutes.
-              </MailedCodeForm>
-            )}
-          </Show>
+                Contact / Impressum
+              </a>
+            </p>
+          </form>
         }
       >
-        {(reset) => (
-          <Show
-            when={confirmStep(reset())}
-            fallback={
-              // The sentence does not say a code was sent: the server gives the
-              // same answer for an address with no account, and so does this.
-              <MailedCodeForm
-                id="auth-reset-code-form"
-                fieldId="field-reset-code"
-                submitLabel="Continue"
-                pendingLabel="Checking…"
-                cancelLabel="Back to sign in"
-                pending={props.pending}
-                error={props.error}
-                onSubmit={props.onResetCodeSubmit}
-                onResend={props.onResetCodeResend}
-                onCancel={props.onResetCancel}
-              >
-                If <span class="text-ink">{reset().address}</span> has a Merkur account, we sent it
-                a six-digit code. Enter it to reset the password; it expires in 10 minutes.
-              </MailedCodeForm>
-            }
+        {(address) => (
+          <MailedCodeForm
+            id="auth-code-form"
+            fieldId="field-code"
+            submitLabel="Create account"
+            pendingLabel="Creating account…"
+            cancelLabel="Use a different email"
+            pending={props.pending}
+            error={props.error}
+            onSubmit={props.onCodeSubmit}
+            onResend={props.onCodeResend}
+            onCancel={props.onCodeCancel}
           >
-            {(confirm) => (
-              <ResetConfirmForm
-                address={confirm().address}
-                devices={confirm().devices}
-                pending={props.pending}
-                error={props.error}
-                onSubmit={props.onResetConfirm}
-                onCancel={props.onResetCancel}
-              />
-            )}
-          </Show>
+            We sent a six-digit code to <span class="text-ink">{address()}</span>. Enter it to
+            create your account; it expires in 10 minutes.
+          </MailedCodeForm>
         )}
       </Show>
 
@@ -289,205 +225,3 @@ const AuthScreen: Component<Props> = (props) => {
 };
 
 export default AuthScreen;
-
-function confirmStep(reset: ResetView) {
-  return reset.step === 'confirm' ? reset : null;
-}
-
-interface MailedCodeProps {
-  readonly id: string;
-  readonly fieldId: string;
-  readonly submitLabel: string;
-  readonly pendingLabel: string;
-  readonly cancelLabel: string;
-  readonly pending: boolean;
-  readonly error: string;
-  /** The sentence that says what was mailed and what entering it does. */
-  readonly children: JSX.Element;
-  onSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent>;
-  onResend: () => void;
-  onCancel: () => void;
-}
-
-/**
- * The card while it waits for a six-digit code from a mailbox: a sign-up's, or
- * a password reset's. The field takes focus when the form appears and again,
- * selected, whenever an answer comes back wrong.
- */
-const MailedCodeForm: Component<MailedCodeProps> = (props) => {
-  let codeEl!: HTMLInputElement;
-  onSettled(() => codeEl.focus());
-  createEffect(
-    () => props.error,
-    (error) => {
-      if (error.length === 0) return;
-      requestAnimationFrame(() => {
-        codeEl.focus();
-        codeEl.select();
-      });
-    },
-  );
-
-  return (
-    <form
-      id={props.id}
-      class="mt-[6px] flex w-full flex-col gap-[14px] text-left"
-      onSubmit={props.onSubmit}
-    >
-      <p class="text-[13px] leading-[1.55] text-body">{props.children}</p>
-      <label class="field-label" for={props.fieldId}>
-        <span class="field-cap">Code</span>
-        <input
-          ref={codeEl}
-          id={props.fieldId}
-          name="code"
-          type="text"
-          inputmode="numeric"
-          autocomplete="one-time-code"
-          pattern="[0-9]{6}"
-          maxlength={6}
-          spellcheck={false}
-          required
-          disabled={props.pending}
-          class={['field tracking-[0.3em]', { 'field-bad': props.error.length > 0 }]}
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={props.pending}
-        class={[
-          'btn-primary btn-lg mt-1 w-full shadow-glow disabled:cursor-wait',
-          { 'bg-accentdn disabled:opacity-100': props.pending },
-        ]}
-      >
-        <Show when={props.pending}>
-          <span class="spinner spinner--on-fill h-3.5 w-3.5" />
-        </Show>
-        {props.pending ? props.pendingLabel : props.submitLabel}
-      </button>
-      <div class="flex justify-between gap-2">
-        <button
-          type="button"
-          class="btn-quiet btn-sm"
-          disabled={props.pending}
-          onClick={() => props.onResend()}
-        >
-          Send a new code
-        </button>
-        <button
-          type="button"
-          class="btn-quiet btn-sm"
-          disabled={props.pending}
-          onClick={() => props.onCancel()}
-        >
-          {props.cancelLabel}
-        </button>
-      </div>
-    </form>
-  );
-};
-
-interface ResetConfirmProps {
-  readonly address: string;
-  readonly devices: readonly PasswordResetDevice[];
-  readonly pending: boolean;
-  readonly error: string;
-  onSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent>;
-  onCancel: () => void;
-}
-
-/**
- * The reset's last step: everything it destroys, by name, above the field that
- * commits it. A machine is only unlinked, and says so; a box is deleted with
- * its files, and says that in the colour of a loss.
- */
-const ResetConfirmForm: Component<ResetConfirmProps> = (props) => {
-  let passwordEl!: HTMLInputElement;
-  onSettled(() => passwordEl.focus());
-  createEffect(
-    () => props.error,
-    (error) => {
-      if (error.length === 0) return;
-      requestAnimationFrame(() => {
-        passwordEl.focus();
-        passwordEl.select();
-      });
-    },
-  );
-  const names = (box: boolean) =>
-    props.devices
-      .filter((device) => device.box === box)
-      .map((device) => device.name)
-      .join(', ');
-
-  return (
-    <form
-      id="auth-reset-confirm-form"
-      class="mt-[6px] flex w-full flex-col gap-[14px] text-left"
-      onSubmit={props.onSubmit}
-    >
-      <p class="text-[13px] leading-[1.55] text-body">
-        Set a new password for <span class="text-ink">{props.address}</span>. This cannot be undone:
-      </p>
-      <ul class="m-0 flex list-disc flex-col gap-[6px] pl-[18px] text-[13px] leading-[1.5] text-body">
-        <li>Every browser is signed out.</li>
-        <Show
-          when={names(false)}
-          fallback={<li id="auth-reset-machines">No machines are linked to this account.</li>}
-        >
-          {(machines) => (
-            <li id="auth-reset-machines">
-              These machines are unlinked. Their shells keep running; link each one again to reach
-              it: <span class="text-ink">{machines()}</span>
-            </li>
-          )}
-        </Show>
-        <Show when={names(true)}>
-          {(boxes) => (
-            <li id="auth-reset-boxes" class="text-badink">
-              These hosted boxes are deleted, with everything on them:{' '}
-              <span class="font-medium">{boxes()}</span>
-            </li>
-          )}
-        </Show>
-      </ul>
-      <p class="text-[12px] leading-[1.5] text-meta">
-        Your account, box access and keyboard layout are kept.
-      </p>
-      {/* Tells a password manager which account the new password belongs to. */}
-      <input type="hidden" name="username" autocomplete="username" value={props.address} />
-      <label class="field-label" for="field-new-password">
-        <span class="field-cap">New password</span>
-        <input
-          ref={passwordEl}
-          id="field-new-password"
-          name="password"
-          type="password"
-          autocomplete="new-password"
-          minlength={12}
-          required
-          disabled={props.pending}
-          class={['field', { 'field-bad': props.error.length > 0 }]}
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={props.pending}
-        class="btn-danger btn-lg mt-1 w-full disabled:cursor-wait"
-      >
-        <Show when={props.pending}>
-          <span class="spinner h-3.5 w-3.5" />
-        </Show>
-        {props.pending ? 'Resetting…' : 'Reset password'}
-      </button>
-      <button
-        type="button"
-        class="btn-quiet btn-sm self-center"
-        disabled={props.pending}
-        onClick={() => props.onCancel()}
-      >
-        Cancel
-      </button>
-    </form>
-  );
-};

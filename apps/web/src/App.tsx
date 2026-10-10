@@ -13,6 +13,7 @@ import ViewLayer from './components/ViewLayer';
 import { createKeybinds, suspendKeybinds } from './hooks/createKeybinds';
 import AuthScreen from './screens/AuthScreen';
 import DeviceList from './screens/DeviceList';
+import PasswordResetScreen from './screens/PasswordResetScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import SplashScreen from './screens/SplashScreen';
 
@@ -74,24 +75,39 @@ const App: Component = () => {
       case 'bootstrapping':
         return <SplashScreen />;
       case 'auth':
+        // Two pages share the phase: sign-in, and the password reset it links
+        // to. Each is a whole card, mounted only while it is the one showing.
         return (
-          <AuthScreen
-            pending={controller.authPending()}
-            error={controller.authError()}
-            identity={controller.authIdentity()}
-            codeAddress={controller.authCodeAddress()}
-            reset={controller.authReset()}
-            onShown={controller.loadAuthPolicy}
-            onSubmit={controller.onAuthSubmit}
-            onCodeSubmit={controller.onAuthCodeSubmit}
-            onCodeResend={controller.onAuthCodeResend}
-            onCodeCancel={controller.onAuthCodeCancel}
-            onResetStart={controller.onAuthResetStart}
-            onResetCodeSubmit={controller.onAuthResetCodeSubmit}
-            onResetCodeResend={controller.onAuthResetCodeResend}
-            onResetConfirm={controller.onAuthResetConfirm}
-            onResetCancel={controller.onAuthResetCancel}
-          />
+          <Show
+            when={controller.authReset()}
+            fallback={
+              <AuthScreen
+                pending={controller.authPending()}
+                error={controller.authError()}
+                identity={controller.authIdentity()}
+                codeAddress={controller.authCodeAddress()}
+                onShown={controller.loadAuthPolicy}
+                onSubmit={controller.onAuthSubmit}
+                onCodeSubmit={controller.onAuthCodeSubmit}
+                onCodeResend={controller.onAuthCodeResend}
+                onCodeCancel={controller.onAuthCodeCancel}
+                onResetOpen={controller.onAuthResetOpen}
+              />
+            }
+          >
+            {(reset) => (
+              <PasswordResetScreen
+                pending={controller.authPending()}
+                error={controller.authError()}
+                reset={reset()}
+                onStart={controller.onAuthResetStart}
+                onCodeSubmit={controller.onAuthResetCodeSubmit}
+                onCodeResend={controller.onAuthResetCodeResend}
+                onConfirm={controller.onAuthResetConfirm}
+                onCancel={controller.onAuthResetCancel}
+              />
+            )}
+          </Show>
         );
       case 'shell':
         return (

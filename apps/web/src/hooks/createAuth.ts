@@ -61,6 +61,15 @@ const STATUS_SERVICE_UNAVAILABLE = 503;
 
 const logger = createLogger('web');
 
+/**
+ * What the password reset page is showing: the step that asks which account,
+ * where nothing has been sent and `address` is what its field starts with, or
+ * a reset in progress on one of its own steps.
+ */
+export type PasswordResetPage =
+  | { readonly step: 'address'; readonly address: string }
+  | PasswordReset;
+
 interface CreateAuthOptions {
   /**
    * Show the login screen. Pending state is carried by `authPending`. Resolves
@@ -94,8 +103,8 @@ export function createAuth(options: CreateAuthOptions): {
   authIdentity: () => AuthPolicy['identity'] | null;
   /** The address a sign-up code was mailed to, while the form waits for it. */
   authCodeAddress: () => string | null;
-  /** The password reset in progress and the step it is on; `null` when there is none. */
-  authReset: () => PasswordReset | null;
+  /** The password reset page and the step it is on; `null` while sign-in is showing. */
+  authReset: () => PasswordResetPage | null;
   attemptSessionRefresh(): Promise<void>;
   /** Reads the policy the form needs, once; the sign-in screen calls it when shown. */
   loadAuthPolicy(): Promise<void>;
@@ -103,7 +112,9 @@ export function createAuth(options: CreateAuthOptions): {
   onAuthCodeSubmit(event: SubmitEvent): Promise<void>;
   onAuthCodeResend(): Promise<void>;
   onAuthCodeCancel(): void;
-  /** Starts a password reset for the address typed into the sign-in form. */
+  /** Opens the password reset page; `address` is what sign-in had typed, possibly nothing. */
+  onAuthResetOpen(address: string): void;
+  /** Mails a reset code to the address the reset page's first step submits. */
   onAuthResetStart(address: string): Promise<void>;
   onAuthResetCodeSubmit(event: SubmitEvent): Promise<void>;
   onAuthResetCodeResend(): Promise<void>;
@@ -117,7 +128,7 @@ export function createAuth(options: CreateAuthOptions): {
   const [policy, setPolicy] = createSignal<AuthPolicy | null>(null);
   const [pendingRegistration, setPendingRegistration] =
     createSignal<PendingEmailRegistration | null>(null);
-  const [reset, setReset] = createSignal<PasswordReset | null>(null);
+  const [reset, setReset] = createSignal<PasswordResetPage | null>(null);
   const identity = () => policy()?.identity ?? 'username';
   const browserDelegationStore = options.browserDelegationStore ?? {
     has: hasBrowserDelegation,
@@ -338,10 +349,16 @@ export function createAuth(options: CreateAuthOptions): {
     setAuthError('');
   }
 
-  async function onAuthResetStart(address: string): Promise<void> {
-    // A username server proves no mailbox; its form never offers this.
-    if (policy()?.identity !== 'email' || address.length === 0) return;
+  function onAuthResetOpen(address: string): void {
+    // A username server proves no mailbox; its sign-in never offers this.
+    if (policy()?.identity !== 'email') return;
     endPendingRegistration();
+    setAuthError('');
+    setReset({ step: 'address', address });
+  }
+
+  async function onAuthResetStart(address: string): Promise<void> {
+    if (reset()?.step !== 'address' || address.length === 0) return;
     setAuthPending(true);
     setAuthError('');
     try {
@@ -376,7 +393,8 @@ export function createAuth(options: CreateAuthOptions): {
         setAuthError(EMAIL_CODE_FEEDBACK);
       } else if (isApiError(error) && error.status === STATUS_BAD_REQUEST) {
         // The server's flow is gone: its code ran out of time or of guesses.
-        setReset(null);
+        // The page goes back to the step that asks for a new one.
+        setReset({ step: 'address', address: current.address });
         setAuthError(RESET_EXPIRED_FEEDBACK);
       } else {
         // The flow is untouched; the same code can be tried again.
@@ -429,7 +447,7 @@ export function createAuth(options: CreateAuthOptions): {
       ) {
         // The server answered the reset itself: it is spent, expired or
         // refused, and only a new code starts another.
-        setReset(null);
+        setReset({ step: 'address', address: current.address });
         setAuthError(
           error.status === STATUS_BAD_REQUEST ? RESET_EXPIRED_FEEDBACK : RESET_REFUSED_FEEDBACK,
         );
@@ -562,6 +580,7 @@ export function createAuth(options: CreateAuthOptions): {
     onAuthCodeSubmit,
     onAuthCodeResend,
     onAuthCodeCancel,
+    onAuthResetOpen,
     onAuthResetStart,
     onAuthResetCodeSubmit,
     onAuthResetCodeResend,

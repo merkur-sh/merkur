@@ -30,8 +30,7 @@ import {
   previewDaemonLink,
 } from '../auth/daemon-link-workflow';
 import { changeBrowserAccountPassword } from '../auth/password-change';
-import type { PasswordReset } from '../auth/password-reset';
-import { createAuth } from '../hooks/createAuth';
+import { createAuth, type PasswordResetPage } from '../hooks/createAuth';
 import { type SwUpdateState, useServiceWorkerLifecycle } from '../hooks/useServiceWorkerLifecycle';
 import { isApiError, shouldRefreshSessionRequest } from '../lib/api-error';
 import { loadCachedDeviceList } from '../lib/device-list-cache';
@@ -148,8 +147,8 @@ export interface AppController {
   readonly authIdentity: Accessor<'username' | 'email' | null>;
   /** The address a sign-up code went to, while the form waits for it. */
   readonly authCodeAddress: Accessor<string | null>;
-  /** The password reset in progress, while the sign-in card carries it. */
-  readonly authReset: Accessor<PasswordReset | null>;
+  /** The password reset page and its step, while it shows in place of sign-in. */
+  readonly authReset: Accessor<PasswordResetPage | null>;
   readonly browserSessions: Accessor<BrowserSessionRecord[]>;
   readonly browserSessionsError: Accessor<string>;
   readonly browserSessionsPending: Accessor<boolean>;
@@ -208,6 +207,7 @@ export interface AppController {
   onAuthCodeSubmit(event: SubmitEvent): Promise<void>;
   onAuthCodeResend(): Promise<void>;
   onAuthCodeCancel(): void;
+  onAuthResetOpen(address: string): void;
   onAuthResetStart(address: string): Promise<void>;
   onAuthResetCodeSubmit(event: SubmitEvent): Promise<void>;
   onAuthResetCodeResend(): Promise<void>;
@@ -523,6 +523,7 @@ export function createAppController(): AppController {
     onAuthCodeSubmit,
     onAuthCodeResend,
     onAuthCodeCancel,
+    onAuthResetOpen,
     onAuthResetStart,
     onAuthResetCodeSubmit,
     onAuthResetCodeResend,
@@ -735,6 +736,7 @@ export function createAppController(): AppController {
     onAuthCodeSubmit,
     onAuthCodeResend,
     onAuthCodeCancel,
+    onAuthResetOpen,
     onAuthResetStart,
     onAuthResetCodeSubmit,
     onAuthResetCodeResend,

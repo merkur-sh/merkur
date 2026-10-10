@@ -102,6 +102,7 @@ describe('createAuth password reset', () => {
     const requests = serve('username', {});
     const { auth: created } = await auth('username');
 
+    created.onAuthResetOpen('someone');
     await created.onAuthResetStart('someone');
 
     expect(created.authReset()).toBeNull();
@@ -122,6 +123,11 @@ describe('createAuth password reset', () => {
       ],
     });
     const { auth: created } = await auth('email');
+
+    // The page opens on the step that asks which account, and mails nothing.
+    created.onAuthResetOpen(ADDRESS);
+    expect(created.authReset()).toEqual({ step: 'address', address: ADDRESS });
+    expect(requests).toEqual([]);
 
     await created.onAuthResetStart(ADDRESS);
     expect(created.authReset()).toMatchObject({ step: 'code', address: ADDRESS });
@@ -164,17 +170,18 @@ describe('createAuth password reset', () => {
     expect(created.authReset()).toBeNull();
   });
 
-  test('a flow the server no longer has ends the reset and says to start again', async () => {
+  test('a flow the server no longer has goes back to the address step', async () => {
     serve('email', {
       '/api/auth/reset/code': [{ status: 200, body: { flowId: CODE_FLOW } }],
       '/api/auth/reset/verify': [{ status: 400, body: { error: 'authentication_failed' } }],
     });
     const { auth: created } = await auth('email');
+    created.onAuthResetOpen('');
     await created.onAuthResetStart(ADDRESS);
 
     await created.onAuthResetCodeSubmit(submit({ code: '123456' }));
 
-    expect(created.authReset()).toBeNull();
+    expect(created.authReset()).toEqual({ step: 'address', address: ADDRESS });
     expect(created.authError()).toBe(
       'This password reset has expired. Start again to get a new code.',
     );
@@ -189,11 +196,13 @@ describe('createAuth password reset', () => {
     });
     const { auth: created } = await auth('email');
 
+    created.onAuthResetOpen('');
     await created.onAuthResetStart('not-an-address');
     expect(created.authError()).toBe('Enter the email address of your account, then try again.');
     await created.onAuthResetStart(ADDRESS);
     expect(created.authError()).toBe('Too many attempts. Try again later.');
-    expect(created.authReset()).toBeNull();
+    // Neither answer leaves the page: the step that asks is still the one showing.
+    expect(created.authReset()).toEqual({ step: 'address', address: '' });
   });
 
   test('the new password is held to the account policy before anything is sent', async () => {
@@ -202,6 +211,7 @@ describe('createAuth password reset', () => {
       '/api/auth/reset/verify': [{ status: 200, body: { flowId: PROVEN_FLOW, devices: [] } }],
     });
     const { auth: created, installed } = await auth('email');
+    created.onAuthResetOpen('');
     await created.onAuthResetStart(ADDRESS);
     await created.onAuthResetCodeSubmit(submit({ code: '123456' }));
 
@@ -213,20 +223,21 @@ describe('createAuth password reset', () => {
     expect(installed).toEqual([]);
   });
 
-  test('a reset the server has already spent ends, and nothing is installed', async () => {
+  test('a spent reset goes back to the address step, and nothing is installed', async () => {
     const requests = serve('email', {
       '/api/auth/reset/code': [{ status: 200, body: { flowId: CODE_FLOW } }],
       '/api/auth/reset/verify': [{ status: 200, body: { flowId: PROVEN_FLOW, devices: [] } }],
       '/api/auth/reset/start': [{ status: 400, body: { error: 'authentication_failed' } }],
     });
     const { auth: created, installed } = await auth('email');
+    created.onAuthResetOpen('');
     await created.onAuthResetStart(ADDRESS);
     await created.onAuthResetCodeSubmit(submit({ code: '123456' }));
 
     await created.onAuthResetConfirm(submit({ password: 'a second correct horse battery' }));
 
     expect(requests.at(-1)?.path).toBe('/api/auth/reset/start');
-    expect(created.authReset()).toBeNull();
+    expect(created.authReset()).toEqual({ step: 'address', address: ADDRESS });
     expect(created.authError()).toBe(
       'This password reset has expired. Start again to get a new code.',
     );
