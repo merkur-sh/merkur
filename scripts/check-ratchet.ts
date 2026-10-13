@@ -340,7 +340,9 @@ async function fallow(label: string, args: readonly string[]): Promise<Report> {
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  return readFallowReport(label, exitCode, child.signalCode ?? null, stdout);
+  // Bun types the signal as its name or its number.
+  const signalCode = child.signalCode === null ? null : String(child.signalCode);
+  return readFallowReport(label, exitCode, signalCode, stdout);
 }
 
 function readCeilingsFile(root = ROOT): Ceilings {
