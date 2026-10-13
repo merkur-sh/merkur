@@ -230,7 +230,8 @@ tag; the workflow fails closed on missing state or credentials.
 
 1. Merge the workflows and obtain a successful `main`-push CI run. Apply
    [main protection](../.github/main-protection.json), and also require the status context
-   the CLA action emits once you have seen it on a real PR.
+   the CLA action emits once you have seen it on a real PR. The CLA workflow records
+   signatures on the `cla-signatures` branch, which has to exist and stay unprotected.
 2. Protect the `v*` tag namespace: only release maintainers may create tags, and updates
    and deletions have no bypass. Protect the `release-state` branch against deletion and
    force pushes, and allow the release workflow's token to append commits to it without a PR.

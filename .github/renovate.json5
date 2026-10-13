@@ -14,8 +14,12 @@
   // reported in its first days never reaches a branch.
   minimumReleaseAge: '7 days',
   internalChecksFilter: 'strict',
-  // Image digests and runner labels carry no publication time to wait on.
+  // Image digests and runner labels carry no publication time to wait on. Renovate warns of
+  // exactly that on every run, which the dashboard would list as a repository problem.
   minimumReleaseAgeBehaviour: 'timestamp-optional',
+  logLevelRemap: [
+    { matchMessage: '/did not have a releaseTimestamp/', newLogLevel: 'debug' },
+  ],
   // A range moves only when the new release falls outside it. Releases inside a range arrive
   // with the weekly lock refresh, which also carries every transitive dependency.
   rangeStrategy: 'replace',
