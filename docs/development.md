@@ -15,7 +15,7 @@ so install the tools and let the pins pick the versions.
 | Bun | `packageManager` in `package.json` | Package manager, script runner, server runtime, and the daemon CLI's compile target. |
 | Rust | `rust-toolchain.toml` (includes the `wasm32-unknown-unknown` target) | The dataplane, the edge, the STUN responder, the display codec, and the terminal WASM. |
 | `wasm-pack` | Installed by `bun run setup` | Builds the WASM packages. The server and the daemon CLI embed `e2e-wasm`, their ML-DSA-87 and SHA-2 implementation. |
-| LLVM (`clang` with the wasm32 target, `llvm-ar`) | Homebrew `llvm` on macOS; on Linux the release matching the pinned Rust's LLVM (22 today; `apt.llvm.org` on Debian, as the `Dockerfile` does) | `term-wasm` compiles libzstd for wasm32, and Apple clang has no WebAssembly backend. Its profile-guided build instruments that C, so an older clang (Debian bookworm's 14) leaves profiler symbols the Rust runtime does not define. |
+| LLVM (`clang` with the wasm32 target, `llvm-ar`) | Homebrew `llvm` on macOS; on Linux the release matching the pinned Rust's LLVM (23 today; `apt.llvm.org` on Debian, as the `Dockerfile` does) | `term-wasm` compiles libzstd for wasm32, and Apple clang has no WebAssembly backend. Its profile-guided build instruments that C, so an older clang (Debian bookworm's 14) leaves profiler symbols the Rust runtime does not define. |
 | Docker with Compose | Any current release | Runs the local Redis and the container-based test labs. |
 | Xcode Command Line Tools | macOS only | `swiftc` and a CryptoKit SDK for the Secure Enclave identity backend. |
 
