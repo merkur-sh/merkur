@@ -7599,7 +7599,7 @@ fn decode_data_attachment_nonce(encoded: &str) -> Option<[u8; DATA_HANDSHAKE_NON
         }
     }
     let mut nonce = [0u8; DATA_HANDSHAKE_NONCE_BYTES];
-    for (byte, encoded_pair) in nonce.iter_mut().zip(encoded.chunks_exact(2)) {
+    for (byte, encoded_pair) in nonce.iter_mut().zip(encoded.as_chunks::<2>().0) {
         *byte = (decode_nibble(encoded_pair[0])? << 4) | decode_nibble(encoded_pair[1])?;
     }
     Some(nonce)

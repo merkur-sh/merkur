@@ -110,7 +110,7 @@ fn prepare() -> io::Result<()> {
     if bytes < 24 || bytes > count || bytes % 8 != 0 {
         return Err(io::Error::other("descriptor inventory changed"));
     }
-    for descriptor in descriptors[..bytes as usize / 4].chunks_exact(2) {
+    for descriptor in descriptors[..bytes as usize / 4].as_chunks::<2>().0 {
         if descriptor[0] >= 3 {
             // SAFETY: `close` takes an integer. libproc just listed this
             // descriptor as open in this process, above the three standard

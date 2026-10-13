@@ -90,7 +90,7 @@ async fn confined_composition_edits_persistent_regions_without_copying_the_canva
         for y in 0..height {
             let mut row = vec![0; width as usize * 4];
             assert!(result.copy_row(0, y, &mut row));
-            for (x, pixel) in row.chunks_exact(4).enumerate() {
+            for (x, pixel) in row.as_chunks::<4>().0.iter().enumerate() {
                 let expected = if (511..513).contains(&x) && (258..260).contains(&y) {
                     if overwrite {
                         [0, 0, 255, 128]
@@ -100,7 +100,7 @@ async fn confined_composition_edits_persistent_regions_without_copying_the_canva
                 } else {
                     [255, 0, 0, 255]
                 };
-                assert_eq!(pixel, expected);
+                assert_eq!(*pixel, expected);
             }
         }
     }

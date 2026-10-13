@@ -196,7 +196,7 @@ impl Playback {
         self.template = None;
         self.prefetch = Prefetch::Owed;
         let mut visible = HashSet::new();
-        for fragment in fragments.chunks_exact(FRAGMENT_BYTES) {
+        for fragment in fragments.as_chunks::<FRAGMENT_BYTES>().0 {
             if u16::from_be_bytes([fragment[36], fragment[37]]) != 1 {
                 continue;
             }

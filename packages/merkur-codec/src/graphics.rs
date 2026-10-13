@@ -172,7 +172,7 @@ impl PreparedGraphics {
         let start = 8 + contents * CONTENT_BYTES;
         for (fragment, encoded) in fragments
             .iter()
-            .zip(bytes[start..].chunks_exact(INDEXED_FRAGMENT_BYTES))
+            .zip(bytes[start..].as_chunks::<INDEXED_FRAGMENT_BYTES>().0)
         {
             let content =
                 8 + usize::from(u16::from_be_bytes([encoded[0], encoded[1]])) * CONTENT_BYTES;
@@ -304,8 +304,8 @@ pub fn decode_graphics<R: Read>(
     table.resize(contents * CONTENT_BYTES, 0);
     input.read_exact(table).map_err(|_| GraphicsWireError)?;
     let mut previous_content: Option<&[u8]> = None;
-    for content in table.chunks_exact(CONTENT_BYTES) {
-        if Content::decode(content.try_into().expect("fixed content")).is_none()
+    for content in table.as_chunks::<CONTENT_BYTES>().0 {
+        if Content::decode(content).is_none()
             || previous_content.is_some_and(|previous| previous >= content)
         {
             return Err(GraphicsWireError);

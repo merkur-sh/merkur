@@ -185,7 +185,7 @@ fn canonical_stacking_preserves_numeric_order_across_text_strata() {
             Layer::AboveText,
         ]
     );
-    for pair in fragments.chunks_exact(2) {
+    for pair in fragments.as_chunks::<2>().0 {
         assert_eq!(pair[0].stack.image_id, 1);
         assert_eq!(pair[1].stack.image_id, 99);
     }

@@ -50,7 +50,7 @@ impl RepairEnd {
             return None;
         }
         let mut members: Vec<(u16, u32)> = Vec::with_capacity(count);
-        for member in body[MARKER_FIXED_BYTES..].chunks_exact(MARKER_MEMBER_BYTES) {
+        for member in body[MARKER_FIXED_BYTES..].as_chunks::<MARKER_MEMBER_BYTES>().0 {
             let row = u16::from_be_bytes([member[0], member[1]]);
             let minimum_seq = u32::from_be_bytes([member[2], member[3], member[4], member[5]]);
             if usize::from(row) >= MAX_TERMINAL_ROWS

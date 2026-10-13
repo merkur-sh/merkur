@@ -100,7 +100,7 @@ impl Rows {
             let offset = region.offset + (sy as usize % 2) * region.width * 4;
             let pixels = &self.bytes[offset..offset + region.width * 4];
             out[0] = 2;
-            for (col, pixel) in out[1..].chunks_exact_mut(4).enumerate() {
+            for (col, pixel) in out[1..].as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let sx = (x + col).saturating_sub(1).min(width - 1) - region.first;
                 pixel.copy_from_slice(&pixels[sx * 4..sx * 4 + 4]);
             }
@@ -180,14 +180,14 @@ impl Rows {
 }
 
 fn reduce_row(first: &[u8], next: Option<&[u8]>, out: &mut [u8]) {
-    for (x, pixel) in out.chunks_exact_mut(4).enumerate() {
+    for (x, pixel) in out.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let start = x * 8;
         let end = (start + 8).min(first.len());
         let mut alpha = 0;
         let mut channels = [0; 3];
         let mut samples = 0;
         for row in [Some(first), next].into_iter().flatten() {
-            for pixel in row[start..end].chunks_exact(4) {
+            for pixel in row[start..end].as_chunks::<4>().0 {
                 let a = u32::from(pixel[3]);
                 alpha += a;
                 samples += 1;

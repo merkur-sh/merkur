@@ -749,7 +749,10 @@ impl Lab {
         let (col, row) = cursor_info(terminal);
         let drained = cursor_motion(terminal);
         terminal.clear_cursor_motion();
-        for record in drained.chunks_exact(term_wasm::CURSOR_MOTION_RECORD_WORDS) {
+        for record in drained
+            .as_chunks::<{ term_wasm::CURSOR_MOTION_RECORD_WORDS }>()
+            .0
+        {
             let flags = record[4];
             regressions.push(Regression {
                 at_ms,

@@ -127,7 +127,7 @@ impl Manifest {
         let mut prefix = Vec::with_capacity(entries.len() + 1);
         prefix.push(0);
         let mut total = 0u64;
-        for (entry, wire) in entries.zip(bytes[HEADER_BYTES..].chunks_exact_mut(ENTRY_BYTES)) {
+        for (entry, wire) in entries.zip(bytes[HEADER_BYTES..].as_chunks_mut::<ENTRY_BYTES>().0) {
             wire[..32].copy_from_slice(&entry.root);
             wire[32..].copy_from_slice(&entry.gap_ms.to_be_bytes());
             total += u64::from(entry.gap_ms) * 1000;
@@ -269,7 +269,7 @@ impl Manifest {
 }
 
 fn wire_entries(bytes: &[u8]) -> impl ExactSizeIterator<Item = Entry> + Clone + '_ {
-    bytes.chunks_exact(ENTRY_BYTES).map(|wire| Entry {
+    bytes.as_chunks::<ENTRY_BYTES>().0.iter().map(|wire| Entry {
         root: wire[..32].try_into().expect("fixed manifest entry"),
         gap_ms: word32(wire, 32),
     })

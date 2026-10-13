@@ -1327,8 +1327,10 @@ async fn convergence_probe_requires_current_profiler_and_returns_fresh_authorita
     assert_eq!(&body[16..18], &8u16.to_be_bytes());
     assert_eq!(&body[18..20], &3u16.to_be_bytes());
     let observed_hashes = body[20..]
-        .chunks_exact(8)
-        .map(|bytes| u64::from_be_bytes(bytes.try_into().expect("hash width")))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|bytes| u64::from_be_bytes(*bytes))
         .collect::<Vec<_>>();
     assert_eq!(observed_hashes, expected_hashes);
     assert!(edge_rx.try_recv().is_err());

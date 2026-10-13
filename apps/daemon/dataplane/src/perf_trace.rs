@@ -213,7 +213,7 @@ impl Recorder {
     fn note_full(&self, token: TraceToken) {
         if self
             .full_drops
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |state| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |state| {
                 (state >> 32 == token.owner).then(|| {
                     (state & !u64::from(u32::MAX)) | u64::from((state as u32).saturating_add(1))
                 })
@@ -333,8 +333,8 @@ fn observe_quic_datagram(observation: quinn_proto::datagram_observer::DatagramOb
     ]);
     if observation.payload.len() >= 16 {
         let tag = &observation.payload[observation.payload.len() - 16..];
-        for (index, word) in tag.chunks_exact(4).enumerate() {
-            fields[5 + index] = u64::from(u32::from_le_bytes(word.try_into().expect("tag word")));
+        for (index, word) in tag.as_chunks::<4>().0.iter().enumerate() {
+            fields[5 + index] = u64::from(u32::from_le_bytes(*word));
         }
     }
     fields[9] = datagram_channel(observation.payload, observation.prefix.is_some())

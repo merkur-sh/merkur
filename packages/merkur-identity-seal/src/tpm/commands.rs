@@ -192,7 +192,7 @@ impl Device {
             return Err(SealError::Hardware);
         }
         let mut signature = [0; 64];
-        for half in signature.chunks_exact_mut(32) {
+        for half in signature.as_chunks_mut::<32>().0 {
             let scalar = cursor.blob()?;
             if scalar.is_empty() || scalar.len() > 32 {
                 return Err(SealError::Hardware);
@@ -301,7 +301,7 @@ pub(super) fn validate_ecc(public: &[u8], primary: bool) -> Result<[u8; 65], Sea
     let mut cursor = Cursor::new(&public[prefix.len()..]);
     let mut pk = [0; 65];
     pk[0] = 4;
-    for half in pk[1..].chunks_exact_mut(32) {
+    for half in pk[1..].as_chunks_mut::<32>().0 {
         let coordinate = cursor.blob()?;
         if coordinate.is_empty() || coordinate.len() > 32 {
             return Err(SealError::InvalidMaterial);

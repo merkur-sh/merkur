@@ -5834,7 +5834,9 @@ fn hash_row(
     let mut fg_cache = None;
     let mut bg_cache = None;
     for (packed, cell) in digest
-        .chunks_exact_mut(CELL_DIGEST_BYTES)
+        .as_chunks_mut::<CELL_DIGEST_BYTES>()
+        .0
+        .iter_mut()
         .zip(row)
         .take(cols)
     {

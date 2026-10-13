@@ -31,7 +31,12 @@ pub(crate) fn receive(input: &mut impl Read) -> Result<Pixels, ()> {
 }
 
 fn source_over(destination: &mut [u8], source: &[u8]) {
-    for (destination, source) in destination.chunks_exact_mut(4).zip(source.chunks_exact(4)) {
+    for (destination, source) in destination
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(source.as_chunks::<4>().0)
+    {
         let alpha = u32::from(source[3]);
         if alpha == 0 {
             continue;

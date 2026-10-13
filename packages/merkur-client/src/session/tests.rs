@@ -1697,8 +1697,10 @@ fn blocked_control_retains_bounded_host_facts_and_the_exact_union_of_repair_rows
             assert_eq!(&body[..4], &9u32.to_be_bytes());
             assert_eq!(&body[4..6], &1000u16.to_be_bytes());
             let rows: Vec<_> = body[6..]
-                .chunks_exact(2)
-                .map(|bytes| u16::from_be_bytes(bytes.try_into().unwrap()))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|bytes| u16::from_be_bytes(*bytes))
                 .collect();
             assert_eq!(rows, (0u16..1000).collect::<Vec<_>>());
             repair = true;

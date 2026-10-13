@@ -2887,9 +2887,7 @@ impl PerPeerDisplayCache {
         for revision in &mut self.acked_row_revisions {
             *revision = revision.wrapping_add(1);
         }
-        for hash in &mut self.acked_row_hashes {
-            *hash = 0;
-        }
+        self.acked_row_hashes.fill(0);
         self.acked_row_seq.fill(0);
         self.acked_row_exact.fill(false);
         self.acked_row_reliable.fill(false);

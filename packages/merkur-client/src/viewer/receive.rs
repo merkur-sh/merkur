@@ -292,7 +292,7 @@ impl Digest {
         }
         let mut seen = [false; MAX_TERMINAL_ROWS];
         let mut rows = Vec::with_capacity(count);
-        for entry in body[10..].chunks_exact(10) {
+        for entry in body[10..].as_chunks::<10>().0 {
             let row = u16::from_be_bytes([entry[0], entry[1]]);
             if usize::from(row) >= MAX_TERMINAL_ROWS
                 || std::mem::replace(&mut seen[usize::from(row)], true)

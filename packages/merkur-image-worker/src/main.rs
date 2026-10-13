@@ -209,7 +209,7 @@ fn decode(request: DecodeRequest, mut bytes: Vec<u8>) -> Result<Pixels, Rejectio
             let mut rgba = Vec::new();
             rgba.try_reserve_exact(rgba_len)
                 .map_err(|_| Rejection::Invalid)?;
-            for pixel in bytes.chunks_exact(3) {
+            for pixel in bytes.as_chunks::<3>().0 {
                 rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
             }
             Pixels::new(request.width, request.height, rgba.into_boxed_slice())
@@ -289,7 +289,7 @@ fn decode_png(bytes: &[u8]) -> Option<Pixels> {
             };
             if channels == 4 {
                 if table.is_some() {
-                    for pixel in decoded.chunks_exact_mut(4) {
+                    for pixel in decoded.as_chunks_mut::<4>().0 {
                         for value in &mut pixel[..3] {
                             *value = correct(*value);
                         }

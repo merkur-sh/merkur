@@ -57,7 +57,7 @@ pub fn link_spans(
     cell_count: usize,
 ) -> impl Iterator<Item = Result<LinkSpan, CodecErr>> + '_ {
     let mut next_free = 0usize;
-    links.chunks_exact(LINK_SPAN_BYTES).map(move |span| {
+    links.as_chunks::<LINK_SPAN_BYTES>().0.iter().map(move |span| {
         let offset = u16::from_be_bytes([span[0], span[1]]);
         let len = u16::from_be_bytes([span[2], span[3]]);
         let link = u32::from_be_bytes([span[4], span[5], span[6], span[7]]);

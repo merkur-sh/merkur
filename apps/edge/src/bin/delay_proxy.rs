@@ -4793,7 +4793,7 @@ mod tests {
             for round in 0..3 {
                 let packets = 100 * (index + 1) + 37 * round;
                 let trace = relay.downstream_trace(packets, now);
-                for window in trace.chunks_exact(100) {
+                for window in trace.as_chunks::<100>().0 {
                     assert_eq!(window.iter().filter(|(dropped, _, _)| *dropped).count(), 3);
                     windows += 1;
                 }

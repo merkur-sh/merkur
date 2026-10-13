@@ -56,7 +56,7 @@ impl Request {
             self.patch_height,
         ]
         .into_iter()
-        .zip(out.chunks_exact_mut(4))
+        .zip(out.as_chunks_mut::<4>().0)
         {
             word.copy_from_slice(&value.to_le_bytes());
         }
