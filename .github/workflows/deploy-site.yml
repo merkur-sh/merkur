@@ -113,7 +113,7 @@ jobs:
           # A header's value; names compare without case (HTTP/1.1 here, HTTP/2 live).
           header() { tr -d '\r' < "$2" | grep -i "^$1:" | head -n 1 | sed 's/^[^:]*:[[:space:]]*//'; }
           test -x site-deployment/site-server
-          PORT=18080 RYBBIT_HOST=https://app.rybbit.io TRUSTED_PROXY_HOPS=1 \
+          PORT=18080 RYBBIT_HOST=http://rybbit-backend.railway.internal:3001 TRUSTED_PROXY_HOPS=1 \
             site-deployment/site-server site-deployment/dist > "$RUNNER_TEMP/site-server.log" 2>&1 &
           server_pid=$!
           curl --fail --silent --show-error --retry 50 --retry-delay 0 --retry-connrefused \

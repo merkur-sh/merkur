@@ -43,7 +43,7 @@ export type RybbitProxy = (
 ) => Promise<Response>;
 
 export interface RybbitProxyOptions {
-  /** Rybbit's origin, e.g. `https://app.rybbit.io`. */
+  /** Rybbit's origin, e.g. `http://rybbit-backend.railway.internal:3001`. */
   readonly host: string;
   readonly trustedProxyHops: number;
   readonly timeoutMs: number;

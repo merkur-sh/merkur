@@ -458,7 +458,7 @@ description and questions, then every other page under its `og:title` with its d
    ```sh
    railway add --service site \
      --variables PORT=8080 \
-     --variables RYBBIT_HOST=https://app.rybbit.io \
+     --variables RYBBIT_HOST=http://rybbit-backend.railway.internal:3001 \
      --variables TRUSTED_PROXY_HOPS=1 \
      --variables RAILWAY_DOCKERFILE_PATH=apps/site/Dockerfile
    ```
@@ -481,16 +481,48 @@ description and questions, then every other page under its `og:title` with its d
    origin, `https://app.merkur.sh`). Create the `site` GitHub environment with the branch
    deployment policy `main` and its own `RAILWAY_TOKEN`, scoped to this service: the
    `production` environment admits release tags only, and its token reaches the app.
-5. In Rybbit, register `merkur.sh` and turn on First-Party Proxy under the site's Privacy
-   & Security settings, so it trusts the visitor address the proxy sends in `X-Forwarded-For`.
+5. In Rybbit (Analytics below), register `merkur.sh` and turn on First-Party Proxy and User
+   ID Salting under the site's Privacy & Security settings, with IP tracking off. The first
+   makes it trust the visitor address the proxy sends in `X-Forwarded-For`; the second is
+   what the privacy policy's "cannot be linked to you after the day they occur" rests on.
 6. On the server service, set `SITE_ORIGIN=https://merkur.sh`, and to count new waitlist
    addresses `RYBBIT_HOST`, `RYBBIT_SITE_ID` and `RYBBIT_API_KEY` (the README configuration
-   table). The waitlist route exists only while `SITE_ORIGIN` is set.
+   table). The key is an organization API key scoped to `ingest:write`; without that scope
+   Rybbit treats the event as a visit from the server's own address. The waitlist route
+   exists only while `SITE_ORIGIN` is set.
 7. After the first deploy, open the site from a known network and confirm Rybbit's realtime
    view places the visit there. A wrong `TRUSTED_PROXY_HOPS` attributes every visitor to one
    proxy's address.
 8. Verify `merkur.sh` in Google Search Console and Bing Webmaster Tools by DNS TXT record and
    submit `https://merkur.sh/sitemap.xml` to each.
+
+### Analytics
+
+Rybbit is self-hosted in the same Railway project and environment, as six services built
+from pinned upstream images. Only the gateway has a public domain; the site and the app
+server reach the backend over the private network, so a visit never leaves the project.
+
+| Service | Image | Holds |
+| --- | --- | --- |
+| `rybbit-gateway` | `caddy` | The dashboard's one origin: `/api/*` and the OAuth discovery paths to the backend, everything else to the client |
+| `rybbit-client` | `ghcr.io/rybbit-io/rybbit-client` | The dashboard; it calls `/api` on its own origin, so the gateway is not optional |
+| `rybbit-backend` | `ghcr.io/rybbit-io/rybbit-backend` | Ingestion and the dashboard's API, port 3001 |
+| `rybbit-clickhouse` | `clickhouse/clickhouse-server` | Events, on a volume at `/var/lib/clickhouse` |
+| `rybbit-postgres` | `postgres` | Accounts, sites and API keys, on a volume at `/var/lib/postgresql/data` |
+| `rybbit-redis` | `redis` | Sessions and identity state, on a volume at `/data`; never the app's Dragonfly |
+
+- The backend runs with `DISABLE_TELEMETRY=true`, `DISABLE_SIGNUP=true` and
+  `CLUSTER_WORKERS=1`, and `BASE_URL` is the gateway's public origin. Sign-up is opened only
+  to create the first account.
+- ClickHouse and Redis take their configuration from a start command, since an image
+  service has no file to mount: ClickHouse writes its memory cap, thread limit and disabled
+  system logs into `config.d` and `users.d` before its entrypoint, and Redis starts with
+  `--appendonly yes --maxmemory-policy noeviction`. The gateway writes its Caddyfile from
+  the `CADDYFILE` variable the same way.
+- `RYBBIT_HOST` on the site and server services is
+  `http://rybbit-backend.railway.internal:3001`.
+- Upgrading is a new image tag on the backend and the client together; the backend applies
+  its own database migrations at start.
 
 ### Deploy
 
