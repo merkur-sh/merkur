@@ -627,6 +627,9 @@ function committedRepository(): Promise<string> {
     await git(root, 'init', '--quiet');
     await git(root, 'config', 'user.email', 'native-preflight@example.invalid');
     await git(root, 'config', 'user.name', 'Native Preflight Test');
+    // A commit starts maintenance that outlives it and holds `objects/maintenance.lock` for a
+    // moment; a copy taken meanwhile fails on the lock that has gone.
+    await git(root, 'config', 'maintenance.auto', 'false');
     await git(root, 'add', 'Cargo.toml');
     await git(root, 'commit', '--quiet', '-m', 'fixture');
     return root;
