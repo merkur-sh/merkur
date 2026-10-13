@@ -352,9 +352,9 @@ impl ClientSession {
         let mut words = [0u32; 7];
         for (word, bytes) in words
             .iter_mut()
-            .zip(self.ingress[..VIEWER_WORDS_BYTES].chunks_exact(4))
+            .zip(self.ingress[..VIEWER_WORDS_BYTES].as_chunks::<4>().0)
         {
-            *word = u32::from_le_bytes(bytes.try_into().expect("four bytes"));
+            *word = u32::from_le_bytes(*bytes);
         }
         let bytes = &self.ingress[VIEWER_WORDS_BYTES..length];
         match kind {
@@ -367,8 +367,10 @@ impl ClientSession {
             2 if bytes.is_empty() => self.session.request_display_snapshot(now),
             3 if bytes.len().is_multiple_of(2) => {
                 let rows: Vec<_> = bytes
-                    .chunks_exact(2)
-                    .map(|b| u16::from_be_bytes([b[0], b[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|b| u16::from_be_bytes(*b))
                     .collect();
                 self.session.send_display_resync_rows(words[0], &rows);
             }
@@ -390,8 +392,10 @@ impl ClientSession {
                     }
                     Some(
                         bytes
-                            .chunks_exact(8)
-                            .map(|b| u64::from_be_bytes(b.try_into().expect("eight bytes")))
+                            .as_chunks::<8>()
+                            .0
+                            .iter()
+                            .map(|b| u64::from_be_bytes(*b))
                             .collect(),
                     )
                 };

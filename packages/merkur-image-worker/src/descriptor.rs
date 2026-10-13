@@ -62,7 +62,10 @@ impl Request {
             _ => None,
         };
         let mut bytes = [0; REQUEST_LEN];
-        for (byte, pair) in bytes.iter_mut().zip(argument.as_bytes().chunks_exact(2)) {
+        for (byte, pair) in bytes
+            .iter_mut()
+            .zip(argument.as_bytes().as_chunks::<2>().0)
+        {
             *byte = nibble(pair[0])? << 4 | nibble(pair[1])?;
         }
         Self::decode(&bytes)

@@ -69,7 +69,7 @@ pub(crate) fn restore_commands() -> Vec<u8> {
 
 fn image_id() -> io::Result<u32> {
     let id = NEXT_IMAGE
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
         .map_err(|_| io::Error::other("host graphics identity namespace exhausted"))?;
     HOST_IMAGES
         .lock()

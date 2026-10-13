@@ -314,7 +314,7 @@ impl Drop for ReliableFrame {
 
 fn try_reserve_reliable_bytes(queued_bytes: &AtomicUsize, frame_len: usize) -> bool {
     queued_bytes
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
             current
                 .checked_add(frame_len)
                 .filter(|next| *next <= EDGE_RELIABLE_QUEUE_MAX_BYTES)
@@ -2800,7 +2800,7 @@ impl EdgeTunnel {
             }
             if self
                 .capture_reliable_remaining
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
                     remaining.checked_sub(1)
                 })
                 .is_err()

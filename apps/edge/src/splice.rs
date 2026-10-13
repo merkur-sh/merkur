@@ -195,7 +195,7 @@ impl ContentionRequests {
     pub fn end(&self, attachment: AttachmentId) {
         let _ = self
             .0
-            .fetch_update(AtomicOrdering::Relaxed, AtomicOrdering::Relaxed, |word| {
+            .try_update(AtomicOrdering::Relaxed, AtomicOrdering::Relaxed, |word| {
                 (word >> 1 == attachment.as_u64()).then_some(attachment.as_u64() << 1)
             });
     }

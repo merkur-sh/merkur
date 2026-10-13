@@ -2635,7 +2635,9 @@ type CursorStep = (CursorCause, (u16, u16), (u16, u16));
 fn drain_cursor_motion(terminal: &mut Terminal) -> Vec<CursorStep> {
     let records: Vec<CursorStep> = terminal
         .cursor_motion
-        .chunks_exact(CURSOR_MOTION_RECORD_WORDS)
+        .as_chunks::<CURSOR_MOTION_RECORD_WORDS>()
+        .0
+        .iter()
         .map(|record| {
             let cause = *CursorCause::ALL
                 .iter()
@@ -4495,7 +4497,9 @@ fn confirmed_shadow_rebases_authoritative_foreground_and_style() {
         .expect("atlas");
     let shifted_glyph = terminal.row_geometry[0]
         .glyph
-        .chunks_exact(14)
+        .as_chunks::<14>()
+        .0
+        .iter()
         .find(|glyph| (glyph[0] - cell_w).abs() < f32::EPSILON)
         .expect("shifted styled glyph");
     let expected_fg = rgb_to_f32(styled.fg);
@@ -4506,7 +4510,9 @@ fn confirmed_shadow_rebases_authoritative_foreground_and_style() {
     assert!(
         terminal.row_geometry[0]
             .deco
-            .chunks_exact(7)
+            .as_chunks::<7>()
+            .0
+            .iter()
             .any(|decoration| (decoration[0] - cell_w).abs() < f32::EPSILON)
     );
 }
@@ -5339,7 +5345,7 @@ fn glyph_bitmaps_land_on_physical_pixels_at_every_font_size_and_density() {
             terminal.set_cell_metrics(size as f32 * dpr, 1.0, dpr);
             terminal.build_presented_geometry();
             assert_eq!(terminal.glyph_count(), 16);
-            for glyph in terminal.glyph_buf.chunks_exact(14) {
+            for glyph in terminal.glyph_buf.as_chunks::<14>().0 {
                 for value in [glyph[0] + glyph[2], glyph[1] + glyph[3], glyph[4], glyph[5]] {
                     assert_eq!(
                         value.fract(),

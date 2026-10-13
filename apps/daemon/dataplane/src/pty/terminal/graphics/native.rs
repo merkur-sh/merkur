@@ -481,7 +481,7 @@ fn token(bytes: &[u8]) -> Option<[u8; 32]> {
         b'a'..=b'f' => Some(byte - b'a' + 10),
         _ => None,
     };
-    for (byte, pair) in output.iter_mut().zip(bytes.chunks_exact(2)) {
+    for (byte, pair) in output.iter_mut().zip(bytes.as_chunks::<2>().0) {
         *byte = digit(pair[0])? << 4 | digit(pair[1])?;
     }
     Some(output)

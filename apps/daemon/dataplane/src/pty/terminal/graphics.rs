@@ -229,7 +229,7 @@ impl Graphics {
 
     fn with_resources(resources: &Resources) -> Self {
         let id = NEXT_TERMINAL
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("terminal publication identity exhausted");
         let mut terminal = [0; 16];
         terminal[..8].copy_from_slice(&id.to_le_bytes());
@@ -3267,8 +3267,10 @@ mod tests {
                     .unwrap()
                     .pixels()
                     .rgba()
-                    .chunks_exact(4)
-                    .all(|pixel| pixel == [0, 0, 0, 255])
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel == [0, 0, 0, 255])
             );
             assert_eq!(terminal.graphics.processing.used().unwrap().bytes, 0);
             terminal.shutdown_graphics().await;

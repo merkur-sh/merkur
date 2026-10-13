@@ -1940,7 +1940,7 @@ fn fill_visible_cells(
     let mut row_links = false;
     for ((target, packed), cell) in out
         .iter_mut()
-        .zip(digest.chunks_exact_mut(CELL_DIGEST_BYTES))
+        .zip(digest.as_chunks_mut::<CELL_DIGEST_BYTES>().0)
         .zip(row)
         .take(cols)
     {

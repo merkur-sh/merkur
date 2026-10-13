@@ -661,7 +661,7 @@ struct Solid {
 impl Solid {
     fn new(size: [u32; 2], color: u32) -> Self {
         let mut run = [0; 1024];
-        for pixel in run.chunks_exact_mut(4) {
+        for pixel in run.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&color.to_be_bytes());
         }
         Self { size, run }

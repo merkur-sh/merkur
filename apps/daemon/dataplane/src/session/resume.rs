@@ -443,10 +443,12 @@ pub(crate) fn handle_display_resume(
             let mut diverged_rows = 0usize;
             let mut adoptable_rows = 0usize;
             for (row, chunk) in client_row_hashes
-                .chunks_exact(DISPLAY_RESUME_HASH_BYTES)
+                .as_chunks::<DISPLAY_RESUME_HASH_BYTES>()
+                .0
+                .iter()
                 .enumerate()
             {
-                let client_hash = u64::from_be_bytes(chunk.try_into().unwrap_or([0; 8]));
+                let client_hash = u64::from_be_bytes(*chunk);
                 match classify_resume_row(
                     &peer.display_cache,
                     adopt_from_grid,
@@ -479,10 +481,12 @@ pub(crate) fn handle_display_resume(
             // one exactly-sized allocation instead of a growth sequence.
             mismatched_rows.reserve_exact(diverged_rows);
             for (row, chunk) in client_row_hashes
-                .chunks_exact(DISPLAY_RESUME_HASH_BYTES)
+                .as_chunks::<DISPLAY_RESUME_HASH_BYTES>()
+                .0
+                .iter()
                 .enumerate()
             {
-                let client_hash = u64::from_be_bytes(chunk.try_into().unwrap_or([0; 8]));
+                let client_hash = u64::from_be_bytes(*chunk);
                 match classify_resume_row(
                     &peer.display_cache,
                     adopt_from_grid,

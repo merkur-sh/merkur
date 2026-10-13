@@ -186,7 +186,12 @@ impl Fragment {
         bytes[40..44].copy_from_slice(&self.stack.z.to_be_bytes());
         bytes[44..48].copy_from_slice(&self.stack.image_id.to_be_bytes());
         bytes[48..56].copy_from_slice(&self.stack.placement.to_be_bytes());
-        for (out, word) in bytes[56..].chunks_exact_mut(8).zip(slice_words(self.slice)) {
+        for (out, word) in bytes[56..]
+            .as_chunks_mut::<8>()
+            .0
+            .iter_mut()
+            .zip(slice_words(self.slice))
+        {
             out.copy_from_slice(&word.to_be_bytes());
         }
         bytes

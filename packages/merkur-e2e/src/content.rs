@@ -230,7 +230,7 @@ impl ContentDomain {
             })
         });
         lifetime.owners[direction]
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owners| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |owners| {
                 (owners < CONTENT_MAX_TRANSFERS).then_some(owners + 1)
             })
             .map_err(|_| ContentError::Capacity)?;

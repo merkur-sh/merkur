@@ -746,7 +746,7 @@
     "packages/merkur-codec/src/decode.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::expect_used": 1,
-      "clippy::indexing_slicing": 28
+      "clippy::indexing_slicing": 20
     },
     "packages/merkur-codec/src/encode.rs": {
       "clippy::cast_possible_truncation": 12,
@@ -758,10 +758,9 @@
     },
     "packages/merkur-codec/src/graphics.rs": {
       "clippy::cast_possible_truncation": 5,
-      "clippy::expect_used": 3,
-      "clippy::indexing_slicing": 12,
-      "clippy::map_err_ignore": 5,
-      "clippy::unwrap_in_result": 1
+      "clippy::expect_used": 2,
+      "clippy::indexing_slicing": 9,
+      "clippy::map_err_ignore": 5
     },
     "packages/merkur-codec/src/hash.rs": {
       "clippy::cast_possible_truncation": 13,

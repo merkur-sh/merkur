@@ -99,7 +99,7 @@ impl Timing {
         let display_dropped_total = header.word();
         let observation_epoch = header.word();
         let mut records = Vec::with_capacity(count);
-        for record in body[33..].chunks_exact(72) {
+        for record in body[33..].as_chunks::<72>().0 {
             let mut at = Words(record);
             records.push(TimingRecord {
                 input_seq: at.word(),
@@ -250,7 +250,7 @@ impl Grid {
             return None;
         }
         let mut row_hashes = Vec::with_capacity(usize::from(rows) * 2);
-        for row in body[20..].chunks_exact(8) {
+        for row in body[20..].as_chunks::<8>().0 {
             let mut at = Words(row);
             let high = at.word();
             let low = at.word();

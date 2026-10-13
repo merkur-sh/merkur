@@ -187,7 +187,7 @@ impl DisplayAckPayload {
             .chain(self.received)
             .chain(self.recovered)
             .chain([self.grant]);
-        for (slot, word) in body.chunks_exact_mut(4).zip(words) {
+        for (slot, word) in body.as_chunks_mut::<4>().0.iter_mut().zip(words) {
             slot.copy_from_slice(&word.to_be_bytes());
         }
         body

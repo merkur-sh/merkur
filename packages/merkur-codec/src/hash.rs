@@ -123,7 +123,10 @@ pub fn row_hash(cells: &[CellRepr]) -> u64 {
     let mut hasher = Xxh3::new();
     let mut batch = [0u8; ROW_HASH_BATCH_BYTES];
     for cells in cells.chunks(ROW_HASH_BATCH_CELLS) {
-        for (cell, encoded) in cells.iter().zip(batch.chunks_exact_mut(CELL_DIGEST_BYTES)) {
+        for (cell, encoded) in cells
+            .iter()
+            .zip(batch.as_chunks_mut::<CELL_DIGEST_BYTES>().0)
+        {
             pack_cell_digest(cell, encoded);
         }
         hasher.update(&batch[..cells.len() * CELL_DIGEST_BYTES]);
@@ -276,7 +279,10 @@ mod tests {
                 })
                 .collect();
             let mut packed = vec![0u8; cells.len() * CELL_DIGEST_BYTES];
-            for (cell, slot) in cells.iter().zip(packed.chunks_exact_mut(CELL_DIGEST_BYTES)) {
+            for (cell, slot) in cells
+                .iter()
+                .zip(packed.as_chunks_mut::<CELL_DIGEST_BYTES>().0)
+            {
                 pack_cell_digest(cell, slot);
             }
             assert_eq!(row_hash(&cells), row_hash_packed(&packed), "len={len}");
@@ -295,7 +301,7 @@ mod tests {
         let mut patched = vec![0u8; cells.len() * CELL_DIGEST_BYTES];
         for (cell, slot) in cells
             .iter()
-            .zip(patched.chunks_exact_mut(CELL_DIGEST_BYTES))
+            .zip(patched.as_chunks_mut::<CELL_DIGEST_BYTES>().0)
         {
             let mut unwrapped = *cell;
             unwrapped.set_wrapped(false);
@@ -339,7 +345,10 @@ mod tests {
         row[5].link = 9;
 
         let mut packed = vec![0u8; row.len() * CELL_DIGEST_BYTES];
-        for (cell, slot) in row.iter().zip(packed.chunks_exact_mut(CELL_DIGEST_BYTES)) {
+        for (cell, slot) in row
+            .iter()
+            .zip(packed.as_chunks_mut::<CELL_DIGEST_BYTES>().0)
+        {
             pack_cell_digest(cell, slot);
         }
         let unlinked = packed.clone();

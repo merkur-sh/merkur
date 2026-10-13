@@ -124,7 +124,7 @@ fn project_level(
 ) -> Option<Scene> {
     // One sampling ratio per placement: its smallest, over every clipped row.
     let mut footprints: Vec<(u64, f64)> = Vec::new();
-    for fragment in fragments.chunks_exact(FRAGMENT_BYTES) {
+    for fragment in fragments.as_chunks::<FRAGMENT_BYTES>().0 {
         let placement = u64::from_be_bytes(fragment[52..60].try_into().expect("eight bytes"));
         let sx = fixed(fragment, 100) - fixed(fragment, 92);
         let sy = fixed(fragment, 116) - fixed(fragment, 108);
@@ -142,7 +142,7 @@ fn project_level(
     let mut quads = Vec::new();
     let mut animations: Vec<SceneAnimation> = Vec::new();
     let mut groups: HashMap<String, usize> = HashMap::new();
-    for fragment in fragments.chunks_exact(FRAGMENT_BYTES) {
+    for fragment in fragments.as_chunks::<FRAGMENT_BYTES>().0 {
         let row = f64::from(u32_at(fragment, 0));
         let root: [u8; 32] = fragment[4..36].try_into().expect("32 bytes");
         let identity = crate::hex(&root);
