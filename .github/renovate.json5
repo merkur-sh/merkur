@@ -45,7 +45,7 @@
   // The releases Renovate installs in its container for its own Cargo and Bun runs: Cargo
   // there is not rustup's, so it does not read rust-toolchain.toml, and the tasks below run
   // outside the Bun manager, which is what reads `packageManager`.
-  constraints: { bun: '1.4.2', rust: '1.97.1' },
+  constraints: { bun: '1.4.2', rust: '1.99.0' },
   lockFileMaintenance: { enabled: true, schedule: ['before 6am on monday'] },
   cargo: {
     // The vendored crates keep upstream's manifests; their dependencies resolve in the

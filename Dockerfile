@@ -47,7 +47,7 @@ RUN bun install --frozen-lockfile
 # profile trainer executes SIMD WebAssembly, which an emulated x86-64 JavaScript
 # engine refuses. It stays on bookworm, the runner's glibc floor, for the
 # native helpers the WebAssembly builds run.
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS toolchain
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS toolchain
 
 WORKDIR /app
 
