@@ -10,7 +10,8 @@ in `scripts/ci`.
 [CI](../.github/workflows/ci.yml) is the branch-protection gate. It runs on every pull
 request at its merge commit and on every push to `main` at the exact commit. It holds no
 deployment secrets. Main, manual and release runs select every lane. PRs compare the checked-out
-merge tree with the event's base commit, including deletions and both sides of renames.
+merge tree with the commit it was merged onto, the merge commit's first parent, including
+deletions and both sides of renames.
 
 The planner uses the local gate rules to omit native tests only for known TypeScript and CSS
 paths with no native or protocol requirement. Product edits still select browser coverage;

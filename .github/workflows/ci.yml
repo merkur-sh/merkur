@@ -31,10 +31,16 @@ jobs:
       - uses: ./.github/actions/setup-merkur
         with:
           rust: 'false'
+      # The event's base commit is where the branch was when the pull request was opened; once
+      # the base branch moves, the merge commit sits on a newer one and this checkout no
+      # longer holds the old one.
       - id: plan
-        env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: bun run scripts/ci-plan.ts
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            CI_BASE_SHA="$(git rev-parse HEAD^1)"
+            export CI_BASE_SHA
+          fi
+          bun run scripts/ci-plan.ts
   wasm:
     needs: plan
     if: needs.plan.outputs.source == 'true'
