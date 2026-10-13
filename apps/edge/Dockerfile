@@ -17,7 +17,7 @@
 # Deploy from the repo root, NOT from this directory:
 #   bun run edge:fly-config render <edge-id> <version>
 #   fly deploy --config apps/edge/fly/<edge-id>.toml --dockerfile apps/edge/Dockerfile
-FROM public.ecr.aws/docker/library/rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97 AS build
+FROM public.ecr.aws/docker/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
 WORKDIR /build
 
 # The pinned toolchain and cargo config, so the image compiles with the same
