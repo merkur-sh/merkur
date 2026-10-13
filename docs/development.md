@@ -194,7 +194,8 @@ Rust dependencies, including yanked Rust releases. The
 [dependency audit workflow](../.github/workflows/dependency-audit.yml) runs the same checks
 on pull requests, pushes to `main`, a daily schedule, and manual dispatch.
 [Secret scanning](../.github/workflows/secret-scanning.yml) runs TruffleHog on every push
-and pull request. What CI gates on which trigger is in [`docs/ci.md`](../docs/ci.md), and
+and pull request. Dependency updates arrive as
+[Renovate pull requests](ci.md#dependency-updates). What CI gates on which trigger is in [`docs/ci.md`](../docs/ci.md), and
 hot-path benchmarks, profiler runs, and soak runs are in
 [`docs/performance.md`](../docs/performance.md).
 

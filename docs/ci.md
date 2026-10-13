@@ -74,6 +74,7 @@ Additional workflows run beside CI:
 | [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `bun audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, cargo-vet exact-version review coverage and nine offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
 | [Assurance](../.github/workflows/assurance.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | Parser replay, Kani custody proofs, Loom schedules and negative controls, real-session network simulation, and unprivileged profiling-tool checks. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
+| [Dependency updates](../.github/workflows/renovate.yml) | A nightly schedule, a box ticked on the Dependency Dashboard issue, manual dispatch | Renovate proposes dependency, action, image and tool updates as pull requests, which the workflows above then test. See [Dependency updates](#dependency-updates). |
 | [Deploy site](../.github/workflows/deploy-site.yml) | A green CI run of a push to `main`, manual dispatch on `main` | Builds the website through `apps/site/Dockerfile`, serves the result locally, deploys it to its own Railway service, purges the CDN's HTML and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
 
 The assurance aggregate requires successful parser, ownership, bounded-proof, simulation
@@ -115,6 +116,60 @@ CI selects its digest-pinned Dockerfile frontend from that same mirror with
 `BUILDKIT_SYNTAX`. The app and site Dockerfiles keep the canonical `docker/dockerfile`
 syntax reference required by Railway's builder, at the identical digest. Builds fail if
 their selected pinned image is unavailable.
+
+## Dependency updates
+
+[Dependency updates](../.github/workflows/renovate.yml) runs
+[Renovate](https://docs.renovatebot.com/) every night from a digest-pinned image, configured
+by [`.github/renovate.json5`](../.github/renovate.json5). It reads the Cargo and Bun
+manifests, the actions the workflows pin, the image digests in the Dockerfiles and the compose
+file, the Rust and Node pins, and the tool versions the setup scripts and workflows install.
+Each change is a pull request from a `renovate/` branch, so CI, the dependency audit,
+assurance and secret scanning run on it like on any other, on the Rust and TypeScript lanes
+its files select. Nothing merges on its own.
+
+- Ordinary updates open early on Monday, five pull requests at most at a time. The rest wait
+  on the Dependency Dashboard issue, where ticking one opens it on the run that edit starts.
+  A release is proposed seven days after it was published. A fix for an advisory against a
+  direct dependency opens on the next run, whatever the day and the age, and the dashboard
+  lists every advisory Renovate matched. An advisory against a transitive dependency is the
+  daily dependency audit's to report; its fix arrives with the lock refresh.
+- A manifest range moves only when a release falls outside it. Releases within a range, and
+  every transitive dependency, arrive with a weekly lock refresh: one pull request for the
+  Cargo locks and one for `bun.lock`.
+- A Cargo pull request regenerates `tools/sim/Cargo.lock` and `tools/bolero/Cargo.lock`
+  through `test:sim:update-lock` and `test:fuzz:update-lock`. A catalog entry moves in
+  `package.json` and `pnpm-workspace.yaml` together, and `bun.lock` follows.
+- Packages that have to agree move in one pull request: the Rust toolchain with its builder
+  images, Solid's release candidate, the RustCrypto crates, the Dockerfile frontend digest,
+  and the workflows' minor action updates.
+- Renovate does not write `supply-chain/`. A Cargo pull request fails the dependency audit's
+  cargo-vet step until each new crate version has been reviewed and its audit or exemption
+  pushed to the branch ([policy](security.md#dependency-source-and-audit-policy)).
+- Four updates wait on the dashboard until they are ticked, because the version is not the
+  whole change: the Bun runtime and TruffleHog are installed by archive checksum, Kani is tied
+  to a nightly toolchain, and a vendored patch crate moves by carrying its patches onto the
+  new upstream source. An advisory against one of them opens its pull request unasked. For a
+  vendored crate that pull request cannot build until the source follows, because the
+  workspace lock still names the old version.
+- `pnpm-lock.yaml`, the Bazel module and the Bazel captures are outside Renovate's reach and
+  are refreshed after a merge as [the Bazel notes](../.github/bazel/README.md) describe. The
+  deployment CLIs that `release.yml` and `deploy-site.yml` install are not watched: no pull
+  request can exercise them.
+
+Renovate authenticates as a GitHub App owned by the organization, so its commits are signed
+by GitHub and its pull requests start the other workflows. Activation is three steps:
+
+1. Create the App `merkur-renovate` with no webhook and install it on this repository only.
+   It needs these repository permissions: read on administration, Dependabot alerts and
+   metadata; read and write on checks, commit statuses, contents, issues, pull requests and
+   workflows. The CLA workflow allowlists `merkur-renovate[bot]` by that name.
+2. Create the `dependency-updates` environment with the **branch** deployment policy `main`.
+3. Store the App's client ID as the environment variable `RENOVATE_APP_CLIENT_ID` and its
+   private key as the environment secret `RENOVATE_APP_PRIVATE_KEY`.
+
+`gh workflow run renovate.yml -f dry-run=true` logs every branch and pull request a run would
+create without creating one.
 
 ## Cutting a release
 

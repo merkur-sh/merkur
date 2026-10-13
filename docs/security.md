@@ -957,6 +957,16 @@ full release. The signing seed is an environment secret available only to the si
 compromised trusted workflow or runner can forge releases; deployment environments receive no
 signing seed. See [CI operations](ci.md).
 
+The [dependency update workflow](../.github/workflows/renovate.yml) is the one automation that
+writes to the repository outside a release. It runs Renovate from a digest-pinned image with an
+installation token of an organization-owned GitHub App, minted for that run from a key held in the
+`dependency-updates` environment, which admits only `main`. The token can push branches, change
+workflows and open pull requests. The tag rules keep it from creating a release tag, and it holds
+no signing or deployment secret. Renovate updates lockfiles without running lifecycle scripts, and
+the only other commands it may run are the ones the workflow lists whole. An update it proposes
+merges when a maintainer merges it, after the same checks as any other pull request
+([dependency updates](ci.md#dependency-updates)).
+
 ## Parser And Ownership Assurance
 
 [`tools/bolero`](../tools/bolero/README.md) runs the actual wire and STUN parsers and the
@@ -996,6 +1006,12 @@ exemptions marked unaudited. An exemption is not an audit or a security certific
 a new unreviewed version fails. Modified vendored patch crates are first-party and cannot
 inherit upstream registry audits. Policy updates must review the actual dependency change
 and its source rather than automatically refreshing exemptions or trusting publishers.
+Renovate's pull requests are held to this: it never writes `supply-chain/`, so one that changes
+a locked crate version stays red until that review is recorded on its branch.
+
+Advisory scanning reads registry packages. The vendored patch crates have no registry source in
+`Cargo.lock`, so `cargo audit` does not match advisories against them; Renovate reads each one's
+upstream name and version from its manifest and raises upstream advisories and releases for it.
 
 ## Repository Secret Scanning
 

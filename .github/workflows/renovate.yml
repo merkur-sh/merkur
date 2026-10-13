@@ -1,0 +1,69 @@
+name: Dependency updates
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  # A box ticked on the dependency dashboard is an edit of that issue.
+  issues:
+    types: [edited]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Log the branches and pull requests without creating them
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: dependency-updates
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    if: >-
+      github.event_name != 'issues' ||
+      (github.event.issue.title == 'Dependency Dashboard' &&
+       github.event.issue.user.type == 'Bot' &&
+       github.event.sender.type != 'Bot')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # The App key is an environment secret, and the environment admits only `main`.
+    environment: dependency-updates
+    env:
+      RENOVATE_IMAGE: ghcr.io/renovatebot/renovate:44.155.8@sha256:235c24e506150bb401233599d11d9c67154326857909fff4017d72a7aac86440
+    steps:
+      - name: Cache registry lookups
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/renovate-cache
+          key: renovate-cache-${{ github.run_id }}
+          restore-keys: renovate-cache-
+      # The image runs as its own user, which must own the directory it caches into.
+      - run: mkdir -p "$RUNNER_TEMP/renovate-cache" && sudo chown -R 12021:0 "$RUNNER_TEMP/renovate-cache"
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+      - name: Run Renovate
+        env:
+          RENOVATE_TOKEN: ${{ steps.token.outputs.token }}
+          RENOVATE_PLATFORM: github
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_REQUIRE_CONFIG: required
+          RENOVATE_REPOSITORY_CACHE: enabled
+          # Every command a post-upgrade task may run, whole; .github/renovate.json5 names them.
+          RENOVATE_ALLOWED_COMMANDS: '["^bun run test:(sim|fuzz):update-lock$", "^bun install --lockfile-only --ignore-scripts$"]'
+          LOG_LEVEL: debug
+          DRY_RUN: ${{ inputs.dry-run && 'full' || '' }}
+        run: |
+          docker run --rm \
+            --env RENOVATE_TOKEN --env RENOVATE_PLATFORM --env RENOVATE_REPOSITORIES \
+            --env RENOVATE_ONBOARDING --env RENOVATE_REQUIRE_CONFIG --env RENOVATE_REPOSITORY_CACHE \
+            --env RENOVATE_ALLOWED_COMMANDS --env LOG_LEVEL \
+            --volume "$RUNNER_TEMP/renovate-cache:/tmp/renovate/cache" \
+            "$RENOVATE_IMAGE" ${DRY_RUN:+"--dry-run=$DRY_RUN"}
+      - if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/renovate-cache"

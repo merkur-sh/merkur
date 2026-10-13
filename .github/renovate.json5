@@ -1,0 +1,329 @@
+// Dependency updates. docs/ci.md describes the workflow that runs Renovate with this file;
+// docs/security.md says what review an update still needs before it merges.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended', 'helpers:pinGitHubActionDigests', 'docker:pinDigests'],
+  timezone: 'Europe/Madrid',
+  // The nightly run opens ordinary updates once a week; vulnerability fixes ignore the schedule.
+  schedule: ['before 6am on monday'],
+  semanticCommits: 'disabled',
+  labels: ['dependencies'],
+  prConcurrentLimit: 5,
+  prHourlyLimit: 0,
+  // A release is proposed a week after it was published, so one that is withdrawn or
+  // reported in its first days never reaches a branch.
+  minimumReleaseAge: '7 days',
+  internalChecksFilter: 'strict',
+  // Image digests and runner labels carry no publication time to wait on.
+  minimumReleaseAgeBehaviour: 'timestamp-optional',
+  // A range moves only when the new release falls outside it. Releases inside a range arrive
+  // with the weekly lock refresh, which also carries every transitive dependency.
+  rangeStrategy: 'replace',
+  osvVulnerabilityAlerts: true,
+  dependencyDashboardOSVVulnerabilitySummary: 'all',
+  // A fix always changes the file that names the version. That is what turns an advisory
+  // against a vendored crate, which has no lock entry of its own to move, into a pull request.
+  vulnerabilityAlerts: { labels: ['dependencies', 'security'], rangeStrategy: 'bump' },
+  // `pnpm-lock.yaml` mirrors `bun.lock` for Bazel and is written by
+  // `tools/bazel/bun/refresh-npm-lock.ts`, so the npm manager, which would hand the workspace
+  // to pnpm, stays off. The Bazel module and its captures are regenerated together by hand.
+  enabledManagers: [
+    'bun',
+    'cargo',
+    'custom.regex',
+    'docker-compose',
+    'dockerfile',
+    'github-actions',
+    'nodenv',
+    'rust-toolchain',
+  ],
+  ignorePaths: ['**/node_modules/**', 'spikes/**', 'tools/bazel/**'],
+  // The releases Renovate installs in its container for its own Cargo and Bun runs: Cargo
+  // there is not rustup's, so it does not read rust-toolchain.toml, and the tasks below run
+  // outside the Bun manager, which is what reads `packageManager`.
+  constraints: { bun: '1.4.2', rust: '1.97.1' },
+  lockFileMaintenance: { enabled: true, schedule: ['before 6am on monday'] },
+  cargo: {
+    // The vendored crates keep upstream's manifests; their dependencies resolve in the
+    // workspace lock, which the lock refresh updates.
+    ignorePaths: ['**/node_modules/**', 'spikes/**', 'tools/bazel/**', 'packages/*-patch/**'],
+    // The simulator's lock is seeded from the production lock and the fuzz workspace resolves
+    // the same manifests, so both follow every change to either. The workspace lock is listed
+    // because `packages/term-wasm` has a lock beside its manifest, which Renovate takes for
+    // that member's lock while Cargo writes the workspace's.
+    postUpgradeTasks: {
+      commands: ['bun run test:sim:update-lock', 'bun run test:fuzz:update-lock'],
+      fileFilters: ['Cargo.lock', 'tools/sim/Cargo.lock', 'tools/bolero/Cargo.lock'],
+      executionMode: 'branch',
+      installTools: { bun: {}, rust: {} },
+    },
+  },
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Rust tools the setup:* scripts install',
+      managerFilePatterns: ['/^package\\.json$/'],
+      matchStrings: [
+        'cargo install (?<depName>[a-z][a-z0-9-]*) --locked --version (?<currentValue>\\d+\\.\\d+\\.\\d+)',
+      ],
+      datasourceTemplate: 'crate',
+    },
+    {
+      customType: 'regex',
+      description: 'cargo-bolero, which the fuzz runner requires at the installed version',
+      managerFilePatterns: ['/^scripts/fuzz-tests\\.ts$/', '/^\\.github/workflows/assurance\\.yml$/'],
+      matchStrings: [
+        "const cliVersion = '(?<currentValue>\\d+\\.\\d+\\.\\d+)'",
+        'assurance-cargo-bolero-(?<currentValue>\\d+\\.\\d+\\.\\d+)-',
+      ],
+      depNameTemplate: 'cargo-bolero',
+      datasourceTemplate: 'crate',
+    },
+    {
+      customType: 'regex',
+      description: 'The Bolero library the generated fuzz workspace pins',
+      managerFilePatterns: ['/^scripts/fuzz-tests\\.ts$/'],
+      matchStrings: ["const boleroVersion = '(?<currentValue>\\d+\\.\\d+\\.\\d+)'"],
+      depNameTemplate: 'bolero',
+      datasourceTemplate: 'crate',
+    },
+    {
+      customType: 'regex',
+      description: 'cargo-deny in the dependency policy cache key',
+      managerFilePatterns: ['/^\\.github/workflows/dependency-audit\\.yml$/'],
+      matchStrings: ['dependency-policy-deny-(?<currentValue>\\d+\\.\\d+\\.\\d+)-'],
+      depNameTemplate: 'cargo-deny',
+      datasourceTemplate: 'crate',
+    },
+    {
+      customType: 'regex',
+      description: 'cargo-vet in the dependency policy cache key',
+      managerFilePatterns: ['/^\\.github/workflows/dependency-audit\\.yml$/'],
+      matchStrings: ['-vet-(?<currentValue>\\d+\\.\\d+\\.\\d+)-'],
+      depNameTemplate: 'cargo-vet',
+      datasourceTemplate: 'crate',
+    },
+    {
+      customType: 'regex',
+      description: 'wasm-pack and its cache key',
+      managerFilePatterns: ['/^\\.github/actions/setup-merkur/action\\.yml$/'],
+      matchStrings: [
+        'cargo install wasm-pack --version (?<currentValue>\\d+\\.\\d+\\.\\d+)',
+        'key: wasm-pack-(?<currentValue>\\d+\\.\\d+\\.\\d+)-',
+      ],
+      depNameTemplate: 'wasm-pack',
+      datasourceTemplate: 'crate',
+    },
+    {
+      customType: 'regex',
+      description: 'actionlint and its cache key',
+      managerFilePatterns: ['/^\\.github/workflows/ci\\.yml$/'],
+      matchStrings: [
+        'key: actionlint-(?<currentValue>\\d+\\.\\d+\\.\\d+)-',
+        'actionlint/cmd/actionlint@v(?<currentValue>\\d+\\.\\d+\\.\\d+)',
+      ],
+      depNameTemplate: 'rhysd/actionlint',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^v(?<version>.+)$',
+    },
+    {
+      customType: 'regex',
+      description: 'BuildKit and the Dockerfile frontend the workflows select',
+      managerFilePatterns: ['/^\\.github/workflows/[^/]+\\.yml$/'],
+      matchStrings: [
+        'image=(?<depName>mirror\\.gcr\\.io/moby/buildkit):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})',
+        'BUILDKIT_SYNTAX=(?<depName>mirror\\.gcr\\.io/docker/dockerfile):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})',
+      ],
+      datasourceTemplate: 'docker',
+    },
+    {
+      customType: 'regex',
+      description: 'The Renovate image the dependency update workflow runs',
+      managerFilePatterns: ['/^\\.github/workflows/renovate\\.yml$/'],
+      matchStrings: [
+        '(?<depName>ghcr\\.io/renovatebot/renovate):(?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})',
+      ],
+      datasourceTemplate: 'docker',
+    },
+    {
+      customType: 'regex',
+      description: 'The Rust release Renovate installs for its own Cargo runs',
+      managerFilePatterns: ['/^\\.github/renovate\\.json5$/'],
+      matchStrings: ["constraints: \\{[^}]*rust: '(?<currentValue>\\d+\\.\\d+\\.\\d+)'"],
+      depNameTemplate: 'rust',
+      datasourceTemplate: 'rust-version',
+    },
+    {
+      customType: 'regex',
+      description: 'The Bun release Renovate installs for its own Bun runs',
+      managerFilePatterns: ['/^\\.github/renovate\\.json5$/'],
+      matchStrings: ["constraints: \\{ bun: '(?<currentValue>\\d+\\.\\d+\\.\\d+)'"],
+      depNameTemplate: 'bun',
+      datasourceTemplate: 'npm',
+    },
+    {
+      customType: 'regex',
+      description: 'The workspace catalog, which the Bun manager does not read',
+      managerFilePatterns: ['/^package\\.json$/'],
+      matchStringsStrategy: 'recursive',
+      matchStrings: ['"catalog": \\{[^}]*\\}', '"(?<depName>[^"]+)": "(?<currentValue>[^"]+)"'],
+      datasourceTemplate: 'npm',
+    },
+    {
+      customType: 'regex',
+      description: 'The same catalog as fallow and the Bazel lock mirror read it',
+      managerFilePatterns: ['/^pnpm-workspace\\.yaml$/'],
+      matchStringsStrategy: 'recursive',
+      matchStrings: [
+        'catalog:\\n(?:  [^\\n]+\\n)+',
+        "  '?(?<depName>[^':\\n]+)'?: (?<currentValue>[^\\s]+)",
+      ],
+      datasourceTemplate: 'npm',
+    },
+    {
+      customType: 'regex',
+      // Read as Cargo's exact requirement, `=x.y.z`: an advisory resets a crate to Cargo's
+      // range versioning, under which a bare version already admits its own fix.
+      description: 'Upstream releases of the vendored patch crates',
+      managerFilePatterns: ['/^packages/[a-z-]+-patch/Cargo\\.toml$/'],
+      matchStrings: [
+        'name = "(?<depName>alacritty_terminal|fontdue|quinn|quinn-proto|vte|wtransport)"\\nversion = "(?<pin>[^"]+)"',
+      ],
+      currentValueTemplate: '={{{pin}}}',
+      autoReplaceStringTemplate: 'name = "{{{depName}}}"\nversion = "{{{replace \'^=\' \'\' newValue}}}"',
+      datasourceTemplate: 'crate',
+    },
+    {
+      customType: 'regex',
+      description: 'The TruffleHog release pinned with its archive checksums',
+      managerFilePatterns: ['/^scripts/trufflehog\\.json$/'],
+      matchStrings: ['"version": "(?<currentValue>\\d+\\.\\d+\\.\\d+)"'],
+      depNameTemplate: 'trufflesecurity/trufflehog',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^v(?<version>.+)$',
+    },
+  ],
+  packageRules: [
+    {
+      description: 'One lock refresh per ecosystem, so a failure in one does not hold the other',
+      matchUpdateTypes: ['lockFileMaintenance'],
+      additionalBranchPrefix: '{{manager}}-',
+      commitMessageSuffix: '({{manager}})',
+    },
+    {
+      description: 'The pinned toolchain, the builder images at that release and the release Renovate installs',
+      matchDepNames: ['rust', 'public.ecr.aws/docker/library/rust'],
+      groupName: 'Rust toolchain',
+    },
+    {
+      description: 'The frontend digest is the same in every Dockerfile and workflow',
+      matchDepNames: ['docker/dockerfile', 'mirror.gcr.io/docker/dockerfile'],
+      groupName: 'Dockerfile frontend',
+    },
+    {
+      description: 'Solid is one release candidate across its packages',
+      matchPackageNames: ['solid-js', '@solidjs/**'],
+      groupName: 'Solid',
+    },
+    {
+      description: 'Elysia publishes experimental builds under the version its betas carry',
+      matchPackageNames: ['elysia', '@elysia/**'],
+      groupName: 'Elysia',
+      allowedVersions: '!/-exp\\./',
+    },
+    {
+      description: 'The RustCrypto crates share trait crates and move as one set',
+      matchManagers: ['cargo'],
+      matchSourceUrls: ['https://github.com/RustCrypto/**'],
+      groupName: 'RustCrypto',
+    },
+    {
+      matchManagers: ['cargo'],
+      matchSourceUrls: ['https://github.com/cryspen/libcrux'],
+      groupName: 'libcrux',
+    },
+    {
+      description: 'cargo-vet holds every new crate version until it is reviewed',
+      matchManagers: ['cargo'],
+      prBodyNotes: [
+        '`check:dependency-policy` fails until each new crate version here has an audit or an exemption in `supply-chain/`: review the change (`cargo vet`), record the result and push it to this branch.',
+      ],
+    },
+    {
+      description: 'These resolve to the vendored crates under packages/*-patch, which the last rules below watch',
+      matchManagers: ['cargo'],
+      matchDepNames: ['alacritty_terminal', 'fontdue', 'quinn', 'quinn-proto', 'vte', 'wtransport'],
+      enabled: false,
+    },
+    {
+      description: 'A tool version the regex managers read is an exact pin, not a Cargo range',
+      matchManagers: ['custom.regex'],
+      matchDatasources: ['crate'],
+      matchFileNames: ['package.json', 'scripts/fuzz-tests.ts', '.github/**'],
+      versioning: 'semver',
+    },
+    {
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      groupName: 'GitHub Actions',
+    },
+    {
+      description: 'A catalog entry moves in both files and resolves in bun.lock',
+      matchManagers: ['custom.regex'],
+      matchFileNames: ['package.json', 'pnpm-workspace.yaml'],
+      matchDatasources: ['npm'],
+      postUpgradeTasks: {
+        commands: ['bun install --lockfile-only --ignore-scripts'],
+        fileFilters: ['bun.lock'],
+        executionMode: 'branch',
+        installTools: { bun: {} },
+      },
+    },
+    {
+      description: 'A new Bolero resolves in the fuzz workspace lock',
+      matchManagers: ['custom.regex'],
+      matchDepNames: ['bolero'],
+      postUpgradeTasks: {
+        commands: ['bun run test:fuzz:update-lock'],
+        fileFilters: ['tools/bolero/Cargo.lock'],
+        executionMode: 'branch',
+        installTools: { bun: {}, rust: {} },
+      },
+    },
+    // The four rules below cover updates Renovate can name but not complete. Each waits on the
+    // dashboard until it is ticked, and its branch then needs the work its note describes.
+    {
+      description: 'The Bun runtime is installed in the Dockerfiles by archive checksum',
+      matchDepNames: ['bun', 'bun-types'],
+      dependencyDashboardApproval: true,
+      groupName: 'Bun runtime',
+      prBodyNotes: [
+        'The Dockerfiles install Bun by release archive checksum and `dependency-audit.yml` names the version; move them in this branch before merging.',
+      ],
+    },
+    {
+      description: 'A vendored crate moves by carrying its patches onto the new upstream source',
+      matchFileNames: ['packages/*-patch/Cargo.toml'],
+      dependencyDashboardApproval: true,
+      prBodyNotes: [
+        'This crate is vendored with local patches (`.claude/rules/vendored-crates.md`). The version alone is not the upgrade, and the workspace lock still names the old one, so `--locked` builds fail here until the patches are carried onto the new upstream source and the lock follows.',
+      ],
+    },
+    {
+      description: 'Kani moves with its nightly toolchain and cache paths',
+      matchDepNames: ['kani-verifier'],
+      dependencyDashboardApproval: true,
+      prBodyNotes: [
+        '`assurance.yml` caches Kani by version and nightly date; move both in this branch before merging.',
+      ],
+    },
+    {
+      description: 'The scanner is installed by archive checksum',
+      matchFileNames: ['scripts/trufflehog.json'],
+      dependencyDashboardApproval: true,
+      prBodyNotes: [
+        '`scripts/trufflehog.json` pins a checksum per platform; replace all four in this branch before merging.',
+      ],
+    },
+  ],
+}
