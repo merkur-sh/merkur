@@ -48,9 +48,9 @@ merkur-client = { path = "../merkur-client", default-features = false, features 
 # the root target rustflags and obtains entropy from crypto.getRandomValues.
 getrandom = { version = "0.3", features = ["wasm_js"] }
 # Exact: minicov carries a compiler-rt profile runtime for one raw profile
-# format. 0.3.8 is raw version 10, which rustc 1.97.1's LLVM 22 writes; 0.3.9
-# is version 11 and aborts in its version check. Move it with the toolchain.
-minicov = { version = "=0.3.8", default-features = false, features = ["alloc"], optional = true }
+# format. 0.3.9 is raw version 11, which rustc 1.99.0's LLVM 23 writes; 0.3.8
+# is version 10 and traps on that profile. Move it with the toolchain.
+minicov = { version = "=0.3.9", default-features = false, features = ["alloc"], optional = true }
 
 [package.metadata.cargo-shear]
 ignored = ["getrandom"]

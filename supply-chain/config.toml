@@ -843,7 +843,7 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.minicov]]
-version = "0.3.8"
+version = "0.3.9"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 

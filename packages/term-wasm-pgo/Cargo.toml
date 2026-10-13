@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 term-wasm = { path = "../term-wasm", features = ["pgo-train"] }
 # Must carry the raw profile format rustc's LLVM writes; see term-wasm's pin.
-minicov = { version = "=0.3.8", default-features = false, features = ["alloc"] }
+minicov = { version = "=0.3.9", default-features = false, features = ["alloc"] }
 
 [lints]
 workspace = true
