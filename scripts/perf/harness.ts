@@ -692,7 +692,8 @@ export async function runProfileCommand(options: CommandOptions): Promise<Profil
     cpuSystemMs: resourceNumber(usage?.cpuTime.system) / 1_000,
     maxRssBytes: resourceNumber(usage?.maxRSS),
     exitCode,
-    signalCode: subprocess.signalCode,
+    // Bun types the signal as its name or its number.
+    signalCode: subprocess.signalCode === null ? null : String(subprocess.signalCode),
     timedOut,
     stdout,
     stderr,

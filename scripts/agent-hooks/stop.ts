@@ -138,7 +138,9 @@ async function runGate(root: string, script: string, timeout: number): Promise<R
     timeout,
   });
   const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
-  return { exitCode, signalCode: child.signalCode ?? null, stdout };
+  // Bun types the signal as its name or its number.
+  const signalCode = child.signalCode === null ? null : String(child.signalCode);
+  return { exitCode, signalCode, stdout };
 }
 
 function runDocDrift(root: string): string {
