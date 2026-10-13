@@ -24,17 +24,17 @@ FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/debian:bookworm-sli
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && case "$(dpkg --print-architecture)" in \
-    amd64) build=x64-baseline; digest=c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f ;; \
-    arm64) build=aarch64; digest=54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7 ;; \
+    amd64) build=x64-baseline; digest=1fc2edac843102909e3a1be1d8d9802cc6071cf074e67e88231f4ffe0f8b397b ;; \
+    arm64) build=aarch64; digest=efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21 ;; \
     *) echo "unsupported Bun architecture" >&2; exit 1 ;; \
   esac \
-  && curl --fail --silent --show-error --location "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-$build.zip" -o /tmp/bun.zip \
+  && curl --fail --silent --show-error --location "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-$build.zip" -o /tmp/bun.zip \
   && printf '%s  /tmp/bun.zip\n' "$digest" | sha256sum --check \
   && unzip -p /tmp/bun.zip "bun-linux-$build/bun" > /usr/local/bin/bun \
   && chmod 0755 /usr/local/bin/bun \
   && ln -s bun /usr/local/bin/bunx \
   && ln -s bun /usr/local/bin/node \
-  && test "$(bun --version)" = 1.4.2 \
+  && test "$(bun --version)" = 1.4.3 \
   && rm -rf /tmp/bun.zip /var/lib/apt/lists/*
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin
 
