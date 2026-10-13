@@ -55,7 +55,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
 # The profile-guided term-wasm build instruments libzstd's C with clang and
 # links it against the Rust-side profile runtime, so clang must be the LLVM the
-# pinned Rust uses (22). Bookworm's clang 14 emits registration calls that
+# pinned Rust uses (23). Bookworm's clang 14 emits registration calls that
 # runtime does not define. apt.llvm.org is admitted only under its pinned key.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -69,14 +69,14 @@ RUN apt-get update \
   && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm.key \
   && gpg --show-keys --with-colons /tmp/llvm.key | grep -qx 'fpr:::::::::6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:' \
   && gpg --dearmor -o /usr/share/keyrings/llvm.gpg /tmp/llvm.key \
-  && echo 'deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-22 main' \
-    > /etc/apt/sources.list.d/llvm-22.list \
+  && echo 'deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-23 main' \
+    > /etc/apt/sources.list.d/llvm-23.list \
   && apt-get update \
-  && apt-get install -y --no-install-recommends clang-22 lld-22 llvm-22 \
+  && apt-get install -y --no-install-recommends clang-23 lld-23 llvm-23 \
   && rustup target add wasm32-unknown-unknown \
   && cargo install wasm-pack --version 0.15.0 --locked \
   && rm -rf /var/lib/apt/lists/* /tmp/llvm.key
-ENV PATH="/usr/lib/llvm-22/bin:${PATH}"
+ENV PATH="/usr/lib/llvm-23/bin:${PATH}"
 
 # `scripts/wasm-toolchain.ts` installs the wasm-bindgen CLI matching Cargo.lock
 # the first time a crate is built. Compiling that CLI from source costs ~170s,

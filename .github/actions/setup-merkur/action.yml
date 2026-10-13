@@ -63,16 +63,16 @@ runs:
     - if: runner.os == 'Linux' && inputs.wasm-toolchain == 'true'
       shell: bash
       # The profile-guided term-wasm build needs the clang of the pinned Rust's
-      # LLVM (22); Ubuntu's own is older. apt.llvm.org only under its pinned key.
+      # LLVM (23); Ubuntu's own is older. apt.llvm.org only under its pinned key.
       run: |
         curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o "$RUNNER_TEMP/llvm.key"
         gpg --show-keys --with-colons "$RUNNER_TEMP/llvm.key" | grep -qx 'fpr:::::::::6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:'
         sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg "$RUNNER_TEMP/llvm.key"
         codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
-        echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-22 main" | sudo tee /etc/apt/sources.list.d/llvm-22.list
+        echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-23 main" | sudo tee /etc/apt/sources.list.d/llvm-23.list
         sudo apt-get update
-        sudo apt-get install -y clang-22 lld-22 llvm-22
-        echo /usr/lib/llvm-22/bin >> "$GITHUB_PATH"
+        sudo apt-get install -y clang-23 lld-23 llvm-23
+        echo /usr/lib/llvm-23/bin >> "$GITHUB_PATH"
     - shell: bash
       run: bun install --frozen-lockfile
     - if: inputs.browser == 'true'
