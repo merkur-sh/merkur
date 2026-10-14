@@ -288,6 +288,13 @@ impl<'a> SendStream<'a> {
                 stream.connection_blocked = true;
                 self.state.connection_blocked.push(self.id);
             }
+            // Only report blocking on the peer's limit, not on our own send window
+            if self.state.data_sent == self.state.max_data
+                && self.state.data_blocked_limit != Some(self.state.max_data)
+            {
+                self.state.data_blocked_limit = Some(self.state.max_data);
+                self.pending.data_blocked = true;
+            }
             return Err(WriteError::Blocked);
         }
 
@@ -303,11 +310,21 @@ impl<'a> SendStream<'a> {
         let limit = if image { limit.min(image_limit) } else { limit };
 
         let was_pending = stream.is_pending();
-        let written = stream.write(source, limit)?;
+        let written = match stream.write(source, limit) {
+            Ok(written) => written,
+            Err(WriteError::Blocked) => {
+                if stream.data_blocked_limit != Some(stream.max_data) {
+                    stream.data_blocked_limit = Some(stream.max_data);
+                    self.pending.stream_data_blocked.insert(self.id);
+                }
+                return Err(WriteError::Blocked);
+            }
+            Err(e) => return Err(e),
+        };
         self.state.data_sent += written.bytes as u64;
-        self.state.unacked_data += written.bytes as u64;
+        self.state.buffered_data += written.bytes as u64;
         if image {
-            self.state.unacked_images += written.bytes as u64;
+            self.state.buffered_images += written.bytes as u64;
         }
         trace!(stream = %self.id, "wrote {} bytes", written.bytes);
         if !was_pending {
@@ -369,10 +386,10 @@ impl<'a> SendStream<'a> {
         // Restore the portion of the send window consumed by the data that we aren't about to
         // send. We leave flow control alone because the peer's responsible for issuing additional
         // credit based on the final offset communicated in the RESET_STREAM frame we send.
-        let unacked = stream.pending.unacked();
-        self.state.unacked_data -= unacked;
+        let buffered = stream.pending.buffered();
+        self.state.buffered_data -= buffered;
         if stream.priority == EGRESS_IMAGE_PRIORITY {
-            self.state.unacked_images -= unacked;
+            self.state.buffered_images -= buffered;
         }
         stream.reset();
         self.pending.reset_stream.push((self.id, error_code));
@@ -394,16 +411,16 @@ impl<'a> SendStream<'a> {
             .map(get_or_insert_send(max_send_data))
             .ok_or(ClosedStream { _private: () })?;
 
-        // Unacknowledged bytes move with the stream between the image send
-        // window and the rest, so each is released exactly once.
+        // Retained bytes move with the stream between the image send window
+        // and the rest, so each is released exactly once.
         let was_image = stream.priority == EGRESS_IMAGE_PRIORITY;
         let image = priority == EGRESS_IMAGE_PRIORITY;
         if was_image != image && !stream.is_reset() {
-            let unacked = stream.pending.unacked();
+            let buffered = stream.pending.buffered();
             if image {
-                self.state.unacked_images += unacked;
+                self.state.buffered_images += buffered;
             } else {
-                self.state.unacked_images -= unacked;
+                self.state.buffered_images -= buffered;
             }
         }
         stream.priority = priority;

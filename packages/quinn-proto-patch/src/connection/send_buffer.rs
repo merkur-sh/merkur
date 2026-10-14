@@ -16,6 +16,8 @@ pub(super) struct SendBuffer {
     unacked_segments: VecDeque<Bytes>,
     /// Total size of `unacked_segments`
     unacked_len: usize,
+    /// Acknowledged bytes removed from the first segment's view but still held by its allocation
+    front_trimmed: usize,
     /// The first offset that hasn't been written by the application, i.e. the offset past the end of `unacked`
     offset: u64,
     /// The first offset that hasn't been sent
@@ -77,6 +79,7 @@ impl SendBuffer {
                 // A fully acknowledged burst needs no per-segment length walk.
                 // Clear drops payload owners while retaining the queue storage.
                 self.unacked_segments.clear();
+                self.front_trimmed = 0;
                 continue;
             }
             while to_advance > 0 {
@@ -88,8 +91,10 @@ impl SendBuffer {
                 if front.len() <= to_advance {
                     to_advance -= front.len();
                     self.unacked_segments.pop_front();
+                    self.front_trimmed = 0;
                 } else {
                     front.advance(to_advance);
+                    self.front_trimmed += to_advance;
                     to_advance = 0;
                 }
             }
@@ -186,6 +191,15 @@ impl SendBuffer {
         &[]
     }
 
+    /// Release abandoned data while preserving the final offset for RESET_STREAM
+    pub(super) fn discard(&mut self) {
+        *self = Self {
+            offset: self.offset,
+            unsent: self.offset,
+            ..Self::default()
+        };
+    }
+
     /// Queue a range of sent data to be retransmitted, less what is already acknowledged
     ///
     /// A packet declared lost can be delivered after all and acknowledged while its
@@ -240,9 +254,9 @@ impl SendBuffer {
                 .sum::<u64>()
     }
 
-    /// Compute the amount of data that hasn't been acknowledged
-    pub(super) fn unacked(&self) -> u64 {
-        self.unacked_len as u64 - self.acks.iter().map(|x| x.end - x.start).sum::<u64>()
+    /// Bytes still retained from application writes, including acknowledged data
+    pub(super) fn buffered(&self) -> u64 {
+        (self.unacked_len + self.front_trimmed) as u64
     }
 }
 

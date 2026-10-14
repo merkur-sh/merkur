@@ -129,7 +129,7 @@ features = ["runtime-tokio"]
 default-features = false
 
 [dependencies.quinn-proto]
-version = "0.11.17"
+version = "0.11.18"
 path = "../quinn-proto-patch"
 default-features = false
 

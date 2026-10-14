@@ -13,6 +13,10 @@ pub(super) struct Send {
     pub(super) fin_pending: bool,
     /// Whether this stream is in the `connection_blocked` list of `Streams`
     pub(super) connection_blocked: bool,
+    /// Value of `max_data` for which a `STREAM_DATA_BLOCKED` frame was most recently queued
+    ///
+    /// A new frame is only queued once the peer has raised the limit.
+    pub(super) data_blocked_limit: Option<u64>,
     /// The reason the peer wants us to stop, if `STOP_SENDING` was received
     pub(super) stop_reason: Option<VarInt>,
     /// Whether the application waits for this stream's unsent data to be packetized
@@ -28,6 +32,7 @@ impl Send {
             priority: 0,
             fin_pending: false,
             connection_blocked: false,
+            data_blocked_limit: None,
             stop_reason: None,
             drain_wanted: false,
         })
@@ -91,6 +96,8 @@ impl Send {
         use SendState::*;
         if let DataSent { .. } | Ready = self.state {
             self.state = ResetSent;
+            self.pending.discard();
+            self.fin_pending = false;
         }
     }
 
@@ -108,10 +115,8 @@ impl Send {
     }
 
     /// Returns whether the stream has been finished and all data has been acknowledged by the peer
-    /// Returns the bytes this acknowledged for the first time, and whether
-    /// the stream is now finished
-    pub(super) fn ack(&mut self, frame: frame::StreamMeta) -> (u64, bool) {
-        let newly_acked = self.pending.ack(frame.offsets);
+    pub(super) fn ack(&mut self, frame: frame::StreamMeta) -> bool {
+        self.pending.ack(frame.offsets);
         let finished = match self.state {
             SendState::DataSent {
                 ref mut finish_acked,
@@ -121,7 +126,7 @@ impl Send {
             }
             _ => false,
         };
-        (newly_acked, finished)
+        finished
     }
 
     /// Handle increase to stream-level flow control limit
