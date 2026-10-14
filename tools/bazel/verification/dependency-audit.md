@@ -2,7 +2,7 @@
 
 `dependency_audit_capture` is a run executable for fresh external acquisition. It copies
 the declared Bun lockfile, package manifests and Cargo lockfile into a private workspace,
-uses a fresh empty home, and runs the original pinned Bun 1.4.2 audit followed by
+uses a fresh empty home, and runs the original pinned Bun 1.4.3 audit followed by
 cargo-audit 0.22.2 with `--deny yanked` for every declared Cargo lockfile. Cargo does not run
 when the Bun audit fails; a Cargo failure short-circuits the remaining lockfile contexts.
 No package installation, Cargo dependency resolution, ambient executable or user

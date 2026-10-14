@@ -59,8 +59,8 @@
           "version": "1.62.1"
         },
         "bun-types": {
-          "specifier": "1.4.2",
-          "version": "1.4.2"
+          "specifier": "1.4.3",
+          "version": "1.4.3"
         },
         "fallow": {
           "specifier": "^3.17.0",
@@ -3052,9 +3052,9 @@
       },
       "hasBin": true
     },
-    "bun-types@1.4.2": {
+    "bun-types@1.4.3": {
       "resolution": {
-        "integrity": "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="
+        "integrity": "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="
       }
     },
     "cac@7.0.0": {
@@ -5971,9 +5971,10 @@
         "update-browserslist-db": "1.2.3(browserslist@4.28.7)"
       }
     },
-    "bun-types@1.4.2": {
+    "bun-types@1.4.3": {
       "dependencies": {
-        "@types/node": "25.6.0"
+        "@types/node": "25.6.0",
+        "undici-types": "7.19.2"
       }
     },
     "cac@7.0.0": {},

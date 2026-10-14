@@ -14,8 +14,8 @@ interface ModuleInputs {
   readonly sourceSha256: string;
 }
 
-if (Bun.version !== '1.4.2')
-  throw new Error('Import inventory requires the pinned Bun 1.4.2 runtime');
+if (Bun.version !== '1.4.3')
+  throw new Error('Import inventory requires the pinned Bun 1.4.3 runtime');
 const root = realpathSync(path.resolve(import.meta.dir, '../../..'));
 const parsed = new Map<string, ModuleInputs>();
 const runtimeContracts = JSON.parse(

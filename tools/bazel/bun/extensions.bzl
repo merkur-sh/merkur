@@ -2,12 +2,12 @@
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-BUN_VERSION = "1.4.2"
+BUN_VERSION = "1.4.3"
 _BUN = {
-    "darwin_aarch64": ("darwin-aarch64", "90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f"),
-    "darwin_x64": ("darwin-x64", "80520d7e17526308c9185d261679ac6d27798d3803a0e9f7ff9121ab8affb012"),
-    "linux_aarch64": ("linux-aarch64", "54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7"),
-    "linux_x64": ("linux-x64", "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913"),
+    "darwin_aarch64": ("darwin-aarch64", "80afd4c069b46a6fa8f3ec520bebc750a7843e4a8d5b9583d29ad436c00a3403"),
+    "darwin_x64": ("darwin-x64", "62660e6438eb872278877acca77e1152d5d031324df368d4a81b428211489d2d"),
+    "linux_aarch64": ("linux-aarch64", "efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21"),
+    "linux_x64": ("linux-x64", "3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18"),
 }
 
 def _bun_impl(module_ctx):

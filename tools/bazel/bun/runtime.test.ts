@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { greenTestFiles } from '../../../scripts/verification-junit';
 
 test('uses the pinned Bun runtime', () => {
-  expect(Bun.version).toBe('1.4.2');
+  expect(Bun.version).toBe('1.4.3');
 });
 
 test('resolves an ESM dependency from the declared root closure', async () => {
@@ -25,7 +25,7 @@ test('starts a worker from declared runfiles', async () => {
       worker.onerror = reject;
     });
     worker.postMessage(17);
-    expect(await received).toEqual({ version: '1.4.2', doubled: 34 });
+    expect(await received).toEqual({ version: '1.4.3', doubled: 34 });
   } finally {
     worker.terminate();
   }

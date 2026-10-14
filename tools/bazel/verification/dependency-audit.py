@@ -14,7 +14,7 @@ import tomllib
 
 COMMANDS = {"bun": ["--no-env-file", "--config=empty-bunfig.toml", "audit", "--json"],
             "cargo_audit": ["audit", "--deny", "yanked", "--color", "never", "--format", "terminal", "--file", "Cargo.lock"]}
-VERSIONS = {"bun": "1.4.2", "cargo_audit": "cargo-audit 0.22.2"}
+VERSIONS = {"bun": "1.4.3", "cargo_audit": "cargo-audit 0.22.2"}
 YANKED_ERRORS = ("couldn't update crates.io index:", "couldn't open crates.io index:",
                  "couldn't check if the package is yanked:")
 

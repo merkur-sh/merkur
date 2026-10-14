@@ -2512,13 +2512,14 @@
     "lifecycleScripts": {},
     "tarball": "https://registry.npmjs.org/browserslist/-/browserslist-4.28.7.tgz"
   },
-  "bun-types@1.4.2": {
+  "bun-types@1.4.3": {
     "dependencies": {
-      "@types/node": "*"
+      "@types/node": "*",
+      "undici-types": "*"
     },
-    "integrity": "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w==",
+    "integrity": "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg==",
     "lifecycleScripts": {},
-    "tarball": "https://registry.npmjs.org/bun-types/-/bun-types-1.4.2.tgz"
+    "tarball": "https://registry.npmjs.org/bun-types/-/bun-types-1.4.3.tgz"
   },
   "cac@7.0.0": {
     "engines": {
