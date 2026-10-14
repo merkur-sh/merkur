@@ -121,16 +121,16 @@ pub struct StreamsState {
     pub(super) data_sent: u64,
     /// Sum of end offsets of all receive streams. Includes gaps, so it's an upper bound.
     data_recvd: u64,
-    /// Total quantity of unacknowledged outgoing data
-    pub(super) unacked_data: u64,
-    /// Configured upper bound for `unacked_data`.
+    /// Total quantity of outgoing data retained in send buffers, including acknowledged data
+    pub(super) buffered_data: u64,
+    /// Configured upper bound for `buffered_data`.
     ///
-    /// Note this may be less than `unacked_data` if the user has set a new value.
+    /// Note this may be less than `buffered_data` if the user has set a new value.
     pub(super) send_window: u64,
-    /// The part of `unacked_data` written to image-priority streams
+    /// The part of `buffered_data` retained by image-priority streams
     /// (`EGRESS_IMAGE_PRIORITY`).
-    pub(super) unacked_images: u64,
-    /// Upper bound for `unacked_images`. No other stream's writes answer to
+    pub(super) buffered_images: u64,
+    /// Upper bound for `buffered_images`. No other stream's writes answer to
     /// it, so image bytes already written never hold back a durable lane.
     pub(super) image_send_window: u64,
     /// Image streams whose last write found no image send window
@@ -145,6 +145,10 @@ pub struct StreamsState {
 
     /// The shrink to be applied to local_max_data when receive_window is shrunk
     receive_window_shrink_debt: u64,
+    /// Value of `max_data` for which a `DATA_BLOCKED` frame was most recently queued
+    ///
+    /// A new frame is only queued once the peer has raised the limit.
+    pub(super) data_blocked_limit: Option<u64>,
 }
 
 impl StreamsState {
@@ -182,9 +186,9 @@ impl StreamsState {
             sent_max_data: receive_window,
             data_sent: 0,
             data_recvd: 0,
-            unacked_data: 0,
+            buffered_data: 0,
             send_window,
-            unacked_images: 0,
+            buffered_images: 0,
             image_send_window: u64::MAX,
             images_blocked: Vec::new(),
             stream_receive_window: stream_receive_window.into(),
@@ -192,6 +196,7 @@ impl StreamsState {
             initial_max_stream_data_bidi_local: 0u32.into(),
             initial_max_stream_data_bidi_remote: 0u32.into(),
             receive_window_shrink_debt: 0,
+            data_blocked_limit: None,
         };
 
         for dir in Dir::iter() {
@@ -255,8 +260,10 @@ impl StreamsState {
         self.pending.clear();
         self.send_streams = 0;
         self.data_sent = 0;
+        self.buffered_data = 0;
         self.connection_blocked.clear();
         self.images_blocked.clear();
+        self.data_blocked_limit = None;
     }
 
     /// Process incoming stream frame
@@ -360,10 +367,14 @@ impl StreamsState {
             // Redundant reset
             return Ok(ShouldTransmit(false));
         }
-        let bytes_read = rs.assembler.bytes_read();
-        let owed = rs.credit_owed_through(final_offset.into_inner());
         let stopped = rs.stopped;
         let end = rs.end;
+        // Stopped streams have already returned read credits up to their highest offset.
+        let owed = if stopped {
+            u64::from(final_offset) - end
+        } else {
+            rs.credit_owed_through(final_offset.into_inner())
+        };
         if stopped {
             // Stopped streams should be disposed immediately on reset
             let rs = self.recv.remove(&id).flatten().unwrap();
@@ -372,8 +383,8 @@ impl StreamsState {
         self.on_stream_frame(!stopped, id);
 
         // Update connection-level flow control
-        Ok(if bytes_read != final_offset.into_inner() {
-            // bytes_read is always <= end, so this won't underflow.
+        Ok(if owed != 0 {
+            // end is always <= final_offset, so this won't underflow.
             self.data_recvd = self
                 .data_recvd
                 .saturating_add(u64::from(final_offset) - end);
@@ -454,6 +465,22 @@ impl StreamsState {
             .and_then(|s| s.as_ref())
             .and_then(|s| s.as_open_recv())
             .is_some_and(|s| s.can_send_flow_control())
+    }
+
+    /// Whether a `DATA_BLOCKED` frame could be sent
+    pub(crate) fn can_send_data_blocked(&self) -> bool {
+        self.data_blocked_limit == Some(self.max_data)
+    }
+
+    /// Limit to send in a `STREAM_DATA_BLOCKED` frame for stream `id`, if one could be sent
+    ///
+    /// `None` if the stream is no longer writable, was stopped by the peer, or the peer has raised
+    /// the limit since the frame was queued.
+    pub(crate) fn stream_data_blocked_limit(&self, id: StreamId) -> Option<u64> {
+        let stream = self.send.get(&id)?.as_ref()?;
+        stream.data_blocked_limit.filter(|&limit| {
+            stream.is_writable() && stream.stop_reason.is_none() && limit == stream.max_data
+        })
     }
 
     pub(in crate::connection) fn write_control_frames(
@@ -584,6 +611,37 @@ impl StreamsState {
                 Dir::Uni => stats.max_streams_uni += 1,
                 Dir::Bi => stats.max_streams_bidi += 1,
             }
+        }
+
+        // DATA_BLOCKED
+        if pending.data_blocked && buf.len() + 9 < max_size {
+            pending.data_blocked = false;
+            // The peer may have raised the limit since the frame was queued
+            if self.can_send_data_blocked() {
+                retransmits.get_or_create().data_blocked = true;
+                trace!(limit = self.max_data, "DATA_BLOCKED");
+                buf.write(frame::FrameType::DATA_BLOCKED);
+                buf.write_var(self.max_data);
+                stats.data_blocked += 1;
+            }
+        }
+
+        // STREAM_DATA_BLOCKED
+        while buf.len() + 17 < max_size {
+            let Some(&id) = pending.stream_data_blocked.iter().next() else {
+                break;
+            };
+            pending.stream_data_blocked.remove(&id);
+            let Some(limit) = self.stream_data_blocked_limit(id) else {
+                continue;
+            };
+            retransmits.get_or_create().stream_data_blocked.insert(id);
+
+            trace!(stream = %id, limit, "STREAM_DATA_BLOCKED");
+            buf.write(frame::FrameType::STREAM_DATA_BLOCKED);
+            buf.write(id);
+            buf.write_var(limit);
+            stats.stream_data_blocked += 1;
         }
     }
 
@@ -730,10 +788,12 @@ impl StreamsState {
             return;
         }
         let id = frame.id;
-        let (acked, finished) = stream.ack(frame);
-        self.unacked_data -= acked;
+        let buffered = stream.pending.buffered();
+        let finished = stream.ack(frame);
+        let released = buffered - stream.pending.buffered();
+        self.buffered_data -= released;
         if stream.priority == EGRESS_IMAGE_PRIORITY {
-            self.unacked_images -= acked;
+            self.buffered_images -= released;
         }
         // An acknowledgment can empty the retransmission queue before it
         // is packetized: a declared loss that arrived after all.
@@ -757,6 +817,9 @@ impl StreamsState {
             None => return,
             Some(x) => x,
         };
+        if stream.is_reset() {
+            return;
+        }
         if !stream.is_pending() {
             self.pending.push_pending(frame.id, stream.priority);
         }
@@ -854,8 +917,8 @@ impl StreamsState {
     /// Returns the maximum amount of data this is allowed to be written on the connection
     pub(crate) fn write_limit(&self) -> u64 {
         (self.max_data - self.data_sent)
-            // `send_window` can be set after construction to something *less* than `unacked_data`
-            .min(self.send_window.saturating_sub(self.unacked_data))
+            // `send_window` can be set after construction to something *less* than `buffered_data`
+            .min(self.send_window.saturating_sub(self.buffered_data))
     }
 
     /// Yield stream events
@@ -962,7 +1025,7 @@ impl StreamsState {
         self.send_window = send_window;
     }
 
-    /// Bound unacknowledged image-priority bytes without touching any other
+    /// Bound retained image-priority bytes without touching any other
     /// stream's send credit.
     pub(crate) fn set_image_send_window(&mut self, window: u64) {
         self.image_send_window = window;
@@ -970,7 +1033,7 @@ impl StreamsState {
 
     /// The image-priority bytes the image send window still admits.
     pub(crate) fn image_write_limit(&self) -> u64 {
-        self.image_send_window.saturating_sub(self.unacked_images)
+        self.image_send_window.saturating_sub(self.buffered_images)
     }
 
     /// Set the receive_window and returns whether the receive_window has been
@@ -1109,6 +1172,140 @@ mod tests {
             (1024 * 1024u32).into(),
             (1024 * 1024u32).into(),
         )
+    }
+
+    #[test]
+    fn send_window_retains_selectively_acked_data() {
+        let mut server = make(Side::Server);
+        server.send_window = 24;
+        server.set_params(&TransportParameters {
+            initial_max_streams_uni: 1u32.into(),
+            initial_max_data: 1000u32.into(),
+            initial_max_stream_data_uni: 1000u32.into(),
+            ..TransportParameters::default()
+        });
+        let (mut pending, state) = (Retransmits::default(), ConnState::Established);
+        let id = Streams {
+            state: &mut server,
+            conn_state: &state,
+        }
+        .open(Dir::Uni)
+        .unwrap();
+        SendStream {
+            id,
+            state: &mut server,
+            pending: &mut pending,
+            conn_state: &state,
+        }
+        .write(&[42; 24])
+        .unwrap();
+        let send = server.send.get_mut(&id).unwrap().as_mut().unwrap();
+        assert_eq!(send.pending.poll_transmit(16).0, 0..16);
+        assert_eq!(send.pending.poll_transmit(16).0, 16..23);
+        assert_eq!(send.pending.poll_transmit(16).0, 23..24);
+
+        server.received_ack_of(frame::StreamMeta {
+            id,
+            offsets: 16..23,
+            fin: false,
+        });
+        assert_eq!(
+            server.write_limit(),
+            0,
+            "acknowledged suffix still occupies storage"
+        );
+        server.received_ack_of(frame::StreamMeta {
+            id,
+            offsets: 0..16,
+            fin: false,
+        });
+        assert_eq!(
+            server.write_limit(),
+            0,
+            "partial prefix keeps the original Bytes allocation"
+        );
+        server.received_ack_of(frame::StreamMeta {
+            id,
+            offsets: 23..24,
+            fin: false,
+        });
+        assert_eq!(server.write_limit(), 24);
+        SendStream {
+            id,
+            state: &mut server,
+            pending: &mut pending,
+            conn_state: &state,
+        }
+        .write(&[7; 24])
+        .unwrap();
+        assert_eq!(server.write_limit(), 0);
+    }
+
+    #[test]
+    fn reset_releases_retained_send_storage() {
+        let mut server = make(Side::Server);
+        server.send_window = 24;
+        server.set_params(&TransportParameters {
+            initial_max_streams_uni: 1u32.into(),
+            initial_max_data: 1000u32.into(),
+            initial_max_stream_data_uni: 1000u32.into(),
+            ..TransportParameters::default()
+        });
+        let (mut pending, state) = (Retransmits::default(), ConnState::Established);
+        let id = Streams {
+            state: &mut server,
+            conn_state: &state,
+        }
+        .open(Dir::Uni)
+        .unwrap();
+        SendStream {
+            id,
+            state: &mut server,
+            pending: &mut pending,
+            conn_state: &state,
+        }
+        .write(&[42; 24])
+        .unwrap();
+        let send = server.send.get_mut(&id).unwrap().as_mut().unwrap();
+        send.pending.poll_transmit(16);
+        send.pending.poll_transmit(16);
+        server.received_ack_of(frame::StreamMeta {
+            id,
+            offsets: 16..23,
+            fin: false,
+        });
+        SendStream {
+            id,
+            state: &mut server,
+            pending: &mut pending,
+            conn_state: &state,
+        }
+        .reset(0u32.into())
+        .unwrap();
+
+        let send = server.send.get_mut(&id).unwrap().as_mut().unwrap();
+        assert!(
+            send.pending.is_fully_acked(),
+            "reset must release the abandoned allocation"
+        );
+        assert_eq!(
+            send.offset(),
+            24,
+            "RESET_STREAM must retain its final offset"
+        );
+        assert_eq!(server.write_limit(), 24);
+        server.retransmit(frame::StreamMeta {
+            id,
+            offsets: 0..16,
+            fin: false,
+        });
+        server.received_ack_of(frame::StreamMeta {
+            id,
+            offsets: 0..16,
+            fin: false,
+        });
+        assert!(!server.send[&id].as_ref().unwrap().is_pending());
+        assert_eq!(server.write_limit(), 24);
     }
 
     #[test]
@@ -1343,49 +1540,58 @@ mod tests {
 
     #[test]
     fn stopped_reset() {
-        let mut client = make(Side::Client);
-        let id = StreamId::new(Side::Server, Dir::Uni, 0);
-        // Server opens stream
-        assert_eq!(
-            client
-                .received(
-                    frame::Stream {
+        for final_offset in [32u32, 48] {
+            let mut client = make(Side::Client);
+            let initial_max_data = client.local_max_data;
+            let id = StreamId::new(Side::Server, Dir::Uni, 0);
+            // Server opens stream
+            assert_eq!(
+                client
+                    .received(
+                        frame::Stream {
+                            id,
+                            offset: 0,
+                            fin: false,
+                            data: Bytes::from_static(&[0; 32])
+                        },
+                        32
+                    )
+                    .unwrap(),
+                ShouldTransmit(false)
+            );
+
+            let mut pending = Retransmits::default();
+            let mut recv = RecvStream {
+                id,
+                state: &mut client,
+                pending: &mut pending,
+            };
+
+            recv.stop(0u32.into()).unwrap();
+            assert_eq!(pending.stop_sending.len(), 1);
+            assert!(!pending.max_data);
+            assert_eq!(client.local_max_data, initial_max_data + 32);
+
+            // Server complies
+            let prev_max = client.max_remote[Dir::Uni as usize];
+            assert_eq!(
+                client
+                    .received_reset(frame::ResetStream {
                         id,
-                        offset: 0,
-                        fin: false,
-                        data: Bytes::from_static(&[0; 32])
-                    },
-                    32
-                )
-                .unwrap(),
-            ShouldTransmit(false)
-        );
-
-        let mut pending = Retransmits::default();
-        let mut recv = RecvStream {
-            id,
-            state: &mut client,
-            pending: &mut pending,
-        };
-
-        recv.stop(0u32.into()).unwrap();
-        assert_eq!(pending.stop_sending.len(), 1);
-        assert!(!pending.max_data);
-
-        // Server complies
-        let prev_max = client.max_remote[Dir::Uni as usize];
-        assert_eq!(
-            client
-                .received_reset(frame::ResetStream {
-                    id,
-                    error_code: 0u32.into(),
-                    final_offset: 32u32.into(),
-                })
-                .unwrap(),
-            ShouldTransmit(false)
-        );
-        assert!(!client.recv.contains_key(&id), "stream state is freed");
-        assert_eq!(client.max_remote[Dir::Uni as usize], prev_max + 1);
+                        error_code: 0u32.into(),
+                        final_offset: final_offset.into(),
+                    })
+                    .unwrap(),
+                ShouldTransmit(false)
+            );
+            assert!(!client.recv.contains_key(&id), "stream state is freed");
+            assert_eq!(client.max_remote[Dir::Uni as usize], prev_max + 1);
+            assert_eq!(client.data_recvd, u64::from(final_offset));
+            assert_eq!(
+                client.local_max_data,
+                initial_max_data + u64::from(final_offset)
+            );
+        }
     }
 
     #[test]
@@ -2365,25 +2571,33 @@ mod tests {
         assert_eq!(send!(image).write(&[1; 200]), Err(WriteError::Blocked));
         // Image bytes already written hold back no other stream.
         assert_eq!(send!(durable).write(&[2; 200]), Ok(200));
-        assert_eq!(server.unacked_images, 100);
+        assert_eq!(server.buffered_images, 100);
         assert_eq!(server.poll(), None);
 
+        // A partly acknowledged write still holds its whole allocation.
         server.received_ack_of(frame::StreamMeta {
             id: image,
             offsets: 0..60,
             fin: false,
         });
+        assert_eq!(server.buffered_images, 100);
+        assert_eq!(server.poll(), None);
+        server.received_ack_of(frame::StreamMeta {
+            id: image,
+            offsets: 60..100,
+            fin: false,
+        });
         assert_eq!(server.poll(), Some(StreamEvent::Writable { id: image }));
-        assert_eq!(send!(image).write(&[1; 200]), Ok(60));
+        assert_eq!(send!(image).write(&[1; 200]), Ok(100));
         // A stream moving into or out of the image class takes its
-        // unacknowledged bytes with it; a reset releases the image stream's.
+        // retained bytes with it; a reset releases the image stream's.
         send!(later).write(&[3; 10]).unwrap();
         send!(later).set_priority(EGRESS_IMAGE_PRIORITY).unwrap();
-        assert_eq!(server.unacked_images, 110);
+        assert_eq!(server.buffered_images, 110);
         send!(later).set_priority(0).unwrap();
         send!(image).reset(0u32.into()).unwrap();
-        assert_eq!(server.unacked_images, 0);
-        assert_eq!(server.unacked_data, 210);
+        assert_eq!(server.buffered_images, 0);
+        assert_eq!(server.buffered_data, 210);
     }
 
     #[test]
@@ -2422,7 +2636,7 @@ mod tests {
         send!(leaving).set_priority(0).unwrap();
         assert_eq!(server.poll(), Some(StreamEvent::Writable { id: leaving }));
         assert_eq!(send!(leaving).write(&[2; 10]), Ok(10));
-        assert_eq!(server.unacked_images, 100);
+        assert_eq!(server.buffered_images, 100);
     }
 
     #[test]

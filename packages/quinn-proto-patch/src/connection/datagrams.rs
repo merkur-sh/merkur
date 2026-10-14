@@ -4,7 +4,7 @@ use bytes::Bytes;
 use thiserror::Error;
 use tracing::{debug, trace};
 
-use super::Connection;
+use super::{Connection, Event};
 use crate::datagram_observer::{self, DatagramObservationKind};
 use crate::{
     frame::{Datagram, FrameStruct},
@@ -94,6 +94,21 @@ impl Datagrams<'_> {
             .outgoing
             .push_back(Datagram { data, prefix });
         Ok(())
+    }
+
+    /// Discard queued datagrams that no longer fit the active path, waking blocked senders.
+    pub(super) fn drop_oversized(&mut self) {
+        let Some(max_datagram_size) = self.max_size() else {
+            return;
+        };
+        if !self.conn.datagrams.drop_oversized(max_datagram_size)
+            || !self.conn.datagrams.send_blocked
+        {
+            return;
+        }
+
+        self.conn.datagrams.send_blocked = false;
+        self.conn.events.push_back(Event::DatagramsUnblocked);
     }
 
     /// Compute the maximum size of datagrams that may passed to `send_datagram`
@@ -251,9 +266,12 @@ impl DatagramState {
 
     /// Discard outgoing datagrams with a payload larger than `max_payload` bytes
     ///
+    /// Returns whether any datagrams were dropped.
+    ///
     /// Used to ensure that reductions in MTU don't get us stuck in a state where we have a datagram
     /// queued but can't send it.
-    pub(super) fn drop_oversized(&mut self, max_payload: usize) {
+    pub(super) fn drop_oversized(&mut self, max_payload: usize) -> bool {
+        let mut dropped_any = false;
         self.outgoing.queue.retain(|datagram| {
             let result = datagram.payload_len() <= max_payload;
             if !result {
@@ -263,9 +281,11 @@ impl DatagramState {
                     max_payload
                 );
                 self.outgoing.payload_bytes -= datagram.payload_len();
+                dropped_any = true;
             }
             result
         });
+        dropped_any
     }
 
     /// Attempt to write a datagram frame into `buf`, consuming it from `self.outgoing`
@@ -765,7 +785,8 @@ mod tests {
         state.outgoing.push_back(datagram(2, 1_200));
         state.outgoing.push_back(datagram(3, 1_201));
 
-        state.drop_oversized(1_200);
+        assert!(state.drop_oversized(1_200));
+        assert!(!state.drop_oversized(1_200));
 
         assert_eq!(state.outgoing.queue.len(), 2);
         assert_eq!(state.outgoing.queue[0].data.len(), 1_199);

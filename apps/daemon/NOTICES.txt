@@ -676,7 +676,7 @@ For more information on this, and how to apply and follow the GNU AGPL, see
 
 EMBEDDED RUNTIME
 
-The merkur executable embeds the Bun runtime (bun@1.4.2, MIT), which
+The merkur executable embeds the Bun runtime (bun@1.4.3, MIT), which
 statically links JavaScriptCore/WebKit and tinycc under the LGPL along with the
 components listed in https://github.com/oven-sh/bun/blob/main/LICENSE.md. To
 exercise the LGPL right to run a modified version of those libraries, rebuild
@@ -865,7 +865,7 @@ COMPONENTS
   mac-addr 0.3.0  (MIT)  https://github.com/shellrow/mac-addr
   matchers 0.2.0  (MIT)  https://github.com/hawkw/matchers
   memchr 2.8.3  (Unlicense OR MIT)  https://github.com/BurntSushi/memchr
-  minicov 0.3.8  (Apache-2.0/MIT)  https://github.com/Amanieu/minicov
+  minicov 0.3.9  (Apache-2.0/MIT)  https://github.com/Amanieu/minicov
   minimal-lexical 0.2.1  (MIT/Apache-2.0)  https://github.com/Alexhuszagh/minimal-lexical
   miniz_oxide 0.8.9  (MIT OR Zlib OR Apache-2.0)  https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
   miniz_oxide 0.9.1  (MIT OR Zlib OR Apache-2.0)  https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide
@@ -924,7 +924,7 @@ COMPONENTS
   proc-macro2 1.0.107  (MIT OR Apache-2.0)  https://github.com/dtolnay/proc-macro2
   quick-xml 0.41.0  (MIT)  https://github.com/tafia/quick-xml
   quinn 0.11.11  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
-  quinn-proto 0.11.17  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
+  quinn-proto 0.11.18  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
   quinn-udp 0.5.15  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
   quote 1.0.47  (MIT OR Apache-2.0)  https://github.com/dtolnay/quote
   r-efi 5.3.0  (MIT OR Apache-2.0 OR LGPL-2.1-or-later)  https://github.com/r-efi/r-efi
@@ -1168,7 +1168,7 @@ LICENSE-APACHE, as published with:
   linux-raw-sys 0.12.1
   lock_api 0.4.14
   log 0.4.34
-  minicov 0.3.8
+  minicov 0.3.9
   num-bigint 0.4.8
   num-integer 0.1.47
   num-traits 0.2.19
@@ -3888,7 +3888,7 @@ SOFTWARE.
 ------------------------------------------------------------------------------
 LICENSE-APACHE, as published with:
   quinn 0.11.11
-  quinn-proto 0.11.17
+  quinn-proto 0.11.18
   quinn-udp 0.5.15
   rustls-platform-verifier 0.7.0
 
@@ -4574,7 +4574,7 @@ limitations under the License.
 LICENSE-MIT, as published with:
   hashbrown 0.15.5
   hashbrown 0.17.1
-  minicov 0.3.8
+  minicov 0.3.9
 
 Copyright (c) 2016 Amanieu d'Antras
 
@@ -4723,7 +4723,7 @@ DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------------
 LICENSE-MIT, as published with:
   quinn 0.11.11
-  quinn-proto 0.11.17
+  quinn-proto 0.11.18
   quinn-udp 0.5.15
 
 Copyright (c) 2018 The quinn Developers
