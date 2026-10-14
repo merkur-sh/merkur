@@ -111,9 +111,8 @@ fail packaging. The final image runs as `merkur`; signed files are root-owned an
 under `/deployment`, with the identical signed migrations copied to `/migrations`.
 
 All Docker base images and the Dockerfile frontend are pinned by multi-platform digest.
-Rust and Debian images are pulled from Docker's official Amazon ECR Public repositories.
-CI's BuildKit image and Dockerfile frontend come from Google's public Docker Hub mirror
-at their pinned digests. CI selects the frontend with `BUILDKIT_SYNTAX`; the app and site
+The Rust and Debian images, CI's BuildKit image and the Dockerfile frontend all come from
+Google's public Docker Hub mirror at their pinned digests. CI selects the frontend with `BUILDKIT_SYNTAX`; the app and site
 Dockerfiles use the canonical `docker/dockerfile` syntax reference required by Railway,
 at the identical digest. An unavailable selected image fails the build.
 Bun is installed from its versioned GitHub release archives, checked against pinned SHA-256

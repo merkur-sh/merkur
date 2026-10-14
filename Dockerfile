@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 
 # Build tooling runs on the build platform; see the toolchain stage.
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS bun
+FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS bun
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && case "$(dpkg --print-architecture)" in \
@@ -47,7 +47,7 @@ RUN bun install --frozen-lockfile
 # profile trainer executes SIMD WebAssembly, which an emulated x86-64 JavaScript
 # engine refuses. It stays on bookworm, the runner's glibc floor, for the
 # native helpers the WebAssembly builds run.
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS toolchain
+FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS toolchain
 
 WORKDIR /app
 
@@ -169,7 +169,7 @@ COPY scripts/web-build-signature.ts scripts/web-build-signature.ts
 COPY deployment/ deployment/
 RUN bun run deployment:verify -- --directory deployment --commit "$MERKUR_BUILD_COMMIT"
 
-FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
+FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
 
 WORKDIR /app
 

@@ -217,7 +217,7 @@
     },
     {
       description: 'The pinned toolchain, the builder images at that release, the release Renovate installs, and minicov, whose profile runtime reads the one raw format that toolchain writes',
-      matchDepNames: ['rust', 'public.ecr.aws/docker/library/rust', 'minicov'],
+      matchDepNames: ['rust', 'mirror.gcr.io/library/rust', 'minicov'],
       groupName: 'Rust toolchain',
     },
     {

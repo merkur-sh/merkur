@@ -108,7 +108,9 @@ four platforms: Linux x64 and arm64 on Debian 12, and macOS on Apple Silicon and
 Native macOS runner tests do not attest a physical Secure Enclave.
 
 Release builders, Linux smoke tests, NAT labs and the TPM simulator pull digest-pinned
-Rust and Debian images from Docker's official Amazon ECR Public repositories.
+Rust and Debian images, Docker's official images, from Google's public Docker Hub mirror.
+Anonymous pulls from Docker Hub and from Amazon ECR Public are both quota-limited per
+address, and GitHub's hosted runners share their addresses.
 Linux daemon smoke tests load their Debian runtime through the release's BuildKit builder,
 then run the loaded image with pulls disabled. This reuses the builder's base-image content
 instead of downloading the same runtime again through Docker Engine.
