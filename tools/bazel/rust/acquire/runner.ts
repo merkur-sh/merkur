@@ -63,7 +63,7 @@ if (
   !['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu'].includes(host) ||
   process.platform !== 'linux' ||
   process.arch !== arch ||
-  Bun.version !== '1.4.2'
+  Bun.version !== '1.4.3'
 ) {
   throw new Error('Acquisition did not execute on its pinned native Linux/Bun host');
 }
@@ -144,8 +144,8 @@ try {
   const cargoIdentity = run(cargo, ['--version']).trim();
   const rustcIdentity = run(rustc, ['-vV']).trim();
   if (
-    !cargoIdentity.startsWith('cargo 1.97.1 ') ||
-    !rustcIdentity.startsWith('rustc 1.97.1 ') ||
+    !cargoIdentity.startsWith('cargo 1.99.0 ') ||
+    !rustcIdentity.startsWith('rustc 1.99.0 ') ||
     !rustcIdentity.split('\n').includes(`host: ${host}`)
   ) {
     throw new Error('Actual native Cargo/rustc host identity differs from the action contract');

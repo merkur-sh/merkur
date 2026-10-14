@@ -152,7 +152,7 @@ class SelectedWasmControls(unittest.TestCase):
             return {'path': filename, 'label': label, 'size': len(raw_bytes),
                     'sha256': wasm_inputs.npm.sha256(raw_bytes)}
         standard = original_fact('stdlib.rlib', '@fixture_std//:original_std')
-        linkage = {'kind': 'linked-stdlib-source-attribution', 'compiler': '1.97.1',
+        linkage = {'kind': 'linked-stdlib-source-attribution', 'compiler': '1.99.0',
             'target': 'wasm32-unknown-unknown', 'execution_host': 'aarch64-apple-darwin',
             'pending_scopes': [], 'artifact': original_fact(raw_wasm['input'], raw_wasm['label']),
             'selected_stdlib': [{**standard, 'members': {'synthetic.o': {'size': 1, 'sha256': '1' * 64}}}]}

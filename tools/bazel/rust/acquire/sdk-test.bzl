@@ -7,8 +7,8 @@ def _runfile(file):
 
 def _sdk_test_impl(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if rust.version != "1.97.1" or rust.exec_triple.str != ctx.attr.execution_host or rust.target_triple.str != ctx.attr.execution_host:
-        fail("SDK producer regression requires matching native Rust1.97.1 target and execution host")
+    if rust.version != "1.99.0" or rust.exec_triple.str != ctx.attr.execution_host or rust.target_triple.str != ctx.attr.execution_host:
+        fail("SDK producer regression requires matching native Rust1.99.0 target and execution host")
     sources = []
     for target, logical in ctx.attr.source_files.items():
         files = target[DefaultInfo].files.to_list()

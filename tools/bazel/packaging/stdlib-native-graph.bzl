@@ -19,8 +19,8 @@ def stdlib_native_graph_action(ctx, sdk_target, native_target, source_target, st
     source = source_target[PreparedCompilerSourceInfo]
     source_root = source.source_tree
     source_archive = source.archive
-    if native.compiler != "1.97.1" or not source_root.is_directory:
-        fail("Stock dependency capture requires original Rust1.97.1 compiler and source Tree")
+    if native.compiler != "1.99.0" or not source_root.is_directory:
+        fail("Stock dependency capture requires original Rust1.99.0 compiler and source Tree")
     for file in [source_archive, stdlib_archive, compiler_archive]:
         if file.is_directory:
             fail("Stock native dependency capture requires original regular archive Files")

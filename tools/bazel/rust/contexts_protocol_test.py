@@ -21,7 +21,7 @@ class DeclaredSdk:
     host = "aarch64-apple-darwin"
 
     def command(self, tool, version):
-        if version != "1.97.1":
+        if version != "1.99.0":
             raise ValueError("foreign compiler fixture")
         return ["/declared/sdk/bin/" + tool]
 
@@ -55,7 +55,7 @@ class ProtocolContextsTests(unittest.TestCase):
     def capture(self, **options):
         with patch.object(contexts.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=json.dumps(self.oracle))) as run, \
              patch.object(contexts, "effective_target_flags", return_value=self.flags) as flags:
-            result = contexts.unit_graph(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.97.1", "test",
+            result = contexts.unit_graph(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.99.0", "test",
                                          self.raw, self.normalized, self.cwd, sdk=DeclaredSdk(), **options)
         return result, run.call_args, flags.call_args
 
@@ -79,7 +79,7 @@ class ProtocolContextsTests(unittest.TestCase):
         oracle["units"][0]["platform"] = None
         with patch.object(contexts.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=json.dumps(oracle))) as run, \
              patch.object(contexts, "effective_target_flags", return_value=self.flags):
-            graph = contexts.unit_graph(self.root / "Cargo.toml", DeclaredSdk.host, "1.97.1", "test", self.raw, self.normalized, self.root, sdk=DeclaredSdk(), package=packages)
+            graph = contexts.unit_graph(self.root / "Cargo.toml", DeclaredSdk.host, "1.99.0", "test", self.raw, self.normalized, self.root, sdk=DeclaredSdk(), package=packages)
         self.assertEqual(run.call_args.args[0], ["/declared/sdk/bin/cargo", "test", "--unit-graph", "-Z", "unstable-options", "--offline", "--locked", "--manifest-path", str(self.root / "Cargo.toml")] + [value for package in packages for value in ["-p", package]])
         self.assertEqual(graph["execution_host"], DeclaredSdk.host)
         self.assertEqual(graph["units"][0]["rust_flags"], self.flags["rustflags"])
@@ -88,7 +88,7 @@ class ProtocolContextsTests(unittest.TestCase):
         for selection in [[], ["merkur-client", "merkur-client"], [""], [None], ["merkur-client", 1], ("merkur-client",), 1, ""]:
             with self.subTest(selection=selection), patch.object(contexts.subprocess, "run") as run:
                 with self.assertRaisesRegex(ValueError, "Cargo package selection"):
-                    contexts.unit_graph(self.root / "Cargo.toml", DeclaredSdk.host, "1.97.1", "test", self.raw, self.normalized, self.root, sdk=DeclaredSdk(), package=selection)
+                    contexts.unit_graph(self.root / "Cargo.toml", DeclaredSdk.host, "1.99.0", "test", self.raw, self.normalized, self.root, sdk=DeclaredSdk(), package=selection)
                 run.assert_not_called()
 
     def test_default_call_retains_original_selection(self):
@@ -99,7 +99,7 @@ class ProtocolContextsTests(unittest.TestCase):
 
     def test_no_default_metadata_uses_original_namespaced_feature(self):
         with patch.object(contexts.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="{}")) as run:
-            contexts.resolve(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.97.1", False,
+            contexts.resolve(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.99.0", False,
                              features=["merkur-e2e/wasm"], no_default_features=True, sdk=DeclaredSdk())
         self.assertEqual(run.call_args.args[0], ["/declared/sdk/bin/cargo", "metadata", "--offline", "--format-version=1",
                          "--manifest-path", str(self.root / "Cargo.toml"), "--locked", "--no-default-features", "--features", "merkur-e2e/wasm"])
@@ -107,14 +107,14 @@ class ProtocolContextsTests(unittest.TestCase):
 
     def test_default_metadata_retains_original_selection(self):
         with patch.object(contexts.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="{}")) as run:
-            contexts.resolve(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.97.1", False, sdk=DeclaredSdk())
+            contexts.resolve(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.99.0", False, sdk=DeclaredSdk())
         self.assertEqual(run.call_args.args[0], ["/declared/sdk/bin/cargo", "metadata", "--offline", "--format-version=1",
                          "--manifest-path", str(self.root / "Cargo.toml"), "--locked"])
 
     def test_original_cargo_failure_is_retained(self):
         with patch.object(contexts.subprocess, "run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="original engine rejection")):
             with self.assertRaisesRegex(RuntimeError, "original engine rejection"):
-                contexts.unit_graph(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.97.1", "test",
+                contexts.unit_graph(self.root / "Cargo.toml", "wasm32-unknown-unknown", "1.99.0", "test",
                                     self.raw, self.normalized, self.cwd, sdk=DeclaredSdk(), release=True,
                                     package="merkur-e2e", no_default_features=True, features=["wasm"], library=True)
 

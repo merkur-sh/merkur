@@ -22,7 +22,7 @@ class Default:
 
 
 class NativePipelineDeclaration(unittest.TestCase):
-    def fixture(self, host=HOSTS[0], target=None, version="1.97.1"):
+    def fixture(self, host=HOSTS[0], target=None, version="1.99.0"):
         default = Default()
         calls = []
         writes = []
@@ -74,20 +74,20 @@ class NativePipelineDeclaration(unittest.TestCase):
     def test_cross_target_refuses_before_any_launcher_or_runtime_publication(self):
         for target in ["wasm32-unknown-unknown", "x86_64-unknown-linux-gnu"]:
             implementation, ctx, calls, writes, _, _ = self.fixture(target=target)
-            with self.subTest(target=target), self.assertRaisesRegex(ValueError,"matching native Rust1.97.1"):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError,"matching native Rust1.99.0"):
                 implementation(ctx)
             self.assertEqual(calls, [])
             self.assertEqual(writes, [])
 
     def test_foreign_compiler_version_refuses_before_any_launcher(self):
         implementation, ctx, calls, _, _, _ = self.fixture(version="1.98.0")
-        with self.assertRaisesRegex(ValueError,"matching native Rust1.97.1"):
+        with self.assertRaisesRegex(ValueError,"matching native Rust1.99.0"):
             implementation(ctx)
         self.assertEqual(calls, [])
 
     def test_unsupported_matching_host_is_not_published_as_native_control(self):
         implementation, ctx, calls, _, _, _ = self.fixture(host="wasm32-unknown-unknown")
-        with self.assertRaisesRegex(ValueError,"matching native Rust1.97.1"):
+        with self.assertRaisesRegex(ValueError,"matching native Rust1.99.0"):
             implementation(ctx)
         self.assertEqual(calls, [])
 

@@ -102,7 +102,7 @@ def main():
         manifest = source / relative
         sdk.require_locks([manifest.parent / "Cargo.lock"])
         def acquire(arguments, bootstrap=False):
-            result = subprocess.run(sdk.command("cargo", "1.97.1") + arguments,
+            result = subprocess.run(sdk.command("cargo", "1.99.0") + arguments,
                                     cwd=source, env=sdk.environment(bootstrap),
                                     capture_output=True, text=True)
             if result.returncode:

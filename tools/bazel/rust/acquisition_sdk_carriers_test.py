@@ -61,7 +61,7 @@ class CarrierControls(unittest.TestCase):
         def version(argv, **kwargs):
             self.assertEqual(kwargs["env"], {"PATH": ""})
             name = Path(argv[0]).name
-            return SimpleNamespace(stdout=name + " 1.97.1\nrelease: 1.97.1\nhost: aarch64-apple-darwin\n")
+            return SimpleNamespace(stdout=name + " 1.99.0\nrelease: 1.99.0\nhost: aarch64-apple-darwin\n")
         self.version = patch.object(sdk_module.subprocess, "run", side_effect=version)
         self.version.start()
         self.addCleanup(self.version.stop)

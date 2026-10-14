@@ -15,9 +15,9 @@ import stat
 import subprocess
 import tarfile
 
-VERSION = "1.97.1"
-SOURCE_SHA256 = "0ed06fdaffd4722a7702e0b4eebfafc897ab8f513e8e1b247cdd7e5c6df6ded2"
-SOURCE_PREFIX = "rustc-1.97.1-src/"
+VERSION = "1.99.0"
+SOURCE_SHA256 = "cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13c83f7036"
+SOURCE_PREFIX = "rustc-1.99.0-src/"
 HOSTS = {"aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"}
 WASM = "wasm32-unknown-unknown"
 TARGETS = HOSTS | {WASM}
@@ -179,7 +179,7 @@ def relation(graph, metadata, target):
 def original_sources(source_root, archive, paths):
     archive_fact = fact(archive)
     if archive_fact["sha256"] != SOURCE_SHA256:
-        raise ValueError("Original Rust1.97.1 source archive required")
+        raise ValueError("Original Rust1.99.0 source archive required")
     wanted = {}
     for path in paths:
         relative = Path(path).relative_to(source_root).as_posix()
@@ -224,7 +224,7 @@ def original_source_root(source_root, archive, names, authority=None):
     # ordinary standalone source inputs retain their original strict semantics.
     archive_fact = fact(archive)
     if archive_fact["sha256"] != SOURCE_SHA256:
-        raise ValueError("Original Rust1.97.1 source archive required")
+        raise ValueError("Original Rust1.99.0 source archive required")
     source_root = Path(source_root).resolve(strict=True)
     original = source_root if authority is None else Path(authority).absolute()
     if original.resolve(strict=True) != original or not stat.S_ISDIR(original.lstat().st_mode):

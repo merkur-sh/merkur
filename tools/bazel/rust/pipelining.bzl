@@ -6,8 +6,8 @@ def _runfile(file):
 
 def _rust_pipelining_test_impl(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if rust.version != "1.97.1" or rust.exec_triple.str != rust.target_triple.str:
-        fail("Pipelining qualification requires the exact native stable Rust1.97.1 toolchain")
+    if rust.version != "1.99.0" or rust.exec_triple.str != rust.target_triple.str:
+        fail("Pipelining qualification requires the exact native stable Rust1.99.0 toolchain")
     python = ctx.executable._python
     wrapper = ctx.executable._wrapper
     launcher = ctx.actions.declare_file(ctx.label.name + ".sh")

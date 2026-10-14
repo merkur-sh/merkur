@@ -1,8 +1,8 @@
 {
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "b8342a2b4863f9ab59a25122e5cf9ea7602843ac080c4096c552cd840f0990a0",
-    "Cargo.toml": "c52c9a6df7dd12a151340490d097b0e448e06faa5915e2a4c244de6b3a3071d6",
+    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "apps/daemon/dataplane/Cargo.toml": "20294fcd574b6fdbcbaf7a79459b9062bddf2e5d0446bc6600b114179e83a135",
     "apps/edge/Cargo.toml": "e90db571dc5fdecf15daa0e60b76f6a2a1387652c5e057d873f7cd2de83ce589",
     "apps/stun/Cargo.toml": "91d4e8578a0b9e5c5776d5b19f28c70802b6cd983c15f984fa1a8980613d60f6",
@@ -26,12 +26,12 @@
     "packages/merkur-wire/Cargo.toml": "7aa52a13af5e3575988a53fdac80a646e62e6b18f7c1064f3e152caac61f4a45",
     "packages/quinn-patch/Cargo.toml": "9b8086637dfb9c75b32f5f1873ad992ee091a92ea5e4a8f1e29a258e7706b688",
     "packages/quinn-proto-patch/Cargo.toml": "3fae039f382d52ec9add2be3c4d2d1b3f5368f1655835f4c3711a333d10acc35",
-    "packages/term-wasm-pgo/Cargo.toml": "54591a3e882626652c0c4b2b904fa00d76ec9f8c01aa0093054aee8698a05eca",
-    "packages/term-wasm/Cargo.toml": "65462c6cc3e42fc8f41fc61b7068ff18a92f9720263ca82be60ad962e408d844",
+    "packages/term-wasm-pgo/Cargo.toml": "c3c42a86173fdc02b79673fc7f4dd5591a4af5b5bccbfff9e7de2f2f4aa6e3b0",
+    "packages/term-wasm/Cargo.toml": "40aeab34b1cf2c294af4856569fcff0a97e0389c88c24e61c824c8fbda93b0f9",
     "packages/vte-patch/Cargo.toml": "06bfdd57dec95f9172d84e867e9fcdd02c46eb5008b5d7e75848d76cbfaa96ef",
     "packages/wtransport-patch/Cargo.toml": "cd67f50f4c2e8b3620953e5a0eb84c005399ce7c3ce6de053531aa290a8d91b1",
     "packages/zstd-fixture/Cargo.toml": "26bee6ff5a99a9c40ee2095b3dfdae67e18c68a9d065cdde11a79a9878bd193e",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c"
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1"
   },
   "members": [
     "workspace:apps/daemon/dataplane",
@@ -6469,7 +6469,7 @@
         "alloc",
         "default"
       ],
-      "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+      "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
     },
     {
       "deps": [],
@@ -10953,7 +10953,7 @@
         "hash",
         "std"
       ],
-      "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0"
+      "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1"
     },
     {
       "deps": [
@@ -13869,7 +13869,7 @@
             }
           ],
           "name": "minicov",
-          "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
         },
         {
           "dep_kinds": [
@@ -16842,7 +16842,7 @@
             }
           ],
           "name": "ruzstd",
-          "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0"
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1"
         },
         {
           "dep_kinds": [
@@ -17904,7 +17904,7 @@
             }
           ],
           "name": "ruzstd",
-          "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0"
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1"
         },
         {
           "dep_kinds": [
@@ -18414,7 +18414,7 @@
             }
           ],
           "name": "minicov",
-          "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
         },
         {
           "dep_kinds": [
@@ -18482,7 +18482,7 @@
             }
           ],
           "name": "minicov",
-          "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+          "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
         },
         {
           "dep_kinds": [
@@ -23436,10 +23436,10 @@
           "alloc"
         ]
       },
-      "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
       "name": "minicov",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.3.8"
+      "version": "0.3.9"
     },
     {
       "edition": "2018",
@@ -27021,10 +27021,10 @@
         ],
         "std": []
       },
-      "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0",
+      "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1",
       "name": "ruzstd",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "version": "0.9.0"
+      "version": "0.9.1"
     },
     {
       "edition": "2018",
@@ -38815,6 +38815,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -39163,6 +39164,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -39373,6 +39375,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -39661,6 +39664,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -40147,6 +40151,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -40338,6 +40343,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -40430,6 +40436,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -40602,6 +40609,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -40814,6 +40822,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -41152,6 +41161,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -41262,6 +41272,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -41550,6 +41561,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -41658,6 +41670,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -41715,6 +41728,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -41847,6 +41861,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -42029,6 +42044,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -42293,6 +42309,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -42459,6 +42476,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -42579,6 +42597,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -43599,6 +43618,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -43683,6 +43703,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",
@@ -44149,6 +44170,7 @@
           "allow_attributes_without_reason": "warn",
           "dbg_macro": "warn",
           "debug_assert_with_mut_call": "warn",
+          "disallowed_methods": "allow",
           "infinite_loop": "warn",
           "mem_forget": "warn",
           "multiple_unsafe_ops_per_block": "warn",

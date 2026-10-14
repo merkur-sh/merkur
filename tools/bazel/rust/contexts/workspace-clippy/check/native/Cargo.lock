@@ -2056,6 +2056,7 @@ name = "merkur-dataplane"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "anyhow",
  "arrayvec",
  "base64 0.23.1",
  "bytes",
@@ -2262,9 +2263,9 @@ dependencies = [
 
 [[package]]
 name = "minicov"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
+checksum = "c3aa3aa12b448ac225b3102217d1ac5cc717908f02722926524b0599c933c7a0"
 dependencies = [
  "cc",
  "walkdir",
@@ -3488,9 +3489,9 @@ dependencies = [
 
 [[package]]
 name = "ruzstd"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
 dependencies = [
  "twox-hash",
 ]

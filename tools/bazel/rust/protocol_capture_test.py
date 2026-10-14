@@ -101,7 +101,7 @@ def context(scope, native=True):
         files=SimpleNamespace(_unit_helpers=helpers, _selection_inputs=[File("original/native_oracle.py")] if native else []),
         executable=SimpleNamespace(_python=python_file), actions=Actions(),
         runfiles=lambda files=(), transitive_files=None: Runfiles([*files, *(transitive_files.files if transitive_files else [])]),
-        toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.97.1",
+        toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.99.0",
            exec_triple=SimpleNamespace(str="aarch64-apple-darwin"), target_triple=SimpleNamespace(str="aarch64-apple-darwin"))})
 
 

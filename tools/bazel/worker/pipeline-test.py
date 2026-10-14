@@ -112,6 +112,6 @@ if __name__ == "__main__":
     for name in ("wrapper", "rustc", "sysroot"):
         setattr(ARGS, name, getattr(ARGS, name).absolute())
     version = subprocess.run([str(ARGS.rustc), "-vV"], env={"PATH": ""}, check=True, capture_output=True, text=True).stdout
-    if "release: 1.97.1" not in version.splitlines():
+    if "release: 1.99.0" not in version.splitlines():
         raise ValueError("pipeline controls require the declared pinned stable compiler")
     unittest.main(argv=[__file__])

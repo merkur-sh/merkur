@@ -12,8 +12,8 @@ _NATIVE_HOSTS = [
 
 def _require_native_toolchain(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if rust.version != "1.97.1" or rust.exec_triple.str != rust.target_triple.str or rust.exec_triple.str not in _NATIVE_HOSTS:
-        fail("Protocol capture requires the pinned native Rust 1.97.1 execution toolchain")
+    if rust.version != "1.99.0" or rust.exec_triple.str != rust.target_triple.str or rust.exec_triple.str not in _NATIVE_HOSTS:
+        fail("Protocol capture requires the pinned native Rust 1.99.0 execution toolchain")
 
 def _capture_action(ctx, selection, selection_inputs, mnemonic):
     _require_native_toolchain(ctx)

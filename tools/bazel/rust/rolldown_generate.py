@@ -49,7 +49,7 @@ def repository_name(package):
 
 
 def effective_lto(nodes, roots):
-    """Cargo1.97.1 compiler/lto.rs: propagate and merge actual output needs.
+    """Cargo1.99.0 compiler/lto.rs: propagate and merge actual output needs.
 
     A unit's profile is not its rustc LTO setting. In particular, host tools
     ignore profile LTO and a mixed rlib/cdylib root needs object and bitcode.

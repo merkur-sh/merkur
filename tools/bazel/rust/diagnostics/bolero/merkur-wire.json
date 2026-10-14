@@ -6,6 +6,7 @@
         "diagnostic:bolero:merkur-stun-protocol-fuzz",
         "diagnostic:bolero:merkur-codec-fuzz",
         "diagnostic:bolero:merkur-client-fuzz",
+        "diagnostic:bolero:merkur-e2e-fuzz",
         "diagnostic:bolero:term-wasm-fuzz"
       ],
       "packages": [
@@ -311,6 +312,23 @@
           "rust_version": "1.51",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.7.8"
+        },
+        {
+          "authors": [
+            "David Tolnay <dtolnay@gmail.com>"
+          ],
+          "description": "Type erasure for async trait methods",
+          "edition": "2021",
+          "features": {},
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#async-trait@0.1.92",
+          "license": "MIT OR Apache-2.0",
+          "links": null,
+          "name": "async-trait",
+          "repository": "https://github.com/dtolnay/async-trait",
+          "rust_version": "1.71",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.1.92"
         },
         {
           "authors": [
@@ -3987,6 +4005,28 @@
         },
         {
           "authors": [
+            "Amanieu d'Antras <amanieu@gmail.com>"
+          ],
+          "description": "Code coverage and profile-guided optimization support for no_std and embedded programs",
+          "edition": "2018",
+          "features": {
+            "alloc": [],
+            "default": [
+              "alloc"
+            ]
+          },
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
+          "license": "Apache-2.0/MIT",
+          "links": null,
+          "name": "minicov",
+          "repository": "https://github.com/Amanieu/minicov",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.3.9"
+        },
+        {
+          "authors": [
             "Alex Huszagh <ahuszagh@gmail.com>"
           ],
           "description": "Fast float parsing conversion routines.",
@@ -4055,6 +4095,38 @@
           "rust_version": "1.48",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "7.1.3"
+        },
+        {
+          "authors": [
+            "ogham@bsago.me",
+            "Ryan Scheel (Havvy) <ryan.havvy@gmail.com>",
+            "Josh Triplett <josh@joshtriplett.org>",
+            "The Nushell Project Developers"
+          ],
+          "description": "Library for ANSI terminal colors and styles (bold, underline)",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "std"
+            ],
+            "derive_serde_style": [
+              "serde"
+            ],
+            "gnu_legacy": [],
+            "serde": [
+              "dep:serde"
+            ],
+            "std": []
+          },
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#nu-ansi-term@0.50.3",
+          "license": "MIT",
+          "links": null,
+          "name": "nu-ansi-term",
+          "repository": "https://github.com/nushell/nu-ansi-term",
+          "rust_version": "1.62.1",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.50.3"
         },
         {
           "authors": [
@@ -7228,6 +7300,34 @@
           "authors": [
             "The wasm-bindgen Developers"
           ],
+          "description": "Bridging the gap between Rust Futures and JavaScript Promises",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "std"
+            ],
+            "futures-core-03-stream": [
+              "js-sys/futures-core-03-stream"
+            ],
+            "std": [
+              "wasm-bindgen/std",
+              "js-sys/std"
+            ]
+          },
+          "homepage": "https://wasm-bindgen.github.io/wasm-bindgen/",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-futures@0.4.77",
+          "license": "MIT OR Apache-2.0",
+          "links": null,
+          "name": "wasm-bindgen-futures",
+          "repository": "https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/futures",
+          "rust_version": "1.77",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.77"
+        },
+        {
+          "authors": [
+            "The wasm-bindgen Developers"
+          ],
           "description": "Implementation APIs for the `#[wasm_bindgen]` attribute",
           "edition": "2021",
           "features": {
@@ -7283,6 +7383,69 @@
           "rust_version": "1.77",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.2.127"
+        },
+        {
+          "authors": [
+            "The wasm-bindgen Developers"
+          ],
+          "description": "Internal testing macro for wasm-bindgen",
+          "edition": "2021",
+          "features": {},
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-test-macro@0.3.77",
+          "license": "MIT OR Apache-2.0",
+          "links": null,
+          "name": "wasm-bindgen-test-macro",
+          "repository": "https://github.com/wasm-bindgen/wasm-bindgen",
+          "rust_version": "1.77",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.3.77"
+        },
+        {
+          "authors": [
+            "The wasm-bindgen Developers"
+          ],
+          "description": "Shared support between wasm-bindgen-test and wasm-bindgen-test-runner, an internal\ndependency.\n",
+          "edition": "2021",
+          "features": {},
+          "homepage": "https://rustwasm.github.io/wasm-bindgen/",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-test-shared@0.2.127",
+          "license": "MIT OR Apache-2.0",
+          "links": null,
+          "name": "wasm-bindgen-test-shared",
+          "repository": "https://github.com/rustwasm/wasm-bindgen/tree/master/crates/test-shared",
+          "rust_version": "1.77",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.2.127"
+        },
+        {
+          "authors": [
+            "The wasm-bindgen Developers"
+          ],
+          "description": "Internal testing crate for wasm-bindgen",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "std"
+            ],
+            "gg-alloc": [
+              "dep:gg-alloc"
+            ],
+            "std": [
+              "wasm-bindgen/std",
+              "js-sys/std",
+              "wasm-bindgen-futures/std"
+            ]
+          },
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen-test@0.3.77",
+          "license": "MIT OR Apache-2.0",
+          "links": null,
+          "name": "wasm-bindgen-test",
+          "repository": "https://github.com/wasm-bindgen/wasm-bindgen",
+          "rust_version": "1.77",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.3.77"
         },
         {
           "authors": [
@@ -13657,6 +13820,51 @@
           "authors": [],
           "description": null,
           "edition": "2024",
+          "features": {
+            "default": [
+              "std"
+            ],
+            "std": [
+              "snow/default-resolver-crypto",
+              "snow/ring-accelerated"
+            ],
+            "testing": [],
+            "wasm": [
+              "snow/default-resolver",
+              "snow/default-resolver-crypto"
+            ]
+          },
+          "homepage": null,
+          "id": "diagnostic:bolero:merkur-e2e-fuzz",
+          "license": "AGPL-3.0-only",
+          "links": null,
+          "manifest": "packages/merkur-e2e/Cargo.toml",
+          "name": "merkur-e2e-fuzz",
+          "repository": null,
+          "rust_version": null,
+          "source": null,
+          "targets": [
+            {
+              "kind": [
+                "lib"
+              ],
+              "name": "merkur_e2e",
+              "source": "packages/merkur-e2e/src/lib.rs"
+            },
+            {
+              "kind": [
+                "bench"
+              ],
+              "name": "e2e",
+              "source": "packages/merkur-e2e/benches/e2e.rs"
+            }
+          ],
+          "version": "0.1.0"
+        },
+        {
+          "authors": [],
+          "description": null,
+          "edition": "2024",
           "features": {},
           "homepage": null,
           "id": "diagnostic:bolero:merkur-stun-protocol-fuzz",
@@ -13762,16 +13970,17 @@
     }
   },
   "generated_inputs": {
-    "Cargo.lock": "beabd0e073276cec671e121e99a5179b2e03cc669e3c7551b773d38730df5ae8",
-    "Cargo.toml": "0f4d91417209552b5b2042ebc43ce54a629cfb3b1c0985efe855b763d150862b",
+    "Cargo.lock": "631a7f3ed4baea7efae3df147990c8b4d5ca0c9ceeb447131ee4a578cfe91ebd",
+    "Cargo.toml": "4db0b2bd51b4a9979920bf02f93083dbe009159766f7598667e5db09c2b1fa2d",
     "merkur-client/Cargo.toml": "ae2b828495aecde8416e8f1a060c95280bdf4879867f5b1dfc5ca10ea240361f",
     "merkur-codec/Cargo.toml": "1a1a2f4505aee7d580b41d1bd86350a445593dfc2ee801901623f101bbcf6b61",
+    "merkur-e2e/Cargo.toml": "fe5b49abc83797b2de85f5f474f34fb7a998095e4eb2aaa7af3312a763092617",
     "merkur-stun-protocol/Cargo.toml": "45014f530051e42c785a9c6aaec7e97f5a740ff3ba8e8c6f4456d76b54a95251",
     "merkur-wire/Cargo.toml": "e25a3c4de99a64b8e459f51c310f882cfc224c4bffe22cdc9e8a40239e49f4a9",
-    "term-wasm/Cargo.toml": "032e2da9b0090969b4f690692e9069e253c5de8d6927bc9258615518f08dff3c"
+    "term-wasm/Cargo.toml": "5b2a77546bc093eef6309b398acab3cad60779fa66a52209f773e35b57ffff2b"
   },
   "inputs": {
-    "Cargo.toml": "f4ced77541757ceb8e6393f8e8fc908aeb8eaeda5fada6114750339cc5cb55c8",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "packages/alacritty-terminal-patch/Cargo.toml": "d58643246c8db2a8688f1d107a0b718f2336ca28a2d6566ab388bb1dc5232bac",
     "packages/fontdue-patch/Cargo.toml": "1a016c2ab2d2665aed18552d7262d67d12fb3f622c950d8669ee9635fd08fb50",
     "packages/merkur-authorization/Cargo.toml": "4133621abafbb39101ef9783d69176d0a11b1680e4823a50317306f5c2a3b294",
@@ -13783,20 +13992,20 @@
     "packages/merkur-graphics/Cargo.toml": "294be154927d0a6aee800b4fccd05f99ab4f9329c044cbe44370103e435f4c6f",
     "packages/merkur-stun-protocol/Cargo.toml": "4239fbfd7fa8f799202eec21add540d2e3760d8f7c0c16b99ac4d93b45c4cede",
     "packages/merkur-wire/Cargo.toml": "7aa52a13af5e3575988a53fdac80a646e62e6b18f7c1064f3e152caac61f4a45",
-    "packages/term-wasm/Cargo.toml": "65462c6cc3e42fc8f41fc61b7068ff18a92f9720263ca82be60ad962e408d844",
+    "packages/term-wasm/Cargo.toml": "40aeab34b1cf2c294af4856569fcff0a97e0389c88c24e61c824c8fbda93b0f9",
     "packages/vte-patch/Cargo.toml": "06bfdd57dec95f9172d84e867e9fcdd02c46eb5008b5d7e75848d76cbfaa96ef",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/acquisition_sdk.py": "b3e9b8cec5d063858ae3d410234a1e1615ee6c414f4a7929f2b0b44984dc4d26",
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
     "tools/bazel/rust/bolero.py": "81c1a2e69c9da0516c502ae2d58f5a4b65f8aa34fd2c2c6ff674bdcc76a3e4b6",
-    "tools/bazel/rust/contexts.py": "8ba45450300787471818259589fad9726b336eb0e825f01546ba31962540dd3d",
-    "tools/bolero/Cargo.lock": "beabd0e073276cec671e121e99a5179b2e03cc669e3c7551b773d38730df5ae8",
+    "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
+    "tools/bolero/Cargo.lock": "631a7f3ed4baea7efae3df147990c8b4d5ca0c9ceeb447131ee4a578cfe91ebd",
     "tools/bolero/bounded.rs": "244d2435d4277a3835991624301bbb033f328678457268c192f1776ab5bbc962",
     "tools/bolero/client.rs": "6a2bf58bf5840623dc63ffd78cc8eca1e06ef9bc83501a1da44213459cf71eae",
     "tools/bolero/codec.rs": "ae0ea107b33cbb8209008aa03d5f95e72fd5c43a2fcfbf93468ef39e188270d4",
     "tools/bolero/display.rs": "f5df63c23ff37b8f6a8cb5a94128ea6a2b8472b7ed7b65437e4931dc62d2e8cc",
     "tools/bolero/seeds.rs": "65968fb77b67d3d6a13e99a665b5cc862b898519c40b087a75c2afed59b0e94f",
     "tools/bolero/stun.rs": "4a5327a136ae3a7e5d0893102e9620ac9fb9dfae2aa4dde6be68140046f77266",
-    "tools/bolero/targets.json": "5a7b42befdd77e655a74c3a3d7008019da56773cb689b89c4bec9c615467be85",
+    "tools/bolero/targets.json": "f3ecd8ac111010e863e6423403fb5a122047cc58d7ed8522cc32ac64c89910ed",
     "tools/bolero/wire.rs": "0d6ba25e81851d8982da779efb880fc871d2a9e5b24f476616826e349b30388d"
   },
   "mode": "bolero",

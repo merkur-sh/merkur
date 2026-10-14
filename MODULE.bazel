@@ -322,14 +322,14 @@ use_repo(ninja_sources, "ninja_declared_shell_source")
 
 rolldown_original_archive(
     name = "merkur_stock_std_darwin_arm64",
-    urls = ["https://static.rust-lang.org/dist/rust-std-1.97.1-aarch64-apple-darwin.tar.xz"],
-    sha256 = "a4895f5c6995e83cab8687e46b14324592398049def71ce75ca308c981cf200d",
+    urls = ["https://static.rust-lang.org/dist/rust-std-1.99.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "a7c6de8aa21e7c31163a7656295b321bb85f5dce55ed8ea95ac9ac561202bb5b",
 )
 
 rolldown_original_archive(
     name = "merkur_stock_rustc_darwin_arm64",
-    urls = ["https://static.rust-lang.org/dist/rustc-1.97.1-aarch64-apple-darwin.tar.xz"],
-    sha256 = "6076cad38ccabaa24325f26a74080a363a2633a9cd34c473a8977255d8a593cb",
+    urls = ["https://static.rust-lang.org/dist/rustc-1.99.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "334a66714ca316d71bbe5efe44f71762d0b276cea73be2987374693a837f7450",
 )
 
 bun_build_utility_sources = use_extension("//tools/bazel/tools/bun_build_utilities:source.bzl", "bun_build_utility_sources")
@@ -671,38 +671,38 @@ use_repo(bun_npm_publishers,
 
 rolldown_original_archive(
     name = "merkur_stock_std_darwin_x64",
-    urls = ["https://static.rust-lang.org/dist/rust-std-1.97.1-x86_64-apple-darwin.tar.xz"],
-    sha256 = "0fa78653023be5bdfeb419edc82e3b1346ccaa23eaa036491cce084101c741dd",
+    urls = ["https://static.rust-lang.org/dist/rust-std-1.99.0-x86_64-apple-darwin.tar.xz"],
+    sha256 = "18ee81961a73c3ae966ecb1e8f6096438c90aeefece8856201a6ecc17f5bc850",
 )
 
 rolldown_original_archive(
     name = "merkur_stock_rustc_darwin_x64",
-    urls = ["https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-apple-darwin.tar.xz"],
-    sha256 = "3c38289f319bf02fa1c8149ce3e00f261e4efd14813a99f7f7ae4f180c7d1173",
+    urls = ["https://static.rust-lang.org/dist/rustc-1.99.0-x86_64-apple-darwin.tar.xz"],
+    sha256 = "7460910254f059b49b99ee3ddbcf7197d16b9505b59c166e14a1465ee323a81d",
 )
 
 rolldown_original_archive(
     name = "merkur_stock_std_linux_arm64",
-    urls = ["https://static.rust-lang.org/dist/rust-std-1.97.1-aarch64-unknown-linux-gnu.tar.xz"],
-    sha256 = "46aed8e63186350004d8ec6afca798811e6530b514352e5a8a26f3dc4939b3be",
+    urls = ["https://static.rust-lang.org/dist/rust-std-1.99.0-aarch64-unknown-linux-gnu.tar.xz"],
+    sha256 = "1cf7e2ef58ed1cfa6f1adea18e155cbf254c1951f39e5f5e3376879f55fd64a4",
 )
 
 rolldown_original_archive(
     name = "merkur_stock_rustc_linux_arm64",
-    urls = ["https://static.rust-lang.org/dist/rustc-1.97.1-aarch64-unknown-linux-gnu.tar.xz"],
-    sha256 = "b344b81f0cd4c2246c7da8b197fe7a339d7dd02bb15cb69b2524115d9c75224c",
+    urls = ["https://static.rust-lang.org/dist/rustc-1.99.0-aarch64-unknown-linux-gnu.tar.xz"],
+    sha256 = "89c0f1a3a44df63c95e5d5f2ba093d0a12c5f5f57f8635f8a7a0ce50cf86600e",
 )
 
 rolldown_original_archive(
     name = "merkur_stock_std_linux_x64",
-    urls = ["https://static.rust-lang.org/dist/rust-std-1.97.1-x86_64-unknown-linux-gnu.tar.xz"],
-    sha256 = "1c1e704ae80126b7de34f72ea2825f7fd01736dec20732faed47374b95282fba",
+    urls = ["https://static.rust-lang.org/dist/rust-std-1.99.0-x86_64-unknown-linux-gnu.tar.xz"],
+    sha256 = "3e58dff2d0b72196b5ea4e90536e174d400de88564a52694686b81e091169933",
 )
 
 rolldown_original_archive(
     name = "merkur_stock_rustc_linux_x64",
-    urls = ["https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-unknown-linux-gnu.tar.xz"],
-    sha256 = "9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819",
+    urls = ["https://static.rust-lang.org/dist/rustc-1.99.0-x86_64-unknown-linux-gnu.tar.xz"],
+    sha256 = "77171ba2a0345fdf2abc4fedda55d6de078dae7a68527c28be8c77dcc9604bd5",
 )
 
 # Original Binaryen source acquisition; native optimizer qualification remains mandatory.
@@ -713,8 +713,8 @@ register_toolchains("//tools/bazel/wasm:wasm_harness_placement_darwin_arm64")
 
 rolldown_original_archive(
     name = "merkur_stock_std_wasm32",
-    urls = ["https://static.rust-lang.org/dist/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz"],
-    sha256 = "fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b",
+    urls = ["https://static.rust-lang.org/dist/rust-std-1.99.0-wasm32-unknown-unknown.tar.xz"],
+    sha256 = "b760b0c9b08a6843c05de0098bd6802e23178ff473c4715ae57c1d679125bf22",
 )
 
 # Original simulator selected archives; integrate only missing declarations.

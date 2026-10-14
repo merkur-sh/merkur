@@ -61,7 +61,7 @@ def declared_sdk_control():
     standard = file("external/rust/lib/rustlib/aarch64-apple-darwin/lib/libstd.rlib", data=b"stdlib")
     runtime = Files([compiler, cargo, standard])
     triple = types.SimpleNamespace(str="aarch64-apple-darwin")
-    rust = types.SimpleNamespace(version="1.97.1", exec_triple=triple, target_triple=triple,
+    rust = types.SimpleNamespace(version="1.99.0", exec_triple=triple, target_triple=triple,
         cargo=cargo, rustc=compiler, sysroot_anchor=standard,
         rustc_lib=Files(), rust_std=Files([standard]), all_files=runtime)
     locks = [file(name, data=b"original lock") for name in generator.LOCKS]
@@ -112,7 +112,7 @@ def declared_stock_action(ctx, sdk, original):
               for name in ["original.source_tree", "source.tar.xz", "std.tar.xz", "compiler.tar.xz",
                            "stock.py", "resolver.py", "graph.py", "pair.py", "materializer.py", "capture.py"]]
     prepared = types.SimpleNamespace(source_tree=inputs[0], archive=inputs[1], source_subdirectory="rust-source")
-    native = types.SimpleNamespace(compiler="1.97.1", target="aarch64-apple-darwin",
+    native = types.SimpleNamespace(compiler="1.99.0", target="aarch64-apple-darwin",
         execution_host="aarch64-apple-darwin", stdlib=Files([original["standard"]]))
     class Target(dict):
         label = "//tools/bazel/rust/acquire:workspace_sdk"
@@ -211,7 +211,7 @@ class Controls(unittest.TestCase):
 
     def test_missing_original_lock_refuses_before_action_declaration(self):
         triple = types.SimpleNamespace(str="aarch64-apple-darwin")
-        rust = types.SimpleNamespace(version="1.97.1", exec_triple=triple, target_triple=triple)
+        rust = types.SimpleNamespace(version="1.99.0", exec_triple=triple, target_triple=triple)
         ctx = types.SimpleNamespace(
             toolchains={"@rules_rust//rust:toolchain_type": rust},
             attr=types.SimpleNamespace(execution_host="aarch64-apple-darwin", source_files={}, locks=["Cargo.lock"]),

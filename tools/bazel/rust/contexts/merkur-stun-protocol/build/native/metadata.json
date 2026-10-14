@@ -4579,13 +4579,13 @@
   },
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "1aa18a427e44a25625ebc653eea7b7af34cca78a059585a2d60593f39598891b",
-    "Cargo.toml": "f4ced77541757ceb8e6393f8e8fc908aeb8eaeda5fada6114750339cc5cb55c8",
+    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "packages/merkur-stun-protocol/Cargo.toml": "4239fbfd7fa8f799202eec21add540d2e3760d8f7c0c16b99ac4d93b45c4cede",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/acquisition_sdk.py": "b3e9b8cec5d063858ae3d410234a1e1615ee6c414f4a7929f2b0b44984dc4d26",
-    "tools/bazel/rust/contexts.py": "8ba45450300787471818259589fad9726b336eb0e825f01546ba31962540dd3d",
-    "tools/bazel/rust/metadata.json": "1d1d2d1d714705b3d9b4bb45fbe493f862c5bc61244daa7fa883de10679e2549"
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
+    "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
+    "tools/bazel/rust/metadata.json": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9"
   },
   "mode": "build",
   "package": "merkur-stun-protocol",

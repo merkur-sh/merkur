@@ -1,36 +1,36 @@
 {
   "host": "aarch64-apple-darwin",
-  "stage0_version": "1.96.0",
-  "stage0_date": "2026-05-28",
-  "stage0_sha256": "be7f5a93b78128cb5d81e258261c3103eac251b912c1d59e77425045074d2a49",
+  "stage0_version": "1.98.0",
+  "stage0_date": "2026-08-20",
+  "stage0_sha256": "759b73eca37a7b589b1ecc0fea77d94a1f8ca36cddb94f1401c72343e0dc1d4e",
   "source_guards": {
     "x.py": "539250903e89c4ba5d589165141205b6c8a58e69a91dfcd42eb36a780253c96a",
-    "src/stage0": "be7f5a93b78128cb5d81e258261c3103eac251b912c1d59e77425045074d2a49",
-    "src/bootstrap/bootstrap.py": "71e7dc66d15b4bda582cda168b948ab86140e0a12d7e8a47c50a559402368de1",
-    "src/bootstrap/src/core/build_steps/tool.rs": "d2a405a1c5ec559f00c02cc145915c2b335fd8175d0901e025dd14e64f76a3d6",
-    "src/bootstrap/src/core/build_steps/compile.rs": "eed9336a0193a6ee137b97e0cf4d592b1a465fa6457279518585693765dc29e3",
-    "src/bootstrap/src/core/config/config.rs": "d59ca22d9280a996bdce623e83fedeb0cfd0c2e6bbf5edb911e4ac5ea529b1a3",
-    "src/bootstrap/src/core/config/toml/build.rs": "d18c2b9582a15cceaa4dff0e289e7f6f866959c17ad2a60640fa34a14fa30061",
-    "src/bootstrap/src/core/builder/cargo.rs": "97dda1c8aee00c532536db6b757427adc694d2dbe47012281689e4e52b076237",
-    "src/tools/rustdoc/Cargo.toml": "346a74f9cdbb491fa96f77b8f554763084be6478b1943841410dc098616894b3",
-    "src/librustdoc/Cargo.toml": "c315716b1196834f922c85cda22356816afd2aaf9924d7364d6e7e28317532aa",
+    "src/stage0": "759b73eca37a7b589b1ecc0fea77d94a1f8ca36cddb94f1401c72343e0dc1d4e",
+    "src/bootstrap/bootstrap.py": "f2803b8f2e1c002cc3fba42475e10c8301fdf41a9c2d25fa831d79b3522d042b",
+    "src/bootstrap/src/core/build_steps/tool.rs": "23494b1e2e7c9fc20874aed12231591cdb6b996e85815bca78d386cdac1200ec",
+    "src/bootstrap/src/core/build_steps/compile.rs": "4a8a97f58a27635ae75902f81f3226de1faf83bfe87d22ba2f357c1bb452dd63",
+    "src/bootstrap/src/core/config/config.rs": "20f7fb49c5dad95d87c1b16f40ec1aa323dc7a6a039d8380fb708c9cf39ddd50",
+    "src/bootstrap/src/core/config/toml/build.rs": "91a362a4efc2d3822943549627c66280097033201c0b25e12cd004d0532722e3",
+    "src/bootstrap/src/core/builder/cargo.rs": "6e6a12de6443c114c23e0cbe17931af301cd96ce08692aa135e554cc88765a49",
+    "src/tools/rustdoc/Cargo.toml": "40b6c916310e3f45c26799f4ca07ae6d230359e77fd79521388e3c568a0660e9",
+    "src/librustdoc/Cargo.toml": "04ff2b3a0512376848e28adb55b63681929b50705a7f6ea709cd5bca6dd1b91d",
     ".cargo/config.toml": "ecf2837d1575dac89787a8ca9bf2a714072752faa56a034a417d81e02f6db569"
   },
   "stage0_archives": [
     {
-      "source_key": "dist/2026-05-28/rust-std-1.96.0-aarch64-apple-darwin.tar.xz",
-      "sha256": "439c4f71060b913e00db3a2e01340b2da0aa49978b843e36871f3250267c63f8",
-      "bytes": 27477148
+      "source_key": "dist/2026-08-20/rust-std-1.98.0-aarch64-apple-darwin.tar.xz",
+      "sha256": "48c05269ed36fb5f0a8438065156891fe59fcb868d90cfed9b7209540d54b2ce",
+      "bytes": 29740736
     },
     {
-      "source_key": "dist/2026-05-28/rustc-1.96.0-aarch64-apple-darwin.tar.xz",
-      "sha256": "1bb7b0bad1d2a42fc4173ede6dd460de2774fc1858a8369329d3e081e4e3426c",
-      "bytes": 67773712
+      "source_key": "dist/2026-08-20/rustc-1.98.0-aarch64-apple-darwin.tar.xz",
+      "sha256": "287edbc2e285b9c23ef7b085413b90cb8539909eda9c4b49f2a55ec0b52819d4",
+      "bytes": 49401680
     },
     {
-      "source_key": "dist/2026-05-28/cargo-1.96.0-aarch64-apple-darwin.tar.xz",
-      "sha256": "c042858192b7b6d66fe59b3bbbbd0f6e3cac6e8a478dc4cc091cde9eddea3c8b",
-      "bytes": 8865716
+      "source_key": "dist/2026-08-20/cargo-1.98.0-aarch64-apple-darwin.tar.xz",
+      "sha256": "2c2a8bbf3cba4353c0ca2cf1ba8280603f3ca82ceebb538fee4a1a987147f743",
+      "bytes": 8894708
     }
   ]
 }

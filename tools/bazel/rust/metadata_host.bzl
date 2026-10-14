@@ -9,8 +9,8 @@ _HOSTS = {
 
 def _metadata_host_impl(ctx):
     toolchain = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if toolchain.version != "1.97.1" or toolchain.exec_triple.str != ctx.attr.execution_host:
-        fail("Metadata acquisition requires exact Rust1.97.1 and the declared native execution host")
+    if toolchain.version != "1.99.0" or toolchain.exec_triple.str != ctx.attr.execution_host:
+        fail("Metadata acquisition requires exact Rust1.99.0 and the declared native execution host")
     inputs = {}
     for source in ctx.files.sources:
         inputs[source.path] = "source"

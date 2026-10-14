@@ -3,8 +3,8 @@
 def _acquire_impl(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
     bun = ctx.toolchains["//tools/bazel/bun:toolchain_type"].bun.runtime
-    if rust.version != "1.97.1" or rust.exec_triple.str != ctx.attr.execution_host or rust.target_triple.str != ctx.attr.execution_host:
-        fail("Cargo acquisition requires the exact native Rust1.97.1 host toolchain")
+    if rust.version != "1.99.0" or rust.exec_triple.str != ctx.attr.execution_host or rust.target_triple.str != ctx.attr.execution_host:
+        fail("Cargo acquisition requires the exact native Rust1.99.0 host toolchain")
     sources = {}
     for file in ctx.files.sources:
         if file.is_directory or file.short_path.startswith("../"):

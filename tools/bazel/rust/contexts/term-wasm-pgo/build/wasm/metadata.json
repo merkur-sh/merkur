@@ -3044,14 +3044,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
           "license": "Apache-2.0/MIT",
           "links": null,
           "name": "minicov",
           "repository": "https://github.com/Amanieu/minicov",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.3.8"
+          "version": "0.3.9"
         },
         {
           "authors": [
@@ -8101,13 +8101,13 @@
     }
   },
   "generated_inputs": {
-    "Cargo.lock": "1e7765ba3afe8fea28c55438461c25bf20e13df93db52fbf78bbd1d3b1f5e2c8",
-    "Cargo.toml": "4131b32196c6c521617aae67ca099094134718fb719ea217016e51303886fcb5"
+    "Cargo.lock": "2b108e82a335c58e175f79c06dedaa7626b310b627c2d21304d965328179eb26",
+    "Cargo.toml": "0b80ad511c562c0eb7ebdeae2d6336167dac58712d951164826659fd81a7cd51"
   },
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "1aa18a427e44a25625ebc653eea7b7af34cca78a059585a2d60593f39598891b",
-    "Cargo.toml": "f4ced77541757ceb8e6393f8e8fc908aeb8eaeda5fada6114750339cc5cb55c8",
+    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "packages/alacritty-terminal-patch/Cargo.toml": "d58643246c8db2a8688f1d107a0b718f2336ca28a2d6566ab388bb1dc5232bac",
     "packages/fontdue-patch/Cargo.toml": "1a016c2ab2d2665aed18552d7262d67d12fb3f622c950d8669ee9635fd08fb50",
     "packages/merkur-authorization/Cargo.toml": "4133621abafbb39101ef9783d69176d0a11b1680e4823a50317306f5c2a3b294",
@@ -8118,14 +8118,14 @@
     "packages/merkur-fec/Cargo.toml": "7fb5d19060da6f9935bca24f5a200c1f4c312d97290c95cf2da011b8fef96329",
     "packages/merkur-graphics/Cargo.toml": "294be154927d0a6aee800b4fccd05f99ab4f9329c044cbe44370103e435f4c6f",
     "packages/merkur-wire/Cargo.toml": "7aa52a13af5e3575988a53fdac80a646e62e6b18f7c1064f3e152caac61f4a45",
-    "packages/term-wasm-pgo/Cargo.toml": "54591a3e882626652c0c4b2b904fa00d76ec9f8c01aa0093054aee8698a05eca",
+    "packages/term-wasm-pgo/Cargo.toml": "c3c42a86173fdc02b79673fc7f4dd5591a4af5b5bccbfff9e7de2f2f4aa6e3b0",
     "packages/term-wasm/.cargo/config.toml": "91a502066e179b2525929d903b188b1b6bb10e6b105a81b33a834497c50481a4",
-    "packages/term-wasm/Cargo.toml": "65462c6cc3e42fc8f41fc61b7068ff18a92f9720263ca82be60ad962e408d844",
+    "packages/term-wasm/Cargo.toml": "40aeab34b1cf2c294af4856569fcff0a97e0389c88c24e61c824c8fbda93b0f9",
     "packages/vte-patch/Cargo.toml": "06bfdd57dec95f9172d84e867e9fcdd02c46eb5008b5d7e75848d76cbfaa96ef",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/acquisition_sdk.py": "b3e9b8cec5d063858ae3d410234a1e1615ee6c414f4a7929f2b0b44984dc4d26",
-    "tools/bazel/rust/contexts.py": "8ba45450300787471818259589fad9726b336eb0e825f01546ba31962540dd3d",
-    "tools/bazel/rust/metadata.json": "1d1d2d1d714705b3d9b4bb45fbe493f862c5bc61244daa7fa883de10679e2549"
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
+    "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
+    "tools/bazel/rust/metadata.json": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9"
   },
   "mode": "build",
   "package": "term-wasm-pgo",
@@ -14024,7 +14024,7 @@
               "alloc"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14080,7 +14080,7 @@
               "alloc"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14143,7 +14143,7 @@
               "alloc"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -24906,7 +24906,7 @@
               "alloc"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -24969,7 +24969,7 @@
               "alloc"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -25020,7 +25020,7 @@
               "alloc"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,

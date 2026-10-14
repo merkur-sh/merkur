@@ -33,7 +33,7 @@ if __name__ == '__main__':
         carriers.native(spec['target'])
         os.chdir(root)
         try:
-            if set(spec) != {'value', 'artifact', 'link_map', 'rustc', 'stdlib', 'target', 'compiler'} or spec['compiler'] != '1.97.1':
+            if set(spec) != {'value', 'artifact', 'link_map', 'rustc', 'stdlib', 'target', 'compiler'} or spec['compiler'] != '1.99.0':
                 raise ValueError('Original pinned compiler callback request required')
             inventory = mapper.parse_json(Path(spec['value']['input']).read_bytes())
             if inventory['rustc'] != {'path': spec['rustc']['path'], 'label': spec['rustc']['label'], **mapper.fact(Path(spec['rustc']['path']).read_bytes())}:

@@ -142,7 +142,7 @@ def archive(names):
 class Controls(unittest.TestCase):
     def setUp(self):
         self.target = 'x86_64-unknown-linux-gnu'
-        self.member = 'rust-std-1.97.1-' + self.target + '/rust-std-' + self.target + '/lib/rustlib/' + self.target + '/lib/libstd-fixture.rlib'
+        self.member = 'rust-std-1.99.0-' + self.target + '/rust-std-' + self.target + '/lib/rustlib/' + self.target + '/lib/libstd-fixture.rlib'
         self.request = {'target': self.target, 'execution_host': 'aarch64-apple-darwin',
             'rustc': 'rustc', 'compiler_archive': 'rustc.tar.xz', 'std_archive': 'std.tar.xz',
             'pins': 'pins.py', 'compiler_files': ['rustc'], 'configured_std': ['libstd.rlib'],
@@ -151,7 +151,7 @@ class Controls(unittest.TestCase):
 
     def members(self, entries):
         data = archive(entries)
-        return driver.std_members(data, self.target, hashlib.sha256(data).hexdigest(), '1.97.1')
+        return driver.std_members(data, self.target, hashlib.sha256(data).hexdigest(), '1.99.0')
 
     def test_original_member_layout_only(self):
         self.assertEqual(list(self.members([(self.member, 'file')])), ['libstd-fixture.rlib'])
@@ -170,7 +170,7 @@ class Controls(unittest.TestCase):
         data = archive([(self.member, 'file')])
         for target, digest in [('wasm32-unknown-unknown', hashlib.sha256(data).hexdigest()), (self.target, '0' * 64)]:
             with self.assertRaises(ValueError):
-                driver.std_members(data, target, digest, '1.97.1')
+                driver.std_members(data, target, digest, '1.99.0')
 
     def test_no_fake_cfg_or_undeclared_metadata(self):
         driver.validate(self.request)

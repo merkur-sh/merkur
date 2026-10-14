@@ -14,8 +14,8 @@ def _file(file):
 
 def _linked(ctx):
     linked = ctx.attr.compiler[RustLinkMapInfo]
-    if linked.compiler != "1.97.1" or linked.target != ctx.attr.execution_host:
-        fail("Original stock test requires matching native pinned Rust1.97.1 compiler")
+    if linked.compiler != "1.99.0" or linked.target != ctx.attr.execution_host:
+        fail("Original stock test requires matching native pinned Rust1.99.0 compiler")
     if linked.target not in ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]:
         fail("Native stock target required")
     return linked

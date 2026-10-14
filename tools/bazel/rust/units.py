@@ -82,7 +82,7 @@ def custom_cfg_env(rust_flags):
 
 def flags(profile):
     result = ["-Copt-level=" + profile["opt_level"], "-Cdebuginfo=" + str(profile["debuginfo"]), "-Cdebug-assertions=" + ("yes" if profile["debug_assertions"] else "no"), "-Coverflow-checks=" + ("yes" if profile["overflow_checks"] else "no")]
-    # Cargo1.97.1 emits panic only for non-Unwind profile strategies.
+    # Cargo1.99.0 emits panic only for non-Unwind profile strategies.
     # Leaving Unwind implicit preserves target defaults (WASM abort).
     if profile["panic"] != "unwind":
         result.append("-Cpanic=" + profile["panic"])
@@ -131,7 +131,7 @@ def collect(documents, native_documents=()):
                     dependencies = [{**edge, "unit": visit(edge["index"])} for edge in unit["dependencies"]]
                     for edge in dependencies:
                         edge.pop("index")
-                    identity = {**unit, "dependencies": sorted(dependencies, key=text), "execution_host": graph["execution_host"], "compiler": "1.97.1"}
+                    identity = {**unit, "dependencies": sorted(dependencies, key=text), "execution_host": graph["execution_host"], "compiler": "1.99.0"}
                     identity["emit_cdylib"] = unit["platform"] == "wasm32-unknown-unknown" and "cdylib" in unit["target"]["crate_types"] and index in graph["roots"] and unit["mode"] == "build"
                     unit_key = key(identity)
                     nodes[unit_key] = identity

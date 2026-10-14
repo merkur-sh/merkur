@@ -47,9 +47,9 @@ def acquire(args):
             manifest = source / "Cargo.toml"
             sdk.require_locks([source / "Cargo.lock"])
             contexts.ROOT = source
-            raw = contexts.resolve(manifest, sdk.host, "1.97.1", False, sdk=sdk)
+            raw = contexts.resolve(manifest, sdk.host, "1.99.0", False, sdk=sdk)
             normalized = contexts.normalize(raw, manifest, manifest)
-            graph = contexts.unit_graph(manifest, sdk.host, "1.97.1", "release", raw, normalized, source, sdk=sdk)
+            graph = contexts.unit_graph(manifest, sdk.host, "1.99.0", "release", raw, normalized, source, sdk=sdk)
             selected = [graph["units"][index] for index in graph["roots"]]
             original.native_binary(selected)
             if any(next(sdk.home.rglob(suffix), None) is not None for suffix in ["*.rlib", "*.rmeta", "*.o"]):

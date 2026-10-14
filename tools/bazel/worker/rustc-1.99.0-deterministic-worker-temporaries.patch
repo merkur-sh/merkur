@@ -1,6 +1,6 @@
 --- a/compiler/rustc_interface/src/util.rs
 +++ b/compiler/rustc_interface/src/util.rs
-@@ -622,7 +622,15 @@
+@@ -633,7 +633,15 @@
          .opts
          .incremental
          .as_ref()
@@ -19,7 +19,7 @@
          None => {
 --- a/compiler/rustc_session/src/options.rs
 +++ b/compiler/rustc_session/src/options.rs
-@@ -2059,6 +2059,9 @@
+@@ -2222,6 +2222,9 @@
          line-tables-only, limited, or full; default: 0)"),
      default_linker_libraries: bool = (false, parse_bool, [UNTRACKED],
          "allow the linker to link its default libraries (default: no)"),
@@ -31,7 +31,7 @@
      #[rustc_lint_opt_deny_field_access("use `Session::dwarf_version` instead of this field")]
 --- a/compiler/rustc_session/src/config.rs
 +++ b/compiler/rustc_session/src/config.rs
-@@ -1132,7 +1132,10 @@
+@@ -1172,7 +1172,10 @@
      /// during concurrent invocations of rustc, or past invocations that were
      /// preserved with a flag like `-C save-temps`, since these files may be
      /// hard linked.

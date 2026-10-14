@@ -1,13 +1,13 @@
 {
   "inputs": {
-    "Cargo.toml": "c2e9bb47c877efaeab0e8c2524e83f2f532b357b8edf6ba34c627d89df067787",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/policy_snapshots.py": "5d3217f51cb692dd9992190add8827ca72453fe26e4855476a55bc8fac2e1801",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/policy_snapshots.py": "45ce68244e85d713c844a5aa9fc252ecedb516ee59a2e4802e4cdadb005873bb",
     "tools/ownership-proofs/Cargo.lock": "3db48587d97b2a3e3142b2eefa8b824fc7a20f6dbad1f87ab83122ee10da46fd",
-    "tools/ownership-proofs/Cargo.toml": "c59bf0abef965201b15caa8140a02fe8c3617ac5d2b0feec66f018e63e1a4fa6"
+    "tools/ownership-proofs/Cargo.toml": "3f12d692dd78c0fb4fc7af426e1a360b650ed4f4dde35f98737f3d9c46110c52"
   },
   "metadata": {
-    "build_directory": "__MERKUR_WORKSPACE__/target/rust",
+    "build_directory": "/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-52cgbx9i/merkur-declared-cargo-5ceur5q9/metadata-target",
     "merkur_registry_index": [
       {
         "checksum": "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba",
@@ -13598,7 +13598,7 @@
       ],
       "root": "path+file://__MERKUR_WORKSPACE__/tools/ownership-proofs#merkur-ownership-proofs@0.1.0"
     },
-    "target_directory": "__MERKUR_WORKSPACE__/target/rust",
+    "target_directory": "/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-52cgbx9i/merkur-declared-cargo-5ceur5q9/metadata-target",
     "version": 1,
     "workspace_default_members": [
       "path+file://__MERKUR_WORKSPACE__/tools/ownership-proofs#merkur-ownership-proofs@0.1.0"

@@ -68,7 +68,7 @@ class PolicyContracts(unittest.TestCase):
                     self.policy.require_graph_locks(sdk)
 
     def test_missing_declared_lock_stops_refresh_before_metadata_or_publication(self):
-        self.write("rust-toolchain.toml", '[toolchain]\nchannel="1.97.1"\n')
+        self.write("rust-toolchain.toml", '[toolchain]\nchannel="1.99.0"\n')
         def refuse(paths):
             raise ValueError("refresh requires the exact declared lock and complete registry source")
         sdk = SimpleNamespace(require_locks=refuse)
@@ -84,8 +84,8 @@ class PolicyContracts(unittest.TestCase):
             environment=lambda: dict(env))
         raw = {"packages": [], "resolve": {"nodes": []}}
         with patch.object(self.policy.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(raw))) as run:
-            self.assertEqual(self.policy.metadata(sdk, "1.97.1", "Cargo.toml"), raw)
-        self.assertEqual(requested, [("cargo", "1.97.1")])
+            self.assertEqual(self.policy.metadata(sdk, "1.99.0", "Cargo.toml"), raw)
+        self.assertEqual(requested, [("cargo", "1.99.0")])
         self.assertEqual(run.call_args.args[0], ["/declared/cargo", "metadata", "--all-features", "--offline", "--locked", "--format-version=1", "--manifest-path", str(self.root / "Cargo.toml")])
         self.assertEqual(run.call_args.kwargs["env"], env)
         self.assertEqual(run.call_args.kwargs["cwd"], self.root)
@@ -102,7 +102,7 @@ class PolicyContracts(unittest.TestCase):
 
     def test_actual_generator_mismatch_stops_before_metadata_and_publication(self):
         self.locks()
-        self.write("rust-toolchain.toml", '[toolchain]\nchannel="1.97.1"\n')
+        self.write("rust-toolchain.toml", '[toolchain]\nchannel="1.99.0"\n')
         self.write("tools/bazel/rust/policy_snapshots.py", "old generator bytes\n")
         sdk = SimpleNamespace(require_locks=lambda files: None, command=lambda tool, version: ["/declared/cargo"])
         with patch.object(self.policy, "metadata", side_effect=AssertionError("metadata called")):
@@ -139,8 +139,8 @@ class NativeSdkControls(unittest.TestCase):
         cls.addClassCleanup(cls.sdk.close)
 
     def test_actual_sdk_is_the_pinned_native_compiler_and_closed_environment(self):
-        self.assertEqual(self.sdk.descriptor["version"], "1.97.1")
-        self.assertEqual(self.sdk.command("cargo", "1.97.1"), [str(self.sdk.cargo)])
+        self.assertEqual(self.sdk.descriptor["version"], "1.99.0")
+        self.assertEqual(self.sdk.command("cargo", "1.99.0"), [str(self.sdk.cargo)])
         self.assertEqual(self.sdk.environment()["PATH"], "")
         self.assertEqual(self.sdk.environment()["RUSTC"], str(self.sdk.rustc))
 
@@ -149,18 +149,18 @@ class NativeSdkControls(unittest.TestCase):
         self.assertTrue(all(path.resolve(strict=True) in self.sdk.lock_paths for path in self.policy.original_locks().values()))
         for name, manifest in self.policy.GRAPHS.items():
             with self.subTest(graph=name):
-                raw = self.policy.metadata(self.sdk, "1.97.1", manifest)
+                raw = self.policy.metadata(self.sdk, "1.99.0", manifest)
                 self.assertTrue(raw["packages"])
                 self.assertTrue(raw["resolve"]["nodes"])
                 self.assertTrue(raw["workspace_members"])
 
     def test_malformed_descriptor_refuses(self):
         with self.assertRaisesRegex(ValueError, "invalid declared native acquisition descriptor"):
-            self.resolver.NativeCargoSdk({"version": "1.97.1"})
+            self.resolver.NativeCargoSdk({"version": "1.99.0"})
 
     def test_foreign_compiler_version_refuses(self):
         value = {**self.descriptor, "version": "foreign"}
-        with self.assertRaisesRegex(ValueError, "native Rust1.97.1 SDK"):
+        with self.assertRaisesRegex(ValueError, "native Rust1.99.0 SDK"):
             self.resolver.NativeCargoSdk(value)
 
     def test_foreign_compiler_file_facts_refuse(self):

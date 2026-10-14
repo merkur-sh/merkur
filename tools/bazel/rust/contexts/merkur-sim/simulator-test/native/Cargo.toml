@@ -1,0 +1,52 @@
+
+["patch"]
+
+["patch"."crates-io"]
+
+["patch"."crates-io"."alacritty_terminal"]
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/alacritty-terminal-patch"
+
+["patch"."crates-io"."fontdue"]
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/fontdue-patch"
+
+["patch"."crates-io"."quinn"]
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/quinn-patch"
+
+["patch"."crates-io"."quinn-proto"]
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/quinn-proto-patch"
+
+["patch"."crates-io"."vte"]
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/vte-patch"
+
+["patch"."crates-io"."wtransport"]
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/wtransport-patch"
+
+["workspace"]
+"members" = ["merkur-sim"]
+"resolver" = "3"
+
+["workspace"."lints"]
+
+["workspace"."lints"."clippy"]
+"allow_attributes" = "warn"
+"allow_attributes_without_reason" = "warn"
+"dbg_macro" = "warn"
+"debug_assert_with_mut_call" = "warn"
+"disallowed_methods" = "allow"
+"infinite_loop" = "warn"
+"mem_forget" = "warn"
+"multiple_unsafe_ops_per_block" = "warn"
+"panic_in_result_fn" = "warn"
+"redundant_clone" = "warn"
+"todo" = "warn"
+"too_many_arguments" = "allow"
+"undocumented_unsafe_blocks" = "warn"
+"unimplemented" = "warn"
+"unnecessary_wraps" = "warn"
+"unused_async" = "warn"
+
+["workspace"."lints"."rust"]
+
+["workspace"."lints"."rust"."unexpected_cfgs"]
+"check-cfg" = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)", "cfg(merkur_sim)"]
+"level" = "warn"

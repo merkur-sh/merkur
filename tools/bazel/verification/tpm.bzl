@@ -40,7 +40,7 @@ tpm_runtime_image = rule(
 def _inputs_impl(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
     crate = ctx.attr.harness[rust_common.crate_info]
-    if rust.version != "1.97.1" or rust.exec_triple.str != rust.target_triple.str:
+    if rust.version != "1.99.0" or rust.exec_triple.str != rust.target_triple.str:
         fail("TPM tests require matching original native Rust execution and target")
     if not crate.is_test or crate.name != "merkur_identity_seal" or crate.output != ctx.executable.harness or crate.root.short_path != "packages/merkur-identity-seal/src/lib.rs":
         fail("TPM tests require the original identity-seal Lib harness")

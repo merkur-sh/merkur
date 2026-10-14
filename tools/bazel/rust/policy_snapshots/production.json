@@ -1,11 +1,11 @@
 {
   "inputs": {
-    "Cargo.lock": "0f356063c84a170d87216030cbf3253ac47a8ac5ce5cddf4420a7b44194c27bf",
-    "Cargo.toml": "c2e9bb47c877efaeab0e8c2524e83f2f532b357b8edf6ba34c627d89df067787",
-    "apps/daemon/dataplane/Cargo.toml": "24b7a645182640a3163faf3ae38ed6fd9f4fa22ec4e3b8260c5da0954fd80a34",
+    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
+    "apps/daemon/dataplane/Cargo.toml": "20294fcd574b6fdbcbaf7a79459b9062bddf2e5d0446bc6600b114179e83a135",
     "apps/edge/Cargo.toml": "e90db571dc5fdecf15daa0e60b76f6a2a1387652c5e057d873f7cd2de83ce589",
     "apps/stun/Cargo.toml": "91d4e8578a0b9e5c5776d5b19f28c70802b6cd983c15f984fa1a8980613d60f6",
-    "apps/tui/Cargo.toml": "a2d7cfdb29e237fe58a14dcf82034e7cd82cd137e3ad37e395c542c393aa1f7a",
+    "apps/tui/Cargo.toml": "e9487ab05fe8516bc4c3df4ba1f910cd7d4332486e85be345e542a3d2c815d71",
     "packages/alacritty-terminal-patch/Cargo.toml": "d58643246c8db2a8688f1d107a0b718f2336ca28a2d6566ab388bb1dc5232bac",
     "packages/e2e-wasm/Cargo.toml": "6bf518fcf09347a6892dbbcc63a59381148c90f9e472c870fea17061aeb1ee4e",
     "packages/fontdue-patch/Cargo.toml": "1a016c2ab2d2665aed18552d7262d67d12fb3f622c950d8669ee9635fd08fb50",
@@ -13,7 +13,7 @@
     "packages/graphics-wasm/Cargo.toml": "0087b110f3cc8b1ef9c1b963f21f0b396d737e63ebfde7c4e3aab78f7b7e4cd7",
     "packages/merkur-authorization/Cargo.toml": "4133621abafbb39101ef9783d69176d0a11b1680e4823a50317306f5c2a3b294",
     "packages/merkur-client-native/Cargo.toml": "4cca7bf1615ac211d39bb83749ae77d5688272e3ea85334bb6cb90172f0151f1",
-    "packages/merkur-client/Cargo.toml": "069016bca74caac68ac0cd0ee16c8b96510a73aa7f99764f1f8a71d7f0801d3e",
+    "packages/merkur-client/Cargo.toml": "c1ab1436a19913e112e8f32e4f15168449ead721a31e380fa72f6931f076e4d8",
     "packages/merkur-codec/Cargo.toml": "acc315fc91f30c2b070f48ba646658b66830f9a234f915e52640860c7aa0a8d3",
     "packages/merkur-e2e/Cargo.toml": "eba8f670ba04ea9e37a8de0edbbb33ea6cbdae4d5c5b0e08983ac7e32d73b017",
     "packages/merkur-edge-protocol/Cargo.toml": "f26b3e31d61d431641ba770a5357da1407d7bb7009dbcc848624adf436b5de57",
@@ -25,16 +25,16 @@
     "packages/merkur-wire/Cargo.toml": "7aa52a13af5e3575988a53fdac80a646e62e6b18f7c1064f3e152caac61f4a45",
     "packages/quinn-patch/Cargo.toml": "9b8086637dfb9c75b32f5f1873ad992ee091a92ea5e4a8f1e29a258e7706b688",
     "packages/quinn-proto-patch/Cargo.toml": "3fae039f382d52ec9add2be3c4d2d1b3f5368f1655835f4c3711a333d10acc35",
-    "packages/term-wasm-pgo/Cargo.toml": "54591a3e882626652c0c4b2b904fa00d76ec9f8c01aa0093054aee8698a05eca",
-    "packages/term-wasm/Cargo.toml": "bfa3635df94a78170dc638f70bb1d4e8491db7a0803f2ac14ae7e9669a43bcdf",
+    "packages/term-wasm-pgo/Cargo.toml": "c3c42a86173fdc02b79673fc7f4dd5591a4af5b5bccbfff9e7de2f2f4aa6e3b0",
+    "packages/term-wasm/Cargo.toml": "40aeab34b1cf2c294af4856569fcff0a97e0389c88c24e61c824c8fbda93b0f9",
     "packages/vte-patch/Cargo.toml": "06bfdd57dec95f9172d84e867e9fcdd02c46eb5008b5d7e75848d76cbfaa96ef",
-    "packages/wtransport-patch/Cargo.toml": "2dcdb5c08cda3bc45530ce2a897b3da32c88ba253c1e530ec394bfafd7b62bf6",
-    "packages/zstd-fixture/Cargo.toml": "e696957495ed2738dadf0527885ce422a90738cdecdb8f59b2eeb775b8d27314",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/policy_snapshots.py": "5d3217f51cb692dd9992190add8827ca72453fe26e4855476a55bc8fac2e1801"
+    "packages/wtransport-patch/Cargo.toml": "cd67f50f4c2e8b3620953e5a0eb84c005399ce7c3ce6de053531aa290a8d91b1",
+    "packages/zstd-fixture/Cargo.toml": "26bee6ff5a99a9c40ee2095b3dfdae67e18c68a9d065cdde11a79a9878bd193e",
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/policy_snapshots.py": "45ce68244e85d713c844a5aa9fc252ecedb516ee59a2e4802e4cdadb005873bb"
   },
   "metadata": {
-    "build_directory": "__MERKUR_WORKSPACE__/target/rust",
+    "build_directory": "/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-52cgbx9i/merkur-declared-cargo-5ceur5q9/metadata-target",
     "merkur_registry_index": [
       {
         "checksum": "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa",
@@ -20207,7 +20207,7 @@
         "version": "2.8.3"
       },
       {
-        "checksum": "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d",
+        "checksum": "c3aa3aa12b448ac225b3102217d1ac5cc717908f02722926524b0599c933c7a0",
         "features": {
           "alloc": [],
           "default": [
@@ -20216,7 +20216,7 @@
         },
         "name": "minicov",
         "record": {
-          "cksum": "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d",
+          "cksum": "c3aa3aa12b448ac225b3102217d1ac5cc717908f02722926524b0599c933c7a0",
           "deps": [
             {
               "default_features": true,
@@ -20244,12 +20244,12 @@
             ]
           },
           "name": "minicov",
-          "pubtime": "2025-12-05T00:54:39Z",
-          "vers": "0.3.8",
+          "pubtime": "2026-08-14T21:46:55Z",
+          "vers": "0.3.9",
           "yanked": false
         },
-        "record_sha256": "c10c11f442484c685d79edefaa9c488da7c1e28d98cb138df84729fe30ad7181",
-        "version": "0.3.8"
+        "record_sha256": "214280fd019f648b496184f55e76f047054cce3050810826301d8c1ca1e6c1ef",
+        "version": "0.3.9"
       },
       {
         "checksum": "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a",
@@ -34688,7 +34688,7 @@
         "version": "0.3.1"
       },
       {
-        "checksum": "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888",
+        "checksum": "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5",
         "features": {
           "default": [
             "hash",
@@ -34710,7 +34710,7 @@
         },
         "name": "ruzstd",
         "record": {
-          "cksum": "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888",
+          "cksum": "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5",
           "deps": [
             {
               "default_features": true,
@@ -34804,14 +34804,14 @@
             ]
           },
           "name": "ruzstd",
-          "pubtime": "2026-07-26T17:43:36Z",
+          "pubtime": "2026-10-11T13:07:42Z",
           "rust_version": "1.87",
           "v": 2,
-          "vers": "0.9.0",
+          "vers": "0.9.1",
           "yanked": false
         },
-        "record_sha256": "3beab7c597b03550908d776fbe4a1bfaefe5efb8d33395b2a02744671524b5be",
-        "version": "0.9.0"
+        "record_sha256": "634ce1c051d22a1dbedf93c2e1fd54cafad2d15929c22a8cf07e8732ddf76957",
+        "version": "0.9.1"
       },
       {
         "checksum": "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502",
@@ -105161,6 +105161,18 @@
             "uses_default_features": true
           },
           {
+            "features": [],
+            "kind": null,
+            "name": "unicode-width",
+            "optional": false,
+            "registry": null,
+            "rename": null,
+            "req": "^0.2",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "target": null,
+            "uses_default_features": true
+          },
+          {
             "features": [
               "alloc"
             ],
@@ -106196,7 +106208,9 @@
             "uses_default_features": true
           },
           {
-            "features": [],
+            "features": [
+              "experimental"
+            ],
             "kind": null,
             "name": "zstd",
             "optional": false,
@@ -106299,6 +106313,18 @@
             "source": "registry+https://github.com/rust-lang/crates.io-index",
             "target": null,
             "uses_default_features": true
+          },
+          {
+            "features": [],
+            "kind": null,
+            "name": "anyhow",
+            "optional": false,
+            "registry": null,
+            "rename": null,
+            "req": "^1",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "target": "cfg(merkur_sim)",
+            "uses_default_features": true
           }
         ],
         "description": null,
@@ -106324,6 +106350,20 @@
         "rust_version": null,
         "source": null,
         "targets": [
+          {
+            "crate_types": [
+              "lib"
+            ],
+            "doc": true,
+            "doctest": false,
+            "edition": "2024",
+            "kind": [
+              "lib"
+            ],
+            "name": "merkur_dataplane",
+            "src_path": "__MERKUR_WORKSPACE__/apps/daemon/dataplane/src/lib.rs",
+            "test": true
+          },
           {
             "crate_types": [
               "bin"
@@ -106979,6 +107019,20 @@
         "rust_version": null,
         "source": null,
         "targets": [
+          {
+            "crate_types": [
+              "lib"
+            ],
+            "doc": true,
+            "doctest": true,
+            "edition": "2024",
+            "kind": [
+              "lib"
+            ],
+            "name": "merkur_edge",
+            "src_path": "__MERKUR_WORKSPACE__/apps/edge/src/lib.rs",
+            "test": true
+          },
           {
             "crate_types": [
               "bin"
@@ -108053,6 +108107,18 @@
           {
             "features": [],
             "kind": null,
+            "name": "alacritty_terminal",
+            "optional": false,
+            "registry": null,
+            "rename": null,
+            "req": "^0.26.0",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "target": null,
+            "uses_default_features": false
+          },
+          {
+            "features": [],
+            "kind": null,
             "name": "base64",
             "optional": false,
             "registry": null,
@@ -108289,18 +108355,6 @@
             "source": "registry+https://github.com/rust-lang/crates.io-index",
             "target": null,
             "uses_default_features": true
-          },
-          {
-            "features": [],
-            "kind": "dev",
-            "name": "alacritty_terminal",
-            "optional": false,
-            "registry": null,
-            "rename": null,
-            "req": "^0.26.0",
-            "source": "registry+https://github.com/rust-lang/crates.io-index",
-            "target": null,
-            "uses_default_features": false
           },
           {
             "features": [],
@@ -108585,7 +108639,7 @@
           ]
         },
         "homepage": null,
-        "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+        "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
         "keywords": [
           "coverage",
           "no_std",
@@ -108596,7 +108650,7 @@
         "license": "Apache-2.0/MIT",
         "license_file": null,
         "links": null,
-        "manifest_path": "__MERKUR_REGISTRY__/minicov-0.3.8/Cargo.toml",
+        "manifest_path": "__MERKUR_REGISTRY__/minicov-0.3.9/Cargo.toml",
         "metadata": null,
         "name": "minicov",
         "publish": null,
@@ -108616,7 +108670,7 @@
               "lib"
             ],
             "name": "minicov",
-            "src_path": "__MERKUR_REGISTRY__/minicov-0.3.8/src/lib.rs",
+            "src_path": "__MERKUR_REGISTRY__/minicov-0.3.9/src/lib.rs",
             "test": true
           },
           {
@@ -108630,11 +108684,11 @@
               "custom-build"
             ],
             "name": "build-script-build",
-            "src_path": "__MERKUR_REGISTRY__/minicov-0.3.8/build.rs",
+            "src_path": "__MERKUR_REGISTRY__/minicov-0.3.9/build.rs",
             "test": false
           }
         ],
-        "version": "0.3.8"
+        "version": "0.3.9"
       },
       {
         "authors": [
@@ -134745,7 +134799,7 @@
           "std": []
         },
         "homepage": "https://github.com/KillingSpark/zstd-rs",
-        "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0",
+        "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1",
         "keywords": [
           "zstd",
           "zstandard",
@@ -134754,7 +134808,7 @@
         "license": "MIT",
         "license_file": null,
         "links": null,
-        "manifest_path": "__MERKUR_REGISTRY__/ruzstd-0.9.0/Cargo.toml",
+        "manifest_path": "__MERKUR_REGISTRY__/ruzstd-0.9.1/Cargo.toml",
         "metadata": null,
         "name": "ruzstd",
         "publish": null,
@@ -134774,7 +134828,7 @@
               "lib"
             ],
             "name": "ruzstd",
-            "src_path": "__MERKUR_REGISTRY__/ruzstd-0.9.0/src/lib.rs",
+            "src_path": "__MERKUR_REGISTRY__/ruzstd-0.9.1/src/lib.rs",
             "test": true
           },
           {
@@ -134788,7 +134842,7 @@
               "example"
             ],
             "name": "compression_ratio",
-            "src_path": "__MERKUR_REGISTRY__/ruzstd-0.9.0/examples/compression_ratio.rs",
+            "src_path": "__MERKUR_REGISTRY__/ruzstd-0.9.1/examples/compression_ratio.rs",
             "test": false
           },
           {
@@ -134802,11 +134856,11 @@
               "bench"
             ],
             "name": "decode_all",
-            "src_path": "__MERKUR_REGISTRY__/ruzstd-0.9.0/benches/decode_all.rs",
+            "src_path": "__MERKUR_REGISTRY__/ruzstd-0.9.1/benches/decode_all.rs",
             "test": false
           }
         ],
-        "version": "0.9.0"
+        "version": "0.9.1"
       },
       {
         "authors": [
@@ -142319,19 +142373,6 @@
           {
             "features": [],
             "kind": null,
-            "name": "merkur-fec",
-            "optional": false,
-            "path": "__MERKUR_WORKSPACE__/packages/merkur-fec",
-            "registry": null,
-            "rename": null,
-            "req": "*",
-            "source": null,
-            "target": null,
-            "uses_default_features": true
-          },
-          {
-            "features": [],
-            "kind": null,
             "name": "merkur-graphics",
             "optional": false,
             "path": "__MERKUR_WORKSPACE__/packages/merkur-graphics",
@@ -142395,7 +142436,8 @@
           },
           {
             "features": [
-              "std"
+              "std",
+              "experimental"
             ],
             "kind": null,
             "name": "zstd-safe",
@@ -142408,7 +142450,9 @@
             "uses_default_features": false
           },
           {
-            "features": [],
+            "features": [
+              "experimental"
+            ],
             "kind": "dev",
             "name": "zstd",
             "optional": false,
@@ -142470,7 +142514,7 @@
             "optional": true,
             "registry": null,
             "rename": null,
-            "req": "=0.3.8",
+            "req": "=0.3.9",
             "source": "registry+https://github.com/rust-lang/crates.io-index",
             "target": "cfg(target_arch = \"wasm32\")",
             "uses_default_features": false
@@ -142538,7 +142582,7 @@
             "optional": false,
             "registry": null,
             "rename": null,
-            "req": "=0.3.8",
+            "req": "=0.3.9",
             "source": "registry+https://github.com/rust-lang/crates.io-index",
             "target": "cfg(target_arch = \"wasm32\")",
             "uses_default_features": false
@@ -174635,7 +174679,9 @@
             "uses_default_features": true
           },
           {
-            "features": [],
+            "features": [
+              "experimental"
+            ],
             "kind": null,
             "name": "zstd",
             "optional": false,
@@ -179750,7 +179796,7 @@
         {
           "dependencies": [
             "registry+https://github.com/rust-lang/crates.io-index#blake3@1.8.7",
-            "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0",
+            "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1",
             "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127",
             "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
             "registry+https://github.com/rust-lang/crates.io-index#zstd@0.13.3"
@@ -179774,7 +179820,7 @@
                 }
               ],
               "name": "ruzstd",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0"
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1"
             },
             {
               "dep_kinds": [
@@ -182732,6 +182778,7 @@
             "path+file://__MERKUR_WORKSPACE__/packages/merkur-wire#0.1.0",
             "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229",
             "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "registry+https://github.com/rust-lang/crates.io-index#unicode-width@0.2.2",
             "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0"
           ],
           "deps": [
@@ -182834,6 +182881,16 @@
               ],
               "name": "serde_json",
               "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151"
+            },
+            {
+              "dep_kinds": [
+                {
+                  "kind": null,
+                  "target": null
+                }
+              ],
+              "name": "unicode_width",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#unicode-width@0.2.2"
             },
             {
               "dep_kinds": [
@@ -183184,6 +183241,7 @@
         {
           "dependencies": [
             "path+file://__MERKUR_WORKSPACE__/packages/alacritty-terminal-patch#alacritty_terminal@0.26.0",
+            "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104",
             "registry+https://github.com/rust-lang/crates.io-index#arrayvec@0.7.8",
             "registry+https://github.com/rust-lang/crates.io-index#base64@0.23.1",
             "registry+https://github.com/rust-lang/crates.io-index#bytes@1.12.1",
@@ -183235,6 +183293,16 @@
               ],
               "name": "alacritty_terminal",
               "pkg": "path+file://__MERKUR_WORKSPACE__/packages/alacritty-terminal-patch#alacritty_terminal@0.26.0"
+            },
+            {
+              "dep_kinds": [
+                {
+                  "kind": null,
+                  "target": "cfg(merkur_sim)"
+                }
+              ],
+              "name": "anyhow",
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#anyhow@1.0.104"
             },
             {
               "dep_kinds": [
@@ -184266,7 +184334,7 @@
             "registry+https://github.com/rust-lang/crates.io-index#libdeflater@1.26.0",
             "path+file://__MERKUR_WORKSPACE__/packages/merkur-graphics#0.1.0",
             "registry+https://github.com/rust-lang/crates.io-index#png@0.18.1",
-            "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0",
+            "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1",
             "registry+https://github.com/rust-lang/crates.io-index#simdutf@0.7.0",
             "registry+https://github.com/rust-lang/crates.io-index#tempfile@3.27.0",
             "registry+https://github.com/rust-lang/crates.io-index#tokio@1.53.1",
@@ -184402,7 +184470,7 @@
                 }
               ],
               "name": "ruzstd",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0"
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1"
             },
             {
               "dep_kinds": [
@@ -184567,7 +184635,7 @@
             {
               "dep_kinds": [
                 {
-                  "kind": "dev",
+                  "kind": null,
                   "target": null
                 }
               ],
@@ -184870,7 +184938,7 @@
             "alloc",
             "default"
           ],
-          "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+          "id": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
         },
         {
           "dependencies": [],
@@ -190209,7 +190277,7 @@
             "hash",
             "std"
           ],
-          "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.0"
+          "id": "registry+https://github.com/rust-lang/crates.io-index#ruzstd@0.9.1"
         },
         {
           "dependencies": [
@@ -191584,10 +191652,9 @@
             "registry+https://github.com/rust-lang/crates.io-index#hashbrown@0.17.1",
             "path+file://__MERKUR_WORKSPACE__/packages/merkur-client#0.1.0",
             "path+file://__MERKUR_WORKSPACE__/packages/merkur-codec#0.1.0",
-            "path+file://__MERKUR_WORKSPACE__/packages/merkur-fec#0.1.0",
             "path+file://__MERKUR_WORKSPACE__/packages/merkur-graphics#0.1.0",
             "path+file://__MERKUR_WORKSPACE__/packages/merkur-wire#0.1.0",
-            "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "registry+https://github.com/rust-lang/crates.io-index#unicode-width@0.2.2",
             "registry+https://github.com/rust-lang/crates.io-index#wasm-bindgen@0.2.127",
             "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
@@ -191666,16 +191733,6 @@
                   "target": null
                 }
               ],
-              "name": "merkur_fec",
-              "pkg": "path+file://__MERKUR_WORKSPACE__/packages/merkur-fec#0.1.0"
-            },
-            {
-              "dep_kinds": [
-                {
-                  "kind": null,
-                  "target": null
-                }
-              ],
               "name": "merkur_graphics",
               "pkg": "path+file://__MERKUR_WORKSPACE__/packages/merkur-graphics#0.1.0"
             },
@@ -191697,7 +191754,7 @@
                 }
               ],
               "name": "minicov",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
             },
             {
               "dep_kinds": [
@@ -191757,7 +191814,7 @@
         },
         {
           "dependencies": [
-            "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "path+file://__MERKUR_WORKSPACE__/packages/term-wasm#0.1.0"
           ],
           "deps": [
@@ -191769,7 +191826,7 @@
                 }
               ],
               "name": "minicov",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
             },
             {
               "dep_kinds": [
@@ -193757,7 +193814,7 @@
             "registry+https://github.com/rust-lang/crates.io-index#cast@0.3.0",
             "registry+https://github.com/rust-lang/crates.io-index#js-sys@0.3.104",
             "registry+https://github.com/rust-lang/crates.io-index#libm@0.2.16",
-            "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8",
+            "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9",
             "registry+https://github.com/rust-lang/crates.io-index#nu-ansi-term@0.50.3",
             "registry+https://github.com/rust-lang/crates.io-index#num-traits@0.2.19",
             "registry+https://github.com/rust-lang/crates.io-index#oorandom@11.1.5",
@@ -193817,7 +193874,7 @@
                 }
               ],
               "name": "minicov",
-              "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.8"
+              "pkg": "registry+https://github.com/rust-lang/crates.io-index#minicov@0.3.9"
             },
             {
               "dep_kinds": [
@@ -195851,6 +195908,7 @@
           "features": [
             "arrays",
             "default",
+            "experimental",
             "legacy",
             "zdict_builder"
           ],
@@ -195904,6 +195962,7 @@
           ],
           "features": [
             "arrays",
+            "experimental",
             "legacy",
             "std",
             "zdict_builder"
@@ -195951,6 +196010,7 @@
           "features": [
             "bindgen",
             "default",
+            "experimental",
             "legacy",
             "std",
             "zdict_builder"
@@ -195960,7 +196020,7 @@
       ],
       "root": null
     },
-    "target_directory": "__MERKUR_WORKSPACE__/target/rust",
+    "target_directory": "/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-52cgbx9i/merkur-declared-cargo-5ceur5q9/metadata-target",
     "version": 1,
     "workspace_default_members": [
       "path+file://__MERKUR_WORKSPACE__/apps/daemon/dataplane#merkur-dataplane@0.1.0",

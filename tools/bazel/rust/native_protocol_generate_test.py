@@ -27,7 +27,7 @@ class NativeProtocolTests(unittest.TestCase):
         self.original = self.root / "src/lib.rs"
         self.original.parent.mkdir()
         self.original.write_text("// original source fixture\n")
-        self.sdk = SimpleNamespace(host="aarch64-apple-darwin", descriptor={"version": "1.97.1"}, require_locks=lambda paths: self.assertEqual(paths, [self.root / path for path in GENERATOR.LOCKS]))
+        self.sdk = SimpleNamespace(host="aarch64-apple-darwin", descriptor={"version": "1.99.0"}, require_locks=lambda paths: self.assertEqual(paths, [self.root / path for path in GENERATOR.LOCKS]))
         self.provenance = {"producer": "//fixture:original_sdk", "execution_host": self.sdk.host,
                            "descriptor": GENERATOR.fact(self.descriptor), "source_files": [GENERATOR.fact(self.original)]}
         self.inputs = {"src/lib.rs": GENERATOR.fact(self.original)["sha256"]}
@@ -312,7 +312,7 @@ class NativeTpmTests(unittest.TestCase):
         manifest = self.root / "packages/merkur-identity-seal/Cargo.toml"
         manifest.parent.mkdir(parents=True)
         manifest.write_text('[package]\nname = "merkur-identity-seal"\n[features]\ntpm-sim = ["dep:tpm2-protocol"]\n')
-        self.sdk = SimpleNamespace(host="aarch64-apple-darwin", descriptor={"version": "1.97.1"})
+        self.sdk = SimpleNamespace(host="aarch64-apple-darwin", descriptor={"version": "1.99.0"})
         unit = {"pkg_id": GENERATOR.TPM_IDENTITY, "target": {"kind": ["lib"], "src_path": GENERATOR.TPM_SOURCE},
                 "mode": "test", "features": ["tpm-sim"], "platform": None, "profile": {"name": "test"}}
         self.graph = {"execution_host": self.sdk.host, "roots": [0, 1], "units": [unit, dict(copy.deepcopy(unit), mode="doctest")]}
@@ -434,7 +434,7 @@ class NativeSourceTreeEntryTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(body)
         os.chdir(self.original)
-        descriptor = {"version": "1.97.1", "execution_host": "aarch64-apple-darwin",
+        descriptor = {"version": "1.99.0", "execution_host": "aarch64-apple-darwin",
                       "cargo": GENERATOR.fact(self.prefix / "cargo"), "rustc": GENERATOR.fact(self.prefix / "rustc"),
                       "sdk": [GENERATOR.fact(self.prefix / name) for name in ["cargo", "rustc"]],
                       "locks": [GENERATOR.fact(self.source / path) for path in GENERATOR.LOCKS],
@@ -455,7 +455,7 @@ class NativeSourceTreeEntryTests(unittest.TestCase):
         spec.loader.exec_module(self.resolver)
         def identity(argv, **kwargs):
             self.assertEqual(kwargs["env"], {"PATH": ""})
-            return SimpleNamespace(stdout=Path(argv[0]).name + " 1.97.1\nrelease: 1.97.1\nhost: aarch64-apple-darwin\n")
+            return SimpleNamespace(stdout=Path(argv[0]).name + " 1.99.0\nrelease: 1.99.0\nhost: aarch64-apple-darwin\n")
         with patch.object(self.resolver.subprocess, "run", side_effect=identity):
             self.sdk = self.resolver.NativeCargoSdk.load(self.descriptor)
         self.addCleanup(self.sdk.close)

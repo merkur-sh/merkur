@@ -26,7 +26,7 @@ class WasmContextTests(unittest.TestCase):
         self.normalized = self.document["contexts"]["wasm32-unknown-unknown"]
         self.graph = self.document["unit_graphs"]["wasm32-unknown-unknown"]["test-release"]
         self.sdk = SimpleNamespace(host=self.provenance["execution_host"],
-                                   descriptor={"version": "1.97.1"}, require_locks=Mock(),
+                                   descriptor={"version": "1.99.0"}, require_locks=Mock(),
                                    original_tree=Mock(return_value=arguments.source_root), close=Mock())
         self.oracle = SimpleNamespace(resolve=Mock(return_value={}),
                                       normalize=Mock(return_value=copy.deepcopy(self.normalized)),
@@ -69,10 +69,10 @@ class WasmContextTests(unittest.TestCase):
     def test_original_resolve_and_unit_graph_arguments_are_shared(self):
         self.capture()
         manifest = arguments.source_root / "Cargo.toml"
-        self.oracle.resolve.assert_called_once_with(manifest, "wasm32-unknown-unknown", "1.97.1", False,
+        self.oracle.resolve.assert_called_once_with(manifest, "wasm32-unknown-unknown", "1.99.0", False,
                                                    features=["merkur-e2e/wasm"], no_default_features=True, sdk=self.sdk)
         self.oracle.normalize.assert_called_once_with({}, manifest, manifest)
-        self.oracle.unit_graph.assert_called_once_with(manifest, "wasm32-unknown-unknown", "1.97.1", "test",
+        self.oracle.unit_graph.assert_called_once_with(manifest, "wasm32-unknown-unknown", "1.99.0", "test",
                                                       {}, self.normalized, arguments.source_root / "packages/e2e-wasm",
                                                       features=["wasm"], library=True, sdk=self.sdk, release=True,
                                                       package="merkur-e2e", no_default_features=True)

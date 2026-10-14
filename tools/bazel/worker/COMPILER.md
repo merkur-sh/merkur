@@ -114,8 +114,8 @@ signaling snapshots membership, and unsupported kqueue descendant tracking canno
 recursive process ownership.
 
 `//tools/bazel/worker:compiler_bootstrap_inputs` consumes the existing prepared-source
-provider, the three original Rust 1.96.0 stage0 distributions named by that source's
-`src/stage0`, and the commit-pinned LLVM 22.1.6 distribution. The declared native Python
+provider, the three original Rust 1.98.0 stage0 distributions named by that source's
+`src/stage0`, and the commit-pinned LLVM 23.1.1 distribution. The declared native Python
 action retains the original distribution contents, merges their SDK components without
 overwriting files, and binds the complete Python/Git File closure in one configuration
 manifest. It does not build a compiler or publish a Rust toolchain.

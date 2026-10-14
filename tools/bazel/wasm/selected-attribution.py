@@ -447,7 +447,7 @@ def selected_module_linkage(source, origin, originals, module, owned):
     raw = origin['artifact']
     if (not isinstance(linkage, dict) or linkage.get('kind') != 'linked-stdlib-source-attribution'
             or linkage.get('target') != 'wasm32-unknown-unknown'
-            or linkage.get('compiler') != '1.97.1' or linkage.get('pending_scopes') != []
+            or linkage.get('compiler') != '1.99.0' or linkage.get('pending_scopes') != []
             or linkage.get('artifact') != {'path': raw['input'], 'label': raw['label'],
                                          'size': raw['size'], 'sha256': raw['sha256']}):
         raise ValueError('WASM Rust attribution lacks actual matching module linkage')
@@ -513,7 +513,7 @@ def selected_module_linkage(source, origin, originals, module, owned):
         host_linkage = sources.get('module_linkage')
         if (not isinstance(host_linkage, dict)
                 or host_linkage.get('kind') != 'linked-stdlib-source-attribution'
-                or host_linkage.get('compiler') != '1.97.1'
+                or host_linkage.get('compiler') != '1.99.0'
                 or host_linkage.get('pending_scopes') != []
                 or host_linkage.get('artifact') != row['artifact']
                 or host_linkage.get('target') != context['target']):

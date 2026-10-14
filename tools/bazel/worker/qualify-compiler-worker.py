@@ -126,7 +126,7 @@ def qualify(worker, confiner, wrapper, compiler, output):
     output.mkdir(parents=True)
     for name in ["rustc", "rustdoc"]:
         version = subprocess.run([str(compiler / "bin" / name), "-vV"], env={"PATH": ""}, capture_output=True, text=True, check=True).stdout
-        if "release: 1.97.1" not in version.splitlines() or "commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452" not in version.splitlines() or "merkur-deterministic-worker-experiment" not in version:
+        if "release: 1.99.0" not in version.splitlines() or "commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4" not in version.splitlines() or "merkur-deterministic-worker-experiment" not in version:
             raise ValueError("Worker qualification requires the genuine matched patched compiler and rustdoc")
         (output / (name + "-version.txt")).write_text(version)
     with tempfile.TemporaryDirectory(prefix="actual-compiler-worker-", dir=output) as temporary:

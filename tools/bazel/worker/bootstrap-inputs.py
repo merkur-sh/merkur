@@ -21,7 +21,7 @@ def check_sources(request):
     source = pathlib.Path(request["sources"])
     pin = json.loads(pathlib.Path(request["compiler_pins"]).read_text())
     bootstrap = json.loads(pathlib.Path(request["bootstrap_pins"]).read_text())
-    if bootstrap["host"] != HOST or bootstrap["stage0_version"] != "1.96.0" or bootstrap["stage0_date"] != "2026-05-28":
+    if bootstrap["host"] != HOST or bootstrap["stage0_version"] != "1.98.0" or bootstrap["stage0_date"] != "2026-08-20":
         raise ValueError("Bootstrap distributions require the exact native stage0 host")
     if digest(pathlib.Path(request["source_archive"])) != pin["source_archive"]["sha256"] or digest(pathlib.Path(request["patch"])) != pin["patch"]["sha256"]:
         raise ValueError("Original compiler source or patch differs from the declared pins")
@@ -43,16 +43,16 @@ def check_sources(request):
     for row in bootstrap["stage0_archives"]:
         key = row["source_key"]
         filename = key.rsplit("/", 1)[1]
-        role = filename.removesuffix("-1.96.0-" + HOST + ".tar.xz")
+        role = filename.removesuffix("-1.98.0-" + HOST + ".tar.xz")
         if role not in {"rustc", "cargo", "rust-std"} or role in roles or stage0.get(key) != row["sha256"]:
             raise ValueError("Stage0 archive does not match its upstream bootstrap identity")
         roles[role] = {"sha256": row["sha256"], "prefix": filename.removesuffix(".tar.xz"), "component": "rust-std-" + HOST if role == "rust-std" else role}
     if set(roles) != {"rustc", "cargo", "rust-std"} or set(request["archives"]) != {"rustc", "cargo", "rust-std", "llvm"}:
         raise ValueError("Every original stage0 and LLVM archive is mandatory")
     llvm = pin["llvm_archive"]
-    if llvm["platform"] != HOST or pin["llvm"] != "22.1.6":
+    if llvm["platform"] != HOST or pin["llvm"] != "23.1.1":
         raise ValueError("LLVM must match the patched compiler and host")
-    roles["llvm"] = {"sha256": llvm["sha256"], "prefix": "rust-dev-1.97.1-" + HOST, "component": "rust-dev"}
+    roles["llvm"] = {"sha256": llvm["sha256"], "prefix": "rust-dev-1.99.0-" + HOST, "component": "rust-dev"}
     files = request["sdk_files"]
     if not isinstance(files, list) or not files or len(files) != len(set(files)) or request["git"] not in files or request["python"] not in files:
         raise ValueError("The complete declared Python/Git SDK closure is mandatory")
@@ -160,8 +160,8 @@ def materialize(request, configuration, stage0_output, llvm_output):
                 "source_commit": pin["commit"],
                 "bootstrap_source_guards": bootstrap["source_guards"],
                 "archives": [{"role": name, "path": request["archives"][name], "sha256": role["sha256"]} for name, role in roles.items()],
-                "stage0": {"version": "1.96.0", "date": "2026-05-28", "root": str(stage0_root), "rustc": str(stage0_root / "bin/rustc"), "cargo": str(stage0_root / "bin/cargo"), "rustdoc": str(stage0_root / "bin/rustdoc")},
-                "llvm": {"version": "22.1.6", "root": str(llvm_root), "llvm_config": str(llvm_root / "bin/llvm-config")},
+                "stage0": {"version": "1.98.0", "date": "2026-08-20", "root": str(stage0_root), "rustc": str(stage0_root / "bin/rustc"), "cargo": str(stage0_root / "bin/cargo"), "rustdoc": str(stage0_root / "bin/rustdoc")},
+                "llvm": {"version": "23.1.1", "root": str(llvm_root), "llvm_config": str(llvm_root / "bin/llvm-config")},
                 "python": request["python"], "git": request["git"], "sdk_files": facts,
                 "bootstrap": {
                     "stage": 1, "selectors": SELECTORS,

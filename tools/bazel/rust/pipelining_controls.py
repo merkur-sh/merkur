@@ -26,8 +26,8 @@ def main():
         root = Path(temporary)
         environment = {"PATH": "", "HOME": str(root), "TMPDIR": str(root)}
         version = subprocess.run([str(rustc), "-vV"], env=environment, capture_output=True, text=True, check=True).stdout
-        if "release: 1.97.1" not in version.splitlines() or "commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452" not in version.splitlines():
-            raise AssertionError("Pipelining controls require the declared stable Rust1.97.1 compiler")
+        if "release: 1.99.0" not in version.splitlines() or "commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4" not in version.splitlines():
+            raise AssertionError("Pipelining controls require the declared stable Rust1.99.0 compiler")
         for name in ["dependency", "consumer", "failure"]:
             shutil.copyfile(getattr(args, name), root / (name + ".rs"))
 

@@ -7,17 +7,17 @@ import tarfile
 
 WASM = "wasm32-unknown-unknown"
 STD = {
-    WASM: "fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b",
-    "aarch64-apple-darwin": "a4895f5c6995e83cab8687e46b14324592398049def71ce75ca308c981cf200d",
-    "x86_64-apple-darwin": "0fa78653023be5bdfeb419edc82e3b1346ccaa23eaa036491cce084101c741dd",
-    "aarch64-unknown-linux-gnu": "46aed8e63186350004d8ec6afca798811e6530b514352e5a8a26f3dc4939b3be",
-    "x86_64-unknown-linux-gnu": "1c1e704ae80126b7de34f72ea2825f7fd01736dec20732faed47374b95282fba",
+    WASM: "b760b0c9b08a6843c05de0098bd6802e23178ff473c4715ae57c1d679125bf22",
+    "aarch64-apple-darwin": "a7c6de8aa21e7c31163a7656295b321bb85f5dce55ed8ea95ac9ac561202bb5b",
+    "x86_64-apple-darwin": "18ee81961a73c3ae966ecb1e8f6096438c90aeefece8856201a6ecc17f5bc850",
+    "aarch64-unknown-linux-gnu": "1cf7e2ef58ed1cfa6f1adea18e155cbf254c1951f39e5f5e3376879f55fd64a4",
+    "x86_64-unknown-linux-gnu": "3e58dff2d0b72196b5ea4e90536e174d400de88564a52694686b81e091169933",
 }
 RUSTC = {
-    "aarch64-apple-darwin": "6076cad38ccabaa24325f26a74080a363a2633a9cd34c473a8977255d8a593cb",
-    "x86_64-apple-darwin": "3c38289f319bf02fa1c8149ce3e00f261e4efd14813a99f7f7ae4f180c7d1173",
-    "aarch64-unknown-linux-gnu": "b344b81f0cd4c2246c7da8b197fe7a339d7dd02bb15cb69b2524115d9c75224c",
-    "x86_64-unknown-linux-gnu": "9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819",
+    "aarch64-apple-darwin": "334a66714ca316d71bbe5efe44f71762d0b276cea73be2987374693a837f7450",
+    "x86_64-apple-darwin": "7460910254f059b49b99ee3ddbcf7197d16b9505b59c166e14a1465ee323a81d",
+    "aarch64-unknown-linux-gnu": "89c0f1a3a44df63c95e5d5f2ba093d0a12c5f5f57f8635f8a7a0ce50cf86600e",
+    "x86_64-unknown-linux-gnu": "77171ba2a0345fdf2abc4fedda55d6de078dae7a68527c28be8c77dcc9604bd5",
 }
 
 
@@ -58,8 +58,8 @@ def archive_members(graph, archive, expected, wanted, complete_prefix=None):
 
 def capture(request, graph, pair, sdk, *, source_authority=None):
     target = request["target"]
-    if target not in STD or request["compiler"] != "1.97.1":
-        raise ValueError("Original Rust1.97.1 link-map provider required")
+    if target not in STD or request["compiler"] != "1.99.0":
+        raise ValueError("Original Rust1.99.0 link-map provider required")
     host = request.get("execution_host")
     if target == WASM:
         if host not in RUSTC or host != sdk.host:
@@ -72,7 +72,7 @@ def capture(request, graph, pair, sdk, *, source_authority=None):
     wanted = {}
     presentations = {}
     marker = "/lib/rustlib/" + target + "/"
-    prefix = "rust-std-1.97.1-" + target + "/rust-std-" + target + "/lib/rustlib/" + target + "/"
+    prefix = "rust-std-1.99.0-" + target + "/rust-std-" + target + "/lib/rustlib/" + target + "/"
     for value in files:
         path = value["path"]
         if not isinstance(path, str) or path.count(marker) != 1:
@@ -92,7 +92,7 @@ def capture(request, graph, pair, sdk, *, source_authority=None):
         if len(roots) != 1 or any(value["path"].count(marker) != 1 for value in originals.values()):
             raise ValueError("Original WASM stock Files require one exact installed target namespace")
         sysroot = roots.pop()
-    compiler_member = "rustc-1.97.1-" + sdk.host + "/rustc/bin/rustc"
+    compiler_member = "rustc-1.99.0-" + sdk.host + "/rustc/bin/rustc"
     compiler_archive, compiler_files = archive_members(graph, request["compiler_archive"], RUSTC[sdk.host], {compiler_member: sdk.rustc})
     metadata = [originals[member] for member in sorted(originals) if member.endswith(".rmeta")]
     # This input is the PreparedCompilerSourceInfo's declared archive File.

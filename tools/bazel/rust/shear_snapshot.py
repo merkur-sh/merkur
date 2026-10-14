@@ -80,8 +80,8 @@ def capture(cargo, rustc, cargo_home, biome):
         return output
     cargo_identity = run(cargo, ["--version"]).strip()
     rustc_identity = run(rustc, ["-vV"]).strip()
-    if not cargo_identity.startswith("cargo 1.97.1 ") or not rustc_identity.startswith("rustc 1.97.1 "):
-        raise ValueError("CargoShear capture requires pinned Cargo/rustc 1.97.1")
+    if not cargo_identity.startswith("cargo 1.99.0 ") or not rustc_identity.startswith("rustc 1.99.0 "):
+        raise ValueError("CargoShear capture requires pinned Cargo/rustc 1.99.0")
     command = ["metadata", "--offline", "--locked", "--all-features", "--format-version=1"]
     metadata = json.loads(run(cargo, command))
     local = []

@@ -45,7 +45,7 @@ def capture(contexts, sdk, root):
         with tempfile.TemporaryDirectory(prefix="merkur-simulator-context-") as temporary:
             contexts.DIRECTORY = Path(temporary)
             production = tomllib.loads((root / "Cargo.toml").read_text())
-            document = contexts.capture_simulator(sdk, "1.97.1", production)
+            document = contexts.capture_simulator(sdk, "1.99.0", production)
             directory = contexts.DIRECTORY / "merkur-sim/simulator-test/native"
             generated = {name: (directory / name).read_bytes() for name in
                          ["Cargo.toml", "Cargo.lock", "merkur-sim/Cargo.toml", "BUILD.bazel"]}

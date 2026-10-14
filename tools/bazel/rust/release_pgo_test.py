@@ -193,7 +193,7 @@ class TargetOnlyCapture(unittest.TestCase):
         raw = {"packages": [{"id": "raw", "name": "package", "version": "1", "source": None,
                               "manifest_path": str(root / "Cargo.toml")}]}
         normalized = {"packages": [{"id": "original", "name": "package", "version": "1", "source": None}]}
-        return scope["unit_graph"], (root / "Cargo.toml", host, "1.97.1", "test", raw, normalized, root), sdk
+        return scope["unit_graph"], (root / "Cargo.toml", host, "1.99.0", "test", raw, normalized, root), sdk
 
     def test_explicit_target_joins_cfg_without_instrumenting_host(self):
         function, args, sdk = self.function()
@@ -284,7 +284,7 @@ class Workloads(unittest.TestCase):
 
     def test_changed_llvm_identity_cannot_merge_profiles(self):
         def run(argv, **kwargs):
-            return types.SimpleNamespace(returncode=0, stdout="release: 1.97.1\nLLVM version: 22.1.6\n" if argv[-1] == "-vV" else "LLVM version 21.1.0-rust-1.97.1-stable\n")
+            return types.SimpleNamespace(returncode=0, stdout="release: 1.99.0\nLLVM version: 23.1.1\n" if argv[-1] == "-vV" else "LLVM version 21.1.0-rust-1.99.0-stable\n")
         with self.assertRaisesRegex(ValueError, "same Rust compiler"):
             training.matching_tools("rustc", "profdata", {"PATH": ""}, run)
 
@@ -531,7 +531,7 @@ class PhasedCapture(unittest.TestCase):
         namespace = "tools/bazel/rust/release_pgo/aarch64-apple-darwin"
         attributes = types.SimpleNamespace(sdk=sdk_target, phase="use", trained_profile=Target(namespace,"dataplane_profile"), instrumented_context=Target(namespace,"contexts/dataplane-pgo-generate.json"), _python=Target("tools", "python"), _profdata=Target("tools", "llvm"), tpm_sim=False)
         files = types.SimpleNamespace(**{name: types.SimpleNamespace(path=name) for name in ["_generator","_resolver","_contexts","_units","_native_helper","metadata","source_inputs","runtime_inputs","_training","trained_profile","instrumented_context"]})
-        rust = types.SimpleNamespace(version="1.97.1",exec_triple=types.SimpleNamespace(str="aarch64-apple-darwin"),target_triple=types.SimpleNamespace(str="aarch64-apple-darwin"))
+        rust = types.SimpleNamespace(version="1.99.0",exec_triple=types.SimpleNamespace(str="aarch64-apple-darwin"),target_triple=types.SimpleNamespace(str="aarch64-apple-darwin"))
         ctx = types.SimpleNamespace(attr=attributes,file=files,files=types.SimpleNamespace(_unit_helpers=[]),executable=types.SimpleNamespace(_python="python",_profdata=types.SimpleNamespace(path="llvm")),label=types.SimpleNamespace(name="capture",repo_name="main"),actions=Actions(),toolchains={"@rules_rust//rust:toolchain_type":rust})
         def fail(message):
             raise ValueError(message)
@@ -580,7 +580,7 @@ class SourceTreePresentation(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(body)
         os.chdir(self.original)
-        descriptor = {"version": "1.97.1", "execution_host": "aarch64-apple-darwin",
+        descriptor = {"version": "1.99.0", "execution_host": "aarch64-apple-darwin",
                       "cargo": generate.fact(self.prefix / "cargo"), "rustc": generate.fact(self.prefix / "rustc"),
                       "sdk": [generate.fact(self.prefix / name) for name in ["cargo", "rustc"]],
                       "locks": [generate.fact(self.source / "Cargo.lock")],
@@ -599,7 +599,7 @@ class SourceTreePresentation(unittest.TestCase):
         self.resolver = load("acquisition_sdk")
         def identity(argv, **kwargs):
             self.assertEqual(kwargs["env"], {"PATH": ""})
-            return types.SimpleNamespace(stdout=Path(argv[0]).name + " 1.97.1\nrelease: 1.97.1\nhost: aarch64-apple-darwin\n")
+            return types.SimpleNamespace(stdout=Path(argv[0]).name + " 1.99.0\nrelease: 1.99.0\nhost: aarch64-apple-darwin\n")
         with mock.patch.object(self.resolver.subprocess, "run", side_effect=identity):
             self.sdk = self.resolver.NativeCargoSdk.load(self.descriptor)
         self.addCleanup(self.sdk.close)

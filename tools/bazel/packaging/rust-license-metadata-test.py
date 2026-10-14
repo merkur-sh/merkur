@@ -58,7 +58,7 @@ class OriginalLinkMapDeclarations(unittest.TestCase):
         self.crate = SimpleNamespace(type='bin', is_test=False, output=self.output)
         self.toolchain = SimpleNamespace(target_triple=SimpleNamespace(str='aarch64-apple-darwin'),
             exec_triple=SimpleNamespace(str='aarch64-apple-darwin'), rust_std=['original-std'],
-            rustc='original-rustc', version='1.97.1')
+            rustc='original-rustc', version='1.99.0')
 
     def declaration(self, native=False, wasm=False, metadata_only=False, cc_link=False):
         return self.namespace['declare_link_map'](self.ctx,
@@ -409,7 +409,7 @@ class CompiledRustCustody(unittest.TestCase):
         package = {'id': 'fixture', 'name': 'fixture', 'version': '1.0.0', 'license': 'MIT', 'license_file': None,
                    'repository': None, 'source': None, 'archive_checksum': None, 'authors': [], 'features': {},
                    'description': None, 'homepage': None, 'rust_version': None, 'manifest': None}
-        unit = {'pkg_id': 'fixture', 'dependencies': [], 'features': [], 'compiler': '1.97.1',
+        unit = {'pkg_id': 'fixture', 'dependencies': [], 'features': [], 'compiler': '1.99.0',
                 'platform': 'aarch64-apple-darwin', 'execution_host': 'aarch64-apple-darwin',
                 'mode': 'build', 'emit_cdylib': False, 'profile': profile, 'rust_flags': [],
                 'target': {'name': 'fixture', 'edition': '2024', 'src_path': 'main.rs', 'crate_types': ['bin'], 'kind': ['bin']}}
@@ -420,7 +420,7 @@ class CompiledRustCustody(unittest.TestCase):
         self.descriptor_path.write_text(json.dumps(self.descriptor))
         files = [{'input': str(path), 'label': '//fixture:' + path.name} for path in sorted(self.package.iterdir())]
         record = {'unit': 'selected', 'rule': 'rust_binary', 'dependencies': [], 'aliases': {}, 'features': [],
-                  'version': '1.0.0', 'compiler': {'version': '1.97.1', 'target': 'aarch64-apple-darwin'},
+                  'version': '1.0.0', 'compiler': {'version': '1.99.0', 'target': 'aarch64-apple-darwin'},
                   'crate_name': 'fixture', 'crate_type': 'bin', 'edition': '2024', 'lint_config': None,
                   'rustc_flags': self.units.flags(profile) + ['--check-cfg=cfg(feature,values())', '--cap-lints=allow'],
                   'environment': {'CARGO_PKG_NAME': 'fixture', 'CARGO_PKG_AUTHORS': '', 'CARGO_PKG_DESCRIPTION': '',
@@ -459,7 +459,7 @@ class CompiledRustCustody(unittest.TestCase):
             (self.notices_tree / name).write_bytes(content)
         self.stock_inventory = {
             'kind': 'linked-stdlib-source-attribution', 'producer': '//fixture:u_selected',
-            'compiler': '1.97.1', 'target': self.value['target'], 'execution_host': self.value['target'], 'pending_scopes': [],
+            'compiler': '1.99.0', 'target': self.value['target'], 'execution_host': self.value['target'], 'pending_scopes': [],
             'rustc': self.input_fact(self.compiler, '@stock//:rustc'),
             'artifact': self.input_fact(self.artifact, '//fixture:u_selected'),
             'link_map': self.input_fact(self.mapping, '//fixture:u_selected'),
@@ -710,7 +710,7 @@ class CompiledRustCustody(unittest.TestCase):
         self.assertEqual(calls[0][0], self.value['stdlib_notices'])
         self.assertEqual(selected['artifacts'][0]['path'], 'fixture')
         self.assertEqual(selected['pending_scopes'], [])
-        self.assertIn('rust-stdlib@1.97.1#aarch64-apple-darwin', {item['id'] for item in selected['components']})
+        self.assertIn('rust-stdlib@1.99.0#aarch64-apple-darwin', {item['id'] for item in selected['components']})
 
     def test_pending_foreign_artifact_and_target_stdlib_proofs_refuse(self):
         original = copy.deepcopy(self.stock_inventory)

@@ -184,7 +184,7 @@ def normalize(raw, original, context_manifest):
 
 
 def effective_target_flags(cwd, triple, version, env, *, sdk):
-    """Capture Cargo 1.97.1's target flags without compiling a product unit.
+    """Capture Cargo 1.99.0's target flags without compiling a product unit.
 
     Cargo joins literal-triple flags before sorted matching cfg flags, falls
     back to build flags when that list is empty, and lets encoded/plain flag
@@ -220,7 +220,7 @@ def effective_target_flags(cwd, triple, version, env, *, sdk):
                 value = value[part]
             table[name] = value[name]
 
-    # Rust1.97.1 core Unicode White_Space, not Python's extra U+001C..U+001F.
+    # Rust1.99.0 core Unicode White_Space, not Python's extra U+001C..U+001F.
     whitespace = "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
 
     def flag_list(value):

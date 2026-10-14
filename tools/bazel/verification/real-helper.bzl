@@ -9,7 +9,7 @@ def _runfile(file):
 
 def _inputs_impl(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if rust.version != "1.97.1" or rust.exec_triple.str != rust.target_triple.str:
+    if rust.version != "1.99.0" or rust.exec_triple.str != rust.target_triple.str:
         fail("Real helper tests require a native Rust target and execution toolchain")
     harness = ctx.executable.dataplane_test
     worker = ctx.executable.image_worker

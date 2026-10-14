@@ -403,7 +403,7 @@ def module_linkage(standard, artifact, target, execution_host, records, inputs):
     """Require the existing same-action stdlib callback's concrete link inventory."""
     linkage = standard.get('linkage')
     if (not isinstance(linkage, dict) or linkage.get('kind') != 'linked-stdlib-source-attribution'
-            or linkage.get('compiler') != '1.97.1' or linkage.get('target') != target
+            or linkage.get('compiler') != '1.99.0' or linkage.get('target') != target
             or linkage.get('execution_host') != execution_host
             or linkage.get('artifact') != artifact or linkage.get('pending_scopes') != []):
         raise ValueError('Original same-action module/stdlib linkage inventory required')

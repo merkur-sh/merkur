@@ -2,9 +2,9 @@
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2024",
-    versions = ["1.97.1"],
-    rustfmt_version = "1.97.1",
-    rust_analyzer_version = "1.97.1",
+    versions = ["1.99.0"],
+    rustfmt_version = "1.99.0",
+    rust_analyzer_version = "1.99.0",
     extra_target_triples = ["wasm32-unknown-unknown", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"],
 )
 use_repo(rust, "rust_toolchains")
@@ -20,39 +20,39 @@ acquisition_archive(
 )
 acquisition_archive(
     name = "merkur_worker_compiler_source",
-    urls = ["https://static.rust-lang.org/dist/rustc-1.97.1-src.tar.xz"],
-    sha256 = "0ed06fdaffd4722a7702e0b4eebfafc897ab8f513e8e1b247cdd7e5c6df6ded2",
-    downloaded_file_path = "rustc-1.97.1-src.tar.xz",
+    urls = ["https://static.rust-lang.org/dist/rustc-1.99.0-src.tar.xz"],
+    sha256 = "cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13c83f7036",
+    downloaded_file_path = "rustc-1.99.0-src.tar.xz",
 )
 acquisition_archive(
     name = "merkur_worker_stage0_rustc",
-    urls = ["https://static.rust-lang.org/dist/2026-05-28/rustc-1.96.0-aarch64-apple-darwin.tar.xz"],
-    sha256 = "1bb7b0bad1d2a42fc4173ede6dd460de2774fc1858a8369329d3e081e4e3426c",
-    downloaded_file_path = "rustc-1.96.0-aarch64-apple-darwin.tar.xz",
+    urls = ["https://static.rust-lang.org/dist/2026-08-20/rustc-1.98.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "287edbc2e285b9c23ef7b085413b90cb8539909eda9c4b49f2a55ec0b52819d4",
+    downloaded_file_path = "rustc-1.98.0-aarch64-apple-darwin.tar.xz",
 )
 acquisition_archive(
     name = "merkur_worker_stage0_cargo",
-    urls = ["https://static.rust-lang.org/dist/2026-05-28/cargo-1.96.0-aarch64-apple-darwin.tar.xz"],
-    sha256 = "c042858192b7b6d66fe59b3bbbbd0f6e3cac6e8a478dc4cc091cde9eddea3c8b",
-    downloaded_file_path = "cargo-1.96.0-aarch64-apple-darwin.tar.xz",
+    urls = ["https://static.rust-lang.org/dist/2026-08-20/cargo-1.98.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "2c2a8bbf3cba4353c0ca2cf1ba8280603f3ca82ceebb538fee4a1a987147f743",
+    downloaded_file_path = "cargo-1.98.0-aarch64-apple-darwin.tar.xz",
 )
 acquisition_archive(
     name = "merkur_worker_stage0_std",
-    urls = ["https://static.rust-lang.org/dist/2026-05-28/rust-std-1.96.0-aarch64-apple-darwin.tar.xz"],
-    sha256 = "439c4f71060b913e00db3a2e01340b2da0aa49978b843e36871f3250267c63f8",
-    downloaded_file_path = "rust-std-1.96.0-aarch64-apple-darwin.tar.xz",
+    urls = ["https://static.rust-lang.org/dist/2026-08-20/rust-std-1.98.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "48c05269ed36fb5f0a8438065156891fe59fcb868d90cfed9b7209540d54b2ce",
+    downloaded_file_path = "rust-std-1.98.0-aarch64-apple-darwin.tar.xz",
 )
 acquisition_archive(
     name = "merkur_worker_bootstrap_llvm",
-    urls = ["https://ci-artifacts.rust-lang.org/rustc-builds/8bab26f4f68e0e26f0bb7960be334d5b520ea452/rust-dev-1.97.1-aarch64-apple-darwin.tar.xz"],
-    sha256 = "e0523e176187712723b3c63d52b461cb49e6bb7bb6a59e02ae115c904e409bdf",
-    downloaded_file_path = "rust-dev-1.97.1-aarch64-apple-darwin.tar.xz",
+    urls = ["https://ci-artifacts.rust-lang.org/rustc-builds/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/rust-dev-1.99.0-aarch64-apple-darwin.tar.xz"],
+    sha256 = "8b3d18680d5e78e9672ede086a89725a540ec2ccf360a8251330d52b0bede44b",
+    downloaded_file_path = "rust-dev-1.99.0-aarch64-apple-darwin.tar.xz",
 )
 
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 crate.splicing_config(resolver_version = "3")
 resolution_host = use_extension("@rules_rust//rust:extensions.bzl", "rust_host_tools")
-resolution_host.host_tools(name = "merkur_rust_host_tools", version = "1.97.1", rustfmt_version = "1.97.1")
+resolution_host.host_tools(name = "merkur_rust_host_tools", version = "1.99.0", rustfmt_version = "1.99.0")
 use_repo(resolution_host, "merkur_rust_host_tools")
 # Specialized diagnostic resolution must not alter production versions/features.
 crate.from_cargo(

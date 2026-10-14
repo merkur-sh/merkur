@@ -11,8 +11,8 @@ def _cargo_flag_capture_test_impl(ctx):
     toolchain = ctx.toolchains["@rules_rust//rust:toolchain_type"]
     cargo = toolchain.cargo
     rustc = toolchain.rustc
-    if cargo == None or rustc == None or toolchain.version != "1.97.1":
-        fail("Cargo flag capture controls require the pinned native Rust1.97.1 SDK")
+    if cargo == None or rustc == None or toolchain.version != "1.99.0":
+        fail("Cargo flag capture controls require the pinned native Rust1.99.0 SDK")
     if toolchain.exec_triple.str != toolchain.target_triple.str:
         fail("Cargo flag controls require the exact native execution-host SDK")
     python = ctx.executable._python

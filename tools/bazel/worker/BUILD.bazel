@@ -4,14 +4,14 @@ load(":prepare_compiler.bzl", "prepare_compiler_sources")
 load(":bootstrap_inputs.bzl", "compiler_bootstrap_inputs")
 load("//tools/bazel/packaging:rules.bzl", "package_controls_test")
 package(default_visibility = ["//visibility:public"])
-exports_files(["split-compiler-sdk.py", "split-compiler-sdk-test.py", "qualify-compiler-worker.py","rules_rust-0.74.0.patch", "rustc-1.97.1-deterministic-worker-temporaries.patch", "compiler-patch.json"])
+exports_files(["split-compiler-sdk.py", "split-compiler-sdk-test.py", "qualify-compiler-worker.py","rules_rust-0.74.0.patch", "rustc-1.99.0-deterministic-worker-temporaries.patch", "compiler-patch.json"])
 filegroup(name = "verification_inputs", srcs = glob(["*.rs", "*.patch", "*.py", "*.json", "*.md", "*.bzl", "BUILD.bazel"], allow_empty = True))
 exports_files(["prepare-compiler.py", "bootstrap-inputs.py", "bootstrap-pins.json"])
 prepare_compiler_sources(
     name = "prepared_compiler_sources",
     archive = "@merkur_worker_compiler_source//file",
     pins = "compiler-patch.json",
-    patch = "rustc-1.97.1-deterministic-worker-temporaries.patch",
+    patch = "rustc-1.99.0-deterministic-worker-temporaries.patch",
     git = "//tools/bazel/tools/native:git",
     tags = ["manual"],
     target_compatible_with = ["@platforms//os:osx"],

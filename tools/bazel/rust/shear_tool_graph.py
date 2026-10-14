@@ -28,9 +28,9 @@ def main():
         raise ValueError("Expected the published rules_rust 0.74.0 Darwin ARM generator")
     env = {"PATH": "/usr/bin:/bin", "HOME": str(args.cargo_home), "CARGO_HOME": str(args.cargo_home),
            "CARGO_NET_OFFLINE": "true", "LANG": "C", "LC_ALL": "C"}
-    for tool, command, prefix in [(cargo, ["--version"], "cargo 1.97.1 "), (rustc, ["-vV"], "rustc 1.97.1 ")]:
+    for tool, command, prefix in [(cargo, ["--version"], "cargo 1.99.0 "), (rustc, ["-vV"], "rustc 1.99.0 ")]:
         if not subprocess.check_output([str(tool), *command], env=env, text=True).startswith(prefix):
-            raise ValueError("Expected the pinned Rust 1.97.1 resolution SDK")
+            raise ValueError("Expected the pinned Rust 1.99.0 resolution SDK")
     with tempfile.TemporaryDirectory(prefix="merkur-shear-tool-resolution-") as directory:
         work = Path(directory)
         # This adapter only scopes introspection metadata to the admitted native

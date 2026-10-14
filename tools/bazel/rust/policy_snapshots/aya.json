@@ -1,13 +1,13 @@
 {
   "inputs": {
-    "Cargo.toml": "c2e9bb47c877efaeab0e8c2524e83f2f532b357b8edf6ba34c627d89df067787",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/policy_snapshots.py": "5d3217f51cb692dd9992190add8827ca72453fe26e4855476a55bc8fac2e1801",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/policy_snapshots.py": "45ce68244e85d713c844a5aa9fc252ecedb516ee59a2e4802e4cdadb005873bb",
     "tools/edge-kernel-profile/Cargo.lock": "7cb99f14dae5238fecc56f1770889a9a03071b6f048ab7f976f0541a88a69603",
-    "tools/edge-kernel-profile/Cargo.toml": "5856c6ad84c1ebe812aa9959afcd9303e4affef97bfdf7b68c60f84e13f79317"
+    "tools/edge-kernel-profile/Cargo.toml": "782936fdd61232f8bb73ba0aff0299b022a4c660dc44f9b042486b04077326ef"
   },
   "metadata": {
-    "build_directory": "__MERKUR_WORKSPACE__/target/rust",
+    "build_directory": "/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-52cgbx9i/merkur-declared-cargo-5ceur5q9/metadata-target",
     "merkur_registry_index": [
       {
         "checksum": "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9",
@@ -10211,7 +10211,7 @@
       ],
       "root": "path+file://__MERKUR_WORKSPACE__/tools/edge-kernel-profile#merkur-edge-kernel-profile@0.1.0"
     },
-    "target_directory": "__MERKUR_WORKSPACE__/target/rust",
+    "target_directory": "/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-52cgbx9i/merkur-declared-cargo-5ceur5q9/metadata-target",
     "version": 1,
     "workspace_default_members": [
       "path+file://__MERKUR_WORKSPACE__/tools/edge-kernel-profile#merkur-edge-kernel-profile@0.1.0"

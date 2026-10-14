@@ -53,7 +53,7 @@ class AttributionTests(unittest.TestCase):
                 carrier.symlink_to(original)
             cls.stdlib.append({'path': logical, 'label': row['label']})
         cls.request = {
-            'producer': '//fixture:program', 'compiler': '1.97.1',
+            'producer': '//fixture:program', 'compiler': '1.99.0',
             'target': 'aarch64-apple-darwin', 'execution_host': 'aarch64-apple-darwin',
             'rustc': {'path': 'original/rustc', 'label': '//fixture:actual_rustc'},
             'artifact': {'path': 'original/program', 'label': '//fixture:program'},

@@ -23,8 +23,8 @@ def load(name, filename):
     return module
 
 
-SOURCE_SHA256 = '0ed06fdaffd4722a7702e0b4eebfafc897ab8f513e8e1b247cdd7e5c6df6ded2'
-VERSION = '1.97.1'
+SOURCE_SHA256 = 'cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13c83f7036'
+VERSION = '1.99.0'
 PREFIX = 'rustc-' + VERSION + '-src/'
 NATIVE_TARGETS = ('aarch64-apple-darwin', 'x86_64-apple-darwin',
                   'aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu')
@@ -34,14 +34,14 @@ SOURCE_MEMBERS = ('LICENSE-MIT', 'LICENSE-APACHE', 'COPYRIGHT', 'REUSE.toml',
                   'license-metadata.json', 'library/Cargo.lock', 'library/Cargo.toml',
                   'library/std/Cargo.toml', 'src/version', 'src/ci/channel')
 DISTRIBUTIONS = {
-    'aarch64-apple-darwin': ('a4895f5c6995e83cab8687e46b14324592398049def71ce75ca308c981cf200d', '6076cad38ccabaa24325f26a74080a363a2633a9cd34c473a8977255d8a593cb'),
-    'x86_64-apple-darwin': ('0fa78653023be5bdfeb419edc82e3b1346ccaa23eaa036491cce084101c741dd', '3c38289f319bf02fa1c8149ce3e00f261e4efd14813a99f7f7ae4f180c7d1173'),
-    'aarch64-unknown-linux-gnu': ('46aed8e63186350004d8ec6afca798811e6530b514352e5a8a26f3dc4939b3be', 'b344b81f0cd4c2246c7da8b197fe7a339d7dd02bb15cb69b2524115d9c75224c'),
-    'x86_64-unknown-linux-gnu': ('1c1e704ae80126b7de34f72ea2825f7fd01736dec20732faed47374b95282fba', '9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819'),
+    'aarch64-apple-darwin': ('a7c6de8aa21e7c31163a7656295b321bb85f5dce55ed8ea95ac9ac561202bb5b', '334a66714ca316d71bbe5efe44f71762d0b276cea73be2987374693a837f7450'),
+    'x86_64-apple-darwin': ('18ee81961a73c3ae966ecb1e8f6096438c90aeefece8856201a6ecc17f5bc850', '7460910254f059b49b99ee3ddbcf7197d16b9505b59c166e14a1465ee323a81d'),
+    'aarch64-unknown-linux-gnu': ('1cf7e2ef58ed1cfa6f1adea18e155cbf254c1951f39e5f5e3376879f55fd64a4', '89c0f1a3a44df63c95e5d5f2ba093d0a12c5f5f57f8635f8a7a0ce50cf86600e'),
+    'x86_64-unknown-linux-gnu': ('3e58dff2d0b72196b5ea4e90536e174d400de88564a52694686b81e091169933', '77171ba2a0345fdf2abc4fedda55d6de078dae7a68527c28be8c77dcc9604bd5'),
 }
 
 STDLIB_DISTRIBUTIONS = {target: pins[0] for target, pins in DISTRIBUTIONS.items()}
-STDLIB_DISTRIBUTIONS[WASM_TARGET] = 'fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b'
+STDLIB_DISTRIBUTIONS[WASM_TARGET] = 'b760b0c9b08a6843c05de0098bd6802e23178ff473c4715ae57c1d679125bf22'
 
 
 def unique_object(pairs):
@@ -81,7 +81,7 @@ def fact(data):
 
 def source_members(data):
     if hashlib.sha256(data).hexdigest() != SOURCE_SHA256:
-        raise ValueError('Original Rust1.97.1 source archive SHA mismatch')
+        raise ValueError('Original Rust1.99.0 source archive SHA mismatch')
     wanted = set(SOURCE_MEMBERS)
     result = {}
     with tarfile.open(fileobj=io.BytesIO(data), mode='r:xz') as archive:

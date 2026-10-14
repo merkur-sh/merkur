@@ -65,8 +65,8 @@ def main():
     identities = {}
     for name, executable in [("cargo", cargo), ("rustc", rustc)]:
         result = subprocess.run([str(executable), "-vV"], env=base_env, check=True, capture_output=True, text=True)
-        if "release: 1.97.1" not in result.stdout.splitlines():
-            raise AssertionError("Qualification requires exact Cargo/rustc 1.97.1")
+        if "release: 1.99.0" not in result.stdout.splitlines():
+            raise AssertionError("Qualification requires exact Cargo/rustc 1.99.0")
         identities[name] = {"sha256": hashlib.sha256(executable.read_bytes()).hexdigest(), "version": result.stdout}
     spec = importlib.util.spec_from_file_location("captured_contexts", args.contexts)
     if spec is None or spec.loader is None:
@@ -81,7 +81,7 @@ def main():
     spec.loader.exec_module(contexts)
     sdk_inputs = json.loads(args.sdk_inputs.read_text())
     sdk = sdk_module.NativeCargoSdk({
-        "version": "1.97.1", "execution_host": sdk_inputs["execution_host"],
+        "version": "1.99.0", "execution_host": sdk_inputs["execution_host"],
         "cargo": sdk_module.file_fact(cargo), "rustc": sdk_module.file_fact(rustc),
         "sdk": [sdk_module.file_fact(args.runfiles_root / path) for path in sdk_inputs["files"]],
         "locks": [], "registry": {"directory": None, "packages": [], "files": []},
@@ -133,7 +133,7 @@ def main():
             error = None
             with patch.object(contexts.subprocess, "run", declared_run):
                 try:
-                    actual = contexts.effective_target_flags(directory, triple, "1.97.1", env, sdk=sdk)
+                    actual = contexts.effective_target_flags(directory, triple, "1.99.0", env, sdk=sdk)
                 except ValueError as failure:
                     error = str(failure)
                     actual = None
@@ -150,7 +150,7 @@ def main():
                 args.evidence.mkdir(parents=True, exist_ok=True)
                 (args.evidence / (name + ".unit-graph.json")).write_text(oracle.stdout)
                 (args.evidence / (name + ".cargo.log")).write_text(oracle.stderr)
-    receipt = {"scope": "Actual native Cargo1.97.1 read-only unit-graph qualification; no product compile", "identities": identities, "contexts_sha256": hashlib.sha256(args.contexts.read_bytes()).hexdigest(), "results": results}
+    receipt = {"scope": "Actual native Cargo1.99.0 read-only unit-graph qualification; no product compile", "identities": identities, "contexts_sha256": hashlib.sha256(args.contexts.read_bytes()).hexdigest(), "results": results}
     if args.evidence:
         (args.evidence / "result.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print(json.dumps({"native_cases": len(results), "matched": sum(row["refused"] is None for row in results), "explicit_refusals": sum(row["refused"] is not None for row in results)}))

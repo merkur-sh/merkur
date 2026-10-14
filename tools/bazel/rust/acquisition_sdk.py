@@ -16,7 +16,7 @@ NATIVE_HOSTS = {
     "aarch64-apple-darwin", "x86_64-apple-darwin",
     "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu",
 }
-VERSION = "1.97.1"
+VERSION = "1.99.0"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 
 
@@ -52,7 +52,7 @@ class NativeCargoSdk:
         }:
             raise ValueError("invalid declared native acquisition descriptor")
         if descriptor["version"] != VERSION or not isinstance(descriptor["execution_host"], str) or descriptor["execution_host"] not in NATIVE_HOSTS:
-            raise ValueError("acquisition requires an admitted native Rust1.97.1 SDK")
+            raise ValueError("acquisition requires an admitted native Rust1.99.0 SDK")
         self._namespace = None
         if _descriptor_path is not None:
             declared = Path(_descriptor_path)

@@ -7,8 +7,8 @@ def _runfile(file):
 
 def _impl(ctx):
     toolchain = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if toolchain.version != "1.97.1" or toolchain.exec_triple.str not in ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"] or toolchain.target_triple.str != toolchain.exec_triple.str:
-        fail("Pipeline controls require their original matching native Rust1.97.1 toolchain")
+    if toolchain.version != "1.99.0" or toolchain.exec_triple.str not in ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"] or toolchain.target_triple.str != toolchain.exec_triple.str:
+        fail("Pipeline controls require their original matching native Rust1.99.0 toolchain")
     python = ctx.attr.python[DefaultInfo].files_to_run.executable
     wrapper = ctx.executable.wrapper
     anchor = toolchain.sysroot_anchor

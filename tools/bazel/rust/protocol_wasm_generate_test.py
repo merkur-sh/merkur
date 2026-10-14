@@ -23,7 +23,7 @@ class ProtocolGraphTests(unittest.TestCase):
     def setUp(self):
         self.document = json.loads(arguments.context.read_text())
         self.provenance = json.loads(arguments.provenance.read_text())
-        self.sdk = SimpleNamespace(host="aarch64-apple-darwin", require_locks=Mock(), descriptor={"version": "1.97.1"})
+        self.sdk = SimpleNamespace(host="aarch64-apple-darwin", require_locks=Mock(), descriptor={"version": "1.99.0"})
         self.graph = self.document["unit_graphs"]["wasm32-unknown-unknown"]["test-release"]
         self.root = self.graph["units"][self.graph["roots"][0]]
         self.oracle = SimpleNamespace(resolve=Mock(return_value={}),
@@ -45,7 +45,7 @@ class ProtocolGraphTests(unittest.TestCase):
         self.assertEqual(self.root["features"], ["wasm"])
         self.assertEqual(self.root["mode"], "test")
         self.oracle.unit_graph.assert_called_once_with(
-            arguments.source_root / "Cargo.toml", "wasm32-unknown-unknown", "1.97.1", "test",
+            arguments.source_root / "Cargo.toml", "wasm32-unknown-unknown", "1.99.0", "test",
             {}, self.document["contexts"]["wasm32-unknown-unknown"],
             arguments.source_root / "packages/e2e-wasm", features=["wasm"], library=True,
             sdk=self.sdk, release=True, package="merkur-e2e", no_default_features=True)

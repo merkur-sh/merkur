@@ -22,8 +22,8 @@ def matching_tools(rustc, profdata, environment, run=subprocess.run):
     if compiler.returncode or llvm.returncode:
         raise ValueError("The configured Rust compiler and LLVM profile tool must execute")
     fields = dict(line.split(": ", 1) for line in compiler.stdout.splitlines() if ": " in line)
-    if fields.get("release") != "1.97.1" or fields.get("LLVM version") != "22.1.6":
-        raise ValueError("Release PGO requires the pinned Rust1.97.1 compiler")
+    if fields.get("release") != "1.99.0" or fields.get("LLVM version") != "23.1.1":
+        raise ValueError("Release PGO requires the pinned Rust1.99.0 compiler")
     version = "LLVM version " + fields["LLVM version"] + "-rust-" + fields["release"] + "-stable"
     if version not in [line.strip() for line in llvm.stdout.splitlines()]:
         raise ValueError("Release PGO must merge with the same Rust compiler's LLVM")

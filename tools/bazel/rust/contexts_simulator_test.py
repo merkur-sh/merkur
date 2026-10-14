@@ -23,7 +23,7 @@ class DeclaredFixtureSdk:
     host = "aarch64-apple-darwin"
 
     def command(self, tool, version):
-        if version != "1.97.1":
+        if version != "1.99.0":
             raise ValueError("foreign fixture compiler")
         return ["/declared/sdk/bin/" + tool]
 
@@ -94,7 +94,7 @@ class SimulatorContextsTests(unittest.TestCase):
 
     def test_original_metadata_is_offline_locked_and_has_fixed_simulator_cfg(self):
         with patch.object(contexts.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0, stdout='{}')) as run:
-            contexts.resolve(self.source / 'manifest.toml', DeclaredFixtureSdk.host, '1.97.1', False,
+            contexts.resolve(self.source / 'manifest.toml', DeclaredFixtureSdk.host, '1.99.0', False,
                              sdk=DeclaredFixtureSdk(), rust_flags=contexts.SIMULATOR_FLAGS)
         command = run.call_args.args[0]
         self.assertIn('--offline', command)
@@ -107,7 +107,7 @@ class SimulatorContextsTests(unittest.TestCase):
         flags = {'rustflags': contexts.SIMULATOR_FLAGS, 'rustdocflags': []}
         with patch.object(contexts.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0, stdout=json.dumps(self.oracle))) as run, \
              patch.object(contexts, 'effective_target_flags', return_value=flags) as effective:
-            graph = contexts.unit_graph(self.source / 'manifest.toml', DeclaredFixtureSdk.host, '1.97.1', 'test',
+            graph = contexts.unit_graph(self.source / 'manifest.toml', DeclaredFixtureSdk.host, '1.99.0', 'test',
                                         self.raw, self.normalized, self.root, sdk=DeclaredFixtureSdk(),
                                         release=True, rust_flags=contexts.SIMULATOR_FLAGS)
         command = run.call_args.args[0]
@@ -143,7 +143,7 @@ class SimulatorContextsTests(unittest.TestCase):
         with patch.object(contexts, 'resolve', return_value=self.raw) as resolve, \
              patch.object(contexts, 'normalize', return_value=normalized), \
              patch.object(contexts, 'unit_graph', return_value=graph) as capture:
-            document = contexts.capture_simulator(sdk, '1.97.1', self.production)
+            document = contexts.capture_simulator(sdk, '1.99.0', self.production)
         sdk.require_locks.assert_called_once_with([self.root / 'Cargo.lock', self.source / 'Cargo.lock'])
         self.assertFalse(resolve.call_args.kwargs['refresh'] if 'refresh' in resolve.call_args.kwargs else resolve.call_args.args[3])
         self.assertTrue(capture.call_args.kwargs['release'])
@@ -160,7 +160,7 @@ class SimulatorContextsTests(unittest.TestCase):
         flags = {'rustflags': [], 'rustdocflags': []}
         with patch.object(contexts.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0, stdout=json.dumps(self.oracle))) as run, \
              patch.object(contexts, 'effective_target_flags', return_value=flags):
-            contexts.unit_graph(self.source / 'manifest.toml', DeclaredFixtureSdk.host, '1.97.1', 'test',
+            contexts.unit_graph(self.source / 'manifest.toml', DeclaredFixtureSdk.host, '1.99.0', 'test',
                                 self.raw, self.normalized, self.root, sdk=DeclaredFixtureSdk())
         self.assertNotIn('--release', run.call_args.args[0])
         self.assertNotIn('RUSTFLAGS', run.call_args.kwargs['env'])
@@ -185,7 +185,7 @@ class RefreshPlanTests(unittest.TestCase):
             production = {'workspace': {'members': [], 'lints': {}}, 'patch': {}}
             (root / 'Cargo.toml').write_text(contexts.toml_text(production))
             (root / 'Cargo.lock').write_text('version = 4\npackage = []\n')
-            (root / 'rust-toolchain.toml').write_text('[toolchain]\nchannel = "1.97.1"\n')
+            (root / 'rust-toolchain.toml').write_text('[toolchain]\nchannel = "1.99.0"\n')
             for name in ['.cargo/config.toml', 'tools/bazel/rust/metadata.json', 'tools/bazel/rust/contexts.py', 'tools/bazel/rust/acquisition_sdk.py']:
                 file = root / name
                 file.parent.mkdir(parents=True, exist_ok=True)

@@ -49,8 +49,10 @@ def original_configuration(archive, identity):
             if stream is None:
                 raise ValueError("Rolldown original configuration File is absent")
             result[name] = stream.read()
-    if tomllib.loads(result["rust-toolchain.toml"].decode())["toolchain"]["channel"] != identity["compiler_version"] or json.loads(result["packages/rolldown/package.json"])["version"] != identity["package_version"]:
-        raise ValueError("Rolldown source compiler or published package identity differs")
+    # Upstream's toolchain pin is recorded and checked as a fact of the archive; Rolldown is
+    # built with the workspace SDK, `compiler_version`, which need not equal it.
+    if tomllib.loads(result["rust-toolchain.toml"].decode())["toolchain"]["channel"] != identity["upstream_toolchain"] or json.loads(result["packages/rolldown/package.json"])["version"] != identity["package_version"]:
+        raise ValueError("Rolldown source toolchain or published package identity differs")
     return result
 
 

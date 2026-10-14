@@ -110,7 +110,7 @@ class SimulatorGeneratorTests(unittest.TestCase):
         original_directory = self.root / "unrelated-global-contexts"
         contexts = SimpleNamespace(ROOT=self.root / "foreign", DIRECTORY=original_directory)
         def capture(sdk, version, production):
-            self.assertEqual(version, "1.97.1")
+            self.assertEqual(version, "1.99.0")
             self.assertEqual(contexts.ROOT, self.root)
             self.assertNotEqual(contexts.DIRECTORY, original_directory)
             directory = contexts.DIRECTORY / "merkur-sim/simulator-test/native"
@@ -274,7 +274,7 @@ class SimulatorGeneratorTests(unittest.TestCase):
         ctx = SimpleNamespace(attr=attrs, file=SimpleNamespace(**files), files=SimpleNamespace(_unit_helpers=[], simulator_sources=[original]),
                               executable=SimpleNamespace(_python=SimpleNamespace(path="declared/python")), label=SimpleNamespace(repo_name="", name="capture"),
                               actions=SimpleNamespace(declare_directory=lambda name: output, run=lambda **fields: actions.append(fields)),
-                              toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.97.1", exec_triple=SimpleNamespace(str=HOST), target_triple=SimpleNamespace(str=HOST))})
+                              toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.99.0", exec_triple=SimpleNamespace(str=HOST), target_triple=SimpleNamespace(str=HOST))})
         def fail(message): raise ValueError(message)
         symbols = {"CargoAcquisitionSdkInfo": "sdk", "NativeVerificationToolInfo": native_tool, "DefaultInfo": default,
                    "fail": fail, "depset": lambda direct, transitive=(): SimpleNamespace(direct=direct, transitive=transitive)}
@@ -345,7 +345,7 @@ class SimulatorGeneratorTests(unittest.TestCase):
         target = SimpleNamespace(label=SimpleNamespace(repo_name="", package="tools/sim", name="sources"))
         ctx = SimpleNamespace(attr=SimpleNamespace(sdk={"sdk": sdk}, simulator_sources=target, _biome={"biome": SimpleNamespace(member="biome")}),
                               files=SimpleNamespace(simulator_sources=[original]), label=SimpleNamespace(repo_name=""),
-                              toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.97.1", exec_triple=SimpleNamespace(str=HOST), target_triple=SimpleNamespace(str=HOST))})
+                              toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.99.0", exec_triple=SimpleNamespace(str=HOST), target_triple=SimpleNamespace(str=HOST))})
         rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
         hosts = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
         for host in hosts:
@@ -356,20 +356,20 @@ class SimulatorGeneratorTests(unittest.TestCase):
                 for other in hosts:
                     if other != host:
                         rust.target_triple.str = other
-                        with self.assertRaisesRegex(ValueError, "Rust1.97.1"):
+                        with self.assertRaisesRegex(ValueError, "Rust1.99.0"):
                             symbols["_capture_impl"](ctx)
                 rust.target_triple.str = host
         for host in ["wasm32-unknown-unknown", "x86_64-pc-windows-msvc"]:
             rust.exec_triple.str = host
             rust.target_triple.str = host
-            with self.assertRaisesRegex(ValueError, "Rust1.97.1"):
+            with self.assertRaisesRegex(ValueError, "Rust1.99.0"):
                 symbols["_capture_impl"](ctx)
         rust.exec_triple.str = HOST
         rust.target_triple.str = HOST
         rust.version = "1.96.0"
-        with self.assertRaisesRegex(ValueError, "Rust1.97.1"):
+        with self.assertRaisesRegex(ValueError, "Rust1.99.0"):
             symbols["_capture_impl"](ctx)
-        rust.version = "1.97.1"
+        rust.version = "1.99.0"
         ctx.attr._biome["biome"].member = "foreign"
         with self.assertRaisesRegex(ValueError, "declared native Biome"):
             symbols["_capture_impl"](ctx)

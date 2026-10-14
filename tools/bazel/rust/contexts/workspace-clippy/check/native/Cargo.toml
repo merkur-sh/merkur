@@ -40,8 +40,9 @@ exclude = [
 # excused.
 [workspace.lints.rust]
 # Only the isolated Bolero workspace enables these test-source markers; `cargo kani`
-# sets `kani` there.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)"] }
+# sets `kani` there. Only the simulator's generated workspace (`tools/sim`) sets
+# `merkur_sim`.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)", "cfg(merkur_sim)"] }
 
 [workspace.lints.clippy]
 allow_attributes = "warn"
@@ -53,6 +54,33 @@ debug_assert_with_mut_call = "warn"
 # rather than packing them into single-use structs; 65 per-function suppressions said so
 # one at a time.
 too_many_arguments = "allow"
+# A `dbg!` left in prints to stderr from a shipped binary.
+dbg_macro = "warn"
+# `todo!` is a panic standing in for code that was never written.
+todo = "warn"
+# `unimplemented!` is the same panic under a name that reads as deliberate.
+unimplemented = "warn"
+# A private function that always returns `Some`/`Ok` makes every caller handle a failure
+# that cannot happen.
+unnecessary_wraps = "warn"
+# An `async fn` with no await is a state machine and a poll around a plain call.
+unused_async = "warn"
+# A `panic!` or assertion in a function that returns `Result` aborts where the caller
+# was promised an error.
+panic_in_result_fn = "warn"
+# Every `unsafe` block and `unsafe impl` states the invariant that makes it sound.
+undocumented_unsafe_blocks = "warn"
+# One unsafe operation per block, so each `// SAFETY:` comment answers for exactly one.
+multiple_unsafe_ops_per_block = "warn"
+# `mem::forget` leaks without saying so; `ManuallyDrop` names the value that is kept.
+mem_forget = "warn"
+# A loop with no exit in a function that claims to return hides that it never does.
+infinite_loop = "warn"
+# A clone of a value that is never used again is an allocation and a copy for nothing.
+redundant_clone = "warn"
+# `clippy.toml` lists the timer calls. They are allowed here and denied by each module on a
+# latency path, at the head of its file, so the rule is read where it holds.
+disallowed_methods = "allow"
 
 # `wtransport-patch`, `quinn-patch` and `quinn-proto-patch` are deliberately NOT workspace
 # members, unlike the two vendored crates above. A member is a resolution root,

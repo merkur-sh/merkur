@@ -127,6 +127,10 @@
 ["features"]
 "tpm-sim" = ["merkur-identity-seal/tpm-sim"]
 
+["lib"]
+"doctest" = false
+"path" = "../../../../../../../apps/daemon/dataplane/src/lib.rs"
+
 ["package"]
 "autobenches" = false
 "autobins" = false
@@ -370,6 +374,13 @@
 ["profile"."test"."package"."zstd-fixture"]
 "debug" = "line-tables-only"
 "opt-level" = 1
+
+["target"]
+
+["target"."cfg(merkur_sim)"]
+
+["target"."cfg(merkur_sim)"."dependencies"]
+"anyhow" = "1"
 
 ["workspace"]
 "resolver" = "3"

@@ -92,9 +92,9 @@ def capture(contexts, sdk, root, inputs, phase, flag, tpm_sim=False):
     contexts.ROOT = root
     manifest = root / "Cargo.toml"
     features = [PACKAGE + "/tpm-sim"] if tpm_sim else []
-    raw = contexts.resolve(manifest, sdk.host, "1.97.1", False, sdk=sdk, features=features)
+    raw = contexts.resolve(manifest, sdk.host, "1.99.0", False, sdk=sdk, features=features)
     metadata = contexts.normalize(raw, manifest, manifest)
-    graph = contexts.unit_graph(manifest, sdk.host, "1.97.1", "test" if phase == "generate" else "release",
+    graph = contexts.unit_graph(manifest, sdk.host, "1.99.0", "test" if phase == "generate" else "release",
                                 raw, metadata, root, sdk=sdk, release=True, package=PACKAGE,
                                 features=["tpm-sim"] if tpm_sim else [], explicit_target=True,
                                 target_rust_flags=[flag])

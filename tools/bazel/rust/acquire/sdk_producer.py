@@ -116,8 +116,8 @@ def prepare(request, *, registry_only=False, expand_archives=True):
         "producer", "version", "execution_host", "cargo", "rustc", "sdk", "sources", "locks", "archives",
     }:
         raise ValueError("invalid configured acquisition request")
-    if request["version"] != "1.97.1":
-        raise ValueError("acquisition producer requires pinned Rust1.97.1")
+    if request["version"] != "1.99.0":
+        raise ValueError("acquisition producer requires pinned Rust1.99.0")
     if not isinstance(request["producer"], str) or not request["producer"].startswith(("//", "@@//")):
         raise ValueError("producer must be a configured target label")
     if any(not isinstance(request[key], list) for key in ["sdk", "sources", "archives"]):

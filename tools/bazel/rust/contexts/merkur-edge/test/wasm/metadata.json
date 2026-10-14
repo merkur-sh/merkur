@@ -12552,6 +12552,13 @@
           "targets": [
             {
               "kind": [
+                "lib"
+              ],
+              "name": "merkur_edge",
+              "source": "apps/edge/src/lib.rs"
+            },
+            {
+              "kind": [
                 "bin"
               ],
               "name": "bulk_competitor",
@@ -12891,21 +12898,21 @@
   },
   "generated_inputs": {
     "Cargo.lock": "26b7343a5715105a69b57e47109082d0211fc75fc2376b4f4cc389e4fd248dbb",
-    "Cargo.toml": "51612c8db9086abc080a57370dbd5747f9de8b16f1073f025e6eee93ce989e43"
+    "Cargo.toml": "ed346d515c6f19beba27735defdd7af594ecccb831a6b65c2a7ad7f326ef326b"
   },
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "1aa18a427e44a25625ebc653eea7b7af34cca78a059585a2d60593f39598891b",
-    "Cargo.toml": "f4ced77541757ceb8e6393f8e8fc908aeb8eaeda5fada6114750339cc5cb55c8",
+    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "apps/edge/Cargo.toml": "e90db571dc5fdecf15daa0e60b76f6a2a1387652c5e057d873f7cd2de83ce589",
     "packages/merkur-edge-protocol/Cargo.toml": "f26b3e31d61d431641ba770a5357da1407d7bb7009dbcc848624adf436b5de57",
     "packages/quinn-patch/Cargo.toml": "9b8086637dfb9c75b32f5f1873ad992ee091a92ea5e4a8f1e29a258e7706b688",
     "packages/quinn-proto-patch/Cargo.toml": "3fae039f382d52ec9add2be3c4d2d1b3f5368f1655835f4c3711a333d10acc35",
     "packages/wtransport-patch/Cargo.toml": "cd67f50f4c2e8b3620953e5a0eb84c005399ce7c3ce6de053531aa290a8d91b1",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/acquisition_sdk.py": "b3e9b8cec5d063858ae3d410234a1e1615ee6c414f4a7929f2b0b44984dc4d26",
-    "tools/bazel/rust/contexts.py": "8ba45450300787471818259589fad9726b336eb0e825f01546ba31962540dd3d",
-    "tools/bazel/rust/metadata.json": "1d1d2d1d714705b3d9b4bb45fbe493f862c5bc61244daa7fa883de10679e2549"
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
+    "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
+    "tools/bazel/rust/metadata.json": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9"
   },
   "mode": "test",
   "package": "merkur-edge",
@@ -12916,11 +12923,13 @@
         "execution_host": "aarch64-apple-darwin",
         "roots": [
           71,
-          72,
           73,
           74,
           75,
-          76
+          76,
+          77,
+          78,
+          79
         ],
         "units": [
           {
@@ -13096,35 +13105,35 @@
               },
               {
                 "extern_crate_name": "nom",
-                "index": 80,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "num_traits",
-                "index": 86,
+                "index": 89,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rusticata_macros",
-                "index": 139,
+                "index": 142,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "time",
-                "index": 177,
+                "index": 180,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13181,28 +13190,28 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "synstructure",
-                "index": 171,
+                "index": 174,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13251,21 +13260,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13314,21 +13323,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 169,
+                "index": 172,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13664,7 +13673,7 @@
               },
               {
                 "extern_crate_name": "shlex",
-                "index": 162,
+                "index": 165,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13805,7 +13814,7 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 129,
+                "index": 132,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14017,28 +14026,28 @@
               },
               {
                 "extern_crate_name": "nom",
-                "index": 80,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "num_bigint",
-                "index": 82,
+                "index": 85,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "num_traits",
-                "index": 86,
+                "index": 89,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rusticata_macros",
-                "index": 139,
+                "index": 142,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14212,21 +14221,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 169,
+                "index": 172,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14363,7 +14372,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "percent_encoding",
-                "index": 105,
+                "index": 108,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14637,21 +14646,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 169,
+                "index": 172,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14837,14 +14846,14 @@
               },
               {
                 "extern_crate_name": "pin_project_lite",
-                "index": 106,
+                "index": 109,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "slab",
-                "index": 163,
+                "index": 166,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14922,7 +14931,7 @@
               },
               {
                 "extern_crate_name": "wasm_bindgen",
-                "index": 198,
+                "index": 201,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15150,14 +15159,14 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 129,
+                "index": 132,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wasm_bindgen",
-                "index": 198,
+                "index": 201,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15420,7 +15429,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "typenum",
-                "index": 192,
+                "index": 195,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15479,35 +15488,35 @@
               },
               {
                 "extern_crate_name": "potential_utf",
-                "index": 107,
+                "index": 110,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "utf8_iter",
-                "index": 197,
+                "index": 200,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "yoke",
-                "index": 216,
+                "index": 219,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerofrom",
-                "index": 221,
+                "index": 224,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerovec",
-                "index": 225,
+                "index": 228,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15573,21 +15582,21 @@
               },
               {
                 "extern_crate_name": "tinystr",
-                "index": 181,
+                "index": 184,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "writeable",
-                "index": 211,
+                "index": 214,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerovec",
-                "index": 225,
+                "index": 228,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15662,14 +15671,14 @@
               },
               {
                 "extern_crate_name": "smallvec",
-                "index": 164,
+                "index": 167,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerovec",
-                "index": 225,
+                "index": 228,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15903,14 +15912,14 @@
               },
               {
                 "extern_crate_name": "zerotrie",
-                "index": 224,
+                "index": 227,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerovec",
-                "index": 225,
+                "index": 228,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16123,35 +16132,35 @@
               },
               {
                 "extern_crate_name": "writeable",
-                "index": 211,
+                "index": 214,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "yoke",
-                "index": 216,
+                "index": 219,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerofrom",
-                "index": 221,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "zerotrie",
                 "index": 224,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "zerotrie",
+                "index": 227,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "zerovec",
-                "index": 225,
+                "index": 228,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16212,14 +16221,14 @@
               },
               {
                 "extern_crate_name": "smallvec",
-                "index": 164,
+                "index": 167,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "utf8_iter",
-                "index": 197,
+                "index": 200,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16447,7 +16456,7 @@
               },
               {
                 "extern_crate_name": "wasm_bindgen",
-                "index": 198,
+                "index": 201,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16745,7 +16754,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "scopeguard",
-                "index": 149,
+                "index": 152,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16891,7 +16900,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "regex_automata",
-                "index": 132,
+                "index": 135,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -17012,112 +17021,651 @@
               },
               {
                 "extern_crate_name": "merkur_edge_protocol",
-                "index": 77,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_appender_tracing",
-                "index": 95,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_otlp",
                 "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "opentelemetry_sdk",
-                "index": 99,
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "parking_lot",
+                "extern_crate_name": "opentelemetry_otlp",
                 "index": 100,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_opentelemetry",
-                "index": 190,
+                "index": 193,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_subscriber",
-                "index": 191,
+                "index": 194,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wtransport",
-                "index": 212,
+                "index": 215,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              }
+            ],
+            "features": [],
+            "mode": "test",
+            "pkg_id": "workspace:apps/edge",
+            "platform": "wasm32-unknown-unknown",
+            "profile": {
+              "codegen_backend": null,
+              "codegen_units": null,
+              "debug_assertions": true,
+              "debuginfo": "line-tables-only",
+              "incremental": true,
+              "lto": "false",
+              "name": "test",
+              "opt_level": "1",
+              "overflow_checks": true,
+              "panic": "unwind",
+              "rpath": false,
+              "split_debuginfo": null,
+              "strip": {
+                "deferred": "None"
+              }
+            },
+            "rust_flags": [
+              "--cfg",
+              "getrandom_backend=\"wasm_js\""
+            ],
+            "target": {
+              "crate_types": [
+                "lib"
+              ],
+              "doc": true,
+              "doctest": true,
+              "edition": "2024",
+              "kind": [
+                "lib"
+              ],
+              "name": "merkur_edge",
+              "src_path": "apps/edge/src/lib.rs",
+              "test": true
+            }
+          },
+          {
+            "dependencies": [
+              {
+                "extern_crate_name": "base64",
+                "index": 9,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "bytes",
+                "index": 12,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "libc",
+                "index": 62,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "merkur_edge_protocol",
+                "index": 80,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry",
+                "index": 97,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_otlp",
+                "index": 100,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "reqwest",
+                "index": 137,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "ring",
+                "index": 138,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "rustls",
+                "index": 143,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "serde",
+                "index": 153,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "serde_json",
+                "index": 160,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tokio",
+                "index": 187,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing",
+                "index": 189,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing_opentelemetry",
+                "index": 193,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing_subscriber",
+                "index": 194,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "wtransport",
+                "index": 215,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              }
+            ],
+            "features": [],
+            "mode": "build",
+            "pkg_id": "workspace:apps/edge",
+            "platform": "wasm32-unknown-unknown",
+            "profile": {
+              "codegen_backend": null,
+              "codegen_units": null,
+              "debug_assertions": true,
+              "debuginfo": "line-tables-only",
+              "incremental": true,
+              "lto": "false",
+              "name": "test",
+              "opt_level": "1",
+              "overflow_checks": true,
+              "panic": "unwind",
+              "rpath": false,
+              "split_debuginfo": null,
+              "strip": {
+                "deferred": "None"
+              }
+            },
+            "rust_flags": [
+              "--cfg",
+              "getrandom_backend=\"wasm_js\""
+            ],
+            "target": {
+              "crate_types": [
+                "lib"
+              ],
+              "doc": true,
+              "doctest": true,
+              "edition": "2024",
+              "kind": [
+                "lib"
+              ],
+              "name": "merkur_edge",
+              "src_path": "apps/edge/src/lib.rs",
+              "test": true
+            }
+          },
+          {
+            "dependencies": [
+              {
+                "extern_crate_name": "base64",
+                "index": 9,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "bytes",
+                "index": 12,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "libc",
+                "index": 62,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "merkur_edge",
+                "index": 72,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "merkur_edge_protocol",
+                "index": 80,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry",
+                "index": 97,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_otlp",
+                "index": 100,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "reqwest",
+                "index": 137,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "ring",
+                "index": 138,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "rustls",
+                "index": 143,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "serde",
+                "index": 153,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "serde_json",
+                "index": 160,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tokio",
+                "index": 187,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing",
+                "index": 189,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing_opentelemetry",
+                "index": 193,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing_subscriber",
+                "index": 194,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "wtransport",
+                "index": 215,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              }
+            ],
+            "features": [],
+            "mode": "doctest",
+            "pkg_id": "workspace:apps/edge",
+            "platform": "wasm32-unknown-unknown",
+            "profile": {
+              "codegen_backend": null,
+              "codegen_units": null,
+              "debug_assertions": true,
+              "debuginfo": "line-tables-only",
+              "incremental": true,
+              "lto": "false",
+              "name": "test",
+              "opt_level": "1",
+              "overflow_checks": true,
+              "panic": "unwind",
+              "rpath": false,
+              "split_debuginfo": null,
+              "strip": {
+                "deferred": "None"
+              }
+            },
+            "rust_flags": [],
+            "target": {
+              "crate_types": [
+                "lib"
+              ],
+              "doc": true,
+              "doctest": true,
+              "edition": "2024",
+              "kind": [
+                "lib"
+              ],
+              "name": "merkur_edge",
+              "src_path": "apps/edge/src/lib.rs",
+              "test": true
+            }
+          },
+          {
+            "dependencies": [
+              {
+                "extern_crate_name": "base64",
+                "index": 9,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "bytes",
+                "index": 12,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "libc",
+                "index": 62,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "merkur_edge",
+                "index": 72,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "merkur_edge_protocol",
+                "index": 80,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry",
+                "index": 97,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_otlp",
+                "index": 100,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "reqwest",
+                "index": 137,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "ring",
+                "index": 138,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "rustls",
+                "index": 143,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "serde",
+                "index": 153,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "serde_json",
+                "index": 160,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tokio",
+                "index": 187,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing",
+                "index": 189,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing_opentelemetry",
+                "index": 193,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "tracing_subscriber",
+                "index": 194,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "wtransport",
+                "index": 215,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -17187,113 +17735,120 @@
                 "public": false
               },
               {
+                "extern_crate_name": "merkur_edge",
+                "index": 72,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "merkur_edge_protocol",
-                "index": 77,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_appender_tracing",
-                "index": 95,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_otlp",
                 "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "opentelemetry_sdk",
-                "index": 99,
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "parking_lot",
+                "extern_crate_name": "opentelemetry_otlp",
                 "index": 100,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_opentelemetry",
-                "index": 190,
+                "index": 193,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_subscriber",
-                "index": 191,
+                "index": 194,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wtransport",
-                "index": 212,
+                "index": 215,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -17363,113 +17918,120 @@
                 "public": false
               },
               {
+                "extern_crate_name": "merkur_edge",
+                "index": 72,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "merkur_edge_protocol",
-                "index": 77,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_appender_tracing",
-                "index": 95,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_otlp",
                 "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "opentelemetry_sdk",
-                "index": 99,
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "parking_lot",
+                "extern_crate_name": "opentelemetry_otlp",
                 "index": 100,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_opentelemetry",
-                "index": 190,
+                "index": 193,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_subscriber",
-                "index": 191,
+                "index": 194,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wtransport",
-                "index": 212,
+                "index": 215,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -17539,113 +18101,120 @@
                 "public": false
               },
               {
+                "extern_crate_name": "merkur_edge",
+                "index": 72,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "merkur_edge_protocol",
-                "index": 77,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_appender_tracing",
-                "index": 95,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_otlp",
                 "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "opentelemetry_sdk",
-                "index": 99,
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "parking_lot",
+                "extern_crate_name": "opentelemetry_otlp",
                 "index": 100,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_opentelemetry",
-                "index": 190,
+                "index": 193,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_subscriber",
-                "index": 191,
+                "index": 194,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wtransport",
-                "index": 212,
+                "index": 215,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -17715,113 +18284,120 @@
                 "public": false
               },
               {
+                "extern_crate_name": "merkur_edge",
+                "index": 72,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "merkur_edge_protocol",
-                "index": 77,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_appender_tracing",
-                "index": 95,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_otlp",
                 "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "opentelemetry_sdk",
-                "index": 99,
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "parking_lot",
+                "extern_crate_name": "opentelemetry_otlp",
                 "index": 100,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_opentelemetry",
-                "index": 190,
+                "index": 193,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_subscriber",
-                "index": 191,
+                "index": 194,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wtransport",
-                "index": 212,
+                "index": 215,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -17891,113 +18467,120 @@
                 "public": false
               },
               {
+                "extern_crate_name": "merkur_edge",
+                "index": 72,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "merkur_edge_protocol",
-                "index": 77,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_appender_tracing",
-                "index": 95,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_otlp",
                 "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "opentelemetry_sdk",
-                "index": 99,
+                "extern_crate_name": "opentelemetry_appender_tracing",
+                "index": 98,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "parking_lot",
+                "extern_crate_name": "opentelemetry_otlp",
                 "index": 100,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "parking_lot",
+                "index": 103,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_opentelemetry",
-                "index": 190,
+                "index": 193,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_subscriber",
-                "index": 191,
+                "index": 194,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wtransport",
-                "index": 212,
+                "index": 215,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18047,14 +18630,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18205,7 +18788,7 @@
               },
               {
                 "extern_crate_name": "minimal_lexical",
-                "index": 78,
+                "index": 81,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18308,14 +18891,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "num_integer",
-                "index": 85,
+                "index": 88,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "num_traits",
-                "index": 86,
+                "index": 89,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18455,7 +19038,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "num_traits",
-                "index": 86,
+                "index": 89,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18510,7 +19093,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 87,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18566,7 +19149,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 88,
+                "index": 91,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18726,7 +19309,7 @@
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 91,
+                "index": 94,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18790,7 +19373,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 92,
+                "index": 95,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -18977,21 +19560,21 @@
               },
               {
                 "extern_crate_name": "pin_project_lite",
-                "index": 106,
+                "index": 109,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19054,28 +19637,28 @@
             "dependencies": [
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
+                "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_core",
-                "index": 188,
+                "index": 191,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_subscriber",
-                "index": 191,
+                "index": 194,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19148,14 +19731,14 @@
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
+                "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19217,49 +19800,49 @@
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
+                "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry_http",
-                "index": 96,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_proto",
-                "index": 98,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "opentelemetry_sdk",
                 "index": 99,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "opentelemetry_proto",
+                "index": 101,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "opentelemetry_sdk",
+                "index": 102,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "prost",
-                "index": 113,
+                "index": 116,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "reqwest",
-                "index": 134,
+                "index": 137,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19322,21 +19905,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
+                "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "opentelemetry_sdk",
-                "index": 99,
+                "index": 102,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "prost",
-                "index": 113,
+                "index": 116,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19415,28 +19998,28 @@
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
+                "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "percent_encoding",
-                "index": 105,
+                "index": 108,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rand",
-                "index": 125,
+                "index": 128,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19502,7 +20085,7 @@
               },
               {
                 "extern_crate_name": "parking_lot_core",
-                "index": 101,
+                "index": 104,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19563,14 +20146,14 @@
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 102,
+                "index": 105,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "smallvec",
-                "index": 164,
+                "index": 167,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19622,7 +20205,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 103,
+                "index": 106,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19862,7 +20445,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "zerovec",
-                "index": 225,
+                "index": 228,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -19960,7 +20543,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "zerocopy",
-                "index": 218,
+                "index": 221,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20015,14 +20598,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 111,
+                "index": 114,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 193,
+                "index": 196,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20074,7 +20657,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 112,
+                "index": 115,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20177,7 +20760,7 @@
               },
               {
                 "extern_crate_name": "prost_derive",
-                "index": 114,
+                "index": 117,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20247,21 +20830,21 @@
               },
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20317,70 +20900,70 @@
               },
               {
                 "extern_crate_name": "pin_project_lite",
-                "index": 106,
+                "index": 109,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 116,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "proto",
-                "index": 118,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "udp",
                 "index": 119,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "proto",
+                "index": 121,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "udp",
+                "index": 122,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "rustc_hash",
-                "index": 138,
+                "index": 141,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "web_time",
-                "index": 210,
+                "index": 213,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20437,7 +21020,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 117,
+                "index": 120,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20569,77 +21152,77 @@
               },
               {
                 "extern_crate_name": "rand",
-                "index": 126,
+                "index": 129,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rand_pcg",
-                "index": 130,
+                "index": 133,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "rustc_hash",
                 "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "rustc_hash",
+                "index": 141,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "rustls",
-                "index": 140,
+                "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls_pki_types",
-                "index": 144,
+                "index": 147,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "slab",
-                "index": 163,
+                "index": 166,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tinyvec",
-                "index": 182,
+                "index": 185,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "web_time",
-                "index": 210,
+                "index": 213,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20701,14 +21284,14 @@
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 120,
+                "index": 123,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20762,7 +21345,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 121,
+                "index": 124,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20867,14 +21450,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 123,
+                "index": 126,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -20926,7 +21509,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 124,
+                "index": 127,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21022,14 +21605,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "rand_chacha",
-                "index": 127,
+                "index": 130,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 128,
+                "index": 131,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21102,7 +21685,7 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 129,
+                "index": 132,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21161,14 +21744,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "ppv_lite86",
-                "index": 109,
+                "index": 112,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 128,
+                "index": 131,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21321,7 +21904,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rand_core",
-                "index": 129,
+                "index": 132,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21373,28 +21956,28 @@
             "dependencies": [
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "pki_types",
-                "index": 144,
+                "index": 147,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "time",
-                "index": 177,
+                "index": 180,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "yasna",
-                "index": 215,
+                "index": 218,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21449,7 +22032,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "regex_syntax",
-                "index": 133,
+                "index": 136,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21596,49 +22179,49 @@
               },
               {
                 "extern_crate_name": "serde",
-                "index": 150,
+                "index": 153,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_json",
-                "index": 157,
+                "index": 160,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sync_wrapper",
-                "index": 170,
+                "index": 173,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "url",
-                "index": 196,
+                "index": 199,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wasm_bindgen",
-                "index": 198,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "wasm_bindgen_futures",
                 "index": 201,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "wasm_bindgen_futures",
+                "index": 204,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "web_sys",
-                "index": 209,
+                "index": 212,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21710,14 +22293,14 @@
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 136,
+                "index": 139,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "untrusted",
-                "index": 195,
+                "index": 198,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21774,7 +22357,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 137,
+                "index": 140,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21932,7 +22515,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "nom",
-                "index": 80,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -21984,49 +22567,49 @@
             "dependencies": [
               {
                 "extern_crate_name": "once_cell",
-                "index": 93,
+                "index": 96,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 141,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "pki_types",
                 "index": 144,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "pki_types",
+                "index": 147,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "webpki",
-                "index": 145,
+                "index": 148,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 167,
+                "index": 170,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 223,
+                "index": 226,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22081,14 +22664,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 136,
+                "index": 139,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 142,
+                "index": 145,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22187,7 +22770,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "pki_types",
-                "index": 144,
+                "index": 147,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22239,14 +22822,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "web_time",
-                "index": 210,
+                "index": 213,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 223,
+                "index": 226,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22304,21 +22887,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "ring",
-                "index": 135,
+                "index": 138,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "pki_types",
-                "index": 144,
+                "index": 147,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "untrusted",
-                "index": 195,
+                "index": 198,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22374,7 +22957,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 147,
+                "index": 150,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22423,7 +23006,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 148,
+                "index": 151,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22557,21 +23140,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 151,
+                "index": 154,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_core",
-                "index": 153,
+                "index": 156,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "serde_derive",
-                "index": 156,
+                "index": 159,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22628,7 +23211,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 152,
+                "index": 155,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22731,7 +23314,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 154,
+                "index": 157,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22786,7 +23369,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 155,
+                "index": 158,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22885,21 +23468,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 169,
+                "index": 172,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -22964,21 +23547,21 @@
               },
               {
                 "extern_crate_name": "serde_core",
-                "index": 153,
+                "index": 156,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 158,
+                "index": 161,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zmij",
-                "index": 227,
+                "index": 230,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -23033,7 +23616,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 159,
+                "index": 162,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -23516,21 +24099,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 193,
+                "index": 196,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -23591,21 +24174,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 193,
+                "index": 196,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -23719,21 +24302,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -23785,14 +24368,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 173,
+                "index": 176,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror_impl",
-                "index": 175,
+                "index": 178,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -23847,7 +24430,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 174,
+                "index": 177,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -23946,21 +24529,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 169,
+                "index": 172,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24068,28 +24651,28 @@
               },
               {
                 "extern_crate_name": "num_conv",
-                "index": 84,
+                "index": 87,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "powerfmt",
-                "index": 108,
+                "index": 111,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "time_core",
-                "index": 179,
+                "index": 182,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "time_macros",
-                "index": 180,
+                "index": 183,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24233,14 +24816,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "num_conv",
-                "index": 83,
+                "index": 86,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "time_core",
-                "index": 178,
+                "index": 181,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24299,7 +24882,7 @@
               },
               {
                 "extern_crate_name": "zerovec",
-                "index": 225,
+                "index": 228,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24353,7 +24936,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "tinyvec_macros",
-                "index": 183,
+                "index": 186,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24460,28 +25043,28 @@
               },
               {
                 "extern_crate_name": "mio",
-                "index": 79,
+                "index": 82,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "parking_lot",
-                "index": 100,
+                "index": 103,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "pin_project_lite",
-                "index": 106,
+                "index": 109,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio_macros",
-                "index": 185,
+                "index": 188,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24555,21 +25138,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 169,
+                "index": 172,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24618,21 +25201,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "pin_project_lite",
-                "index": 106,
+                "index": 109,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_attributes",
-                "index": 187,
+                "index": 190,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_core",
-                "index": 188,
+                "index": 191,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24689,21 +25272,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24752,7 +25335,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "once_cell",
-                "index": 93,
+                "index": 96,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24815,14 +25398,14 @@
               },
               {
                 "extern_crate_name": "once_cell",
-                "index": 93,
+                "index": 96,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_core",
-                "index": 188,
+                "index": 191,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24884,35 +25467,35 @@
               },
               {
                 "extern_crate_name": "opentelemetry",
-                "index": 94,
+                "index": 97,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_core",
-                "index": 188,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "tracing_subscriber",
                 "index": 191,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "tracing_subscriber",
+                "index": 194,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "web_time",
-                "index": 210,
+                "index": 213,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -24971,63 +25554,63 @@
               },
               {
                 "extern_crate_name": "nu_ansi_term",
-                "index": 81,
+                "index": 84,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "once_cell",
-                "index": 93,
+                "index": 96,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "regex_automata",
-                "index": 132,
+                "index": 135,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sharded_slab",
-                "index": 161,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "smallvec",
                 "index": 164,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "smallvec",
+                "index": 167,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "thread_local",
-                "index": 176,
+                "index": 179,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_core",
-                "index": 188,
+                "index": 191,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing_log",
-                "index": 189,
+                "index": 192,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25284,7 +25867,7 @@
               },
               {
                 "extern_crate_name": "percent_encoding",
-                "index": 105,
+                "index": 108,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25390,28 +25973,28 @@
               },
               {
                 "extern_crate_name": "once_cell",
-                "index": 93,
+                "index": 96,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 199,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "wasm_bindgen_macro",
                 "index": 202,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
-                "extern_crate_name": "wasm_bindgen_shared",
+                "extern_crate_name": "wasm_bindgen_macro",
                 "index": 205,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "wasm_bindgen_shared",
+                "index": 208,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25466,14 +26049,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 200,
+                "index": 203,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 207,
+                "index": 210,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25528,7 +26111,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rustversion_compat",
-                "index": 146,
+                "index": 149,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25587,7 +26170,7 @@
               },
               {
                 "extern_crate_name": "wasm_bindgen",
-                "index": 198,
+                "index": 201,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25642,14 +26225,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wasm_bindgen_macro_support",
-                "index": 203,
+                "index": 206,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25705,28 +26288,28 @@
               },
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wasm_bindgen_shared",
-                "index": 204,
+                "index": 207,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25775,14 +26358,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 193,
+                "index": 196,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 206,
+                "index": 209,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25831,14 +26414,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 194,
+                "index": 197,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 207,
+                "index": 210,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25890,7 +26473,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 208,
+                "index": 211,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -25939,7 +26522,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 208,
+                "index": 211,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26039,7 +26622,7 @@
               },
               {
                 "extern_crate_name": "wasm_bindgen",
-                "index": 198,
+                "index": 201,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26119,7 +26702,7 @@
               },
               {
                 "extern_crate_name": "wasm_bindgen",
-                "index": 198,
+                "index": 201,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26222,112 +26805,112 @@
               },
               {
                 "extern_crate_name": "pem",
-                "index": 104,
+                "index": 107,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quinn",
-                "index": 115,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "quinn_proto",
                 "index": 118,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "quinn_proto",
+                "index": 121,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "rcgen",
-                "index": 131,
+                "index": 134,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rustls",
-                "index": 140,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "rustls_native_certs",
                 "index": 143,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
+                "extern_crate_name": "rustls_native_certs",
+                "index": 146,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
                 "extern_crate_name": "rustls_pki_types",
-                "index": 144,
+                "index": 147,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sha2",
-                "index": 160,
+                "index": 163,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "socket2",
-                "index": 165,
+                "index": 168,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "time",
-                "index": 177,
+                "index": 180,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tokio",
-                "index": 184,
+                "index": 187,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "tracing",
-                "index": 186,
+                "index": 189,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "url",
-                "index": 196,
+                "index": 199,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "wtransport_proto",
-                "index": 213,
+                "index": 216,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "x509_parser",
-                "index": 214,
+                "index": 217,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26391,21 +26974,21 @@
               },
               {
                 "extern_crate_name": "octets",
-                "index": 89,
+                "index": 92,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "url",
-                "index": 196,
+                "index": 199,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26488,35 +27071,35 @@
               },
               {
                 "extern_crate_name": "nom",
-                "index": 80,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "oid_registry",
-                "index": 90,
+                "index": 93,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rusticata_macros",
-                "index": 139,
+                "index": 142,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "thiserror",
-                "index": 172,
+                "index": 175,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "time",
-                "index": 177,
+                "index": 180,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26570,7 +27153,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "time",
-                "index": 177,
+                "index": 180,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26626,21 +27209,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "stable_deref_trait",
-                "index": 166,
+                "index": 169,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "yoke_derive",
-                "index": 217,
+                "index": 220,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerofrom",
-                "index": 221,
+                "index": 224,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26695,28 +27278,28 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "synstructure",
-                "index": 171,
+                "index": 174,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26765,7 +27348,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 219,
+                "index": 222,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26819,7 +27402,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 220,
+                "index": 223,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26916,7 +27499,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "zerofrom_derive",
-                "index": 222,
+                "index": 225,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -26970,28 +27553,28 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 168,
+                "index": 171,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "synstructure",
-                "index": 171,
+                "index": 174,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -27094,14 +27677,14 @@
               },
               {
                 "extern_crate_name": "yoke",
-                "index": 216,
+                "index": 219,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerofrom",
-                "index": 221,
+                "index": 224,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -27156,21 +27739,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "yoke",
-                "index": 216,
+                "index": 219,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerofrom",
-                "index": 221,
+                "index": 224,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zerovec_derive",
-                "index": 226,
+                "index": 229,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -27225,21 +27808,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 110,
+                "index": 113,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 122,
+                "index": 125,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 169,
+                "index": 172,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -27288,7 +27871,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 228,
+                "index": 231,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -27340,7 +27923,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 229,
+                "index": 232,
                 "noprelude": false,
                 "nounused": false,
                 "public": false

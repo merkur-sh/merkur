@@ -1,30 +1,30 @@
 {
-  "version": "1.97.1",
-  "commit": "8bab26f4f68e0e26f0bb7960be334d5b520ea452",
-  "llvm": "22.1.6",
+  "version": "1.99.0",
+  "commit": "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4",
+  "llvm": "23.1.1",
   "source_archive": {
-    "url": "https://static.rust-lang.org/dist/rustc-1.97.1-src.tar.xz",
-    "sha256": "0ed06fdaffd4722a7702e0b4eebfafc897ab8f513e8e1b247cdd7e5c6df6ded2"
+    "url": "https://static.rust-lang.org/dist/rustc-1.99.0-src.tar.xz",
+    "sha256": "cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13c83f7036"
   },
   "patch": {
-    "path": "rustc-1.97.1-deterministic-worker-temporaries.patch",
-    "sha256": "1e887d493261ad150f44ffb956356c6fae352df3ee12947a8b452ded7c59d2a1"
+    "path": "rustc-1.99.0-deterministic-worker-temporaries.patch",
+    "sha256": "2606579410e81e7af6994c4d375878032bdae36fd999776cd0b042a992e64977"
   },
   "files": [
     {
       "path": "compiler/rustc_interface/src/util.rs",
-      "base_sha256": "0acb62d887bbf41bc2bec54eb988e02f3375476ff66515e4e8612a16dcde9ac0",
-      "patched_sha256": "99029e5493740651a8eba6bc26bec5968b5bc22c3a22223d6087843deb6a8ebc"
+      "base_sha256": "f2b1d1937e728f00f8d62ead507e61b662d1ac8cfba6aa83e8dc3db71a813133",
+      "patched_sha256": "cd9cb23228cf6d14b7c4744de3cb6d840ab728d4a386b16c1a021cc96fa451ad"
     },
     {
       "path": "compiler/rustc_session/src/options.rs",
-      "base_sha256": "0b2077793ed1b14bfdfdba25906b434ca1302bc0e0b456c0ba865f9b0b915974",
-      "patched_sha256": "00ab23e4c6a36b6939e040e7b819034cc1efc68f66298b690c85cd27a7dc075f"
+      "base_sha256": "53b133198f6dc23757fda2a6fa767ad63eab8450e401be7d4074cded2dc519a3",
+      "patched_sha256": "f8ea9034f3f40e194036cd24107ed357c1740c2d3c5187cfdc1f7816392565e8"
     },
     {
       "path": "compiler/rustc_session/src/config.rs",
-      "base_sha256": "ba60fa298bbb3d8ff851e478970e73acafa12ce1ff82fd5eb7ece84ef73d7f1b",
-      "patched_sha256": "a0d11286c01f61d032d020a9618c9b5adc3277d2a04369fd9d0effa3205ca233"
+      "base_sha256": "bae41228cdaa3122b80f9dd90f8d4f5d3bd09c2922d23d1f8ba64a5ea2579f14",
+      "patched_sha256": "80dd19e136b5b0207b64ea91e3555d93eac13d594654e829c4bcb414267a43b4"
     }
   ],
   "codegen_option": "-Cdeterministic-incremental-temporaries=yes",
@@ -32,8 +32,8 @@
   "qualified_platforms": [],
   "llvm_archive": {
     "platform": "aarch64-apple-darwin",
-    "url": "https://ci-artifacts.rust-lang.org/rustc-builds/8bab26f4f68e0e26f0bb7960be334d5b520ea452/rust-dev-1.97.1-aarch64-apple-darwin.tar.xz",
-    "sha256": "e0523e176187712723b3c63d52b461cb49e6bb7bb6a59e02ae115c904e409bdf",
-    "version_output": "22.1.6-rust-1.97.1-stable"
+    "url": "https://ci-artifacts.rust-lang.org/rustc-builds/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/rust-dev-1.99.0-aarch64-apple-darwin.tar.xz",
+    "sha256": "8b3d18680d5e78e9672ede086a89725a540ec2ccf360a8251330d52b0bede44b",
+    "version_output": "23.1.1-rust-1.99.0-stable"
   }
 }

@@ -32,7 +32,7 @@ _OPERATIONS = _operation_inventory()
 def _catalog_impl(ctx):
     toolchain = ctx.toolchains["@rules_rust//rust:toolchain_type"]
     host = toolchain.exec_triple.str
-    if toolchain.version != "1.97.1" or toolchain.target_triple.str != host:
+    if toolchain.version != "1.99.0" or toolchain.target_triple.str != host:
         fail("Rust operation catalog requires the pinned native host/target configuration")
     if host not in _OPERATIONS.bindings:
         fail("Rust operation catalog has no captured configuration for " + host)

@@ -103,7 +103,7 @@ class StockBoundaryTests(unittest.TestCase):
 
     def test_cached_association_retains_declared_inputs(self):
         target = request["target"]
-        prefix = "rust-std-1.97.1-" + target + "/rust-std-" + target + "/lib/rustlib/" + target + "/lib/"
+        prefix = "rust-std-1.99.0-" + target + "/rust-std-" + target + "/lib/rustlib/" + target + "/lib/"
         paths = {"rmeta": "external/stock/lib/rustlib/" + target + "/lib/libstd.rmeta",
                  "rlib": "external/stock/lib/rustlib/" + target + "/lib/libstd.rlib"}
         declared = [{"path": value, "label": "@stock//:" + suffix} for suffix, value in paths.items()]
@@ -163,21 +163,21 @@ class StockBoundaryTests(unittest.TestCase):
             value = {**request, "source_archive": str(carrier),
                      "source_archive_label": "@source//file:archive"}
             with mock.patch.object(stock, "archive_members", side_effect=[({}, {}), ({}, {})]):
-                with self.assertRaisesRegex(ValueError, "Original Rust1.97.1 source archive required"):
+                with self.assertRaisesRegex(ValueError, "Original Rust1.99.0 source archive required"):
                     stock.capture(value, fake_graph, pair, sdk)
 
     def test_wrong_compiler_version(self):
-        self.bad_request(lambda v: v.update(compiler="1.96.0"), "Rust1.97.1")
+        self.bad_request(lambda v: v.update(compiler="1.96.0"), "Rust1.99.0")
 
     def test_unsupported_target(self):
-        self.bad_request(lambda v: v.update(target="wasm32-wasip1"), "Rust1.97.1")
+        self.bad_request(lambda v: v.update(target="wasm32-wasip1"), "Rust1.99.0")
 
     def test_wasm_missing_or_foreign_compiler_host_refused(self):
         for host in [None, "wasm32-unknown-unknown", "x86_64-unknown-linux-gnu"]:
             self.bad_request(lambda v: v.update(target=stock.WASM, execution_host=host), "execution_host")
 
     def test_original_wasm_distribution_pin(self):
-        self.assertEqual(stock.STD[stock.WASM], "fa0edb6e9f34faae5735554d62d50875eded839dc707d0f1c01467a918d8453b")
+        self.assertEqual(stock.STD[stock.WASM], "b760b0c9b08a6843c05de0098bd6802e23178ff473c4715ae57c1d679125bf22")
         self.assertNotIn(stock.WASM, stock.RUSTC)
 
     def test_native_foreign_explicit_host_refused(self):

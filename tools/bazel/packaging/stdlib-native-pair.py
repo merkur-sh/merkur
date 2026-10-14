@@ -35,7 +35,7 @@ def pair(sdk, rlib, metadata, target, output, crate, sysroot=None):
     source.write_bytes(body)
     source_hash = hashlib.sha256(body).hexdigest()
     object_file = output / "association.o"
-    command = sdk.command("rustc", "1.97.1") + [
+    command = sdk.command("rustc", "1.99.0") + [
         "--crate-name=stock_association", "--crate-type=bin", "--emit=obj",
         "--target=" + target, "--extern", "association=" + str(metadata),
         "--extern", "association=" + str(rlib), str(source), "-o", str(object_file),

@@ -31,7 +31,7 @@
 "overflow-checks" = true
 
 ["workspace"]
-"members" = ["merkur-wire", "merkur-stun-protocol", "merkur-codec", "merkur-client", "term-wasm"]
+"members" = ["merkur-wire", "merkur-stun-protocol", "merkur-codec", "merkur-client", "merkur-e2e", "term-wasm"]
 "resolver" = "3"
 
 ["workspace"."lints"]
@@ -39,11 +39,23 @@
 ["workspace"."lints"."clippy"]
 "allow_attributes" = "warn"
 "allow_attributes_without_reason" = "warn"
+"dbg_macro" = "warn"
 "debug_assert_with_mut_call" = "warn"
+"disallowed_methods" = "allow"
+"infinite_loop" = "warn"
+"mem_forget" = "warn"
+"multiple_unsafe_ops_per_block" = "warn"
+"panic_in_result_fn" = "warn"
+"redundant_clone" = "warn"
+"todo" = "warn"
 "too_many_arguments" = "allow"
+"undocumented_unsafe_blocks" = "warn"
+"unimplemented" = "warn"
+"unnecessary_wraps" = "warn"
+"unused_async" = "warn"
 
 ["workspace"."lints"."rust"]
 
 ["workspace"."lints"."rust"."unexpected_cfgs"]
-"check-cfg" = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)"]
+"check-cfg" = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)", "cfg(merkur_sim)"]
 "level" = "warn"

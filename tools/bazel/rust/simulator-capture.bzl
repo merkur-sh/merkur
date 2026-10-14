@@ -7,8 +7,8 @@ load("//tools/bazel/verification:test-nonce.bzl", "TEST_EPOCH_ATTRIBUTE", "TestR
 def _capture_impl(ctx):
     sdk = ctx.attr.sdk[CargoAcquisitionSdkInfo]
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if rust.version != "1.97.1" or rust.exec_triple.str not in ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"] or rust.target_triple.str != rust.exec_triple.str:
-        fail("Simulator capture currently requires its original matching native Rust1.97.1 SDK")
+    if rust.version != "1.99.0" or rust.exec_triple.str not in ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"] or rust.target_triple.str != rust.exec_triple.str:
+        fail("Simulator capture currently requires its original matching native Rust1.99.0 SDK")
     if ctx.attr.simulator_sources.label.repo_name != ctx.label.repo_name or ctx.attr.simulator_sources.label.package != "tools/sim" or ctx.attr.simulator_sources.label.name != "sources":
         fail("Simulator capture requires the complete original tools/sim:sources inventory")
     for file in ctx.files.simulator_sources:

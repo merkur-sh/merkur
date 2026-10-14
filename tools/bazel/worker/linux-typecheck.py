@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 
 
-COMMIT = '8bab26f4f68e0e26f0bb7960be334d5b520ea452'
+COMMIT = 'b940084d7eb6a299eb4bfeb8e34901bc051e7ac4'
 TARGETS = ('aarch64-unknown-linux-gnu', 'x86_64-unknown-linux-gnu')
 
 
@@ -127,7 +127,7 @@ def validate(request):
 def typecheck(request, output):
     validate(request)
     pins = load_pins(request['pins'])
-    if pins.VERSION != '1.97.1':
+    if pins.VERSION != '1.99.0':
         raise ValueError('Original pinned Rust release differs')
     captured = {path: regular(path) for path in set(request['sources'] + request['dependency_files'] + request['configured_std'])}
     rustc_data = regular(request['rustc'])

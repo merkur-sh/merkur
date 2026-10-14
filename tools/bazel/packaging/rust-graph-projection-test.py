@@ -97,7 +97,7 @@ class ProjectionTests(unittest.TestCase):
         context = SimpleNamespace(rule=SimpleNamespace(kind="cargo_build_script", attr=attributes,
                                                        files=SimpleNamespace(data=[source_file], build_script_env_files=[env_file])),
                                   label=SimpleNamespace(name=StarlarkString("u_" + rs_id)),
-                                  toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.97.1", target_triple=SimpleNamespace(str="aarch64-apple-darwin"), rust_std=SimpleNamespace(to_list=lambda: []))})
+                                  toolchains={"@rules_rust//rust:toolchain_type": SimpleNamespace(version="1.99.0", target_triple=SimpleNamespace(str="aarch64-apple-darwin"), rust_std=SimpleNamespace(to_list=lambda: []))})
         graph = environment["_compiler_graph_impl"]({}, context)[0]
         record = json.loads(graph.units.to_list()[0])
         self.assertEqual(graph.root, rs_id)

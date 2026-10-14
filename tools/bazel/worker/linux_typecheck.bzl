@@ -76,7 +76,7 @@ _configured_root = aspect(
 def _impl(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
     target = rust.target_triple.str
-    if rust.version != "1.97.1" or rust.exec_triple.str != "aarch64-apple-darwin" or target not in ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]:
+    if rust.version != "1.99.0" or rust.exec_triple.str != "aarch64-apple-darwin" or target not in ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]:
         fail("Linux metadata requires pinned native Darwin Rust with an actual Linux target toolchain")
     crate = ctx.attr.crate[rust_common.crate_info]
     root_contract = ctx.attr.crate[ConfiguredWorkerRootInfo]

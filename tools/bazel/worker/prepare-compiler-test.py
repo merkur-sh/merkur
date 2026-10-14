@@ -13,7 +13,7 @@ def controls(before, archive, sdk_file, prepared):
     module = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(module)
     pins = source.with_name("compiler-patch.json")
-    patch = source.with_name("rustc-1.97.1-deterministic-worker-temporaries.patch")
+    patch = source.with_name("rustc-1.99.0-deterministic-worker-temporaries.patch")
     old = ast.parse(before.read_text())
     old_calls = [node for node in ast.walk(old) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess" and node.func.attr == "run"]
     assert len(old_calls) == 2

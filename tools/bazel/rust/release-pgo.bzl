@@ -19,8 +19,8 @@ def _runtime_records(runtime):
 
 def _profile_impl(ctx):
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if rust.version != "1.97.1" or rust.exec_triple.str != ctx.attr.target or rust.target_triple.str != ctx.attr.target:
-        fail("Release PGO training requires its matching native Rust1.97.1 compiler")
+    if rust.version != "1.99.0" or rust.exec_triple.str != ctx.attr.target or rust.target_triple.str != ctx.attr.target:
+        fail("Release PGO training requires its matching native Rust1.99.0 compiler")
     if rust.llvm_profdata == None:
         fail("Release PGO requires llvm-profdata from that same Rust toolchain")
     crate = ctx.attr.instrumented_library[rust_common.crate_info]
@@ -67,7 +67,7 @@ dataplane_release_profile = rule(
 def _capture_impl(ctx):
     sdk = ctx.attr.sdk[CargoAcquisitionSdkInfo]
     rust = ctx.toolchains["@rules_rust//rust:toolchain_type"]
-    if rust.version != "1.97.1" or rust.exec_triple.str != rust.target_triple.str:
+    if rust.version != "1.99.0" or rust.exec_triple.str != rust.target_triple.str:
         fail("PGO capture requires the matching native pinned Rust toolchain")
     use_inputs = []
     if ctx.attr.phase == "use":

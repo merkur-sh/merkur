@@ -17,7 +17,7 @@ class OriginalInstances(unittest.TestCase):
         for instance, archive in archives.items():
             original = acquisition.original_configuration(archive, pins[instance])
             self.assertEqual(json.loads(original['packages/rolldown/package.json'])['version'], pins[instance]['package_version'])
-            self.assertIn(b'1.97.1', original['rust-toolchain.toml'])
+            self.assertIn(pins[instance]['upstream_toolchain'].encode(), original['rust-toolchain.toml'])
             self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), pins[instance]['archive_sha256'])
 
     def test_wrong_instance_cannot_read_or_emit_another_original_archive(self):
@@ -34,7 +34,7 @@ class OriginalInstances(unittest.TestCase):
 
     def test_original_configuration_rejects_wrong_package_or_compiler_fact(self):
         for instance, archive in archives.items():
-            for field in ['package_version', 'compiler_version']:
+            for field in ['package_version', 'upstream_toolchain']:
                 identity = dict(pins[instance], **{field: '0.0.0'})
                 with self.assertRaisesRegex(ValueError, 'identity differs'):
                     acquisition.original_configuration(archive, identity)
