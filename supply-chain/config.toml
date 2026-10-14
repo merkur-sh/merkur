@@ -793,7 +793,7 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.libdeflater]]
-version = "1.26.0"
+version = "1.26.1"
 criteria = "safe-to-run"
 notes = "Unaudited preexisting test dependency; exemption applies only to this exact version."
 
