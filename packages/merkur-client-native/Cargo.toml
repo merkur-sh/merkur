@@ -19,7 +19,7 @@ tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"] 
 # The account API. `rustls-no-provider` with ring installed at startup, as
 # `apps/edge` does: the workspace stays free of aws-lc-rs and its C toolchain.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring"] }
 # Exactly the OPAQUE inside `@serenity-kit/opaque` 1.1.0, so an account the
 # browser registered signs in here with the same password.
 opaque-ke = { version = "4.0", features = ["argon2"] }
