@@ -50,7 +50,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 # Direct dep only so register.rs can install ring's CryptoProvider for the
 # provider-less reqwest backend above. Already in Cargo.lock (pulled transitively
 # by wtransport), so this adds no new crates — just a nameable path.
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring"] }
 # OTLP export to Axiom. Exact versions are belt-and-braces: the image is built
 # from the workspace with `--locked`, so the lock already pins these, but an
 # exact requirement makes an unreviewed bump a resolution error rather than a
