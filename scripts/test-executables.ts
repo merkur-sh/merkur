@@ -9,9 +9,9 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-const declaredScratch = process.env.MERKUR_BAZEL_SCRATCH_ROOT;
+const declaredScratch = process.env.TEST_TMPDIR;
 if (declaredScratch !== undefined && !path.isAbsolute(declaredScratch)) {
-  throw new Error('MERKUR_BAZEL_SCRATCH_ROOT must be absolute');
+  throw new Error('TEST_TMPDIR must be absolute');
 }
 const STORE =
   declaredScratch === undefined
@@ -33,7 +33,7 @@ function stored(file: string, bytes: Uint8Array): boolean {
  * macOS assesses every new executable file the first time it runs, in one system daemon that
  * serves every process: 300-560 ms per file measured here. A stub written fresh for each test
  * cost more than the test did, and parallel test workers queued behind one another. So the bytes
- * are written once, read-only and named by their SHA-256, under the runner-owned scratch root
+ * are written once, read-only and named by their SHA-256, under Bazel's `TEST_TMPDIR`
  * (or `test-results/test-executables` for source runs),
  * and each call links them into the caller's own directory: a test keeps a private PATH entry
  * and runs exactly the bytes it asked for, while the system has already seen the file. A write

@@ -32,8 +32,7 @@ async function run(rate: string | undefined, iface = 'eth0', failure = '') {
   for (const name of [
     'TEST_SRCDIR',
     'RUNFILES_DIR',
-    'MERKUR_BAZEL_RUNFILES_ROOT',
-    'MERKUR_BAZEL_SCRATCH_ROOT',
+    'TEST_TMPDIR',
     'DYLD_LIBRARY_PATH',
     'DYLD_FALLBACK_LIBRARY_PATH',
   ]) {

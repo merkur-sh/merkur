@@ -19,8 +19,7 @@ function fixtureEnvironment(searchPath: string): Record<string, string> {
     'TEST_SRCDIR',
     'RUNFILES_DIR',
     'TEST_TMPDIR',
-    'MERKUR_BAZEL_RUNFILES_ROOT',
-    'MERKUR_BAZEL_SCRATCH_ROOT',
+    'TEST_TMPDIR',
     'DYLD_LIBRARY_PATH',
     'DYLD_FALLBACK_LIBRARY_PATH',
   ]) {

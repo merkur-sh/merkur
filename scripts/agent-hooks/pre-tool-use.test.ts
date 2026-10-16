@@ -30,7 +30,7 @@ function bash(command: string): HookInput {
 test('a denial wins over a source-grep warning on the same line', () => {
   // cargo-static denies a line that also sweeps source.
   const both = decidePreToolUse(
-    bash('bun run rust:check && bun run rust:lint && grep -rn foo apps'),
+    bash('cargo check && cargo clippy && grep -rn foo apps'),
     context(),
   );
   expect(both?.kind).toBe('deny');

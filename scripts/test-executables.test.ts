@@ -15,7 +15,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const MODULE = new URL('./test-executables.ts', import.meta.url).pathname;
-const CONFIG = new URL('../tools/bazel/bun/empty-bunfig.toml', import.meta.url).pathname;
 const SOURCE = '#!declared-test-interpreter\nrequested executable bytes\n';
 const HASH = new Bun.CryptoHasher('sha256').update(SOURCE).digest('hex');
 const CHILD_SOURCE = `
@@ -67,13 +66,13 @@ function start(scratch: string, directory: string, barrier = false) {
       process.execPath,
       '--no-install',
       '--no-env-file',
-      `--config=${CONFIG}`,
+      '--config=/dev/null',
       '--eval',
       CHILD_SOURCE,
     ],
     {
       env: {
-        MERKUR_BAZEL_SCRATCH_ROOT: scratch,
+        TEST_TMPDIR: scratch,
         MERKUR_TEST_EXECUTABLE_MODULE: MODULE,
         MERKUR_TEST_EXECUTABLE_REQUEST: JSON.stringify({
           directory,
@@ -202,7 +201,7 @@ describe('shared test executable cache', () => {
       new Response(child.stdout).text(),
     ]);
     expect(status).not.toBe(0);
-    expect(stderr).toContain('MERKUR_BAZEL_SCRATCH_ROOT must be absolute');
+    expect(stderr).toContain('TEST_TMPDIR must be absolute');
     expect(readdirSync(directory)).toEqual([]);
   });
 });

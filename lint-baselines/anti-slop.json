@@ -2207,14 +2207,8 @@
     "no-unsafe-dictionary-type": 1,
     "require-safety-comment-for-type-assertion": 1
   },
-  "scripts/perf/client-session-oracle-test-fixture.ts": {
-    "no-known-value-widening": 1
-  },
   "scripts/perf/client-session-oracle.ts": {
-    "no-runtime-typeof": 8,
-    "no-unknown-parameters": 1,
-    "no-unsafe-dictionary-type": 1,
-    "require-safety-comment-for-type-assertion": 4
+    "require-safety-comment-for-type-assertion": 1
   },
   "scripts/perf/completion-observer-worker.ts": {
     "no-chained-type-assertions": 1,
