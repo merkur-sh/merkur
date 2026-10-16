@@ -20,7 +20,7 @@ ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin
 
 # Debian 12 is Merkur's Linux ABI floor. Building on a newer distribution
 # can silently introduce glibc symbols that are unavailable to users.
-FROM mirror.gcr.io/library/rust:1.99.1-bookworm@sha256:e12566d5abc17a0da741628782cdb504b68b8961f5bfcf677936bf3e8b32de29 AS builder
+FROM mirror.gcr.io/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS builder
 
 ARG MERKUR_PUBLIC_ORIGIN
 ARG MERKUR_OPAQUE_SERVER_PUBLIC_KEY

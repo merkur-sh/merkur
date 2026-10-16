@@ -1,7 +1,7 @@
 # syntax=mirror.gcr.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # Built from the repository root with the same lock and WT patches as the daemon.
 # fly deploy --config apps/stun/fly.toml --dockerfile apps/stun/Dockerfile
-FROM mirror.gcr.io/library/rust:1.99.1-bookworm@sha256:e12566d5abc17a0da741628782cdb504b68b8961f5bfcf677936bf3e8b32de29 AS build
+FROM mirror.gcr.io/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
 WORKDIR /build
 COPY rust-toolchain.toml ./
 COPY .cargo/ .cargo/
