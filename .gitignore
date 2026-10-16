@@ -10,6 +10,9 @@ node_modules/
 # Build outputs
 /bazel-*
 /.bazelrc.local
+# crate_universe records the vendored [patch] crates by absolute path, so the module lock
+# holds this machine's checkout: every machine resolves its own.
+/MODULE.bazel.lock
 dist/
 build/
 coverage/

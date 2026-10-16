@@ -15,6 +15,12 @@ bazel_dep(name = "with_cfg.bzl", version = "1.0.1")
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2024",
+    # SSSE3 is the x86_64 CPU floor: merkur-fec's one x86_64 SIMD lane is `pshufb`, and the crate
+    # refuses to compile without it.
+    extra_rustc_flags_triples = {
+        "x86_64-apple-darwin": ["-Ctarget-feature=+ssse3"],
+        "x86_64-unknown-linux-gnu": ["-Ctarget-feature=+ssse3"],
+    },
     extra_target_triples = [
         "aarch64-apple-darwin",
         "aarch64-unknown-linux-gnu",
@@ -102,7 +108,17 @@ register_toolchains("@llvm_toolchain//:all")
 
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-_SYSROOT_BUILD = 'filegroup(name = "sysroot", srcs = glob(["**"]), visibility = ["//visibility:public"])\n'
+# What a compiler and linker read from a sysroot: its headers and libraries.
+_SYSROOT_BUILD = '''filegroup(
+    name = "sysroot",
+    srcs = glob(
+        ["lib/**", "lib64/**", "usr/include/**", "usr/lib/**", "usr/lib64/**"],
+        exclude = ["lib/systemd/**", "usr/lib/systemd/**"],
+        allow_empty = True,
+    ),
+    visibility = ["//visibility:public"],
+)
+'''
 
 http_archive(
     name = "sysroot_linux_aarch64",
