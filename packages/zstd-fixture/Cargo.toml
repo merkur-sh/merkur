@@ -15,7 +15,7 @@ name = "zstd-fixture"
 path = "src/main.rs"
 
 [dependencies]
-zstd = { version = "0.13", features = ["experimental"] }
+zstd = { version = "0.14", features = ["experimental"] }
 merkur-codec = { path = "../merkur-codec" }
 
 [lints]

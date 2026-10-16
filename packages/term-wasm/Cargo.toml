@@ -34,7 +34,7 @@ merkur-client = { path = "../merkur-client" }
 [dev-dependencies]
 # Native tests build real zstd dictionaries and compressed frames to drive the
 # decode path.
-zstd = { version = "0.13", features = ["experimental"] }
+zstd = { version = "0.14", features = ["experimental"] }
 
 [features]
 # Links the LLVM profile runtime into the instrumented build that

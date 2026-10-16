@@ -40,7 +40,7 @@ tokio = { version = "1", features = ["full"] }
 # term-wasm also decodes with, compiled to wasm32 there. `experimental` exposes
 # the magicless frame format the display payload uses, and `zstd-sys` is used
 # directly for `ZDICT_finalizeDictionary`, which the safe wrapper does not expose.
-zstd = { version = "0.13", features = ["experimental"] }
+zstd = { version = "0.14", features = ["experimental"] }
 zstd-sys = "2.0"
 crossbeam-channel = "0.5"
 # Fixed-capacity global display scheduler queue. Already present transitively;
