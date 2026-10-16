@@ -305,7 +305,7 @@ test('the Also run cell follows the plan phases: builds, cargo lane, bun lane, d
     '`rust:lint`; `cargo test --locked -p merkur-dataplane` filtered to the changed modules',
     '`rust:lint`; `cargo test --locked -p merkur-stun`; isolated `apps/server/src/services/stun-ticket-service.test.ts`; then, by hand: `test:natlab`',
     'first `build:image-worker`; `cargo test --locked -p merkur-dataplane -- --ignored real_helper::`; then, by hand: `test:graphics:long`',
-    '`check:audit`',
+    '`check:audit`; `check:js-dependency-policy`',
     '`check:protocol`; then, by hand: `test:e2e:transport`',
   ]);
 });
