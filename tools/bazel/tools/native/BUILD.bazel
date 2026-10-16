@@ -54,9 +54,12 @@ bun_test(
     timeout = "short",
 )
 
+# What a Darwin-only tool resolves to elsewhere: a refusal wildcard builds skip, never a tool.
+filegroup(name = "unavailable_on_this_platform", target_compatible_with = ["@platforms//:incompatible"])
+
 sdk_executable(name = "sh_darwin_arm64", binary = "@tools_darwin_arm64//:bin/bash", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 sdk_executable(name = "sh_darwin_x64", binary = "@tools_darwin_x64//:bin/bash", sdk = "@tools_darwin_x64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "sh", actual = select({":darwin_arm64": ":sh_darwin_arm64", ":darwin_x64": ":sh_darwin_x64"}, no_match_error = "Darwin shell requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "sh", actual = select({":darwin_arm64": ":sh_darwin_arm64", ":darwin_x64": ":sh_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 bun_test(
     name = "sdk_test",
@@ -72,37 +75,37 @@ bun_test(
 sdk_executable(name = "mkdir_darwin_arm64", binary = "@tools_darwin_arm64//:bin/mkdir", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
 sdk_executable(name = "mkdir_darwin_x64", binary = "@tools_darwin_x64//:bin/mkdir", sdk = "@tools_darwin_x64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "mkdir", actual = select({":darwin_arm64": ":mkdir_darwin_arm64", ":darwin_x64": ":mkdir_darwin_x64"}, no_match_error = "Darwin tool requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "mkdir", actual = select({":darwin_arm64": ":mkdir_darwin_arm64", ":darwin_x64": ":mkdir_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 sdk_executable(name = "chmod_darwin_arm64", binary = "@tools_darwin_arm64//:bin/chmod", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
 sdk_executable(name = "chmod_darwin_x64", binary = "@tools_darwin_x64//:bin/chmod", sdk = "@tools_darwin_x64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "chmod", actual = select({":darwin_arm64": ":chmod_darwin_arm64", ":darwin_x64": ":chmod_darwin_x64"}, no_match_error = "Darwin tool requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "chmod", actual = select({":darwin_arm64": ":chmod_darwin_arm64", ":darwin_x64": ":chmod_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 sdk_executable(name = "echo_darwin_arm64", binary = "@tools_darwin_arm64//:bin/echo", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
 sdk_executable(name = "echo_darwin_x64", binary = "@tools_darwin_x64//:bin/echo", sdk = "@tools_darwin_x64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "echo", actual = select({":darwin_arm64": ":echo_darwin_arm64", ":darwin_x64": ":echo_darwin_x64"}, no_match_error = "Darwin tool requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "echo", actual = select({":darwin_arm64": ":echo_darwin_arm64", ":darwin_x64": ":echo_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 sdk_executable(name = "git_darwin_arm64", binary = "@tools_darwin_arm64//:bin/git", sdk = "@tools_darwin_arm64//:git_runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
 sdk_executable(name = "git_darwin_x64", binary = "@tools_darwin_x64//:bin/git", sdk = "@tools_darwin_x64//:git_runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "git", actual = select({":darwin_arm64": ":git_darwin_arm64", ":darwin_x64": ":git_darwin_x64"}, no_match_error = "Darwin tool requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "git", actual = select({":darwin_arm64": ":git_darwin_arm64", ":darwin_x64": ":git_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 sdk_executable(name = "tar_darwin_arm64", binary = "@tools_darwin_arm64//:bin/tar", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
 sdk_executable(name = "tar_darwin_x64", binary = "@tools_darwin_x64//:bin/tar", sdk = "@tools_darwin_x64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "tar", actual = select({":darwin_arm64": ":tar_darwin_arm64", ":darwin_x64": ":tar_darwin_x64"}, no_match_error = "Darwin tool requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "tar", actual = select({":darwin_arm64": ":tar_darwin_arm64", ":darwin_x64": ":tar_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 sdk_executable(name = "gzip_darwin_arm64", binary = "@tools_darwin_arm64//:bin/gzip", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
 sdk_executable(name = "gzip_darwin_x64", binary = "@tools_darwin_x64//:bin/gzip", sdk = "@tools_darwin_x64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "gzip", actual = select({":darwin_arm64": ":gzip_darwin_arm64", ":darwin_x64": ":gzip_darwin_x64"}, no_match_error = "Darwin tool requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "gzip", actual = select({":darwin_arm64": ":gzip_darwin_arm64", ":darwin_x64": ":gzip_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 sdk_executable(name = "openssl_darwin_arm64", binary = "@tools_darwin_arm64//:bin/openssl", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
 sdk_executable(name = "openssl_darwin_x64", binary = "@tools_darwin_x64//:bin/openssl", sdk = "@tools_darwin_x64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:x86_64"])
-alias(name = "openssl", actual = select({":darwin_arm64": ":openssl_darwin_arm64", ":darwin_x64": ":openssl_darwin_x64"}, no_match_error = "Darwin tool requires an exact native Darwin ARM64/x64 SDK"))
+alias(name = "openssl", actual = select({":darwin_arm64": ":openssl_darwin_arm64", ":darwin_x64": ":openssl_darwin_x64", "//conditions:default": ":unavailable_on_this_platform"}))
 
 sdk_executable(name = "redis-server_darwin_arm64", binary = "@tools_darwin_arm64//:bin/redis-server", sdk = "@tools_darwin_arm64//:runtime", target_compatible_with = ["@platforms//os:osx", "@platforms//cpu:aarch64"])
 
@@ -216,7 +219,7 @@ alias(name = "build_bash", actual = select({
 }, no_match_error = "Declared build shell requires an exact native Darwin/Linux ARM64/x64 SDK"))
 
 exports_files(["identity-swift-binding-test.bzl", "darwin-swift-identity-control.bzl", "darwin-swift-identity-control.py", "darwin-swift-identity-control.fixture.swift"])
-darwin_swift_build_script_sdk(name = "identity_swift_build_sdk")
+darwin_swift_build_script_sdk(name = "identity_swift_build_sdk", target_compatible_with = ["@platforms//os:osx"])
 
 exports_files(["sdk-test.bzl"])
 native_sdk_member_controls(
@@ -261,7 +264,7 @@ declared_git_sdk(
 [
     alias(
         name = "source_" + tool,
-        actual = select({":darwin_arm64": ":source_" + tool + "_tool_darwin_arm64"}, no_match_error = "The source-built Git SDK requires this platform's declared Darwin compiler"),
+        actual = select({":darwin_arm64": ":source_" + tool + "_tool_darwin_arm64", "//conditions:default": ":unavailable_on_this_platform"}),
     )
     for tool in ["git", "sh"]
 ]

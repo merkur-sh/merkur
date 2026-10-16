@@ -68,7 +68,7 @@ jobs:
           python3 -I -B tools/bazel/bun/generate_graph.py
           python3 -I -B tools/bazel/rust/refresh_graph.py --bazel "$(command -v bazel)"
           python3 -I -B tools/bazel/rust/refresh_source_inputs.py --bazel "$(command -v bazel)"
-          bazel mod deps --lockfile_mode=update
+          CARGO_BAZEL_REPIN=true bazel mod deps --lockfile_mode=update
           git diff --binary -- . ':!.bazelrc.local' > "$RUNNER_TEMP/captures.patch"
           git diff --stat
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -77,8 +77,13 @@ jobs:
           path: ${{ runner.temp }}/captures.patch
           if-no-files-found: error
           retention-days: 1
+      # The generated Rust units were captured for a Darwin execution host, and the ninja and
+      # tmux SDKs build with the declared GCC 14.3 bookworm toolchain; a hosted Ubuntu runner is
+      # neither (.github/bazel/execution-pools.md), so those packages wait for a qualified pool.
       - name: Build and test
-        run: bazel test --config=development --config=ci --config=linux_x64 --keep_going //...
+        run: |
+          bazel test --config=development --config=ci --config=linux_x64 --keep_going -- //... \
+            -//tools/bazel/rust/units/... -//tools/bazel/tools/ninja_sdk/... -//tools/bazel/tools/shell_sdk/...
       - name: Disk after the build
         if: always()
         run: df -h /

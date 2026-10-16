@@ -10153,4 +10153,4 @@ def declare_audit_units():
         compiler_env = {},
     )
     native.config_setting(name = "host_aarch64_apple_darwin", constraint_values = ["@platforms//os:macos", "@platforms//cpu:aarch64"])
-    native.alias(name = "cargo_audit", actual = select({":host_aarch64_apple_darwin": ":u_f52d5ff4c7835b6fcfeaae6f30e5e79e22a6777cec08d80df2d5327d0575bf51"}), visibility = ["//visibility:public"])
+    native.alias(name = "cargo_audit", actual = select({"//conditions:default": "//tools/bazel/tools/native:unavailable_on_this_platform", ":host_aarch64_apple_darwin": ":u_f52d5ff4c7835b6fcfeaae6f30e5e79e22a6777cec08d80df2d5327d0575bf51"}), visibility = ["//visibility:public"])

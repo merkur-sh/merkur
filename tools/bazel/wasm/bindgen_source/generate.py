@@ -121,6 +121,9 @@ def emit(documents, archive, original, units, lto, edges):
         for name, identity in selected.items():
             choices[name][':' + setting] = ':u_' + identity
     for name, hosts in choices.items():
+        # A host with no capture resolves to an incompatible target: it refuses rather than
+        # choosing a foreign executable, and wildcard builds skip it.
+        hosts['//conditions:default'] = '//tools/bazel/tools/native:unavailable_on_this_platform'
         result.append('    native.alias(name = ' + units.text(name.replace('-', '_'))
                       + ', actual = select(' + units.starlark(hosts)
                       + '), visibility = ["//visibility:public"])\n')

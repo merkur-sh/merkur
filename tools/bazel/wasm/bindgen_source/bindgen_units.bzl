@@ -5836,6 +5836,6 @@ def declare_bindgen_units():
         compiler_env = {},
     )
     native.config_setting(name = "host_aarch64_apple_darwin", constraint_values = ["@platforms//os:macos", "@platforms//cpu:aarch64"])
-    native.alias(name = "wasm_bindgen", actual = select({":host_aarch64_apple_darwin": ":u_9a3190dbec868b43b95786511f8b3b4b9bf3479ab401a0d8a0ae2e18e85ea371"}), visibility = ["//visibility:public"])
-    native.alias(name = "wasm_bindgen_test_runner", actual = select({":host_aarch64_apple_darwin": ":u_f7fc8f837ac4c06a38bde24c8f88c5fb14b8432de8c76fea725f0a29d96a7e1e"}), visibility = ["//visibility:public"])
-    native.alias(name = "wasm2es6js", actual = select({":host_aarch64_apple_darwin": ":u_08ce9c53a65e65df73c504f08c77882558fe8f75c24ff4cb1e557469f392d96d"}), visibility = ["//visibility:public"])
+    native.alias(name = "wasm_bindgen", actual = select({"//conditions:default": "//tools/bazel/tools/native:unavailable_on_this_platform", ":host_aarch64_apple_darwin": ":u_9a3190dbec868b43b95786511f8b3b4b9bf3479ab401a0d8a0ae2e18e85ea371"}), visibility = ["//visibility:public"])
+    native.alias(name = "wasm_bindgen_test_runner", actual = select({"//conditions:default": "//tools/bazel/tools/native:unavailable_on_this_platform", ":host_aarch64_apple_darwin": ":u_f7fc8f837ac4c06a38bde24c8f88c5fb14b8432de8c76fea725f0a29d96a7e1e"}), visibility = ["//visibility:public"])
+    native.alias(name = "wasm2es6js", actual = select({"//conditions:default": "//tools/bazel/tools/native:unavailable_on_this_platform", ":host_aarch64_apple_darwin": ":u_08ce9c53a65e65df73c504f08c77882558fe8f75c24ff4cb1e557469f392d96d"}), visibility = ["//visibility:public"])

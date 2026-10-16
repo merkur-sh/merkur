@@ -107,7 +107,7 @@ js_library(name = "tooling_sources", srcs = ["tsconfig.json"], deps = [":oracle_
 
 js_library(name = "declared_tool_source", srcs = ["declared-tool.ts", "runtime-isolation.test.ts"])
 
-bun_binary(name = "declared_tool", entry_point = ":declared_tool_source", bun_config = ":empty-bunfig.toml", data = [":declared_tool_source"])
+bun_binary(name = "declared_tool", entry_point = "declared-tool.ts", bun_config = ":empty-bunfig.toml", data = [":declared_tool_source"])
 
 bun_test(name = "declared_tools_test", test_files = ["./tools/bazel/bun/declared-tools.test.ts"], bun_config = ":empty-bunfig.toml", data = [":runtime_sources"], tools = {":declared_tool": "declared-merkur-tool"}, tags = ["external", "no-cache"])
 

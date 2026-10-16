@@ -125,7 +125,9 @@ def emit(documents, archive, original, units, lto):
         setting = "host_" + units.identifier(host)
         result.append("    native.config_setting(name = " + units.text(setting) + ", constraint_values = " + units.starlark(constraints[host]) + ")\n")
         choices[":" + setting] = ":u_" + binaries[context]
-    # No default: a missing host capture refuses rather than choosing a foreign executable.
+    # A host with no capture resolves to an incompatible target: it refuses rather than choosing
+    # a foreign executable, and wildcard builds skip it.
+    choices["//conditions:default"] = "//tools/bazel/tools/native:unavailable_on_this_platform"
     result.append('    native.alias(name = "cargo_audit", actual = select(' + units.starlark(choices) + '), visibility = ["//visibility:public"])\n')
     return "".join(result)
 
