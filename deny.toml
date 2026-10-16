@@ -5,8 +5,10 @@ all-features = true
 [licenses]
 include-dev = true
 confidence-threshold = 0.93
+# Third-party licenses only. Merkur's own AGPL-3.0-only crates are the unpublished workspace
+# members `[licenses.private]` skips; the vendored patch crates stay publishable, so they are
+# held to this list like any registry crate.
 allow = [
-  "AGPL-3.0-only",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "MIT",
@@ -18,6 +20,9 @@ allow = [
   "Unicode-3.0",
   "Zlib",
 ]
+
+[licenses.private]
+ignore = true
 
 [bans]
 # Transitive crates legitimately use different major versions. Source and license

@@ -48,12 +48,14 @@ class DependencyPolicyTests(unittest.TestCase):
         )
 
     def local_dependency(self, name="control-dep", license="MIT"):
+        # Publishable, so the license policy treats it as third-party code: an unpublished
+        # in-tree crate becomes a private workspace member, which the policy skips.
         path = self.project / "dependency"
         (path / "src").mkdir(parents=True)
         (path / "src/lib.rs").write_text("", encoding="utf-8")
         (path / "Cargo.toml").write_text(
             '[package]\nname = "' + name + '"\nversion = "0.1.0"\n'
-            'edition = "2024"\nlicense = "' + license + '"\npublish = false\n',
+            'edition = "2024"\nlicense = "' + license + '"\n',
             encoding="utf-8",
         )
         return path
@@ -78,6 +80,13 @@ class DependencyPolicyTests(unittest.TestCase):
 
     def test_unapproved_license_is_refused(self):
         self.local_dependency(license="GPL-3.0-only")
+        self.manifest('control-dep = { path = "dependency" }\n')
+        self.assert_refused(self.deny_check("licenses"), "rejected")
+
+    def test_third_party_agpl_is_refused(self):
+        # The fixture crate itself is unpublished AGPL-3.0-only and passes; the same license
+        # on a dependency does not.
+        self.local_dependency(license="AGPL-3.0-only")
         self.manifest('control-dep = { path = "dependency" }\n')
         self.assert_refused(self.deny_check("licenses"), "rejected")
 

@@ -1000,8 +1000,11 @@ Run `bun run test:ownership`, `bun run test:ownership:kani` and
 `bun run setup:dependency-policy` installs pinned cargo-deny and cargo-vet releases.
 `bun run check:dependency-policy` enforces the license, source, wildcard and prohibited
 TLS-backend policy in `deny.toml`, then requires cargo-vet coverage for the locked
-production dependency graph. The dependency audit workflow also checks diagnostic
-workspaces and runs nine offline policy controls. Advisory scanning remains a separate
+production dependency graph. The license allowlist names third-party licenses only:
+Merkur's AGPL-3.0-only crates pass as unpublished workspace members, which
+`[licenses.private]` skips, so an AGPL crate from anywhere else is refused, and a new
+first-party crate needs `publish = false`. The dependency audit workflow also checks diagnostic
+workspaces and runs ten offline policy controls. Advisory scanning remains a separate
 `check:audit` gate; cargo-vet's review coverage is not a vulnerability database.
 
 `bun run check:js-dependency-policy`, the last step of `check:dependency-policy`, holds
