@@ -284,7 +284,7 @@
     },
     "apps/daemon/dataplane/src/webtransport/portmap/mod.rs": {
       "clippy::cast_possible_truncation": 1,
-      "clippy::let_underscore_must_use": 8,
+      "clippy::let_underscore_must_use": 7,
       "clippy::too_many_lines": 1
     },
     "apps/daemon/dataplane/src/webtransport/portmap/natpmp.rs": {
