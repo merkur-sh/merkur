@@ -19,6 +19,15 @@ class StarlarkDict(dict):
         return list(super().values())
 
 
+def starlark_type(value):
+    """Starlark's `type` names a value's type as a string."""
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, dict):
+        return "dict"
+    return {str: "string", int: "int", list: "list", type(None): "NoneType"}.get(type(value), type(value).__name__)
+
+
 def capture(source):
     tree = ast.parse(source.read_text())
     tree.body = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "compiler_unit"]
@@ -31,7 +40,7 @@ def capture(source):
         return lambda **kwargs: calls.append({"rule": role, "kwargs": kwargs})
     symbols = {name: rule(name) for name in ["rust_binary", "rust_library", "rust_proc_macro", "rust_shared_library", "rust_test", "rust_check", "_configured_package_test"]}
     symbols.update({
-        "fail": fail, "dict": StarlarkDict,
+        "fail": fail, "dict": StarlarkDict, "type": starlark_type,
         "Label": lambda value: SimpleNamespace(repo_name="", package=value.split("//", 1)[1].split(":", 1)[0]),
         "_directory": lambda value: value.split("//", 1)[1].split(":", 1)[0],
         "_PLATFORMS": {platform: ["captured:" + platform] for platform in NATIVE_PLATFORMS + [WASM]},

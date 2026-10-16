@@ -68,6 +68,7 @@ jobs:
           python3 -I -B tools/bazel/bun/generate_graph.py
           python3 -I -B tools/bazel/rust/refresh_graph.py --bazel "$(command -v bazel)"
           python3 -I -B tools/bazel/rust/refresh_source_inputs.py --bazel "$(command -v bazel)"
+          bazel mod deps --lockfile_mode=update
           git diff --binary -- . ':!.bazelrc.local' > "$RUNNER_TEMP/captures.patch"
           git diff --stat
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

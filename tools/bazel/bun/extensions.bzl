@@ -19,27 +19,6 @@ def _bun_impl(module_ctx):
             strip_prefix = "bun-" + platform,
             build_file_content = "exports_files([\"bun\"], visibility = [\"//visibility:public\"])\n",
         )
-    http_archive(
-        name = "node_api_headers",
-        urls = ["https://nodejs.org/download/release/v24.13.0/node-v24.13.0-headers.tar.gz"],
-        sha256 = "f5589e2b4b962af05381a31d11c3c9b004daf8bd63c95c0e1a406600daa8ae88",
-        strip_prefix = "node-v24.13.0",
-        build_file_content = 'load("@rules_cc//cc:defs.bzl", "cc_library")\ncc_library(name = "headers", hdrs = glob(["include/node/**/*.h"]), includes = ["include/node"], visibility = ["//visibility:public"])\n',
-    )
-    http_archive(
-        name = "msgpackr_extract_source",
-        urls = ["https://registry.npmjs.org/msgpackr-extract/-/msgpackr-extract-3.0.4.tgz"],
-        integrity = "sha512-4kmO/MdyUIkLIvTPr8VHLil4AtoKIoniWPIEk5+CDy0xnWC84azhSFmuJ7PxZdsYtiP5kEeQsORAVIeMgxT+Hw==",
-        strip_prefix = "package",
-        build_file_content = 'exports_files(["src/extract.cpp"], visibility = ["//visibility:public"])\n',
-    )
-    http_archive(
-        name = "msgpackr_extract_linux_arm64_source",
-        urls = ["https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-arm64/-/msgpackr-extract-linux-arm64-3.0.4.tgz"],
-        integrity = "sha512-dgX0P/9wGPJeHFBG+ZmhgE6bmtMt7NP5CRBGyyktpopdk/mW4POnrpQsSLtKI1dwpc+pPLuXHDh6vvskyQE/sw==",
-        strip_prefix = "package",
-        build_file_content = 'filegroup(name = "files", srcs = glob(["**"], exclude = ["BUILD.bazel", "REPO.bazel"]), visibility = ["//visibility:public"])\n',
-    )
     return module_ctx.extension_metadata(reproducible = True)
 
 bun = module_extension(implementation = _bun_impl)

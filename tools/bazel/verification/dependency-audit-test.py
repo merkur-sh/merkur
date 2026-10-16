@@ -221,8 +221,8 @@ class AuditControls(unittest.TestCase):
         configured = ['original-application-closure', 'original-bun-runtime-closure']
         arguments = dict(name='audit', inputs=inputs, configured_inputs=configured, bun='original-bun',
                          git_source='original-git-release', git_bootstrap_sdk='original-utility-sdk',
-                         git_make='original-make', git_ranlib='original-cc-ranlib')
-        for role in ['git_source', 'git_bootstrap_sdk', 'git_make', 'git_ranlib']:
+                         git_make='original-make')
+        for role in ['git_source', 'git_bootstrap_sdk', 'git_make']:
             incomplete = dict(arguments)
             del incomplete[role]
             with self.assertRaisesRegex(TypeError, role):
@@ -232,8 +232,7 @@ class AuditControls(unittest.TestCase):
         self.assertEqual([name for name, _ in calls],
                          ['declared_git_sdk', 'dependency_audit_capture', 'dependency_audit_test'])
         self.assertEqual(calls[0][1], dict(name='audit_git_sdk', source='original-git-release',
-                                         sdk='original-utility-sdk', make='original-make',
-                                         ranlib='original-cc-ranlib', tags=[]))
+                                         sdk='original-utility-sdk', make='original-make', tags=[]))
         for _, fields in calls[1:]:
             self.assertIs(fields['inputs'], inputs)
             self.assertIs(fields['configured_inputs'], configured)

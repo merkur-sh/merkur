@@ -8,9 +8,6 @@ load("//tools/bazel/verification:native-tools.bzl", "native_verification_tool")
 load(":operations.bzl", "bun_operation_bindings", "bun_shipping_operation_bindings")
 load(":rules.bzl", "bun_binary", "bun_build_inputs", "bun_compile", "bun_npm_attribution", "public_release_context", "bun_command_test", "bun_string_setting", "bun_int_setting", "bun_test", "bun_toolchain")
 load("@aspect_rules_js//js:defs.bzl", "js_library")
-load("@aspect_rules_js//npm:defs.bzl", "npm_package")
-load("@rules_cc//cc:defs.bzl", "cc_binary")
-load("@bazel_lib//lib:copy_file.bzl", "copy_file")
 load("//tools/bazel/packaging:rules.bzl", "package_controls_test")
 
 load(":native-oracle.bzl", "native_oracle_package")
@@ -43,34 +40,6 @@ public_release_context(name = "public_release_context")
 js_library(name = "public_release_validator", srcs = ["public-release-context.ts"])
 js_library(name = "public_release_context_test_sources", srcs = ["public-release-context.test.ts"], deps = [":public_release_validator"])
 bun_test(name = "public_release_context_test", test_files = ["tools/bazel/bun/public-release-context.test.ts"], data = [":public_release_context_test_sources"], bun_config = ":empty-bunfig.toml", tags = ["external", "no-cache"])
-
-# The pinned upstream arm64 package only includes musl builds. The glibc
-# platform prepares that same source with the declared SDK; all registry files
-# and metadata stay byte-identical to the locked optional package.
-config_setting(name = "linux_arm64_native", constraint_values = ["@platforms//os:linux", "@platforms//cpu:aarch64"])
-cc_binary(
-    name = "msgpackr_extract_glibc_arm64",
-    srcs = ["@msgpackr_extract_source//:src/extract.cpp"],
-    deps = ["@node_api_headers//:headers"],
-    defines = ["ENABLE_V8_API=0", "NAPI_DISABLE_CPP_EXCEPTIONS"],
-    copts = ["-O3", "-fPIC", "-fvisibility=hidden", "-fno-exceptions"],
-    linkshared = True,
-    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:aarch64"],
-)
-copy_file(
-    name = "glibc_arm64_prebuild",
-    src = ":msgpackr_extract_glibc_arm64",
-    out = "node.napi.glibc.node",
-    target_compatible_with = ["@platforms//os:linux", "@platforms//cpu:aarch64"],
-)
-npm_package(
-    name = "msgpackr_extract_linux_arm64",
-    package = "@msgpackr-extract/msgpackr-extract-linux-arm64",
-    version = "3.0.4",
-    srcs = ["@msgpackr_extract_linux_arm64_source//:files"] + select({":linux_arm64_native": [":glibc_arm64_prebuild"], "//conditions:default": []}),
-    include_external_repositories = ["*msgpackr_extract_linux_arm64_source"],
-    include_srcs_packages = ["**"],
-)
 
 js_library(name = "ambient_runtime_marker", srcs = ["ambient-marker.txt"])
 js_library(name = "declared_runtime_marker", srcs = ["declared-marker.txt"])

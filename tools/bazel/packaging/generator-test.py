@@ -215,7 +215,8 @@ class ContextInventory(unittest.TestCase):
         with self.assertRaises(ValueError): generator.rendered(self.root)
 
     def test_missing_extra_and_renamed_contexts_reject(self):
-        path = next(self.directory.iterdir())
+        # A context `write` produced: directory order is the filesystem's, not creation order.
+        path = self.directory / next(iter(generator.expected_contexts()))
         original = path.read_bytes()
         path.unlink()
         with self.assertRaises(ValueError): generator.rendered(self.root)
@@ -228,7 +229,8 @@ class ContextInventory(unittest.TestCase):
         with self.assertRaises(ValueError): generator.rendered(self.root)
 
     def test_correct_names_with_foreign_compiler_or_target_reject(self):
-        path = next(self.directory.iterdir())
+        # A context `write` produced: directory order is the filesystem's, not creation order.
+        path = self.directory / next(iter(generator.expected_contexts()))
         original = json.loads(path.read_bytes())
         for key in ['compiler_root', 'target']:
             changed = json.loads(json.dumps(original))
@@ -238,7 +240,8 @@ class ContextInventory(unittest.TestCase):
         path.write_text(json.dumps(original))
 
     def test_matching_context_fields_with_foreign_binary_or_profile_reject(self):
-        path = next(self.directory.iterdir())
+        # A context `write` produced: directory order is the filesystem's, not creation order.
+        path = self.directory / next(iter(generator.expected_contexts()))
         original = json.loads(path.read_bytes())
         for branch, key, replacement in [('target', 'name', 'foreign'),
                                          ('target', 'kind', ['lib']),

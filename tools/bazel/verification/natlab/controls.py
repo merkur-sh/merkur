@@ -295,13 +295,22 @@ class NatlabControls(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             runner.assert_markers("DISCOVERY_LAB=PASS\n", ["DISCOVERY_LAB=PASS", "PORTMAP_LAB=PASS"])
 
+    @staticmethod
+    def fake_docker(directory, body):
+        # The interpreter is reached through a short link: its runfiles path can exceed the
+        # 256 bytes Linux reads of a shebang line, and the kernel then refuses the script.
+        interpreter = directory / "python"
+        interpreter.symlink_to(sys.executable)
+        executable = directory / "docker"
+        executable.write_text("#!" + str(interpreter) + "\nimport json,sys\n" + body)
+        executable.chmod(0o755)
+        return executable
+
     def test_owned_container_retired_after_failed_assertions(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            executable = directory / "docker"
             log = directory / "commands"
-            executable.write_text("#!" + sys.executable + "\nimport json,sys\nwith open(" + repr(str(log)) + ", 'a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\nif sys.argv[1:3]==['container','create']: print('1'*64)\nif sys.argv[1:3]==['container','start']: print('LAB=FAIL')\nif sys.argv[1:3]==['container','inspect']: print('0 false')\n")
-            executable.chmod(0o755)
+            executable = self.fake_docker(directory, "with open(" + repr(str(log)) + ", 'a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\nif sys.argv[1:3]==['container','create']: print('1'*64)\nif sys.argv[1:3]==['container','start']: print('LAB=FAIL')\nif sys.argv[1:3]==['container','inspect']: print('0 false')\n")
             with self.assertRaises(RuntimeError):
                 runner.run_fixture(str(executable), {}, "sha256:" + "a" * 64, [], "original command", ["LAB=PASS"])
             commands = [json.loads(line) for line in log.read_text().splitlines()]
@@ -314,17 +323,13 @@ class NatlabControls(unittest.TestCase):
 
     def test_success_marker_cannot_hide_unsuccessful_container(self):
         with tempfile.TemporaryDirectory() as temporary:
-            executable = Path(temporary) / "docker"
-            executable.write_text("#!" + sys.executable + "\nimport sys\nif sys.argv[1:3]==['container','create']: print('1'*64)\nif sys.argv[1:3]==['container','start']: print('LAB=PASS')\nif sys.argv[1:3]==['container','inspect']: print('17 false')\n")
-            executable.chmod(0o755)
+            executable = self.fake_docker(Path(temporary), "if sys.argv[1:3]==['container','create']: print('1'*64)\nif sys.argv[1:3]==['container','start']: print('LAB=PASS')\nif sys.argv[1:3]==['container','inspect']: print('17 false')\n")
             with self.assertRaisesRegex(RuntimeError, "did not finish"):
                 runner.run_fixture(str(executable), {}, "sha256:" + "a" * 64, [], "original command", ["LAB=PASS"])
 
     def test_success_marker_cannot_hide_retirement_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
-            executable = Path(temporary) / "docker"
-            executable.write_text("#!" + sys.executable + "\nimport sys\nif sys.argv[1:3]==['container','create']: print('1'*64)\nif sys.argv[1:3]==['container','start']: print('LAB=PASS')\nif sys.argv[1:3]==['container','inspect']: print('0 false')\nif sys.argv[1:3]==['container','rm']: raise SystemExit(17)\n")
-            executable.chmod(0o755)
+            executable = self.fake_docker(Path(temporary), "if sys.argv[1:3]==['container','create']: print('1'*64)\nif sys.argv[1:3]==['container','start']: print('LAB=PASS')\nif sys.argv[1:3]==['container','inspect']: print('0 false')\nif sys.argv[1:3]==['container','rm']: raise SystemExit(17)\n")
             with self.assertRaisesRegex(RuntimeError, "exit 17"):
                 runner.run_fixture(str(executable), {}, "sha256:" + "a" * 64, [], "original command", ["LAB=PASS"])
 

@@ -2472,11 +2472,6 @@
     "no-unsafe-dictionary-type": 6,
     "require-safety-comment-for-type-assertion": 2
   },
-  "tools/bazel/bun/configuration-runtime.test.ts": {
-    "no-unknown-parameters": 1,
-    "no-unknown-returns": 1,
-    "require-safety-comment-for-type-assertion": 1
-  },
   "tools/bazel/bun/declared-tools.test.ts": {
     "no-runtime-typeof": 2
   },

@@ -43,20 +43,3 @@ test('declared tsconfig discovery preserves aliases and JSX through symlinks and
     await rm(directory, { recursive: true, force: true });
   }
 });
-
-test('msgpackr uses the declared native optional prebuild without lifecycle installation', async () => {
-  const effect = Bun.resolveSync('effect', process.cwd());
-  const entry = Bun.resolveSync('msgpackr', path.dirname(effect));
-  // msgpackr catches native bootstrap errors and silently selects JavaScript.
-  // Load its exact optional extractor first so qualification retains the cause.
-  const extractor = Bun.resolveSync('msgpackr-extract', path.dirname(entry));
-  await import(extractor);
-  const native = (await import(entry)) as {
-    isNativeAccelerationEnabled: boolean;
-    pack(value: unknown): Uint8Array;
-    unpack(bytes: Uint8Array): unknown;
-  };
-  expect(native.isNativeAccelerationEnabled).toBe(true);
-  const payload = { text: 'native extractor: λ🚀漢字'.repeat(100), values: [1, 2, 3] };
-  expect(native.unpack(native.pack(payload))).toEqual(payload);
-});
