@@ -35,7 +35,7 @@ jobs:
           github.event.workflow_run.event == 'push' &&
           github.event.workflow_run.head_branch == 'main' &&
           github.event.workflow_run.head_repository.full_name == github.repository))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.main.outputs.sha }}
@@ -50,7 +50,7 @@ jobs:
   deploy:
     needs: newest
     if: needs.newest.outputs.sha != ''
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     # Its own environment: `production` admits release tags only, and its
     # Railway token reaches the app. This one admits `main` and holds a token

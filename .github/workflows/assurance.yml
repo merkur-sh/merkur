@@ -22,7 +22,7 @@ concurrency:
 jobs:
   parser-smoke:
     name: Fixed-seed parser safety
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,7 +56,7 @@ jobs:
           retention-days: 7
   ownership:
     name: Ownership proofs and race models
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -115,7 +115,7 @@ jobs:
           retention-days: 7
   bounded-proofs:
     name: Bounded parser and state proofs
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -156,7 +156,7 @@ jobs:
           retention-days: 7
   simulation:
     name: Network simulation
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -195,7 +195,7 @@ jobs:
           retention-days: 14
   kernel-tool:
     name: Linux diagnostic tool checks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target/assurance/kernel-tool
@@ -233,7 +233,7 @@ jobs:
     name: Bounded coverage-guided parser campaign
     needs: parser-smoke
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -289,7 +289,7 @@ jobs:
     name: Assurance required
     if: always()
     needs: [parser-smoke, ownership, bounded-proofs, simulation, kernel-tool, fuzz-campaign]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     env:
       PARSER_RESULT: ${{ needs.parser-smoke.result }}
