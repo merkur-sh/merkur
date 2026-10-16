@@ -23,7 +23,7 @@ interface Target {
 const targets: Target[] = targetList;
 const workspace = path.join(root, 'test-results', 'bolero', 'workspace');
 const retainedLock = path.join(root, 'tools', 'bolero', 'Cargo.lock');
-const boleroVersion = '0.13.6';
+const boleroVersion = '0.13.7';
 const cliVersion = '0.13.5';
 /**
  * A proof without a verdict by then is halved once, then left to fuzzing. The budget is
