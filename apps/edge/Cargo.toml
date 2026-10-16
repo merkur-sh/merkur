@@ -70,7 +70,7 @@ opentelemetry = { version = "=0.32.0", default-features = false, features = ["tr
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
 opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs", "internal-logs"] }
 opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
-tracing-opentelemetry = { version = "=0.33.0", default-features = false }
+tracing-opentelemetry = { version = "=0.34.0", default-features = false }
 
 [dev-dependencies]
 # Paused time for relay waits that must outlast any clock the relay once had.
