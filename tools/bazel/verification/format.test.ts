@@ -197,8 +197,19 @@ describe('owned file formatter', () => {
     const biome = process.env.MERKUR_FORMAT_BIOME;
     if (biome === undefined)
       throw new Error('Actual declared Biome required for formatter controls');
+    // The declared Biome is a runfiles wrapper: it resolves the binary under this test's own
+    // runfiles root, which the fixture's stand-in root does not contain.
+    const runfiles = process.env.TEST_SRCDIR;
+    if (runfiles === undefined)
+      throw new Error('Bazel TEST_SRCDIR required for the declared Biome');
     const untouched = readFileSync(path.join(f.root, 'untouched.ts'));
-    expect(formatFiles(['owned.ts'], { ...f.environment, MERKUR_FORMAT_BIOME: biome })).toBe(0);
+    expect(
+      formatFiles(['owned.ts'], {
+        ...f.environment,
+        MERKUR_FORMAT_BIOME: biome,
+        MERKUR_BAZEL_RUNFILES_ROOT: runfiles,
+      }),
+    ).toBe(0);
     expect(readFileSync(path.join(f.root, 'owned.ts'), 'utf8')).toBe(
       "const owned = { value: 'one' };\n",
     );
