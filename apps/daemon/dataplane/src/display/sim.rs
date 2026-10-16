@@ -81,6 +81,13 @@ use crate::connection::{
 use crate::perf_timing::PerfTimingTracker;
 use crate::pty::TerminalState;
 
+/// Sender service time, in microseconds, the planner sees in every simulated session.
+///
+/// A modelled input of the virtual-time harness, not a policy: production measures it, and
+/// measuring it here made outcomes follow the host's load. Any fixed value makes runs
+/// reproducible; this is the one DisplaySim censuses have pinned.
+const SIM_SENDER_SERVICE_US: f64 = 20.0;
+
 /// Peer identity of the first simulated viewer.
 ///
 /// Zero-padded because `take_display_peer_batch` round-robins peers in string
@@ -446,9 +453,15 @@ impl DisplaySim {
         // blanket causal-immediate scheduler accidentally hid that harness bug.
         terminal.clear_dirty();
 
-        let scratch = DisplayScratch::new(4);
+        // Time here is virtual, so the planner plans against a fixed sender service time:
+        // the compression time it measures would make every run depend on the host's load.
+        let mut scratch = DisplayScratch::new(4);
+        scratch.prepare.pin_sender_service(SIM_SENDER_SERVICE_US);
         let (worker, completion_rx, snapshot_completion_rx, dictionary_rx) =
-            start_display_prepare_worker();
+            super::send::with_pinned_sender_service(
+                SIM_SENDER_SERVICE_US,
+                start_display_prepare_worker,
+            );
 
         // A real Noise session, because the send path seals every frame and a
         // peer without one is skipped entirely — which is how the first version

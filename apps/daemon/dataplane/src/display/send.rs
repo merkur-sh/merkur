@@ -275,6 +275,32 @@ std::thread_local! {
     // Enabled only by the actual-owner experiment. These timestamps bracket
     // successful original submission returns, not QUIC transit or pixels.
     static TEST_ORIGINAL_ADMISSION_TIMING: std::cell::Cell<Option<OriginalAdmissionTiming>> = const { std::cell::Cell::new(None) };
+    // Captured when a worker is created, like the experiment above. A virtual-time harness
+    // pins the planner's sender service time: measured compression time would make its
+    // plans depend on how loaded the host is.
+    static TEST_SENDER_SERVICE_US: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `run` with every display prepare worker it starts planning against `service_us` of
+/// sender service time instead of the time it measures.
+#[cfg(test)]
+pub(crate) fn with_pinned_sender_service<T>(service_us: f64, run: impl FnOnce() -> T) -> T {
+    struct Restore(Option<f64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TEST_SENDER_SERVICE_US.set(self.0);
+        }
+    }
+    let _restore = Restore(TEST_SENDER_SERVICE_US.replace(Some(service_us)));
+    run()
+}
+
+#[cfg(test)]
+impl PrepareScratch {
+    /// The inline arm's counterpart of [`with_pinned_sender_service`].
+    pub(crate) fn pin_sender_service(&mut self, service_us: f64) {
+        self.planner.sender_service_us_for_test = Some(service_us);
+    }
 }
 
 /// A packed batch: its wire payload, the rows it carries for ACK provenance,
@@ -745,6 +771,8 @@ pub(crate) fn start_display_prepare_worker() -> (
 ) {
     #[cfg(test)]
     let experiment = TEST_PACKING_EXPERIMENT.get();
+    #[cfg(test)]
+    let sender_service_us = TEST_SENDER_SERVICE_US.get();
     let (interactive_tx, interactive_rx) =
         crossbeam_channel::bounded::<DisplayPrepareRequest>(DISPLAY_PREPARE_QUEUE_DEPTH);
     let (bulk_tx, bulk_rx) =
@@ -777,6 +805,7 @@ pub(crate) fn start_display_prepare_worker() -> (
                 let lanes = {
                     let mut lanes = PrepareLanes::new(channels);
                     lanes.scratch.experiment = experiment;
+                    lanes.scratch.planner.sender_service_us_for_test = sender_service_us;
                     lanes
                 };
                 #[cfg(not(test))]
