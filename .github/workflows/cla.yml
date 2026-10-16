@@ -10,7 +10,7 @@ permissions: {}
 
 jobs:
   cla:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     # Required by the pinned action: rerun checks, store signatures, comment/lock
     # pull requests, and report CLA status. No PR code is checked out or executed.
