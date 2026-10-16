@@ -587,7 +587,7 @@ const DeviceList: Component<Props> = (props) => {
    * carries an accent wash for a moment, so the eye finds it wherever it
    * landed. Only the wash outlasts the entrance, and it never moves anything.
    */
-  function arrive(rows: readonly HTMLElement[]): void {
+  function arrive(rows: HTMLElement[]): void {
     const entrance = animate(
       rows,
       { opacity: [0, 1], transform: ['translateX(-8px)', 'translateX(0px)'] },
