@@ -335,6 +335,12 @@
             "verify-linux-arm64": "42fb64b74baab5970582346627e1e03e5449aed0c9879e14bab156ce82d33778fa524285e50d963e12166d31fe9568152a53384a5b8202c7767afb0036a0e17c",
             "verify-linux-x64": "b6a41783e483a16fd29d0a19bf9b1503fa1cce2c1f8d56ddf8325189cb46e793c80438df66d77c18e697f71ff298be0b91a588acd25e500e629c09784fda7a3c"
           }
+        },
+        {
+          "phase": "retained",
+          "targetIdentities": {
+            "railway": "28e64ab7-0d24-4790-af62-67c2347df486"
+          }
         }
       ],
       "configuration": {
