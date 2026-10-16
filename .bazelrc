@@ -30,6 +30,10 @@ common:remote-cache --remote_upload_local_results
 common:remote-cache --remote_timeout=600
 common:remote-cache --bes_backend=grpcs://remote.buildbuddy.io
 common:remote-cache --bes_results_url=https://app.buildbuddy.io/invocation/
+# Full ctime guarding also checks external and generated inputs, which Linux can report as
+# changed after a delayed write, and skips those uploads; main-repository sources are what a
+# workstation edits mid-build, and `lite` guards exactly those.
+common:remote-cache --guard_against_concurrent_changes=lite
 
 # Backend addresses and authentication are supplied outside version control.
 try-import %workspace%/.bazelrc.local
