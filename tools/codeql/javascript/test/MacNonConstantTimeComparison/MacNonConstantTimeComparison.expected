@@ -1,17 +1,17 @@
 #select
 | tags.ts:6:7:6:9 | tag | tags.ts:4:15:4:64 | createH ... igest() | tags.ts:6:7:6:9 | tag | This comparison reads the $@ in variable time. | tags.ts:4:15:4:64 | createH ... igest() | authentication tag |
 | tags.ts:12:10:12:12 | tag | tags.ts:11:15:11:86 | createH ... ('hex') | tags.ts:12:10:12:12 | tag | This comparison reads the $@ in variable time. | tags.ts:11:15:11:86 | createH ... ('hex') | authentication tag |
-| tags.ts:17:10:17:47 | Buffer. ... 64url') | tags.ts:16:21:16:57 | crypto. ... , data) | tags.ts:17:10:17:47 | Buffer. ... 64url') | This comparison reads the $@ in variable time. | tags.ts:16:21:16:57 | crypto. ... , data) | authentication tag |
+| tags.ts:29:10:29:47 | Buffer. ... 64url') | tags.ts:28:21:28:57 | crypto. ... , data) | tags.ts:29:10:29:47 | Buffer. ... 64url') | This comparison reads the $@ in variable time. | tags.ts:28:21:28:57 | crypto. ... , data) | authentication tag |
 edges
 | tags.ts:4:9:4:11 | tag | tags.ts:6:7:6:9 | tag | provenance |  |
 | tags.ts:4:15:4:64 | createH ... igest() | tags.ts:4:9:4:11 | tag | provenance |  |
 | tags.ts:11:9:11:11 | tag | tags.ts:12:10:12:12 | tag | provenance |  |
 | tags.ts:11:15:11:86 | createH ... ('hex') | tags.ts:11:9:11:11 | tag | provenance |  |
-| tags.ts:16:9:16:11 | tag | tags.ts:17:22:17:24 | tag | provenance |  |
-| tags.ts:16:15:16:57 | await c ... , data) | tags.ts:16:9:16:11 | tag | provenance |  |
-| tags.ts:16:21:16:57 | crypto. ... , data) | tags.ts:16:15:16:57 | await c ... , data) | provenance |  |
-| tags.ts:17:10:17:25 | Buffer.from(tag) | tags.ts:17:10:17:47 | Buffer. ... 64url') | provenance |  |
-| tags.ts:17:22:17:24 | tag | tags.ts:17:10:17:25 | Buffer.from(tag) | provenance |  |
+| tags.ts:28:9:28:11 | tag | tags.ts:29:22:29:24 | tag | provenance |  |
+| tags.ts:28:15:28:57 | await c ... , data) | tags.ts:28:9:28:11 | tag | provenance |  |
+| tags.ts:28:21:28:57 | crypto. ... , data) | tags.ts:28:15:28:57 | await c ... , data) | provenance |  |
+| tags.ts:29:10:29:25 | Buffer.from(tag) | tags.ts:29:10:29:47 | Buffer. ... 64url') | provenance | Config |
+| tags.ts:29:22:29:24 | tag | tags.ts:29:10:29:25 | Buffer.from(tag) | provenance | Config |
 nodes
 | tags.ts:4:9:4:11 | tag | semmle.label | tag |
 | tags.ts:4:15:4:64 | createH ... igest() | semmle.label | createH ... igest() |
@@ -19,10 +19,10 @@ nodes
 | tags.ts:11:9:11:11 | tag | semmle.label | tag |
 | tags.ts:11:15:11:86 | createH ... ('hex') | semmle.label | createH ... ('hex') |
 | tags.ts:12:10:12:12 | tag | semmle.label | tag |
-| tags.ts:16:9:16:11 | tag | semmle.label | tag |
-| tags.ts:16:15:16:57 | await c ... , data) | semmle.label | await c ... , data) |
-| tags.ts:16:21:16:57 | crypto. ... , data) | semmle.label | crypto. ... , data) |
-| tags.ts:17:10:17:25 | Buffer.from(tag) | semmle.label | Buffer.from(tag) |
-| tags.ts:17:10:17:47 | Buffer. ... 64url') | semmle.label | Buffer. ... 64url') |
-| tags.ts:17:22:17:24 | tag | semmle.label | tag |
+| tags.ts:28:9:28:11 | tag | semmle.label | tag |
+| tags.ts:28:15:28:57 | await c ... , data) | semmle.label | await c ... , data) |
+| tags.ts:28:21:28:57 | crypto. ... , data) | semmle.label | crypto. ... , data) |
+| tags.ts:29:10:29:25 | Buffer.from(tag) | semmle.label | Buffer.from(tag) |
+| tags.ts:29:10:29:47 | Buffer. ... 64url') | semmle.label | Buffer. ... 64url') |
+| tags.ts:29:22:29:24 | tag | semmle.label | tag |
 subpaths

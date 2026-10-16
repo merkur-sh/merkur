@@ -48,18 +48,35 @@ class VariableTimeOperand extends DataFlow::Node {
   }
 }
 
+/**
+ * Holds if `succ` is `pred` in another encoding: the same tag as a string, a buffer or a byte
+ * array. Taint in general is not followed: a tag written into an issued token is the holder's to
+ * read, and the parts of that token after a split are not the tag.
+ */
+predicate reencodes(DataFlow::Node pred, DataFlow::Node succ) {
+  exists(DataFlow::MethodCallNode call |
+    call.getMethodName() = ["toString", "toLowerCase", "toUpperCase"] and
+    pred = call.getReceiver() and
+    succ = call
+  )
+  or
+  exists(DataFlow::InvokeNode call |
+    call = DataFlow::globalVarRef("Buffer").getAMemberCall("from") or
+    call = DataFlow::globalVarRef("Uint8Array").getAnInstantiation()
+  |
+    pred = call.getArgument(0) and succ = call
+  )
+}
+
 module TagConfig implements DataFlow::ConfigSig {
   predicate isSource(DataFlow::Node node) { node instanceof AuthenticationTag }
 
   predicate isSink(DataFlow::Node node) { node instanceof VariableTimeOperand }
 
-  /** A length is public: every tag of one algorithm has the same one. */
-  predicate isBarrier(DataFlow::Node node) {
-    node.(DataFlow::PropRead).getPropertyName() = ["length", "byteLength"]
-  }
+  predicate isAdditionalFlowStep(DataFlow::Node pred, DataFlow::Node succ) { reencodes(pred, succ) }
 }
 
-module TagFlow = TaintTracking::Global<TagConfig>;
+module TagFlow = DataFlow::Global<TagConfig>;
 
 import TagFlow::PathGraph
 
