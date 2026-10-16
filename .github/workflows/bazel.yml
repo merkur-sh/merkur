@@ -90,7 +90,7 @@ jobs:
       - name: Build and test
         if: ${{ !cancelled() }}
         run: |
-          bazel test --config=development --config=ci --config=linux_x64 --keep_going -- //... \
+          bazel test --config=development --config=ci --config=linux_x64 --keep_going --build_tests_only -- //... \
             -//tools/bazel/rust/units/... -//tools/bazel/tools/ninja_sdk/... -//tools/bazel/tools/shell_sdk/...
       - name: Disk after the build
         if: always()

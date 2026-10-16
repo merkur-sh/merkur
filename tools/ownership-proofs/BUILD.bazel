@@ -5,8 +5,8 @@ load("//tools/bazel/rust:kani.bzl", "kani_proof_test")
 
 # Exact Cargo.lock direct edges; external labels are acquired only for compile targets.
 _BUILD_DEPS = [
-    "@crates_ownership//quote-1.0.45",
-    "@crates_ownership//syn-2.0.119",
+    "@crates_ownership//quote-1.0.47",
+    "@crates_ownership//syn-3.0.6",
 ]
 
 _DEV_DEPS = [
