@@ -41572,8 +41572,8 @@
   },
   "generated_inputs": {
     "Cargo.lock": "124a5cd975422b227fb3e404f1d22f892f603af1dc97ea7ea4deb72e08da0776",
-    "Cargo.toml": "2609a5f45330ea1b452f88823906c3a1ff1eb983570f0cc828ae521b2d514d5c",
-    "merkur-sim/Cargo.toml": "04eb60230d25154ae1ed8555416a44a609d86cd26d91ea1922be748400fccb76"
+    "Cargo.toml": "f2dc41fd694360af5ab556b501db8aaf45481f2012f6f1aeea02e1a8635b8c8e",
+    "merkur-sim/Cargo.toml": "06f62973b4f5f0b477c34430fc225669e6aef574534e4413c247fde63a23288e"
   },
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
@@ -41605,7 +41605,7 @@
     "scripts/sim-tests.ts": "b3d97d3f1e0142134dab511122b6d978bbc3dbac080e625c8d13e36f2c1a703d",
     "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
     "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
-    "tools/bazel/rust/metadata.json": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9",
+    "tools/bazel/rust/metadata.json": "ce8986837d59d01ac4cbcbdada0663586311ed2a85e8afdc183678e8b45c6383",
     "tools/sim/Cargo.lock": "124a5cd975422b227fb3e404f1d22f892f603af1dc97ea7ea4deb72e08da0776",
     "tools/sim/build.rs": "030aad8c9f601f42602f9dba4da4524172ac949fcaae1549cd88a4e30835db13",
     "tools/sim/manifest.toml": "740f73b22411829e05a3e6964f746269bd8a3af73fd4e74ed469a88166df169f",

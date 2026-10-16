@@ -1909,13 +1909,13 @@
     },
     {
       "path": "tools/bazel/rust/contexts/merkur-fec/test/native/metadata.json",
-      "sha256": "40e7ead7efa803340bc350697dcc7eda9a057c93418f2528e36ad659c5f077f2",
+      "sha256": "972b8f75c5eb453f26b94303b33fba1860ccfd0325244800ec0d9a95f06ed628",
       "size": 34333
     },
     {
       "path": "tools/bazel/rust/metadata.json",
-      "sha256": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9",
-      "size": 1138978
+      "sha256": "ce8986837d59d01ac4cbcbdada0663586311ed2a85e8afdc183678e8b45c6383",
+      "size": 1159836
     }
   ],
   "sdk_facts": [
@@ -2475,8 +2475,8 @@
     "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
     "tools/bazel/rust/contexts/merkur-fec/test/native/Cargo.lock": "a7c8a03f5a91452c8a7c7e8d7e6dbd5bac39799deed76b2325c91abb959653de",
     "tools/bazel/rust/contexts/merkur-fec/test/native/Cargo.toml": "87429737eb42266b31d89e7f0044ec6a352eaf6536bba3c4dd43c3bc0120d027",
-    "tools/bazel/rust/contexts/merkur-fec/test/native/metadata.json": "40e7ead7efa803340bc350697dcc7eda9a057c93418f2528e36ad659c5f077f2",
-    "tools/bazel/rust/metadata.json": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9"
+    "tools/bazel/rust/contexts/merkur-fec/test/native/metadata.json": "972b8f75c5eb453f26b94303b33fba1860ccfd0325244800ec0d9a95f06ed628",
+    "tools/bazel/rust/metadata.json": "ce8986837d59d01ac4cbcbdada0663586311ed2a85e8afdc183678e8b45c6383"
   },
   "generated_inputs": {
     "Cargo.toml": "87429737eb42266b31d89e7f0044ec6a352eaf6536bba3c4dd43c3bc0120d027",

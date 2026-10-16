@@ -8147,7 +8147,7 @@
     "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
     "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
     "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
-    "tools/bazel/rust/metadata.json": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9"
+    "tools/bazel/rust/metadata.json": "ce8986837d59d01ac4cbcbdada0663586311ed2a85e8afdc183678e8b45c6383"
   },
   "mode": "test",
   "package": "term-wasm",

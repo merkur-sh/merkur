@@ -4,22 +4,22 @@
 ["patch"."crates-io"]
 
 ["patch"."crates-io"."alacritty_terminal"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/alacritty-terminal-patch"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-6dlyphw_/merkur-acquisition-presentation-d40g6a9y/sources/packages/alacritty-terminal-patch"
 
 ["patch"."crates-io"."fontdue"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/fontdue-patch"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-6dlyphw_/merkur-acquisition-presentation-d40g6a9y/sources/packages/fontdue-patch"
 
 ["patch"."crates-io"."quinn"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/quinn-patch"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-6dlyphw_/merkur-acquisition-presentation-d40g6a9y/sources/packages/quinn-patch"
 
 ["patch"."crates-io"."quinn-proto"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/quinn-proto-patch"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-6dlyphw_/merkur-acquisition-presentation-d40g6a9y/sources/packages/quinn-proto-patch"
 
 ["patch"."crates-io"."vte"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/vte-patch"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-6dlyphw_/merkur-acquisition-presentation-d40g6a9y/sources/packages/vte-patch"
 
 ["patch"."crates-io"."wtransport"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/wtransport-patch"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-6dlyphw_/merkur-acquisition-presentation-d40g6a9y/sources/packages/wtransport-patch"
 
 ["workspace"]
 "members" = ["merkur-sim"]
