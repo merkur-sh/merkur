@@ -1,14 +1,14 @@
 {
-  "version": "1.4.2",
-  "commit": "744846f844374847c902b5e7fd59b4342a51ef99",
+  "version": "1.4.3",
+  "commit": "c6da4a4d3010e5553438c60f6bd76d981976867c",
   "source": {
-    "url": "https://codeload.github.com/oven-sh/bun/tar.gz/744846f844374847c902b5e7fd59b4342a51ef99",
-    "archive": "bun-744846f844374847c902b5e7fd59b4342a51ef99.tar.gz",
-    "sha256": "25e09a8804535b8fbea1dad9f95af8402fc9133d28127d5594ff00df1549590e",
-    "prefix": "bun-744846f844374847c902b5e7fd59b4342a51ef99"
+    "url": "https://codeload.github.com/oven-sh/bun/tar.gz/c6da4a4d3010e5553438c60f6bd76d981976867c",
+    "archive": "bun-c6da4a4d3010e5553438c60f6bd76d981976867c.tar.gz",
+    "sha256": "fc5fce2ea4b294c46b25b0231ba8360b82ae6fbcb879d2c7230ecd5d67e08b6d",
+    "prefix": "bun-c6da4a4d3010e5553438c60f6bd76d981976867c"
   },
   "license_members": {
-    "LICENSE.md": "b9caf52728691b4057e371232c221a132883198be2f3d2ddf92c90404c984b1a",
+    "LICENSE.md": "056696884250b0d682365260cf1487a6501b1665a343ec60e23a1e647043c572",
     "packages/bun-usockets/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "packages/bun-uws/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "src/clap/LICENSE": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd"
@@ -18,9 +18,13 @@
     "Cargo.toml",
     "package.json",
     "scripts/build/CLAUDE.md",
+    "scripts/build/annotations.ts",
+    "scripts/build/binary-expectations.ts",
     "scripts/build/buildOptionsRs.ts",
     "scripts/build/bun.ts",
     "scripts/build/cargo-config.ts",
+    "scripts/build/ci-images/CLAUDE.md",
+    "scripts/build/ci-images/spec.ts",
     "scripts/build/ci.ts",
     "scripts/build/clean.ts",
     "scripts/build/codegen.ts",
@@ -62,21 +66,29 @@
     "scripts/build/fs.ts",
     "scripts/build/jsonByteClass.ts",
     "scripts/build/macos-sdk.ts",
+    "scripts/build/ninja-release.ts",
     "scripts/build/ninja.ts",
     "scripts/build/npm-ci.ts",
     "scripts/build/profiles.ts",
     "scripts/build/rules.ts",
     "scripts/build/rust.ts",
+    "scripts/build/rust/cargo-env.ts",
+    "scripts/build/rust/emit.ts",
+    "scripts/build/rust/plan.ts",
+    "scripts/build/rust/run.ts",
+    "scripts/build/rust/toml.ts",
+    "scripts/build/rust/units.ts",
     "scripts/build/shell.ts",
     "scripts/build/shims.ts",
-    "scripts/build/shims/asan-dyld-shim.c",
     "scripts/build/shims/macho-postlink.c",
     "scripts/build/source.ts",
     "scripts/build/stream.ts",
+    "scripts/build/timings.ts",
     "scripts/build/tools.ts",
     "scripts/build/tsconfig.json",
     "scripts/build/tty.ts",
     "scripts/build/unified.ts",
+    "scripts/build/verify-binary.ts",
     "scripts/build/winsysroot.ts",
     "scripts/build/workarounds.ts",
     "scripts/build/xmac.mjs",
@@ -84,27 +96,27 @@
   ],
   "runtimes": {
     "bun-darwin-arm64": {
-      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-darwin-aarch64.zip",
+      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-darwin-aarch64.zip",
       "archive": "bun-darwin-aarch64.zip",
-      "sha256": "90987a3a16d7db556d886ac3d551e7b6d3edf0a1cf43acaed622e8676be1d12f",
+      "sha256": "80afd4c069b46a6fa8f3ec520bebc750a7843e4a8d5b9583d29ad436c00a3403",
       "member": "bun-darwin-aarch64/bun"
     },
     "bun-darwin-x64": {
-      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-darwin-x64.zip",
+      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-darwin-x64.zip",
       "archive": "bun-darwin-x64.zip",
-      "sha256": "80520d7e17526308c9185d261679ac6d27798d3803a0e9f7ff9121ab8affb012",
+      "sha256": "62660e6438eb872278877acca77e1152d5d031324df368d4a81b428211489d2d",
       "member": "bun-darwin-x64/bun"
     },
     "bun-linux-arm64": {
-      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-aarch64.zip",
+      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-aarch64.zip",
       "archive": "bun-linux-aarch64.zip",
-      "sha256": "54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7",
+      "sha256": "efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21",
       "member": "bun-linux-aarch64/bun"
     },
     "bun-linux-x64": {
-      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip",
+      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64.zip",
       "archive": "bun-linux-x64.zip",
-      "sha256": "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913",
+      "sha256": "3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18",
       "member": "bun-linux-x64/bun"
     }
   }

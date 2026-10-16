@@ -75,7 +75,7 @@ if __name__ == '__main__':
         def test_genuine_selected_npm_members_and_original_licenses_close_only_causal_joins(self):
             value = self.capture()
             self.assertTrue(self.npm_selected)
-            npm_facts = [fact for fact in value['sources'] if fact['component'] != 'bun@1.4.2']
+            npm_facts = [fact for fact in value['sources'] if fact['component'] != 'bun@1.4.3']
             self.assertTrue(npm_facts)
             self.assertEqual(value['pending'], [])
             for fact in npm_facts:

@@ -310,7 +310,7 @@ bun_runtime_build_nightly = use_extension("//tools/bazel/bun:bun-runtime-build-s
 use_repo(bun_runtime_build_nightly, "bun_nightly_sdk_darwin_arm64", "bun_nightly_sdk_darwin_x64", "bun_nightly_sdk_linux_arm64", "bun_nightly_sdk_linux_x64")
 
 llvm = use_extension("//tools/bazel/tools/llvm_sdk:repositories.bzl", "llvm_sources")
-use_repo(llvm, "merkur_llvm_21_1_8_source")
+use_repo(llvm, "merkur_llvm_23_1_1_source")
 
 bun_build_registry = use_extension("//tools/bazel/bun:bun-runtime-build-registry.bzl", "bun_runtime_build_registry")
 use_repo(bun_build_registry, "bun_build_registry_inputs")

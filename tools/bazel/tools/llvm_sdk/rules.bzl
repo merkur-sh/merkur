@@ -6,7 +6,7 @@ load("//tools/bazel/tools/native:providers.bzl", "NativeSdkInfo")
 
 LlvmSdkInfo = provider(fields = ["root", "tools", "manifest", "inputs", "source_archive"])
 
-_TOOLS = ["clang", "clang++", "llvm-ar", "llvm-ranlib", "llvm-nm", "llvm-strip", "dsymutil", "ld.lld", "ld64.lld", "llvm-profdata"]
+_TOOLS = ["clang", "clang++", "llvm-ar", "llvm-ranlib", "llvm-nm", "llvm-strip", "dsymutil", "ld.lld", "ld64.lld", "llvm-profdata", "llvm-readobj", "llvm-objdump", "llvm-cxxfilt"]
 
 def _flags(flags, output):
     result = []
@@ -51,7 +51,7 @@ def _llvm_sdk_impl(ctx):
     targets = [ctx.attr.sdk, ctx.attr.make, ctx.attr.cmake, ctx.attr.make_driver, ctx.attr.git, ctx.attr.python, ctx.attr.uname]
     closure = depset([ctx.file.source_archive, ctx.file.builder, ctx.file.helper], transitive = [cc.all_files] + [target[DefaultInfo].files for target in targets] + [target[DefaultInfo].default_runfiles.files for target in targets])
     ctx.actions.write(request, json.encode({
-        "version": "21.1.8", "projects": ["clang", "lld"], "platform": ctx.attr.platform,
+        "version": "23.1.1", "projects": ["clang", "lld"], "platform": ctx.attr.platform,
         "archive": ctx.file.source_archive.path, "runtime": runtime.path, "manifest": manifest.path,
         "tools": {name: file.path for name, file in tools.items()},
         "sdk": sdk.binary.path.rsplit("/bin/", 1)[0], "make_sdk": make.binary.path.rsplit("/bin/", 1)[0],
@@ -72,7 +72,7 @@ def _llvm_sdk_impl(ctx):
         tools = [target[DefaultInfo].files_to_run for target in [ctx.attr.python, ctx.attr.cmake, ctx.attr.make_driver, ctx.attr.git, ctx.attr.uname]],
         outputs = [runtime, manifest] + tools.values(),
         mnemonic = "DeclaredLlvmSdk",
-        progress_message = "Building original LLVM21.1.8 clang and lld for Bun",
+        progress_message = "Building original LLVM23.1.1 clang and lld for Bun",
         env = {},
         use_default_shell_env = False,
     )

@@ -1,6 +1,6 @@
 """Original runtime source/diagnostic archives; none assert complete attribution.
 
-Profile binaries and final-link maps come from the same official Bun1.4.2 ZIPs.
+Profile binaries and final-link maps come from the same official Bun1.4.3 ZIPs.
 WebKit LTO selection comes from that release's original native dependency config.
 Keep archive Files intact so consumers can check exact member ownership and bytes.
 """
@@ -8,18 +8,18 @@ Keep archive Files intact so consumers can check exact member ownership and byte
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
 _PROFILES = {
-    "darwin_aarch64": ("darwin-aarch64", "09a5c3053e94669c837591bf9cf16a5ff84b2234dfb32304a251213f9816c7d1"),
-    "darwin_x64": ("darwin-x64", "07367d2acad8af980944c247f57ce5a154c5b6f1964017fc6fbfb6e8bf2dc7d9"),
-    "linux_aarch64": ("linux-aarch64", "905c31a277101362e63ddc07f5ff81e73b00fcd5d03eb05ed3a3cefd8fcef08d"),
-    "linux_x64": ("linux-x64", "fad558e312e123abc9abc6fcdc2370b60e8a9726575fc6bcc2fdc93e6b600a7f"),
+    "darwin_aarch64": ("darwin-aarch64", "75f64c0576854e701dd1dc306cf57a934ffdad40855f9e12a8ad6b63856603d4"),
+    "darwin_x64": ("darwin-x64", "b216c00754c53e5a54502ff136f35724dc595b3ed19a3a304a15cc5559db47cf"),
+    "linux_aarch64": ("linux-aarch64", "0ab465027121ffcb9317e521ffe099fbecc649244cf89ad67f1519d35309461f"),
+    "linux_x64": ("linux-x64", "0f0a4f143fdb562853223cdc1a6b040a0aafa88a012a876db936e7ba2079c36c"),
 }
 
-_WEBKIT_COMMIT = "2e2aa2290fac856d6f451ceacb58f7f5b44dd057"
+_WEBKIT_COMMIT = "0c06faadf65bf8e8c8ad3a5a8aca83e1e9ed653f"
 _WEBKIT = {
-    "darwin_aarch64": ("macos-arm64", "93c79936f3ef5d625dac0fa29deb12406fc6c356d755df654c69691667b3872d"),
-    "darwin_x64": ("macos-amd64", "44950d3630d37c7995bf9ddc0d7796f479bf5d4e1b2c0edab8322341202b8ecf"),
-    "linux_aarch64": ("linux-arm64", "b0fd42cfd66490a2f8e6afe67285e06eabe110cf808f5903b68f86e7580400aa"),
-    "linux_x64": ("linux-amd64", "8f68d22b67fc0b72fb81b808aaf996a8a228cbaad193fd574d3b8655258db8b9"),
+    "darwin_aarch64": ("macos-arm64", "26bea28d6d1efb8609816745dd959122120fb5fe64e390fd83e0ee6a1d9b616f"),
+    "darwin_x64": ("macos-amd64", "bc156b48d62292e695cd1bcbadf643e749b31b1259692724b208a769c66949ae"),
+    "linux_aarch64": ("linux-arm64", "7739eb7ca5d5155a630ab616bfed874277c909ca9661866173b7e7ff6190144e"),
+    "linux_x64": ("linux-amd64", "19354fbb91f4dc5d0c2346598ab73d5b9046101dc01d8c5bfdb59db24d0c0cfd"),
 }
 
 def runtime_webkit_pin(platform):
@@ -36,7 +36,7 @@ def _runtime_archives_impl(module_ctx):
         asset = "bun-%s-profile.zip" % asset_platform
         http_file(
             name = "bun_profile_" + platform,
-            urls = ["https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/" + asset],
+            urls = ["https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/" + asset],
             sha256 = digest,
             downloaded_file_path = asset,
         )

@@ -53,7 +53,7 @@ class BunSourceCustodyControls(unittest.TestCase):
     def test_genuine_release_source_license_and_build_bytes_remain_custody_only(self):
         result, originals = self.produce()
         self.assertEqual(result['kind'], 'bun-runtime-source-custody')
-        self.assertEqual(result['commit'], '744846f844374847c902b5e7fd59b4342a51ef99')
+        self.assertEqual(result['commit'], 'c6da4a4d3010e5553438c60f6bd76d981976867c')
         self.assertEqual(result['runtime']['sha256'], helper.digest(runtime.read_bytes()))
         self.assertEqual(result['source_archive']['sha256'], pins['source']['sha256'])
         self.assertEqual(len(result['licenses']), 4)

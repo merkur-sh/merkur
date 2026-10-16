@@ -40,7 +40,7 @@ class CmakeCompilerInputs(unittest.TestCase):
         cls.environment, _ = native.environment(cls.root, tools, '/declared-llvm', arguments.nightly,
             Path('/declared-npm'), execution / spec['environment']['SDKROOT'],
             [arguments.cmake_sdk / 'lib', arguments.bash_sdk / 'lib', arguments.nightly / 'lib'],
-            '744846f844374847c902b5e7fd59b4342a51ef99', 4)
+            'c6da4a4d3010e5553438c60f6bd76d981976867c', 4)
         cls.configure = [str(arguments.cmake_sdk / 'bin/cmake'), '-S', str(cls.source), '-B', str(cls.build),
             '-DCMAKE_CXX_COMPILER=' + str(execution / spec['cxx']),
             '-DCMAKE_CXX_FLAGS_INIT=' + shlex.join(compile_flags),

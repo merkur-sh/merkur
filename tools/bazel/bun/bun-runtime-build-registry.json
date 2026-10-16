@@ -1,6 +1,6 @@
 {
-  "bun_commit": "744846f844374847c902b5e7fd59b4342a51ef99",
-  "cargo_lock_sha256": "5c3a9f56eef147f4110114694f44797d66290813513add281a5403f633c1e381",
+  "bun_commit": "c6da4a4d3010e5553438c60f6bd76d981976867c",
+  "cargo_lock_sha256": "10c44ac0a3662b7ee64b0d925b2d8728e8e3031485066e404b5b31379a342b3e",
   "packages": [
     {
       "name": "aho-corasick",
@@ -841,12 +841,6 @@
       "version": "1.2.1",
       "sha256": "be4d6b5f19ff7664e8c98d03e2139cb510db9b0a60b55f8e8709b689d939b6bc",
       "url": "https://static.crates.io/crates/tinytemplate/tinytemplate-1.2.1.crate"
-    },
-    {
-      "name": "typed-arena",
-      "version": "2.0.2",
-      "sha256": "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a",
-      "url": "https://static.crates.io/crates/typed-arena/typed-arena-2.0.2.crate"
     },
     {
       "name": "typenum",

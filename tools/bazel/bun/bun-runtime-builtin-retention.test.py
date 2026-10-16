@@ -147,7 +147,7 @@ if __name__ == '__main__':
             facts = self.join()
             self.assertEqual({fact['path'] for fact in facts},
                              {'scripts/build/jsonByteClass.ts', 'scripts/build/fs.ts', 'package.json'})
-            self.assertTrue(all(fact['component'] == 'bun@1.4.2' for fact in facts))
+            self.assertTrue(all(fact['component'] == 'bun@1.4.3' for fact in facts))
             for fact in facts:
                 self.assertEqual(fact['sha256'], hashlib.sha256(self.origin['members'][fact['path']]).hexdigest())
 
@@ -224,7 +224,7 @@ if __name__ == '__main__':
                     [self.origin, fixture_origin], linked, licenses, sections, mapper)
             facts = reader.retained_native_inputs(configuration, self.source, binary, 'aarch64-apple-darwin',
                 [self.origin, fixture_origin], linked, licenses, sections, mapper, controls.runner, arguments.bun)
-            self.assertEqual({fact['path'] for fact in facts if fact['component'] == 'bun@1.4.2'},
+            self.assertEqual({fact['path'] for fact in facts if fact['component'] == 'bun@1.4.3'},
                              {'scripts/build/jsonByteClass.ts', 'scripts/build/fs.ts', 'package.json'})
             self.assertIn('main.cpp', {fact['path'] for fact in facts})
             if arguments.evidence:
@@ -335,7 +335,7 @@ if __name__ == '__main__':
                                   (name.endswith('.js') or name.endswith('.ts') and not name.endswith('.d.ts'))) +
                              ['src/js/internal-for-testing.ts'])
             for fact in result['generated_sources']:
-                self.assertEqual(fact['component'], 'bun@1.4.2')
+                self.assertEqual(fact['component'], 'bun@1.4.3')
                 self.assertEqual(fact['sha256'], hashlib.sha256(self.origin['members'][fact['path']]).hexdigest())
 
         def test_changed_blob_runtime_and_invocation_partition_refuse(self):
@@ -483,7 +483,7 @@ if __name__ == '__main__':
             self.assertIsNone(component['version'])
             self.assertEqual(component['texts'][0]['text'], arguments.workspace_license.read_text())
             self.assertEqual(result['pending_sources'], [str(arguments.bun.resolve())])
-            self.assertTrue(all(fact['component'] == 'bun@1.4.2' for fact in result['generated_sources']))
+            self.assertTrue(all(fact['component'] == 'bun@1.4.3' for fact in result['generated_sources']))
 
         def test_non_template_generator_mutation_and_substituted_patch_refuse(self):
             consumed = self.source / 'src/codegen/bundle-modules.ts'
@@ -512,7 +512,7 @@ if __name__ == '__main__':
             facts = [fact for fact in result['generated_sources'] if fact['path'] == name]
             self.assertEqual(len(facts), 1)
             self.assertEqual(facts[0]['sha256'], hashlib.sha256(original.read_bytes()).hexdigest())
-            self.assertEqual(facts[0]['component'], 'bun@1.4.2')
+            self.assertEqual(facts[0]['component'], 'bun@1.4.3')
             self.assertEqual(result['generated_inputs'][3]['sha256'], hashlib.sha256(consumed.read_bytes()).hexdigest())
             self.assertEqual(result['pending_sources'], [str(arguments.bun.resolve())])
             self.assertEqual(result['generated_components'][0]['license'], 'AGPL-3.0-only')
@@ -526,7 +526,7 @@ if __name__ == '__main__':
                 self.assertEqual(len(facts), 1)
                 body = (self.source / name).read_bytes()
                 self.assertEqual(body, self.origin['members'][name])
-                self.assertEqual(facts[0]['component'], 'bun@1.4.2')
+                self.assertEqual(facts[0]['component'], 'bun@1.4.3')
                 self.assertEqual(facts[0]['sha256'], hashlib.sha256(body).hexdigest())
                 consumed = [fact for fact in result['generated_inputs'] if fact['path'] == str(self.source / name)]
                 self.assertEqual(consumed, [{'path': str(self.source / name), 'size': len(body),
@@ -559,7 +559,7 @@ if __name__ == '__main__':
                 self.assertEqual(body, self.origin['members'][name])
                 facts = [fact for fact in result['generated_sources'] if fact['path'] == name]
                 self.assertEqual(len(facts), 1)
-                self.assertEqual(facts[0]['component'], 'bun@1.4.2')
+                self.assertEqual(facts[0]['component'], 'bun@1.4.3')
                 self.assertEqual(facts[0]['sha256'], hashlib.sha256(body).hexdigest())
                 consumed = [fact for fact in result['generated_inputs'] if fact['path'] == str(self.source / name)]
                 self.assertEqual(consumed, [{'path': str(self.source / name), 'size': len(body),
@@ -680,7 +680,7 @@ if __name__ == '__main__':
 
         def test_missing_patch_or_nonexecutable_generator_refuse(self):
             configuration = self.configuration()
-            origin = {**self.origin, 'component': 'bun@1.4.2'}
+            origin = {**self.origin, 'component': 'bun@1.4.3'}
             for patch, runtime in [(None, arguments.bun), (arguments.patch, None)]:
                 with self.assertRaisesRegex(linked.PendingLinkedSource, 'patch/generator Files are required'):
                     reader.retained_builtin_inputs(configuration, self.source, self.declared_runtime,

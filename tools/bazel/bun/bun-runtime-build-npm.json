@@ -1,7 +1,7 @@
 {
-  "bun_commit": "744846f844374847c902b5e7fd59b4342a51ef99",
+  "bun_commit": "c6da4a4d3010e5553438c60f6bd76d981976867c",
   "locks": {
-    "bun.lock": "cbf7580281d42a634da110c60541cccdc91f3ef563f37c15684a6f15ade0ed38",
+    "bun.lock": "70a90d0da7e4ce39c16b43d1d823f0ab55a4458d20137cb97c3fbafdde8032eb",
     "packages/bun-error/bun.lock": "e5f358227dd67c5c14ddbe5fe3348e2fbffb1399382909eda00e606b178a313d",
     "src/node-fallbacks/bun.lock": "f2694f1fbc8689075bf005d90cecaeb393967cf96b735a8315198144278ea11d"
   },
@@ -289,6 +289,24 @@
       "url": "https://registry.npmjs.org/@types/node/-/node-26.2.0.tgz"
     },
     {
+      "name": "@types/prop-types",
+      "version": "15.7.15",
+      "integrity": "sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==",
+      "url": "https://registry.npmjs.org/@types/prop-types/-/prop-types-15.7.15.tgz"
+    },
+    {
+      "name": "@types/react-dom",
+      "version": "18.3.7",
+      "integrity": "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==",
+      "url": "https://registry.npmjs.org/@types/react-dom/-/react-dom-18.3.7.tgz"
+    },
+    {
+      "name": "@types/react",
+      "version": "18.3.31",
+      "integrity": "sha512-vfEqpXTvwT91yhmwdfouStN2hSKwTvyRs8qpLfADyrq/kxDw0hZM7Wk9Ug1FELj8hIby+S/+kQCSRFF32nv2Qw==",
+      "url": "https://registry.npmjs.org/@types/react/-/react-18.3.31.tgz"
+    },
+    {
       "name": "abort-controller",
       "version": "3.0.0",
       "integrity": "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==",
@@ -449,6 +467,12 @@
       "version": "3.12.1",
       "integrity": "sha512-r4ESw/IlusD17lgQi1O20Fa3qNnsckR126TdUuBgAu7GBYSIPvdNyONd3Zrxh0xCwA4+6w/TDArBPsMvhur+KQ==",
       "url": "https://registry.npmjs.org/crypto-browserify/-/crypto-browserify-3.12.1.tgz"
+    },
+    {
+      "name": "csstype",
+      "version": "3.2.3",
+      "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==",
+      "url": "https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz"
     },
     {
       "name": "define-data-property",

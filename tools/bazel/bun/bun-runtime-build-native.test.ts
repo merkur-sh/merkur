@@ -60,9 +60,9 @@ function fixture(dependencies = '[]', changes: Record<string, unknown> = {}) {
   file('bin/sh');
   process.env.PATH = path.join(root, 'bin');
   const configuration: Record<string, unknown> = {
-    version: '1.4.2',
+    version: '1.4.3',
     revision: 'original-commit',
-    clangVersion: '21.1.8',
+    clangVersion: '23.1.1',
     ci: true,
     buildkite: false,
     lto: true,
@@ -80,6 +80,9 @@ function fixture(dependencies = '[]', changes: Record<string, unknown> = {}) {
     ar: 'llvm-ar',
     ranlib: 'llvm-ranlib',
     nm: 'llvm-nm',
+    readobj: 'llvm-readobj',
+    objdump: 'llvm-objdump',
+    cxxfilt: 'llvm-cxxfilt',
     dsymutil: 'dsymutil',
   }))
     configuration[field] = file(`llvm/bin/${tool}`);
@@ -88,8 +91,8 @@ function fixture(dependencies = '[]', changes: Record<string, unknown> = {}) {
   configuration.cargo = file('nightly/bin/cargo');
   configuration.nasm = tools.nasm;
   configuration.strip = process.platform === 'linux' ? tools.strip : file('llvm/bin/llvm-strip');
-  configuration.rustLld = file('nightly/bin/rust-lld');
-  configuration.ld = configuration.rustLld;
+  configuration.rustSysroot = path.join(root, 'nightly');
+  configuration.ld = process.platform === 'linux' ? file('llvm/bin/ld.lld') : '';
   const sysroot = path.join(root, 'sysroot');
   mkdirSync(sysroot);
   configuration[process.platform === 'darwin' ? 'osxSysroot' : 'sysroot'] = sysroot;
@@ -190,8 +193,11 @@ test('native configuration keeps original release predicates and exact tool iden
     validateOriginalConfiguration({ ...configuration, cc: file('foreign-compiler') }, request),
   ).toThrow('undeclared cc');
   expect(() =>
-    validateOriginalConfiguration({ ...configuration, rustLld: file('foreign-linker') }, request),
-  ).toThrow('outside the declared nightly SDK');
+    validateOriginalConfiguration({ ...configuration, rustSysroot: root }, request),
+  ).toThrow('undeclared Rust sysroot');
+  expect(() =>
+    validateOriginalConfiguration({ ...configuration, ld: file('foreign-linker') }, request),
+  ).toThrow(process.platform === 'linux' ? 'undeclared native linker' : 'undeclared Darwin linker');
 });
 
 test('native engine preserves offline archive arguments, release options and actual side-products', () => {

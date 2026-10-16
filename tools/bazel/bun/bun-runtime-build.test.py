@@ -48,7 +48,7 @@ class OriginalBuildInputs(unittest.TestCase):
                 self.assertFalse(path.exists(), 'TreeArtifact must not follow original source aliases')
         self.assertIn('scripts/build.ts', files)
         self.assertIn('rust-toolchain.toml', files)
-        self.assertIn(b'nightly-2026-07-20', (self.output / 'rust-toolchain.toml').read_bytes())
+        self.assertIn(b'nightly-2026-09-15', (self.output / 'rust-toolchain.toml').read_bytes())
 
     def test_changed_original_refuses_before_output_creation(self):
         self.archive.unlink()
@@ -113,9 +113,9 @@ class OriginalBuildInputs(unittest.TestCase):
             webkit = selected['WebKit']
             platform = ('macos' if configuration['os'] == 'darwin' else 'linux')
             platform += '-arm64' if configuration['arch'] == 'aarch64' else '-amd64'
-            self.assertEqual(webkit['identity'], '2e2aa2290fac856d6f451ceacb58f7f5b44dd057-lto')
+            self.assertEqual(webkit['identity'], '0c06faadf65bf8e8c8ad3a5a8aca83e1e9ed653f-lto')
             self.assertEqual(webkit['url'], 'https://github.com/oven-sh/WebKit/releases/download/'
-                             'autobuild-2e2aa2290fac856d6f451ceacb58f7f5b44dd057/'
+                             'autobuild-0c06faadf65bf8e8c8ad3a5a8aca83e1e9ed653f/'
                              'bun-webkit-' + platform + '-lto.tar.gz')
         self.assertNotIn('components', actual)
         self.assertNotIn('selected_source_members', actual)

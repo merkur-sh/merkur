@@ -1,102 +1,102 @@
 {
-  "bun_commit": "744846f844374847c902b5e7fd59b4342a51ef99",
+  "bun_commit": "c6da4a4d3010e5553438c60f6bd76d981976867c",
   "nightly": {
-    "channel": "nightly-2026-07-20",
-    "date": "2026-07-20",
+    "channel": "nightly-2026-09-15",
+    "date": "2026-09-15",
     "manifest": {
-      "url": "https://static.rust-lang.org/dist/2026-07-20/channel-rust-nightly.toml",
-      "sha256": "1bf70a4f1406732dd79957ccc0d0afc78bdc69cdfa3b5f57857ab56727e05d56"
+      "url": "https://static.rust-lang.org/dist/2026-09-15/channel-rust-nightly.toml",
+      "sha256": "f0c1bc94dd5c23ce4a5aa405a1b81188805e2801589c9f44984b3b5ab17d2136"
     },
     "components": {
       "rustc": {
-        "version": "1.99.0-nightly (9f36de775 2026-07-19)",
+        "version": "1.100.0-nightly (574ff7d98 2026-09-14)",
         "targets": {
           "aarch64-apple-darwin": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-aarch64-apple-darwin.tar.xz",
-            "sha256": "d7bae1d1f860fb12cc17c1649136e6be0c3967559f3f4c4e22455efb8cb6435e"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rustc-nightly-aarch64-apple-darwin.tar.xz",
+            "sha256": "795dd452cfd5fba1760ed6a6bee764ac8858230dd003146c6fe9febeab099e0a"
           },
           "aarch64-unknown-linux-gnu": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-aarch64-unknown-linux-gnu.tar.xz",
-            "sha256": "93158a3c5c8fa18b0bd10f52b0511a9bafa670b6333268ee42e41f289e6ac708"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rustc-nightly-aarch64-unknown-linux-gnu.tar.xz",
+            "sha256": "9b161010ad52e051ba4dcb4bf9a390ff471b7dbb5afb278e4d5c0a6bd27082e8"
           },
           "x86_64-apple-darwin": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-x86_64-apple-darwin.tar.xz",
-            "sha256": "58d46f8aca3343b1210e4a5e8d2d8b1299cccf41365002557c20a9e85c57c33e"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rustc-nightly-x86_64-apple-darwin.tar.xz",
+            "sha256": "dd0b2b69ed0c5b8850f0b4fe477793d751afce2fdf8095f9912d4b96fef7b13f"
           },
           "x86_64-unknown-linux-gnu": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz",
-            "sha256": "a0e461ac8f2ec75b38cd9590188db2d90e0acde3279434194a0ecebd7c099fa0"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz",
+            "sha256": "ecc706e88ded6d48c83f2de218b2fa3861a821e7c3134be47e3db9eb1cc5149d"
           }
         }
       },
       "cargo": {
-        "version": "0.100.0-nightly (3efb1f477 2026-07-17)",
+        "version": "0.101.0-nightly (7941be6fb 2026-09-11)",
         "targets": {
           "aarch64-apple-darwin": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-aarch64-apple-darwin.tar.xz",
-            "sha256": "1f52e7439b9a5d79e153c86979b1e859b3180b69454520ab4e9c7f618b6905d0"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/cargo-nightly-aarch64-apple-darwin.tar.xz",
+            "sha256": "e3eec6793e18cbf48369008aa87778799af14ac7afa43f30e2f07ecd8f41f9b6"
           },
           "aarch64-unknown-linux-gnu": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-aarch64-unknown-linux-gnu.tar.xz",
-            "sha256": "fd53e13dd63638d59d8c43f40da60b0650551916c3c70f3f16f7eca0f72fec25"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/cargo-nightly-aarch64-unknown-linux-gnu.tar.xz",
+            "sha256": "3f6cd75f45c5f05b1d634943db93ec21946009411981c9cb2bec3010ae2459ca"
           },
           "x86_64-apple-darwin": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-x86_64-apple-darwin.tar.xz",
-            "sha256": "7db4bdaa3734e0a26d914641b5dfd3336d2d71253866c51085e0577bf4eb03ac"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/cargo-nightly-x86_64-apple-darwin.tar.xz",
+            "sha256": "a5306a499813521ae273215bdcd5daa228194286d4eeb2cfae924716cfa9452f"
           },
           "x86_64-unknown-linux-gnu": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz",
-            "sha256": "4e5500fc62034d3b42450a921f408ee9e4aacd5e6de52a78fd736d6215889a38"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz",
+            "sha256": "d5704ae8ac2252532f798abaf2531557969d6124ea7ea003bb532187643947a7"
           }
         }
       },
       "rust-std": {
-        "version": "1.99.0-nightly (9f36de775 2026-07-19)",
+        "version": "1.100.0-nightly (574ff7d98 2026-09-14)",
         "targets": {
           "aarch64-apple-darwin": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-aarch64-apple-darwin.tar.xz",
-            "sha256": "26e71f6c916374821d05d7d3b9c4f80430228d834d4fea7dd91330c62f1884de"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rust-std-nightly-aarch64-apple-darwin.tar.xz",
+            "sha256": "6fefa0169e2964dd5ffdcab08b83a63ec94138467c516d303a9be4df210a2a0d"
           },
           "aarch64-unknown-linux-gnu": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-aarch64-unknown-linux-gnu.tar.xz",
-            "sha256": "997c94ea0fecc7ce95d212030cba2772cbed34fdb348ce15def6bedb645d0fb3"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rust-std-nightly-aarch64-unknown-linux-gnu.tar.xz",
+            "sha256": "3283ea1967715375a137ef183979baaca922d839045479a6684e9dcdc9342e18"
           },
           "x86_64-apple-darwin": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-x86_64-apple-darwin.tar.xz",
-            "sha256": "10bf53acde39c9935b3c4a46a6fb7867c999b811f0eaf4ed0b6d72d7b304221b"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rust-std-nightly-x86_64-apple-darwin.tar.xz",
+            "sha256": "730f4a379227c9b403771860f0db3ad7853c3c9e719ccb394338cfc59d3467d3"
           },
           "x86_64-unknown-linux-gnu": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz",
-            "sha256": "4b746e74f07cc3e3a16e1c0d367183eb5ca5374d6e87b9ab2002bbd463b3f8f0"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz",
+            "sha256": "4db2d95d204298525ebb3aa850edc67ea0a9a5dbbf12e7f769a57bee31bdb9cc"
           }
         }
       },
       "rust-src": {
-        "version": "1.99.0-nightly (9f36de775 2026-07-19)",
+        "version": "1.100.0-nightly (574ff7d98 2026-09-14)",
         "targets": {
           "*": {
-            "url": "https://static.rust-lang.org/dist/2026-07-20/rust-src-nightly.tar.xz",
-            "sha256": "d4ffe57cc99d8846761bdbefc631bfd8f06fc001d7208576887e381c5709341a"
+            "url": "https://static.rust-lang.org/dist/2026-09-15/rust-src-nightly.tar.xz",
+            "sha256": "dee5c574fab79b4b45aa24f7260613977d820e62013a7923647c066c10bdaec5"
           }
         }
       }
     }
   },
   "llvm": {
-    "version": "21.1.8",
+    "version": "23.1.1",
     "source": {
-      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/llvm-project-21.1.8.src.tar.xz",
-      "sha256": "4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142",
-      "prefix": "llvm-project-21.1.8.src"
+      "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-23.1.1/llvm-project-23.1.1.src.tar.xz",
+      "sha256": "ebe9be46fe8756d58c5b198ffad0fa2a766257add81a4dc52179bfacc7888ee6",
+      "prefix": "llvm-project-23.1.1.src"
     }
   },
   "dependencies": {
     "picohttpparser": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/h2o/picohttpparser/tar.gz/066d2b1e9ab820703db0837a7255d92d30f0c9f5",
-      "original_url": "https://github.com/h2o/picohttpparser/archive/066d2b1e9ab820703db0837a7255d92d30f0c9f5.tar.gz",
-      "sha256": "637ff2ab6f5c7f7e05a5b5dc393d5cf2fea8d4754fcaceaaf935ffff5c1323ee",
-      "revision": "066d2b1e9ab820703db0837a7255d92d30f0c9f5",
+      "url": "https://codeload.github.com/h2o/picohttpparser/tar.gz/f4d94b48b31e0abae029ebeafcfd9ca0680ede58",
+      "original_url": "https://github.com/h2o/picohttpparser/archive/f4d94b48b31e0abae029ebeafcfd9ca0680ede58.tar.gz",
+      "sha256": "bd773fad1e2c6532b7a65ef6b60dec3612a3e566e3c844272cc2cbab89dc7e9c",
+      "revision": "f4d94b48b31e0abae029ebeafcfd9ca0680ede58",
       "repository": "h2o/picohttpparser"
     },
     "nodejs": {
@@ -125,34 +125,34 @@
     },
     "brotli": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/google/brotli/tar.gz/v1.1.0",
-      "original_url": "https://github.com/google/brotli/archive/v1.1.0.tar.gz",
-      "sha256": "e720a6ca29428b803f4ad165371771f5398faba397edf6778837a18599ea13ff",
-      "revision": "v1.1.0",
+      "url": "https://codeload.github.com/google/brotli/tar.gz/028fb5a23661f123017c060daa546b55cf4bde29",
+      "original_url": "https://github.com/google/brotli/archive/028fb5a23661f123017c060daa546b55cf4bde29.tar.gz",
+      "sha256": "0afe09a53c8bad9861c8dd1fc1284308d54f19d2979ba3541cfdcc9b05fe360f",
+      "revision": "028fb5a23661f123017c060daa546b55cf4bde29",
       "repository": "google/brotli"
     },
     "libdeflate": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/ebiggers/libdeflate/tar.gz/c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
-      "original_url": "https://github.com/ebiggers/libdeflate/archive/c8c56a20f8f621e6a966b716b31f1dedab6a41e3.tar.gz",
-      "sha256": "1e5cc06bdbf3e1245d8b89c9e3588f507e3c8bc53fe8b8229770a9e8661dea81",
-      "revision": "c8c56a20f8f621e6a966b716b31f1dedab6a41e3",
+      "url": "https://codeload.github.com/ebiggers/libdeflate/tar.gz/92e6a0db9fa848d742f9eb286c92afc60f2c3dda",
+      "original_url": "https://github.com/ebiggers/libdeflate/archive/92e6a0db9fa848d742f9eb286c92afc60f2c3dda.tar.gz",
+      "sha256": "af56498149827f5a5e3f1ffb653c79c8c75557f3dc2caf6002cac38a59b844b7",
+      "revision": "92e6a0db9fa848d742f9eb286c92afc60f2c3dda",
       "repository": "ebiggers/libdeflate"
     },
     "libarchive": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/libarchive/libarchive/tar.gz/ded82291ab41d5e355831b96b0e1ff49e24d8939",
-      "original_url": "https://github.com/libarchive/libarchive/archive/ded82291ab41d5e355831b96b0e1ff49e24d8939.tar.gz",
-      "sha256": "042f0efe7147063ff9ba10f1a38ed080e949bcbd04bdbf3592b8846dd11b1da2",
-      "revision": "ded82291ab41d5e355831b96b0e1ff49e24d8939",
+      "url": "https://codeload.github.com/libarchive/libarchive/tar.gz/27cbc7827172698143e440801fc0ba39ccb4f1f5",
+      "original_url": "https://github.com/libarchive/libarchive/archive/27cbc7827172698143e440801fc0ba39ccb4f1f5.tar.gz",
+      "sha256": "81e981eff4746da4c80e6622dc827b232e6333ff2e27320a6ee8fde86c891b92",
+      "revision": "27cbc7827172698143e440801fc0ba39ccb4f1f5",
       "repository": "libarchive/libarchive"
     },
     "libjpeg-turbo": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/tar.gz/e352b02f794f701407b39af08576035ba3360d60",
-      "original_url": "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/e352b02f794f701407b39af08576035ba3360d60.tar.gz",
-      "sha256": "440f3a94390c78eab88f74b92944d2f6b248e592e984412e389885dfb5796bf0",
-      "revision": "e352b02f794f701407b39af08576035ba3360d60",
+      "url": "https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/tar.gz/c85e6b905bf237038faa936dab160ebfc5da0344",
+      "original_url": "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/c85e6b905bf237038faa936dab160ebfc5da0344.tar.gz",
+      "sha256": "45209a3f315ed6156dac8d7fa451b8be62d83f2daa5581cb6b94ee9f3f82cf6f",
+      "revision": "c85e6b905bf237038faa936dab160ebfc5da0344",
       "repository": "libjpeg-turbo/libjpeg-turbo"
     },
     "libspng": {
@@ -181,10 +181,10 @@
     },
     "hdrhistogram": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/HdrHistogram/HdrHistogram_c/tar.gz/be60a9987ee48d0abf0d7b6a175bad8d6c1585d1",
-      "original_url": "https://github.com/HdrHistogram/HdrHistogram_c/archive/be60a9987ee48d0abf0d7b6a175bad8d6c1585d1.tar.gz",
-      "sha256": "811c5e5ae5303a75ade50688880af6aad5d2f951ec5785f68186bd18635cdfc9",
-      "revision": "be60a9987ee48d0abf0d7b6a175bad8d6c1585d1",
+      "url": "https://codeload.github.com/HdrHistogram/HdrHistogram_c/tar.gz/18c7a324383dded1451d15621cd018b0048057d0",
+      "original_url": "https://github.com/HdrHistogram/HdrHistogram_c/archive/18c7a324383dded1451d15621cd018b0048057d0.tar.gz",
+      "sha256": "427290c2067ec4c919632f9ba372ec2aac9005418578f32ef392db5f98a12a32",
+      "revision": "18c7a324383dded1451d15621cd018b0048057d0",
       "repository": "HdrHistogram/HdrHistogram_c"
     },
     "highway": {
@@ -213,26 +213,26 @@
     },
     "lshpack": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/litespeedtech/ls-hpack/tar.gz/8905c024b6d052f083a3d11d0a169b3c2735c8a1",
-      "original_url": "https://github.com/litespeedtech/ls-hpack/archive/8905c024b6d052f083a3d11d0a169b3c2735c8a1.tar.gz",
-      "sha256": "07d8bf901bb1b15543f38eabd23938519e1210eebadb52f3d651d6ef130ef973",
-      "revision": "8905c024b6d052f083a3d11d0a169b3c2735c8a1",
+      "url": "https://codeload.github.com/litespeedtech/ls-hpack/tar.gz/cf0f70dd10b352194c97448eb5d00b4aa484f531",
+      "original_url": "https://github.com/litespeedtech/ls-hpack/archive/cf0f70dd10b352194c97448eb5d00b4aa484f531.tar.gz",
+      "sha256": "b138d8fc71e5f7f353b5784942cf08ad57050d7b321121f095627f696757f9f8",
+      "revision": "cf0f70dd10b352194c97448eb5d00b4aa484f531",
       "repository": "litespeedtech/ls-hpack"
     },
     "lsqpack": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/litespeedtech/ls-qpack/tar.gz/1e9c5b8e59f8161c54f168a570c8bfdc59ded0c3",
-      "original_url": "https://github.com/litespeedtech/ls-qpack/archive/1e9c5b8e59f8161c54f168a570c8bfdc59ded0c3.tar.gz",
-      "sha256": "e9d8abe5b7c1e35b9908a9521e2acd7c1d17547babc01d73c7297e02aebbcc2d",
-      "revision": "1e9c5b8e59f8161c54f168a570c8bfdc59ded0c3",
+      "url": "https://codeload.github.com/litespeedtech/ls-qpack/tar.gz/91567706c41c0d97ab8dc576873ecd472d7869fa",
+      "original_url": "https://github.com/litespeedtech/ls-qpack/archive/91567706c41c0d97ab8dc576873ecd472d7869fa.tar.gz",
+      "sha256": "1e8f7a69a9aee3970cb3fa8fbc22e2df00b7daf8f2b51daf35f50001e6c6943c",
+      "revision": "91567706c41c0d97ab8dc576873ecd472d7869fa",
       "repository": "litespeedtech/ls-qpack"
     },
     "mimalloc": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/oven-sh/mimalloc/tar.gz/6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
-      "original_url": "https://github.com/oven-sh/mimalloc/archive/6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a.tar.gz",
-      "sha256": "f36343416ad823dfcca61bd18ad4bb7f0d8814ab77e0fd5ef169f4a9cddeb8b8",
-      "revision": "6a64e1ba7f5b2130d4efccb67ec87fd0003f0f6a",
+      "url": "https://codeload.github.com/oven-sh/mimalloc/tar.gz/92ef6587c57b262f6e6abf513f7776a2f8d12aeb",
+      "original_url": "https://github.com/oven-sh/mimalloc/archive/92ef6587c57b262f6e6abf513f7776a2f8d12aeb.tar.gz",
+      "sha256": "1e708b1730b96b21b9daad43cd67b10cb4af138a73daf549db5fdc0caac69510",
+      "revision": "92ef6587c57b262f6e6abf513f7776a2f8d12aeb",
       "repository": "oven-sh/mimalloc"
     },
     "tinycc": {
@@ -253,10 +253,10 @@
     },
     "lsquic": {
       "kind": "github-archive",
-      "url": "https://codeload.github.com/litespeedtech/lsquic/tar.gz/3181911301b1aa4f54c1ed690901abc674ee08fb",
-      "original_url": "https://github.com/litespeedtech/lsquic/archive/3181911301b1aa4f54c1ed690901abc674ee08fb.tar.gz",
-      "sha256": "f8cb90fb327eb91597c23163bf596c0d1882560be35b661d9ba84891cc461735",
-      "revision": "3181911301b1aa4f54c1ed690901abc674ee08fb",
+      "url": "https://codeload.github.com/litespeedtech/lsquic/tar.gz/f812ceb9529e26717df78c6064a2ff648b949f3e",
+      "original_url": "https://github.com/litespeedtech/lsquic/archive/f812ceb9529e26717df78c6064a2ff648b949f3e.tar.gz",
+      "sha256": "c5a81d0b810e85d35ed9460e17576c71f0281ebfaba05d859c0bdfd8c96df73d",
+      "revision": "f812ceb9529e26717df78c6064a2ff648b949f3e",
       "repository": "litespeedtech/lsquic"
     }
   }

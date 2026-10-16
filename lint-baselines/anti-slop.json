@@ -2447,7 +2447,7 @@
   "tools/bazel/bun/bun-runtime-build-native.ts": {
     "no-chained-type-assertions": 6,
     "no-known-value-widening": 1,
-    "no-runtime-typeof": 20,
+    "no-runtime-typeof": 18,
     "no-unknown-parameters": 4,
     "no-unknown-returns": 4,
     "no-unsafe-dictionary-type": 7,

@@ -14,7 +14,7 @@ SPEC.loader.exec_module(BUILDER)
 
 
 def specification():
-    result = {"version": "21.1.8", "projects": ["clang", "lld"], "platform": "darwin_arm64",
+    result = {"version": "23.1.1", "projects": ["clang", "lld"], "platform": "darwin_arm64",
               "tools": {name: "out/tools/" + name for name in BUILDER.TOOLS}}
     for name in ["cc", "cxx", "ar", "ranlib", "cmake", "make_driver", "make", "shell", "git", "python", "uname"]:
         result[name] = "declared/bin/" + name
@@ -37,7 +37,7 @@ class Controls(unittest.TestCase):
             root = Path(temporary)
             source = root / "source.tar.xz"
             source.write_bytes(archive([BUILDER.PREFIX + "/llvm/CMakeLists.txt"]))
-            with self.assertRaisesRegex(ValueError, "original21.1.8"):
+            with self.assertRaisesRegex(ValueError, "original23.1.1"):
                 BUILDER.extract_original(source, root / "output")
             self.assertFalse((root / "output").exists())
 

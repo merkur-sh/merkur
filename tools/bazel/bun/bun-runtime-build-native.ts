@@ -56,9 +56,9 @@ export function validateOriginalConfiguration(
   request: Request,
 ): void {
   if (
-    configuration.version !== '1.4.2' ||
+    configuration.version !== '1.4.3' ||
     configuration.revision !== request.commit ||
-    configuration.clangVersion !== '21.1.8' ||
+    configuration.clangVersion !== '23.1.1' ||
     configuration.ci !== true ||
     configuration.buildkite !== false ||
     configuration.lto !== true ||
@@ -74,6 +74,9 @@ export function validateOriginalConfiguration(
     ar: 'llvm-ar',
     ranlib: 'llvm-ranlib',
     nm: 'llvm-nm',
+    readobj: 'llvm-readobj',
+    objdump: 'llvm-objdump',
+    cxxfilt: 'llvm-cxxfilt',
   }))
     sameFile(configuration[field], path.join(request.llvm, 'bin', tool), field);
   sameFile(configuration.cmake, request.tools.cmake, 'CMake');
@@ -85,18 +88,17 @@ export function validateOriginalConfiguration(
     configuration.os === 'linux' ? request.tools.strip : path.join(request.llvm, 'bin/llvm-strip'),
     'strip',
   );
+  sameFile(configuration.rustSysroot, request.nightly, 'Rust sysroot');
   if (configuration.os === 'darwin') {
     sameFile(configuration.dsymutil, path.join(request.llvm, 'bin/dsymutil'), 'dsymutil');
     sameFile(configuration.osxSysroot, request.sysroot, 'macOS SDK');
+    // A native Darwin link is driven by clang; the original engine names no linker.
+    if (configuration.ld !== '')
+      throw new Error('Original Bun selected an undeclared Darwin linker');
   } else if (configuration.os === 'linux') {
     sameFile(configuration.sysroot, request.sysroot, 'Linux sysroot');
+    sameFile(configuration.ld, path.join(request.llvm, 'bin/ld.lld'), 'native linker');
   } else throw new Error('Original Bun native runtime requires Linux or macOS');
-  if (typeof configuration.rustLld !== 'string' || typeof configuration.ld !== 'string')
-    throw new Error('Original nightly linker is absent');
-  const relative = path.relative(request.nightly, realpathSync(configuration.rustLld));
-  if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`))
-    throw new Error('Original Bun selected a linker outside the declared nightly SDK');
-  sameFile(configuration.ld, configuration.rustLld, 'native nightly linker');
   for (const name of ['perl', 'ninja', 'bash', 'git', 'tar', 'env'])
     sameFile(Bun.which(name), request.tools[name], name);
   sameFile(Bun.which('sh'), request.tools.bash, 'POSIX shell');

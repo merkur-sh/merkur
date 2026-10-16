@@ -10,7 +10,7 @@ test('only declared executable tools and the pinned Bun runtime enter test PATH'
   expect(new TextDecoder().decode(tool.stderr)).toBe('');
   expect(JSON.parse(new TextDecoder().decode(tool.stdout))).toEqual({
     argument: 'declared-input',
-    version: '1.4.2',
+    version: '1.4.3',
   });
   const path = process.env.PATH;
   expect(typeof path).toBe('string');

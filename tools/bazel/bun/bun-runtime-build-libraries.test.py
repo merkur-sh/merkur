@@ -39,7 +39,7 @@ class RuntimeLibraries(unittest.TestCase):
             root.mkdir()
             environment, _ = native.environment(root, tools, '/declared-llvm', Path('/declared-nightly'),
                 Path('/declared-npm-cache'), Path('/declared-sysroot'), library_roots,
-                '744846f844374847c902b5e7fd59b4342a51ef99', 4)
+                'c6da4a4d3010e5553438c60f6bd76d981976867c', 4)
             return subprocess.run([str(root / 'bin/sh'), '-c', 'env -i MERKUR_REAL_SHELL=original env'],
                                   env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         before = run([], 'before')

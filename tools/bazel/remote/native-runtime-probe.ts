@@ -1,7 +1,7 @@
 if (
   process.platform !== 'linux' ||
   !['x64', 'arm64'].includes(process.arch) ||
-  Bun.version !== '1.4.2'
+  Bun.version !== '1.4.3'
 )
   process.exit(1);
 process.stdout.write(

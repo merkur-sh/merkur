@@ -44,7 +44,7 @@ if __name__ == '__main__':
         def test_same_action_original_byte_and_license_custody(self):
             value = self.capture()
             self.assertTrue(value['sources'])
-            self.assertEqual({fact['component'] for fact in value['sources']}, {'bun@1.4.2'})
+            self.assertEqual({fact['component'] for fact in value['sources']}, {'bun@1.4.3'})
             for fact in value['sources']:
                 body = self.origin['members'][fact['source_path']]
                 self.assertEqual(fact['size'], len(body))

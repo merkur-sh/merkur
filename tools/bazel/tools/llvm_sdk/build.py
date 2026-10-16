@@ -1,4 +1,4 @@
-"""Build original LLVM21.1.8 clang/lld through declared native CMake inputs."""
+"""Build original LLVM23.1.1 clang/lld through declared native CMake inputs."""
 import hashlib
 import importlib.util
 import io
@@ -15,10 +15,10 @@ import sys
 import tarfile
 import tempfile
 
-VERSION = "21.1.8"
-SHA256 = "4633a23617fa31a3ea51242586ea7fb1da7140e426bd62fc164261fe036aa142"
-PREFIX = "llvm-project-21.1.8.src"
-TOOLS = ["clang", "clang++", "llvm-ar", "llvm-ranlib", "llvm-nm", "llvm-strip", "dsymutil", "ld.lld", "ld64.lld", "llvm-profdata"]
+VERSION = "23.1.1"
+SHA256 = "ebe9be46fe8756d58c5b198ffad0fa2a766257add81a4dc52179bfacc7888ee6"
+PREFIX = "llvm-project-23.1.1.src"
+TOOLS = ["clang", "clang++", "llvm-ar", "llvm-ranlib", "llvm-nm", "llvm-strip", "dsymutil", "ld.lld", "ld64.lld", "llvm-profdata", "llvm-readobj", "llvm-objdump", "llvm-cxxfilt"]
 
 
 def fact(path):
@@ -67,7 +67,7 @@ def input_facts(root, inputs):
 def extract_original(archive, destination):
     data = Path(archive).read_bytes()
     if hashlib.sha256(data).hexdigest() != SHA256:
-        raise ValueError("LLVM bootstrap requires the original21.1.8 source archive")
+        raise ValueError("LLVM bootstrap requires the original23.1.1 source archive")
     extract(data, destination)
     return destination / PREFIX, {"size": len(data), "sha256": SHA256}
 
@@ -90,7 +90,7 @@ def extract(data, destination):
 
 def validate(specification):
     if specification["version"] != VERSION or specification["projects"] != ["clang", "lld"]:
-        raise ValueError("LLVMSDK requires the exact Bun LLVM21.1.8 clang/lld selection")
+        raise ValueError("LLVMSDK requires the exact Bun LLVM23.1.1 clang/lld selection")
     if set(specification["tools"]) != set(TOOLS):
         raise ValueError("LLVMSDK must declare every original Bun LLVM tool output")
     for name in ["cc", "cxx", "ar", "ranlib", "cmake", "make_driver", "make", "shell", "git", "python", "uname"]:
@@ -192,7 +192,7 @@ def build(specification):
         for arguments in [command, [paths["cmake"], "--build", str(directory), "--parallel", "4"], [paths["cmake"], "--install", str(directory)]]:
             subprocess.run(arguments, cwd=directory, env=environment, check=True)
         required = {name: install / "bin" / name for name in TOOLS}
-        if any(not path.is_file() or not os.access(path, os.X_OK) for path in required.values()) or not (install / "lib/clang/21/include/stddef.h").is_file():
+        if any(not path.is_file() or not os.access(path, os.X_OK) for path in required.values()) or not (install / "lib/clang/23/include/stddef.h").is_file():
             raise ValueError("LLVM installation omitted an original required tool or resource header")
         # Retain complete adjacent LLVM headers/libraries and the declared
         # library dependencies available to LLVM's own CMake configuration.
@@ -214,7 +214,7 @@ def build(specification):
                 raise ValueError("LLVM installed member escaped its declared SDK")
         version = subprocess.run([str(install / "bin/clang"), "--version"], env=environment, check=True, capture_output=True, text=True).stdout
         if re.search(r"\bclang version " + re.escape(VERSION) + r"(?:\s|$)", version) is None:
-            raise ValueError("LLVM installation did not produce the original required clang21.1.8")
+            raise ValueError("LLVM installation did not produce the original required clang23.1.1")
         after_inputs = input_facts(root, specification["inputs"])
         if after_inputs != before_inputs:
             raise ValueError("LLVM declared source/tool inputs changed during compilation")

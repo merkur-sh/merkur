@@ -20,7 +20,8 @@ import tomllib
 TOOLS = frozenset(('bun', 'bash', 'ninja', 'cmake', 'perl', 'nasm', 'git', 'tar',
                    'touch', 'mkdir', 'cp', 'rm', 'cat', 'env', 'python', 'uname'))
 LLVM_TOOLS = frozenset(('clang', 'clang++', 'llvm-ar', 'llvm-ranlib', 'llvm-nm',
-                        'llvm-strip', 'dsymutil', 'ld.lld', 'ld64.lld', 'llvm-profdata'))
+                        'llvm-strip', 'dsymutil', 'ld.lld', 'ld64.lld', 'llvm-profdata',
+                        'llvm-readobj', 'llvm-objdump', 'llvm-cxxfilt'))
 
 
 def load(name, path):
@@ -60,7 +61,7 @@ def llvm_tools(specification, execution_root):
     if str(manifest_file) not in declared:
         raise ValueError('LLVM SDK manifest is absent from declared action Files')
     manifest = json.loads(manifest_file.read_bytes())
-    if manifest.get('version') != '21.1.8' or set(manifest.get('artifacts', {})) != LLVM_TOOLS:
+    if manifest.get('version') != '23.1.1' or set(manifest.get('artifacts', {})) != LLVM_TOOLS:
         raise ValueError('Original LLVM SDK artifact manifest is absent or changed')
     tools = specification['llvm_tools']
     if set(tools) != LLVM_TOOLS:

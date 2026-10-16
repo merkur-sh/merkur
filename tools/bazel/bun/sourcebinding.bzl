@@ -97,7 +97,7 @@ def bun_native_runtime_targets(name, sdk_bindings):
         if os == "linux":
             native_tools[binding["strip"]] = "strip"
         llvm_sdk(
-            name = prefix + "_llvm", source_archive = "@merkur_llvm_21_1_8_source//file",
+            name = prefix + "_llvm", source_archive = "@merkur_llvm_23_1_1_source//file",
             platform = platform, sdk = bootstrap_shell, make = bootstrap_make,
             make_driver = ":" + prefix + "_cmake_driver_make", cmake = ":" + prefix + "_cmake",
             ranlib = binding["ranlib"], git = binding["git"], uname = binding["uname"],

@@ -34,7 +34,7 @@ class OriginalNightlyPayload(unittest.TestCase):
         self.assertEqual(self.specification['target'], 'aarch64-apple-darwin')
         files = self.assemble()
         manifest = json.loads((self.output / 'sdk-payload.json').read_bytes())
-        self.assertEqual(manifest['channel'], 'nightly-2026-07-20')
+        self.assertEqual(manifest['channel'], 'nightly-2026-09-15')
         self.assertEqual(len(manifest['components']), 4)
         self.assertEqual(set(files), {f['path'] for f in manifest['files']} | {'sdk-payload.json'})
         self.assertNotIn('components_selected', manifest)
