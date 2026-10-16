@@ -66,10 +66,10 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring"] }
 # `http-proto` rather than `http-json`: Axiom's metrics intake accepts only
 # protobuf, and http-json pulls prost anyway, so JSON would cost the same and
 # carry less.
-opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
-opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
-opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs", "internal-logs"] }
-opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
+opentelemetry = { version = "=0.33.0", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
+opentelemetry_sdk = { version = "=0.33.0", default-features = false, features = ["trace", "metrics", "logs", "internal-logs"] }
+opentelemetry-otlp = { version = "=0.33.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs", "internal-logs"] }
+opentelemetry-appender-tracing = { version = "=0.33.0", default-features = false }
 tracing-opentelemetry = { version = "=0.33.0", default-features = false }
 
 [dev-dependencies]
