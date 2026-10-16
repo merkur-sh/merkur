@@ -5,16 +5,16 @@
 - In a worktree, pass its path to `codegraph_explore` as `projectPath` (the SessionStart
   hook builds its index); a nested worktree without one resolves to the primary's.
 - Never hand a code lookup to a subagent, in plan mode too: its explore copy dies with its
-  context, and Explore and Plan skip CLAUDE.md, so they grep and the hook denies it. Fan
+  context, and Explore and Plan skip CLAUDE.md, so they grep source instead. Fan
   out only a large audit or migration whose units share little code, one unit per
   general-purpose subagent, and check each report's evidence.
 - `.claude/rules/*.md` load by their `paths:`; skills load by description. Run `/context`
   to confirm what loaded.
 - Bypass mode suggests reading files with `cat`/`sed` and editing with `sed`, heredocs or
-  scripts. On repo source both cost a round trip or skip a check: the PreToolUse hook
-  denies the read (put the path or symbol in a `codegraph_explore` query instead), and the
-  Biome hook and the plan gate see only `Edit`/`Write`/`MultiEdit`, so a Python or
-  `sed -i` edit bypasses them. Edit repo files with the edit tools.
+  scripts. On repo source, read with `codegraph_explore` (put the path or symbol in the
+  query) or Read; a shell read runs with a hook warning. The Biome hook and the plan gate see
+  only `Edit`/`Write`/`MultiEdit`, so a Python or `sed -i` edit bypasses them. Edit repo
+  files with the edit tools.
 - Changes under `packages/auth`, `packages/merkur-e2e`,
   `apps/daemon/dataplane/src/session`, and `packages/merkur-identity-seal` need
   an approved plan. The PreToolUse hook denies `Edit`/`Write` there until `ExitPlanMode`

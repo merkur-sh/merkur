@@ -32,30 +32,30 @@ function decide(line: string, ctx: GuardContext = context()): GuardDecision | nu
   return null;
 }
 
-function denied(line: string, ctx?: GuardContext): boolean {
-  return decide(line, ctx)?.kind === 'deny';
+function warned(line: string, ctx?: GuardContext): boolean {
+  return decide(line, ctx)?.kind === 'warn';
 }
 
 test('a ~ path resolves through home: outside the repository is allowed, inside it is source', () => {
-  expect(denied('cd ~/.codex/sessions && find .')).toBe(false);
+  expect(warned('cd ~/.codex/sessions && find .')).toBe(false);
   const underHome = context({ root: '/home/agent/repo', cwd: '/home/agent/repo' });
-  expect(denied('grep -rn foo ~/repo/apps', underHome)).toBe(true);
-  expect(denied('cd ~/repo/apps && grep -rn foo .', underHome)).toBe(true);
-  expect(denied('cd ~/elsewhere && grep -rn foo .', underHome)).toBe(false);
+  expect(warned('grep -rn foo ~/repo/apps', underHome)).toBe(true);
+  expect(warned('cd ~/repo/apps && grep -rn foo .', underHome)).toBe(true);
+  expect(warned('cd ~/elsewhere && grep -rn foo .', underHome)).toBe(false);
 });
 
 test('a heredoc body is not searched; its live substitutions are', () => {
-  expect(denied("cat > /tmp/notes.md <<'EOF'\ngrep -rn foo apps/web/src\nEOF")).toBe(false);
-  expect(denied('cat <<EOF\n$(grep -rn foo apps/web/src)\nEOF')).toBe(true);
+  expect(warned("cat > /tmp/notes.md <<'EOF'\ngrep -rn foo apps/web/src\nEOF")).toBe(false);
+  expect(warned('cat <<EOF\n$(grep -rn foo apps/web/src)\nEOF')).toBe(true);
 });
 
-test('grep over a source directory is denied with the codegraph replacements', () => {
+test('grep over a source directory warns with the codegraph replacements', () => {
   const decision = decide('grep -rn foo apps/web/src');
-  expect(decision?.kind).toBe('deny');
-  if (decision?.kind !== 'deny') return;
+  expect(decision?.kind).toBe('warn');
+  if (decision?.kind !== 'warn') return;
   expect(decision.reason).toContain('codegraph explore');
   expect(decision.reason).not.toContain('codegraph node');
-  expect(decision.reason).toContain("--include='*.md'");
+  expect(decision.reason).toContain('a literal string');
 });
 
 test('grep over prose, config and lockfiles is allowed', () => {
@@ -74,15 +74,15 @@ test('licence texts and extensionless config under a source root are allowed', (
   expect(decide('cat packages/logger/LICENSE')).toBeNull();
   expect(decide('grep -n MIT packages/wtransport-patch/LICENSE-MIT')).toBeNull();
   expect(decide('grep -n target apps/site/.gitignore')).toBeNull();
-  expect(denied('cat packages/logger/LICENSE.ts')).toBe(true);
-  expect(denied('cat packages/logger/LICENSE-x.ts')).toBe(true);
+  expect(warned('cat packages/logger/LICENSE.ts')).toBe(true);
+  expect(warned('cat packages/logger/LICENSE-x.ts')).toBe(true);
 });
 
-test('a recursive grep with no path sweeps the root and is denied', () => {
-  expect(denied('grep -rn foo')).toBe(true);
-  expect(denied('grep -R foo .')).toBe(true);
-  expect(denied('rg foo')).toBe(true);
-  expect(denied('rg -n "display ack"')).toBe(true);
+test('a recursive grep with no path sweeps the root and warns', () => {
+  expect(warned('grep -rn foo')).toBe(true);
+  expect(warned('grep -R foo .')).toBe(true);
+  expect(warned('rg foo')).toBe(true);
+  expect(warned('rg -n "display ack"')).toBe(true);
 });
 
 test('a non-recursive grep with no path filters stdin and is allowed', () => {
@@ -111,33 +111,33 @@ test('restrictors that admit only allowed extensions neutralise a source sweep',
 });
 
 test('restrictors that admit source do not neutralise', () => {
-  expect(denied("grep -rn foo --include='*.ts' apps")).toBe(true);
-  expect(denied("rg foo -g '*.rs'")).toBe(true);
-  expect(denied('rg -t ts foo')).toBe(true);
-  expect(denied("rg foo -g '!*.md'")).toBe(true);
-  expect(denied("find . -name '*.md' -o -name '*.ts'")).toBe(true);
-  expect(denied("find apps -name '*.rs'")).toBe(true);
-  expect(denied("find apps -name 'README*'")).toBe(true);
+  expect(warned("grep -rn foo --include='*.ts' apps")).toBe(true);
+  expect(warned("rg foo -g '*.rs'")).toBe(true);
+  expect(warned('rg -t ts foo')).toBe(true);
+  expect(warned("rg foo -g '!*.md'")).toBe(true);
+  expect(warned("find . -name '*.md' -o -name '*.ts'")).toBe(true);
+  expect(warned("find apps -name '*.rs'")).toBe(true);
+  expect(warned("find apps -name 'README*'")).toBe(true);
 });
 
-test('find and fd over source are denied, over prose allowed', () => {
-  expect(denied("find apps -name '*.rs'")).toBe(true);
-  expect(denied('find . -type f')).toBe(true);
+test('find and fd over source warn, over prose allowed', () => {
+  expect(warned("find apps -name '*.rs'")).toBe(true);
+  expect(warned('find . -type f')).toBe(true);
   expect(decide("find docs -name '*.md'")).toBeNull();
   expect(decide('find target -newer Cargo.lock')).toBeNull();
-  expect(denied('fd display apps/web')).toBe(true);
-  expect(denied('fd -e rs planner')).toBe(true);
+  expect(warned('fd display apps/web')).toBe(true);
+  expect(warned('fd -e rs planner')).toBe(true);
   expect(decide('fd -e toml Cargo')).toBeNull();
 });
 
-test('readers over source files are denied, over allowed files not', () => {
-  expect(denied('cat apps/web/src/x.ts')).toBe(true);
-  expect(denied('head -n 40 apps/daemon/dataplane/src/main.rs')).toBe(true);
-  expect(denied('tail -f apps/web/src/terminal/terminal-worker.ts')).toBe(true);
-  expect(denied('sed -n 10,20p packages/protocol/src/index.ts')).toBe(true);
-  expect(denied("sed -n '1,5p' apps/web/src/a.ts")).toBe(true);
-  expect(denied("awk '/foo/' scripts/check-dead.ts")).toBe(true);
-  expect(denied('bat apps/edge/src/main.rs')).toBe(true);
+test('readers over source files warn, over allowed files not', () => {
+  expect(warned('cat apps/web/src/x.ts')).toBe(true);
+  expect(warned('head -n 40 apps/daemon/dataplane/src/main.rs')).toBe(true);
+  expect(warned('tail -f apps/web/src/terminal/terminal-worker.ts')).toBe(true);
+  expect(warned('sed -n 10,20p packages/protocol/src/index.ts')).toBe(true);
+  expect(warned("sed -n '1,5p' apps/web/src/a.ts")).toBe(true);
+  expect(warned("awk '/foo/' scripts/check-dead.ts")).toBe(true);
+  expect(warned('bat apps/edge/src/main.rs')).toBe(true);
   expect(decide('cat package.json')).toBeNull();
   expect(decide('cat apps/server/.env.example')).toBeNull();
   expect(decide('head -50 docs/security.md')).toBeNull();
@@ -149,8 +149,8 @@ test('readers over source files are denied, over allowed files not', () => {
 });
 
 test('git grep follows the same rule', () => {
-  expect(denied('git grep foo')).toBe(true);
-  expect(denied('git grep -n foo -- apps/web/src')).toBe(true);
+  expect(warned('git grep foo')).toBe(true);
+  expect(warned('git grep -n foo -- apps/web/src')).toBe(true);
   expect(decide("git grep foo -- '*.md'")).toBeNull();
   expect(decide('git grep foo -- docs')).toBeNull();
   expect(decide('git -C docs grep foo')).toBeNull();
@@ -158,24 +158,24 @@ test('git grep follows the same rule', () => {
 });
 
 test('the effective cwd from cd and absolute paths both resolve against the root', () => {
-  expect(denied('cd apps/web && grep -rn foo src')).toBe(true);
-  expect(denied(`grep -rn foo ${ROOT}/packages/shared/src`)).toBe(true);
+  expect(warned('cd apps/web && grep -rn foo src')).toBe(true);
+  expect(warned(`grep -rn foo ${ROOT}/packages/shared/src`)).toBe(true);
   expect(decide(`grep -rn foo ${ROOT}/docs`)).toBeNull();
   expect(decide('grep -rn foo /etc')).toBeNull();
   expect(decide('cat ~/.merkur/config.json')).toBeNull();
-  expect(denied('rg foo', context({ cwd: '/repo/apps/web' }))).toBe(true);
+  expect(warned('rg foo', context({ cwd: '/repo/apps/web' }))).toBe(true);
   expect(decide('rg foo', context({ cwd: '/repo/docs' }))).toBeNull();
 });
 
 test('a shell-expanded glob at the root counts as source', () => {
-  expect(denied('grep foo **/*.ts')).toBe(true);
-  expect(denied('cat apps/web/src/*.ts')).toBe(true);
+  expect(warned('grep foo **/*.ts')).toBe(true);
+  expect(warned('cat apps/web/src/*.ts')).toBe(true);
   expect(decide('cat docs/*.md')).toBeNull();
 });
 
 test('a grep inside a substitution is caught', () => {
-  expect(denied('echo $(grep -rl foo apps/web/src)')).toBe(true);
-  expect(denied('wc -l `find packages -name "*.rs"`')).toBe(true);
+  expect(warned('echo $(grep -rl foo apps/web/src)')).toBe(true);
+  expect(warned('wc -l `find packages -name "*.rs"`')).toBe(true);
 });
 
 test('--help is never denied', () => {
@@ -183,10 +183,10 @@ test('--help is never denied', () => {
   expect(decide('rg -h apps')).toBeNull();
 });
 
-test('index missing: still denied, with the init instruction', () => {
+test('index missing: still warned, with the init instruction', () => {
   const decision = decide('grep -rn foo apps/web/src', context({ indexPresent: false }));
-  expect(decision?.kind).toBe('deny');
-  if (decision?.kind !== 'deny') return;
+  expect(decision?.kind).toBe('warn');
+  if (decision?.kind !== 'warn') return;
   expect(decision.reason).toContain('codegraph init .');
   expect(decision.reason).toContain('codegraph explore');
   expect(decision.reason).not.toContain('fallback');
@@ -194,20 +194,20 @@ test('index missing: still denied, with the init instruction', () => {
 });
 
 test("Claude's Grep tool is evaluated like the shell", () => {
-  expect(evaluateGrepTool({ pattern: 'foo', path: 'apps/web/src' }, context())?.kind).toBe('deny');
-  expect(evaluateGrepTool({ pattern: 'foo' }, context())?.kind).toBe('deny');
+  expect(evaluateGrepTool({ pattern: 'foo', path: 'apps/web/src' }, context())?.kind).toBe('warn');
+  expect(evaluateGrepTool({ pattern: 'foo' }, context())?.kind).toBe('warn');
   expect(evaluateGrepTool({ pattern: 'foo', path: 'docs' }, context())).toBeNull();
   expect(evaluateGrepTool({ pattern: 'foo', glob: '*.md' }, context())).toBeNull();
   expect(evaluateGrepTool({ pattern: 'foo', glob: '**/*.{md,txt}' }, context())).toBeNull();
   expect(evaluateGrepTool({ pattern: 'foo', type: 'md' }, context())).toBeNull();
-  expect(evaluateGrepTool({ pattern: 'foo', type: 'ts' }, context())?.kind).toBe('deny');
+  expect(evaluateGrepTool({ pattern: 'foo', type: 'ts' }, context())?.kind).toBe('warn');
   expect(evaluateGrepTool({ pattern: 'foo', glob: '*.ts', path: 'apps' }, context())?.kind).toBe(
-    'deny',
+    'warn',
   );
   expect(
     evaluateGrepTool({ pattern: 'foo', path: `${ROOT}/docs/transport.md` }, context()),
   ).toBeNull();
-  expect(evaluateGrepTool({ pattern: 'foo' }, context({ indexPresent: false }))?.kind).toBe('deny');
+  expect(evaluateGrepTool({ pattern: 'foo' }, context({ indexPresent: false }))?.kind).toBe('warn');
 });
 
 test('operand classification', () => {

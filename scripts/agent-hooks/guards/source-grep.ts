@@ -4,12 +4,13 @@ import type { GuardContext, GuardDecision } from '../hook-io';
 import { hasGlob, type SimpleCommand } from '../shell-command';
 
 /**
- * The CodeGraph rule, mechanised.
+ * The CodeGraph rule, as a warning.
  *
- * AGENTS.md says: never grep, find, cat or sed your way through source in this repo — the
- * index already holds the answer. Prose keeps that rule most of the time; this guard keeps
- * it all of the time, for the shell tools below and for Claude's built-in `Grep` tool
- * (which Explore/Plan subagents reach for because they never see AGENTS.md).
+ * AGENTS.md says code lookups go through CodeGraph: the index already holds the answer. This
+ * guard reminds the agent every time a shell tool below, or Claude's built-in `Grep` tool
+ * (which Explore/Plan subagents reach for because they never see AGENTS.md), sweeps source.
+ * It warns and lets the call run: some lookups (a literal string, a comment, every match of a
+ * pattern) are grep's to answer, and the agent decides.
  *
  * The line it draws: a *source-scoped* operand is one under `apps/`, `packages/`,
  * `scripts/`, `tests/` or `spikes/` (or the repository root itself) that is a directory, a
@@ -19,8 +20,7 @@ import { hasGlob, type SimpleCommand } from '../shell-command';
  * extensions neutralises a source-scoped directory, because the sweep then touches no
  * source.
  *
- * Denied whether or not the index exists. Without it the reason says how to build it
- * (`codegraph init .`, about a second); grep over source is never the alternative.
+ * Without an index the warning says how to build it (`codegraph init .`, about a second).
  */
 
 const SOURCE_ROOTS: ReadonlySet<string> = new Set([
@@ -699,25 +699,23 @@ export function probeFromCommand(command: SimpleCommand): GrepProbe | null {
   };
 }
 
-export function denyReason(probe: GrepProbe): string {
+export function warnReason(probe: GrepProbe): string {
   return [
-    `Denied: \`${probe.tool}\` over source (${probe.paths.join(' ')}) — this repo is CodeGraph-indexed, and a grep-and-read sweep repeats work the index already did.`,
-    'Run instead (MCP codegraph_explore, or the shell form):',
+    `Warning: \`${probe.tool}\` over source (${probe.paths.join(' ')}) ran, but this repo is CodeGraph-indexed, and a grep-and-read sweep usually repeats work the index already did.`,
+    'For the next lookup (MCP codegraph_explore, or the shell form):',
     '  codegraph explore "<question>"                  # how X works, a bug, where X is: one call usually answers it',
     '  codegraph explore "<X> <Y>"                     # how X reaches Y: name the symbols that span the flow',
     '  codegraph explore "<file or symbol>"            # read or edit it: line-numbered source, safe to Edit from',
-    'grep/find/cat are allowed only for prose, config, env files, logs and lockfiles: point them at docs/ or',
-    "restrict them to those files, e.g. grep --include='*.md', rg -g '*.md' / --type md, find -name '*.md'.",
+    'Grep stays the right tool for what the index cannot answer: a literal string, a comment, every match of a pattern.',
   ].join('\n');
 }
 
 export function indexMissingReason(probe: GrepProbe, root: string): string {
   return [
-    `Denied: \`${probe.tool}\` over source (${probe.paths.join(' ')}) — this repo is CodeGraph-indexed, but the index is missing (${path.join(root, '.codegraph', 'codegraph.db')}).`,
+    `Warning: \`${probe.tool}\` over source (${probe.paths.join(' ')}) ran, but the CodeGraph index is missing (${path.join(root, '.codegraph', 'codegraph.db')}).`,
     'Build it, then query it:',
     '  codegraph init .                                # about a second',
     '  codegraph explore "<question or names>"         # one call usually answers it',
-    'grep/find/cat over source is not the alternative; they are allowed only for prose, config, env files, logs and lockfiles.',
   ].join('\n');
 }
 
@@ -735,8 +733,8 @@ export function decideProbe(probe: GrepProbe, ctx: GuardContext): GuardDecision 
   if (restrictorsNeutralise || typesNeutralise) return null;
 
   return {
-    kind: 'deny',
-    reason: ctx.indexPresent ? denyReason(probe) : indexMissingReason(probe, ctx.root),
+    kind: 'warn',
+    reason: ctx.indexPresent ? warnReason(probe) : indexMissingReason(probe, ctx.root),
   };
 }
 

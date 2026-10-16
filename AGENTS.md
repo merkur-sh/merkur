@@ -59,9 +59,9 @@ experiments before a performance change, so one is not re-run.
 ## Finding Code
 
 Code lookups go through CodeGraph (`codegraph explore "<question, symbols or file>"`, or
-the `codegraph_explore` MCP tool); its source is safe to `Edit` from. A hook denies
-grep/cat/sed over source and refuses the whole command line, so search prose and config in
-separate commands.
+the `codegraph_explore` MCP tool); its source is safe to `Edit` from. Grep over source
+runs with a hook warning: use it for what the index cannot answer (a literal string, a
+comment, every match of a pattern).
 
 ## Single Version, Hard Cutover
 

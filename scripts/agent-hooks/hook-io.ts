@@ -26,9 +26,12 @@ export interface HookInput {
   readonly raw: Readonly<Record<string, unknown>>;
 }
 
-/** A guard either denies with a reason or has no opinion (`null` at the call site). */
+/**
+ * A guard denies with a reason, warns (the call runs and the agent reads the reason), or has
+ * no opinion (`null` at the call site).
+ */
 export interface GuardDecision {
-  readonly kind: 'deny';
+  readonly kind: 'deny' | 'warn';
   readonly reason: string;
 }
 
@@ -144,6 +147,17 @@ export function denyOutput(reason: string): string {
       permissionDecision: 'deny',
       permissionDecisionReason: reason,
     },
+  });
+}
+
+/**
+ * `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":…}}`: no
+ * `permissionDecision`, so the call goes through the normal permission flow, and the agent
+ * reads the warning beside the tool result.
+ */
+export function warnOutput(reason: string): string {
+  return JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: reason },
   });
 }
 

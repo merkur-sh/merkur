@@ -16,16 +16,18 @@ import {
   hasCodegraphIndex,
   readHookInput,
   runHook,
+  warnOutput,
   writeStdout,
 } from './hook-io';
 import { splitCommandLine } from './shell-command';
 
 /**
- * PreToolUse entry: one process runs every guard, first decision wins.
+ * PreToolUse entry: one process runs every guard, first denial wins.
  *
  * Edit tools see two guards, authored-prose then plan-gate. Shell lines run cargo-static → workspace-cd →
  * source-grep → codegraph-lookup → commit-hooks: the static Cargo rules go first because they
- * describe the whole line; the other four look at one command each.
+ * describe the whole line; the other four look at one command each. Source-grep only warns,
+ * so its warning goes out when no later guard denies the line.
  */
 
 function commandLineOf(input: HookInput): string | null {
@@ -55,9 +57,10 @@ export function decidePreToolUse(input: HookInput, ctx: GuardContext): GuardDeci
     const decision = evaluateWorkspaceCd(command, ctx);
     if (decision !== null) return decision;
   }
+  // A source sweep only warns, so the guards after it still run and a denial among them wins.
+  let warning: GuardDecision | null = null;
   for (const command of commands) {
-    const decision = evaluateSourceGrepCommand(command, ctx);
-    if (decision !== null) return decision;
+    warning ??= evaluateSourceGrepCommand(command, ctx);
   }
   for (const command of commands) {
     const decision = evaluateCodegraphLookup(command);
@@ -67,7 +70,7 @@ export function decidePreToolUse(input: HookInput, ctx: GuardContext): GuardDeci
     const decision = evaluateCommitHooks(command);
     if (decision !== null) return decision;
   }
-  return null;
+  return warning;
 }
 
 if (import.meta.main) {
@@ -84,7 +87,11 @@ if (import.meta.main) {
       planApproved: planApproved(input.sessionId),
     };
     const decision = decidePreToolUse(input, ctx);
-    if (decision !== null) writeStdout(denyOutput(decision.reason));
+    if (decision !== null) {
+      writeStdout(
+        decision.kind === 'deny' ? denyOutput(decision.reason) : warnOutput(decision.reason),
+      );
+    }
     return 0;
   });
 }

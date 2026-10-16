@@ -27,8 +27,8 @@ function bash(command: string): HookInput {
   };
 }
 
-test('the guards run in order and the first decision wins', () => {
-  // cargo-static fires before source-grep on a line that trips both.
+test('a denial wins over a source-grep warning on the same line', () => {
+  // cargo-static denies a line that also sweeps source.
   const both = decidePreToolUse(
     bash('bun run rust:check && bun run rust:lint && grep -rn foo apps'),
     context(),
@@ -37,7 +37,7 @@ test('the guards run in order and the first decision wins', () => {
   if (both?.kind !== 'deny') return;
   expect(both.reason).toContain('rust:lint');
 
-  // workspace-cd fires before source-grep.
+  // workspace-cd denies before source-grep warns.
   const cd = decidePreToolUse(bash('cd apps/web && bunx x && grep -r foo src'), context());
   expect(cd?.kind).toBe('deny');
   if (cd?.kind !== 'deny') return;
@@ -57,19 +57,29 @@ test('a backgrounded cargo pair is denied; a lone cargo line is not', () => {
   expect(decidePreToolUse(bash('cargo test -p merkur-edge'), context())).toBeNull();
 });
 
+test('a source sweep alone warns, and a denial later on the line still wins', () => {
+  const sweep = decidePreToolUse(bash('grep -rn foo apps/web/src'), context());
+  expect(sweep?.kind).toBe('warn');
+  const thenNode = decidePreToolUse(
+    bash('grep -rn foo apps && codegraph node --file apps/web/src/App.tsx'),
+    context(),
+  );
+  expect(thenNode?.kind).toBe('deny');
+});
+
 test('an ordinary line produces nothing', () => {
   expect(decidePreToolUse(bash('git status'), context())).toBeNull();
   expect(decidePreToolUse(bash('grep foo docs/transport.md'), context())).toBeNull();
   expect(decidePreToolUse(bash(''), context())).toBeNull();
 });
 
-test('the Grep tool is guarded; other tools are not', () => {
+test('the Grep tool is warned; other tools are not', () => {
   const grep: HookInput = {
     ...bash(''),
     toolName: 'Grep',
     toolInput: { pattern: 'x', path: 'apps' },
   };
-  expect(decidePreToolUse(grep, context())?.kind).toBe('deny');
+  expect(decidePreToolUse(grep, context())?.kind).toBe('warn');
   const read: HookInput = {
     ...bash(''),
     toolName: 'Read',
@@ -92,5 +102,5 @@ test('edit tools are gated by plan approval under the trust-boundary trees only'
 
 test('a Codex-style array command is joined', () => {
   const input: HookInput = { ...bash(''), toolInput: { command: ['grep', '-rn', 'foo', 'apps'] } };
-  expect(decidePreToolUse(input, context())?.kind).toBe('deny');
+  expect(decidePreToolUse(input, context())?.kind).toBe('warn');
 });
