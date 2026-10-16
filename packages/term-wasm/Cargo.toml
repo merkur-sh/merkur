@@ -26,7 +26,7 @@ unicode-width = "0.2"
 # `std` only adds the `Vec<u8>` output buffer; legacy formats and the
 # dictionary builder stay out of the artifact. `experimental` exposes the
 # magicless frame format the display payload uses.
-zstd-safe = { version = "7.2", default-features = false, features = ["std", "experimental"] }
+zstd-safe = { version = "8.0", default-features = false, features = ["std", "experimental"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 merkur-client = { path = "../merkur-client" }
