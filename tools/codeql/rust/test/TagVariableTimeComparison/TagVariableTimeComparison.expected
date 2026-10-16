@@ -1,0 +1,30 @@
+#select
+| main.rs:16:5:16:37 | ... .as_ref() | main.rs:16:5:16:28 | ...::sign(...) | main.rs:16:5:16:37 | ... .as_ref() | This comparison reads the $@ in variable time. | main.rs:16:5:16:28 | ...::sign(...) | authentication tag |
+| main.rs:23:5:23:22 | ...[...] | main.rs:22:15:22:28 | context.sign() | main.rs:23:5:23:22 | ...[...] | This comparison reads the $@ in variable time. | main.rs:22:15:22:28 | context.sign() | authentication tag |
+| main.rs:29:5:29:9 | bytes | main.rs:27:15:27:65 | ... .compute_unpadded(...) | main.rs:29:5:29:9 | bytes | This comparison reads the $@ in variable time. | main.rs:27:15:27:65 | ... .compute_unpadded(...) | authentication tag |
+edges
+| main.rs:16:5:16:28 | ...::sign(...) | main.rs:16:5:16:37 | ... .as_ref() | provenance | Config |
+| main.rs:22:9:22:11 | tag | main.rs:23:5:23:7 | tag | provenance |  |
+| main.rs:22:15:22:28 | context.sign() | main.rs:22:9:22:11 | tag | provenance |  |
+| main.rs:23:5:23:7 | tag | main.rs:23:5:23:16 | tag.as_ref() | provenance | Config |
+| main.rs:23:5:23:16 | tag.as_ref() | main.rs:23:5:23:22 | ...[...] | provenance | Config |
+| main.rs:27:9:27:11 | tag | main.rs:28:17:28:19 | tag | provenance |  |
+| main.rs:27:15:27:65 | ... .compute_unpadded(...) | main.rs:27:9:27:11 | tag | provenance |  |
+| main.rs:28:9:28:13 | bytes | main.rs:29:5:29:9 | bytes | provenance |  |
+| main.rs:28:17:28:19 | tag | main.rs:28:17:28:28 | tag.to_vec() | provenance | Config |
+| main.rs:28:17:28:28 | tag.to_vec() | main.rs:28:9:28:13 | bytes | provenance |  |
+nodes
+| main.rs:16:5:16:28 | ...::sign(...) | semmle.label | ...::sign(...) |
+| main.rs:16:5:16:37 | ... .as_ref() | semmle.label | ... .as_ref() |
+| main.rs:22:9:22:11 | tag | semmle.label | tag |
+| main.rs:22:15:22:28 | context.sign() | semmle.label | context.sign() |
+| main.rs:23:5:23:7 | tag | semmle.label | tag |
+| main.rs:23:5:23:16 | tag.as_ref() | semmle.label | tag.as_ref() |
+| main.rs:23:5:23:22 | ...[...] | semmle.label | ...[...] |
+| main.rs:27:9:27:11 | tag | semmle.label | tag |
+| main.rs:27:15:27:65 | ... .compute_unpadded(...) | semmle.label | ... .compute_unpadded(...) |
+| main.rs:28:9:28:13 | bytes | semmle.label | bytes |
+| main.rs:28:17:28:19 | tag | semmle.label | tag |
+| main.rs:28:17:28:28 | tag.to_vec() | semmle.label | tag.to_vec() |
+| main.rs:29:5:29:9 | bytes | semmle.label | bytes |
+subpaths

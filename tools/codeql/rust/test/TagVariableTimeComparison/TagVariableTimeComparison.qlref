@@ -1,2 +1,2 @@
-query: ZeroizingCopy.ql
+query: TagVariableTimeComparison.ql
 postprocess: utils/test/InlineExpectationsTestQuery.ql

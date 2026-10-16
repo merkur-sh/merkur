@@ -1070,8 +1070,7 @@ states, keyed on the types and functions that carry them rather than on names:
 | `merkur/js/mac-non-constant-time-comparison` | An HMAC tag is compared with `timingSafeEqual`, never `===`, `==` or `Buffer.equals`. |
 | `merkur/js/unvetted-navigation` | Data a worker posts to the main thread opens a window or moves the page only through `openableUrl` ([links](#links-and-opening-urls)). |
 | `merkur/js/bun-command-injection` | Remote input chooses neither the program `Bun.spawn` runs nor a `Bun.$` command's `{ raw }` text. |
-| `merkur/rust/secret-variable-time-comparison` | A `Zeroizing` secret is compared with `ct_eq`, never `==` or `PartialEq`. |
-| `merkur/rust/zeroizing-copy` | A `Zeroizing` secret is copied only into another `Zeroizing`. |
+| `merkur/rust/tag-variable-time-comparison` | An HMAC or Poly1305 tag is checked with `ring::hmac::verify` or `ct_eq`, never `==` or `PartialEq`; a test's `assert_eq!` is exempt. |
 
 Each query and model has fixtures beside it whose lines carry the alerts expected of them; the
 `Query tests` job fails when a query stops reporting one or reports a safe case. The CodeQL bundle,

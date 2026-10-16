@@ -1,4 +1,5 @@
 qltest_cargo_check: true
 qltest_dependencies:
+  - poly1305 = "0.8"
+  - ring = "0.17"
   - subtle = "2.6"
-  - zeroize = "1.8"
