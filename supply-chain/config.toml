@@ -1023,32 +1023,32 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.opentelemetry]]
-version = "0.32.0"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.opentelemetry-appender-tracing]]
-version = "0.32.0"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.opentelemetry-http]]
-version = "0.32.0"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.opentelemetry-otlp]]
-version = "0.32.0"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.opentelemetry-proto]]
-version = "0.32.0"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.opentelemetry_sdk]]
-version = "0.32.1"
+version = "0.33.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
@@ -1693,7 +1693,7 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.tracing-opentelemetry]]
-version = "0.33.0"
+version = "0.34.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
