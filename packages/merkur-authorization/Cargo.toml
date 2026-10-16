@@ -20,13 +20,13 @@ wasm = ["merkur-e2e/wasm"]
 [dependencies]
 merkur-e2e = { path = "../merkur-e2e", default-features = false }
 aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
-base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+base64 = { version = "0.23", default-features = false, features = ["alloc"] }
 hkdf = { version = "=0.12.4", default-features = false }
 serde = { version = "1", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 sha2 = { version = "=0.10.9", default-features = false }
 subtle = { version = "=2.6.1", default-features = false }
-zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 
 [lints]
 workspace = true
