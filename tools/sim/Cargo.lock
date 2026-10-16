@@ -1769,7 +1769,7 @@ name = "merkur-authorization"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "base64 0.22.1",
+ "base64 0.23.1",
  "hkdf",
  "merkur-e2e",
  "serde",
@@ -1783,7 +1783,7 @@ dependencies = [
 name = "merkur-client"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "merkur-authorization",
  "merkur-codec",
  "merkur-e2e",
@@ -1802,7 +1802,7 @@ name = "merkur-client-native"
 version = "0.1.0"
 dependencies = [
  "argon2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "futures",
  "generic-array",

@@ -50,7 +50,7 @@ dependencies = [
 name = "alacritty_terminal"
 version = "0.26.0"
 dependencies = [
- "base64 0.23.1",
+ "base64",
  "bitflags",
  "home",
  "libc",
@@ -135,12 +135,6 @@ name = "base16ct"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -1204,7 +1198,7 @@ name = "merkur-authorization"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "base64 0.22.1",
+ "base64",
  "hkdf",
  "merkur-e2e",
  "serde",
@@ -1218,7 +1212,7 @@ dependencies = [
 name = "merkur-client"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "merkur-authorization",
  "merkur-codec",
  "merkur-e2e",
@@ -1236,7 +1230,7 @@ dependencies = [
 name = "merkur-client-fuzz"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bolero",
  "merkur-authorization",
  "merkur-codec",
@@ -1292,7 +1286,7 @@ dependencies = [
 name = "merkur-e2e-fuzz"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bolero",
  "chacha20poly1305",
  "criterion",
