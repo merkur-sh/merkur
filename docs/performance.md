@@ -842,10 +842,14 @@ path-evidence-gated exact replay for a one-data-shard group. The global display 
 selects row partitions and raw or zstd representations using sender cost, receiver cost,
 carrier delivery quotes, and measured loss. Acknowledged per-peer dictionaries are an
 input to that decision. Benchmarks must exercise the shared planner, not a per-class policy.
-The planner measures frames staged (`encoder::STAGED_SLACK`); it and the browser receiver
-profile bucket each frame by its wire bound, the staged length less that slack, and take
-compression ratios over the same bound, so the uncompressed staged headroom never reads as
-compression.
+The planner, its compression ratios and the browser receiver profile measure wire bytes. A
+packed frame is planned at its body plus its flush's header reserve, and a prepared frame is
+measured by its wire bound (`StagedFrame::wire_bound`), its exact header with the row predecessor
+at its widest; the staged in-memory length is never a planning quantity. A compression-ratio
+size bucket that is not yet warm is floored by the smaller bucket's bound when that is tighter
+than the neutral prior, since a frame compresses no worse than its two halves. Under the neutral
+prior alone a learned smaller bucket outbids its colder neighbour, the planner stops building
+frames that size, and the neighbour never warms.
 
 The browser receiver-cost profile retains each raw-window mean until a raw observation changes
 that size class. Publication recomputes and writes only buckets with new compressed observations;

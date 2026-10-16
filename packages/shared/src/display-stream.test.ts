@@ -159,7 +159,7 @@ describe('display stream wire conformance', () => {
   });
 
   test('the patch body header ends with the scroll serial and then the echo horizon', () => {
-    expect(DISPLAY_PROTOCOL_VERSION).toBe(33);
+    expect(DISPLAY_PROTOCOL_VERSION).toBe(34);
     expect(DISPLAY_PATCH_BODY_HEADER_BYTES).toBe(
       readRustConst('FRAME_HEADER_FIXED_BYTES') + readRustConst('MAX_WIRE_HEADER_BYTES'),
     );

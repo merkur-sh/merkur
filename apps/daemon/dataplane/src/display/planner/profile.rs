@@ -35,8 +35,8 @@ use super::*;
 use crate::edge_tunnel::test_allocations;
 use crate::pty::{RowCaptureScratch, TerminalState};
 
-const HEADER_BYTES: usize =
-    merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES;
+/// A packed frame's wire header at its widest, which planning counts.
+const HEADER_BYTES: usize = merkur_codec::wire::MAX_UNCHUNKED_WIRE_HEADER_BYTES;
 const WIRE_CAP: usize = DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES;
 const RTT_QUOTES_MS: [f64; 3] = [50.0, 120.0, 200.0];
 /// The production maximum-preparation cells: plain and styled-entropy grids.
@@ -307,7 +307,7 @@ impl Worker {
                 ) == Representation::Compressed;
                 let wire = if used { compressed_bytes } else { raw_bytes };
                 job.attempts.push((raw_bytes, wire, class));
-                (wire, Some(staged_ratio(raw_bytes, compressed_bytes)))
+                (wire, Some(compressed_bytes as f64 / raw_bytes as f64))
             }
         } else {
             (raw_bytes, None)
@@ -640,7 +640,7 @@ fn planner_replan_sequence_profile() {
                                 raw,
                                 class,
                                 DictionaryClass::Plain,
-                                staged_ratio(raw, wire).clamp(0.01, 1.0),
+                                (wire as f64 / raw as f64).clamp(0.01, 1.0),
                             );
                         }
                     }
@@ -738,7 +738,7 @@ fn planner_first_call_profile() {
                                 raw,
                                 class,
                                 DictionaryClass::Plain,
-                                staged_ratio(raw, wire).clamp(0.01, 1.0),
+                                (wire as f64 / raw as f64).clamp(0.01, 1.0),
                             );
                         }
                     }
@@ -1062,7 +1062,7 @@ fn planner_reliable_only_scaling_profile() {
                 raw,
                 class,
                 DictionaryClass::Plain,
-                staged_ratio(raw, wire).clamp(0.01, 1.0),
+                (wire as f64 / raw as f64).clamp(0.01, 1.0),
             );
         }
     }

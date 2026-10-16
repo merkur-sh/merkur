@@ -3062,7 +3062,6 @@ pub struct PeerDisplayState {
     /// forever), disabling the divergence backstop exactly when a loss just
     /// happened.
     pub last_display_seq_sent: u32,
-    pub next_frame_id: u32,
     /// Last cursor/mode header admitted on a Critical or guaranteed-reliable
     /// cursor frame. Zero is the unsent sentinel (terminal dimensions make a
     /// real packed header signal non-zero).
@@ -3563,7 +3562,6 @@ impl PeerDisplayState {
             latest_input_display_revision: 0,
             echo_horizon: 0,
             last_display_seq_sent: 0,
-            next_frame_id: 1,
             last_admitted_critical_header_signal: 0,
             presentation_end_owed: false,
             display_admission_retry: DisplayAdmissionRetry::default(),
@@ -3834,7 +3832,7 @@ impl PeerDisplayState {
     pub fn next_datagram_seq(&mut self) -> u32 {
         // seq 0 is the "never sent / never acked" sentinel across the display
         // cache (sent_row_seq, acked_row_seq, ACK handling). Skip it on
-        // wrap exactly like `next_frame_id`/`next_generation`, or a datagram
+        // wrap exactly like `next_generation`, or a datagram
         // that happened to ride seq 0 would read as "never sent" forever.
         let seq = self.next_datagram_seq;
         self.next_datagram_seq = self.next_datagram_seq.wrapping_add(1);
@@ -3842,15 +3840,6 @@ impl PeerDisplayState {
             self.next_datagram_seq = 1;
         }
         seq
-    }
-
-    pub fn next_frame_id(&mut self) -> u32 {
-        let id = self.next_frame_id;
-        self.next_frame_id = self.next_frame_id.wrapping_add(1);
-        if self.next_frame_id == 0 {
-            self.next_frame_id = 1;
-        }
-        if id == 0 { self.next_frame_id() } else { id }
     }
 
     /// Record a deliverable display sequence (either lane, including an
@@ -3880,8 +3869,8 @@ impl PeerDisplayState {
     ///
     /// - `generation`, so `handle_display_resume` can still match the browser's
     ///   claim and answer it with per-row repairs.
-    /// - `next_datagram_seq`, `last_datagram_seq`, `last_display_seq_sent` and
-    ///   `next_frame_id`. These are the sequence space the retained generation
+    /// - `next_datagram_seq`, `last_datagram_seq` and `last_display_seq_sent`.
+    ///   These are the sequence space the retained generation
     ///   names, and they must stay monotonic across the swap: restarting them
     ///   inside a live generation would read on the browser as a flood of
     ///   duplicate and wildly reordered frames. Keeping them monotonic is also
@@ -4001,7 +3990,6 @@ impl PeerDisplayState {
         self.next_datagram_seq = 1;
         self.last_datagram_seq = 0;
         self.last_display_seq_sent = 0;
-        self.next_frame_id = 1;
         self.last_admitted_critical_header_signal = 0;
         self.input_routing_sent = None;
         self.presentation_end_owed = false;

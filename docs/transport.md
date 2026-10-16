@@ -935,21 +935,29 @@ This section is a summary. The normative rules (idempotent datagrams, advisory p
 selective ACK, the no-coalescing owner loop, compression, the wrap bit) are in
 [`docs/display-invariants.md`](display-invariants.md).
 
-The codec version is 33; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
+The codec version is 34; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
 
 Display frames use `merkur-codec` with a 1100-byte application datagram ceiling. A frame has two
 forms. Staged, in memory on both ends, it has an 18-byte stream envelope (type and flags, a
 32-bit body length, sequence, generation, input sequence), a fixed 55-byte frame header that
 every reader patches and parses at fixed offsets, and headroom. On the wire its header is compact
 (`packages/merkur-codec/src/wire.rs`): routing fields at fixed offsets, the grid geometry,
-cursor and mode word packed into seven bytes, ids and the echo horizon as zigzag varints relative
-to the frame's own sequence fields, and the closure digest, echo horizon, chunk pair and row
-predecessor only when they are not at their defaults. A typed echo's header is 35 bytes. The
+cursor and mode word packed into seven bytes, then varints relative to the frame's own fields,
+and the closure digest, echo horizon and row predecessor only when they are not at their
+defaults. A datagram is identified by its sequence number: its frame id is its `seq`, and a
+presentation is named by its first member's. A frame its sequence number cannot identify, a
+snapshot chunk or a reliable record (whose `seq` is zero), carries a fixed identity block
+instead, so everything a router reads sits at a fixed offset. A typed echo's header is 34 bytes. The
 body length is not carried: a datagram's length is its opened length, a reliable record's is its
 stream framing, and FEC parity rebuilds it. The daemon writes the wire header into the headroom
 at seal time, right against the body, and the receiver writes the staged header in the copy it
 makes into its staging buffer, so neither end copies the body to change its form. Nothing in the
-compact header depends on another datagram or on receiver state. **One datagram is one frame**: every batch is framed and, when compression wins,
+compact header depends on another datagram or on receiver state. Packing plans each flush against
+a header reserve (`merkur_codec::wire::header_reserve`): the encoded length of the flush's header
+with every field stamped later at the widest the flush allows, so no later stamp can push a
+datagram past the ceiling it was planned for. Physical admission reserves each datagram's exact
+length with its row predecessor already counted, and sealing refunds what an omitted predecessor
+leaves. **One datagram is one frame**: every batch is framed and, when compression wins,
 compressed on its own, so it is complete on arrival and can be decrypted, applied, acknowledged,
 lost, or recovered without any other datagram. Each flush ranks rows into `Critical` (cursor rows
 and changed cursor/mode headers, sent redundantly across live direct and relay paths) and
@@ -1029,7 +1037,9 @@ transactional key cut committed at the successor's final Noise message.
   handshake message can be replayed across sessions.
 - Stream and datagram nonce spaces are disjoint and replay checked. Each per-lane send counter
   travels whole in five bytes, so it is read back exactly; it accepts its final 40-bit value once
-  and then fails closed, and it never wraps.
+  and then fails closed, and it never wraps. A session whose lane sealed its last counter is
+  retired: the daemon's heartbeat tick parks it for resume, and the browser treats it as a lost
+  incumbent, so the next carrier agrees fresh keys.
 - Fresh issuance, session, nonce, ML-KEM keypair, delegate proof, and Noise handshake are
   mandatory for every edge signaling authentication and every reconnect that is not a rebind. A
   rebind keeps the issuance and session id but still runs a fresh ML-KEM exchange and Noise

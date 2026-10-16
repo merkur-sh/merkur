@@ -594,6 +594,25 @@ impl NoiseTransport {
         }
     }
 
+    /// Put `lane`'s datagram sub-lane at its last counter, for another crate's
+    /// test of what follows exhaustion; reaching it by sealing takes 2^40 seals.
+    #[cfg(feature = "testing")]
+    pub fn reach_last_datagram_counter_for_test(&mut self, lane: usize) {
+        if let Some(counter) = self.send_datagram.get_mut(lane) {
+            *counter = COUNTER_MASK;
+        }
+    }
+
+    /// Whether a lane has sealed its last counter. Such a lane refuses every
+    /// further seal, so the session must be replaced by fresh key agreement,
+    /// whose transport starts every counter at zero.
+    pub fn exhausted(&self) -> bool {
+        self.send_stream
+            .iter()
+            .chain(&self.send_datagram)
+            .any(|&counter| counter > COUNTER_MASK)
+    }
+
     /// Shared seal for both sub-lanes: bump the per-lane send counter, encrypt
     /// under the lane nonce, and frame `counter_be(5) || ciphertext` directly
     /// into `out`. Routing stream and datagram through one code path makes their
@@ -1189,6 +1208,7 @@ mod tests {
             Err(NoiseError::NonceExhausted)
         ));
         assert_eq!(transport.send_stream[1], COUNTER_MASK + 1);
+        assert!(transport.exhausted(), "the refused lane ends the session");
     }
 
     /// The mandatory dispatch-boundary proof at the crypto seam: a browser

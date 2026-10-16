@@ -1755,7 +1755,10 @@ impl Session {
                     // Data progress can settle a suspicion, but cannot restore
                     // a signaling attachment whose close was already observed.
                     let signaling_up = self.lanes.as_ref().is_some_and(|lanes| lanes.signaling_up);
+                    // Progress cannot restore keys that can seal nothing more.
+                    let keys_live = !self.keys_exhausted();
                     if signaling_up
+                        && keys_live
                         && self
                             .candidate
                             .as_ref()
@@ -1764,6 +1767,7 @@ impl Session {
                         self.cancel_candidate();
                     }
                     if signaling_up
+                        && keys_live
                         && !self.final_unresolved()
                         && self.incumbent_lost
                         && self.is_ready()
@@ -1775,6 +1779,32 @@ impl Session {
                 }
             }
         }
+        // Keys that can seal nothing more end the incumbent as a failed
+        // heartbeat does. The rebind or issuance that follows agrees fresh
+        // keys, whose counters start at zero.
+        if self.keys_exhausted() {
+            if !self.incumbent_lost {
+                self.incumbent_lost = true;
+                self.actions.push_back(Action::Status(Status::Reconnecting));
+            }
+            self.recover(now_ms, entropy);
+        }
+    }
+
+    /// The established session's transport, for a test that reaches a
+    /// counter state sealing cannot reach in a test's lifetime.
+    #[cfg(test)]
+    pub(crate) fn established_transport_for_test(&mut self) -> &mut merkur_e2e::NoiseTransport {
+        let Phase::Established(established) = &mut self.phase else {
+            panic!("the session is established");
+        };
+        &mut established.transport
+    }
+
+    /// Whether the established session's keys can seal nothing more: one of
+    /// its lanes sealed its last counter (`NoiseTransport::exhausted`).
+    fn keys_exhausted(&self) -> bool {
+        matches!(&self.phase, Phase::Established(established) if established.transport.exhausted())
     }
 
     fn next_conn_id(&mut self) -> ConnId {

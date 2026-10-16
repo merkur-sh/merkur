@@ -15,17 +15,18 @@ use merkur_codec::{
 const SNAPSHOT_PACKING_BYTES: usize = STREAM_HEADER_BYTES + u16::MAX as usize;
 const MAX_STREAM_FRAME_BYTES: usize = MAX_DISPLAY_FRAME_BYTES;
 
-/// Staged bytes a frame that is not a snapshot chunk carries beyond its wire
-/// form at least: its staged header less the longest wire header such a frame
-/// can have. Planning measures frames staged, so a staged length within
-/// `cap + STAGED_SLACK` is a wire length within `cap`.
-pub(crate) const STAGED_SLACK: usize =
-    merkur_codec::wire::STAGED_BODY_OFFSET - merkur_codec::wire::MAX_UNCHUNKED_WIRE_HEADER_BYTES;
-
 /// The exact length of a staged display frame on the wire.
 #[inline]
 pub(crate) fn wire_len(staged: &[u8]) -> usize {
     merkur_codec::wire::wire_frame_len(staged).expect("an encoded display frame has a wire form")
+}
+
+/// The most a staged display frame can take on the wire once sealed, whatever
+/// row predecessor is stamped into it at send.
+#[inline]
+pub(crate) fn wire_bound(staged: &[u8]) -> usize {
+    merkur_codec::wire::wire_frame_len_bound(staged)
+        .expect("an encoded display frame has a wire form")
 }
 
 /// Write a staged display frame's wire header into its headroom and return the
@@ -36,6 +37,135 @@ pub(crate) fn wire_frame(staged: &mut [u8]) -> &[u8] {
     let start = merkur_codec::wire::write_wire_header_in_place(staged)
         .expect("an encoded display frame has a wire form");
     &staged[start..]
+}
+
+/// The wire length a packed frame `staged_len` long can reach once every field
+/// stamped after packing is final, given its flush's `header_reserve` (see
+/// `merkur_codec::wire::header_reserve`).
+#[inline]
+pub(crate) const fn planned_wire_len(staged_len: usize, header_reserve: usize) -> usize {
+    staged_len.saturating_sub(merkur_codec::wire::STAGED_BODY_OFFSET) + header_reserve
+}
+
+/// A prepared display frame in its staged layout (`merkur_codec::wire`).
+///
+/// It has no length. A staged length is no wire quantity, and one read where a
+/// wire length was meant miscounts without failing, so every measurement says
+/// which it means: [`Self::wire_bound`] for anything decided before sealing,
+/// [`Self::wire_len`] for what a seal puts on the wire now.
+///
+/// Its bound is read many times before sealing and changes only when the
+/// header does, so it is kept, and any mutable access forgets it.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StagedFrame {
+    bytes: Vec<u8>,
+    bound: core::cell::Cell<Option<usize>>,
+}
+
+impl PartialEq for StagedFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl Eq for StagedFrame {}
+
+impl StagedFrame {
+    #[inline]
+    pub(crate) fn new(buffer: Vec<u8>) -> Self {
+        Self {
+            bytes: buffer,
+            bound: core::cell::Cell::new(None),
+        }
+    }
+
+    /// The staged bytes, for header patches and parsers.
+    #[inline]
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    #[inline]
+    pub(crate) fn bytes_mut(&mut self) -> &mut [u8] {
+        self.bound.set(None);
+        &mut self.bytes
+    }
+
+    /// The pooled buffer back.
+    #[inline]
+    pub(crate) fn into_buffer(self) -> Vec<u8> {
+        self.bytes
+    }
+
+    /// The buffer itself, for a test that encodes a frame in place.
+    #[cfg(test)]
+    pub(crate) fn buffer_mut(&mut self) -> &mut Vec<u8> {
+        self.bound.set(None);
+        &mut self.bytes
+    }
+
+    /// What the frame can take on the wire once sealed: the bound every lane,
+    /// parity and reservation decision before sealing reads.
+    #[inline]
+    pub(crate) fn wire_bound(&self) -> usize {
+        if let Some(bound) = self.bound.get() {
+            return bound;
+        }
+        let bound = wire_bound(&self.bytes);
+        self.bound.set(Some(bound));
+        bound
+    }
+
+    /// What the frame takes on the wire as it stands.
+    #[inline]
+    pub(crate) fn wire_len(&self) -> usize {
+        wire_len(&self.bytes)
+    }
+
+    /// What the frame takes on the wire once `predecessor` (zero for none) is
+    /// stamped as its row predecessor: what a send reserves, since only the
+    /// predecessor's presence is still open then, and it can only go.
+    #[inline]
+    pub(crate) fn wire_len_with_predecessor(&self, predecessor: u32) -> usize {
+        let presentation_id = u32::from_be_bytes(
+            self.bytes[merkur_codec::DISPLAY_PRESENTATION_ID_OFFSET
+                ..merkur_codec::DISPLAY_PRESENTATION_ID_OFFSET + 4]
+                .try_into()
+                .expect("a staged frame header holds its presentation id"),
+        );
+        self.wire_bound() - merkur_codec::wire::MAX_VARINT_U32_BYTES
+            + merkur_codec::wire::predecessor_wire_len(presentation_id, predecessor)
+    }
+
+    /// What packing planned the frame to take on the wire under its flush's
+    /// `header_reserve`.
+    #[inline]
+    pub(crate) fn planned_wire_len(&self, header_reserve: usize) -> usize {
+        planned_wire_len(self.bytes.len(), header_reserve)
+    }
+
+    /// Its wire form, written into the headroom.
+    #[inline]
+    pub(crate) fn wire_frame(&mut self) -> &[u8] {
+        wire_frame(&mut self.bytes)
+    }
+}
+
+impl<I: core::slice::SliceIndex<[u8]>> core::ops::Index<I> for StagedFrame {
+    type Output = I::Output;
+
+    #[inline]
+    fn index(&self, index: I) -> &Self::Output {
+        &self.bytes[index]
+    }
+}
+
+impl<I: core::slice::SliceIndex<[u8]>> core::ops::IndexMut<I> for StagedFrame {
+    #[inline]
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        self.bound.set(None);
+        &mut self.bytes[index]
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

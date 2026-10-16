@@ -755,8 +755,28 @@ pub(crate) async fn heartbeat_tick(
             }
         }
     }
+    // A lane that sealed its last counter can send nothing more under these
+    // keys (`NoiseTransport::exhausted`). Its session ends as a dead carrier's
+    // does: parked for resume, so the browser's next carrier runs fresh key
+    // agreement and every counter starts again at zero.
+    let exhausted_peers: Vec<Arc<str>> = peers
+        .iter()
+        .filter(|(peer_id, peer)| {
+            peer.noise.as_ref().is_some_and(|noise| noise.exhausted())
+                && !timed_out_peers.contains(*peer_id)
+        })
+        .map(|(peer_id, _)| Arc::clone(peer_id))
+        .collect();
     let mut evicted_peer_ids: Vec<Arc<str>> = Vec::new();
-    for peer_id in timed_out_peers {
+    for (peer_id, reason) in timed_out_peers
+        .into_iter()
+        .map(|peer_id| (peer_id, "heartbeat timeout"))
+        .chain(
+            exhausted_peers
+                .into_iter()
+                .map(|peer_id| (peer_id, "noise counter exhausted")),
+        )
+    {
         if let Some(state) = peers.remove(&peer_id) {
             park_disconnected_peer(parked, state, now_ms);
         }
@@ -766,7 +786,7 @@ pub(crate) async fn heartbeat_tick(
             EVT_PEER_DISCONNECTED,
             &PeerDisconnectedEvt {
                 peer_node_id: peer_id.to_string(),
-                reason: "heartbeat timeout".to_string(),
+                reason: reason.to_string(),
             },
         );
         evicted_peer_ids.push(peer_id);
@@ -1638,6 +1658,80 @@ mod tests {
             timestamp,
             "the echo must carry the browser's exact ping token"
         );
+    }
+
+    /// A session whose lane sealed its last counter is retired by the next tick
+    /// and parked for resume, so the browser's next carrier runs fresh key
+    /// agreement; it is never left live and silent.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_session_at_its_last_counter_is_parked_for_fresh_keys() {
+        const PEER_ID: &str = "exhausted-browser";
+        let now_ms = 5_000.0;
+        let start_instant = Instant::now() - Duration::from_millis(5_000);
+        let psk = [0x11u8; 32];
+        let prologue = crate::e2e::derive_prologue("liveness-test", PEER_ID, &[0x42; 64]);
+        let (browser_static, _) = crate::e2e::generate_static_keypair().expect("browser key");
+        let (daemon_static, _) = crate::e2e::generate_static_keypair().expect("daemon key");
+        let mut initiator =
+            crate::e2e::NoiseHandshake::new_initiator(&browser_static, &psk, &prologue)
+                .expect("initiator");
+        let mut responder =
+            crate::e2e::NoiseHandshake::new_responder(&daemon_static, &psk, &prologue)
+                .expect("responder");
+        responder
+            .read_message(&initiator.write_message(b"").expect("message 1"))
+            .expect("read message 1");
+        initiator
+            .read_message(&responder.write_message(b"").expect("message 2"))
+            .expect("read message 2");
+        responder
+            .read_message(&initiator.write_message(b"").expect("message 3"))
+            .expect("read message 3");
+
+        let (capture_tx, _capture_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut peer = PeerDisplayState::new(PEER_ID.into(), PeerTransport::Edge);
+        peer.authenticated = true;
+        peer.display_cache.resize(1, 1);
+        peer.display_cache.initialized = true;
+        peer.edge_tunnel = Some(Arc::new(crate::edge_tunnel::EdgeTunnel::new_capture(
+            capture_tx,
+        )));
+        peer.paths.edge = PathHealth::fresh_available(now_ms);
+        peer.paths.edge.last_heartbeat_sent_ms = now_ms;
+        peer.paths.edge.note_unanswered_send(now_ms);
+        let mut noise = responder.into_transport().expect("daemon transport");
+        let lane = crate::e2e::lane_for_channel(CHANNEL_DISPLAY_DATAGRAM).expect("display lane");
+        noise.reach_last_datagram_counter_for_test(lane);
+        peer.noise = Some(noise);
+        assert!(
+            peer.seal_display_wire(b"the last frame these keys may seal")
+                .is_some(),
+            "the last counter still seals"
+        );
+        assert!(peer.seal_display_wire(b"one past it").is_none());
+
+        let mut peers = PeerMap::from([(PEER_ID.into(), peer)]);
+        let mut parked = ParkedPeers::new();
+        let network_state = Arc::new(RwLock::new(NetworkState::new()));
+        let (event_tx, _event_output) = crate::ipc::events::test_event_sink();
+        let mut rebind_telemetry =
+            crate::session::rebind_flow::RebindTelemetry::new(event_tx.clone());
+        let evicted = heartbeat_tick(
+            &mut peers,
+            &mut HashMap::new(),
+            &mut parked,
+            &None,
+            &network_state,
+            &event_tx,
+            &mut rebind_telemetry,
+            &[0],
+            start_instant,
+        )
+        .await;
+        assert_eq!(evicted, [Arc::<str>::from(PEER_ID)]);
+        assert!(!peers.contains_key(PEER_ID));
+        let resumed = parked.take(PEER_ID).expect("parked for resume");
+        assert!(resumed.noise.is_none(), "a resume runs fresh key agreement");
     }
 
     /// A blackholed carrier HOLDS the rebind lineage instead of destroying it.

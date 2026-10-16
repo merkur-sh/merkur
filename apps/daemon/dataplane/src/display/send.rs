@@ -39,8 +39,8 @@ use crate::display::compressor::{
 use crate::DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES;
 use crate::display::credit::{DemandStamp, DisplayAdmission, PreparedDemand};
 use crate::display::encoder::{
-    chunk_snapshot_frame, mark_presentation_continues, patch_stream_header, stamp_display_demand,
-    wire_frame, wire_len,
+    StagedFrame, chunk_snapshot_frame, mark_presentation_continues, patch_stream_header,
+    planned_wire_len, stamp_display_demand, wire_frame, wire_len,
 };
 use crate::display::planner::{
     BatchPartitionPlan, CarrierDeliveryQuote, ContentClass, ContentEvidence, DictionaryClass,
@@ -48,7 +48,6 @@ use crate::display::planner::{
     PlanningContext, Representation, choose_after_compression, content_class_by_bytes,
     display_repair_wire_len, encoded_record_cost_us, fec_recovery_shard_count, group_close_cost_us,
     plan_batch_partitions, should_attempt_compression as planner_should_attempt_compression,
-    staged_ratio,
 };
 use crate::display::policy::{DisplayPolicy, DisplayWorkload, compute_display_workload};
 use crate::network::peer::ReliablePayload;
@@ -91,18 +90,30 @@ struct PreparedPhysicalDatagramPlan {
     /// FEC parity paths, carried only by the final member of a protected group.
     repair_paths: SentPaths,
     repair_primary: Option<PeerTransport>,
+    /// Sealed bytes reserved for each data copy: the frame's wire bound, which
+    /// sealing settles against the exact length by refunding the difference.
+    data_reserved: usize,
+    /// The recovery shard count the group's parity was reserved with, and the
+    /// sealed bytes reserved for it, on the final member. Sealing encodes
+    /// parity with exactly this count and refunds what its exact width leaves.
+    repair_shards: usize,
+    repair_reserved: usize,
 }
 
 pub(crate) struct PreparedDisplayDatagram {
+    /// Also the frame's id: a datagram is identified by its sequence number.
     seq: u32,
-    frame_id: u32,
+    /// The uncompressed frame's planned wire length under `header_reserve`.
     raw_bytes: usize,
+    /// The flush's packing reserve (`packed_header_reserve`): what the frame
+    /// was planned against, and what its compression ratio is measured over.
+    header_reserve: usize,
     encoded_rows: u16,
     utility: DisplayUtility,
     header_signal: u128,
     /// A pooled buffer: taken from the flush's `PrepareBuffers::frames` when the
     /// frame is encoded and returned there once the burst has sealed it.
-    frame: Vec<u8>,
+    frame: StagedFrame,
     rows: SentRows,
     /// Whether the compression path actually ran for this datagram. Only
     /// attempted frames update the achieved-ratio posterior.
@@ -309,7 +320,6 @@ struct DisplayPrepareRequest {
     display_revision: u64,
     completed_sync_update_epoch: u64,
     start_seq: u32,
-    start_frame_id: u32,
     /// This flush was clipped to the carrier's current free datagram budget,
     /// so more independently applicable rows are already known to follow.
     presentation_continues: bool,
@@ -596,9 +606,7 @@ pub(crate) struct DisplayPrepareCompletion {
     display_revision: u64,
     completed_sync_update_epoch: u64,
     start_seq: u32,
-    start_frame_id: u32,
     next_seq: u32,
-    next_frame_id: u32,
     dictionary_class: DictionaryClass,
     /// Retained only when at least one prepared frame actually references it.
     /// Dictionary-free completions remain independent of dictionary rotation.
@@ -689,7 +697,7 @@ impl DisplayPrepareWorker {
     fn recycle(&mut self, mut buffers: PrepareBuffers) {
         buffers.rows.clear();
         for datagram in buffers.datagrams.drain(..) {
-            buffers.frames.put(datagram.frame);
+            buffers.frames.put(datagram.frame.into_buffer());
             if let Some(repair) = datagram.precomputed_fec_repair {
                 buffers.frames.put(repair);
             }
@@ -1298,7 +1306,6 @@ fn prepare_captured_frame(
     seq: u32,
     generation: u32,
     input_seq: u32,
-    frame_id: u32,
     presentation_id: u32,
     presentation_coherent: bool,
     presentation_end: bool,
@@ -1312,6 +1319,7 @@ fn prepare_captured_frame(
     let BatchPayload {
         mut frame,
         raw_bytes,
+        header_reserve,
         compression,
         content_class,
     } = payload;
@@ -1320,7 +1328,7 @@ fn prepare_captured_frame(
         seq,
         generation,
         input_seq,
-        frame_id,
+        seq,
         presentation_id,
         presentation_coherent,
         presentation_end,
@@ -1343,12 +1351,12 @@ fn prepare_captured_frame(
 
     PreparedDisplayDatagram {
         seq,
-        frame_id,
         raw_bytes,
+        header_reserve,
         encoded_rows,
         utility,
         header_signal,
-        frame,
+        frame: StagedFrame::new(frame),
         rows,
         compression_attempted,
         content_class,
@@ -1375,7 +1383,7 @@ fn observe_display_compression_outcome(
     if !attempted || raw_bytes == 0 {
         return;
     }
-    let sample = staged_ratio(raw_bytes, wire_bytes).clamp(0.01, 1.0);
+    let sample = (wire_bytes as f64 / raw_bytes as f64).clamp(0.01, 1.0);
     peer.display_planning
         .observe_ratio(raw_bytes, content_class, dictionary_class, sample);
 }
@@ -1386,10 +1394,12 @@ fn observe_display_compression_outcome(
 /// because those are the same question: a batch is correctly sized exactly when
 /// its compressed form fits a datagram. Carrying `raw_bytes` alongside keeps
 /// every downstream consumer — workload classification, the ratio estimate,
-/// telemetry — reading the uncompressed size it has always read.
+/// telemetry — reading the uncompressed size. Both are planned wire lengths
+/// under the flush's `header_reserve`, so a ratio compares like with like.
 struct BatchPayload {
     frame: Vec<u8>,
     raw_bytes: usize,
+    header_reserve: usize,
     compression: BatchCompression,
     /// Class of the rows the frame carries, from their summed census; the
     /// class whose ratio posterior this frame's achieved compression feeds.
@@ -1410,20 +1420,24 @@ enum BatchCompression {
 }
 
 impl BatchPayload {
+    /// A frame no packing sized, a header-only one, before its header is
+    /// stamped: planned against the longest header it can carry.
     #[inline]
     fn plain(frame: Vec<u8>, content_class: ContentClass) -> Self {
-        let raw_bytes = frame.len();
+        let header_reserve = merkur_codec::wire::MAX_UNCHUNKED_WIRE_HEADER_BYTES;
         Self {
+            raw_bytes: planned_wire_len(frame.len(), header_reserve),
             frame,
-            raw_bytes,
+            header_reserve,
             compression: BatchCompression::NotAttempted,
             content_class,
         }
     }
 
+    /// What the frame can take on the wire once every later stamp is final.
     #[inline]
-    fn len(&self) -> usize {
-        self.frame.len()
+    fn planned_wire_len(&self) -> usize {
+        planned_wire_len(self.frame.len(), self.header_reserve)
     }
 }
 
@@ -1458,9 +1472,10 @@ fn compress_batch_candidate(
     planned_representation: Representation,
     content_class: ContentClass,
     profile: PeerPlanningSnapshot,
+    header_reserve: usize,
     out: &mut Vec<u8>,
 ) -> DisplayCompressionOutcome {
-    let raw_bytes = frame.len();
+    let raw_bytes = planned_wire_len(frame.len(), header_reserve);
     let batch_workload = compute_display_workload(
         raw_bytes,
         policy.terminal_rows,
@@ -1526,7 +1541,9 @@ fn compress_batch_candidate(
             dictionary_class,
             policy.planning_context,
         ) == Representation::Compressed,
-        achieved_ratio: Some(staged_ratio(raw_bytes, out.len())),
+        achieved_ratio: Some(
+            planned_wire_len(out.len(), header_reserve) as f64 / raw_bytes.max(1) as f64,
+        ),
     }
 }
 
@@ -1556,6 +1573,7 @@ fn emit_fitted_batches(
     frames: &mut BufferPool,
     out: &mut Vec<PackedBatch>,
     wire_cap: usize,
+    header_reserve: usize,
     planned_representation: Representation,
 ) -> Option<f64> {
     if rows.is_empty() {
@@ -1579,7 +1597,7 @@ fn emit_fitted_batches(
     // display patch. Stamp the one byte it checks; `patch_stream_header` writes
     // the same value again later.
     frame[merkur_codec::DISPLAY_MSG_TYPE_OFFSET] = merkur_codec::MSG_TYPE_DISPLAY_PATCH;
-    let raw_bytes = frame.len();
+    let raw_bytes = planned_wire_len(frame.len(), header_reserve);
     let encoded_rows = sent_rows.len().min(u16::MAX as usize) as u16;
     let mut compressed = frames.take(0);
     let outcome = compress_batch_candidate(
@@ -1594,10 +1612,11 @@ fn emit_fitted_batches(
         planned_representation,
         content_class,
         profile,
+        header_reserve,
         &mut compressed,
     );
     let wire_bytes = if outcome.used {
-        compressed.len()
+        planned_wire_len(compressed.len(), header_reserve)
     } else {
         raw_bytes
     };
@@ -1606,6 +1625,7 @@ fn emit_fitted_batches(
         let payload = BatchPayload {
             frame: choose_compressed_frame(frame, compressed, outcome.used, frames),
             raw_bytes,
+            header_reserve,
             compression: BatchCompression::from_outcome(&outcome),
             content_class,
         };
@@ -1630,6 +1650,7 @@ fn emit_fitted_batches(
         frames,
         out,
         wire_cap,
+        header_reserve,
         planned_representation,
     );
     let second = emit_fitted_batches(
@@ -1645,6 +1666,7 @@ fn emit_fitted_batches(
         frames,
         out,
         wire_cap,
+        header_reserve,
         planned_representation,
     );
     second.or(first).or(outcome.achieved_ratio)
@@ -1658,11 +1680,11 @@ fn emit_fitted_batches(
 fn captured_presentation_workload(
     rows: &[DisplayPrepareRow],
     policy: &DisplayCompressionPolicy,
+    header_reserve: usize,
 ) -> DisplayWorkload {
-    let raw_bytes = rows.iter().fold(
-        STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES,
-        |total, row| total.saturating_add(captured_row_encoded_size(row)),
-    );
+    let raw_bytes = rows.iter().fold(header_reserve, |total, row| {
+        total.saturating_add(captured_row_encoded_size(row))
+    });
     compute_display_workload(
         raw_bytes,
         policy.terminal_rows,
@@ -1687,13 +1709,14 @@ fn pending_packed_fec_group(
     let mut group_len = 0usize;
     let mut group_max_bytes = 0usize;
     for (payload, _, _, batch_utility) in batches {
-        if *batch_utility != utility || payload.len() > DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES {
+        let planned = payload.planned_wire_len();
+        if *batch_utility != utility || planned > DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES {
             group_len = 0;
             group_max_bytes = 0;
             continue;
         }
         group_len += 1;
-        group_max_bytes = group_max_bytes.max(payload.len());
+        group_max_bytes = group_max_bytes.max(planned);
         if group_len == group_max.max(1) {
             group_len = 0;
             group_max_bytes = 0;
@@ -1723,7 +1746,7 @@ fn precompute_fec_repairs(
         let group = &mut prepared[group_start..index];
         let shard_size = group
             .iter()
-            .map(|datagram| datagram.frame.len())
+            .map(|datagram| datagram.frame.wire_bound())
             .max()
             .unwrap_or(0);
         let recovery_shards = fec_recovery_shard_count(group.len(), shard_size);
@@ -1739,7 +1762,7 @@ fn precompute_fec_repairs(
         let start_seq = group[0].seq;
         let mut payloads = [&[][..]; merkur_fec::FEC_MAX_DATA];
         for (slot, datagram) in payloads.iter_mut().zip(group.iter_mut()) {
-            *slot = wire_frame(&mut datagram.frame);
+            *slot = datagram.frame.wire_frame();
         }
         let mut repair = frames.take(0);
         if encoder.encode_borrowed_group_into(
@@ -1775,7 +1798,7 @@ fn send_repair_frame(
     now_ms: f64,
     budget: &mut DatagramPhysicalBudget,
 ) -> BudgetedSendResult {
-    if repair.len() > DisplayPolicy::DATAGRAM_MAX_WIRE_BYTES {
+    if repair.len() > DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES {
         return BudgetedSendResult {
             budget_refused: true,
             ..BudgetedSendResult::default()
@@ -1798,20 +1821,49 @@ fn send_reserved_repair_frame(
     peer: &mut PeerDisplayState,
     repair: &[u8],
     admission: ReservedPathSend,
+    reserved: usize,
     now_ms: f64,
     spare_budget: &mut DatagramPhysicalBudget,
 ) -> BudgetedSendResult {
     let expected_wire_len = sealed_display_datagram_wire_len(repair.len());
-    if repair.len() > DisplayPolicy::DATAGRAM_MAX_WIRE_BYTES {
-        release_reserved_paths(spare_budget, admission.paths, expected_wire_len);
+    debug_assert!(expected_wire_len <= reserved);
+    if repair.len() > DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES {
+        release_reserved_paths(spare_budget, admission.paths, reserved);
         return BudgetedSendResult::default();
     }
     let Some(wire) = peer.seal_display_wire(repair) else {
-        release_reserved_paths(spare_budget, admission.paths, expected_wire_len);
+        release_reserved_paths(spare_budget, admission.paths, reserved);
         return BudgetedSendResult::default();
     };
     debug_assert_eq!(wire.len(), expected_wire_len);
+    refund_reserved_paths(spare_budget, admission.paths, reserved - expected_wire_len);
     send_reserved_paths(peer, &wire, admission, now_ms, spare_budget)
+}
+
+/// The wire header a packed frame of this flush is planned against: its
+/// fixed fields as `header` and `input_seq` hold them, and every field stamped
+/// after packing at the widest its flush allows (`merkur_codec::wire::header_reserve`).
+/// Each batch carries at least one of the `rows`, so the burst has at most that
+/// many members and a member at most that many rows.
+fn packed_header_reserve(header: &FrameHeader, input_seq: u32, rows: usize) -> usize {
+    let bound = u16::try_from(rows.max(1)).expect("captured rows are bounded by the terminal");
+    let stream = merkur_codec::StreamHeader {
+        msg_type: merkur_codec::MSG_TYPE_DISPLAY_PATCH,
+        flags: 0,
+        body_len: 0,
+        seq: 0,
+        generation: 0,
+        input_seq,
+    };
+    merkur_codec::wire::header_reserve(
+        &stream,
+        header,
+        merkur_codec::wire::ReserveBounds {
+            members: bound,
+            rows: bound,
+        },
+    )
+    .expect("a captured frame header has a wire form")
 }
 
 /// Pack captured rows into datagram-sized batches, compressing each batch as it
@@ -1830,6 +1882,7 @@ fn send_reserved_repair_frame(
 fn pack_captured_rows(
     rows: &[DisplayPrepareRow],
     header: FrameHeader,
+    input_seq: u32,
     policy: &DisplayCompressionPolicy,
     dictionary: Option<&DisplayDictionary>,
     header_changed: bool,
@@ -1837,7 +1890,8 @@ fn pack_captured_rows(
     scratch: &mut PrepareScratch,
     frames: &mut BufferPool,
 ) {
-    let presentation_workload = captured_presentation_workload(rows, policy);
+    let header_reserve = packed_header_reserve(&header, input_seq, rows.len());
+    let presentation_workload = captured_presentation_workload(rows, policy, header_reserve);
     let PrepareScratch {
         batches,
         planner,
@@ -1880,13 +1934,20 @@ fn pack_captured_rows(
     if *experiment == PackingExperiment::WholeSpan
         && presentation_workload != DisplayWorkload::Interactive
     {
-        pack_whole_span_candidate(rows, header, dictionary, compressor, batches, frames);
+        pack_whole_span_candidate(
+            rows,
+            header,
+            header_reserve,
+            dictionary,
+            compressor,
+            batches,
+            frames,
+        );
         // Only the partition differs. Header promotion below is shared with
         // production, including changes with no captured cursor-row damage.
         batch_start = rows.len();
     }
     let cap = DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES;
-    let header_overhead = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
     let mut local_profiles = policy.planning_profiles;
     while batch_start < rows.len() {
         // A domain is one utility run. Content class is a property of each
@@ -1935,7 +1996,7 @@ fn pack_captured_rows(
                     dictionary_class,
                     planning_context,
                     &planned_rows[planned_start..domain.len()],
-                    header_overhead,
+                    header_reserve,
                     cap,
                     planner_workspace,
                     partition,
@@ -1972,9 +2033,10 @@ fn pack_captured_rows(
                 frames,
                 batches,
                 cap,
+                header_reserve,
                 planned_representation,
             );
-            let predicted_raw_bytes = header_overhead
+            let predicted_raw_bytes = header_reserve
                 + planned_rows[planned_start..planned_end]
                     .iter()
                     .map(|row| row.bytes)
@@ -1992,7 +2054,7 @@ fn pack_captured_rows(
             partition_valid = planned_representation == Representation::Raw
                 && actual_ratio.is_none()
                 && batches.len() == emitted_before + 1
-                && batches[emitted_before].0.len() == predicted_raw_bytes
+                && batches[emitted_before].0.raw_bytes == predicted_raw_bytes
                 && partition.get(partition_cursor).is_some();
             #[cfg(test)]
             if !adaptive_refinement {
@@ -2017,7 +2079,7 @@ fn pack_captured_rows(
         let promotion_index = batches
             .iter()
             .enumerate()
-            .min_by_key(|(_, (payload, _, _, _))| payload.len())
+            .min_by_key(|(_, (payload, _, _, _))| payload.planned_wire_len())
             .map(|(index, _)| index);
         if let Some(index) = promotion_index {
             batches[..=index].rotate_right(1);
@@ -2033,6 +2095,7 @@ fn pack_captured_rows(
 fn pack_whole_span_candidate(
     rows: &[DisplayPrepareRow],
     header: FrameHeader,
+    header_reserve: usize,
     dictionary: Option<&DisplayDictionary>,
     compressor: &mut Compressor,
     out: &mut Vec<PackedBatch>,
@@ -2055,7 +2118,7 @@ fn pack_whole_span_candidate(
         let sent = encode_captured_rows(header, rows[start..end].iter(), &mut raw);
         assert_eq!(raw.len(), STREAM_HEADER_BYTES + body_bytes);
         raw[merkur_codec::DISPLAY_MSG_TYPE_OFFSET] = merkur_codec::MSG_TYPE_DISPLAY_PATCH;
-        let raw_bytes = raw.len();
+        let raw_bytes = planned_wire_len(raw.len(), header_reserve);
         let mut compressed = frames.take(0);
         let used = compressor
             .compress_display_frame_into(&raw, dictionary, &mut compressed)
@@ -2065,6 +2128,7 @@ fn pack_whole_span_candidate(
             BatchPayload {
                 frame,
                 raw_bytes,
+                header_reserve,
                 compression: if used {
                     BatchCompression::Compressed
                 } else {
@@ -2101,7 +2165,6 @@ fn prepare_display_off_loop(
         display_revision,
         completed_sync_update_epoch,
         start_seq,
-        start_frame_id,
         presentation_continues,
         causal_input_advanced,
         input_seq,
@@ -2116,7 +2179,6 @@ fn prepare_display_off_loop(
     } = request;
     compressor.begin_timing(perf_flush_started_at.is_some());
     let mut next_seq = start_seq;
-    let mut next_frame_id = start_frame_id;
     let dictionary = compression_dictionary.as_deref();
     let PrepareBuffers {
         rows,
@@ -2127,6 +2189,7 @@ fn prepare_display_off_loop(
     pack_captured_rows(
         rows,
         header,
+        input_seq,
         &compression,
         dictionary,
         header_changed,
@@ -2141,8 +2204,9 @@ fn prepare_display_off_loop(
     // ACK, loss, or repair depend on the group.
     let batch_count = scratch.batches.len();
     assert!(batch_count <= merkur_codec::MAX_TERMINAL_ROWS);
+    // A presentation is named by its first member's sequence number.
     let presentation_id = {
-        let mut cursor = start_frame_id;
+        let mut cursor = start_seq;
         take_wrapping_nonzero(&mut cursor)
     };
     let presentation_coherent = header.presentation_coherent
@@ -2160,7 +2224,6 @@ fn prepare_display_off_loop(
             seq,
             generation,
             input_seq,
-            take_wrapping_nonzero(&mut next_frame_id),
             presentation_id,
             presentation_coherent,
             index + 1 == batch_count && !presentation_continues,
@@ -2186,7 +2249,7 @@ fn prepare_display_off_loop(
     if perf_log_enabled() {
         summary.perf_wire_bytes = datagrams
             .iter()
-            .map(|datagram| wire_len(&datagram.frame) + 1)
+            .map(|datagram| datagram.frame.wire_len() + 1)
             .sum();
     }
     let dictionary_class = if compression_dictionary.is_some() {
@@ -2229,9 +2292,7 @@ fn prepare_display_off_loop(
         display_revision,
         completed_sync_update_epoch,
         start_seq,
-        start_frame_id,
         next_seq,
-        next_frame_id,
         dictionary_class,
         compression_dictionary,
         buffers,
@@ -2250,7 +2311,6 @@ fn cancelled_display_prepare(request: DisplayPrepareRequest) -> DisplayPrepareCo
         display_revision,
         completed_sync_update_epoch,
         start_seq,
-        start_frame_id,
         presentation_continues: _,
         causal_input_advanced: _,
         input_seq: _,
@@ -2272,9 +2332,7 @@ fn cancelled_display_prepare(request: DisplayPrepareRequest) -> DisplayPrepareCo
         display_revision,
         completed_sync_update_epoch,
         start_seq,
-        start_frame_id,
         next_seq: start_seq,
-        next_frame_id: start_frame_id,
         dictionary_class: if compression_dictionary.is_some() {
             DictionaryClass::Finalized
         } else {
@@ -2336,7 +2394,7 @@ fn prepare_snapshot_off_loop(
                 planner,
                 peer.profile,
                 ExecutionLane::Bulk,
-                raw.len(),
+                wire_len(raw),
                 content_class,
                 DictionaryClass::Plain,
                 peer.context,
@@ -2352,7 +2410,7 @@ fn prepare_snapshot_off_loop(
         let saved = compressor.compress_display_frame_into(raw, None, &mut compressed);
         planner.observe_sender_service(
             ExecutionLane::Bulk,
-            raw.len(),
+            wire_len(raw),
             content_class,
             DictionaryClass::Plain,
             started.elapsed().as_secs_f64() * 1_000_000.0,
@@ -2468,9 +2526,11 @@ pub(crate) fn fence_dictionary_preparation_without_consumers(
     }
 }
 
+/// A frame rides a datagram when it fits one however its row predecessor is
+/// stamped, so the lane never changes between preparing and sealing it.
 #[inline]
 fn uses_display_datagram(datagram: &PreparedDisplayDatagram) -> bool {
-    datagram.frame.len() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
+    datagram.frame.wire_bound() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
 }
 
 fn retain_referenced_dictionary(
@@ -2484,6 +2544,7 @@ fn prepared_references_dictionary(prepared: &[PreparedDisplayDatagram]) -> bool 
     prepared.iter().any(|datagram| {
         datagram
             .frame
+            .bytes()
             .get(merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET)
             .is_some_and(|flags| {
                 flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0
@@ -3620,6 +3681,15 @@ fn send_exact_path_reserved(
     sent
 }
 
+fn refund_reserved_paths(budget: &mut DatagramPhysicalBudget, paths: SentPaths, unused: usize) {
+    if paths.webtransport {
+        budget.refund(PeerTransport::WebTransport, unused);
+    }
+    if paths.edge {
+        budget.refund(PeerTransport::Edge, unused);
+    }
+}
+
 fn release_reserved_paths(budget: &mut DatagramPhysicalBudget, paths: SentPaths, wire_len: usize) {
     if paths.webtransport {
         budget.release(PeerTransport::WebTransport, wire_len);
@@ -3761,7 +3831,7 @@ fn trace_prepared_member(
         TraceEvent::DisplayMember([
             u64::from(datagram.seq),
             u64::from(peer.generation),
-            u64::from(datagram.frame_id),
+            u64::from(datagram.seq),
             u64::from(read_u32(DISPLAY_PRESENTATION_ID_OFFSET)),
             u64::from(read_u16(DISPLAY_PRESENTATION_MEMBER_INDEX_OFFSET)),
             u64::from(read_u16(DISPLAY_PRESENTATION_MEMBER_COUNT_OFFSET)),
@@ -4042,7 +4112,7 @@ fn build_captured_datagram_batches(
             frames.put(payload);
             return;
         }
-        let frame_id = peer.next_frame_id();
+        let seq = peer.next_datagram_seq();
         out.push(prepare_display_datagram(
             BatchPayload::plain(payload, ContentClass::Sparse),
             SentRows::default(),
@@ -4051,8 +4121,8 @@ fn build_captured_datagram_batches(
             input_seq,
             now_ms,
             0,
-            frame_id,
-            frame_id,
+            seq,
+            seq,
             presentation_continues || peer.presentation_end_owed,
             !presentation_continues,
             0,
@@ -4079,6 +4149,7 @@ fn build_captured_datagram_batches(
     pack_captured_rows(
         captured_rows,
         header,
+        input_seq,
         &policy,
         dictionary.map(|dictionary| &**dictionary),
         header_signal != peer.last_admitted_critical_header_signal,
@@ -4107,8 +4178,9 @@ fn build_captured_datagram_batches(
     // another datagram's transformation.
     let batch_count = scratch.batches.len();
     assert!(batch_count <= merkur_codec::MAX_TERMINAL_ROWS);
+    // A presentation is named by its first member's sequence number.
     let presentation_id = {
-        let mut cursor = peer.next_frame_id;
+        let mut cursor = peer.next_datagram_seq;
         take_wrapping_nonzero(&mut cursor)
     };
     let presentation_coherent = peer.presentation_end_owed
@@ -4121,7 +4193,7 @@ fn build_captured_datagram_batches(
     for (index, (payload, sent_rows, encoded_rows, utility)) in
         scratch.batches.drain(..).enumerate()
     {
-        let frame_id = peer.next_frame_id();
+        let seq = peer.next_datagram_seq();
         out.push(prepare_display_datagram(
             payload,
             sent_rows,
@@ -4130,7 +4202,7 @@ fn build_captured_datagram_batches(
             input_seq,
             now_ms,
             encoded_rows,
-            frame_id,
+            seq,
             presentation_id,
             presentation_coherent,
             index + 1 == batch_count && !presentation_continues,
@@ -4369,13 +4441,18 @@ const fn sealed_display_datagram_wire_len(plaintext_len: usize) -> usize {
 const K1_PROBE_WIRE_RESERVATION: usize =
     sealed_display_datagram_wire_len(merkur_codec::wire::MAX_UNCHUNKED_WIRE_HEADER_BYTES);
 
-/// The exact repair plaintext over `group` with `recovery` shards: parity at
-/// the width of the group's widest wire frame, each shard behind its length
+/// The most repair plaintext `group` can need with `recovery` shards once its
+/// row predecessor `head` is stamped (see [`plan_required_physical_group`]):
+/// parity at the width of its widest member, each shard behind its length
 /// stripe.
-fn group_repair_plaintext_len(group: &[PreparedDisplayDatagram], recovery: usize) -> usize {
+fn group_repair_plaintext_len(
+    group: &[PreparedDisplayDatagram],
+    recovery: usize,
+    head: u32,
+) -> usize {
     let width = group
         .iter()
-        .map(|datagram| wire_len(&datagram.frame))
+        .map(|datagram| datagram.frame.wire_len_with_predecessor(head))
         .max()
         .unwrap_or(0);
     DISPLAY_FEC_HEADER_BYTES + merkur_fec::repair::repair_body_len(recovery, width)
@@ -4451,11 +4528,16 @@ fn display_path_targets(
     }
 }
 
+/// `head` is the row predecessor the burst's admitted prefix is stamped with
+/// unless it covers every unresolved row (`stamp_row_presentation_predecessor`).
+/// Each reservation counts it stamped, so a send can only refund: the
+/// predecessor's value is fixed by now, and its presence can only be dropped.
 fn plan_required_physical_group(
     paths: &PeerPaths,
     preferred: PeerTransport,
     evidence: &mut FecEvidenceByPath,
     group: &[PreparedDisplayDatagram],
+    head: u32,
     now_ms: f64,
     budget: &mut DatagramPhysicalBudget,
     plans: &mut [PreparedPhysicalDatagramPlan; merkur_fec::FEC_MAX_DATA],
@@ -4466,7 +4548,7 @@ fn plan_required_physical_group(
 
     let shard_size = group
         .iter()
-        .map(|datagram| datagram.frame.len())
+        .map(|datagram| datagram.frame.wire_bound())
         .max()
         .unwrap_or(0);
     let recovery_shards = fec_recovery_shard_count(group.len(), shard_size);
@@ -4476,8 +4558,11 @@ fn plan_required_physical_group(
     // consuming that carrier with optional copies first could manufacture a
     // repair refusal even though the complete group fit.
     if recovery_shards > 0 {
-        let repair_wire_len =
-            sealed_display_datagram_wire_len(group_repair_plaintext_len(group, recovery_shards));
+        let repair_wire_len = sealed_display_datagram_wire_len(group_repair_plaintext_len(
+            group,
+            recovery_shards,
+            head,
+        ));
         let targets = display_path_targets(paths, SendIntent::LatencySensitive, preferred, now_ms);
         let Some(path) =
             reserve_preferred_physical_path(budget, paths, targets, repair_wire_len, now_ms)
@@ -4487,10 +4572,13 @@ fn plan_required_physical_group(
         let closer = &mut plans[group.len() - 1];
         closer.repair_paths.mark(path);
         closer.repair_primary = Some(path);
+        closer.repair_shards = recovery_shards;
+        closer.repair_reserved = repair_wire_len;
     }
 
     for (index, datagram) in group.iter().enumerate() {
-        let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+        let wire_len =
+            sealed_display_datagram_wire_len(datagram.frame.wire_len_with_predecessor(head));
         let targets =
             display_path_targets(paths, datagram.utility.send_intent(), preferred, now_ms);
         let Some(path) = reserve_preferred_physical_path(budget, paths, targets, wire_len, now_ms)
@@ -4499,6 +4587,7 @@ fn plan_required_physical_group(
         };
         plans[index].data_paths.mark(path);
         plans[index].data_primary = Some(path);
+        plans[index].data_reserved = wire_len;
 
         if group.len() != 1 || recovery_shards > 0 {
             continue;
@@ -4578,6 +4667,7 @@ fn plan_required_physical_prefix(
                 preferred,
                 &mut candidate_evidence,
                 &prepared[index..index + candidate_len],
+                peer.row_presentation_head,
                 now_ms,
                 &mut candidate_budget,
                 &mut candidate_plans,
@@ -4642,10 +4732,7 @@ fn plan_optional_physical_sends(
                 );
                 if targets.is_dual()
                     && let Some(path) = other_target(targets, datagram.physical_plan.data_paths)
-                    && budget.reserve(
-                        path,
-                        sealed_display_datagram_wire_len(wire_len(&datagram.frame)),
-                    )
+                    && budget.reserve(path, datagram.physical_plan.data_reserved)
                 {
                     datagram.physical_plan.data_paths.mark(path);
                 }
@@ -4669,16 +4756,7 @@ fn plan_optional_physical_sends(
         } else {
             let repair_paths = prepared[end - 1].physical_plan.repair_paths;
             if repair_paths.any() {
-                let shard_size = prepared[index..end]
-                    .iter()
-                    .map(|datagram| datagram.frame.len())
-                    .max()
-                    .unwrap_or(0);
-                let recovery_shards = fec_recovery_shard_count(end - index, shard_size);
-                let repair_wire_len = sealed_display_datagram_wire_len(group_repair_plaintext_len(
-                    &prepared[index..end],
-                    recovery_shards,
-                ));
+                let repair_wire_len = prepared[end - 1].physical_plan.repair_reserved;
                 let targets = pick_path(
                     &paths,
                     SendIntent::LatencySensitive,
@@ -4729,7 +4807,7 @@ fn prepared_carrier_delivery_us(
             );
             used[path] = true;
             costs[path] +=
-                encoded_record_cost_us(prepared[index].frame.len(), quotes[path], context);
+                encoded_record_cost_us(prepared[index].frame.wire_bound(), quotes[path], context);
             index += 1;
             continue;
         }
@@ -4744,16 +4822,17 @@ fn prepared_carrier_delivery_us(
             used[path] = true;
             loss_upper = loss_upper.max(quote.loss_upper);
             one_way_us = one_way_us.max(quote.one_way_us);
-            shard_size = shard_size.max(datagram.frame.len());
-            costs[path] += encoded_record_cost_us(datagram.frame.len(), quote, context);
+            shard_size = shard_size.max(datagram.frame.wire_bound());
+            costs[path] += encoded_record_cost_us(datagram.frame.wire_bound(), quote, context);
             // An evidence-mandated same-path replay occupies the primary pacer
             // too. Cross-carrier copies use an independent queue; optional
             // replication cannot postpone the first primary presentation.
             if let Some(replica) = datagram.physical_plan.replica_path {
                 let path = usize::from(replica == PeerTransport::Edge);
                 used[path] = true;
-                costs[path] += quotes[path]
-                    .serialization_us(sealed_display_datagram_wire_len(wire_len(&datagram.frame)));
+                costs[path] += quotes[path].serialization_us(sealed_display_datagram_wire_len(
+                    datagram.frame.wire_bound(),
+                ));
             }
         }
         let repair = prepared[end - 1].physical_plan.repair_primary;
@@ -4773,6 +4852,7 @@ fn prepared_carrier_delivery_us(
             sealed_display_datagram_wire_len(group_repair_plaintext_len(
                 &prepared[index..end],
                 recovery,
+                peer.row_presentation_head,
             ))
         };
         if repair.is_some() {
@@ -4893,7 +4973,7 @@ fn admit_prepared_physical_prefix(
                 frames.put(repair);
             }
             datagram.frame[1] &= !DISPLAY_HEADER_FLAG_FEC_PROTECTED;
-            mark_presentation_continues(&mut datagram.frame)
+            mark_presentation_continues(datagram.frame.bytes_mut())
                 .expect("prepared display datagram has a complete frame header");
             if index < admitted {
                 // Unsent rows belong to the next flush's presentation, not
@@ -5029,6 +5109,7 @@ struct DisplayBurstOutcome {
 fn prepared_frame_ends_presentation(datagram: &PreparedDisplayDatagram) -> bool {
     datagram
         .frame
+        .bytes()
         .get(DISPLAY_PATCH_FLAGS_OFFSET)
         .is_some_and(|flags| flags & PATCH_FLAG_PRESENTATION_END != 0)
 }
@@ -5044,6 +5125,7 @@ fn note_admitted_original_presentation(
 ) {
     let flags = datagram
         .frame
+        .bytes()
         .get(DISPLAY_PATCH_FLAGS_OFFSET)
         .copied()
         .unwrap_or(0);
@@ -5277,7 +5359,7 @@ fn send_unpaced_display_burst(
         if drained_index < index && datagram.physical_plan.probe_path.is_some() {
             send_prepared_k1_probe_tail(peer, &mut datagram, frames, &mut budget, now_ms);
         }
-        frames.put(datagram.frame);
+        frames.put(datagram.frame.into_buffer());
         if let Some(repair) = datagram.precomputed_fec_repair {
             frames.put(repair);
         }
@@ -5669,7 +5751,6 @@ pub(crate) fn send_peer_datagram_delta_with_worker(
             display_revision: terminal.display_revision(),
             completed_sync_update_epoch,
             start_seq: peer.next_datagram_seq,
-            start_frame_id: peer.next_frame_id,
             presentation_continues,
             causal_input_advanced,
             input_seq,
@@ -5753,7 +5834,7 @@ pub(crate) fn send_peer_datagram_delta_with_worker(
         buffers
             .datagrams
             .iter()
-            .map(|d| wire_len(&d.frame) + 1)
+            .map(|d| d.frame.wire_len() + 1)
             .sum()
     } else {
         0
@@ -5937,7 +6018,7 @@ fn mark_prepared_datagrams_presentation_continues(
         if let Some(repair) = datagram.precomputed_fec_repair.take() {
             frames.put(repair);
         }
-        mark_presentation_continues(&mut datagram.frame)
+        mark_presentation_continues(datagram.frame.bytes_mut())
             .expect("prepared display datagram has a complete frame header");
         // A formerly urgent original had 0/0 (no presentation membership).
         // Once newer work opens a coherent continuation it is a real member,
@@ -5974,9 +6055,7 @@ pub(crate) async fn finish_display_prepare(
         display_revision,
         completed_sync_update_epoch,
         start_seq,
-        start_frame_id,
         next_seq,
-        next_frame_id,
         dictionary_class,
         compression_dictionary,
         mut buffers,
@@ -6016,9 +6095,8 @@ pub(crate) async fn finish_display_prepare(
                 Arc::ptr_eq(current, &row.baseline) && *revision == row.baseline_revision
             })
     });
-    let current_ordering_matches = peer.generation == generation
-        && peer.next_datagram_seq == start_seq
-        && peer.next_frame_id == start_frame_id;
+    let current_ordering_matches =
+        peer.generation == generation && peer.next_datagram_seq == start_seq;
     let dictionary_matches = compression_dictionary
         .as_ref()
         .is_none_or(|prepared| peer.dictionary.retains(prepared));
@@ -6052,16 +6130,16 @@ pub(crate) async fn finish_display_prepare(
     }
 
     peer.next_datagram_seq = next_seq;
-    peer.next_frame_id = next_frame_id;
 
     if let Some(last) = buffers.datagrams.last() {
-        peer.last_wire_bytes = wire_len(&last.frame);
-        peer.last_compression_ratio = staged_ratio(last.raw_bytes, last.frame.len());
+        peer.last_wire_bytes = last.frame.wire_len();
+        peer.last_compression_ratio =
+            last.frame.planned_wire_len(last.header_reserve) as f64 / last.raw_bytes.max(1) as f64;
     }
     for datagram in &buffers.datagrams {
         observe_display_compression_outcome(
             peer,
-            datagram.frame.len(),
+            datagram.frame.planned_wire_len(datagram.header_reserve),
             datagram.raw_bytes,
             datagram.compression_attempted,
             datagram.content_class,
@@ -6779,7 +6857,7 @@ fn prepare_display_datagram(
     input_seq: u32,
     now_ms: f64,
     encoded_rows: u16,
-    frame_id: u32,
+    seq: u32,
     presentation_id: u32,
     presentation_coherent: bool,
     presentation_end: bool,
@@ -6790,10 +6868,10 @@ fn prepare_display_datagram(
     utility: DisplayUtility,
     header_signal: u128,
 ) -> PreparedDisplayDatagram {
-    let seq = peer.next_datagram_seq();
     let BatchPayload {
         mut frame,
         raw_bytes,
+        header_reserve,
         compression,
         content_class,
     } = payload;
@@ -6802,7 +6880,7 @@ fn prepare_display_datagram(
         seq,
         peer.generation,
         input_seq,
-        frame_id,
+        seq,
         presentation_id,
         presentation_coherent,
         presentation_end,
@@ -6832,8 +6910,9 @@ fn prepare_display_datagram(
     let compression_attempted = compression != BatchCompression::NotAttempted;
     // The batcher made the only representation decision while sizing this
     // frame. Never retry compression after the schedule has been chosen.
+    let planned_wire_bytes = planned_wire_len(frame.len(), header_reserve);
     peer.last_wire_bytes = wire_len(&frame);
-    peer.last_compression_ratio = staged_ratio(raw_bytes, frame.len());
+    peer.last_compression_ratio = planned_wire_bytes as f64 / raw_bytes.max(1) as f64;
     let dictionary_class = if peer.dictionary.active().is_some() {
         DictionaryClass::Finalized
     } else {
@@ -6841,7 +6920,7 @@ fn prepare_display_datagram(
     };
     observe_display_compression_outcome(
         peer,
-        frame.len(),
+        planned_wire_bytes,
         raw_bytes,
         compression_attempted,
         content_class,
@@ -6849,7 +6928,7 @@ fn prepare_display_datagram(
     );
 
     if raw_bytes >= DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES
-        || frame.len() >= DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES
+        || planned_wire_bytes >= DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES
     {
         let workload = compute_display_workload(
             raw_bytes,
@@ -6861,14 +6940,13 @@ fn prepare_display_datagram(
             peer.backpressure_score > 0,
         );
         trace!(
-            "display datagram large: peer={} primary_path={:?} rows={} raw_bytes={} wire_bytes={} seq={} frame_id={} workload={:?} compression_ratio={:.3}",
+            "display datagram large: peer={} primary_path={:?} rows={} raw_bytes={} wire_bytes={} seq={} workload={:?} compression_ratio={:.3}",
             peer.peer_id,
             peer.primary_path(now_ms),
             encoded_rows,
             raw_bytes,
-            frame.len(),
+            wire_len(&frame),
             seq,
-            frame_id,
             workload,
             peer.last_compression_ratio,
         );
@@ -6876,12 +6954,12 @@ fn prepare_display_datagram(
 
     PreparedDisplayDatagram {
         seq,
-        frame_id,
         raw_bytes,
+        header_reserve,
         encoded_rows,
         utility,
         header_signal,
-        frame,
+        frame: StagedFrame::new(frame),
         rows,
         compression_attempted,
         content_class,
@@ -6990,10 +7068,10 @@ fn build_k1_probe_frame(
     template: &PreparedDisplayDatagram,
     frames: &mut BufferPool,
 ) -> Option<(u32, Vec<u8>)> {
-    merkur_codec::parse_stream_header(&template.frame)?;
-    let template_header = merkur_codec::parse_frame_header(&template.frame).ok()?;
+    merkur_codec::parse_stream_header(template.frame.bytes())?;
+    let template_header = merkur_codec::parse_frame_header(template.frame.bytes()).ok()?;
     let signal = template.header_signal;
-    let frame_id = peer.next_frame_id();
+    let seq = peer.next_datagram_seq();
     let header = FrameHeader {
         memory_only: template_header.memory_only,
         kind: merkur_codec::FrameKind::Delta,
@@ -7005,7 +7083,7 @@ fn build_k1_probe_frame(
         cursor_visible: (signal >> 16) as u8,
         mode_flags: signal as u16,
         row_count: 0,
-        frame_id,
+        frame_id: seq,
         presentation_id: template_header.presentation_id,
         presentation_member_index: 0,
         presentation_member_count: 0,
@@ -7031,13 +7109,12 @@ fn build_k1_probe_frame(
     };
     let mut probe = frames.take(0);
     encode_frame_into(&mut probe, &header, std::iter::empty());
-    let seq = peer.next_datagram_seq();
     patch_stream_header(
         &mut probe,
         seq,
         peer.generation,
         0,
-        frame_id,
+        seq,
         template_header.presentation_id,
         true,
         false,
@@ -7160,12 +7237,9 @@ fn send_prepared_datagram_group_inner(
     // immediately behind the data it protects, which is what makes it a
     // zero-round-trip repair rather than another recovery round trip.
     let group_len = group.len();
-    let shard_size = group
-        .iter()
-        .map(|datagram| datagram.frame.len())
-        .max()
-        .unwrap_or(0);
-    let recovery_shard_count = fec_recovery_shard_count(group_len, shard_size);
+    // The count the parity was reserved with. Restamped membership can only
+    // narrow the frames since, so this count still fits its reservation.
+    let recovery_shard_count = group[group_len - 1].physical_plan.repair_shards;
     let protect_with_fec = recovery_shard_count > 0;
     const { assert!(merkur_fec::FEC_MAX_DATA <= u32::BITS as usize) };
     debug_assert!(
@@ -7174,7 +7248,19 @@ fn send_prepared_datagram_group_inner(
     );
     let precomputed_fec_repair = group
         .last_mut()
-        .and_then(|datagram| datagram.precomputed_fec_repair.take());
+        .and_then(|datagram| datagram.precomputed_fec_repair.take())
+        .and_then(|repair| {
+            // Parity precomputed with another count was sized for a group
+            // shape this one no longer has.
+            if merkur_fec::repair::parse_repair(&repair).is_some_and(|(header, _)| {
+                usize::from(header.recovery_shards) == recovery_shard_count
+            }) {
+                Some(repair)
+            } else {
+                frames.put(repair);
+                None
+            }
+        });
     let mut all_sent = true;
     let mut stop = false;
     let mut original_admitted = false;
@@ -7214,11 +7300,17 @@ fn send_prepared_datagram_group_inner(
         // wire bytes so every path in a Redundant race borrows identical bytes.
         // If E2E is not ready the seal returns None and the frame is skipped —
         // no plaintext terminal data is ever emitted.
-        let expected_wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
-        let Some(wire) = peer.seal_display_wire(wire_frame(&mut datagram.frame)) else {
-            release_reserved_paths(budget, plan.data_paths, expected_wire_len);
+        let expected_wire_len = sealed_display_datagram_wire_len(datagram.frame.wire_len());
+        debug_assert!(expected_wire_len <= plan.data_reserved);
+        debug_assert!(
+            merkur_codec::parse_frame_header(datagram.frame.bytes())
+                .is_ok_and(|header| header.frame_id == datagram.seq),
+            "a datagram is identified by its sequence number"
+        );
+        let Some(wire) = peer.seal_display_wire(datagram.frame.wire_frame()) else {
+            release_reserved_paths(budget, plan.data_paths, plan.data_reserved);
             if let Some(path) = plan.replica_path {
-                budget.release(path, expected_wire_len);
+                budget.release(path, plan.data_reserved);
             }
             if let Some(path) = plan.probe_path {
                 budget.release(path, probe_wire_len);
@@ -7228,6 +7320,13 @@ fn send_prepared_datagram_group_inner(
         };
         let wire_len = wire.len();
         debug_assert_eq!(wire_len, expected_wire_len);
+        // Settle every copy's reservation at the exact length; refusals below
+        // release only what each copy now holds.
+        let unused = plan.data_reserved.saturating_sub(wire_len);
+        refund_reserved_paths(budget, plan.data_paths, unused);
+        if let Some(path) = plan.replica_path {
+            budget.refund(path, unused);
+        }
         trace_prepared_member(peer, datagram, wire_len);
         // Critical (cursor row + header) resolves to `SendIntent::Redundant`,
         // which races every live path unconditionally. Duplicating ~200 bytes
@@ -7250,13 +7349,12 @@ fn send_prepared_datagram_group_inner(
         all_sent &= sent;
         if !sent {
             warn!(
-                "display datagram send failed: peer={} primary_path={:?} edge_present={} seq={} frame_id={} wire_bytes={} raw_bytes={} dirty_rows={}",
+                "display datagram send failed: peer={} primary_path={:?} edge_present={} seq={} wire_bytes={} raw_bytes={} dirty_rows={}",
                 peer.peer_id,
                 peer.primary_path(now_ms),
                 display_primary_is_edge(peer, now_ms),
                 datagram.seq,
-                datagram.frame_id,
-                datagram.frame.len(),
+                wire_len,
                 datagram.raw_bytes,
                 datagram.encoded_rows,
             );
@@ -7361,7 +7459,7 @@ fn send_prepared_datagram_group_inner(
                 // wrote it, and nothing has patched the frame since.
                 let mut payloads = [&[][..]; merkur_fec::FEC_MAX_DATA];
                 for (slot, datagram) in payloads.iter_mut().zip(group.iter_mut()) {
-                    *slot = wire_frame(&mut datagram.frame);
+                    *slot = datagram.frame.wire_frame();
                 }
                 let mut repair = frames.take(0);
                 if peer.display_cache.fec_encoder.encode_borrowed_group_into(
@@ -7391,6 +7489,7 @@ fn send_prepared_datagram_group_inner(
                         batch_start_seq: group[0].seq,
                     },
                 },
+                repair_plan.repair_reserved,
                 now_ms,
                 budget,
             );
@@ -7423,11 +7522,11 @@ fn send_prepared_datagram_group_inner(
             frames.put(repair);
         } else {
             let repair_plan = group[group_len - 1].physical_plan;
-            let repair_wire_len = sealed_display_datagram_wire_len(group_repair_plaintext_len(
-                group,
-                recovery_shard_count,
-            ));
-            release_reserved_paths(budget, repair_plan.repair_paths, repair_wire_len);
+            release_reserved_paths(
+                budget,
+                repair_plan.repair_paths,
+                repair_plan.repair_reserved,
+            );
             peer.display_cache.waste.fec_repairs_refused += 1;
             all_sent = false;
             stop = true;
@@ -7486,7 +7585,7 @@ pub(crate) fn send_jumbo_display_frame(
     datagram: &mut PreparedDisplayDatagram,
     now_ms: f64,
 ) -> bool {
-    let wire_bytes = wire_len(&datagram.frame);
+    let wire_bytes = datagram.frame.wire_len();
     let seq = datagram.seq;
     let row_count = datagram.rows.len();
     let utility = datagram.utility;
@@ -7501,8 +7600,7 @@ pub(crate) fn send_jumbo_display_frame(
     // seal before send, drop rather than emit plaintext when E2E is not ready.
     // Prefer the confirmed bulk tunnel, else conn1 (see reliable_edge_tunnel).
     let edge = peer.reliable_edge_tunnel();
-    let Some(sealed) = peer.seal_stream(CHANNEL_DISPLAY_COMMIT, wire_frame(&mut datagram.frame))
-    else {
+    let Some(sealed) = peer.seal_stream(CHANNEL_DISPLAY_COMMIT, datagram.frame.wire_frame()) else {
         return false;
     };
     let sent_path = transport_send_reliable_with_fallback(
@@ -7833,27 +7931,28 @@ pub(crate) async fn finish_snapshot_prepare(
         let mut selected_bytes = 0usize;
         for (index, raw) in raw_chunks.iter().enumerate() {
             let compressed = compressed_chunks.get(index).and_then(Option::as_ref);
+            let raw_wire = wire_len(raw);
             if compression_attempted.get(index).copied().unwrap_or(false) {
                 peer.display_planning.observe_ratio(
-                    raw.len(),
+                    raw_wire,
                     content_class,
                     DictionaryClass::Plain,
-                    compressed.map_or(1.0, |frame| staged_ratio(raw.len(), frame.len())),
+                    compressed.map_or(1.0, |frame| wire_len(frame) as f64 / raw_wire as f64),
                 );
             }
             let use_compressed = compressed.is_some_and(|frame| {
                 choose_after_compression(
                     plan.profile,
-                    raw.len(),
-                    frame.len(),
+                    raw_wire,
+                    wire_len(frame),
                     DictionaryClass::Plain,
                     plan.context,
                 ) == Representation::Compressed
             });
             selected_bytes = selected_bytes.saturating_add(if use_compressed {
-                compressed.map_or(raw.len(), Vec::len)
+                compressed.map_or(raw_wire, |frame| wire_len(frame))
             } else {
-                raw.len()
+                raw_wire
             });
         }
 
@@ -7866,7 +7965,7 @@ pub(crate) async fn finish_snapshot_prepare(
         // snapshot poison presentation telemetry and weakened the assembly key.
         // Presentation identity remains advisory and does not change reliable
         // chunk assembly, application, ACK, repair, or loss semantics.
-        let snapshot_frame_id = peer.next_frame_id();
+        let snapshot_frame_id = SNAPSHOT_FRAME_ID;
         peer.display_cache.resize(cols, rows);
         let mut preferred = planned_display_transport(peer, now_ms, selected_bytes, 0);
         let mut accepted_path = None;
@@ -7879,8 +7978,8 @@ pub(crate) async fn finish_snapshot_prepare(
                 .filter(|frame| {
                     choose_after_compression(
                         plan.profile,
-                        raw.len(),
-                        frame.len(),
+                        wire_len(raw),
+                        wire_len(frame),
                         DictionaryClass::Plain,
                         plan.context,
                     ) == Representation::Compressed
@@ -7968,6 +8067,12 @@ pub(crate) async fn finish_snapshot_prepare(
     }
     buffers.put(snapshot);
 }
+
+/// The frame id of a generation's snapshot. Its records carry sequence number
+/// zero, so their identity block names it; a generation opens with exactly one
+/// snapshot, so it needs no counter. A datagram's frame id is its sequence
+/// number, and frames are told apart by both.
+const SNAPSHOT_FRAME_ID: u32 = 1;
 
 /// Milliseconds until the owner loop's flush timer must next fire, or `None`
 /// when no E2E-ready peer has anything now or later and the timer may park.

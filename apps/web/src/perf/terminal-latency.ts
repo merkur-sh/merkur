@@ -4588,7 +4588,9 @@ function displayFrameKey(generation: number, displaySeq: number): string {
 function browserDisplayIoFrameKey(
   event: Extract<TerminalPerfEvent, { kind: 'browser_display_io' }>,
 ): string {
-  return `${event.generation}:${event.frameId}:${event.chunkIndex}:${event.chunkCount}`;
+  // A datagram is its sequence number; a reliable record, sequence zero, is
+  // its frame id. Both name every frame.
+  return `${event.generation}:${event.displaySeq}:${event.frameId}:${event.chunkIndex}:${event.chunkCount}`;
 }
 
 /** One whole interval belongs to one window, or overlapping it invalidates stage attribution. */

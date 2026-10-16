@@ -12,10 +12,13 @@
 //! The wire header carries every field of the staged one. Each is either at its
 //! fixed width, packed to the width its bound allows, encoded relative to a
 //! correlated field of the same frame (a zigzag varint of the wrapping
-//! difference), or omitted at its default value behind a presence bit. No field
-//! depends on another datagram or on receiver state, so every datagram stays
-//! complete, order-independent and idempotent, and the worst case of the
-//! relative encodings costs bytes, never correctness.
+//! difference), or omitted at its default value behind a presence bit. A frame
+//! is identified by its sequence number unless it carries an identity block: a
+//! snapshot chunk, or a reliable record, whose sequence number is zero, names
+//! its frame id there. A datagram's frame id is its `seq`. No field depends on
+//! another datagram or on receiver state, so every datagram stays complete,
+//! order-independent and idempotent, and the worst case of the relative
+//! encodings costs bytes, never correctness.
 //!
 //! Layout, all big-endian:
 //!
@@ -30,11 +33,14 @@
 //! 16..23 geometry        u56   0:4 | cols:10 | rows:9 | cursor col:10 |
 //!                              cursor row:9 | shape:4 | visible:1 | mode:9
 //! 23..27 scroll_serial   u32
-//! 27..   varints: zz(frame_id - seq), zz(seq - presentation_id),
-//!        member_index, member_count, [zz(presentation_id - predecessor)],
-//!        row_count, demand_serial, [zz(input_seq - echo_horizon)],
-//!        [chunk_index, chunk_count], [closure_digest u64]
+//! [27..35 identity: frame_id u32, chunk_index u16, chunk_count u16]
+//! then   varints: zz(frame_id - presentation_id), member_index, member_count,
+//!        [zz(presentation_id - predecessor)], row_count, demand_serial,
+//!        [zz(input_seq - echo_horizon)], [closure_digest u64]
 //! ```
+//!
+//! Everything a router reads (type, version, flags, generation, sequence and
+//! any identity block) sits at a fixed offset.
 //!
 //! The body length is not carried: a datagram's length is its opened length, a
 //! reliable record's is its stream framing, and FEC rebuilds each member's
@@ -52,14 +58,18 @@ use crate::{
 
 /// Bytes of the wire header that every frame carries at fixed offsets.
 pub const WIRE_FIXED_HEADER_BYTES: usize = 27;
-/// The longest wire header: every varint at its widest and every optional
-/// field present.
-pub const MAX_WIRE_HEADER_BYTES: usize =
-    WIRE_FIXED_HEADER_BYTES + 5 + 5 + 3 + 3 + 5 + 3 + 5 + 5 + 3 + 3 + 8;
-/// The longest wire header of a frame that is not a snapshot chunk: no chunk
-/// fields. Datagram fitting budgets against it, so a field restamped after
-/// planning can never push a datagram past its ceiling.
-pub const MAX_UNCHUNKED_WIRE_HEADER_BYTES: usize = MAX_WIRE_HEADER_BYTES - 6;
+/// The identity block of a frame not identified by its sequence number: frame
+/// id, chunk index and count.
+pub const WIRE_CHUNK_BYTES: usize = 8;
+/// The longest a varint of a `u32` can be.
+pub const MAX_VARINT_U32_BYTES: usize = 5;
+/// The longest wire header of a frame identified by its sequence number, such
+/// as every datagram: every varint at its widest and every optional field
+/// present.
+pub const MAX_UNCHUNKED_WIRE_HEADER_BYTES: usize =
+    WIRE_FIXED_HEADER_BYTES + 5 + 3 + 3 + MAX_VARINT_U32_BYTES + 3 + 5 + 5 + 8;
+/// The longest wire header, one with an identity block.
+pub const MAX_WIRE_HEADER_BYTES: usize = MAX_UNCHUNKED_WIRE_HEADER_BYTES + WIRE_CHUNK_BYTES;
 /// Where a staged frame's body begins.
 pub const STAGED_BODY_OFFSET: usize = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
 
@@ -67,7 +77,7 @@ pub const STAGED_BODY_OFFSET: usize = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BY
 pub const WIRE_PRESENT_CLOSURE: u8 = 1 << 3;
 /// Stream-flags presence bit: the echo horizon follows.
 pub const WIRE_PRESENT_ECHO_HORIZON: u8 = 1 << 4;
-/// Stream-flags presence bit: chunk index and count follow.
+/// Stream-flags presence bit: the identity block follows.
 pub const WIRE_PRESENT_CHUNK: u8 = 1 << 5;
 /// Stream-flags presence bit: the row predecessor follows.
 pub const WIRE_PRESENT_PREDECESSOR: u8 = 1 << 6;
@@ -147,7 +157,7 @@ impl From<core::num::TryFromIntError> for WireError {
 }
 
 #[inline]
-fn zigzag(value: u32) -> u32 {
+const fn zigzag(value: u32) -> u32 {
     (value << 1) ^ 0u32.wrapping_sub(value >> 31)
 }
 
@@ -334,7 +344,8 @@ pub fn encode_wire_header(
         return Err(WireError::ReservedBits);
     }
     let geometry = pack_geometry(header)?;
-    let chunked = header.chunk_index != 0 || header.chunk_count != 1;
+    let chunked =
+        header.chunk_index != 0 || header.chunk_count != 1 || header.frame_id != stream.seq;
     let mut presence = 0;
     if header.closure_digest != 0 {
         presence |= WIRE_PRESENT_CLOSURE;
@@ -364,8 +375,12 @@ pub fn encode_wire_header(
     w.bytes(&stream.input_seq.to_be_bytes())?;
     w.bytes(&geometry)?;
     w.bytes(&header.scroll_serial.to_be_bytes())?;
-    w.varint(zigzag(header.frame_id.wrapping_sub(stream.seq)))?;
-    w.varint(zigzag(stream.seq.wrapping_sub(header.presentation_id)))?;
+    if chunked {
+        w.bytes(&header.frame_id.to_be_bytes())?;
+        w.bytes(&header.chunk_index.to_be_bytes())?;
+        w.bytes(&header.chunk_count.to_be_bytes())?;
+    }
+    w.varint(zigzag(header.frame_id.wrapping_sub(header.presentation_id)))?;
     w.varint(u32::from(header.presentation_member_index))?;
     w.varint(u32::from(header.presentation_member_count))?;
     if presence & WIRE_PRESENT_PREDECESSOR != 0 {
@@ -379,10 +394,6 @@ pub fn encode_wire_header(
     w.varint(header.demand_serial)?;
     if presence & WIRE_PRESENT_ECHO_HORIZON != 0 {
         w.varint(zigzag(stream.input_seq.wrapping_sub(header.echo_horizon)))?;
-    }
-    if chunked {
-        w.varint(u32::from(header.chunk_index))?;
-        w.varint(u32::from(header.chunk_count))?;
     }
     if presence & WIRE_PRESENT_CLOSURE != 0 {
         w.bytes(&header.closure_digest.to_be_bytes())?;
@@ -417,6 +428,81 @@ pub fn wire_frame_len(staged: &[u8]) -> Result<usize, WireError> {
         .checked_sub(STAGED_BODY_OFFSET)
         .map(|body| body + len)
         .ok_or(WireError::Truncated)
+}
+
+/// The most bytes a staged frame can take on the wire once its row predecessor
+/// is stamped, whatever that predecessor is: its exact length with the
+/// predecessor's varint counted at its widest. A sender reads this before the
+/// predecessor is final, so the bound never moves when it is stamped.
+pub fn wire_frame_len_bound(staged: &[u8]) -> Result<usize, WireError> {
+    let stream = parse_stream_header(staged).ok_or(WireError::Truncated)?;
+    let header = FrameHeader {
+        row_predecessor_presentation_id: 0,
+        ..parse_frame_header(staged)?
+    };
+    let mut out = [0u8; MAX_WIRE_HEADER_BYTES];
+    let len = encode_wire_header(&stream, &header, &mut out)? + MAX_VARINT_U32_BYTES;
+    staged
+        .len()
+        .checked_sub(STAGED_BODY_OFFSET)
+        .map(|body| body + len)
+        .ok_or(WireError::Truncated)
+}
+
+/// The bytes a row predecessor takes in the wire header of a frame in
+/// presentation `presentation_id`: none for `0`, else its zigzag varint.
+/// [`wire_frame_len_bound`] counts [`MAX_VARINT_U32_BYTES`] in its place.
+pub const fn predecessor_wire_len(presentation_id: u32, predecessor: u32) -> usize {
+    if predecessor == 0 {
+        return 0;
+    }
+    let mut value = zigzag(presentation_id.wrapping_sub(predecessor));
+    let mut len = 1;
+    while value >= 0x80 {
+        value >>= 7;
+        len += 1;
+    }
+    len
+}
+
+/// How far the fields stamped after planning can reach, for
+/// [`header_reserve`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReserveBounds {
+    /// The most members the frame's presentation can have. A member's index,
+    /// and its distance from the presentation's first frame, stay below it.
+    pub members: u16,
+    /// The most rows the frame can carry.
+    pub rows: u16,
+}
+
+/// The longest wire header a frame that is not a snapshot chunk can have once
+/// every field stamped after planning has its final value: its presentation
+/// membership and distance within `bounds`, any row predecessor and any
+/// demand serial. The other fields count as `stream` and `header` hold them.
+/// Planning fits rows against this, so no later stamp can push a datagram
+/// past the ceiling it was planned for.
+pub fn header_reserve(
+    stream: &StreamHeader,
+    header: &FrameHeader,
+    bounds: ReserveBounds,
+) -> Result<usize, WireError> {
+    let members = bounds.members.max(1);
+    let widest = FrameHeader {
+        frame_id: stream.seq,
+        presentation_id: stream.seq.wrapping_sub(u32::from(members - 1)),
+        presentation_member_index: members - 1,
+        presentation_member_count: members,
+        // A predecessor's varint is counted at its widest below.
+        row_predecessor_presentation_id: 0,
+        row_count: bounds.rows,
+        demand_serial: u32::MAX,
+        chunk_index: 0,
+        chunk_count: 1,
+        ..*header
+    };
+    let mut out = [0u8; MAX_WIRE_HEADER_BYTES];
+    Ok(encode_wire_header(stream, &widest, &mut out)? + MAX_VARINT_U32_BYTES)
 }
 
 /// Read a wire frame's fixed-offset fields, or `None` for anything that is not
@@ -462,14 +548,14 @@ impl Reader<'_> {
     }
 
     #[inline]
-    fn u64(&mut self) -> Result<u64, WireError> {
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], WireError> {
         let bytes = self
             .buf
             .get(self.offset..)
-            .and_then(<[u8]>::first_chunk::<8>)
+            .and_then(<[u8]>::first_chunk::<N>)
             .ok_or(WireError::Truncated)?;
-        self.offset += 8;
-        Ok(u64::from_be_bytes(*bytes))
+        self.offset += N;
+        Ok(*bytes)
     }
 }
 
@@ -497,8 +583,22 @@ pub fn parse_wire(wire: &[u8]) -> Result<WireFrame, WireError> {
         buf: wire,
         offset: WIRE_FIXED_HEADER_BYTES,
     };
-    let frame_id = seq.wrapping_add(unzigzag(r.varint()?));
-    let presentation_id = seq.wrapping_sub(unzigzag(r.varint()?));
+    let (frame_id, chunk_index, chunk_count) = if presence & WIRE_PRESENT_CHUNK != 0 {
+        let [f0, f1, f2, f3, i0, i1, c0, c1] = r.array::<WIRE_CHUNK_BYTES>()?;
+        let identity = (
+            u32::from_be_bytes([f0, f1, f2, f3]),
+            u16::from_be_bytes([i0, i1]),
+            u16::from_be_bytes([c0, c1]),
+        );
+        // Carried exactly when the frame's sequence number cannot say it.
+        if identity == (seq, 0, 1) {
+            return Err(WireError::NonCanonical);
+        }
+        identity
+    } else {
+        (seq, 0, 1)
+    };
+    let presentation_id = frame_id.wrapping_sub(unzigzag(r.varint()?));
     let presentation_member_index = r.varint_u16()?;
     let presentation_member_count = r.varint_u16()?;
     let row_predecessor_presentation_id = if presence & WIRE_PRESENT_PREDECESSOR != 0 {
@@ -513,16 +613,8 @@ pub fn parse_wire(wire: &[u8]) -> Result<WireFrame, WireError> {
     } else {
         0
     };
-    let (chunk_index, chunk_count) = if presence & WIRE_PRESENT_CHUNK != 0 {
-        match (r.varint_u16()?, r.varint_u16()?) {
-            (0, 1) => return Err(WireError::NonCanonical),
-            chunk => chunk,
-        }
-    } else {
-        (0, 1)
-    };
     let closure_digest = if presence & WIRE_PRESENT_CLOSURE != 0 {
-        match r.u64()? {
+        match u64::from_be_bytes(r.array::<8>()?) {
             0 => return Err(WireError::NonCanonical),
             digest => digest,
         }
@@ -576,13 +668,10 @@ pub fn parse_wire(wire: &[u8]) -> Result<WireFrame, WireError> {
 /// A wire frame's staged header: the stream header, the fixed frame header and
 /// zeroed headroom. The staged frame is this followed by the wire body.
 pub fn staged_header(frame: &WireFrame) -> [u8; STAGED_BODY_OFFSET] {
-    let mut stream = [0u8; STREAM_HEADER_BYTES];
-    write_stream_header(&mut stream, &frame.stream);
-    let fixed = frame_header_fixed(&frame.header);
     let mut out = [0u8; STAGED_BODY_OFFSET];
-    for (slot, byte) in out.iter_mut().zip(stream.iter().chain(&fixed)) {
-        *slot = *byte;
-    }
+    write_stream_header(&mut out, &frame.stream);
+    out[STREAM_HEADER_BYTES..STREAM_HEADER_BYTES + crate::FRAME_HEADER_FIXED_BYTES]
+        .copy_from_slice(&frame_header_fixed(&frame.header));
     out
 }
 
@@ -663,10 +752,11 @@ mod tests {
                 for horizon in [0, 41, 43, 1, u32::MAX] {
                     for (chunk_index, chunk_count) in [(0, 1), (0, 3), (2, 3), (0, 0)] {
                         for predecessor in [0, 8, 9, 10, u32::MAX] {
-                            for (frame_id, presentation_id) in
+                            for (chunk_frame_id, presentation_id) in
                                 [(12, 9), (5, 5), (0, 0), (u32::MAX, 1), (1, u32::MAX)]
                             {
                                 for seq in [10, 0, u32::MAX] {
+                                    let frame_id = chunk_frame_id;
                                     let mut h = header(kind);
                                     h.closure_digest = closure;
                                     h.echo_horizon = horizon;
@@ -717,9 +807,9 @@ mod tests {
         h.closure_digest = u64::MAX;
         h.echo_horizon = 0x8000_0000;
         // Each relative field at the distance whose zigzag needs five bytes.
+        h.frame_id = 0;
         h.presentation_id = 0x8000_0000;
         h.row_predecessor_presentation_id = 1;
-        h.frame_id = 0x8000_0000;
         h.presentation_member_index = u16::MAX;
         h.presentation_member_count = u16::MAX;
         h.row_count = u16::MAX;
@@ -749,21 +839,135 @@ mod tests {
             ..stream(0)
         };
         let mut h = header(FrameKind::Delta);
-        h.frame_id = 1_003;
-        h.presentation_id = 998;
+        h.frame_id = 1_000;
+        h.presentation_id = 1_000;
         h.row_predecessor_presentation_id = 997;
         h.echo_horizon = 812;
         h.row_count = 1;
         h.demand_serial = 90;
         let mut out = [0u8; MAX_WIRE_HEADER_BYTES];
-        assert_eq!(encode_wire_header(&s, &h, &mut out).unwrap(), 35);
+        assert_eq!(encode_wire_header(&s, &h, &mut out).unwrap(), 34);
+    }
+
+    /// A frame is identified by its sequence number unless it says otherwise:
+    /// the identity block costs nothing when the seq says it, and is carried
+    /// whole when it cannot, as for a reliable record's zero seq.
+    #[test]
+    fn a_frame_id_its_seq_cannot_say_travels_in_the_identity_block() {
+        let mut out = [0u8; MAX_WIRE_HEADER_BYTES];
+        let mut h = header(FrameKind::Snapshot);
+        h.frame_id = 10;
+        h.presentation_id = 10;
+        let implied = encode_wire_header(&stream(10), &h, &mut out).unwrap();
+        let start = {
+            let mut frame = staged(&stream(0), &h, &[]);
+            let start = write_wire_header_in_place(&mut frame).unwrap();
+            let parsed = parse_wire(&frame[start..]).unwrap();
+            assert_eq!(
+                (parsed.header.frame_id, parsed.stream.seq),
+                (10, 0),
+                "a zero-seq record keeps its frame id"
+            );
+            start
+        };
+        assert_eq!(
+            STAGED_BODY_OFFSET - start,
+            implied + WIRE_CHUNK_BYTES,
+            "the block is the only difference"
+        );
+    }
+
+    /// No stamp within its bounds makes a header longer than its reserve, and
+    /// the widest one makes it exactly that long: the reserve is a bound, and
+    /// the tightest one those bounds allow.
+    #[test]
+    fn the_reserve_bounds_every_later_stamp_and_is_reached() {
+        let mut out = [0u8; MAX_WIRE_HEADER_BYTES];
+        for (members, rows) in [(1u16, 1u16), (3, 40), (64, 64), (65, 128), (256, 256)] {
+            for (closure, horizon) in [(0, 0), (u64::MAX, 812), (1, 1)] {
+                let mut planned = header(FrameKind::Delta);
+                planned.closure_digest = closure;
+                planned.echo_horizon = horizon;
+                planned.row_predecessor_presentation_id = 0;
+                let s = StreamHeader {
+                    input_seq: 812,
+                    ..stream(0)
+                };
+                let bounds = ReserveBounds { members, rows };
+                let reserve = header_reserve(&s, &planned, bounds).unwrap();
+                let mut widest = 0;
+                for seq in [1u32, 1_000, 0x7fff_ffff, u32::MAX] {
+                    for index in [0, members - 1] {
+                        for predecessor_distance in [0u32, 1, 200, 0x8000_0000] {
+                            for demand in [0u32, 127, 128, u32::MAX] {
+                                for row_count in [0, rows] {
+                                    let s = StreamHeader { seq, ..s };
+                                    let mut h = planned;
+                                    h.frame_id = seq;
+                                    h.presentation_id = seq.wrapping_sub(u32::from(index));
+                                    h.presentation_member_index = index;
+                                    h.presentation_member_count = members;
+                                    h.row_predecessor_presentation_id =
+                                        h.presentation_id.wrapping_sub(predecessor_distance);
+                                    h.demand_serial = demand;
+                                    h.row_count = row_count;
+                                    let len = encode_wire_header(&s, &h, &mut out).unwrap();
+                                    assert!(len <= reserve, "{len} > {reserve}");
+                                    widest = widest.max(len);
+                                }
+                            }
+                        }
+                    }
+                }
+                assert_eq!(widest, reserve, "members {members}, rows {rows}");
+            }
+        }
+    }
+
+    /// The predecessor's own width is what the bound swaps for its widest.
+    #[test]
+    fn the_predecessor_width_accounts_for_the_bound() {
+        let mut h = header(FrameKind::Delta);
+        h.frame_id = 1_000;
+        h.presentation_id = 1_000;
+        let s = stream(1_000);
+        for predecessor in [0, 999, 1, 0x8000_1000, 1_001, 873] {
+            h.row_predecessor_presentation_id = predecessor;
+            let frame = staged(&s, &h, &[7; 9]);
+            assert_eq!(
+                wire_frame_len(&frame).unwrap(),
+                wire_frame_len_bound(&frame).unwrap() - MAX_VARINT_U32_BYTES
+                    + predecessor_wire_len(1_000, predecessor)
+            );
+        }
+    }
+
+    /// The bound holds whatever predecessor is stamped, and is reached.
+    #[test]
+    fn the_sealed_bound_holds_for_every_predecessor() {
+        let mut h = header(FrameKind::Delta);
+        h.frame_id = 1_000;
+        h.presentation_id = 1_000;
+        h.row_predecessor_presentation_id = 0;
+        let s = stream(1_000);
+        let bound = wire_frame_len_bound(&staged(&s, &h, &[7; 9])).unwrap();
+        let mut widest = 0;
+        for predecessor in [0, 999, 1, 0x8000_1000, 1_001] {
+            h.row_predecessor_presentation_id = predecessor;
+            let frame = staged(&s, &h, &[7; 9]);
+            assert_eq!(wire_frame_len_bound(&frame).unwrap(), bound);
+            let len = wire_frame_len(&frame).unwrap();
+            assert!(len <= bound);
+            widest = widest.max(len);
+        }
+        assert_eq!(widest, bound);
     }
 
     /// A bit this version does not define, and a present field at its
     /// default, are refused: one logical frame has exactly one encoding.
     #[test]
     fn non_canonical_and_reserved_encodings_are_refused() {
-        let frame = staged(&stream(10), &header(FrameKind::Delta), &[]);
+        let frame = staged(&stream(12), &header(FrameKind::Delta), &[]);
         let mut wire = [0u8; MAX_WIRE_HEADER_BYTES];
         let len = wire_header(&frame, &mut wire).unwrap();
         let wire = &wire[..len];
@@ -782,11 +986,13 @@ mod tests {
         version[1] = VERSION - 1;
         assert_eq!(parse_wire(&version), Err(WireError::Version));
 
-        // A chunk pair present at its default value. With no closure present
-        // the chunk pair is the last field, so it can be appended.
+        // An identity block the sequence number already says.
         let mut chunk = wire.to_vec();
         chunk[2] |= WIRE_PRESENT_CHUNK;
-        chunk.extend_from_slice(&[0, 1]);
+        chunk.splice(
+            WIRE_FIXED_HEADER_BYTES..WIRE_FIXED_HEADER_BYTES,
+            [0, 0, 0, 12, 0, 0, 0, 1],
+        );
         assert_eq!(parse_wire(&chunk), Err(WireError::NonCanonical));
 
         for len in 0..wire.len() {
@@ -828,8 +1034,8 @@ mod tests {
         let mut cases = Vec::new();
         let echo = {
             let mut h = header(FrameKind::Delta);
-            h.frame_id = 1_003;
-            h.presentation_id = 998;
+            h.frame_id = 1_000;
+            h.presentation_id = 999;
             h.row_predecessor_presentation_id = 997;
             h.echo_horizon = 812;
             h.row_count = 0;
@@ -860,7 +1066,7 @@ mod tests {
             h.cursor_row = 255;
             h.cursor_shape = 15;
             h.mode_flags = 0x1ff;
-            h.frame_id = 0;
+            h.frame_id = 7;
             h.presentation_id = u32::MAX;
             h.row_predecessor_presentation_id = 1;
             h.echo_horizon = u32::MAX;
@@ -877,7 +1083,15 @@ mod tests {
             };
             ("extremes", s, h, Vec::new())
         };
-        for (name, s, h, body) in [echo, snapshot_chunk, extremes] {
+        let reliable_record = {
+            let mut h = header(FrameKind::Snapshot);
+            h.frame_id = 41;
+            h.presentation_id = 41;
+            h.row_predecessor_presentation_id = 0;
+            h.echo_horizon = 0;
+            ("reliable record", stream(0), h, vec![5u8; 2])
+        };
+        for (name, s, h, body) in [echo, snapshot_chunk, reliable_record, extremes] {
             let mut frame = staged(&s, &h, &body);
             let staged_hex = hex(&frame);
             let start = write_wire_header_in_place(&mut frame).expect("a wire header");
@@ -922,10 +1136,65 @@ mod tests {
         }
     }
 
+    /// Per-frame cost of the header work the wire form adds: the seal-side
+    /// encode and the receive-side parse and restage, over a typed echo and a
+    /// full datagram. Run with:
+    /// `cargo test --release -p merkur-codec wire_header_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore = "benchmark"]
+    fn wire_header_cost() {
+        use std::hint::black_box;
+        use std::time::Instant;
+        const ROUNDS: usize = 2_000_000;
+        let mut echo = header(FrameKind::Delta);
+        echo.frame_id = 1_000;
+        echo.presentation_id = 1_000;
+        echo.echo_horizon = 812;
+        echo.row_count = 1;
+        let s = StreamHeader {
+            seq: 1_000,
+            input_seq: 812,
+            ..stream(0)
+        };
+        for (name, body) in [
+            ("typed echo", vec![7u8; 12]),
+            ("full datagram", vec![7u8; 1_000]),
+        ] {
+            let staged_frame = staged(&s, &echo, &body);
+            let mut frame = staged_frame.clone();
+            let started = Instant::now();
+            for _ in 0..ROUNDS {
+                black_box(write_wire_header_in_place(black_box(&mut frame)).unwrap());
+            }
+            let encode = started.elapsed().as_nanos() as f64 / ROUNDS as f64;
+            let start = write_wire_header_in_place(&mut frame).unwrap();
+            let wire = frame[start..].to_vec();
+            let started = Instant::now();
+            for _ in 0..ROUNDS {
+                black_box(parse_wire(black_box(&wire)).unwrap());
+            }
+            let parse = started.elapsed().as_nanos() as f64 / ROUNDS as f64;
+            let parsed = parse_wire(&wire).unwrap();
+            let started = Instant::now();
+            for _ in 0..ROUNDS {
+                black_box(staged_header(black_box(&parsed)));
+            }
+            let restage = started.elapsed().as_nanos() as f64 / ROUNDS as f64;
+            let started = Instant::now();
+            for _ in 0..ROUNDS {
+                black_box(wire_frame_len_bound(black_box(&staged_frame)).unwrap());
+            }
+            let bound = started.elapsed().as_nanos() as f64 / ROUNDS as f64;
+            println!(
+                "{name}: encode {encode:.1} ns, parse {parse:.1} ns, restage {restage:.1} ns, bound {bound:.1} ns"
+            );
+        }
+    }
+
     /// The prefix reads exactly the fixed fields a full parse reads.
     #[test]
     fn the_prefix_agrees_with_the_full_parse() {
-        let frame = staged(&stream(77), &header(FrameKind::Delta), &[1, 2, 3]);
+        let frame = staged(&stream(12), &header(FrameKind::Delta), &[1, 2, 3]);
         let mut out = [0u8; MAX_WIRE_HEADER_BYTES];
         let len = wire_header(&frame, &mut out).unwrap();
         let parsed = parse_wire(&out[..len]).unwrap();

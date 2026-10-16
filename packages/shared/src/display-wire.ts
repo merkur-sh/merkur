@@ -5,9 +5,11 @@
  * In memory a frame is staged: the stream header, the fixed frame header the
  * `DISPLAY_*_OFFSET` constants describe, headroom, then the body. On the wire
  * its header is compact: fixed-offset routing fields, a packed geometry word,
- * then varints, several relative to the frame's own sequence fields, and
- * optional fields behind presence bits. The browser reads only the fixed
- * fields and the frame and chunk identity; term-wasm stages the rest.
+ * any identity block, then varints relative to the frame's own fields and
+ * optional fields behind presence bits. A frame is identified by its sequence
+ * number unless it carries an identity block, as a snapshot chunk or a
+ * zero-seq reliable record does. The browser reads only fixed offsets;
+ * term-wasm stages the rest.
  */
 import {
   DISPLAY_BASE_SEQ_OFFSET,
@@ -38,15 +40,10 @@ import type { SynchronousByteSource } from './transport-provider';
 
 /** Bytes of the wire header every frame carries at fixed offsets. */
 export const DISPLAY_WIRE_FIXED_HEADER_BYTES = 27;
-/** The longest wire header of a frame that is not a snapshot chunk. */
-export const DISPLAY_WIRE_MAX_UNCHUNKED_HEADER_BYTES = 69;
-/**
- * Staged bytes such a frame carries beyond its wire form at least. The
- * daemon's planner and the receiver profile it reads bucket sizes and ratios
- * over a staged frame's wire bound: its staged length less this.
- */
-export const DISPLAY_STAGED_SLACK_BYTES =
-  DISPLAY_ROWS_OFFSET - DISPLAY_WIRE_MAX_UNCHUNKED_HEADER_BYTES;
+/** An identity block after them: frame id, chunk index and count. */
+export const DISPLAY_WIRE_CHUNK_BYTES = 8;
+/** The longest wire header of a frame identified by its sequence number. */
+export const DISPLAY_WIRE_MAX_UNCHUNKED_HEADER_BYTES = 64;
 export const DISPLAY_WIRE_VERSION_OFFSET = 1;
 export const DISPLAY_WIRE_FLAGS_OFFSET = 2;
 export const DISPLAY_WIRE_PATCH_FLAGS_OFFSET = 3;
@@ -71,10 +68,6 @@ export interface DisplayWireIdentity {
   readonly chunkCount: number;
 }
 
-function unzigzag(value: number): number {
-  return ((value >>> 1) ^ -(value & 1)) >>> 0;
-}
-
 function zigzag(value: number): number {
   const signed = value | 0;
   return ((signed << 1) ^ (signed >> 31)) >>> 0;
@@ -94,46 +87,19 @@ export function readDisplayWireIdentity(source: SynchronousByteSource): DisplayW
   }
   const flags = source.getUint8(DISPLAY_WIRE_FLAGS_OFFSET);
   if ((flags & DISPLAY_WIRE_RESERVED_FLAG_BIT) !== 0) return null;
+  const generation = source.getUint32BE(DISPLAY_WIRE_GENERATION_OFFSET);
   const seq = source.getUint32BE(DISPLAY_WIRE_SEQUENCE_OFFSET);
-  let offset = DISPLAY_WIRE_FIXED_HEADER_BYTES;
-  const varint = (): number | null => {
-    let value = 0;
-    for (let index = 0; index < 5; index += 1) {
-      if (offset >= source.byteLength) return null;
-      const byte = source.getUint8(offset);
-      offset += 1;
-      value += (byte & 0x7f) * 2 ** (7 * index);
-      if ((byte & 0x80) === 0) return value > 0xffff_ffff ? null : value;
-    }
-    return null;
-  };
-  const frameDelta = varint();
-  if (frameDelta === null) return null;
-  const frameId = (seq + unzigzag(frameDelta)) >>> 0;
-  // Presentation distance, member index and count, the predecessor when
-  // present, row count, demand serial and the echo horizon when present all
-  // precede the chunk pair; only their lengths matter here.
-  let skipped = 5;
-  if ((flags & DISPLAY_WIRE_PRESENT_PREDECESSOR) !== 0) skipped += 1;
-  if ((flags & DISPLAY_WIRE_PRESENT_ECHO_HORIZON) !== 0) skipped += 1;
-  for (let index = 0; index < skipped; index += 1) {
-    if (varint() === null) return null;
+  if ((flags & DISPLAY_WIRE_PRESENT_CHUNK) === 0) {
+    return { generation, seq, frameId: seq, chunkIndex: 0, chunkCount: 1 };
   }
-  let chunkIndex = 0;
-  let chunkCount = 1;
-  if ((flags & DISPLAY_WIRE_PRESENT_CHUNK) !== 0) {
-    const index = varint();
-    const count = varint();
-    if (index === null || count === null) return null;
-    chunkIndex = index;
-    chunkCount = count;
-  }
+  const chunk = DISPLAY_WIRE_FIXED_HEADER_BYTES;
+  if (source.byteLength < chunk + DISPLAY_WIRE_CHUNK_BYTES) return null;
   return {
-    generation: source.getUint32BE(DISPLAY_WIRE_GENERATION_OFFSET),
+    generation,
     seq,
-    frameId,
-    chunkIndex,
-    chunkCount,
+    frameId: source.getUint32BE(chunk),
+    chunkIndex: source.getUint16BE(chunk + 4),
+    chunkCount: source.getUint16BE(chunk + 6),
   };
 }
 
@@ -168,7 +134,7 @@ export function encodeDisplayWireFrame(staged: Uint8Array): Uint8Array {
   const chunkCount = u16(DISPLAY_CHUNK_COUNT_OFFSET);
   const closureHigh = u32(DISPLAY_CLOSURE_DIGEST_OFFSET);
   const closureLow = u32(DISPLAY_CLOSURE_DIGEST_OFFSET + 4);
-  const chunked = chunkIndex !== 0 || chunkCount !== 1;
+  const chunked = chunkIndex !== 0 || chunkCount !== 1 || frameId !== seq;
   let presence = 0;
   if (closureHigh !== 0 || closureLow !== 0) presence |= DISPLAY_WIRE_PRESENT_CLOSURE;
   if (horizon !== 0) presence |= DISPLAY_WIRE_PRESENT_ECHO_HORIZON;
@@ -198,18 +164,17 @@ export function encodeDisplayWireFrame(staged: Uint8Array): Uint8Array {
     header.push(Math.floor(word / 2 ** (8 * shift)) % 256);
   }
   pushU32(u32(DISPLAY_SCROLL_SERIAL_OFFSET));
-  pushVarint(zigzag(frameId - seq));
-  pushVarint(zigzag(seq - presentationId));
+  if (chunked) {
+    pushU32(frameId);
+    header.push(chunkIndex >>> 8, chunkIndex & 0xff, chunkCount >>> 8, chunkCount & 0xff);
+  }
+  pushVarint(zigzag(frameId - presentationId));
   pushVarint(u16(DISPLAY_PRESENTATION_MEMBER_INDEX_OFFSET));
   pushVarint(u16(DISPLAY_PRESENTATION_MEMBER_COUNT_OFFSET));
   if (predecessor !== 0) pushVarint(zigzag(presentationId - predecessor));
   pushVarint(u16(DISPLAY_ROW_COUNT_OFFSET));
   pushVarint(u32(DISPLAY_DEMAND_SERIAL_OFFSET));
   if (horizon !== 0) pushVarint(zigzag(inputSeq - horizon));
-  if (chunked) {
-    pushVarint(chunkIndex);
-    pushVarint(chunkCount);
-  }
   if ((presence & DISPLAY_WIRE_PRESENT_CLOSURE) !== 0) {
     pushU32(closureHigh);
     pushU32(closureLow);

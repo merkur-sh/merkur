@@ -12,7 +12,7 @@ export const DISPLAY_PATCH_FLAGS_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 1;
 export const DISPLAY_COLUMNS_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 2;
 export const DISPLAY_GRID_ROWS_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 4;
 /** Staged headroom behind the fixed frame header: the longest wire header. */
-export const DISPLAY_STAGED_HEADROOM_BYTES = 75;
+export const DISPLAY_STAGED_HEADROOM_BYTES = 72;
 /**
  * The staged frame header body: the fixed 55 bytes these offsets describe,
  * then the headroom the daemon writes the wire header into (see
@@ -177,7 +177,7 @@ export const DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET = DISPLAY_COMPRESSED_LENGTH_
 /// as a magicless zstd frame without a content size; the envelope is unchanged.
 /// Version 33 gives the wire its own compact header (`display-wire.ts`); the
 /// staged layout above keeps its fixed fields and gains the headroom.
-export const DISPLAY_PROTOCOL_VERSION = 33;
+export const DISPLAY_PROTOCOL_VERSION = 34;
 export const DISPLAY_FEC_HEADER_BYTES = 16;
 /**
  * Bytes of the length stripe at the head of every recovery shard: the frames

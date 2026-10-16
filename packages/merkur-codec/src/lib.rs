@@ -246,13 +246,14 @@ pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
 /// byte-identical, so a version-31 receiver would hand a split payload to its
 /// row validator — the one failure this stream cannot detect on its own.
 ///
-/// Version 33 separates the wire header from the staged one (see [`wire`]).
+/// Version 34 separates the wire header from the staged one (see [`wire`]).
 /// In memory a frame keeps the fixed 55-byte header plus headroom; on the wire
-/// the header drops the body length, carries a delta's geometry only through
-/// its generation, encodes ids and the echo horizon relative to the frame's
-/// own sequence fields, and omits default-valued optional fields: a typed echo
-/// carries 33 header bytes instead of 73.
-pub const VERSION: u8 = 33;
+/// the header drops the body length, packs geometry, cursor and mode into
+/// seven bytes, identifies a frame that is not a snapshot chunk by its
+/// sequence number, encodes the other ids and the echo horizon relative to the
+/// frame's own fields, and omits default-valued optional fields: a typed echo
+/// carries 34 header bytes instead of 73.
+pub const VERSION: u8 = 34;
 pub const PATCH_FLAG_RESET: u8 = 1 << 0;
 pub const PATCH_FLAG_PRESENTATION_COHERENT: u8 = 1 << 1;
 pub const PATCH_FLAG_PRESENTATION_END: u8 = 1 << 2;

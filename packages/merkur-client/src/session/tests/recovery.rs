@@ -498,6 +498,36 @@ fn a_closed_incumbent_starts_a_candidate_at_once_and_retries_one_that_times_out(
     assert_ne!(second, first);
 }
 
+/// Keys that sealed their last counter end the incumbent at once: the
+/// session reconnects through a rebind candidate, whose fresh key agreement
+/// starts every counter at zero, rather than going on silently unable to send.
+#[test]
+fn keys_at_their_last_counter_rebind_for_fresh_ones() {
+    let (mut harness, _) = ready();
+    let transport = harness.session.established_transport_for_test();
+    for lane in 0..merkur_e2e::LANE_COUNT {
+        transport.reach_last_datagram_counter_for_test(lane);
+    }
+    assert!(!transport.exhausted(), "the last counter still seals");
+    harness
+        .session
+        .send_input(NOW + 100, 1, build::press('x'), false);
+    let sent = drain(&mut harness.session);
+    assert!(
+        sent.iter()
+            .any(|action| matches!(action, Action::SendInputDatagram { .. })),
+        "the input took the last counter: {sent:?}"
+    );
+    // Long before the first ping falls due at `NOW + 1_030`, which would
+    // otherwise escalate to a candidate of its own.
+    harness
+        .session
+        .handle_timeout(NOW + 101, &mut harness.entropy);
+    let actions = drain(&mut harness.session);
+    assert!(actions.contains(&Action::Status(Status::Reconnecting)));
+    candidate_dial(&actions);
+}
+
 /// The certificate hashes the dial for `conn` in `actions` pinned.
 fn dial_pins(actions: &[Action], conn: ConnId) -> Vec<[u8; 32]> {
     actions

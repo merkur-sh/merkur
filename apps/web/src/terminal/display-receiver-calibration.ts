@@ -21,9 +21,9 @@ import {
   DISPLAY_ROW_PREFIX_BYTES,
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
-  DISPLAY_STAGED_SLACK_BYTES,
   DISPLAY_STREAM_HEADER_BYTES,
   DISPLAY_VERSION_OFFSET,
+  encodeDisplayWireFrame,
   MESSAGE_TYPE_DISPLAY_PATCH,
   writeU32BE,
 } from '@merkur/shared';
@@ -68,11 +68,19 @@ interface CalibrationObservation {
   readonly fusedUs: number;
 }
 
+/** A compressed fixture frame and its wire length. */
+interface CompressedCalibrationFrame {
+  readonly frame: Uint8Array;
+  readonly wireBytes: number;
+}
+
 interface PreparedCalibrationFixture {
   readonly rows: number;
   readonly raw: Uint8Array;
-  readonly plain: Uint8Array;
-  readonly dictionary: Uint8Array;
+  /** Wire lengths, which the profile and the planner reading it measure in. */
+  readonly rawWireBytes: number;
+  readonly plain: CompressedCalibrationFrame;
+  readonly dictionary: CompressedCalibrationFrame;
 }
 
 export type DisplayReceiverCalibrationStep =
@@ -293,13 +301,7 @@ export function createDisplayReceiverCalibrationRun(
             phase = 'validate-raw';
             return { status: 'pending' };
           }
-          const raw = createCalibrationFrame(fixture.rows, 0);
-          prepared.push({
-            rows: fixture.rows,
-            raw,
-            plain: createCompressedFrame(raw, decodeBase64(fixture.plainBlock), false),
-            dictionary: createCompressedFrame(raw, decodeBase64(fixture.dictionaryBlock), true),
-          });
+          prepared.push(prepareCalibrationFixture(fixture));
           fixtureIndex += 1;
           return { status: 'pending' };
         }
@@ -326,14 +328,14 @@ export function createDisplayReceiverCalibrationRun(
         }
         if (phase === 'validate-plain') {
           if (fixture === undefined) return reject('calibration_fixture_missing');
-          const result = validateStaged(fixture, fixture.plain, 'plain');
+          const result = validateStaged(fixture, fixture.plain.frame, 'plain');
           if (result.status === 'failed') return result;
           phase = 'validate-dictionary';
           return result;
         }
         if (phase === 'validate-dictionary') {
           if (fixture === undefined) return reject('calibration_fixture_missing');
-          const result = validateStaged(fixture, fixture.dictionary, 'dictionary');
+          const result = validateStaged(fixture, fixture.dictionary.frame, 'dictionary');
           if (result.status === 'failed') return result;
           fixtureIndex += 1;
           phase = 'validate-raw';
@@ -344,21 +346,19 @@ export function createDisplayReceiverCalibrationRun(
             phase = 'publish';
             return { status: 'pending' };
           }
-          const wire = dictionaryClass === 0 ? fixture.plain : fixture.dictionary;
+          const compressed = dictionaryClass === 0 ? fixture.plain : fixture.dictionary;
           const rawFirst = (sample & 1) === 0;
           const applyRaw = measurementOperation === (rawFirst ? 0 : 1);
-          const applied = applyRaw ? measureRaw(fixture) : measureFused(wire);
+          const applied = applyRaw ? measureRaw(fixture) : measureFused(compressed.frame);
           if (!applied) {
             return reject(terminal.takeLastError() ?? 'calibration_apply_rejected');
           }
           measurementOperation += 1;
           if (measurementOperation < 2) return { status: 'pending' };
 
-          // The profile buckets a frame by its wire bound, as the planner
-          // that reads it does; the fixtures are staged.
           observations.push({
-            rawBytes: fixture.raw.byteLength - DISPLAY_STAGED_SLACK_BYTES,
-            wireBytes: wire.byteLength - DISPLAY_STAGED_SLACK_BYTES,
+            rawBytes: fixture.rawWireBytes,
+            wireBytes: compressed.wireBytes,
             dictionary: dictionaryClass === 1,
             rawUs,
             fusedUs,
@@ -546,6 +546,21 @@ export function createDisplayReceiverCalibrationScheduler<THandle>(
     isActive(): boolean {
       return active;
     },
+  };
+}
+
+function prepareCalibrationFixture(fixture: CalibrationFixture): PreparedCalibrationFixture {
+  const raw = createCalibrationFrame(fixture.rows, 0);
+  const compressed = (block: string, dictionary: boolean): CompressedCalibrationFrame => {
+    const frame = createCompressedFrame(raw, decodeBase64(block), dictionary);
+    return { frame, wireBytes: encodeDisplayWireFrame(frame).byteLength };
+  };
+  return {
+    rows: fixture.rows,
+    raw,
+    rawWireBytes: encodeDisplayWireFrame(raw).byteLength,
+    plain: compressed(fixture.plainBlock, false),
+    dictionary: compressed(fixture.dictionaryBlock, true),
   };
 }
 

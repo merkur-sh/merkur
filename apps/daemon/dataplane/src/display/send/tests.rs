@@ -1,6 +1,7 @@
 use super::*;
 use crate::connection::PeerTransport;
 use crate::display::compressor::{DISPLAY_DICTIONARY_MAX_BYTES, DISPLAY_DICTIONARY_MIN_BYTES};
+use crate::display::encoder::wire_bound;
 use crate::network::peer::{DeliveryMode, PeerMessage};
 
 /// A group send preceded by the atomic plan the burst makes for its whole
@@ -25,6 +26,7 @@ fn send_planned_group(
             preferred,
             &mut trial_evidence,
             group,
+            peer.row_presentation_head,
             now_ms,
             &mut trial_budget,
             &mut plans,
@@ -966,17 +968,15 @@ fn utility_domains_keep_independent_frames_in_one_presentation() {
         vec![vec![4], vec![3, 7, 1]]
     );
     assert!(
-        prepared
-            .windows(2)
-            .all(|pair| pair[0].frame_id != pair[1].frame_id),
+        prepared.windows(2).all(|pair| pair[0].seq != pair[1].seq),
         "critical and noncritical retain independent frame ids"
     );
-    let presentation_id = merkur_codec::parse_frame_header(&prepared[0].frame)
+    let presentation_id = merkur_codec::parse_frame_header(prepared[0].frame.bytes())
         .unwrap()
         .presentation_id;
     for (index, (datagram, expected_row_count)) in prepared.iter().zip([1, 3]).enumerate() {
-        let header = merkur_codec::parse_frame_header(&datagram.frame).unwrap();
-        assert_eq!(header.frame_id, datagram.frame_id);
+        let header = merkur_codec::parse_frame_header(datagram.frame.bytes()).unwrap();
+        assert_eq!(header.frame_id, datagram.seq);
         assert_eq!(header.presentation_id, presentation_id);
         assert!(header.presentation_coherent);
         assert_eq!(header.presentation_end, index + 1 == prepared.len());
@@ -1040,18 +1040,18 @@ fn multiple_noncritical_packets_keep_distinct_frames_in_one_presentation() {
     // stranded assembly then pinned a receiver slot until an overflow
     // forced a full-screen snapshot.
     let mut frame_ids: Vec<u32> = Vec::new();
-    let presentation_id = merkur_codec::parse_frame_header(&prepared[0].frame)
+    let presentation_id = merkur_codec::parse_frame_header(prepared[0].frame.bytes())
         .unwrap()
         .presentation_id;
     for (index, datagram) in prepared.iter().enumerate() {
-        let header = merkur_codec::parse_frame_header(&datagram.frame).unwrap();
-        assert_eq!(header.frame_id, datagram.frame_id);
+        let header = merkur_codec::parse_frame_header(datagram.frame.bytes()).unwrap();
+        assert_eq!(header.frame_id, datagram.seq);
         assert_eq!(header.presentation_id, presentation_id);
         assert!(header.presentation_coherent);
         assert_eq!(header.presentation_end, index + 1 == prepared.len());
         assert_eq!(header.chunk_index, 0);
         assert_eq!(header.chunk_count, 1);
-        frame_ids.push(datagram.frame_id);
+        frame_ids.push(datagram.seq);
     }
     let distinct = frame_ids.iter().collect::<std::collections::HashSet<_>>();
     assert_eq!(
@@ -1103,7 +1103,7 @@ fn isolated_update_ends_immediately_but_known_continuation_stays_open() {
         &mut prepared,
     );
     assert_eq!(prepared.len(), 1);
-    let isolated = merkur_codec::parse_frame_header(&prepared[0].frame).unwrap();
+    let isolated = merkur_codec::parse_frame_header(prepared[0].frame.bytes()).unwrap();
     assert_eq!(isolated.presentation_id, isolated.frame_id);
     assert!(!isolated.presentation_coherent);
     assert!(isolated.presentation_end);
@@ -1126,7 +1126,7 @@ fn isolated_update_ends_immediately_but_known_continuation_stays_open() {
         &mut prepared,
     );
     assert_eq!(prepared.len(), 1);
-    let continued = merkur_codec::parse_frame_header(&prepared[0].frame).unwrap();
+    let continued = merkur_codec::parse_frame_header(prepared[0].frame.bytes()).unwrap();
     assert_eq!(continued.presentation_id, continued.frame_id);
     assert!(continued.presentation_coherent);
     assert!(!continued.presentation_end);
@@ -1297,7 +1297,7 @@ fn mixed_cursor_move_promotes_existing_ordinary_batch_without_extra_packet() {
     );
     assert_eq!(prepared[0].utility, DisplayUtility::Critical);
     assert_eq!(prepared[0].rows.iter().next().map(|row| row.row), Some(1));
-    let header = merkur_codec::parse_frame_header(&prepared[0].frame).unwrap();
+    let header = merkur_codec::parse_frame_header(prepared[0].frame.bytes()).unwrap();
     assert_eq!(header.cursor_row, 4);
     assert_eq!(header.cursor_col, 1);
 }
@@ -1398,7 +1398,7 @@ fn header_only_cursor_update_is_critical() {
     assert_eq!(prepared[0].utility.send_intent(), SendIntent::Redundant);
     assert!(prepared[0].rows.is_empty());
     assert_eq!(
-        merkur_codec::parse_frame_header(&prepared[0].frame)
+        merkur_codec::parse_frame_header(prepared[0].frame.bytes())
             .unwrap()
             .row_count,
         0
@@ -1440,7 +1440,7 @@ fn a_captured_frame_carries_the_inputs_its_output_followed() {
         prepared
             .iter()
             .map(|datagram| {
-                merkur_codec::parse_frame_header(&datagram.frame)
+                merkur_codec::parse_frame_header(datagram.frame.bytes())
                     .unwrap()
                     .echo_horizon
             })
@@ -2054,6 +2054,34 @@ fn filled_staged_frame_for_test(seq: u32, wire_bytes: usize, fill: u8) -> Vec<u8
     frame
 }
 
+/// What admission records for a plan a test builds by hand, for frames whose
+/// stamps are already final: each copy's exact sealed length, and the parity's
+/// shard count and sealed length on the closer.
+fn reserve_hand_plan_for_test(group: &mut [PreparedDisplayDatagram]) {
+    let bound = group
+        .iter()
+        .map(|datagram| datagram.frame.wire_bound())
+        .max()
+        .unwrap_or(0);
+    let shards = fec_recovery_shard_count(group.len(), bound);
+    let width = group
+        .iter()
+        .map(|datagram| datagram.frame.wire_len())
+        .max()
+        .unwrap_or(0);
+    for datagram in group.iter_mut() {
+        datagram.physical_plan.data_reserved =
+            sealed_display_datagram_wire_len(datagram.frame.wire_len());
+    }
+    if let Some(closer) = group.last_mut()
+        && closer.physical_plan.repair_paths.any()
+    {
+        closer.physical_plan.repair_shards = shards;
+        closer.physical_plan.repair_reserved =
+            sealed_display_datagram_wire_len(repair_plaintext_len_for_test(shards, width));
+    }
+}
+
 /// The repair plaintext over shards of `width` wire bytes.
 fn repair_plaintext_len_for_test(recovery: usize, width: usize) -> usize {
     DISPLAY_FEC_HEADER_BYTES + merkur_fec::repair::repair_body_len(recovery, width)
@@ -2066,12 +2094,12 @@ fn prepared_with_utility_for_test(
 ) -> PreparedDisplayDatagram {
     PreparedDisplayDatagram {
         seq,
-        frame_id: 1,
         raw_bytes: wire_bytes,
+        header_reserve: merkur_codec::wire::MAX_UNCHUNKED_WIRE_HEADER_BYTES,
         encoded_rows: 1,
         utility,
         header_signal: 0,
-        frame: staged_frame_for_test(seq, wire_bytes),
+        frame: StagedFrame::new(staged_frame_for_test(seq, wire_bytes)),
         rows: SentRows::default(),
         compression_attempted: false,
         content_class: ContentClass::Text,
@@ -2094,7 +2122,6 @@ pub(super) fn valid_header_only_prepared_with_presentation_for_test(
     presentation_end: bool,
 ) -> PreparedDisplayDatagram {
     let seq = peer.next_datagram_seq();
-    let frame_id = peer.next_frame_id();
     let header = FrameHeader {
         memory_only: false,
         kind: merkur_codec::FrameKind::Delta,
@@ -2106,8 +2133,8 @@ pub(super) fn valid_header_only_prepared_with_presentation_for_test(
         cursor_visible: 1,
         mode_flags: 0,
         row_count: 0,
-        frame_id,
-        presentation_id: frame_id,
+        frame_id: seq,
+        presentation_id: seq,
         presentation_member_index: 0,
         presentation_member_count: u16::from(presentation_coherent),
         row_predecessor_presentation_id: 0,
@@ -2130,8 +2157,8 @@ pub(super) fn valid_header_only_prepared_with_presentation_for_test(
         seq,
         peer.generation,
         peer.latest_input_seq,
-        frame_id,
-        frame_id,
+        seq,
+        seq,
         presentation_coherent,
         presentation_end,
         0,
@@ -2142,12 +2169,12 @@ pub(super) fn valid_header_only_prepared_with_presentation_for_test(
     .expect("test display header fits");
     PreparedDisplayDatagram {
         seq,
-        frame_id,
-        raw_bytes: frame.len(),
+        raw_bytes: planned_wire_len(frame.len(), wire_bound(&frame)),
+        header_reserve: wire_bound(&frame),
         encoded_rows: 0,
         utility,
         header_signal: (2u128 << 80) | (8u128 << 64) | (1u128 << 16),
-        frame,
+        frame: StagedFrame::new(frame),
         rows: SentRows::default(),
         compression_attempted: false,
         content_class: ContentClass::Text,
@@ -2166,7 +2193,7 @@ pub(super) fn row_predecessor_original_for_test(
         !rows.is_empty(),
         true,
     );
-    let mut header = merkur_codec::parse_frame_header(&original.frame).unwrap();
+    let mut header = merkur_codec::parse_frame_header(original.frame.bytes()).unwrap();
     header.cols = peer.display_cache.cols;
     header.rows = peer.display_cache.rows;
     header.row_count = rows.len() as u16;
@@ -2186,7 +2213,7 @@ pub(super) fn row_predecessor_original_for_test(
         });
     }
     encode_frame_into(
-        &mut original.frame,
+        original.frame.buffer_mut(),
         &header,
         original.rows.iter().map(|row| RowRef {
             graphics: &[],
@@ -2196,12 +2223,12 @@ pub(super) fn row_predecessor_original_for_test(
         }),
     );
     patch_stream_header(
-        &mut original.frame,
+        original.frame.bytes_mut(),
         original.seq,
         peer.generation,
         peer.latest_input_seq,
-        original.frame_id,
-        original.frame_id,
+        original.seq,
+        original.seq,
         !rows.is_empty(),
         true,
         0,
@@ -2211,7 +2238,7 @@ pub(super) fn row_predecessor_original_for_test(
     )
     .unwrap();
     original.encoded_rows = rows.len() as u16;
-    original.raw_bytes = original.frame.len();
+    original.raw_bytes = original.frame.planned_wire_len(original.header_reserve);
     original.header_signal =
         (u128::from(header.cols) << 80) | (u128::from(header.rows) << 64) | (1u128 << 16);
     original
@@ -2249,12 +2276,12 @@ async fn row_predecessor_crosses_end_and_wrap_but_not_full_same_row_replacement(
     for first_pid in [1, u32::MAX] {
         let (mut peer, mut browser) = benchmark_noise_pair();
         peer.display_cache.resize(2, 8);
-        peer.next_frame_id = first_pid;
+        peer.next_datagram_seq = first_pid;
         let (tx, mut rx) = mpsc::unbounded_channel();
         peer.edge_tunnel = Some(Arc::new(crate::edge_tunnel::EdgeTunnel::new_capture(tx)));
         let mut pool = frame_pool_for_test();
         let a = row_predecessor_original_for_test(&mut peer, &[(1, b'a')]);
-        let a_pid = a.frame_id;
+        let a_pid = a.seq;
         let mut prepared = vec![a];
         assert!(
             send_unpaced_display_burst(
@@ -2274,7 +2301,7 @@ async fn row_predecessor_crosses_end_and_wrap_but_not_full_same_row_replacement(
         assert!(!peer.presentation_end_owed);
 
         let b = row_predecessor_original_for_test(&mut peer, &[]);
-        let b_pid = b.frame_id;
+        let b_pid = b.seq;
         let mut prepared = vec![b];
         send_unpaced_display_burst(&mut peer, &mut prepared, &mut pool, 1, 101.0, &[0; 4]);
         let b_header = captured_original_headers_for_test(&mut rx, &mut browser)[0].1;
@@ -2288,7 +2315,7 @@ async fn row_predecessor_crosses_end_and_wrap_but_not_full_same_row_replacement(
         );
 
         let c = row_predecessor_original_for_test(&mut peer, &[(1, b'c')]);
-        let c_pid = c.frame_id;
+        let c_pid = c.seq;
         let mut prepared = vec![c];
         send_unpaced_display_burst(&mut peer, &mut prepared, &mut pool, 1, 102.0, &[2, 0, 0, 0]);
         let c_header = captured_original_headers_for_test(&mut rx, &mut browser)[0].1;
@@ -2313,7 +2340,7 @@ async fn row_predecessor_supersession_covers_transitive_ancestors_and_clipped_me
     let mut head = 0;
     for (row, character) in [(2, b'z'), (1, b'a'), (1, b'b')] {
         let original = row_predecessor_original_for_test(&mut peer, &[(row, character)]);
-        let pid = original.frame_id;
+        let pid = original.seq;
         let mut prepared = vec![original];
         send_unpaced_display_burst(
             &mut peer,
@@ -2331,14 +2358,14 @@ async fn row_predecessor_supersession_covers_transitive_ancestors_and_clipped_me
 
     let mut first = row_predecessor_original_for_test(&mut peer, &[(1, b'c')]);
     let mut second = row_predecessor_original_for_test(&mut peer, &[(2, b'd')]);
-    let pid = first.frame_id;
+    let pid = first.seq;
     for (index, frame) in [&mut first, &mut second].into_iter().enumerate() {
         patch_stream_header(
-            &mut frame.frame,
+            frame.frame.bytes_mut(),
             frame.seq,
             peer.generation,
             0,
-            frame.frame_id,
+            frame.seq,
             pid,
             true,
             index == 1,
@@ -2414,7 +2441,7 @@ async fn row_predecessor_late_ack_cannot_prune_a_newer_content_lineage() {
         let mut header = vec![row_predecessor_original_for_test(&mut peer, &[])];
         stamp_row_presentation_predecessor(&mut peer, &mut header, &[0; 4], &mut pool);
         assert_eq!(
-            merkur_codec::parse_frame_header(&header[0].frame)
+            merkur_codec::parse_frame_header(header[0].frame.bytes())
                 .unwrap()
                 .row_predecessor_presentation_id,
             head
@@ -2433,7 +2460,7 @@ async fn row_predecessor_late_ack_cannot_prune_a_newer_content_lineage() {
         let mut header = vec![row_predecessor_original_for_test(&mut peer, &[])];
         stamp_row_presentation_predecessor(&mut peer, &mut header, &[0; 4], &mut pool);
         assert_eq!(
-            merkur_codec::parse_frame_header(&header[0].frame)
+            merkur_codec::parse_frame_header(header[0].frame.bytes())
                 .unwrap()
                 .row_predecessor_presentation_id,
             0
@@ -2449,7 +2476,7 @@ async fn row_predecessor_zero_admission_cannot_advance_or_drop_ancestors() {
     peer.edge_tunnel = Some(Arc::new(crate::edge_tunnel::EdgeTunnel::new_capture(tx)));
     let mut pool = frame_pool_for_test();
     let first = row_predecessor_original_for_test(&mut peer, &[(1, b'a')]);
-    let head = first.frame_id;
+    let head = first.seq;
     send_unpaced_display_burst(
         &mut peer,
         &mut vec![first],
@@ -2477,7 +2504,7 @@ async fn row_predecessor_zero_admission_cannot_advance_or_drop_ancestors() {
     let mut header = vec![row_predecessor_original_for_test(&mut peer, &[])];
     stamp_row_presentation_predecessor(&mut peer, &mut header, &[0; 4], &mut pool);
     assert_eq!(
-        merkur_codec::parse_frame_header(&header[0].frame)
+        merkur_codec::parse_frame_header(header[0].frame.bytes())
             .unwrap()
             .row_predecessor_presentation_id,
         head
@@ -2494,15 +2521,15 @@ fn row_predecessor_is_identical_across_raw_compressed_and_recovered_members() {
         let mut prepared: Vec<_> = (0..3)
             .map(|row| row_predecessor_original_for_test(&mut peer, &[(row, b'a')]))
             .collect();
-        let pid = prepared[0].frame_id;
+        let pid = prepared[0].seq;
         let mut compressor = Compressor::new();
         for (index, frame) in prepared.iter_mut().enumerate() {
             patch_stream_header(
-                &mut frame.frame,
+                frame.frame.bytes_mut(),
                 frame.seq,
                 peer.generation,
                 0,
-                frame.frame_id,
+                frame.seq,
                 pid,
                 true,
                 index == 2,
@@ -2516,10 +2543,10 @@ fn row_predecessor_is_identical_across_raw_compressed_and_recovered_members() {
                 let mut encoded = Vec::new();
                 assert!(
                     compressor
-                        .compress_display_frame_into(&frame.frame, None, &mut encoded)
+                        .compress_display_frame_into(frame.frame.bytes(), None, &mut encoded)
                         .is_some()
                 );
-                frame.frame = encoded;
+                frame.frame = StagedFrame::new(encoded);
             }
         }
         let mut pool = frame_pool_for_test();
@@ -2536,7 +2563,7 @@ fn row_predecessor_is_identical_across_raw_compressed_and_recovered_members() {
             "preflight cannot advance admission lineage"
         );
         for (index, frame) in prepared.iter().enumerate() {
-            let header = merkur_codec::parse_frame_header(&frame.frame).unwrap();
+            let header = merkur_codec::parse_frame_header(frame.frame.bytes()).unwrap();
             assert_eq!(header.row_predecessor_presentation_id, 91);
             assert_eq!(header.presentation_id, pid);
             assert_eq!(header.presentation_member_index, index as u16);
@@ -2556,7 +2583,7 @@ fn row_predecessor_is_identical_across_raw_compressed_and_recovered_members() {
         let repair = repair.clone();
         let wires: Vec<Vec<u8>> = prepared
             .iter_mut()
-            .map(|member| wire_frame(&mut member.frame).to_vec())
+            .map(|member| wire_frame(member.frame.bytes_mut()).to_vec())
             .collect();
         let (header, body) = merkur_fec::repair::parse_repair(&repair).unwrap();
         let width = usize::from(header.shard_size);
@@ -2582,7 +2609,7 @@ fn row_predecessor_is_identical_across_raw_compressed_and_recovered_members() {
         // missing predecessor affects only browser presentation timing.
         let mut receiver = term_wasm::Terminal::new_headless(128, 8);
         for frame in prepared.iter().rev() {
-            let handle = receiver.stage_display_frame_bytes(&frame.frame);
+            let handle = receiver.stage_display_frame_bytes(frame.frame.bytes());
             assert_ne!(handle, 0, "{:?}", receiver.take_last_error());
             assert!(
                 receiver.apply_staged_delta_seq(handle, frame.seq),
@@ -2608,7 +2635,7 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
         let mut receiver = term_wasm::Terminal::new_headless(2, 2);
         let baseline = row_predecessor_original_for_test(&mut peer, &[(0, b'0'), (1, b'0')]);
         let baseline_seq = baseline.seq;
-        let baseline_frame = baseline.frame.clone();
+        let baseline_frame = baseline.frame.bytes().to_vec();
         let baseline_hashes: Vec<_> = baseline.rows.iter().map(|row| row.hash).collect();
         assert!(receiver.apply_delta_seq(&baseline_frame, baseline_seq));
         send_unpaced_display_burst(
@@ -2633,14 +2660,14 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
             row_predecessor_original_for_test(&mut peer, &[(0, b'a')]),
             row_predecessor_original_for_test(&mut peer, &[(1, b'b')]),
         ];
-        let pid = group[0].frame_id;
+        let pid = group[0].seq;
         for (index, frame) in group.iter_mut().enumerate() {
             patch_stream_header(
-                &mut frame.frame,
+                frame.frame.bytes_mut(),
                 frame.seq,
                 generation,
                 0,
-                frame.frame_id,
+                frame.seq,
                 pid,
                 true,
                 index == 1,
@@ -2668,6 +2695,7 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
             repair_paths: SentPaths::single(PeerTransport::Edge),
             ..Default::default()
         };
+        reserve_hand_plan_for_test(&mut group);
         let refused_seq = group[1].seq;
         let refused_hash = group[1].rows.iter().next().unwrap().hash;
         peer.sim_datagram_metadata.clear();
@@ -2822,7 +2850,7 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                                 )
                             })
                             .collect();
-                        let pid = group[0].frame_id;
+                        let pid = group[0].seq;
                         let first_seq = group[0].seq;
                         let mut compressor = Compressor::new();
                         let snapshots: Vec<_> = group
@@ -2831,11 +2859,11 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                             .collect();
                         for (index, frame) in group.iter_mut().enumerate() {
                             patch_stream_header(
-                                &mut frame.frame,
+                                frame.frame.bytes_mut(),
                                 frame.seq,
                                 peer.generation,
                                 0,
-                                frame.frame_id,
+                                frame.seq,
                                 pid,
                                 true,
                                 ends && index == members - 1,
@@ -2850,13 +2878,13 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                                 assert!(
                                     compressor
                                         .compress_display_frame_into(
-                                            &frame.frame,
+                                            frame.frame.bytes(),
                                             None,
                                             &mut encoded
                                         )
                                         .is_some()
                                 );
-                                frame.frame = encoded;
+                                frame.frame = StagedFrame::new(encoded);
                             }
                             let path = if admitted_mask & (1 << index) != 0 {
                                 PeerTransport::Edge
@@ -2877,6 +2905,7 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                         group[members - 1].physical_plan.repair_primary = Some(repair_path);
                         group[members - 1].physical_plan.repair_paths =
                             SentPaths::single(repair_path);
+                        reserve_hand_plan_for_test(&mut group);
                         let originals = admitted_mask.count_ones() as usize;
                         let expected_physical = originals + usize::from(repair_admitted);
                         let mut budget = DatagramPhysicalBudget::exact(0, 0, 0)
@@ -2886,7 +2915,11 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                             );
                         let recovery = fec_recovery_shard_count(
                             members,
-                            group.iter().map(|frame| frame.frame.len()).max().unwrap(),
+                            group
+                                .iter()
+                                .map(|frame| frame.frame.wire_bound())
+                                .max()
+                                .unwrap(),
                         );
                         assert!(recovery > 0);
                         let reconstructible = repair_admitted && members - originals <= recovery;
@@ -2899,7 +2932,7 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                             .iter()
                             .enumerate()
                             .filter(|(index, _)| admitted_mask & (1 << index) != 0)
-                            .map(|(_, frame)| wire_len(&frame.frame) + 1)
+                            .map(|(_, frame)| wire_len(frame.frame.bytes()) + 1)
                             .sum();
                         let mut pool = frame_pool_for_test();
                         TEST_ORIGINAL_ADMISSION_TIMING.set(Some(OriginalAdmissionTiming {
@@ -3032,7 +3065,7 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                                 if restored & (1 << index) != 0 {
                                     let bytes = &output[index * usize::from(header.shard_size)..]
                                         [..usize::from(lengths[index])];
-                                    assert_eq!(bytes, wire_frame(&mut frame.frame));
+                                    assert_eq!(bytes, wire_frame(frame.frame.bytes_mut()));
                                     apply(&mut receiver, bytes, frame.seq);
                                 }
                             }
@@ -3191,7 +3224,7 @@ fn k1_probe_is_noncausal_nonmember_and_never_closes_its_protected_presentation()
             ..DISPLAY_ROW_PREDECESSOR_PRESENTATION_ID_OFFSET + 4]
             .copy_from_slice(&91u32.to_be_bytes());
         template.frame[DISPLAY_PATCH_FLAGS_OFFSET] |= merkur_codec::PATCH_FLAG_MEMORY_ONLY;
-        let template_header = merkur_codec::parse_frame_header(&template.frame).unwrap();
+        let template_header = merkur_codec::parse_frame_header(template.frame.bytes()).unwrap();
         let mut frames = frame_pool_for_test();
         let (probe_seq, probe) =
             build_k1_probe_frame(&mut peer, &template, &mut frames).expect("probe frame");
@@ -3215,9 +3248,15 @@ fn k1_probe_is_noncausal_nonmember_and_never_closes_its_protected_presentation()
         for probe_first in [false, true] {
             let mut receiver = term_wasm::Terminal::new_headless(2, 8);
             let ordered = if probe_first {
-                [(&probe, probe_seq), (&template.frame, template.seq)]
+                [
+                    (probe.as_slice(), probe_seq),
+                    (template.frame.bytes(), template.seq),
+                ]
             } else {
-                [(&template.frame, template.seq), (&probe, probe_seq)]
+                [
+                    (template.frame.bytes(), template.seq),
+                    (probe.as_slice(), probe_seq),
+                ]
             };
             let mut visual_mutations = 0;
             for (wire, seq) in ordered {
@@ -3243,7 +3282,7 @@ fn frame_pool_for_test() -> BufferPool {
 /// allocation per frame.
 fn recycle_frames_for_test(datagrams: &mut Vec<PreparedDisplayDatagram>, frames: &mut BufferPool) {
     for datagram in datagrams.drain(..) {
-        frames.put(datagram.frame);
+        frames.put(datagram.frame.into_buffer());
         if let Some(repair) = datagram.precomputed_fec_repair {
             frames.put(repair);
         }
@@ -3368,7 +3407,6 @@ async fn changed_ack_baseline_discards_worker_result_without_consuming_sequences
     peer.display_prepare_in_flight = Some(9);
     let generation = peer.generation;
     let initial_seq = peer.next_datagram_seq;
-    let initial_frame_id = peer.next_frame_id;
     let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
     let completion = DisplayPrepareCompletion {
         token: 9,
@@ -3379,9 +3417,7 @@ async fn changed_ack_baseline_discards_worker_result_without_consuming_sequences
         display_revision: 3,
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
-        start_frame_id: initial_frame_id,
         next_seq: initial_seq + 2,
-        next_frame_id: initial_frame_id + 1,
         dictionary_class: DictionaryClass::Plain,
         compression_dictionary: None,
         // Captured against a baseline the peer no longer holds.
@@ -3406,7 +3442,6 @@ async fn changed_ack_baseline_discards_worker_result_without_consuming_sequences
     assert_eq!(peer.display_prepare_in_flight, None);
     assert!(peer.needs_full_diff);
     assert_eq!(peer.next_datagram_seq, initial_seq);
-    assert_eq!(peer.next_frame_id, initial_frame_id);
 }
 
 #[tokio::test]
@@ -3421,7 +3456,6 @@ async fn same_arc_invalidation_discards_worker_result_without_consuming_sequence
     peer.display_prepare_in_flight = Some(91);
     let generation = peer.generation;
     let initial_seq = peer.next_datagram_seq;
-    let initial_frame_id = peer.next_frame_id;
 
     // Loss/resync disowns the semantic baseline but intentionally retains
     // the immutable cells. Arc identity alone would admit this stale delta.
@@ -3441,9 +3475,7 @@ async fn same_arc_invalidation_discards_worker_result_without_consuming_sequence
         display_revision: 3,
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
-        start_frame_id: initial_frame_id,
         next_seq: initial_seq + 2,
-        next_frame_id: initial_frame_id + 1,
         dictionary_class: DictionaryClass::Plain,
         compression_dictionary: None,
         buffers: PrepareBuffers {
@@ -3467,7 +3499,6 @@ async fn same_arc_invalidation_discards_worker_result_without_consuming_sequence
     assert_eq!(peer.display_prepare_in_flight, None);
     assert!(peer.needs_full_diff);
     assert_eq!(peer.next_datagram_seq, initial_seq);
-    assert_eq!(peer.next_frame_id, initial_frame_id);
 }
 
 #[tokio::test]
@@ -3505,7 +3536,6 @@ async fn newer_ack_of_same_exact_arc_preserves_worker_result() {
     peer.latest_input_seq = 1;
     let generation = peer.generation;
     let initial_seq = peer.next_datagram_seq;
-    let initial_frame_id = peer.next_frame_id;
     let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
     let completion = DisplayPrepareCompletion {
         token: 92,
@@ -3516,9 +3546,7 @@ async fn newer_ack_of_same_exact_arc_preserves_worker_result() {
         display_revision: 3,
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
-        start_frame_id: initial_frame_id,
         next_seq: initial_seq + 2,
-        next_frame_id: initial_frame_id + 1,
         dictionary_class: DictionaryClass::Plain,
         compression_dictionary: None,
         buffers: PrepareBuffers {
@@ -3541,7 +3569,6 @@ async fn newer_ack_of_same_exact_arc_preserves_worker_result() {
     let peer = &peers["browser-1"];
     assert_eq!(peer.display_prepare_in_flight, None);
     assert_eq!(peer.next_datagram_seq, initial_seq + 2);
-    assert_eq!(peer.next_frame_id, initial_frame_id + 1);
 }
 
 #[tokio::test]
@@ -3552,7 +3579,6 @@ async fn input_arriving_during_worker_preparation_rearms_header_flush() {
     peer.display_prepare_in_flight = Some(10);
     let generation = peer.generation;
     let initial_seq = peer.next_datagram_seq;
-    let initial_frame_id = peer.next_frame_id;
     let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
     let completion = DisplayPrepareCompletion {
         token: 10,
@@ -3563,9 +3589,7 @@ async fn input_arriving_during_worker_preparation_rearms_header_flush() {
         display_revision: 3,
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
-        start_frame_id: initial_frame_id,
         next_seq: initial_seq,
-        next_frame_id: initial_frame_id,
         dictionary_class: DictionaryClass::Plain,
         compression_dictionary: None,
         buffers: PrepareBuffers::default(),
@@ -3605,7 +3629,6 @@ async fn one_dictionary_rotation_before_worker_completion_remains_decodable() {
     peer.display_prepare_in_flight = Some(11);
     let generation = peer.generation;
     let initial_seq = peer.next_datagram_seq;
-    let initial_frame_id = peer.next_frame_id;
     let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
     let completion = DisplayPrepareCompletion {
         token: 11,
@@ -3616,9 +3639,7 @@ async fn one_dictionary_rotation_before_worker_completion_remains_decodable() {
         display_revision: 3,
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
-        start_frame_id: initial_frame_id,
         next_seq: initial_seq + 2,
-        next_frame_id: initial_frame_id + 1,
         dictionary_class: DictionaryClass::Finalized,
         compression_dictionary: Some(prepared_dictionary),
         buffers: PrepareBuffers::default(),
@@ -3638,7 +3659,6 @@ async fn one_dictionary_rotation_before_worker_completion_remains_decodable() {
     let peer = &peers["browser-1"];
     assert_eq!(peer.display_prepare_in_flight, None);
     assert_eq!(peer.next_datagram_seq, initial_seq + 2);
-    assert_eq!(peer.next_frame_id, initial_frame_id + 1);
     assert!(
         peer.dictionary
             .active()
@@ -3663,7 +3683,6 @@ async fn two_dictionary_rotations_before_worker_completion_discard_result() {
     peer.display_prepare_in_flight = Some(13);
     let generation = peer.generation;
     let initial_seq = peer.next_datagram_seq;
-    let initial_frame_id = peer.next_frame_id;
     let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
     let completion = DisplayPrepareCompletion {
         token: 13,
@@ -3674,9 +3693,7 @@ async fn two_dictionary_rotations_before_worker_completion_discard_result() {
         display_revision: 3,
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
-        start_frame_id: initial_frame_id,
         next_seq: initial_seq + 2,
-        next_frame_id: initial_frame_id + 1,
         dictionary_class: DictionaryClass::Finalized,
         compression_dictionary: Some(prepared_dictionary),
         buffers: PrepareBuffers::default(),
@@ -3697,7 +3714,6 @@ async fn two_dictionary_rotations_before_worker_completion_discard_result() {
     assert_eq!(peer.display_prepare_in_flight, None);
     assert!(peer.needs_full_diff);
     assert_eq!(peer.next_datagram_seq, initial_seq);
-    assert_eq!(peer.next_frame_id, initial_frame_id);
 }
 
 #[tokio::test]
@@ -3709,7 +3725,6 @@ async fn dictionary_free_worker_result_survives_later_dictionary_install() {
     peer.display_prepare_in_flight = Some(12);
     let generation = peer.generation;
     let initial_seq = peer.next_datagram_seq;
-    let initial_frame_id = peer.next_frame_id;
 
     // The request captured None. Installing a dictionary before completion
     // must not invalidate frames that do not reference any dictionary.
@@ -3724,9 +3739,7 @@ async fn dictionary_free_worker_result_survives_later_dictionary_install() {
         display_revision: 3,
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
-        start_frame_id: initial_frame_id,
         next_seq: initial_seq + 2,
-        next_frame_id: initial_frame_id + 1,
         dictionary_class: DictionaryClass::Plain,
         compression_dictionary: None,
         buffers: PrepareBuffers::default(),
@@ -3746,7 +3759,6 @@ async fn dictionary_free_worker_result_survives_later_dictionary_install() {
     let peer = &peers["browser-1"];
     assert_eq!(peer.display_prepare_in_flight, None);
     assert_eq!(peer.next_datagram_seq, initial_seq + 2);
-    assert_eq!(peer.next_frame_id, initial_frame_id + 1);
     assert!(
         peer.dictionary
             .active()
@@ -4104,7 +4116,14 @@ fn adaptive_replanning_and_parity_precompute_share_exact_group_boundaries() {
                 DisplayUtility::NonCritical,
                 DisplayPolicy::FEC_GROUP_MAX_SIZE,
             ),
-            (expected_open, if expected_open == 0 { 0 } else { 100 }),
+            (
+                expected_open,
+                if expected_open == 0 {
+                    0
+                } else {
+                    packed[0].0.planned_wire_len()
+                },
+            ),
         );
 
         let mut prepared = (0..count)
@@ -4145,41 +4164,33 @@ fn recovery_shard_count_accounts_for_group_and_wire_width() {
     // its repair should be: both parity producers pass this count straight
     // through. Zero- and one-frame groups use no parity (the latter is
     // replicated as exact sealed bytes), while an ordinary small group gets
-    // two recovery shards. Widths are staged: a staged shard `w + STAGED_SLACK`
-    // long is at most `w` long on the wire.
-    let slack = crate::display::encoder::STAGED_SLACK;
+    // two recovery shards. Widths are wire widths.
     assert_eq!(fec_recovery_shard_count(0, 64), 0);
     assert_eq!(fec_recovery_shard_count(1, 64), 0);
     for group_len in 2..=DisplayPolicy::FEC_GROUP_MAX_SIZE {
         assert_eq!(
-            fec_recovery_shard_count(group_len, 540 + slack),
+            fec_recovery_shard_count(group_len, 540),
             DisplayPolicy::FEC_RECOVERY_SHARD_COUNT,
             "16 + 2 * (2 + 540) is the exact m=2 boundary"
         );
         assert_eq!(
-            fec_recovery_shard_count(group_len, 541 + slack),
+            fec_recovery_shard_count(group_len, 541),
             DisplayPolicy::FEC_SINGLE_RECOVERY_SHARD_COUNT,
             "16 + 2 * (2 + 541) is one byte too wide"
         );
         assert_eq!(
-            fec_recovery_shard_count(group_len, 1082 + slack),
+            fec_recovery_shard_count(group_len, 1082),
             DisplayPolicy::FEC_SINGLE_RECOVERY_SHARD_COUNT,
             "16 + 2 + 1082 is the exact m=1 boundary"
         );
         assert_eq!(
-            fec_recovery_shard_count(group_len, 1083 + slack),
+            fec_recovery_shard_count(group_len, 1083),
             0,
             "16 + 2 + 1083 cannot ride a display datagram"
         );
     }
-    assert_eq!(
-        DisplayPolicy::FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES,
-        540 + slack
-    );
-    assert_eq!(
-        DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
-        1082 + slack
-    );
+    assert_eq!(DisplayPolicy::FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES, 540);
+    assert_eq!(DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES, 1082);
     const {
         assert!(DisplayPolicy::FEC_GROUP_MAX_SIZE <= merkur_fec::FEC_MAX_DATA);
     }
@@ -4187,26 +4198,22 @@ fn recovery_shard_count_accounts_for_group_and_wire_width() {
 
 #[test]
 fn selected_repair_width_produces_the_exact_plaintext_wire_size() {
-    let slack = crate::display::encoder::STAGED_SLACK;
     let mut encoder = crate::display::fec::FecEncoder::new();
     for (wire_width, recovery_shards, repair_len) in [
         (540usize, 2usize, 1100usize),
         (541, 1, 559),
         (1082, 1, 1100),
     ] {
-        assert_eq!(
-            fec_recovery_shard_count(2, wire_width + slack),
-            recovery_shards
-        );
+        assert_eq!(fec_recovery_shard_count(2, wire_width), recovery_shards);
         let left = vec![0xA1; wire_width];
         let right = vec![0xB2; wire_width];
         let repair = encoder
             .encode_borrowed_group(1, 7, &[&left, &right], recovery_shards)
             .expect("selected repair encodes");
         assert_eq!(repair.len(), repair_len);
-        assert!(repair.len() <= DisplayPolicy::DATAGRAM_MAX_WIRE_BYTES);
+        assert!(repair.len() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES);
     }
-    assert_eq!(fec_recovery_shard_count(2, 1083 + slack), 0);
+    assert_eq!(fec_recovery_shard_count(2, 1083), 0);
 }
 
 fn build_large_interactive_row_for_test(
@@ -4263,7 +4270,7 @@ fn relayed_large_interactive_critical_row_is_compressed_into_a_datagram() {
         "raw_bytes={}",
         prepared.raw_bytes
     );
-    assert!(prepared.frame.len() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES);
+    assert!(prepared.frame.wire_bound() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES);
     assert_ne!(
         prepared.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
             & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
@@ -4283,7 +4290,10 @@ fn direct_critical_and_relayed_noncritical_interactive_rows_stay_uncompressed() 
             "raw_bytes={}",
             prepared.raw_bytes
         );
-        assert_eq!(prepared.frame.len(), prepared.raw_bytes);
+        assert_eq!(
+            prepared.frame.planned_wire_len(prepared.header_reserve),
+            prepared.raw_bytes
+        );
         assert_eq!(
             prepared.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
                 & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
@@ -4353,7 +4363,7 @@ fn cold_interactive_origin_tui_redraw_bootstraps_cross_row_compression() {
             .map(|datagram| (
                 datagram.encoded_rows,
                 datagram.raw_bytes,
-                datagram.frame.len()
+                datagram.frame.wire_len()
             ))
             .collect::<Vec<_>>()
     );
@@ -4372,7 +4382,7 @@ fn cold_interactive_origin_tui_redraw_bootstraps_cross_row_compression() {
         "the cold logical redraw must exercise the planner's compression path"
     );
     assert!(prepared.iter().all(|datagram| {
-        datagram.frame.len() <= DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES
+        datagram.frame.wire_bound() <= DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES
     }));
 }
 
@@ -4453,6 +4463,7 @@ fn pack_heterogeneous_order(compressible_prefix: bool) -> (usize, usize, Vec<(u1
     pack_captured_rows(
         &rows,
         terminal.current_display_header(merkur_codec::FrameKind::Delta),
+        0,
         &policy,
         None,
         false,
@@ -4469,7 +4480,7 @@ fn pack_heterogeneous_order(compressible_prefix: bool) -> (usize, usize, Vec<(u1
     let partition = scratch
         .batches
         .iter()
-        .map(|(payload, _, rows, _)| (*rows, payload.raw_bytes, payload.len()))
+        .map(|(payload, _, rows, _)| (*rows, payload.raw_bytes, payload.planned_wire_len()))
         .collect();
     (attempts, raw_bytes, partition)
 }
@@ -4481,8 +4492,14 @@ fn heterogeneous_ratio_feedback_is_bounded_in_both_row_orders() {
     eprintln!(
         "heterogeneous planner: compressible-prefix attempts={prefix_attempts} raw={prefix_raw_bytes} partition={prefix_partition:?}; random-prefix attempts={tail_attempts} raw={tail_raw_bytes} partition={tail_partition:?}"
     );
-    assert_eq!((prefix_attempts, tail_attempts), (4, 4));
-    let encoded_fixture_bytes = 4_872 + 5 * (STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES);
+    // One attempt per batch and none from fitter splits. A failed attempt
+    // informs only its own size bucket, and each single random row (1,010
+    // planned bytes) sits one bucket below the failed pair, so each is tried.
+    assert_eq!((prefix_attempts, tail_attempts), (5, 5));
+    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
+    let header =
+        TerminalState::new(120, 8, event_tx).current_display_header(merkur_codec::FrameKind::Delta);
+    let encoded_fixture_bytes = 4_872 + 5 * packed_header_reserve(&header, 0, 8);
     assert_eq!(
         (prefix_raw_bytes, tail_raw_bytes),
         (encoded_fixture_bytes, encoded_fixture_bytes)
@@ -4866,7 +4883,6 @@ async fn stale_snapshot_completion_consumes_no_peer_identity_or_carrier_bytes() 
     let completion = prepared_snapshot_for_test(71, &mut terminal, &[&peer]);
     let generation = peer.generation;
     let next_seq = peer.next_datagram_seq;
-    let next_frame_id = peer.next_frame_id;
     let peer_id = Arc::clone(&peer.peer_id);
     let mut peers = PeerMap::from([(Arc::clone(&peer_id), peer)]);
 
@@ -4885,7 +4901,6 @@ async fn stale_snapshot_completion_consumes_no_peer_identity_or_carrier_bytes() 
     assert_eq!(peer.snapshot_retry_at_ms, 0.0);
     assert_eq!(peer.generation, generation);
     assert_eq!(peer.next_datagram_seq, next_seq);
-    assert_eq!(peer.next_frame_id, next_frame_id);
     assert_eq!(peer.last_admitted_sync_epoch, 0);
     assert_eq!(peer.row_presentation_head, 91);
     assert_eq!(peer.unresolved_presentation_rows, [2, 0, 0, 0]);
@@ -5475,12 +5490,12 @@ fn fence_horizon_tracks_only_datagram_sends() {
     // A real datagram takes seq 2 and is recorded.
     let mut datagram = PreparedDisplayDatagram {
         seq: peer.next_datagram_seq(),
-        frame_id: peer.next_frame_id(),
         raw_bytes: 8,
+        header_reserve: merkur_codec::wire::MAX_UNCHUNKED_WIRE_HEADER_BYTES,
         encoded_rows: 1,
         utility: DisplayUtility::NonCritical,
         header_signal: 0,
-        frame: staged_frame_for_test(2, 8),
+        frame: StagedFrame::new(staged_frame_for_test(2, 8)),
         rows: SentRows::default(),
         compression_attempted: false,
         content_class: ContentClass::Text,
@@ -6376,9 +6391,9 @@ fn scroll_datagram_independence_oracle(first_partition_only: bool) {
             let mut expected = peer.display_cache.acked_row_hashes.clone();
             for &index in order {
                 let datagram = &frames[index];
-                let stream = merkur_codec::parse_stream_header(&datagram.frame).unwrap();
+                let stream = merkur_codec::parse_stream_header(datagram.frame.bytes()).unwrap();
                 for _ in 0..if duplicate { 2 } else { 1 } {
-                    let handle = viewer.stage_display_frame_bytes(&datagram.frame);
+                    let handle = viewer.stage_display_frame_bytes(datagram.frame.bytes());
                     assert_ne!(handle, 0, "{:?}", viewer.take_last_error());
                     assert!(viewer.validate_staged_frame(handle));
                     assert!(viewer.apply_staged_delta_seq(handle, stream.seq));
@@ -6536,7 +6551,6 @@ fn production_scroll_literal_benchmark() {
                                     .terminal
                                     .completed_sync_update_epoch(),
                                 start_seq: peer.next_datagram_seq,
-                                start_frame_id: peer.next_frame_id,
                                 presentation_continues: false,
                                 causal_input_advanced: false,
                                 input_seq: 1,
@@ -6559,7 +6573,7 @@ fn production_scroll_literal_benchmark() {
                             for datagram in &completion.buffers.datagrams {
                                 observe_display_compression_outcome(
                                     &mut peer,
-                                    datagram.frame.len(),
+                                    datagram.frame.wire_len(),
                                     datagram.raw_bytes,
                                     datagram.compression_attempted,
                                     datagram.content_class,
@@ -6571,12 +6585,12 @@ fn production_scroll_literal_benchmark() {
                             let mut bytes = 0usize;
                             let mut count = 0usize;
                             for datagram in &completion.buffers.datagrams {
-                                bytes += if datagram.frame.len()
+                                bytes += if datagram.frame.wire_bound()
                                     <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
                                 {
-                                    display_datagram_wire_len(datagram.frame.len())
+                                    display_datagram_wire_len(datagram.frame.wire_bound())
                                 } else {
-                                    display_reliable_record_wire_len(datagram.frame.len())
+                                    display_reliable_record_wire_len(datagram.frame.wire_bound())
                                 };
                                 count += 1;
                                 if let Some(repair) = &datagram.precomputed_fec_repair {
@@ -6747,7 +6761,6 @@ fn display_partition_domain_diagnostic() {
                         display_revision: terminal.display_revision(),
                         completed_sync_update_epoch: terminal.completed_sync_update_epoch(),
                         start_seq: peer.next_datagram_seq,
-                        start_frame_id: peer.next_frame_id,
                         presentation_continues: false,
                         causal_input_advanced: false,
                         input_seq: 1,
@@ -6768,7 +6781,7 @@ fn display_partition_domain_diagnostic() {
                     for datagram in &completion.buffers.datagrams {
                         observe_display_compression_outcome(
                             &mut peer,
-                            datagram.frame.len(),
+                            datagram.frame.wire_len(),
                             datagram.raw_bytes,
                             datagram.compression_attempted,
                             datagram.content_class,
@@ -6806,7 +6819,7 @@ fn display_partition_domain_diagnostic() {
                         .collect::<Vec<_>>()
                         .join(",");
                     let datagrams = &completion.buffers.datagrams;
-                    let wire: usize = datagrams.iter().map(|d| d.frame.len()).sum();
+                    let wire: usize = datagrams.iter().map(|d| d.frame.wire_len()).sum();
                     let raw: usize = datagrams.iter().map(|d| d.raw_bytes).sum();
                     let parity = datagrams
                         .iter()
@@ -6818,8 +6831,12 @@ fn display_partition_domain_diagnostic() {
                             format!(
                                 "{}r/{}B{}",
                                 d.encoded_rows,
-                                d.frame.len(),
-                                if d.frame.len() < d.raw_bytes { "z" } else { "" }
+                                d.frame.wire_len(),
+                                if d.frame.planned_wire_len(d.header_reserve) < d.raw_bytes {
+                                    "z"
+                                } else {
+                                    ""
+                                }
                             )
                         })
                         .collect::<Vec<_>>()
@@ -7015,28 +7032,28 @@ fn benchmark_display_wire_cases() -> Vec<BenchmarkWireCase> {
     let critical = datagrams
         .iter()
         .filter(|datagram| datagram.utility == DisplayUtility::Critical)
-        .min_by_key(|datagram| datagram.frame.len())
+        .min_by_key(|datagram| datagram.frame.wire_len())
         .expect("production fixture must produce a critical datagram");
     let direct = ordinary
         .iter()
-        .min_by_key(|datagram| datagram.frame.len())
+        .min_by_key(|datagram| datagram.frame.wire_len())
         .expect("production fixture must produce an ordinary datagram");
     let edge = ordinary
         .iter()
-        .max_by_key(|datagram| datagram.frame.len())
+        .max_by_key(|datagram| datagram.frame.wire_len())
         .expect("production fixture must produce an ordinary datagram");
     vec![
         BenchmarkWireCase {
             route: BenchmarkWireRoute::Direct,
-            frame: direct.frame.clone(),
+            frame: direct.frame.bytes().to_vec(),
         },
         BenchmarkWireCase {
             route: BenchmarkWireRoute::Edge,
-            frame: edge.frame.clone(),
+            frame: edge.frame.bytes().to_vec(),
         },
         BenchmarkWireCase {
             route: BenchmarkWireRoute::Redundant,
-            frame: critical.frame.clone(),
+            frame: critical.frame.bytes().to_vec(),
         },
     ]
 }
@@ -7204,7 +7221,7 @@ async fn loss_enabled_one_frame_group_replays_the_exact_sealed_wire_on_its_sole_
         capture_tx,
     )));
     let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::NonCritical);
-    let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+    let wire_len = sealed_display_datagram_wire_len(wire_len(datagram.frame.bytes()));
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
     let mut budget =
@@ -7230,7 +7247,7 @@ async fn loss_enabled_one_frame_group_replays_the_exact_sealed_wire_on_its_sole_
     let wire = browser
         .open_datagram(lane, &first.1)
         .expect("first copy opens");
-    assert_eq!(wire.as_slice(), wire_frame(&mut group[0].frame));
+    assert_eq!(wire.as_slice(), wire_frame(group[0].frame.bytes_mut()));
     let plain = crate::display::viewer::staged_display_frame(&wire);
     let header = merkur_codec::parse_frame_header(&plain).unwrap();
     assert!(header.presentation_coherent && header.presentation_end);
@@ -7278,7 +7295,7 @@ async fn one_frame_group_adds_no_third_copy_after_dual_admission() {
     peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
 
     let mut datagram = prepared_with_utility_for_test(1, 0, DisplayUtility::Critical);
-    datagram.frame = filled_staged_frame_for_test(datagram.seq, 64, 0xC3);
+    datagram.frame = StagedFrame::new(filled_staged_frame_for_test(datagram.seq, 64, 0xC3));
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(89, 89, 2);
@@ -7362,7 +7379,7 @@ async fn cross_carrier_k1_advances_once_and_records_protected_provenance() {
 
     let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::Critical);
     let seq = datagram.seq;
-    let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+    let wire_len = sealed_display_datagram_wire_len(wire_len(datagram.frame.bytes()));
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(wire_len, wire_len, 2);
@@ -7482,7 +7499,7 @@ async fn cross_carrier_k1_probe_cadence_reaches_clean_disable_without_double_cou
             .replication_progress();
         let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::Critical);
         let data_seq = datagram.seq;
-        let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+        let wire_len = sealed_display_datagram_wire_len(wire_len(datagram.frame.bytes()));
         let probe_wire_len = K1_PROBE_WIRE_RESERVATION;
         let mut group = [datagram];
         let (webtransport_bytes, edge_bytes) = match owner {
@@ -7638,7 +7655,7 @@ async fn partial_cross_carrier_k1_copy_is_unprotected_and_does_not_advance() {
 
     let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::Critical);
     let seq = datagram.seq;
-    let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+    let wire_len = sealed_display_datagram_wire_len(wire_len(datagram.frame.bytes()));
     let probe_wire_len = K1_PROBE_WIRE_RESERVATION;
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
@@ -7656,7 +7673,7 @@ async fn partial_cross_carrier_k1_copy_is_unprotected_and_does_not_advance() {
         },
         "one delivered data copy is progress but not fulfilled k=1 protection",
     );
-    let header = merkur_codec::parse_frame_header(&group[0].frame).unwrap();
+    let header = merkur_codec::parse_frame_header(group[0].frame.bytes()).unwrap();
     assert!(header.presentation_coherent && header.presentation_end);
     assert_eq!(
         (
@@ -7696,7 +7713,7 @@ async fn partial_cross_carrier_k1_copy_is_unprotected_and_does_not_advance() {
     let (_, sealed) = direct_rx.try_recv().unwrap();
     let lane = crate::e2e::lane_for_channel(sealed[0]).unwrap();
     let delivered = browser.open_datagram(lane, &sealed[1..]).unwrap();
-    assert_eq!(delivered.as_slice(), wire_frame(&mut group[0].frame));
+    assert_eq!(delivered.as_slice(), wire_frame(group[0].frame.bytes_mut()));
     assert!(direct_rx.try_recv().is_err());
 }
 
@@ -7761,9 +7778,9 @@ async fn required_replica_is_admitted_atomically_before_data_or_burst_tail() {
         capture_tx,
     )));
     let mut first = prepared_with_utility_for_test(1, 0, DisplayUtility::NonCritical);
-    first.frame = filled_staged_frame_for_test(first.seq, 80, 0xA1);
+    first.frame = StagedFrame::new(filled_staged_frame_for_test(first.seq, 80, 0xA1));
     let mut tail = prepared_with_utility_for_test(2, 0, DisplayUtility::Critical);
-    tail.frame = filled_staged_frame_for_test(tail.seq, 80, 0xB2);
+    tail.frame = StagedFrame::new(filled_staged_frame_for_test(tail.seq, 80, 0xB2));
     let mut prepared = vec![first, tail];
     let mut pool = frame_pool_for_test();
     peer.display_cache
@@ -8031,7 +8048,7 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                     coherent,
                     end,
                 );
-                let mut header = merkur_codec::parse_frame_header(&datagram.frame).unwrap();
+                let mut header = merkur_codec::parse_frame_header(datagram.frame.bytes()).unwrap();
                 header.cols = 120;
                 header.cursor_col = 1;
                 header.row_count = 1;
@@ -8042,7 +8059,7 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                 let row = heterogeneous_prepare_row(0, true).sent;
                 let expected_hash = row.hash;
                 encode_frame_into(
-                    &mut datagram.frame,
+                    datagram.frame.buffer_mut(),
                     &header,
                     std::iter::once(RowRef {
                         graphics: &[],
@@ -8052,11 +8069,11 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                     }),
                 );
                 patch_stream_header(
-                    &mut datagram.frame,
+                    datagram.frame.bytes_mut(),
                     datagram.seq,
                     peer.generation,
                     peer.latest_input_seq,
-                    datagram.frame_id,
+                    datagram.seq,
                     header.presentation_id,
                     coherent,
                     end,
@@ -8070,20 +8087,20 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                     (120u128 << 80) | (8u128 << 64) | (1u128 << 48) | (1u128 << 16);
                 datagram.encoded_rows = 1;
                 datagram.rows.push(SentRow::from(&row));
-                datagram.raw_bytes = datagram.frame.len();
+                datagram.raw_bytes = datagram.frame.planned_wire_len(datagram.header_reserve);
                 if compressed {
                     let mut encoded = Vec::new();
                     assert!(
                         Compressor::new()
-                            .compress_display_frame_into(&datagram.frame, None, &mut encoded)
+                            .compress_display_frame_into(datagram.frame.bytes(), None, &mut encoded)
                             .is_some()
                     );
-                    datagram.frame = encoded;
+                    datagram.frame = StagedFrame::new(encoded);
                     datagram.compression_attempted = true;
                 }
                 let body_before =
                     datagram.frame[STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES..].to_vec();
-                let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+                let wire_len = sealed_display_datagram_wire_len(wire_len(datagram.frame.bytes()));
                 let mut group = [datagram];
                 let mut pool = frame_pool_for_test();
                 let mut budget = if probe_capacity {
@@ -8118,7 +8135,7 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                 );
                 let lane = crate::e2e::lane_for_channel(channel).unwrap();
                 let original = browser.open_datagram(lane, &original).unwrap();
-                assert_eq!(original.as_slice(), wire_frame(&mut group[0].frame));
+                assert_eq!(original.as_slice(), wire_frame(group[0].frame.bytes_mut()));
                 let original = crate::display::viewer::staged_display_frame(&original);
                 assert_eq!(
                     original[STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES..],
@@ -8207,7 +8224,7 @@ async fn k1_probe_tail_refusal_releases_its_reservation_once_without_retracting_
         let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
         assert!(outcome.all_sent && !outcome.stop && outcome.presentation_end_admitted);
         assert_eq!(outcome.probe_path, Some(PeerTransport::Edge));
-        let header = merkur_codec::parse_frame_header(&group[0].frame).unwrap();
+        let header = merkur_codec::parse_frame_header(group[0].frame.bytes()).unwrap();
         assert!(header.presentation_coherent && header.presentation_end);
         assert_eq!(
             (
@@ -8221,7 +8238,7 @@ async fn k1_probe_tail_refusal_releases_its_reservation_once_without_retracting_
         match refusal {
             0 => drop(rx), // The carrier rejects the probe, after accepting both data copies.
             1 => peer.noise = None, // Sealing fails closed; no plaintext reaches the carrier.
-            _ => group[0].frame.clear(), // Invalid template cannot manufacture a probe.
+            _ => group[0].frame = StagedFrame::default(), // Invalid template cannot manufacture a probe.
         }
         let mut expected = budget;
         expected.release(PeerTransport::Edge, K1_PROBE_WIRE_RESERVATION);
@@ -8490,9 +8507,9 @@ async fn inline_group_parity_recovers_a_lost_datagram() {
         .map(|(index, (wire_bytes, fill))| {
             let seq = u32::from(index) + 1;
             let mut datagram = prepared_with_utility_for_test(seq, 0, DisplayUtility::NonCritical);
-            datagram.frame = filled_staged_frame_for_test(seq, wire_bytes, fill);
+            datagram.frame = StagedFrame::new(filled_staged_frame_for_test(seq, wire_bytes, fill));
             patch_stream_header(
-                &mut datagram.frame,
+                datagram.frame.bytes_mut(),
                 seq,
                 1,
                 0,
@@ -8536,7 +8553,7 @@ async fn inline_group_parity_recovers_a_lost_datagram() {
                 & DISPLAY_HEADER_FLAG_FEC_PROTECTED,
             DISPLAY_HEADER_FLAG_FEC_PROTECTED
         );
-        assert_eq!(sent.as_slice(), wire_frame(&mut datagram.frame));
+        assert_eq!(sent.as_slice(), wire_frame(datagram.frame.bytes_mut()));
     }
 
     let (header, body) = merkur_fec::repair::parse_repair(&repair).unwrap();
@@ -8549,7 +8566,7 @@ async fn inline_group_parity_recovers_a_lost_datagram() {
     );
     let widest = group
         .iter()
-        .map(|datagram| wire_len(&datagram.frame))
+        .map(|datagram| wire_len(datagram.frame.bytes()))
         .max()
         .unwrap();
     assert_eq!(usize::from(header.shard_size), widest);
@@ -8593,7 +8610,7 @@ async fn refused_physical_group_sends_and_records_nothing() {
         .map(|(index, (wire_bytes, fill))| {
             let seq = index as u32 + 1;
             let mut datagram = prepared_with_utility_for_test(seq, 0, DisplayUtility::NonCritical);
-            datagram.frame = filled_staged_frame_for_test(seq, wire_bytes, fill);
+            datagram.frame = StagedFrame::new(filled_staged_frame_for_test(seq, wire_bytes, fill));
             datagram
         })
         .collect();
@@ -8630,8 +8647,8 @@ async fn repair_capacity_is_reserved_before_any_fec_marked_data_is_sent() {
         prepared_with_utility_for_test(1, 64, DisplayUtility::NonCritical),
         prepared_with_utility_for_test(2, 64, DisplayUtility::NonCritical),
     ];
-    group[0].frame = filled_staged_frame_for_test(group[0].seq, 64, 0xA1);
-    group[1].frame = filled_staged_frame_for_test(group[1].seq, 64, 0xB2);
+    group[0].frame = StagedFrame::new(filled_staged_frame_for_test(group[0].seq, 64, 0xA1));
+    group[1].frame = StagedFrame::new(filled_staged_frame_for_test(group[1].seq, 64, 0xB2));
     let mut pool = frame_pool_for_test();
     // Exactly two 64-byte plaintext data frames plus the 25-byte final
     // channel/Noise overhead. Sender bytes and receiver packets are both
@@ -8678,11 +8695,11 @@ async fn exact_fec_group_budget_always_carries_its_parity() {
             true,
         ),
     ];
-    let data_wire_len = sealed_display_datagram_wire_len(wire_len(&group[0].frame));
-    assert_eq!(group[0].frame.len(), group[1].frame.len());
+    let data_wire_len = sealed_display_datagram_wire_len(wire_len(group[0].frame.bytes()));
+    assert_eq!(group[0].frame.wire_len(), group[1].frame.wire_len());
     let repair_wire_len = sealed_display_datagram_wire_len(repair_plaintext_len_for_test(
         DisplayPolicy::FEC_RECOVERY_SHARD_COUNT,
-        wire_len(&group[0].frame),
+        wire_len(group[0].frame.bytes()),
     ));
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(
@@ -8726,7 +8743,11 @@ fn post_encode_admission_uses_the_maximal_complete_prefix_and_opens_its_presenta
     let mut prepared: Vec<_> = (1..=3)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 80, DisplayUtility::NonCritical);
-            datagram.frame = filled_staged_frame_for_test(datagram.seq, 80, 0xA0 | seq as u8);
+            datagram.frame = StagedFrame::new(filled_staged_frame_for_test(
+                datagram.seq,
+                80,
+                0xA0 | seq as u8,
+            ));
             datagram.frame[DISPLAY_PATCH_FLAGS_OFFSET] =
                 PATCH_FLAG_PRESENTATION_COHERENT | PATCH_FLAG_PRESENTATION_END;
             datagram
@@ -8818,7 +8839,11 @@ fn awaiting_burst_for_test() -> (PeerDisplayState, Vec<PreparedDisplayDatagram>)
     let prepared = (1..=3)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 80, DisplayUtility::NonCritical);
-            datagram.frame = filled_staged_frame_for_test(datagram.seq, 80, 0xA0 | seq as u8);
+            datagram.frame = StagedFrame::new(filled_staged_frame_for_test(
+                datagram.seq,
+                80,
+                0xA0 | seq as u8,
+            ));
             datagram.frame[DISPLAY_PATCH_FLAGS_OFFSET] = PATCH_FLAG_PRESENTATION_COHERENT
                 | PATCH_FLAG_PRESENTATION_END
                 | PATCH_FLAG_DEMAND_AWAITS_GRANT;
@@ -8935,7 +8960,11 @@ fn receiver_packet_budget_counts_parity_and_selects_the_exact_prefix() {
     let mut prepared: Vec<_> = (1..=8)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 80, DisplayUtility::NonCritical);
-            datagram.frame = filled_staged_frame_for_test(datagram.seq, 80, 0x80 | seq as u8);
+            datagram.frame = StagedFrame::new(filled_staged_frame_for_test(
+                datagram.seq,
+                80,
+                0x80 | seq as u8,
+            ));
             datagram
         })
         .collect();
@@ -8969,7 +8998,11 @@ fn exact_dual_path_plan_charges_every_critical_copy_and_repair_copy() {
     let mut prepared: Vec<_> = (1..=2)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 64, DisplayUtility::Critical);
-            datagram.frame = filled_staged_frame_for_test(datagram.seq, 64, 0x60 | seq as u8);
+            datagram.frame = StagedFrame::new(filled_staged_frame_for_test(
+                datagram.seq,
+                64,
+                0x60 | seq as u8,
+            ));
             datagram
         })
         .collect();
@@ -9670,11 +9703,14 @@ fn decode_async_dictionary_benchmark_frame(
         DISPLAY_HEADER_FLAGS_OFFSET,
     };
 
-    let frame = &datagram.frame;
+    let frame = datagram.frame.bytes();
     let flags = frame[DISPLAY_HEADER_FLAGS_OFFSET];
     if flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD == 0 {
-        assert_eq!(frame.len(), datagram.raw_bytes);
-        return frame.clone();
+        assert_eq!(
+            datagram.frame.planned_wire_len(datagram.header_reserve),
+            datagram.raw_bytes
+        );
+        return frame.to_vec();
     }
 
     let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
@@ -9712,7 +9748,10 @@ fn decode_async_dictionary_benchmark_frame(
     let mut decoded = Vec::with_capacity(rows_offset.saturating_add(declared_rows));
     decoded.extend_from_slice(&frame[..rows_offset]);
     decoded.extend_from_slice(&body);
-    assert_eq!(decoded.len(), datagram.raw_bytes);
+    assert_eq!(
+        planned_wire_len(decoded.len(), datagram.header_reserve),
+        datagram.raw_bytes
+    );
     decoded[DISPLAY_HEADER_FLAGS_OFFSET] &=
         !(DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT);
     decoded
@@ -9740,7 +9779,7 @@ fn preflight_async_dictionary_completion(
         let decoded = decode_async_dictionary_benchmark_frame(datagram, &dictionary);
         decoded_checksum ^= merkur_codec::hash_bytes(&decoded);
         tally.display_bytes = tally.display_bytes.saturating_add(
-            peer.seal_datagram_wire(CHANNEL_DISPLAY_DATAGRAM, &datagram.frame)
+            peer.seal_datagram_wire(CHANNEL_DISPLAY_DATAGRAM, datagram.frame.bytes())
                 .expect("benchmark display Noise wire")
                 .len(),
         );
@@ -9800,7 +9839,8 @@ async fn production_async_dictionary_pipeline_benchmark() {
             .datagrams
             .iter()
             .map(|datagram| {
-                datagram.frame.len() + datagram.precomputed_fec_repair.as_ref().map_or(0, Vec::len)
+                datagram.frame.wire_len()
+                    + datagram.precomputed_fec_repair.as_ref().map_or(0, Vec::len)
             })
             .sum::<usize>();
     }
@@ -9943,7 +9983,7 @@ fn production_display_pipeline_benchmark() {
         // one fresh wire allocation per frame.
         for datagram in &datagrams {
             let wire = peer
-                .seal_display_wire(&datagram.frame)
+                .seal_display_wire(datagram.frame.bytes())
                 .expect("benchmark Noise transport");
             checksum ^= wire.len();
             if let Some(repair) = datagram.precomputed_fec_repair.as_ref() {
@@ -10018,7 +10058,6 @@ fn production_display_pipeline_benchmark() {
         display_revision: interactive_revision,
         completed_sync_update_epoch: 0,
         start_seq: 1,
-        start_frame_id: 1,
         presentation_continues: false,
         causal_input_advanced: false,
         input_seq: 1,
@@ -10437,7 +10476,7 @@ fn production_link_rows_benchmark() {
             wire_bytes = 0;
             for datagram in &datagrams {
                 wire_bytes += peer
-                    .seal_display_wire(&datagram.frame)
+                    .seal_display_wire(datagram.frame.bytes())
                     .expect("benchmark Noise transport")
                     .len();
                 if let Some(repair) = datagram.precomputed_fec_repair.as_ref() {
@@ -10955,7 +10994,7 @@ fn production_display_pipeline_stage_decomposition() {
         let started = Instant::now();
         for datagram in &datagrams {
             let wire = peer
-                .seal_display_wire(&datagram.frame)
+                .seal_display_wire(datagram.frame.bytes())
                 .expect("benchmark Noise transport");
             checksum ^= wire.len();
             if let Some(repair) = datagram.precomputed_fec_repair.as_ref() {
@@ -11015,7 +11054,7 @@ fn production_display_pipeline_stage_decomposition() {
         );
         for datagram in &datagrams {
             shape_datagrams += 1;
-            shape_plaintext_bytes += datagram.frame.len();
+            shape_plaintext_bytes += datagram.frame.wire_len();
             if let Some(repair) = datagram.precomputed_fec_repair.as_ref() {
                 shape_repairs += 1;
                 shape_plaintext_bytes += repair.len();
@@ -11121,7 +11160,7 @@ fn production_display_pipeline_stage_decomposition() {
             .count();
         for datagram in &datagrams {
             let wire = peer
-                .seal_display_wire(&datagram.frame)
+                .seal_display_wire(datagram.frame.bytes())
                 .expect("benchmark Noise transport");
             checksum ^= wire.len();
         }
@@ -11373,7 +11412,6 @@ fn interactive_request_for_test(
         display_revision: terminal.display_revision(),
         completed_sync_update_epoch: terminal.completed_sync_update_epoch(),
         start_seq: peer.next_datagram_seq,
-        start_frame_id: peer.next_frame_id,
         presentation_continues: false,
         causal_input_advanced: false,
         input_seq: 1,
@@ -11720,11 +11758,11 @@ fn prepared_primary_traffic(datagrams: &[PreparedDisplayDatagram]) -> (usize, us
     let mut unreliable = 0;
     let mut reliable = 0;
     for datagram in datagrams {
-        if datagram.frame.len() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES {
-            bytes += display_datagram_wire_len(datagram.frame.len());
+        if datagram.frame.wire_bound() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES {
+            bytes += display_datagram_wire_len(datagram.frame.wire_bound());
             unreliable += 1;
         } else {
-            bytes += display_reliable_record_wire_len(datagram.frame.len());
+            bytes += display_reliable_record_wire_len(datagram.frame.wire_bound());
             reliable += 1;
         }
         if let Some(repair) = &datagram.precomputed_fec_repair {
@@ -11836,7 +11874,7 @@ fn first_partition_candidate_fits_actual_sizes_without_crossing_planned_spans() 
         }
         let mut next_row = 0usize;
         for (index, datagram) in prepared.buffers.datagrams.iter().enumerate() {
-            let header = merkur_codec::parse_frame_header(&datagram.frame).unwrap();
+            let header = merkur_codec::parse_frame_header(datagram.frame.bytes()).unwrap();
             assert_eq!(header.chunk_count, 1);
             assert_eq!(header.presentation_member_index, index as u16);
             assert_eq!(
@@ -11845,15 +11883,15 @@ fn first_partition_candidate_fits_actual_sizes_without_crossing_planned_spans() 
             );
             let planned_end = *ends.iter().find(|&&end| end > next_row).unwrap();
             assert!(
-                datagram.frame.len() <= DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES
+                datagram.frame.wire_bound() <= DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES
                     || datagram.rows.len() == 1
             );
             let mut viewer = term_wasm::Terminal::new_headless(COLS, ROWS);
             assert!(viewer.apply_state_seq(&snapshot, 1));
-            let handle = viewer.stage_display_frame_bytes(&datagram.frame);
+            let handle = viewer.stage_display_frame_bytes(datagram.frame.bytes());
             assert_ne!(handle, 0, "{:?}", viewer.take_last_error());
             assert!(viewer.validate_staged_frame(handle));
-            let seq = merkur_codec::parse_stream_header(&datagram.frame)
+            let seq = merkur_codec::parse_stream_header(datagram.frame.bytes())
                 .unwrap()
                 .seq;
             assert!(viewer.apply_staged_delta_seq(handle, seq));
@@ -11983,7 +12021,8 @@ fn whole_span_candidate_preserves_shared_header_promotion() {
     for row in &mut prepared.buffers.rows {
         row.utility = DisplayUtility::NonCritical;
     }
-    let header = merkur_codec::parse_frame_header(&prepared.buffers.datagrams[0].frame).unwrap();
+    let header =
+        merkur_codec::parse_frame_header(prepared.buffers.datagrams[0].frame.bytes()).unwrap();
     let policy = display_compression_policy(&peer, 100.0, true, ExecutionLane::Bulk, 0);
     for header_changed in [false, true] {
         let mut scratch = PrepareScratch {
@@ -11993,6 +12032,7 @@ fn whole_span_candidate_preserves_shared_header_promotion() {
         pack_captured_rows(
             &prepared.buffers.rows,
             header,
+            0,
             &policy,
             None,
             header_changed,
@@ -12012,11 +12052,11 @@ fn whole_span_candidate_preserves_shared_header_promotion() {
         if header_changed {
             assert_eq!(scratch.batches[0].3, DisplayUtility::Critical);
             assert_eq!(
-                scratch.batches[0].0.len(),
+                scratch.batches[0].0.planned_wire_len(),
                 scratch
                     .batches
                     .iter()
-                    .map(|batch| batch.0.len())
+                    .map(|batch| batch.0.planned_wire_len())
                     .min()
                     .unwrap()
             );
@@ -12043,7 +12083,15 @@ fn whole_span_candidate_preserves_interactive_bytes() {
         request.header_changed = true;
         request.causal_input_advanced = true;
         assert_eq!(
-            captured_presentation_workload(&request.buffers.rows, &request.compression),
+            captured_presentation_workload(
+                &request.buffers.rows,
+                &request.compression,
+                packed_header_reserve(
+                    &request.header,
+                    request.input_seq,
+                    request.buffers.rows.len()
+                ),
+            ),
             DisplayWorkload::Interactive
         );
         let prepared = prepare_display_off_loop(
@@ -12104,7 +12152,13 @@ fn whole_span_candidate_actual_quote_crossover_keeps_lane_and_fec_bounds() {
                 entropy,
                 frames
                     .iter()
-                    .map(|frame| (frame.frame.len(), frame.raw_bytes, frame.utility))
+                    .map(|frame| {
+                        (
+                            frame.frame.planned_wire_len(frame.header_reserve),
+                            frame.raw_bytes,
+                            frame.utility,
+                        )
+                    })
                     .collect::<Vec<_>>(),
             ));
             let count = frames.len();
@@ -12167,7 +12221,7 @@ fn whole_span_candidate_actual_quote_crossover_keeps_lane_and_fec_bounds() {
                 }
                 assert_eq!(
                     uses_display_datagram(frame),
-                    frame.frame.len() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
+                    frame.frame.wire_bound() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
                 );
             }
             assert!(budget.webtransport_bytes <= 2_000_000 && budget.edge_bytes <= 2_000_000);
@@ -12198,7 +12252,8 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
             assert!(
                 frames
                     .iter()
-                    .any(|frame| frame.frame.len() < frame.raw_bytes),
+                    .any(|frame| frame.frame.planned_wire_len(frame.header_reserve)
+                        < frame.raw_bytes),
                 "known compressible rows must actually exercise zstd"
             );
         }
@@ -12206,7 +12261,7 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
         for (row, cells) in peer.display_cache.acked_row_cells.iter().enumerate() {
             // Seed a common ACK baseline one independent row at a time;
             // even the maximum grid never needs an oversize test frame.
-            let mut header = merkur_codec::parse_frame_header(&frames[0].frame).unwrap();
+            let mut header = merkur_codec::parse_frame_header(frames[0].frame.bytes()).unwrap();
             header.row_count = 1;
             header.presentation_member_index = 0;
             header.presentation_member_count = 0;
@@ -12239,18 +12294,18 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
             .unwrap();
             baseline_frames.push(baseline);
         }
-        let presentation = merkur_codec::parse_frame_header(&frames[0].frame)
+        let presentation = merkur_codec::parse_frame_header(frames[0].frame.bytes())
             .unwrap()
             .presentation_id;
         let mut seen = vec![false; usize::from(rows)];
         let mut expected_full = peer.display_cache.acked_row_hashes.clone();
         for (index, frame) in frames.iter().enumerate() {
-            let stream = merkur_codec::parse_stream_header(&frame.frame).unwrap();
-            let header = merkur_codec::parse_frame_header(&frame.frame).unwrap();
+            let stream = merkur_codec::parse_stream_header(frame.frame.bytes()).unwrap();
+            let header = merkur_codec::parse_frame_header(frame.frame.bytes()).unwrap();
             assert!(frame.raw_bytes <= STREAM_HEADER_BYTES + usize::from(u16::MAX));
             assert_eq!(
                 stream.body_len as usize + STREAM_HEADER_BYTES,
-                frame.frame.len()
+                frame.frame.bytes().len()
             );
             assert_eq!(header.chunk_count, 1);
             assert_eq!(header.chunk_index, 0);
@@ -12259,7 +12314,7 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
             assert_eq!(usize::from(header.presentation_member_count), frames.len());
             assert_eq!(
                 uses_display_datagram(frame),
-                frame.frame.len() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
+                frame.frame.wire_bound() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
             );
             for row in frame.rows.iter() {
                 assert!(!std::mem::replace(&mut seen[usize::from(row.row)], true));
@@ -12283,8 +12338,10 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
             let mut expected = peer.display_cache.acked_row_hashes.clone();
             for &index in order {
                 let frame = &frames[index];
-                let seq = merkur_codec::parse_stream_header(&frame.frame).unwrap().seq;
-                let handle = viewer.stage_display_frame_bytes(&frame.frame);
+                let seq = merkur_codec::parse_stream_header(frame.frame.bytes())
+                    .unwrap()
+                    .seq;
+                let handle = viewer.stage_display_frame_bytes(frame.frame.bytes());
                 assert_ne!(handle, 0, "{:?}", viewer.take_last_error());
                 assert!(viewer.validate_staged_frame(handle));
                 assert!(viewer.apply_staged_delta_seq(handle, seq));
@@ -12484,7 +12541,6 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
             display_revision: terminal.display_revision(),
             completed_sync_update_epoch: terminal.completed_sync_update_epoch(),
             start_seq: 1,
-            start_frame_id: 1,
             presentation_continues: false,
             causal_input_advanced: false,
             input_seq: 1,
@@ -12508,7 +12564,7 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
         let mut receiver = term_wasm::Terminal::new_headless(cols, rows);
         let phase = usize::from(round >= 10);
         for datagram in &buffers.datagrams {
-            fingerprint.write(&datagram.frame);
+            fingerprint.write(datagram.frame.bytes());
             if datagram.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
                 & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
                 != 0
@@ -12517,7 +12573,7 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
             } else {
                 raw_frames[phase] += 1;
             }
-            let handle = receiver.stage_display_frame_bytes(&datagram.frame);
+            let handle = receiver.stage_display_frame_bytes(datagram.frame.bytes());
             assert_ne!(handle, 0, "prepared frame must stage");
             assert!(receiver.apply_staged_delta_seq(handle, datagram.seq));
             receiver.release_staged_frame(handle);
@@ -12721,7 +12777,6 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                                 display_revision: terminal.display_revision(),
                                 completed_sync_update_epoch: terminal.completed_sync_update_epoch(),
                                 start_seq: peer.next_datagram_seq,
-                                start_frame_id: peer.next_frame_id,
                                 presentation_continues: false,
                                 causal_input_advanced: false,
                                 input_seq: 1,
@@ -12825,7 +12880,7 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                         for datagram in &bulk.buffers.datagrams {
                             observe_display_compression_outcome(
                                 &mut peer,
-                                datagram.frame.len(),
+                                datagram.frame.wire_len(),
                                 datagram.raw_bytes,
                                 datagram.compression_attempted,
                                 datagram.content_class,
@@ -12996,14 +13051,15 @@ fn worker_prepare_keeps_frame_loss_local_and_groups_only_presentation() {
         completion.buffers.datagrams.len() > 1,
         "fixture must cross the datagram cap"
     );
-    let presentation_id = merkur_codec::parse_frame_header(&completion.buffers.datagrams[0].frame)
-        .unwrap()
-        .presentation_id;
+    let presentation_id =
+        merkur_codec::parse_frame_header(completion.buffers.datagrams[0].frame.bytes())
+            .unwrap()
+            .presentation_id;
     let mut frame_ids = std::collections::HashSet::new();
     for (index, datagram) in completion.buffers.datagrams.iter().enumerate() {
-        let header = merkur_codec::parse_frame_header(&datagram.frame).unwrap();
+        let header = merkur_codec::parse_frame_header(datagram.frame.bytes()).unwrap();
         assert!(frame_ids.insert(header.frame_id));
-        assert_eq!(header.frame_id, datagram.frame_id);
+        assert_eq!(header.frame_id, datagram.seq);
         assert_eq!(header.presentation_id, presentation_id);
         assert!(header.presentation_coherent);
         assert_eq!(
@@ -13529,7 +13585,7 @@ async fn continuation_discovered_after_worker_prepare_clears_end_before_send() {
     let completion =
         prepare_display_off_loop(request, &mut compressor, &mut fec_encoder, &mut scratch);
     let prepared_header =
-        merkur_codec::parse_frame_header(&completion.buffers.datagrams[0].frame).unwrap();
+        merkur_codec::parse_frame_header(completion.buffers.datagrams[0].frame.bytes()).unwrap();
     assert!(!prepared_header.presentation_coherent);
     assert!(prepared_header.presentation_end);
     assert_eq!(prepared_header.presentation_member_count, 0);
@@ -13591,7 +13647,7 @@ fn late_continuation_restamps_original_members_before_rebuilding_fec() {
     assert_ne!(repair, old_repair);
     let wires: Vec<Vec<u8>> = prepared
         .iter_mut()
-        .map(|datagram| wire_frame(&mut datagram.frame).to_vec())
+        .map(|datagram| wire_frame(datagram.frame.bytes_mut()).to_vec())
         .collect();
     let (header, body) = merkur_fec::repair::parse_repair(&repair).unwrap();
     let shard_size = usize::from(header.shard_size);
@@ -14247,7 +14303,6 @@ fn display_prepare_handoff_allocates_only_the_frames() {
                 display_revision: terminal.display_revision(),
                 completed_sync_update_epoch: terminal.completed_sync_update_epoch(),
                 start_seq: peer.next_datagram_seq,
-                start_frame_id: peer.next_frame_id,
                 presentation_continues: false,
                 causal_input_advanced: false,
                 input_seq: 1,

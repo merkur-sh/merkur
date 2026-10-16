@@ -532,6 +532,8 @@ it to the RFC 8439 vectors, all Wycheproof vectors accepted by its fixed 12-byte
 API, and byte-for-byte to the RustCrypto AEAD reference. Streams and datagrams
 use disjoint per-lane nonce spaces with 40-bit counters, carried whole on the wire so they are read
 back exactly, and replay windows; a lane fails closed at its last counter, and counters never wrap.
+Either end retires a session whose lane has sealed its last counter, and its replacement carrier
+runs fresh key agreement.
 Traffic keys last for the committed Noise generation; authorization renewal does not evolve
 them. A carrier rebind performs fresh key agreement. Merkur claims no recovery from a live
 generation's traffic-key disclosure without fresh agreement, and no complete erasure of

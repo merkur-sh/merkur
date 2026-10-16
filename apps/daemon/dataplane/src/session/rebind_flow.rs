@@ -2106,7 +2106,6 @@ mod tests {
         peer.display_cache
             .prime_from_snapshot(&grid, &[11, 22], &[]);
         peer.next_datagram_seq = 40;
-        peer.next_frame_id = 12;
         assert!(peer.display_cache.initialized);
 
         splice_rebound_peer(&mut peer, 1_000.0);
@@ -2136,7 +2135,6 @@ mod tests {
         // would read on the browser as duplicate, wildly reordered frames, and
         // would collide FEC groups that are pinned by `batch_start_seq`.
         assert_eq!(peer.next_datagram_seq, 40);
-        assert_eq!(peer.next_frame_id, 12);
     }
 
     /// Carrier-scoped display readiness is retired only at commit, while the

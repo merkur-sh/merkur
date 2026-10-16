@@ -51,30 +51,24 @@ impl DisplayPolicy {
     // bytes, so 1100 gives ~60+ bytes of headroom for path-MTU shifts
     // (carrier handoff, dual-stack). Sends at 1199 bytes were being silently
     // rejected by iOS WT before this cap.
-    pub const DATAGRAM_MAX_WIRE_BYTES: usize = 1100;
-    /// [`Self::DATAGRAM_MAX_WIRE_BYTES`] in staged bytes, the unit display
-    /// planning measures frames in (see `encoder::STAGED_SLACK`).
-    pub const DATAGRAM_MAX_PAYLOAD_BYTES: usize =
-        Self::DATAGRAM_MAX_WIRE_BYTES + crate::display::encoder::STAGED_SLACK;
-    /// Largest data shard, in staged bytes, that still leaves room for one
-    /// repair shard in a datagram. A repair carries a 16-byte header and a
-    /// recovery shard a 2-byte length stripe, so on the wire 1082 is the exact
-    /// boundary: 16 + 2 + 1082 = 1100.
+    pub const DATAGRAM_MAX_PAYLOAD_BYTES: usize = 1100;
+    /// Largest data shard on the wire that still leaves room for one repair
+    /// shard in a datagram. A repair carries a 16-byte header and a recovery
+    /// shard a 2-byte length stripe, so 1082 is the exact boundary:
+    /// 16 + 2 + 1082 = 1100.
     ///
     /// Delta batching targets this value. A single indivisible row may still
     /// occupy the ordinary 1100-byte data cap, but it is then deliberately
     /// unprotected rather than promoted to the reliable lane.
-    pub const FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES: usize = Self::DATAGRAM_MAX_WIRE_BYTES
+    pub const FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES: usize = Self::DATAGRAM_MAX_PAYLOAD_BYTES
         - merkur_codec::DISPLAY_FEC_HEADER_BYTES
-        - merkur_fec::repair::REPAIR_LENGTH_BYTES
-        + crate::display::encoder::STAGED_SLACK;
-    /// Largest data shard, in staged bytes, that two recovery shards cover in
-    /// one repair datagram: 16 + 2 × (2 + 540) = 1100 on the wire.
-    pub const FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES: usize = (Self::DATAGRAM_MAX_WIRE_BYTES
+        - merkur_fec::repair::REPAIR_LENGTH_BYTES;
+    /// Largest data shard on the wire that two recovery shards cover in one
+    /// repair datagram: 16 + 2 × (2 + 540) = 1100.
+    pub const FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES: usize = (Self::DATAGRAM_MAX_PAYLOAD_BYTES
         - merkur_codec::DISPLAY_FEC_HEADER_BYTES)
         / Self::FEC_RECOVERY_SHARD_COUNT
-        - merkur_fec::repair::REPAIR_LENGTH_BYTES
-        + crate::display::encoder::STAGED_SLACK;
+        - merkur_fec::repair::REPAIR_LENGTH_BYTES;
     pub const SENT_DATAGRAM_PRUNE_AGE_MS: f64 = 2000.0;
     /// Hard object-count bound for immutable send-time ACK/NACK snapshots.
     /// At the 1ms interactive flush floor this retains roughly one second of

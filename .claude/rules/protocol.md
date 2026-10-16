@@ -24,7 +24,7 @@ crypto change; `test:e2e:transport` is the only gate that exercises a real splic
   type numbers live in `merkur_wire::protocol` (`MSG_TYPE_*`); `packages/protocol` mirrors
   only the `MESSAGE_TYPE_*` its TypeScript encoders and readers use, pinned by
   `wire-conformance.test.ts`. Update all sides together.
-- `merkur_codec::VERSION` is the display wire version and is currently `33`. Bump it
+- `merkur_codec::VERSION` is the display wire version and is currently `34`. Bump it
   whenever the display stream **or** its control messages change shape: the envelope is
   byte-identical across compression changes, so version skew is the one corruption this
   stream cannot otherwise detect. `check:docs` pins this sentence to the constant.

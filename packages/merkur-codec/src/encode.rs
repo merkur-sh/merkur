@@ -429,35 +429,27 @@ pub fn push_frame_header_body(out: &mut Vec<u8>, header: &FrameHeader) {
 /// The fixed frame header every in-memory reader patches and parses at fixed
 /// offsets, without the headroom behind it.
 pub(crate) fn frame_header_fixed(header: &FrameHeader) -> [u8; crate::FRAME_HEADER_FIXED_BYTES] {
-    let fields: [&[u8]; 19] = [
-        &[VERSION, header.patch_flags()],
-        &header.cols.to_be_bytes(),
-        &header.rows.to_be_bytes(),
-        &header.cursor_col.to_be_bytes(),
-        &header.cursor_row.to_be_bytes(),
-        &[(header.cursor_shape & 0x0f) | ((header.cursor_visible & 0x01) << 4)],
-        &header.mode_flags.to_be_bytes(),
-        &header.frame_id.to_be_bytes(),
-        &header.presentation_id.to_be_bytes(),
-        &header.chunk_index.to_be_bytes(),
-        &header.chunk_count.to_be_bytes(),
-        &header.row_count.to_be_bytes(),
-        &header.presentation_member_index.to_be_bytes(),
-        &header.presentation_member_count.to_be_bytes(),
-        &header.row_predecessor_presentation_id.to_be_bytes(),
-        &header.demand_serial.to_be_bytes(),
-        &header.closure_digest.to_be_bytes(),
-        &header.scroll_serial.to_be_bytes(),
-        &header.echo_horizon.to_be_bytes(),
-    ];
-    debug_assert_eq!(
-        fields.iter().map(|field| field.len()).sum::<usize>(),
-        crate::FRAME_HEADER_FIXED_BYTES
-    );
     let mut out = [0u8; crate::FRAME_HEADER_FIXED_BYTES];
-    for (slot, byte) in out.iter_mut().zip(fields.into_iter().flatten()) {
-        *slot = *byte;
-    }
+    out[0] = VERSION;
+    out[1] = header.patch_flags();
+    out[2..4].copy_from_slice(&header.cols.to_be_bytes());
+    out[4..6].copy_from_slice(&header.rows.to_be_bytes());
+    out[6..8].copy_from_slice(&header.cursor_col.to_be_bytes());
+    out[8..10].copy_from_slice(&header.cursor_row.to_be_bytes());
+    out[10] = (header.cursor_shape & 0x0f) | ((header.cursor_visible & 0x01) << 4);
+    out[11..13].copy_from_slice(&header.mode_flags.to_be_bytes());
+    out[13..17].copy_from_slice(&header.frame_id.to_be_bytes());
+    out[17..21].copy_from_slice(&header.presentation_id.to_be_bytes());
+    out[21..23].copy_from_slice(&header.chunk_index.to_be_bytes());
+    out[23..25].copy_from_slice(&header.chunk_count.to_be_bytes());
+    out[25..27].copy_from_slice(&header.row_count.to_be_bytes());
+    out[27..29].copy_from_slice(&header.presentation_member_index.to_be_bytes());
+    out[29..31].copy_from_slice(&header.presentation_member_count.to_be_bytes());
+    out[31..35].copy_from_slice(&header.row_predecessor_presentation_id.to_be_bytes());
+    out[35..39].copy_from_slice(&header.demand_serial.to_be_bytes());
+    out[39..47].copy_from_slice(&header.closure_digest.to_be_bytes());
+    out[47..51].copy_from_slice(&header.scroll_serial.to_be_bytes());
+    out[51..55].copy_from_slice(&header.echo_horizon.to_be_bytes());
     out
 }
 

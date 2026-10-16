@@ -15,6 +15,9 @@ const CONTENT_CLASSES: usize = 3;
 const EXECUTION_LANES: usize = 3;
 const POSTERIOR_SAMPLES: usize = 32;
 const POSTERIOR_WARM_SAMPLES: u8 = 8;
+/// The neutral compression-ratio prior of a size bucket with no tighter
+/// evidence (`PeerDisplayPlanningModel::snapshot`).
+const COLD_RATIO_UPPER: f64 = 0.5;
 const RELIABLE_RECORD_LENGTH_BYTES: usize = std::mem::size_of::<u32>();
 const TAIL_PERCENTILE: f64 = 0.95;
 const GROUP_LENGTHS: usize = merkur_fec::FEC_MAX_DATA + 1;
@@ -317,11 +320,8 @@ impl ReadMostlyPosterior {
     }
 }
 
-/// The size bucket of a frame `staged_len` long staged, over the bytes it puts
-/// on the wire at most, so buckets keep their wire meaning.
 #[inline]
-pub const fn size_class(staged_len: usize) -> usize {
-    let bytes = staged_wire_bound(staged_len);
+pub const fn size_class(bytes: usize) -> usize {
     if bytes <= 512 {
         0
     } else if bytes <= 1_024 {
@@ -626,58 +626,36 @@ pub struct PacketPlan {
     pub tail_latency_us: f64,
 }
 
-/// The most bytes a display frame `staged_len` long in its staged layout puts
-/// on the wire: the planner measures frames staged (see
-/// `encoder::STAGED_SLACK`).
+/// Physical bytes admitted for one display datagram `wire_len` long. The
+/// channel byte is outside Noise and every sealed record carries the fixed
+/// Noise framing.
 #[inline]
-pub(crate) const fn staged_wire_bound(staged_len: usize) -> usize {
-    staged_len.saturating_sub(crate::display::encoder::STAGED_SLACK)
+pub(crate) const fn display_datagram_wire_len(wire_len: usize) -> usize {
+    1 + wire_len + crate::e2e::FRAME_OVERHEAD
 }
 
-/// A staged frame's compression ratio, over the bytes zstd and the wire see:
-/// the staged slack is the same uncompressed constant before and after.
-#[inline]
-pub(crate) fn staged_ratio(raw_staged: usize, compressed_staged: usize) -> f64 {
-    staged_wire_bound(compressed_staged) as f64 / staged_wire_bound(raw_staged).max(1) as f64
-}
-
-/// The staged length a frame `raw_staged` long reaches at `ratio`.
-#[inline]
-fn staged_len_at_ratio(raw_staged: usize, ratio: f64) -> f64 {
-    (staged_wire_bound(raw_staged) as f64)
-        .mul_add(ratio, crate::display::encoder::STAGED_SLACK as f64)
-}
-
-/// Physical bytes admitted for one display datagram `staged_len` long when
-/// staged. The channel byte is outside Noise and every sealed record carries
-/// the fixed Noise framing.
-#[inline]
-pub(crate) const fn display_datagram_wire_len(staged_len: usize) -> usize {
-    1 + staged_wire_bound(staged_len) + crate::e2e::FRAME_OVERHEAD
-}
-
-/// Physical bytes of the repair datagram over a group of staged width
-/// `shard_size` with `recovery` shards.
+/// Physical bytes of the repair datagram over a group whose widest data frame
+/// is `shard_size` bytes on the wire, with `recovery` shards.
 #[inline]
 pub(crate) const fn display_repair_wire_len(recovery: usize, shard_size: usize) -> usize {
-    1 + merkur_codec::DISPLAY_FEC_HEADER_BYTES
-        + merkur_fec::repair::repair_body_len(recovery, staged_wire_bound(shard_size))
-        + crate::e2e::FRAME_OVERHEAD
+    display_datagram_wire_len(
+        merkur_codec::DISPLAY_FEC_HEADER_BYTES
+            + merkur_fec::repair::repair_body_len(recovery, shard_size),
+    )
 }
 
 /// Physical bytes contributed by one record on an already-open persistent
 /// reliable lane. Stream binding is paid once per carrier generation, not once
 /// per record; a record owns only its u32 length and Noise-sealed body.
 #[inline]
-pub(crate) const fn display_reliable_record_wire_len(staged_len: usize) -> usize {
-    RELIABLE_RECORD_LENGTH_BYTES + staged_wire_bound(staged_len) + crate::e2e::FRAME_OVERHEAD
+pub(crate) const fn display_reliable_record_wire_len(wire_len: usize) -> usize {
+    RELIABLE_RECORD_LENGTH_BYTES + wire_len + crate::e2e::FRAME_OVERHEAD
 }
 
-/// Datagram repair width for one adjacent group at its widest staged data
-/// shard. Two recovery shards are useful only while both, their length
+/// Datagram repair width for one adjacent group at its widest data shard on
+/// the wire. Two recovery shards are useful only while both, their length
 /// stripes and the exact FEC header fit one physical datagram. A k=1 group has
-/// no algebraic parity. Planning and sending both decide it from staged
-/// lengths, so they always agree.
+/// no algebraic parity.
 #[inline]
 pub(crate) const fn fec_recovery_shard_count(group_len: usize, shard_size: usize) -> usize {
     if group_len < 2 || shard_size == 0 {
@@ -1472,7 +1450,7 @@ fn batch_candidates(
         .zip(profiles)
         .map(|(bytes, profile)| *bytes as f64 * profile.ratio(raw_bytes))
         .sum::<f64>()
-        + staged_len_at_ratio(header_bytes, peer.ratio(raw_bytes));
+        + header_bytes as f64 * peer.ratio(raw_bytes);
     let raw_lane =
         if raw_bytes <= wire_cap || (singleton && raw_bytes <= datagram_max_payload_bytes) {
             Some(DeliveryLane::Datagram)
@@ -1505,7 +1483,7 @@ fn batch_candidates(
         representation: Representation::Compressed,
         sender_service_us: sender_upper_by_size[size_class(raw_bytes)],
         receiver_service_us: peer
-            .receiver_upper_us(raw_bytes, staged_ratio(raw_bytes, predicted_bytes)),
+            .receiver_upper_us(raw_bytes, predicted_bytes as f64 / raw_bytes.max(1) as f64),
     });
     [raw, compressed]
 }
@@ -1514,20 +1492,16 @@ fn batch_candidates(
 /// independent ratio bucket. Ratios need not be monotone: take each bucket's
 /// own intersection with its size interval before taking the maximum. The
 /// extra byte protects floating-point division at an exact boundary; actual
-/// candidate construction still decides feasibility. Sizes are staged, so each
-/// bucket's wire interval is shifted by the staged slack.
+/// candidate construction still decides feasibility.
 fn multirow_raw_limit(peer: PeerPlanningSnapshot, wire_cap: usize) -> usize {
     let lower = [0, 513, 1_025, 2_049, 4_097, 8_193];
     let upper = [512, 1_024, 2_048, 4_096, 8_192, usize::MAX];
     let mut limit = wire_cap;
     for class in 0..SIZE_CLASSES {
         let ratio = peer.ratio_by_size[class];
-        let slack = crate::display::encoder::STAGED_SLACK;
-        let compressed_limit = ((staged_wire_bound(wire_cap) as f64 / ratio).ceil() as usize)
-            .saturating_add(slack)
-            .saturating_add(1);
-        let candidate_limit = compressed_limit.min(upper[class].saturating_add(slack));
-        if candidate_limit >= lower[class] + slack {
+        let compressed_limit = ((wire_cap as f64 / ratio).ceil() as usize).saturating_add(1);
+        let candidate_limit = compressed_limit.min(upper[class]);
+        if candidate_limit >= lower[class] {
             limit = limit.max(candidate_limit);
         }
     }
@@ -2188,16 +2162,32 @@ impl PeerDisplayPlanningModel {
         // Representative value strictly inside each bucket.
         let representative = [512, 768, 1_536, 3_072, 6_144, 12_288];
         // Each bucket's compression ratio, its six windows read together.
-        // Compression ratio is a sender/content property. The neutral prior
-        // permits bounded cold exploration; only achieved daemon compression
-        // observations may replace it. Browser calibration ratios describe its
-        // synthetic decode-cost surface and must not predict the peer's
-        // terminal content.
-        let ratio_by_size = BoundedPosterior::predictive_uppers(
-            representative.map(|bytes| &self.ratio[Self::ratio_index(bytes, content, dictionary)]),
-            [0.5; SIZE_CLASSES],
-        )
-        .map(|ratio| ratio.clamp(0.01, 1.0));
+        // Compression ratio is a sender/content property; only achieved daemon
+        // compression observations may set it. Browser calibration ratios
+        // describe its synthetic decode-cost surface and must not predict the
+        // peer's terminal content.
+        //
+        // A bucket not yet warm is floored by a prior, and that prior is the
+        // smaller bucket's bound when it is tighter than the neutral one.
+        // Compressing a frame does no worse than compressing its halves, each
+        // the next bucket down, and saves a header. Under the neutral prior
+        // alone, a learned smaller bucket outbids its colder neighbour, the
+        // planner stops building frames that size, and the neighbour never
+        // collects the samples that would warm it.
+        let windows =
+            representative.map(|bytes| &self.ratio[Self::ratio_index(bytes, content, dictionary)]);
+        let own = BoundedPosterior::predictive_uppers(windows, [0.0; SIZE_CLASSES]);
+        let mut ratio_by_size = [0.0; SIZE_CLASSES];
+        let mut prior = COLD_RATIO_UPPER;
+        for (class, ratio) in ratio_by_size.iter_mut().enumerate() {
+            let bound = if windows[class].count < POSTERIOR_WARM_SAMPLES {
+                own[class].max(prior)
+            } else {
+                own[class]
+            };
+            *ratio = bound.clamp(0.01, 1.0);
+            prior = COLD_RATIO_UPPER.min(*ratio);
+        }
         let mut receiver_upper_by_surface = [250.0; SIZE_CLASSES * RATIO_CLASSES];
         for (class, bytes) in representative.into_iter().enumerate() {
             for (ratio_index, ratio) in [0.1, 0.2, 0.375, 0.75].into_iter().enumerate() {
@@ -2234,13 +2224,14 @@ pub fn should_attempt_compression(
     dictionary: DictionaryClass,
     mut context: PlanningContext,
 ) -> bool {
-    let predicted_bytes = staged_len_at_ratio(raw_bytes, peer.ratio(raw_bytes)).ceil() as usize;
+    let predicted_bytes = (raw_bytes as f64 * peer.ratio(raw_bytes)).ceil() as usize;
     if predicted_bytes >= raw_bytes {
         return false;
     }
     context.receiver_service_debt_us = peer.receiver_service_debt_us;
     let raw = best_single_record_plan(raw_bytes, 0.0, context);
-    let receiver_us = peer.receiver_upper_us(raw_bytes, staged_ratio(raw_bytes, predicted_bytes));
+    let receiver_us =
+        peer.receiver_upper_us(raw_bytes, predicted_bytes as f64 / raw_bytes.max(1) as f64);
     let sender_service = global.sender_service_upper_us(lane, raw_bytes, content, dictionary);
     let compressed_finish = |context: PlanningContext| {
         let compressed = single_record_plan(predicted_bytes, receiver_us, context);
@@ -2269,7 +2260,7 @@ pub fn choose_after_compression(
     let raw = best_single_record_plan(raw_bytes, 0.0, context);
     let compressed = best_single_record_plan(
         compressed_bytes,
-        peer.receiver_upper_us(raw_bytes, staged_ratio(raw_bytes, compressed_bytes)),
+        peer.receiver_upper_us(raw_bytes, compressed_bytes as f64 / raw_bytes.max(1) as f64),
         context,
     );
     if compressed.tail_latency_us < raw.tail_latency_us {
@@ -2617,18 +2608,60 @@ mod tests {
             }
         }
         let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        let mut prior = COLD_RATIO_UPPER;
         for (class, bytes) in representative.into_iter().enumerate() {
             let window = &peer.ratio[PeerDisplayPlanningModel::ratio_index(
                 bytes,
                 ContentClass::Text,
                 DictionaryClass::Plain,
             )];
+            let expected = window.predictive_upper(prior).clamp(0.01, 1.0);
             assert_eq!(
                 snapshot.ratio_by_size[class].to_bits(),
-                window.predictive_upper(0.5).clamp(0.01, 1.0).to_bits(),
+                expected.to_bits(),
                 "class {class}"
             );
+            prior = COLD_RATIO_UPPER.min(expected);
         }
+    }
+
+    #[test]
+    fn a_learned_bucket_bounds_its_colder_neighbour_but_never_a_warm_one() {
+        let mut peer = PeerDisplayPlanningModel::default();
+        let observe = |peer: &mut PeerDisplayPlanningModel, bytes, ratio, samples| {
+            for _ in 0..samples {
+                peer.observe_ratio(bytes, ContentClass::Text, DictionaryClass::Plain, ratio);
+            }
+        };
+        // 1-2 KB warm at 0.27; 2-4 KB has six samples, short of warm, as a
+        // planner that stopped building frames that size leaves it.
+        observe(&mut peer, 1_536, 0.27, POSTERIOR_WARM_SAMPLES);
+        observe(&mut peer, 3_072, 0.19, POSTERIOR_WARM_SAMPLES - 2);
+        let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        assert_eq!(snapshot.ratio(1_536), 0.27);
+        assert_eq!(
+            snapshot.ratio(3_072),
+            0.27,
+            "floored by the smaller bucket, not 0.5"
+        );
+        assert_eq!(
+            snapshot.ratio(6_144),
+            0.27,
+            "the bound carries up through empty buckets"
+        );
+        assert_eq!(snapshot.ratio(512), COLD_RATIO_UPPER);
+
+        // Once warm, a bucket reads only its own samples.
+        observe(&mut peer, 3_072, 0.19, 2);
+        let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        assert!((snapshot.ratio(3_072) - 0.19).abs() < 1e-12);
+        assert!((snapshot.ratio(6_144) - 0.19).abs() < 1e-12);
+
+        // An incompressible smaller bucket never raises the neutral prior.
+        let mut peer = PeerDisplayPlanningModel::default();
+        observe(&mut peer, 1_536, 0.9, POSTERIOR_WARM_SAMPLES);
+        let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        assert_eq!(snapshot.ratio(3_072), COLD_RATIO_UPPER);
     }
 
     #[test]
@@ -3312,7 +3345,7 @@ mod tests {
                     DictionaryClass::Plain,
                     planning,
                     rows,
-                    merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES,
+                    0,
                     DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
                     &mut workspace,
                     result,
@@ -3364,14 +3397,13 @@ mod tests {
 
     #[test]
     fn exact_wire_shape_distinguishes_datagram_fec_and_one_reliable_record() {
-        let slack = crate::display::encoder::STAGED_SLACK;
         assert_eq!(
             display_datagram_wire_len(1_084),
-            1_084 - slack + 1 + crate::e2e::FRAME_OVERHEAD
+            1_084 + 1 + crate::e2e::FRAME_OVERHEAD
         );
         assert_eq!(
             display_reliable_record_wire_len(1_085),
-            1_085 - slack + std::mem::size_of::<u32>() + crate::e2e::FRAME_OVERHEAD,
+            1_085 + std::mem::size_of::<u32>() + crate::e2e::FRAME_OVERHEAD,
         );
         let mut planning = context();
         planning.datagram_max_payload_bytes = 1_084;
@@ -3385,11 +3417,9 @@ mod tests {
 
         let recovery = fec_recovery_shard_count(4, 500);
         assert_eq!(recovery, 2);
-        // The repair over staged 500-byte shards: each wire shard is at most
-        // 500 - slack bytes, behind its two-byte length stripe.
-        let repair_plaintext =
-            merkur_codec::DISPLAY_FEC_HEADER_BYTES + recovery * (2 + 500 - slack);
-        assert!(repair_plaintext <= DisplayPolicy::DATAGRAM_MAX_WIRE_BYTES);
+        // Each recovery shard is 500 bytes behind its two-byte length stripe.
+        let repair_plaintext = merkur_codec::DISPLAY_FEC_HEADER_BYTES + recovery * (2 + 500);
+        assert!(repair_plaintext <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES);
         assert_eq!(
             display_repair_wire_len(recovery, 500),
             1 + repair_plaintext + crate::e2e::FRAME_OVERHEAD,
