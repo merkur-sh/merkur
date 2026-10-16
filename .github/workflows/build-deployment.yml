@@ -38,7 +38,7 @@ jobs:
           platforms: linux/amd64
           outputs: type=local,dest=deployment
           build-args: |
-            BUILDKIT_SYNTAX=mirror.gcr.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+            BUILDKIT_SYNTAX=mirror.gcr.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
             MERKUR_BUILD_COMMIT=${{ github.sha }}
             MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
             VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY=${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
