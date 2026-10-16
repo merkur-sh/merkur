@@ -1,6 +1,6 @@
-# The CodeQL packs in this repository: Merkur's queries and their tests in `tools/codeql`, and the
-# model packs that code scanning loads from `.github/codeql/extensions`.
+# The CodeQL packs in this repository: for each language, Merkur's models, queries and their
+# tests in `tools/codeql/<language>`.
 provide:
+  - 'tools/codeql/*/models/qlpack.yml'
   - 'tools/codeql/*/src/qlpack.yml'
   - 'tools/codeql/*/test/qlpack.yml'
-  - '.github/codeql/extensions/*/qlpack.yml'

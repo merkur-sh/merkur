@@ -1050,9 +1050,9 @@ workflows and Python tooling, on pull requests, pushes to `main` and weekly. Eac
 CodeQL's `security-extended` queries; alerts go to code scanning, which marks a pull request that
 adds one. The scan follows data across files, which the per-file lint gates do not.
 
-CodeQL does not model Merkur's frameworks, so the model packs in
-[`.github/codeql/extensions`](../.github/codeql/extensions), which CodeQL loads from that directory,
-describe them:
+CodeQL does not model Merkur's frameworks, so a model pack for each language in
+[`tools/codeql`](../tools/codeql), which the workflow installs into that language's analysis,
+describes them:
 
 - Elysia route, hook and WebSocket handlers are remote input; Bun's `file` and `write` paths and
   Kysely's `sql.raw`, `sql.lit` and `CompiledQuery.raw` are injection sinks.

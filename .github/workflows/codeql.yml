@@ -34,8 +34,10 @@ jobs:
         include:
           - language: javascript-typescript
             queries: ./tools/codeql/javascript/src/merkur-javascript.qls
+            models: tools/codeql/javascript/models
           - language: rust
             queries: ./tools/codeql/rust/src/merkur-rust.qls
+            models: tools/codeql/rust/models
           - language: actions
             queries: security-extended
           - language: python
@@ -44,6 +46,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # CodeQL stores every model pack in `.github/codeql/extensions` in the database and checks
+      # each row against the analyzed language's predicates, whatever library the row names. A job
+      # installs its own language's pack there and no other.
+      - if: matrix.models != ''
+        env:
+          MODELS: ${{ matrix.models }}
+        run: mkdir -p .github/codeql/extensions && cp -R "$MODELS" .github/codeql/extensions/
       # The extractor reads the workspace through Cargo, which needs the pinned toolchain.
       - if: matrix.language == 'rust'
         run: rustup show active-toolchain

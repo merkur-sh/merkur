@@ -4,5 +4,6 @@ extractor: javascript
 tests: .
 dependencies:
   merkur/javascript-queries: '*'
+  merkur/javascript-models: '*'
   codeql/javascript-all: '*'
   codeql/javascript-queries: '*'

@@ -1,5 +1,5 @@
-# Code scanning configuration for `.github/workflows/codeql.yml`. Each language's query suite is
-# chosen by the workflow; the model packs in `extensions/` are loaded by CodeQL itself.
+# Code scanning configuration for `.github/workflows/codeql.yml`. The workflow chooses each
+# language's query suite and installs that language's model pack.
 name: Merkur
 paths-ignore:
   # Deliberately vulnerable fixtures the query tests read.
