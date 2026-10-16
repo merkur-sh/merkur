@@ -145,7 +145,8 @@
     "generate:docs": "bun run scripts/generate-docs.ts",
     "setup:audit": "cargo install cargo-audit --locked --version 0.22.2",
     "setup:dependency-policy": "cargo install cargo-deny --locked --version 0.20.2 && cargo install cargo-vet --locked --version 0.10.2",
-    "check:dependency-policy": "cargo deny --locked check bans licenses sources && cargo vet --locked --no-minimize-exemptions",
+    "check:dependency-policy": "cargo deny --locked check bans licenses sources && cargo vet --locked --no-minimize-exemptions && bun run check:js-dependency-policy",
+    "check:js-dependency-policy": "bun run scripts/check-js-dependency-policy.ts",
     "setup:fuzz": "cargo install cargo-bolero --locked --version 0.13.5",
     "test:fuzz:smoke": "bun run scripts/fuzz-tests.ts smoke",
     "test:fuzz:campaign": "bun run scripts/fuzz-tests.ts campaign",
@@ -185,6 +186,7 @@
   "dependencies": {
     "effect": "catalog:"
   },
+  "trustedDependencies": [],
   "aube": {
     "allowBuilds": {
       "fallow": true,

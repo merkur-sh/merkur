@@ -295,7 +295,7 @@ export function gateRuleAlsoRunCell(rule: Rule): string {
   for (const file of effects.bunTestFiles ?? []) parts.push(`isolated ${code(file)}`);
   if (effects.allUnit) parts.push('complete isolated source inventory');
   if (effects.e2e) parts.push('owning Playwright suite(s)');
-  if (effects.audit) parts.push(code('check:audit'));
+  if (effects.audit) parts.push(code('check:audit'), code('check:js-dependency-policy'));
   if (effects.deferred !== undefined) {
     const deferred = effects.deferred.map(code).join(', ');
     parts.push(parts.length === 0 ? `by hand: ${deferred}` : `then, by hand: ${deferred}`);

@@ -288,7 +288,9 @@ function assemblePlan(selection: PlanSelection): GatePlan {
   if (selection.realHelper) cargo.push(REAL_HELPER_LANE);
   for (const script of selection.cargoScripts) cargo.push(['bun', 'run', script]);
   const bun: Command[] = tests.size > 0 ? [testCommand([...tests])] : [];
-  if (selection.audit) bun.push(['bun', 'run', 'check:audit']);
+  if (selection.audit) {
+    bun.push(['bun', 'run', 'check:audit'], ['bun', 'run', 'check:js-dependency-policy']);
+  }
   return {
     files: selection.files,
     docsOnly: selection.docsOnly,
