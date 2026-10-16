@@ -31,7 +31,7 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 libdeflater = "=1.26.1"
 graphics-codec-probe = { path = "../graphics-codec-probe" }
 tempfile = "3"
-zstd = "0.13"
+zstd = "0.14"
 ruzstd = { version = "0.9", default-features = false, features = ["hash", "std"] }
 
 [lints]
