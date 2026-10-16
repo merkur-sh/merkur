@@ -31,7 +31,7 @@ jobs:
     # The App key is an environment secret, and the environment admits only `main`.
     environment: dependency-updates
     env:
-      RENOVATE_IMAGE: ghcr.io/renovatebot/renovate:44.155.8@sha256:235c24e506150bb401233599d11d9c67154326857909fff4017d72a7aac86440
+      RENOVATE_IMAGE: ghcr.io/renovatebot/renovate:44.164.10@sha256:a1a928e6680df73474a2408620374bfd397a38b7adbc74d4d5ffe4c7a03e3c2b
     steps:
       - name: Cache registry lookups
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
