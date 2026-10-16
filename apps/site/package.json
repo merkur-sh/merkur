@@ -8,7 +8,7 @@
     "@merkur/logger": "workspace:*",
     "@merkur/quicksilver": "workspace:*",
     "@solidjs/web": "2.0.0-rc.14",
-    "motion": "^13.1.1",
+    "motion": "^14.0.0",
     "solid-js": "2.0.0-rc.14"
   },
   "devDependencies": {
