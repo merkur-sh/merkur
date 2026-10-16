@@ -1,0 +1,5 @@
+qltest_cargo_check: true
+qltest_dependencies:
+  - tokio = { version = "1", features = ["net"] }
+  - quinn = "0.11"
+  - wtransport = "0.6"

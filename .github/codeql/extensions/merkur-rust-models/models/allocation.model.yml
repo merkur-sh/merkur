@@ -1,0 +1,21 @@
+# The safe allocations a parser sizes from a length it read: CodeQL's allocation sinks are the raw
+# allocator and libc calls only. `min` against a bound caps the size as an upper-bound check does.
+extensions:
+  - addsTo:
+      pack: codeql/rust-all
+      extensible: sinkModel
+    data:
+      - ["<alloc::vec::Vec>::with_capacity", "Argument[0]", "alloc-size", "manual"]
+      - ["<alloc::vec::Vec>::reserve", "Argument[0]", "alloc-size", "manual"]
+      - ["<alloc::vec::Vec>::reserve_exact", "Argument[0]", "alloc-size", "manual"]
+      - ["<alloc::vec::Vec>::resize", "Argument[0]", "alloc-size", "manual"]
+      - ["alloc::vec::from_elem", "Argument[1]", "alloc-size", "manual"]
+      - ["<alloc::string::String>::with_capacity", "Argument[0]", "alloc-size", "manual"]
+      - ["<bytes::bytes_mut::BytesMut>::with_capacity", "Argument[0]", "alloc-size", "manual"]
+      - ["<bytes::bytes_mut::BytesMut>::reserve", "Argument[0]", "alloc-size", "manual"]
+      - ["<bytes::bytes_mut::BytesMut>::zeroed", "Argument[0]", "alloc-size", "manual"]
+  - addsTo:
+      pack: codeql/rust-all
+      extensible: barrierModel
+    data:
+      - ["<core::cmp::Ord>::min", "ReturnValue", "alloc-size", "manual"]

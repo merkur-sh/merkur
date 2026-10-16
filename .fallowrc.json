@@ -71,6 +71,7 @@
     "spikes/webtransport-ios/worker/main.ts",
     "spikes/webtransport-ios/worker/drain-worker.ts"
   ],
+  "ignorePatterns": ["tools/codeql/*/test/**"],
   "includeEntryExports": true,
   "publicPackages": ["@merkur/keyboard"],
   "ignoreDependencies": ["bench-web-input-v8:keybinds"],

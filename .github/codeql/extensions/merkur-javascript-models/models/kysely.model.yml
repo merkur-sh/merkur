@@ -1,0 +1,9 @@
+# Kysely binds every value a query builder is given. These are the calls that splice text into
+# the statement instead.
+extensions:
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: sinkModel
+    data:
+      - ["kysely", "Member[sql].Member[raw,lit].Argument[0]", "sql-injection"]
+      - ["kysely", "Member[CompiledQuery].Member[raw].Argument[0]", "sql-injection"]

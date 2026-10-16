@@ -1,0 +1,4 @@
+qltest_cargo_check: true
+qltest_dependencies:
+  - subtle = "2.6"
+  - zeroize = "1.8"

@@ -1,0 +1,37 @@
+# A parser decodes a length or count from the bytes it received with an integer's
+# `from_{be,le,ne}_bytes`, which CodeQL does not carry taint through.
+extensions:
+  - addsTo:
+      pack: codeql/rust-all
+      extensible: summaryModel
+    data:
+      - ["<core::u16>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u16>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u16>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u32>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u32>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u32>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u64>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u64>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u64>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u128>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u128>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::u128>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::usize>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::usize>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::usize>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i16>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i16>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i16>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i32>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i32>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i32>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i64>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i64>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i64>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i128>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i128>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::i128>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::isize>::from_be_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::isize>::from_le_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]
+      - ["<core::isize>::from_ne_bytes", "Argument[0].Element", "ReturnValue", "taint", "manual"]

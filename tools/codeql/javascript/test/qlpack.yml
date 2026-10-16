@@ -1,0 +1,8 @@
+name: merkur/javascript-tests
+version: 0.0.0
+extractor: javascript
+tests: .
+dependencies:
+  merkur/javascript-queries: '*'
+  codeql/javascript-all: '*'
+  codeql/javascript-queries: '*'

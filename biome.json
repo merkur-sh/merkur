@@ -35,6 +35,7 @@
       "!**/tools/bazel/rust/policy_snapshots/bolero.json",
       "!**/tools/bazel/rust/policy_snapshots/ownership.json",
       "!**/tools/bazel/rust/policy_snapshots/aya.json",
+      "!**/tools/codeql/*/test",
       "!**/merkur-release.json",
       "!**/merkur-release.sig"
     ]

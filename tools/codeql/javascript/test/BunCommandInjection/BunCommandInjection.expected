@@ -1,0 +1,22 @@
+#select
+| spawn.ts:5:14:5:25 | body.program | spawn.ts:4:44:4:47 | body | spawn.ts:5:14:5:25 | body.program | This command depends on a $@. | spawn.ts:4:44:4:47 | body | user-provided value |
+| spawn.ts:7:25:7:36 | body.program | spawn.ts:4:44:4:47 | body | spawn.ts:7:25:7:36 | body.program | This command depends on a $@. | spawn.ts:4:44:4:47 | body | user-provided value |
+| spawn.ts:9:22:9:34 | body.revision | spawn.ts:4:44:4:47 | body | spawn.ts:9:22:9:34 | body.revision | This command depends on a $@. | spawn.ts:4:44:4:47 | body | user-provided value |
+edges
+| spawn.ts:4:44:4:47 | body | spawn.ts:4:44:4:47 | body | provenance |  |
+| spawn.ts:4:44:4:47 | body | spawn.ts:5:14:5:17 | body | provenance |  |
+| spawn.ts:4:44:4:47 | body | spawn.ts:7:25:7:28 | body | provenance |  |
+| spawn.ts:4:44:4:47 | body | spawn.ts:9:22:9:25 | body | provenance |  |
+| spawn.ts:5:14:5:17 | body | spawn.ts:5:14:5:25 | body.program | provenance |  |
+| spawn.ts:7:25:7:28 | body | spawn.ts:7:25:7:36 | body.program | provenance |  |
+| spawn.ts:9:22:9:25 | body | spawn.ts:9:22:9:34 | body.revision | provenance |  |
+nodes
+| spawn.ts:4:44:4:47 | body | semmle.label | body |
+| spawn.ts:4:44:4:47 | body | semmle.label | body |
+| spawn.ts:5:14:5:17 | body | semmle.label | body |
+| spawn.ts:5:14:5:25 | body.program | semmle.label | body.program |
+| spawn.ts:7:25:7:28 | body | semmle.label | body |
+| spawn.ts:7:25:7:36 | body.program | semmle.label | body.program |
+| spawn.ts:9:22:9:25 | body | semmle.label | body |
+| spawn.ts:9:22:9:34 | body.revision | semmle.label | body.revision |
+subpaths

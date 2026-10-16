@@ -151,6 +151,7 @@ test('the gate answers for script files outside the generated and vendored trees
     'packages/shared/test-vectors/vector.ts',
     '.claude/hooks/a.ts',
     '.agents/skills/b.ts',
+    'tools/codeql/javascript/test/models/routes.ts',
   ];
 
   expect(linted.filter(isLinted)).toEqual(linted);
@@ -176,6 +177,7 @@ test('the gate answers for Rust files outside the excluded trees, for the commen
     'target/clippy/debug/build/out/generated.rs',
     'apps/daemon/dataplane/target/debug/build/out.rs',
     'packages/term-wasm/vendor/alacritty_terminal/src/grid.rs',
+    'tools/codeql/rust/test/models/main.rs',
   ];
 
   expect(rust.filter(isMeasured)).toEqual(rust);

@@ -1,0 +1,2 @@
+query: RedactedValueExposure.ql
+postprocess: utils/test/InlineExpectationsTestQuery.ql

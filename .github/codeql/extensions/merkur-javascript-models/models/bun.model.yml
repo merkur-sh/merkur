@@ -1,0 +1,9 @@
+# Bun's file APIs, reached as the `Bun` global or imported from `bun`. Its process and shell APIs
+# need positional and interpolation reasoning, so `BunCommandInjection.ql` covers them.
+extensions:
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: sinkModel
+    data:
+      - ["global", "Member[Bun].Member[file,write].Argument[0]", "path-injection"]
+      - ["bun", "Member[file,write].Argument[0]", "path-injection"]

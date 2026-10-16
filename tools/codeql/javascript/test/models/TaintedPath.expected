@@ -1,0 +1,24 @@
+#select
+| routes.ts:8:47:8:57 | params.name | routes.ts:8:25:8:30 | params | routes.ts:8:47:8:57 | params.name | This path depends on a $@. | routes.ts:8:25:8:30 | params | user-provided value |
+| routes.ts:9:47:9:57 | params.name | routes.ts:9:29:9:34 | params | routes.ts:9:47:9:57 | params.name | This path depends on a $@. | routes.ts:9:29:9:34 | params | user-provided value |
+| routes.ts:20:17:20:23 | message | routes.ts:19:22:19:28 | message | routes.ts:20:17:20:23 | message | This path depends on a $@. | routes.ts:19:22:19:28 | message | user-provided value |
+edges
+| routes.ts:8:25:8:30 | params | routes.ts:8:25:8:30 | params | provenance |  |
+| routes.ts:8:25:8:30 | params | routes.ts:8:47:8:52 | params | provenance |  |
+| routes.ts:8:47:8:52 | params | routes.ts:8:47:8:57 | params.name | provenance | Config |
+| routes.ts:9:29:9:34 | params | routes.ts:9:29:9:34 | params | provenance |  |
+| routes.ts:9:29:9:34 | params | routes.ts:9:47:9:52 | params | provenance |  |
+| routes.ts:9:47:9:52 | params | routes.ts:9:47:9:57 | params.name | provenance | Config |
+| routes.ts:19:22:19:28 | message | routes.ts:20:17:20:23 | message | provenance |  |
+nodes
+| routes.ts:8:25:8:30 | params | semmle.label | params |
+| routes.ts:8:25:8:30 | params | semmle.label | params |
+| routes.ts:8:47:8:52 | params | semmle.label | params |
+| routes.ts:8:47:8:57 | params.name | semmle.label | params.name |
+| routes.ts:9:29:9:34 | params | semmle.label | params |
+| routes.ts:9:29:9:34 | params | semmle.label | params |
+| routes.ts:9:47:9:52 | params | semmle.label | params |
+| routes.ts:9:47:9:57 | params.name | semmle.label | params.name |
+| routes.ts:19:22:19:28 | message | semmle.label | message |
+| routes.ts:20:17:20:23 | message | semmle.label | message |
+subpaths

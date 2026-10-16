@@ -1,0 +1,4 @@
+- description: CodeQL's security-extended Rust queries and Merkur's own, under Merkur's models
+- import: codeql-suites/rust-security-extended.qls
+  from: codeql/rust-queries
+- queries: .

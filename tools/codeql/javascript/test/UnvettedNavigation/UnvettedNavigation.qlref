@@ -1,0 +1,2 @@
+query: UnvettedNavigation.ql
+postprocess: utils/test/InlineExpectationsTestQuery.ql

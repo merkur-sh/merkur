@@ -1,0 +1,18 @@
+#select
+| routes.ts:12:42:12:51 | query.text | routes.ts:12:22:12:26 | query | routes.ts:12:42:12:51 | query.text | This query string depends on a $@. | routes.ts:12:22:12:26 | query | user-provided value |
+| routes.ts:16:43:16:48 | header | routes.ts:15:20:15:53 | request ... ement') | routes.ts:16:43:16:48 | header | This query string depends on a $@. | routes.ts:15:20:15:53 | request ... ement') | user-provided value |
+edges
+| routes.ts:12:22:12:26 | query | routes.ts:12:22:12:26 | query | provenance |  |
+| routes.ts:12:22:12:26 | query | routes.ts:12:42:12:46 | query | provenance |  |
+| routes.ts:12:42:12:46 | query | routes.ts:12:42:12:51 | query.text | provenance |  |
+| routes.ts:15:11:15:16 | header | routes.ts:16:43:16:48 | header | provenance |  |
+| routes.ts:15:20:15:53 | request ... ement') | routes.ts:15:11:15:16 | header | provenance |  |
+nodes
+| routes.ts:12:22:12:26 | query | semmle.label | query |
+| routes.ts:12:22:12:26 | query | semmle.label | query |
+| routes.ts:12:42:12:46 | query | semmle.label | query |
+| routes.ts:12:42:12:51 | query.text | semmle.label | query.text |
+| routes.ts:15:11:15:16 | header | semmle.label | header |
+| routes.ts:15:20:15:53 | request ... ement') | semmle.label | request ... ement') |
+| routes.ts:16:43:16:48 | header | semmle.label | header |
+subpaths

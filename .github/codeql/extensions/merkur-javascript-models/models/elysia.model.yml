@@ -1,0 +1,24 @@
+# Elysia, the server's HTTP and WebSocket framework, which CodeQL does not model. Every builder
+# method returns the app, and `group` and `guard` hand their callback a scoped app, so a handler
+# registered anywhere in a chain is reached. A route takes `(path, handler)` or
+# `(path, hook, handler)`; both handler positions are read.
+extensions:
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: typeModel
+    data:
+      - ["elysia.Elysia", "elysia", "Member[Elysia].Instance"]
+      - ["elysia.Elysia", "elysia.Elysia", "Member[use,get,post,put,patch,delete,all,head,options,route,ws,derive,resolve,state,decorate,model,guard,group,macro,mount,onRequest,onParse,onTransform,onBeforeHandle,onAfterHandle,onAfterResponse,onError].ReturnValue"]
+      - ["elysia.Elysia", "elysia.Elysia", "Member[group,guard].Argument[1,2].Parameter[0]"]
+      - ["elysia.Context", "elysia.Elysia", "Member[get,post,put,patch,delete,all,head,options].Argument[1,2].Parameter[0]"]
+      - ["elysia.Context", "elysia.Elysia", "Member[route].Argument[2,3].Parameter[0]"]
+      - ["elysia.Context", "elysia.Elysia", "Member[derive,resolve,onRequest,onParse,onTransform,onBeforeHandle].Argument[0,1].Parameter[0]"]
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: sourceModel
+    data:
+      - ["elysia.Context", "Member[body,query,params,headers,cookie]", "remote"]
+      - ["elysia.Context", "Member[request].Member[url]", "remote"]
+      - ["elysia.Context", "Member[request].Member[headers].Member[get].ReturnValue", "remote"]
+      - ["elysia.Context", "Member[request].Member[json,text,formData,arrayBuffer,blob].ReturnValue.Awaited", "remote"]
+      - ["elysia.Elysia", "Member[ws].Argument[1].Member[message].Parameter[1]", "remote"]

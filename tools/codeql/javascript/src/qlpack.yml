@@ -1,0 +1,8 @@
+name: merkur/javascript-queries
+version: 0.0.0
+library: false
+# The libraries come from the CodeQL bundle the pinned `github/codeql-action` installs, so that one
+# pin decides the library version these queries compile against.
+dependencies:
+  codeql/javascript-all: '*'
+  codeql/javascript-queries: '*'

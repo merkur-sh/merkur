@@ -1,0 +1,35 @@
+#select
+| secret.ts:16:37:16:41 | token | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:16:37:16:41 | token | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+| secret.ts:17:17:17:32 | `token ${token}` | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:17:17:17:32 | `token ${token}` | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+| secret.ts:18:30:18:34 | token | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:18:30:18:34 | token | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+| secret.ts:19:46:19:50 | token | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:19:46:19:50 | token | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+| secret.ts:20:13:20:30 | `refused ${token}` | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:20:13:20:30 | `refused ${token}` | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+| secret.ts:21:38:21:42 | token | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:21:38:21:42 | token | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+| secret.ts:22:24:22:28 | token | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:22:24:22:28 | token | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+| secret.ts:23:23:23:27 | token | secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:23:23:23:27 | token | This record holds the $@. | secret.ts:12:17:12:38 | Redacte ... secret) | unwrapped secret |
+edges
+| secret.ts:12:9:12:13 | token | secret.ts:16:37:16:41 | token | provenance |  |
+| secret.ts:12:9:12:13 | token | secret.ts:17:26:17:30 | token | provenance |  |
+| secret.ts:12:9:12:13 | token | secret.ts:18:30:18:34 | token | provenance |  |
+| secret.ts:12:9:12:13 | token | secret.ts:19:46:19:50 | token | provenance |  |
+| secret.ts:12:9:12:13 | token | secret.ts:20:24:20:28 | token | provenance |  |
+| secret.ts:12:9:12:13 | token | secret.ts:21:38:21:42 | token | provenance |  |
+| secret.ts:12:9:12:13 | token | secret.ts:22:24:22:28 | token | provenance |  |
+| secret.ts:12:9:12:13 | token | secret.ts:23:23:23:27 | token | provenance |  |
+| secret.ts:12:17:12:38 | Redacte ... secret) | secret.ts:12:9:12:13 | token | provenance |  |
+| secret.ts:17:26:17:30 | token | secret.ts:17:17:17:32 | `token ${token}` | provenance |  |
+| secret.ts:20:24:20:28 | token | secret.ts:20:13:20:30 | `refused ${token}` | provenance |  |
+nodes
+| secret.ts:12:9:12:13 | token | semmle.label | token |
+| secret.ts:12:17:12:38 | Redacte ... secret) | semmle.label | Redacte ... secret) |
+| secret.ts:16:37:16:41 | token | semmle.label | token |
+| secret.ts:17:17:17:32 | `token ${token}` | semmle.label | `token ${token}` |
+| secret.ts:17:26:17:30 | token | semmle.label | token |
+| secret.ts:18:30:18:34 | token | semmle.label | token |
+| secret.ts:19:46:19:50 | token | semmle.label | token |
+| secret.ts:20:13:20:30 | `refused ${token}` | semmle.label | `refused ${token}` |
+| secret.ts:20:24:20:28 | token | semmle.label | token |
+| secret.ts:21:38:21:42 | token | semmle.label | token |
+| secret.ts:22:24:22:28 | token | semmle.label | token |
+| secret.ts:23:23:23:27 | token | semmle.label | token |
+subpaths

@@ -93,13 +93,18 @@ const SCRIPT_FILE = /\.(?:[cm]?ts|[cm]?js|tsx|jsx)$/;
 /** Installed dependencies and build outputs, wherever they sit. */
 const EXCLUDED_DIRECTORIES = new Set(['node_modules', 'dist', 'target', 'pkg']);
 
-/** Agent harness configuration, runtime data, test vectors and vendored trees. */
+/**
+ * Agent harness configuration, runtime data, test vectors, vendored trees, and the deliberately
+ * vulnerable fixtures the CodeQL query tests read.
+ */
 const EXCLUDED_TREES = [
   '.claude/',
   '.agents/',
   'apps/server/data/',
   'packages/shared/test-vectors/',
   'packages/term-wasm/vendor/',
+  'tools/codeql/javascript/test/',
+  'tools/codeql/rust/test/',
 ];
 
 const VENDORED_CRATE = /^packages\/[^/]+-patch\//;

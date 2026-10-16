@@ -1,0 +1,4 @@
+- description: CodeQL's security-extended JavaScript queries and Merkur's own, under Merkur's models
+- import: codeql-suites/javascript-security-extended.qls
+  from: codeql/javascript-queries
+- queries: .

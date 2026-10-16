@@ -41,6 +41,7 @@ Contents:
 - [Release Trust](#release-trust)
 - [Repository And Dependency Protection](#repository-and-dependency-protection)
 - [Repository Secret Scanning](#repository-secret-scanning)
+- [Static Analysis](#static-analysis)
 - [Security Non-Goals](#security-non-goals)
 
 ## Trust Boundaries
@@ -1041,6 +1042,40 @@ trufflehog git file://. --results=verified,unknown,unverified --fail --fail-on-s
 
 TruffleHog verifies candidates against their providers. Treat scan output as sensitive and revoke an
 exposed credential before removing it from source.
+
+## Static Analysis
+
+[CodeQL](../.github/workflows/codeql.yml) analyzes TypeScript and Rust without a build, and the
+workflows and Python tooling, on pull requests, pushes to `main` and weekly. Each language runs
+CodeQL's `security-extended` queries; alerts go to code scanning, which marks a pull request that
+adds one. The scan follows data across files, which the per-file lint gates do not.
+
+CodeQL does not model Merkur's frameworks, so the model packs in
+[`.github/codeql/extensions`](../.github/codeql/extensions), which CodeQL loads from that directory,
+describe them:
+
+- Elysia route, hook and WebSocket handlers are remote input; Bun's `file` and `write` paths and
+  Kysely's `sql.raw`, `sql.lit` and `CompiledQuery.raw` are injection sinks.
+- Datagrams and stream reads through `quinn`, `wtransport` and Tokio UDP are remote input. A size
+  decoded from them, an integer's `from_{be,le,ne}_bytes` included, reaching `Vec::with_capacity`, `vec![_; n]`, `resize`, `reserve` or a `BytesMut`
+  allocation is unbounded unless an upper-bound comparison or `min` caps it first.
+
+Merkur's own queries in [`tools/codeql`](../tools/codeql) check the invariants this document
+states, keyed on the types and functions that carry them rather than on names:
+
+| Query | Holds that |
+| --- | --- |
+| `merkur/js/redacted-value-exposure` | A value taken out of Effect's `Redacted` reaches no log, span attribute, error, failure or response; a hash or HMAC of it may. |
+| `merkur/js/mac-non-constant-time-comparison` | An HMAC tag is compared with `timingSafeEqual`, never `===`, `==` or `Buffer.equals`. |
+| `merkur/js/unvetted-navigation` | Data a worker posts to the main thread opens a window or moves the page only through `openableUrl` ([links](#links-and-opening-urls)). |
+| `merkur/js/bun-command-injection` | Remote input chooses neither the program `Bun.spawn` runs nor a `Bun.$` command's `{ raw }` text. |
+| `merkur/rust/secret-variable-time-comparison` | A `Zeroizing` secret is compared with `ct_eq`, never `==` or `PartialEq`. |
+| `merkur/rust/zeroizing-copy` | A `Zeroizing` secret is copied only into another `Zeroizing`. |
+
+Each query and model has fixtures beside it whose lines carry the alerts expected of them; the
+`Query tests` job fails when a query stops reporting one or reports a safe case. The CodeQL bundle,
+and with it the libraries the queries compile against, is the one the pinned
+`github/codeql-action` installs.
 
 ## Security Non-Goals
 

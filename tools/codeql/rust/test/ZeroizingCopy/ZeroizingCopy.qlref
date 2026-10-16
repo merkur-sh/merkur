@@ -1,0 +1,2 @@
+query: ZeroizingCopy.ql
+postprocess: utils/test/InlineExpectationsTestQuery.ql

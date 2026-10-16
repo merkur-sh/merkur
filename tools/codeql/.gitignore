@@ -1,0 +1,9 @@
+# What `codeql test run` and `codeql pack install` leave behind.
+*.testproj/
+*.actual
+.codeql/
+codeql-pack.lock.yml
+# The crate `codeql test run` writes around each Rust fixture.
+rust/test/*/Cargo.toml
+rust/test/*/Cargo.lock
+rust/test/*/lib.rs

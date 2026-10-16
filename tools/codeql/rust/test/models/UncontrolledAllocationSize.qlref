@@ -1,0 +1,2 @@
+query: queries/security/CWE-770/UncontrolledAllocationSize.ql
+postprocess: utils/test/InlineExpectationsTestQuery.ql

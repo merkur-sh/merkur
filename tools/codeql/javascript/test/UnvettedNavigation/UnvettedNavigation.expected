@@ -1,0 +1,16 @@
+#select
+| main.ts:6:15:6:17 | url | main.ts:5:19:5:28 | event.data | main.ts:6:15:6:17 | url | This navigation target comes from $@ without `openableUrl`. | main.ts:5:19:5:28 | event.data | posted terminal data |
+| main.ts:14:19:14:35 | event.data.target | main.ts:14:19:14:28 | event.data | main.ts:14:19:14:35 | event.data.target | This navigation target comes from $@ without `openableUrl`. | main.ts:14:19:14:28 | event.data | posted terminal data |
+edges
+| main.ts:5:9:5:15 | { url } | main.ts:5:11:5:13 | url | provenance |  |
+| main.ts:5:11:5:13 | url | main.ts:6:15:6:17 | url | provenance |  |
+| main.ts:5:19:5:28 | event.data | main.ts:5:9:5:15 | { url } | provenance |  |
+| main.ts:14:19:14:28 | event.data | main.ts:14:19:14:35 | event.data.target | provenance |  |
+nodes
+| main.ts:5:9:5:15 | { url } | semmle.label | { url } |
+| main.ts:5:11:5:13 | url | semmle.label | url |
+| main.ts:5:19:5:28 | event.data | semmle.label | event.data |
+| main.ts:6:15:6:17 | url | semmle.label | url |
+| main.ts:14:19:14:28 | event.data | semmle.label | event.data |
+| main.ts:14:19:14:35 | event.data.target | semmle.label | event.data.target |
+subpaths

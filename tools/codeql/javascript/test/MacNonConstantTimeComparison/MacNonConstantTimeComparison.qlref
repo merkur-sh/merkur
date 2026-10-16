@@ -1,0 +1,2 @@
+query: MacNonConstantTimeComparison.ql
+postprocess: utils/test/InlineExpectationsTestQuery.ql

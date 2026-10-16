@@ -1,0 +1,96 @@
+#select
+| main.rs:11:38:11:43 | length | main.rs:9:29:9:39 | &mut packet | main.rs:11:38:11:43 | length | This allocation size is derived from a $@ and could allocate arbitrary amounts of memory. | main.rs:9:29:9:39 | &mut packet | user-provided value |
+| main.rs:23:17:23:40 | declared_length(...) | main.rs:21:29:21:39 | &mut header | main.rs:23:17:23:40 | declared_length(...) | This allocation size is derived from a $@ and could allocate arbitrary amounts of memory. | main.rs:21:29:21:39 | &mut header | user-provided value |
+| main.rs:28:23:28:48 | (...) | main.rs:27:24:27:49 | connection.read_datagram() | main.rs:28:23:28:48 | (...) | This allocation size is derived from a $@ and could allocate arbitrary amounts of memory. | main.rs:27:24:27:49 | connection.read_datagram() | user-provided value |
+| main.rs:34:18:34:43 | declared_length(...) | main.rs:32:24:32:52 | connection.receive_datagram() | main.rs:34:18:34:43 | declared_length(...) | This allocation size is derived from a $@ and could allocate arbitrary amounts of memory. | main.rs:32:24:32:52 | connection.receive_datagram() | user-provided value |
+edges
+| main.rs:3:20:3:31 | ...: ... [&ref] | main.rs:4:37:4:41 | bytes [&ref] | provenance |  |
+| main.rs:3:20:3:31 | ...: ... [&ref] | main.rs:4:47:4:51 | bytes [&ref] | provenance |  |
+| main.rs:4:5:4:57 | ...::from(...) | main.rs:3:43:5:1 | { ... } | provenance |  |
+| main.rs:4:17:4:56 | ...::from_be_bytes(...) | main.rs:4:5:4:57 | ...::from(...) | provenance | MaD:10177 |
+| main.rs:4:36:4:55 | [...] [element] | main.rs:4:17:4:56 | ...::from_be_bytes(...) | provenance | MaD:17505 |
+| main.rs:4:37:4:41 | bytes [&ref] | main.rs:4:37:4:44 | bytes[0] | provenance | MaD:381 |
+| main.rs:4:37:4:44 | bytes[0] | main.rs:4:36:4:55 | [...] [element] | provenance |  |
+| main.rs:4:47:4:51 | bytes [&ref] | main.rs:4:47:4:54 | bytes[1] | provenance | MaD:381 |
+| main.rs:4:47:4:54 | bytes[1] | main.rs:4:36:4:55 | [...] [element] | provenance |  |
+| main.rs:9:29:9:39 | &mut packet | main.rs:9:29:9:39 | [post] &mut packet [&ref] | provenance | Src:MaD:17535  |
+| main.rs:9:29:9:39 | [post] &mut packet [&ref] | main.rs:9:34:9:39 | [post] packet | provenance |  |
+| main.rs:9:34:9:39 | [post] packet | main.rs:10:35:10:40 | packet | provenance |  |
+| main.rs:10:9:10:14 | length | main.rs:11:38:11:43 | length | provenance | Sink:MaD:17495 |
+| main.rs:10:18:10:41 | declared_length(...) | main.rs:10:9:10:14 | length | provenance |  |
+| main.rs:10:34:10:40 | &packet [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | provenance |  |
+| main.rs:10:34:10:40 | &packet [&ref] | main.rs:10:18:10:41 | declared_length(...) | provenance | MaD:381 |
+| main.rs:10:35:10:40 | packet | main.rs:10:34:10:40 | &packet [&ref] | provenance |  |
+| main.rs:21:29:21:39 | &mut header | main.rs:21:29:21:39 | [post] &mut header [&ref] | provenance | Src:MaD:17539  |
+| main.rs:21:29:21:39 | [post] &mut header [&ref] | main.rs:21:34:21:39 | [post] header | provenance |  |
+| main.rs:21:34:21:39 | [post] header | main.rs:23:34:23:39 | header | provenance |  |
+| main.rs:23:17:23:40 | declared_length(...) | main.rs:23:17:23:40 | declared_length(...) | provenance | Sink:MaD:17498 |
+| main.rs:23:33:23:39 | &header [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | provenance |  |
+| main.rs:23:33:23:39 | &header [&ref] | main.rs:23:17:23:40 | declared_length(...) | provenance | MaD:381 |
+| main.rs:23:34:23:39 | header | main.rs:23:33:23:39 | &header [&ref] | provenance |  |
+| main.rs:27:9:27:20 | Ok(...) [Ok] | main.rs:27:12:27:19 | datagram | provenance |  |
+| main.rs:27:12:27:19 | datagram | main.rs:28:40:28:47 | datagram | provenance |  |
+| main.rs:27:24:27:49 | connection.read_datagram() | main.rs:27:24:27:49 | connection.read_datagram() [future, Ok] | provenance | Src:MaD:17542  |
+| main.rs:27:24:27:49 | connection.read_datagram() [future, Ok] | main.rs:27:24:27:55 | await ... [Ok] | provenance |  |
+| main.rs:27:24:27:55 | await ... [Ok] | main.rs:27:9:27:20 | Ok(...) [Ok] | provenance |  |
+| main.rs:28:23:28:48 | declared_length(...) | main.rs:28:23:28:48 | (...) | provenance | Sink:MaD:17499 |
+| main.rs:28:39:28:47 | &datagram [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | provenance |  |
+| main.rs:28:39:28:47 | &datagram [&ref] | main.rs:28:23:28:48 | declared_length(...) | provenance | MaD:381 |
+| main.rs:28:40:28:47 | datagram | main.rs:28:39:28:47 | &datagram [&ref] | provenance |  |
+| main.rs:32:9:32:20 | Ok(...) [Ok] | main.rs:32:12:32:19 | datagram | provenance |  |
+| main.rs:32:12:32:19 | datagram | main.rs:34:35:34:42 | datagram | provenance |  |
+| main.rs:32:24:32:52 | connection.receive_datagram() | main.rs:32:24:32:52 | connection.receive_datagram() [future, Ok] | provenance | Src:MaD:17544  |
+| main.rs:32:24:32:52 | connection.receive_datagram() [future, Ok] | main.rs:32:24:32:58 | await ... [Ok] | provenance |  |
+| main.rs:32:24:32:58 | await ... [Ok] | main.rs:32:9:32:20 | Ok(...) [Ok] | provenance |  |
+| main.rs:34:18:34:43 | declared_length(...) | main.rs:34:18:34:43 | declared_length(...) | provenance | Sink:MaD:17496 |
+| main.rs:34:34:34:42 | &datagram [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | provenance |  |
+| main.rs:34:34:34:42 | &datagram [&ref] | main.rs:34:18:34:43 | declared_length(...) | provenance | MaD:381 |
+| main.rs:34:35:34:42 | datagram | main.rs:34:34:34:42 | &datagram [&ref] | provenance |  |
+nodes
+| main.rs:3:20:3:31 | ...: ... [&ref] | semmle.label | ...: ... [&ref] |
+| main.rs:3:43:5:1 | { ... } | semmle.label | { ... } |
+| main.rs:4:5:4:57 | ...::from(...) | semmle.label | ...::from(...) |
+| main.rs:4:17:4:56 | ...::from_be_bytes(...) | semmle.label | ...::from_be_bytes(...) |
+| main.rs:4:36:4:55 | [...] [element] | semmle.label | [...] [element] |
+| main.rs:4:37:4:41 | bytes [&ref] | semmle.label | bytes [&ref] |
+| main.rs:4:37:4:44 | bytes[0] | semmle.label | bytes[0] |
+| main.rs:4:47:4:51 | bytes [&ref] | semmle.label | bytes [&ref] |
+| main.rs:4:47:4:54 | bytes[1] | semmle.label | bytes[1] |
+| main.rs:9:29:9:39 | &mut packet | semmle.label | &mut packet |
+| main.rs:9:29:9:39 | [post] &mut packet [&ref] | semmle.label | [post] &mut packet [&ref] |
+| main.rs:9:34:9:39 | [post] packet | semmle.label | [post] packet |
+| main.rs:10:9:10:14 | length | semmle.label | length |
+| main.rs:10:18:10:41 | declared_length(...) | semmle.label | declared_length(...) |
+| main.rs:10:34:10:40 | &packet [&ref] | semmle.label | &packet [&ref] |
+| main.rs:10:35:10:40 | packet | semmle.label | packet |
+| main.rs:11:38:11:43 | length | semmle.label | length |
+| main.rs:21:29:21:39 | &mut header | semmle.label | &mut header |
+| main.rs:21:29:21:39 | [post] &mut header [&ref] | semmle.label | [post] &mut header [&ref] |
+| main.rs:21:34:21:39 | [post] header | semmle.label | [post] header |
+| main.rs:23:17:23:40 | declared_length(...) | semmle.label | declared_length(...) |
+| main.rs:23:17:23:40 | declared_length(...) | semmle.label | declared_length(...) |
+| main.rs:23:33:23:39 | &header [&ref] | semmle.label | &header [&ref] |
+| main.rs:23:34:23:39 | header | semmle.label | header |
+| main.rs:27:9:27:20 | Ok(...) [Ok] | semmle.label | Ok(...) [Ok] |
+| main.rs:27:12:27:19 | datagram | semmle.label | datagram |
+| main.rs:27:24:27:49 | connection.read_datagram() | semmle.label | connection.read_datagram() |
+| main.rs:27:24:27:49 | connection.read_datagram() [future, Ok] | semmle.label | connection.read_datagram() [future, Ok] |
+| main.rs:27:24:27:55 | await ... [Ok] | semmle.label | await ... [Ok] |
+| main.rs:28:23:28:48 | (...) | semmle.label | (...) |
+| main.rs:28:23:28:48 | declared_length(...) | semmle.label | declared_length(...) |
+| main.rs:28:39:28:47 | &datagram [&ref] | semmle.label | &datagram [&ref] |
+| main.rs:28:40:28:47 | datagram | semmle.label | datagram |
+| main.rs:32:9:32:20 | Ok(...) [Ok] | semmle.label | Ok(...) [Ok] |
+| main.rs:32:12:32:19 | datagram | semmle.label | datagram |
+| main.rs:32:24:32:52 | connection.receive_datagram() | semmle.label | connection.receive_datagram() |
+| main.rs:32:24:32:52 | connection.receive_datagram() [future, Ok] | semmle.label | connection.receive_datagram() [future, Ok] |
+| main.rs:32:24:32:58 | await ... [Ok] | semmle.label | await ... [Ok] |
+| main.rs:34:18:34:43 | declared_length(...) | semmle.label | declared_length(...) |
+| main.rs:34:18:34:43 | declared_length(...) | semmle.label | declared_length(...) |
+| main.rs:34:34:34:42 | &datagram [&ref] | semmle.label | &datagram [&ref] |
+| main.rs:34:35:34:42 | datagram | semmle.label | datagram |
+subpaths
+| main.rs:10:34:10:40 | &packet [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | main.rs:3:43:5:1 | { ... } | main.rs:10:18:10:41 | declared_length(...) |
+| main.rs:23:33:23:39 | &header [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | main.rs:3:43:5:1 | { ... } | main.rs:23:17:23:40 | declared_length(...) |
+| main.rs:28:39:28:47 | &datagram [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | main.rs:3:43:5:1 | { ... } | main.rs:28:23:28:48 | declared_length(...) |
+| main.rs:34:34:34:42 | &datagram [&ref] | main.rs:3:20:3:31 | ...: ... [&ref] | main.rs:3:43:5:1 | { ... } | main.rs:34:18:34:43 | declared_length(...) |

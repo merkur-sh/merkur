@@ -1,0 +1,18 @@
+# The bytes the dataplane, edge and STUN responder receive: QUIC streams and datagrams through the
+# vendored `quinn` and `wtransport`, and plain UDP through Tokio. CodeQL models none of these
+# reads as remote input.
+extensions:
+  - addsTo:
+      pack: codeql/rust-all
+      extensible: sourceModel
+    data:
+      - ["<tokio::net::udp::UdpSocket>::recv", "Argument[0].Reference", "remote", "manual"]
+      - ["<tokio::net::udp::UdpSocket>::recv_from", "Argument[0].Reference", "remote", "manual"]
+      - ["<tokio::net::udp::UdpSocket>::try_recv", "Argument[0].Reference", "remote", "manual"]
+      - ["<tokio::net::udp::UdpSocket>::try_recv_from", "Argument[0].Reference", "remote", "manual"]
+      - ["<quinn::recv_stream::RecvStream>::read", "Argument[0].Reference", "remote", "manual"]
+      - ["<quinn::recv_stream::RecvStream>::read_exact", "Argument[0].Reference", "remote", "manual"]
+      - ["<quinn::recv_stream::RecvStream>::read_to_end", "ReturnValue.Future.Field[core::result::Result::Ok(0)]", "remote", "manual"]
+      - ["<quinn::connection::Connection>::read_datagram", "ReturnValue.Future.Field[core::result::Result::Ok(0)]", "remote", "manual"]
+      - ["<wtransport::stream::RecvStream>::read", "Argument[0].Reference", "remote", "manual"]
+      - ["<wtransport::connection::Connection>::receive_datagram", "ReturnValue.Future.Field[core::result::Result::Ok(0)]", "remote", "manual"]

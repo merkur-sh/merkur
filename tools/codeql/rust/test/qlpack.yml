@@ -1,0 +1,9 @@
+name: merkur/rust-tests
+version: 0.0.0
+extractor: rust
+tests: .
+dependencies:
+  merkur/rust-queries: '*'
+  merkur/rust-models: '*'
+  codeql/rust-all: '*'
+  codeql/rust-queries: '*'
