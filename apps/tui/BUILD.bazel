@@ -88,7 +88,7 @@ rust_test(
 rust_test(
     name = "interactive_live",
     srcs = ["tests/interactive_live.rs"],
-    data = ["tests/pty_bridge.py"],
+    compile_data = ["tests/pty_bridge.py"],
     lint_config = ":lints",
     deps = [
         ":merkur_tui",
