@@ -9,7 +9,7 @@ catalog:
   effect: 4.0.1
   elysia: 2.0.0-beta.16
   exact-mirror: 1.2.6
-  typebox: 1.3.23
+  typebox: 1.3.36
 
 linkWorkspacePackages: true
 autoInstallPeers: true
