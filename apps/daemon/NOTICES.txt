@@ -924,7 +924,7 @@ COMPONENTS
   proc-macro2 1.0.107  (MIT OR Apache-2.0)  https://github.com/dtolnay/proc-macro2
   quick-xml 0.41.0  (MIT)  https://github.com/tafia/quick-xml
   quinn 0.11.12  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
-  quinn-proto 0.11.18  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
+  quinn-proto 0.11.19  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
   quinn-udp 0.5.15  (MIT OR Apache-2.0)  https://github.com/quinn-rs/quinn
   quote 1.0.47  (MIT OR Apache-2.0)  https://github.com/dtolnay/quote
   r-efi 5.3.0  (MIT OR Apache-2.0 OR LGPL-2.1-or-later)  https://github.com/r-efi/r-efi
@@ -3884,7 +3884,7 @@ SOFTWARE.
 ------------------------------------------------------------------------------
 LICENSE-APACHE, as published with:
   quinn 0.11.12
-  quinn-proto 0.11.18
+  quinn-proto 0.11.19
   quinn-udp 0.5.15
   rustls-platform-verifier 0.7.0
 
@@ -4719,7 +4719,7 @@ DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------------
 LICENSE-MIT, as published with:
   quinn 0.11.12
-  quinn-proto 0.11.18
+  quinn-proto 0.11.19
   quinn-udp 0.5.15
 
 Copyright (c) 2018 The quinn Developers
