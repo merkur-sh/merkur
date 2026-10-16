@@ -10,7 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 alacritty_terminal = { version = "0.26.0", default-features = false }
-wasm-bindgen = "=0.2.127"
+wasm-bindgen = "=0.2.129"
 merkur-codec = { path = "../merkur-codec" }
 merkur-graphics = { path = "../merkur-graphics" }
 merkur-wire = { path = "../merkur-wire", default-features = false }
