@@ -10,7 +10,7 @@
     ],
     "catalog": {
       "@elysia/eden": "2.0.0-beta.5",
-      "@noble/post-quantum": "0.7.0",
+      "@noble/post-quantum": "0.7.1",
       "@serenity-kit/opaque": "1.1.0",
       "effect": "4.0.1",
       "elysia": "2.0.0-beta.16",
