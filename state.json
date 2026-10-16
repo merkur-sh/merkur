@@ -313,7 +313,7 @@
       "run": "38954638811",
       "attempt": 1,
       "sequence": 108,
-      "phase": "retained",
+      "phase": "services",
       "events": [
         {
           "phase": "signing",
@@ -345,6 +345,14 @@
         {
           "phase": "retained",
           "targetIdentities": {
+            "mercury-edge-tntcl": "registry.fly.io/mercury-edge-tntcl@sha256:e735855639c6c1195a20b3933251af673d14116ac4ec25ea3324ba5026ccb8cf",
+            "mercury-stun-tntcl": "registry.fly.io/mercury-stun-tntcl@sha256:6d7cd78ee9d35ab0c1b49dc5f3a3850b951cd0397dae86c918eaa0dc57a241e3",
+            "railway": "28e64ab7-0d24-4790-af62-67c2347df486"
+          }
+        },
+        {
+          "phase": "services",
+          "evidence": {
             "mercury-edge-tntcl": "registry.fly.io/mercury-edge-tntcl@sha256:e735855639c6c1195a20b3933251af673d14116ac4ec25ea3324ba5026ccb8cf",
             "mercury-stun-tntcl": "registry.fly.io/mercury-stun-tntcl@sha256:6d7cd78ee9d35ab0c1b49dc5f3a3850b951cd0397dae86c918eaa0dc57a241e3",
             "railway": "28e64ab7-0d24-4790-af62-67c2347df486"
