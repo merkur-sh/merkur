@@ -15,4 +15,20 @@
 - A canary identity invalidated by a schema hard cut must be relinked through its owner-authorized
   procedure. CI cannot manufacture an account owner's binding signature.
 - Hosted macOS executable smoke tests do not prove physical Secure Enclave availability.
+- A protocol, presence or telemetry change is a hard cutover: a daemon that has not updated
+  breaks against the new server the moment it deploys. Prove the server on one updated
+  daemon before reading a daemon that looks down as a release failure.
+- A session stuck at the first-frame stage, with signaling, auth and shell startup all
+  succeeding, is what a stale daemon looks like after a codec version change: the browser
+  drops every frame as `InvalidVersion` (`packages/merkur-codec/src/decode.rs`). Compare the
+  codec version at the tag with the daemon's before blaming transport.
+- `daemon_perf_report_rejected` with status 400 in a daemon's log means its report no
+  longer matches the deployed server's schema: a half-rolled telemetry cutover. It posts every
+  60 s, so it is the quickest post-release signal. A 503 on the same path is Railway's edge,
+  not the release.
+- Another session can commit or unstage in the shared checkout mid-release. Re-read
+  `git log` and `git status` immediately before tagging, not the opening snapshot.
+- A local `check:types` error naming a `term-wasm` export, or a WASM provenance failure, is the
+  gitignored `pkg/` from an earlier build, never a deployment signal: `bun run build:wasm &&
+  bun run sync:wasm`.
 - Review [CI operations](../../../../docs/ci.md) for setup, recovery and the retained journal.
