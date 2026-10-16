@@ -25,7 +25,7 @@ fn named_impl<'a>(source: &'a File, name: &str, trait_name: Option<&str>) -> &'a
                 if matches!(&*item.self_ty, Type::Path(ty) if ty.qself.is_none() && ty.path.is_ident(name))
                     && match (&item.trait_, trait_name) {
                         (None, None) => true,
-                        (Some((_, path, _)), Some(expected)) => path.is_ident(expected),
+                        (Some((path, _)), Some(expected)) => path.is_ident(expected),
                         _ => false,
                     } => Some(item),
             _ => None,
