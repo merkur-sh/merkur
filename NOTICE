@@ -21,6 +21,11 @@ and no-weak-assertion, and their cases, are Merkur's own.
 tools/biome/slop/LICENSE-anti-slop holds its license. They are development
 tools; no shipped artifact contains them.
 
+The agent skills under .claude/skills that skills-lock.json names are copies
+of https://github.com/emilkowalski/skill (MIT);
+.claude/skills/LICENSE-emilkowalski-skill holds its license. They are
+development tools; no shipped artifact contains them.
+
 The daemon carries the attribution and license text for every dependency
 compiled into it; `merkur licenses` prints it.
 
