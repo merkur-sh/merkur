@@ -1278,7 +1278,7 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.rustls]]
-version = "0.23.45"
+version = "0.23.46"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
