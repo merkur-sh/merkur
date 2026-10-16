@@ -120,7 +120,7 @@ jobs:
         run: |
           # GitHub supports queue:max; actionlint 1.7.12 has not added that key.
           "$(go env GOPATH)/bin/actionlint" -ignore 'unexpected key "queue" for "concurrency" section'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && needs.plan.outputs.source == 'true'
         with:
           name: source-results-${{ github.run_id }}
@@ -178,7 +178,7 @@ jobs:
         env:
           PW_E2E_OUTPUT_DIR: test-results/ci-reorder
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/ci-reorder.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: integration-results-${{ github.run_id }}
@@ -219,7 +219,7 @@ jobs:
         # --functional already enables fullyParallel: Playwright partitions
         # individual tests, including the large input matrix, across runners.
         run: xvfb-run -a bun run test:e2e:transport --functional --workers=1 --shard="$SHARD" --reporter=line,json --max-failures=1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: transport-${{ matrix.shard }}-results-${{ github.run_id }}
