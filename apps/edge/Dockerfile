@@ -17,7 +17,7 @@
 # Deploy from the repo root, NOT from this directory:
 #   bun run edge:fly-config render <edge-id> <version>
 #   fly deploy --config apps/edge/fly/<edge-id>.toml --dockerfile apps/edge/Dockerfile
-FROM mirror.gcr.io/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
+FROM mirror.gcr.io/library/rust:1.99.1-bookworm@sha256:e12566d5abc17a0da741628782cdb504b68b8961f5bfcf677936bf3e8b32de29 AS build
 WORKDIR /build
 
 # The pinned toolchain and cargo config, so the image compiles with the same
