@@ -26,7 +26,7 @@ unicode-width = "0.2"
 # `std` only adds the `Vec<u8>` output buffer; legacy formats and the
 # dictionary builder stay out of the artifact. `experimental` exposes the
 # magicless frame format the display payload uses.
-zstd-safe = { version = "7.2", default-features = false, features = ["std", "experimental"] }
+zstd-safe = { version = "8.0", default-features = false, features = ["std", "experimental"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 merkur-client = { path = "../merkur-client" }
@@ -34,7 +34,7 @@ merkur-client = { path = "../merkur-client" }
 [dev-dependencies]
 # Native tests build real zstd dictionaries and compressed frames to drive the
 # decode path.
-zstd = { version = "0.13", features = ["experimental"] }
+zstd = { version = "0.14", features = ["experimental"] }
 
 [features]
 # Links the LLVM profile runtime into the instrumented build that
