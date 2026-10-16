@@ -1270,6 +1270,7 @@ async fn heartbeat_expiry_retires_both_edge_lanes_before_the_next_owner_event() 
             nonce_hex: "expired-nonce".to_string(),
             issued_at_ms: live_upgrade_ms,
             proof_arrival: None,
+            owner: ("session".into(), 0),
         },
     );
     // A second identity's ownership, as a negative control: retirement must
@@ -1284,6 +1285,7 @@ async fn heartbeat_expiry_retires_both_edge_lanes_before_the_next_owner_event() 
             nonce_hex: "survivor-nonce".to_string(),
             issued_at_ms: live_upgrade_ms,
             proof_arrival: None,
+            owner: ("session".into(), 0),
         },
     );
 

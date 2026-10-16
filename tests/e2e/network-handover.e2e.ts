@@ -8,6 +8,7 @@ import {
   startDirectNetworkProxy,
 } from './fixtures/direct-network-proxy';
 import { moveEdgeProxyBrowserSource, partitionEdgeProxy } from './fixtures/test';
+import { expectOutput, primeTerminal } from './terminal-e2e-helpers';
 
 /**
  * The direct path follows the browser across a network change.
@@ -230,5 +231,40 @@ test('a network change that ends the carrier re-dials the direct path after the 
     await partitionEdgeProxy(1, 'browser-established').catch(() => false);
     await moveEdgeProxyBrowserSource('configured').catch(() => null);
     await proxy.close();
+  }
+});
+
+// A direct badge alone cannot prove which carrier delivered terminal records.
+// Remove every edge lane while retaining the authenticated direct connection.
+test('authenticated direct input and display survive complete relay withdrawal', async ({
+  page,
+  browserName,
+  linkedDaemon,
+}) => {
+  test.skip(process.env.FORCE_EDGE !== '0', 'the direct path requires FORCE_EDGE=0');
+  if (browserName === 'chromium') {
+    await page.context().grantPermissions(['local-network-access'], { origin: page.url() });
+  }
+  test.skip(!(await partitionEdgeProxy(1)), 'relay withdrawal requires the edge proxy');
+  let issuances = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/sessions/request') issuances += 1;
+  });
+  const output = await primeTerminal(page, linkedDaemon.daemonName);
+  await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
+  const initialIssuances = issuances;
+  const logMark = linkedDaemon.logText().length;
+  try {
+    await partitionEdgeProxy(DIRECT_OUTAGE_MS);
+    // The marker is assembled by the shell; its typed echo cannot satisfy it.
+    await page.keyboard.type("printf '%s%s\\n' relay_withdrawn_ direct_alive\n");
+    await expectOutput(output, 'relay_withdrawn_direct_alive');
+    await expectConnected(page);
+    await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible();
+    expect(issuances, 'the original authorized session carries the input').toBe(initialIssuances);
+    expect(committedRebinds(linkedDaemon.logText().slice(logMark))).toBe(0);
+    await page.screenshot({ path: test.info().outputPath('direct-without-relay.png') });
+  } finally {
+    await partitionEdgeProxy(1);
   }
 });

@@ -657,7 +657,7 @@ admission.
 ## Direct-Path Candidates
 
 A direct path removes the relay hop when the browser can reach the daemon. The daemon publishes
-its candidates; the browser orders and dials them. Five candidate kinds exist:
+its candidates; the browser orders and dials them. Seven candidate kinds exist:
 
 | Kind | What it is |
 | --- | --- |
@@ -666,6 +666,8 @@ its candidates; the browser orders and dials them. Five candidate kinds exist:
 | `srflx` | The public endpoint observed from the live WebTransport socket by an authenticated STUN probe, including the translated port |
 | `nat_map` | An explicit port-mapping lease; the one kind that does not depend on NAT filter state |
 | `loopback` | `127.0.0.1` or `::1`, offered only to a browser the edge observed on loopback |
+| `tftp` | An endpoint observed on its own interface-bound QUIC socket, prepared by a TFTP read request from that exact socket |
+| `sip` | An unverified requested SDP media endpoint on a separate interface-bound QUIC socket; helper rewriting can make it unreachable |
 
 Every browser gets the daemon's whole candidate set, its **manifest**. Whether a LAN, overlay or
 reflexive candidate answers is something only a dial establishes, so no address heuristic
@@ -686,10 +688,14 @@ candidate's connection carries its own validated address in its candidate metada
 becomes the browser's address when the candidate commits.
 
 The daemon sends `webtransport_manifest` `{generation, certHash, candidates, nat,
-browserAddress, punch}` once authentication completes and the address is known, in either
+browserAddress, punch, admissionPending}` once authentication completes and the address is known, in either
 order; when a rebind commits; when the committed carrier's address changes, which is how a
 connection that migrates (Safari's) moves networks; and when its candidates or certificate
-change. `generation` orders one peer's manifests.
+change. `generation` orders one peer's manifests. `admission_pending` means router
+preparation is still running. Successful preparations progressively extend the same
+generation; the last result carries the complete candidate set and `admission_pending: false`.
+Older generations and duplicate final results do not start another constructor. LAN, host, explicit mapping and IPv6 candidates need not wait;
+reflexive IPv4 candidates wait for preparation before spending a handshake.
 
 ### Keeping a reflexive candidate dialable
 
@@ -710,21 +716,62 @@ DTLS, or RTP and solicits no reply.
 
 The browser dials a punched candidate, `srflx` toward an IPv4 browser or a global `host6` toward
 an IPv6 one, only under a manifest built for its carrier's current address, and only once that
-manifest's punch outcome arrived. Every other candidate is dialled as soon as the manifest lands.
+manifest's punch outcome arrived. Prepared helper candidates also require the manifest's
+browser address to match the current IPv4 carrier. LAN, host and explicit lease candidates
+are dialable as soon as the manifest lands.
 
-Under endpoint-dependent mapping every daemon flow gets a fresh external port the browser cannot
-aim at, so `punch_plan` refuses and the manifest relies on the lease or a global IPv6 address.
+### Router admission
 
-Under port-dependent filtering there is no punch either. The filter admits only the exact browser
-endpoint the daemon has sent to, and the browser dials each candidate once from an ephemeral port
-that no API exposes, so the daemon has no known exact tuple to target. `srflx` is still offered,
-because the browser's side can hold the state it needs. A daemon behind endpoint-independent
-mapping with port-dependent filtering, no port-mapping lease, and no globally routable IPv6
-address stays on the edge relay under this discovery policy. This is an implementation limit,
-not a proof that direct WebTransport is impossible through that filter. The former search over
-the browser OS's ephemeral range was removed: its coverage was probabilistic and its design
-relied on several speculative sessions per race, which Chromium's handshake throttle charges
-against later dials, relay dials included. The current implementation does not search ports.
+The Rust admission coordinator prepares independent accepting sockets for TFTP and SIP. It
+keys work to the authenticated peer, session, rebind counter, manifest generation, validated
+browser IPv4 and daemon network epoch. An interface/address is selected explicitly for every
+socket; the default OS route is never used as a substitute. macOS uses `IP_BOUND_IF`; Linux
+uses the unprivileged `IP_UNICAST_IF` option and a concrete local bind. Preparation and
+retirement run outside the terminal owner. All direct logical channels share one QUIC
+connection and use the existing channel senders after authentication.
+
+A TFTP request is a read request for a random nonexistent name in octet mode, sent to the
+validated browser IPv4 on UDP69 from the exact accepting socket. Two distinct authenticated
+STUN observer IPs must agree on that socket's external endpoint before it is offered. This
+mechanism can admit a browser whose ephemeral source port is unknown through a helper-enabled
+port-dependent filter. It does not discover a destination-dependent external mapping.
+
+SIP uses a separate signaling socket directed to that browser's IPv4 on UDP5060, with an SDP
+media offer naming an exclusively owned even UDP listener port. The adjacent RTCP port is
+reserved and silent for the coordinator's lifetime, including after a candidate retires:
+router-side expiry is unobservable, so releasing it could expose a subsequently bound local
+service. At most 160 companion reservations are retained; after that, allocation reuses only
+pairs whose companion is already owned. The OS allocates an ephemeral media socket; odd ports and occupied companion ports
+are discarded before any SIP request leaves. Allocation never searches neighboring WAN ports
+or restarts from a fixed local port after a daemon restart. The requested media port at the same
+interface's observed public IP is a `sip` candidate, never a verified `nat_map` lease. A
+helper can rewrite that address or port on collision or across NAT layers; such a candidate
+can fail. Neither a send completion nor a STUN observation proves router acceptance.
+
+Each new admission attempt owns its own mechanism bindings. Consequently two browsers behind
+one public IP do not consume the same one-shot TFTP expectation, and SIP cannot alter the
+TFTP listener's router state. A replacement connection prepares fresh state from its actual
+lifecycle event, rather than relying on a startup punch or periodic helper requests. The
+coordinator admits at most 32 preparing/live peer cohorts and uses only the remaining slots
+in the ten-candidate manifest bound. All listeners share the daemon's 64-session admission
+semaphore. Candidates are published only after their helper sends complete; the ordinary
+session-key upgrade proof still decides which connection may carry terminal frames.
+
+A client reports completion of the exact manifest after its race and upgrade settle. The
+peer retains that completion even when the coordinator wake queue is full.
+Cancellation, a newer session/manifest or a network epoch change discards stale preparations
+and losing bindings. Retirement drains only that listener's connection IDs. The exact
+already-authenticated winner survives admission cleanup and later manifest changes until its
+connection is retired by the session lifecycle. Losing-candidate cancellation cannot close
+another terminal's direct carrier. On direct disconnection the surviving signaling carrier
+receives a fresh manifest and preparation; a rebind uses the successor's session keys.
+
+The ordinary adjacent-port punch still skips destination-dependent mappings and
+port-dependent filters, because it lacks the browser's exact source port. The helper routes
+supply additional admission without exposing that port to JavaScript. Networks without a
+usable helper endpoint, LAN/public path, explicit mapping lease or IPv6 pinhole retain the
+edge carrier. No port sweep, ICMP mapping search or candidate forwarding service runs in this
+policy. A forwarded packet path is never classified as authenticated direct connectivity.
 
 The WebTransport API can dial URLs but exposes no UDP bind, STUN, source-port choice, migration,
 or multipath. Chrome and Firefox never migrate a WebTransport connection: their network change
@@ -741,7 +788,12 @@ Each endpoint (`addr:port` under one certificate hash) gets one handshake per ne
 page-wide (`apps/web/src/session/direct-dial-admission.ts`), because Chromium's throttle charges
 every failed handshake against later dials, relay dials included. A visit is one stay on one
 address, the one the edge validated on the active session's committed carrier: moving to another
-address starts a new visit, and so does returning to an earlier one. A handshake that succeeded
+address starts a new visit, and so does returning to an earlier one. Preparation allocates an
+independently owned binding without clearing any failed endpoint's record; preparation
+does not reset Chromium's IP/subnet failure penalty. The native constructor's readiness outcome
+owns the claim, even if cancellation or channel setup finishes later;
+channel failure cannot turn a successful native handshake into a failed handshake, and a
+started constructor cannot be refunded as unused. A handshake that succeeded
 is not charged, so an endpoint whose path later died is dialable again. There is no retry timer
 and no give-up. The session's one race is joined by whatever becomes dialable: the winner cached
 for this daemon on this address first, then a manifest's public candidates, then its local

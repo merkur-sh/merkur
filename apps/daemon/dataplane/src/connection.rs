@@ -3179,6 +3179,8 @@ pub struct PeerDisplayState {
     /// Orders this peer's manifests; a punch outcome names the one it belongs
     /// to. Incremented by every manifest, never reset within a peer.
     pub manifest_generation: u64,
+    /// Client completion is durable even when the admission wake queue is full.
+    pub admission_done_generation: Option<u64>,
 
     /// While `Some(deadline)`, the auto-snapshot sender
     /// is suppressed until either (a) the deadline passes (snapshot fires as
@@ -3612,6 +3614,7 @@ impl PeerDisplayState {
             keystroke_reorder_bytes: 0,
             browser_address: None,
             manifest_generation: 0,
+            admission_done_generation: None,
             noise_handshake: None,
             noise: None,
             graphics_requests: None,

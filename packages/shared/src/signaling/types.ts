@@ -1,4 +1,11 @@
-export type WebTransportCandidateKind = 'srflx' | 'nat_map' | 'host4' | 'host6' | 'loopback';
+export type WebTransportCandidateKind =
+  | 'srflx'
+  | 'nat_map'
+  | 'host4'
+  | 'host6'
+  | 'loopback'
+  | 'tftp'
+  | 'sip';
 
 /**
  * Whether dialing a candidate leaves the local network, as the daemon's
@@ -185,6 +192,7 @@ export interface SignalingWebTransportManifestMessage {
   readonly nat: SignalingWebTransportNatSignature;
   readonly browserAddress: string;
   readonly punch: WebTransportPunchState;
+  readonly admissionPending: boolean;
 }
 
 /** The outcome of the punch a `pending` manifest promised. */

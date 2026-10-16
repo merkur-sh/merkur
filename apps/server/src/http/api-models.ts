@@ -598,6 +598,8 @@ export const ApiModels = {
         t.Literal('host4'),
         t.Literal('host6'),
         t.Literal('loopback'),
+        t.Literal('tftp'),
+        t.Literal('sip'),
         t.Literal('none'),
       ]),
       admissionStage: t.Union([
@@ -625,6 +627,8 @@ export const ApiModels = {
               t.Literal('host4'),
               t.Literal('host6'),
               t.Literal('loopback'),
+              t.Literal('tftp'),
+              t.Literal('sip'),
             ]),
             disposition: t.Union([
               t.Literal('not_dialled'),

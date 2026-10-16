@@ -338,6 +338,73 @@ pub async fn probe(
     })
 }
 
+/// Mapping evidence for a new admission listener. Filtering and hairpin tests
+/// do not decide helper eligibility and must not delay its first browser dial.
+/// TFTP needs equal mappings from distinct observer IPs; SIP requests its owned
+/// media port and only needs this interface's observed public address.
+pub(super) async fn admission_mapping(
+    socket: &Arc<DiscoverySocket>,
+    credential: &StunCredential,
+    stable: bool,
+) -> Result<SocketAddr, String> {
+    use futures::StreamExt;
+    let mut probes = futures::stream::FuturesUnordered::new();
+    for server in credential.servers.iter().take(8) {
+        probes.push(async move {
+            let destination = resolve_observer_for(server, true).await?;
+            let response = exchange(
+                socket,
+                credential,
+                destination,
+                0,
+                ResponseSource::Exact(destination),
+                STUN_TIMEOUT,
+            )
+            .await?;
+            let mapped = parse_stun_response(
+                &response.bytes[..response.len],
+                &response.bytes[8..20].try_into().ok()?,
+            )?;
+            (mapped.is_ipv4() && !observed_inside_nat_realm(mapped.ip())).then_some(
+                StunObservation {
+                    mapped,
+                    server: destination,
+                },
+            )
+        });
+    }
+    let mut observations: Vec<StunObservation> = Vec::new();
+    while let Some(result) = probes.next().await {
+        if let Some(observation) = result {
+            if !stable {
+                return Ok(observation.mapped);
+            }
+            if observations
+                .iter()
+                .any(|other| other.mapped != observation.mapped)
+            {
+                return Err("TFTP mapping is destination dependent".into());
+            }
+            let mapped = observation.mapped;
+            observations.push(observation);
+            if infer_nat_behavior(
+                socket.local_addr().map_err(|e| e.to_string())?.port(),
+                &observations,
+            )
+            .0 == NatMapping::EndpointIndependent
+            {
+                return Ok(mapped);
+            }
+        }
+    }
+    Err(if observations.is_empty() {
+        "no authenticated public IPv4 admission mapping observation"
+    } else {
+        "TFTP needs matching mappings from distinct observer IPs"
+    }
+    .into())
+}
+
 /// Whether an observer that reported `mapped` saw this socket from inside its
 /// own NAT realm: a private, shared-address (RFC 6598), loopback, link-local or
 /// unique-local source. Such an observer — a box probing a responder on its own
@@ -863,6 +930,53 @@ fn test_socket() -> (
 }
 
 #[cfg(test)]
+mod admission_tests {
+    use super::*;
+    use merkur_stun_protocol::message::{ATTR_XOR_MAPPED_ADDRESS, ResponseWriter};
+
+    #[tokio::test]
+    async fn sip_needs_one_authenticated_mapping_but_tftp_needs_distinct_observer_ips() {
+        let observer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let at = observer.local_addr().unwrap();
+        let mapped: SocketAddr = "198.51.100.9:45200".parse().unwrap();
+        let key = Arc::new(hmac::Key::new(hmac::HMAC_SHA256, &[7; 32]));
+        let credential = StunCredential {
+            servers: Arc::new(vec![at.to_string()]),
+            ticket: Arc::new("test-ticket".into()),
+            integrity_key: key.clone(),
+            expires_at: Instant::now() + Duration::from_secs(10),
+        };
+        let responder = tokio::spawn(async move {
+            for _ in 0..2 {
+                let mut bytes = [0; 512];
+                let (len, client) = observer.recv_from(&mut bytes).await.unwrap();
+                let request =
+                    merkur_stun_protocol::message::parse_binding_request(&bytes[..len]).unwrap();
+                assert!(request.verify_integrity(&bytes[..len], &key));
+                let mut response = ResponseWriter::new(request.transaction_id);
+                assert!(response.push_address(
+                    ATTR_XOR_MAPPED_ADDRESS,
+                    mapped,
+                    request.transaction_id,
+                    true
+                ));
+                assert!(response.finish_in_place(&key));
+                observer.send_to(response.as_bytes(), client).await.unwrap();
+            }
+        });
+        let (_endpoint, socket) = test_socket();
+        assert_eq!(
+            admission_mapping(&socket, &credential, false)
+                .await
+                .unwrap(),
+            mapped
+        );
+        assert!(admission_mapping(&socket, &credential, true).await.is_err());
+        responder.await.unwrap();
+    }
+}
+
+#[cfg(test)]
 mod natlab {
     use super::*;
 
@@ -900,6 +1014,7 @@ mod natlab {
             messages,
             events,
             shutdown_rx,
+            None,
         ));
         let result = probe(&socket, &credential).await.unwrap();
         assert_eq!(result.local_port, 44300);

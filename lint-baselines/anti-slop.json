@@ -1521,9 +1521,6 @@
     "no-unknown-parameters": 3,
     "require-safety-comment-for-type-assertion": 6
   },
-  "apps/web/src/transport/client-carrier.test.ts": {
-    "no-swallowed-error": 1
-  },
   "apps/web/src/transport/client-carrier.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-runtime-typeof": 1,

@@ -1,3 +1,4 @@
+pub(crate) mod admission;
 mod direct_session;
 pub(crate) mod discovery_socket;
 pub mod egress;
@@ -320,6 +321,10 @@ pub enum CandidateFlavor {
     Host6,
     /// 127.0.0.1 / ::1, added only for the SameHost selection strategy.
     Loopback,
+    /// A same-socket observed endpoint, prepared with a TFTP RRQ.
+    Tftp,
+    /// An unverified SDP media endpoint; never a port-mapping lease.
+    Sip,
 }
 
 /// Internal classification of an IP address by IETF prefix category. The
@@ -463,6 +468,12 @@ pub struct WebTransportState {
     /// pinhole punches toward an authenticated browser address.
     pub side_channel: Option<Arc<side_channel::SideChannel>>,
     pub traversal_requests: Option<mpsc::Sender<traversal::Request>>,
+    pub admission_requests: Option<admission::Handle>,
+    pub admission_config: Option<wtransport::quinn::ServerConfig>,
+    pub admission_credential: Option<stun::StunCredential>,
+    pub(crate) admission_claims: HashMap<String, Arc<admission::Claim>>,
+    connection_listeners: HashMap<u64, u64>,
+    session_slots: Arc<Semaphore>,
     pub discovery_socket: Option<Arc<discovery_socket::DiscoverySocket>>,
     /// The live port-mapping lease, when one has been won.
     ///
@@ -522,6 +533,12 @@ impl WebTransportState {
             daemon_srflx,
             side_channel: None,
             traversal_requests: None,
+            admission_requests: None,
+            admission_config: None,
+            admission_credential: None,
+            admission_claims: HashMap::new(),
+            connection_listeners: HashMap::new(),
+            session_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_SESSIONS)),
             discovery_socket: None,
             port_lease: None,
             v6_pinhole: None,
@@ -541,6 +558,7 @@ impl WebTransportState {
             info.nat_mapping,
             info.daemon_srflx,
         );
+        state.admission_config = Some(info.admission_config.clone());
         state.discovery_evidence = info.discovery_evidence;
         state.side_channel = info.side_channel.clone();
         state.discovery_socket = info.discovery_socket.clone();
@@ -549,6 +567,7 @@ impl WebTransportState {
 }
 
 pub struct WebTransportServerInfo {
+    pub admission_config: wtransport::quinn::ServerConfig,
     pub discovery_evidence: stun::DiscoveryEvidence,
     pub port: u16,
     pub candidates: Vec<AddressCandidate>,
@@ -725,6 +744,7 @@ pub fn start_server(
     // entire endpoint lifetime. No bind/drop window or port inference exists.
     let (config, cert_state, side_socket, discovery_socket) =
         build_server_config_owning_socket(pinned_port)?;
+    let admission_config = config.quic_config().clone();
     let endpoint = Endpoint::server_with_socket(config, discovery_socket.clone())
         .map_err(|e| format!("failed to start WebTransport server: {e}"))?;
     // Built after the endpoint so a bind failure never leaves a live clone of a
@@ -791,6 +811,7 @@ pub fn start_server(
     }
 
     let info = WebTransportServerInfo {
+        admission_config,
         discovery_evidence: stun::DiscoveryEvidence::default(),
         port,
         candidates,
@@ -843,6 +864,7 @@ pub fn manifest_json(
         },
         "browser_address": browser_address,
         "punch": if punch { "pending" } else { "none" },
+        "admission_pending": false,
     })
 }
 
@@ -1738,6 +1760,16 @@ impl WebTransportServer {
         message_tx: mpsc::Sender<PeerMessage>,
         peer_event_tx: mpsc::Sender<PeerEvent>,
     ) -> Self {
+        Self::spawn_claimed(endpoint, state, message_tx, peer_event_tx, None)
+    }
+
+    pub(super) fn spawn_claimed(
+        endpoint: Endpoint<wtransport::endpoint::endpoint_side::Server>,
+        state: Arc<RwLock<WebTransportState>>,
+        message_tx: mpsc::Sender<PeerMessage>,
+        peer_event_tx: mpsc::Sender<PeerEvent>,
+        claim: Option<Arc<admission::Claim>>,
+    ) -> Self {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let endpoint = Arc::new(endpoint);
         let task = tokio::spawn(accept_loop(
@@ -1746,6 +1778,7 @@ impl WebTransportServer {
             message_tx,
             peer_event_tx,
             shutdown_rx,
+            claim,
         ));
         Self {
             shutdown_tx: Some(shutdown_tx),
@@ -1813,9 +1846,11 @@ async fn accept_loop(
     message_tx: mpsc::Sender<PeerMessage>,
     peer_event_tx: mpsc::Sender<PeerEvent>,
     mut shutdown_rx: oneshot::Receiver<()>,
+    claim: Option<Arc<admission::Claim>>,
 ) -> Vec<RetiredWebTransportConnection> {
+    let listener_id = claim.as_ref().map_or(0, |claim| claim.id);
     let discovery_socket = state.read().await.discovery_socket.clone();
-    let session_slots = Arc::new(Semaphore::new(MAX_CONCURRENT_SESSIONS));
+    let session_slots = state.read().await.session_slots.clone();
     let mut session_tasks = tokio::task::JoinSet::new();
 
     loop {
@@ -1827,7 +1862,7 @@ async fn accept_loop(
                     b"daemon-webtransport-server-replaced",
                 );
                 session_tasks.shutdown().await;
-                return retire_state_connections(&state).await;
+                return retire_listener_connections(&state, listener_id).await;
             }
             incoming = endpoint.accept() => incoming,
             completed = session_tasks.join_next(), if !session_tasks.is_empty() => {
@@ -1854,6 +1889,13 @@ async fn accept_loop(
             DIRECT_WT_INCOMING_UNEXPECTED.fetch_add(1, Ordering::Relaxed);
         }
 
+        if claim
+            .as_ref()
+            .is_some_and(|claim| !claim.accepts(incoming.remote_address().ip()))
+        {
+            incoming.refuse();
+            continue;
+        }
         let Some(session_slot) = try_reserve_session_slot(&session_slots) else {
             // Reject before spawning: at most MAX_CONCURRENT_SESSIONS session
             // supervisors can exist even under a public UDP connection flood.
@@ -1875,6 +1917,7 @@ async fn accept_loop(
         let message_tx = message_tx.clone();
         let peer_event_tx = peer_event_tx.clone();
 
+        let claim = claim.clone();
         session_tasks.spawn(async move {
             let _session_slot = session_slot;
             let connection = match tokio::time::timeout(
@@ -1897,6 +1940,16 @@ async fn accept_loop(
                 }
             };
 
+            if claim
+                .as_ref()
+                .is_some_and(|claim| !claim.connected(connection.quic_connection().stable_id()))
+            {
+                connection.close(
+                    wtransport::VarInt::from_u32(0),
+                    b"admission-already-claimed",
+                );
+                return;
+            }
             let connection = Arc::new(connection);
             let _close_connection = CloseConnectionOnDrop(Arc::clone(&connection));
             info!("WebTransport session accepted");
@@ -1980,6 +2033,11 @@ async fn accept_loop(
             let (upgrade_completed_tx, mut upgrade_completed_rx) = oneshot::channel();
             {
                 let mut s = state.write().await;
+                s.connection_listeners.insert(conn_id, listener_id);
+                if let Some(claim) = &claim {
+                    s.admission_claims
+                        .insert(temp_peer_id.clone(), claim.clone());
+                }
                 s.lifecycle_peers.insert(conn_id, temp_peer_id.clone());
                 s.pending_upgrade_deadlines
                     .insert(conn_id, upgrade_completed_tx);
@@ -2154,23 +2212,53 @@ async fn accept_loop(
     }
 }
 
+#[cfg(test)]
 async fn retire_state_connections(
     state: &Arc<RwLock<WebTransportState>>,
 ) -> Vec<RetiredWebTransportConnection> {
+    retire_listener_connections(state, 0).await
+}
+
+async fn retire_listener_connections(
+    state: &Arc<RwLock<WebTransportState>>,
+    listener_id: u64,
+) -> Vec<RetiredWebTransportConnection> {
     let (mut registry_connection_ids, lifecycle_peers, sessions) = {
         let mut state = state.write().await;
-        state.pending_upgrade_deadlines.clear();
-        let registry_connection_ids = state
+        let owned =
+            |id: &u64| state.connection_listeners.get(id).copied().unwrap_or(0) == listener_id;
+        let ids: Vec<_> = state
+            .lifecycle_peers
+            .keys()
+            .chain(state.peer_connections.values().map(|c| &c.connection_id))
+            .filter(|id| owned(id))
+            .copied()
+            .collect();
+        let mut registry_connection_ids = HashMap::new();
+        let mut lifecycle_peers = Vec::new();
+        let mut sessions = Vec::new();
+        let peer_ids: Vec<_> = state
             .peer_connections
-            .drain()
-            .map(|(peer_id, connection)| (connection.connection_id, peer_id))
-            .collect::<HashMap<_, _>>();
-        let lifecycle_peers = state.lifecycle_peers.drain().collect::<Vec<_>>();
-        let sessions = state
-            .sessions
-            .drain()
-            .map(|(_, session)| session)
-            .collect::<Vec<_>>();
+            .iter()
+            .filter(|(_, c)| ids.contains(&c.connection_id))
+            .map(|(p, _)| p.clone())
+            .collect();
+        for peer in peer_ids {
+            if let Some(connection) = state.peer_connections.remove(&peer) {
+                registry_connection_ids.insert(connection.connection_id, peer.clone());
+            }
+            if let Some(session) = state.sessions.remove(&peer) {
+                sessions.push(session);
+            }
+        }
+        for id in ids {
+            state.pending_upgrade_deadlines.remove(&id);
+            state.connection_listeners.remove(&id);
+            if let Some(temp) = state.lifecycle_peers.remove(&id) {
+                state.admission_claims.remove(&temp);
+                lifecycle_peers.push((id, temp));
+            }
+        }
         (registry_connection_ids, lifecycle_peers, sessions)
     };
 
@@ -2217,7 +2305,11 @@ async fn retire_state_connections(
 }
 
 async fn remove_lifecycle_peer(state: &Arc<RwLock<WebTransportState>>, connection_id: u64) {
-    state.write().await.lifecycle_peers.remove(&connection_id);
+    let mut state = state.write().await;
+    state.connection_listeners.remove(&connection_id);
+    if let Some(temp) = state.lifecycle_peers.remove(&connection_id) {
+        state.admission_claims.remove(&temp);
+    }
 }
 
 async fn abort_and_join_session_tasks(tasks: &mut Vec<JoinHandle<()>>) {
@@ -3438,7 +3530,7 @@ mod lifecycle_tests {
                 port_allocation: stun::PortAllocation::Stable,
                 nat_filtering: stun::NatFiltering::Unknown,
                 hairpin: false,
-                    local_ip: None,
+                local_ip: None,
             }),
             PriorReflexive::default(),
             None,

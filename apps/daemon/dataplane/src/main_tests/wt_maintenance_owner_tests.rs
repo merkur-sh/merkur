@@ -523,6 +523,7 @@ async fn rotation_retires_a_full_old_server_cohort_without_stale_mappings() {
                 nonce_hex: "nonce".to_string(),
                 issued_at_ms: 1.0,
                 proof_arrival: None,
+                owner: ("session".into(), 0),
             },
         );
         let mut peer = PeerDisplayState::new(real_peer_id.into(), PeerTransport::WebTransport);

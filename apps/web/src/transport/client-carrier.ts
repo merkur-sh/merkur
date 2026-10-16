@@ -4,6 +4,8 @@ import { DISPLAY_DATAGRAM_RECEIVE_QUEUE_DEPTH } from '@merkur/shared';
 // alone authenticates, assigns input sequences and decides carrier ownership.
 
 export interface CarrierEvents {
+  /** Native constructor outcome, even if its Rust owner retired meanwhile. */
+  handshake(outcome: 'ready' | 'failed' | 'unused'): void;
   splice(json: string): Promise<void>;
   reliable(source: bigint, channel: number, payload: Uint8Array): Promise<void>;
   datagram(payload: Uint8Array): Promise<void>;
@@ -132,8 +134,12 @@ async function nativeTransport(
   hashes: readonly (readonly number[])[],
   direct: boolean,
   signal: AbortSignal,
+  settle: CarrierEvents['handshake'],
 ): Promise<WebTransport> {
-  if (signal.aborted) throw new Error('terminal carrier dial retired');
+  if (signal.aborted) {
+    settle('unused');
+    throw new Error('terminal carrier dial retired');
+  }
   if (!direct) {
     const admitted = edgeHandshakes.admit(signal);
     if (admitted !== true && !(await admitted)) throw new Error('terminal carrier dial retired');
@@ -149,6 +155,7 @@ async function nativeTransport(
     });
   } catch (error) {
     if (!direct) edgeHandshakes.settle(false);
+    settle('failed');
     throw error;
   }
   // Observe closed even when Rust retires the attempt before readiness.
@@ -172,6 +179,7 @@ async function nativeTransport(
   );
   void decided.then((established) => {
     if (!direct) edgeHandshakes.settle(established);
+    settle(established ? 'ready' : 'failed');
     if (!established || signal.aborted) close();
   });
   const established = await Promise.race([decided, retired.promise]);
@@ -267,7 +275,7 @@ export async function dialClientCarrier(
 ): Promise<ClientCarrier> {
   let transport: WebTransport;
   try {
-    transport = await nativeTransport(url, hashes, direct, signal);
+    transport = await nativeTransport(url, hashes, direct, signal, events.handshake);
   } catch (error) {
     events.closed(false);
     throw error;

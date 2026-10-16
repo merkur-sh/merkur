@@ -68,6 +68,7 @@ fn manifest(
         },
         browser_address: browser_address.parse().unwrap(),
         punch,
+        admission_pending: false,
     }
 }
 
@@ -805,4 +806,130 @@ fn stalled_reliable_counter_custody_survives_primary_switch_and_more_than_a_repl
         assert_eq!(&body[1..3], &2047u16.to_be_bytes());
         assert!(h.session.poll_available_io_action().is_none());
     }
+}
+
+#[test]
+fn router_preparation_completes_before_a_reflexive_constructor_and_never_retries_failed_urls() {
+    let (mut h, _) = ready();
+    observed(&mut h, NOW + 40, CLIENT);
+    let mut pending = manifest(1, vec![srflx()], CLIENT, PunchState::None);
+    if let DaemonSignal::WebtransportManifest {
+        admission_pending, ..
+    } = &mut pending
+    {
+        *admission_pending = true;
+    }
+    assert!(dials(&deliver_signal(&mut h, NOW + 100, &pending)).is_empty());
+    let prepared = manifest(
+        1,
+        vec![
+            candidate(
+                "203.0.113.5:49152",
+                CandidateKind::Tftp,
+                CandidateScope::Public,
+            ),
+            srflx(),
+        ],
+        CLIENT,
+        PunchState::None,
+    );
+    let actions = deliver_signal(&mut h, NOW + 110, &prepared);
+    let [(conn, at)] = dials(&actions)[..] else {
+        panic!("one prepared dial");
+    };
+    assert_eq!(at, addr("203.0.113.5:49152"));
+    h.session
+        .handle(NOW + 120, Event::DialFailed(conn), &mut h.entropy);
+    drain(&mut h.session);
+    assert!(
+        dials(&deliver_signal(&mut h, NOW + 125, &pending)).is_empty(),
+        "late pending cannot reopen completion"
+    );
+    assert!(
+        dials(&deliver_signal(&mut h, NOW + 126, &prepared)).is_empty(),
+        "completion cannot replay a constructor"
+    );
+}
+
+#[test]
+fn a_superseding_manifest_retires_pending_dials_and_stale_completion_cannot_revive_them() {
+    let (mut h, _, actions) = offered(vec![host4()], PunchState::None);
+    let [(old, _)] = dials(&actions)[..] else {
+        panic!("old dial");
+    };
+    let actions = deliver_signal(
+        &mut h,
+        NOW + 110,
+        &manifest(
+            2,
+            vec![candidate(
+                "203.0.113.5:49154",
+                CandidateKind::Sip,
+                CandidateScope::Public,
+            )],
+            CLIENT,
+            PunchState::None,
+        ),
+    );
+    assert!(actions.contains(&Action::Close { conn: old }));
+    assert_eq!(dialed(&actions), [addr("203.0.113.5:49154")]);
+    assert!(
+        dials(&deliver_signal(
+            &mut h,
+            NOW + 120,
+            &manifest(1, vec![srflx()], CLIENT, PunchState::None)
+        ))
+        .is_empty()
+    );
+    h.session
+        .handle(NOW + 125, Event::Connected(old), &mut h.entropy);
+    assert!(
+        drain(&mut h.session).is_empty(),
+        "old constructor cannot become the winner"
+    );
+}
+
+#[test]
+fn an_old_punch_outcome_cannot_replace_the_current_generations_result() {
+    let (mut harness, _, _) = offered(Vec::new(), PunchState::Pending);
+    harness
+        .session
+        .on_direct_punch(NOW + 110, 2, PunchOutcome::Dispatched);
+    drain(&mut harness.session);
+    harness
+        .session
+        .on_direct_punch(NOW + 120, 1, PunchOutcome::Superseded);
+    let actions = deliver_signal(
+        &mut harness,
+        NOW + 130,
+        &manifest(2, vec![srflx()], CLIENT, PunchState::Pending),
+    );
+    assert_eq!(dialed(&actions), vec![addr(SRFLX)]);
+}
+
+#[test]
+fn a_network_move_does_not_redial_helper_claims_prepared_for_the_previous_address() {
+    let tftp = candidate(
+        "203.0.113.5:45001",
+        CandidateKind::Tftp,
+        CandidateScope::Public,
+    );
+    let sip = candidate(
+        "203.0.113.5:45002",
+        CandidateKind::Sip,
+        CandidateScope::Public,
+    );
+    let (mut harness, _, actions) = offered(vec![tftp.clone(), sip.clone()], PunchState::None);
+    assert_eq!(dials(&actions).len(), 1);
+    let moved = observed(&mut harness, NOW + 110, "198.51.100.8");
+    assert!(
+        dials(&moved).is_empty(),
+        "old helper grants belong to the old public address"
+    );
+    let fresh = deliver_signal(
+        &mut harness,
+        NOW + 120,
+        &manifest(2, vec![tftp, sip], "198.51.100.8", PunchState::None),
+    );
+    assert_eq!(dials(&fresh).len(), 1, "a matching fresh claim can race");
 }

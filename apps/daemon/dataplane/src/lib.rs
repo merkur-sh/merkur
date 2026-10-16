@@ -1210,6 +1210,12 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
 
     let (traversal_tx, mut traversal_rx) = webtransport::traversal::channel();
     let mut traversal = webtransport::traversal::Owner::new();
+    let (admission_tx, mut admission_rx) = webtransport::admission::channel();
+    let mut admission = webtransport::admission::Owner::new(
+        peer_msg_tx.clone(),
+        peer_event_tx.clone(),
+        &admission_tx,
+    );
     let mut wt_state: Option<Arc<RwLock<WebTransportState>>> = None;
     let mut wt_server: Option<webtransport::WebTransportServer> = None;
     let mut session_authority: Option<SessionAuthority> = None;
@@ -1533,6 +1539,17 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            Some(command) = admission_rx.recv() => {
+                if let Some((peer, bytes)) = admission.command(command, &registry.peers) {
+                    network::send_signaling_to_peer(&network_state, &peer, bytes).await;
+                }
+            }
+            prepared = admission.ready(&registry.peers) => {
+                if let Some((peer, bytes)) = prepared {
+                    network::send_signaling_to_peer(&network_state, &peer, bytes).await;
+                }
+                admission.reconcile(&registry.peers);
+            }
             Some(request) = traversal_rx.recv() => {
                 traversal.enqueue(request, &registry.peers);
             }
@@ -1728,7 +1745,12 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         let new_state = Arc::new(RwLock::new(
                             WebTransportState::from_server_info(cert_state, &info),
                         ));
-                        new_state.write().await.traversal_requests = Some(traversal_tx.clone());
+                        {
+                            let mut state = new_state.write().await;
+                            state.traversal_requests = Some(traversal_tx.clone());
+                            state.admission_requests = Some(admission_tx.clone());
+                            state.admission_credential = stun_credential.clone();
+                        }
                         let new_server = webtransport::WebTransportServer::spawn(
                             endpoint,
                             new_state.clone(),
@@ -1802,13 +1824,17 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         // certificate the endpoint is not yet serving, and every
                         // browser that raced the gap would be refused for a hash
                         // mismatch it can do nothing about.
+                        let admission_config = config.quic_config().clone();
                         match wt_server.as_ref() {
                             Some(server) => match server.reload_certificate(config) {
                                 Ok(()) => {
                                     traversal.invalidate();
+                                    admission.invalidate(&registry.peers);
                                     let cert_b64 = cert_state.cert_hash_base64();
                                     if let Some(state) = wt_state.as_ref() {
-                                        state.write().await.cert_state = cert_state;
+                                        let mut state = state.write().await;
+                                        state.cert_state = cert_state;
+                                        state.admission_config = Some(admission_config);
                                     }
                                     info!(
                                         cert_hash = %cert_b64,
@@ -2339,6 +2365,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             &event_tx,
                             now_ms_since(start_instant),
                         ).await;
+                        admission.reconcile(&registry.peers);
                     }
                     CMD_UPDATE_STUN => {
                         // The server answers every Redis lease renewal (~20 s)
@@ -2405,6 +2432,9 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             )),
                             expires_at,
                         });
+                        if let Some(state) = &wt_state {
+                            state.write().await.admission_credential = stun_credential.clone();
+                        }
                         // Regaining the ability to probe is what makes a
                         // reflexive candidate possible at all: startup ran
                         // without a credential, and a daemon whose control
@@ -3500,6 +3530,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 // reports the *browser's* network moving and says nothing about
                 // this daemon's control socket.
                 traversal.invalidate();
+                admission.invalidate(&registry.peers);
                 request_wt_network_change_maintenance(
                     &mut wt_maintenance_owner,
                     wt_state.is_some(),
@@ -3786,6 +3817,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     }
     network_path_rx.close();
     traversal.shutdown().await;
+    admission.shutdown().await;
     if let Some(listener) = announce_listener.take() {
         listener.abort();
     }
@@ -4204,6 +4236,11 @@ async fn retire_peer_transport_ownership(
         wt_upgrade_pending,
         ..
     } = registry;
+    if let Some(state) = wt_state
+        && let Some(requests) = &state.read().await.admission_requests
+    {
+        drop(requests.try_send(webtransport::admission::Command::Reconcile));
+    }
     for peer_id in peer_ids {
         edge_dials.remove(&*peer_id);
         network::remove_edge_connections(network_state, &peer_id).await;
@@ -4353,6 +4390,14 @@ async fn handle_direct_webtransport_disconnected_event(
         false
     };
     if still_alive {
+        send_webtransport_manifest(
+            wt_state,
+            network_state,
+            peers,
+            &real_id,
+            "direct disconnected",
+        )
+        .await;
         return true;
     }
 
@@ -4673,6 +4718,21 @@ async fn handle_signaling_message(
 
         ClientSignal::SignalingPong {} => {}
 
+        ClientSignal::WebtransportAdmissionDone { generation } => {
+            if let Some(peer) = peers
+                .get_mut(effective_peer_id)
+                .filter(|peer| peer.authenticated && peer.manifest_generation == *generation)
+            {
+                peer.admission_done_generation = Some(*generation);
+                if let Some(state) = wt_state
+                    && let Some(requests) = &state.read().await.admission_requests
+                {
+                    // A full queue already guarantees a reconciliation wake;
+                    // completion lives on the peer, not in this notification.
+                    drop(requests.try_send(webtransport::admission::Command::Reconcile));
+                }
+            }
+        }
         ClientSignal::WebtransportOutcome(report) => {
             if !is_authenticated_peer(peers, effective_peer_id) {
                 warn!(

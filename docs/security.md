@@ -1116,8 +1116,21 @@ identity the account's mailbox is therefore a credential too: whoever reads it c
 account's machines and delete its boxes, though never open a terminal.
 
 NAT traversal is bounded work aimed only at the browser address our edge validated on the
-committed signaling connection: quinn proved that address answers, so a punch cannot be pointed at
-a victim that never spoke. Private and local destinations are refused, a punch is four one-byte datagrams aimed at the daemon's own port number
-and the next one, a per-destination cooldown and a global token bucket bound the total, and the
-browser dials one WebTransport connection per offered candidate
-(`MAX_WEBTRANSPORT_OFFER_CANDIDATES`, 10).
+committed signaling connection. Private and local helper destinations are refused. The
+ordinary punch is four one-byte datagrams aimed at the daemon's own port number and the next
+one, under a per-destination cooldown and global token bucket. Router admission adds one
+bounded TFTP read request or SIP/SDP request per independently owned mechanism binding,
+addressed to that same validated public IPv4. The SIP media listener exclusively reserves its
+even RTP/RTCP pair; the coordinator retains silent companion reservations after candidate
+retirement because router-side expiry is not observable. The reservation set is bounded and
+reused only by owned SIP media pairs. A requested media
+port is never treated as a verified lease.
+
+At most 32 peer cohorts prepare or retain helper bindings, each within the ten-candidate
+manifest bound; every listener shares the existing 64-session capacity. Each helper claim
+binds its socket/interface, browser family and address, authenticated peer/session, rebind
+counter, manifest generation and daemon network epoch. A send does not prove router
+acceptance. Direct admission still requires the session-derived upgrade HMAC and all three
+logical streams, after capability, delegation and Noise authentication established the
+session. Stale claims cannot displace a successor. Cancellation and listener retirement are
+scoped to exact connection IDs and preserve another session's authenticated carrier.

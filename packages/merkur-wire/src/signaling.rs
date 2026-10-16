@@ -54,6 +54,7 @@ pub enum ClientSignal {
     WebtransportUpgradeInit(WebtransportUpgradeInit),
     WebtransportUpgradeProof(WebtransportUpgradeProof),
     WebtransportOutcome(WebtransportOutcome),
+    WebtransportAdmissionDone { generation: u64 },
     NetworkChange(NetworkChange),
     SignalingPong {},
     DataAttach(DataClaim),
@@ -313,7 +314,9 @@ fn rebind_counter(value: u64) -> bool {
 }
 
 const NAT_TYPES: &[&str] = &["endpoint_independent", "endpoint_dependent", "none"];
-const CANDIDATE_KINDS: &[&str] = &["srflx", "nat_map", "host4", "host6", "loopback"];
+const CANDIDATE_KINDS: &[&str] = &[
+    "srflx", "nat_map", "host4", "host6", "loopback", "tftp", "sip",
+];
 const DISPOSITIONS: &[&str] = &[
     "not_dialled",
     "no_settle",
@@ -414,6 +417,7 @@ impl ClientSignal {
                         .bytes()
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
             }
+            Self::WebtransportAdmissionDone { generation } => *generation <= MAX_SAFE_INTEGER,
             Self::WebtransportOutcome(report) => {
                 let winner_matches = match report.outcome.as_str() {
                     // `lost` is a path that carried traffic and then died, so it
@@ -505,6 +509,7 @@ pub enum DaemonSignal {
         nat: NatSignature,
         browser_address: IpAddr,
         punch: PunchState,
+        admission_pending: bool,
     },
     /// What became of the punch a `pending` manifest promised.
     WebtransportPunch {
@@ -564,6 +569,8 @@ pub enum CandidateKind {
     Host4,
     Host6,
     Loopback,
+    Tftp,
+    Sip,
 }
 
 /// Whether dialling a candidate leaves the local network, as the daemon's
@@ -1226,6 +1233,7 @@ mod tests {
             },
             "browser_address": "198.51.100.7",
             "punch": "pending",
+            "admission_pending": false,
         })
     }
 

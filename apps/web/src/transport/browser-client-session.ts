@@ -451,7 +451,7 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     let claim: Awaited<ReturnType<BrowserSessionHost['directDial']>> = null;
     try {
       if (direct) {
-        claim = await host.directDial(metadata.url);
+        claim = await host.directDial(JSON.stringify([metadata.url, metadata.certHashes]));
         if (!active || owner !== generation || !carriers.has(conn)) {
           claim?.settle('unused');
           return;
@@ -465,6 +465,7 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
         candidate,
         direct,
         {
+          handshake: (outcome) => claim?.settle(outcome),
           splice: (json) =>
             receive((value) => {
               value.splice(performance.now(), conn, json);
@@ -523,18 +524,15 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
       );
       if (!active || owner !== generation || !carriers.has(conn) || session === null) {
         carrier.close();
-        claim?.settle('unused');
         return;
       }
       carriers.set(conn, carrier);
       if (direct) directQueueDatagrams = carrier.receiveQueueDatagrams;
       else if (lane === 1) interactiveQueueDatagrams = carrier.receiveQueueDatagrams;
-      claim?.settle('ready');
       session.connected(performance.now(), conn);
       admitted.resolve();
       await drive();
     } catch (error) {
-      claim?.settle('failed');
       if (!active || owner !== generation || !carriers.has(conn) || session === null) return;
       carriers.delete(conn);
       session.dial_failed(performance.now(), conn);

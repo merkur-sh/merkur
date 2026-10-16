@@ -77,6 +77,7 @@ test('edge retirement detaches until native readiness and rejected admissions se
     value: PendingTransport,
   });
   const events = {
+    handshake: () => {},
     splice: async () => {},
     reliable: async () => {},
     datagram: async () => {},
@@ -106,7 +107,7 @@ test('edge retirement detaches until native readiness and rejected admissions se
     await expect(first).rejects.toThrow('retired');
     expect(native.closeCount).toBe(0);
     native.decision.reject(new Error('native rejection'));
-    await native.ready.catch(() => undefined);
+    await expect(native.ready).rejects.toThrow('native rejection');
     await Promise.resolve();
     expect(native.closeCount).toBe(1);
     const activeOwner = new AbortController();
@@ -159,6 +160,7 @@ test('native datagram capacity and age remain host policy', async () => {
         false,
         false,
         {
+          handshake: () => {},
           splice: async () => {},
           reliable: async () => {},
           datagram: async () => {},
@@ -219,6 +221,7 @@ test('an idle persistent writer rejection retires its carrier without reopening 
       false,
       true,
       {
+        handshake: () => {},
         splice: async () => {},
         reliable: async () => {},
         datagram: async () => {},
@@ -283,6 +286,7 @@ test('the edge stopping the routing preface stream keeps the carrier open', asyn
       false,
       false,
       {
+        handshake: () => {},
         splice: async () => {},
         reliable: async () => {},
         datagram: async () => {},
@@ -352,6 +356,7 @@ test('a promoted candidate outlives its proof bridge', async () => {
       true,
       false,
       {
+        handshake: () => {},
         splice: async () => {},
         reliable: async () => {},
         datagram: async () => {},
@@ -423,6 +428,7 @@ test('stream credit settling after retirement cannot send its persistent prefix'
       false,
       true,
       {
+        handshake: () => {},
         splice: async () => {},
         reliable: async () => {},
         datagram: async () => {},
@@ -437,6 +443,115 @@ test('stream credit settling after retirement cannot send its persistent prefix'
     await expect(pending).rejects.toThrow('ended');
     expect(prefixWrites).toBe(0);
     expect(nativeClose).toBe(1);
+  } finally {
+    if (original === undefined) Reflect.deleteProperty(globalThis, 'WebTransport');
+    else Object.defineProperty(globalThis, 'WebTransport', original);
+  }
+});
+
+test('native readiness owns the handshake result even when channel binding fails', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'WebTransport');
+  const outcomes: string[] = [];
+  class ReadyTransport {
+    readonly ready = Promise.resolve();
+    readonly closed = new Promise(() => {});
+    readonly datagrams = { writable: new WritableStream<Uint8Array>() };
+    createBidirectionalStream(): never {
+      throw new Error('channel binding refused');
+    }
+    close(): void {}
+  }
+  Object.defineProperty(globalThis, 'WebTransport', { configurable: true, value: ReadyTransport });
+  try {
+    await expect(
+      dialClientCarrier(
+        'https://203.0.113.1:49152',
+        [],
+        new Uint8Array(),
+        false,
+        true,
+        {
+          handshake: (outcome) => outcomes.push(outcome),
+          splice: async () => {},
+          reliable: async () => {},
+          datagram: async () => {},
+          proof: async () => {},
+          finite: async () => {},
+          closed: () => {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('channel binding refused');
+    expect(outcomes).toEqual(['ready']);
+  } finally {
+    if (original === undefined) Reflect.deleteProperty(globalThis, 'WebTransport');
+    else Object.defineProperty(globalThis, 'WebTransport', original);
+  }
+});
+
+test('a retired started direct constructor cannot be refunded as unused', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'WebTransport');
+  const decision = Promise.withResolvers<void>();
+  const outcomes: string[] = [];
+  let constructed = 0;
+  class PendingTransport {
+    readonly ready = decision.promise;
+    readonly closed = new Promise(() => {});
+    constructor() {
+      constructed += 1;
+    }
+    close(): void {}
+  }
+  Object.defineProperty(globalThis, 'WebTransport', {
+    configurable: true,
+    value: PendingTransport,
+  });
+  const events = {
+    handshake: (outcome: 'ready' | 'failed' | 'unused') => {
+      outcomes.push(outcome);
+    },
+    splice: async () => {},
+    reliable: async () => {},
+    datagram: async () => {},
+    proof: async () => {},
+    finite: async () => {},
+    closed: () => {},
+  };
+  try {
+    const retired = new AbortController();
+    retired.abort();
+    await expect(
+      dialClientCarrier(
+        'https://203.0.113.1:49152',
+        [],
+        new Uint8Array(),
+        false,
+        true,
+        events,
+        retired.signal,
+      ),
+    ).rejects.toThrow('retired');
+    expect(constructed).toBe(0);
+    expect(outcomes).toEqual(['unused']);
+    outcomes.length = 0;
+    const owner = new AbortController();
+    const dial = dialClientCarrier(
+      'https://203.0.113.1:49152',
+      [],
+      new Uint8Array(),
+      false,
+      true,
+      events,
+      owner.signal,
+    );
+    expect(constructed).toBe(1);
+    owner.abort();
+    await expect(dial).rejects.toThrow('retired');
+    expect(outcomes).toEqual([]);
+    decision.reject(new Error('native handshake failed after cancellation'));
+    await expect(decision.promise).rejects.toThrow('native handshake failed after cancellation');
+    await Promise.resolve();
+    expect(outcomes).toEqual(['failed']);
   } finally {
     if (original === undefined) Reflect.deleteProperty(globalThis, 'WebTransport');
     else Object.defineProperty(globalThis, 'WebTransport', original);

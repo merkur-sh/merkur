@@ -34,6 +34,8 @@ const CANDIDATE_KINDS: ReadonlySet<string> = new Set<WebTransportCandidateKind>(
   'host4',
   'host6',
   'loopback',
+  'tftp',
+  'sip',
 ]);
 const NAT_TYPES: ReadonlySet<string> = new Set<WebTransportNatType>([
   'endpoint_independent',

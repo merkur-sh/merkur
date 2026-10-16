@@ -11,9 +11,9 @@ use merkur_wire::signaling::{WebtransportUpgradeInit, WebtransportUpgradeProof};
 
 use crate::auth::DaemonIdentity;
 use crate::connection::{PeerDisplayState, PeerMap};
+use crate::network::NetworkState;
 use crate::network::peer::PeerMessage;
 use crate::network::protocol::*;
-use crate::network::NetworkState;
 use crate::webtransport::{self, WebTransportState};
 use crate::wt_upgrade;
 
@@ -35,6 +35,7 @@ pub(crate) struct WtUpgradePending {
     /// keeps its original network RTT; different bytes replace the sample, so
     /// an earlier bogus tag cannot poison a later valid proof's path estimate.
     pub(crate) proof_arrival: Option<WtUpgradeProofArrival>,
+    pub(crate) owner: (String, u64),
 }
 
 fn record_proof_arrival(
@@ -94,6 +95,22 @@ pub(crate) async fn handle_wt_upgrade_init(
         return;
     }
 
+    let Some(peer) = peers.get(browser_node_id) else {
+        return;
+    };
+    if wt
+        .read()
+        .await
+        .admission_claims
+        .get(raw_peer_id)
+        .is_some_and(|claim| !claim.authorizes(peer))
+    {
+        return;
+    }
+    let owner = (
+        peer.signal_session_id.clone(),
+        peer.rebind.as_ref().map_or(0, |state| state.counter),
+    );
     let nonce = match da.generate_random() {
         Ok(nonce) => nonce,
         Err(error) => {
@@ -120,6 +137,7 @@ pub(crate) async fn handle_wt_upgrade_init(
             nonce_hex: nonce_hex.clone(),
             issued_at_ms: now_ms,
             proof_arrival: None,
+            owner,
         },
     );
 
@@ -137,6 +155,10 @@ pub(crate) async fn handle_wt_upgrade_init(
     .await;
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "challenge verification and exact connection adoption are one serialized owner transaction"
+)]
 pub(crate) async fn handle_wt_upgrade_proof(
     raw_peer_id: &str,
     message: &WebtransportUpgradeProof,
@@ -201,6 +223,18 @@ pub(crate) async fn handle_wt_upgrade_proof(
         );
         return;
     }
+    if peer.signal_session_id != pending.owner.0
+        || peer.rebind.as_ref().map_or(0, |state| state.counter) != pending.owner.1
+        || wt
+            .read()
+            .await
+            .admission_claims
+            .get(raw_peer_id)
+            .is_some_and(|claim| !claim.authorizes(peer))
+    {
+        wt_upgrade_pending.remove(raw_peer_id);
+        return;
+    }
     let upgrade_secret = peer.upgrade_secret.as_ref().expect("checked above");
     let signal_session_id = peer.signal_session_id.clone();
 
@@ -233,6 +267,7 @@ pub(crate) async fn handle_wt_upgrade_proof(
         return;
     }
 
+    let admission_claim = wt.read().await.admission_claims.get(raw_peer_id).cloned();
     let Some((upgrade_outcome, direct_session)) =
         webtransport::upgrade_peer(wt, raw_peer_id, &browser_node_id).await
     else {
@@ -255,6 +290,12 @@ pub(crate) async fn handle_wt_upgrade_proof(
             upgrade_outcome == webtransport::UpgradePeerOutcome::Replaced,
         );
         peer.direct_session = Some(direct_session);
+        if let Some(claim) = admission_claim {
+            claim.authenticate();
+        }
+        if let Some(requests) = &wt.read().await.admission_requests {
+            drop(requests.try_send(webtransport::admission::Command::Reconcile));
+        }
         info!(
             "peer direct WebTransport path online: {browser_node_id} (edge_available={}, primary_after_upgrade={:?})",
             peer.paths.edge.available,
@@ -410,7 +451,6 @@ pub(crate) async fn emit_webtransport_manifest(
         generation,
         punch.is_some(),
     );
-    drop(wt_guard);
 
     // Queue only; the four-packet punch runs off the PTY owner, and the owner
     // reports its outcome for this exact generation.
@@ -430,6 +470,8 @@ pub(crate) async fn emit_webtransport_manifest(
     {
         manifest["punch"] = serde_json::json!("none");
     }
+    webtransport::admission::queue(wt, &wt_guard, peer, &mut manifest);
+    drop(wt_guard);
     webtransport::note_offered_browser(browser_address);
     info!(
         peer = %peer.peer_id,
@@ -821,6 +863,7 @@ mod tests {
             nonce_hex: "00".repeat(32),
             issued_at_ms: 100.0,
             proof_arrival: None,
+            owner: ("session".into(), 0),
         };
         let proof = [7; WT_UPGRADE_PROOF_BYTES];
 
@@ -838,6 +881,7 @@ mod tests {
             nonce_hex: "00".repeat(32),
             issued_at_ms: 100.0,
             proof_arrival: None,
+            owner: ("session".into(), 0),
         };
 
         assert_eq!(

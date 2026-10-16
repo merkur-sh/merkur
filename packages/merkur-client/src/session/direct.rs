@@ -65,6 +65,7 @@ struct Manifest {
     nat_type: NatType,
     browser_address: IpAddr,
     punch: PunchState,
+    admission_pending: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -140,6 +141,7 @@ pub(super) struct Direct {
     race: Option<Race>,
     upgrade: Option<Upgrade>,
     path: Option<Adopted>,
+    admission_done: Option<u64>,
 }
 
 impl Direct {
@@ -191,6 +193,16 @@ impl Direct {
     /// candidate waits for a manifest built for the address this client is at
     /// now, and for that manifest's punch.
     fn punch_allows(&self, candidate: &DirectCandidate) -> bool {
+        // Prepare IPv4 router admission before spending a reflexive handshake.
+        // LAN, public host/lease and IPv6 paths remain immediately dialable.
+        if candidate.kind == CandidateKind::Srflx
+            && self
+                .manifest
+                .as_ref()
+                .is_some_and(|manifest| manifest.admission_pending)
+        {
+            return false;
+        }
         let Some(here) = self.carrier_address.or(self
             .manifest
             .as_ref()
@@ -198,6 +210,13 @@ impl Direct {
         else {
             return false;
         };
+        if matches!(candidate.kind, CandidateKind::Tftp | CandidateKind::Sip) {
+            return here.is_ipv4()
+                && self
+                    .manifest
+                    .as_ref()
+                    .is_some_and(|manifest| manifest.browser_address == here);
+        }
         let punched = if here.is_ipv6() {
             CandidateKind::Host6
         } else {
@@ -270,6 +289,8 @@ fn kind_label(kind: CandidateKind) -> &'static str {
         CandidateKind::Host4 => "host4",
         CandidateKind::Host6 => "host6",
         CandidateKind::Loopback => "loopback",
+        CandidateKind::Tftp => "tftp",
+        CandidateKind::Sip => "sip",
     }
 }
 
@@ -290,6 +311,7 @@ impl Session {
             nat,
             browser_address,
             punch,
+            admission_pending,
         } = signal
         else {
             return;
@@ -301,6 +323,27 @@ impl Session {
         else {
             return;
         };
+        if let Some(previous) = &self.direct.manifest
+            && (generation < previous.generation
+                || (generation == previous.generation
+                    && (previous.cert_hash != cert_hash
+                        || previous.browser_address != browser_address
+                        || !previous.admission_pending)))
+        {
+            return;
+        }
+        if self
+            .direct
+            .manifest
+            .as_ref()
+            .is_some_and(|previous| generation > previous.generation)
+        {
+            self.revoke_race();
+            if let Some(upgrade) = self.direct.upgrade.take() {
+                self.direct.spent.push(upgrade.endpoint);
+                self.actions.push_back(Action::Close { conn: upgrade.conn });
+            }
+        }
         self.direct.manifest = Some(Manifest {
             generation,
             cert_hash,
@@ -308,12 +351,25 @@ impl Session {
             nat_type: nat.nat_type,
             browser_address,
             punch,
+            admission_pending,
         });
         self.refresh_direct(now_ms);
     }
 
     /// The daemon reported what became of one manifest's punch.
     pub(super) fn on_direct_punch(&mut self, now_ms: u64, generation: u64, outcome: PunchOutcome) {
+        if self
+            .direct
+            .manifest
+            .as_ref()
+            .is_some_and(|manifest| manifest.generation > generation)
+            || self
+                .direct
+                .punch
+                .is_some_and(|(previous, _)| previous > generation)
+        {
+            return;
+        }
         self.direct.punch = Some((generation, outcome));
         self.refresh_direct(now_ms);
     }
@@ -334,8 +390,8 @@ impl Session {
         self.direct.carrier_address = Some(address);
         self.actions.push_back(Action::ObservedPath(address));
         if dialled_from != Some(address) {
-            self.direct.spent.clear();
             self.revoke_race();
+            self.direct.spent.clear();
         }
         self.refresh_direct(now_ms);
     }
@@ -354,6 +410,7 @@ impl Session {
             self.refresh_primary();
         }
         self.direct.manifest = None;
+        self.direct.admission_done = None;
         self.direct.punch = None;
         if !keep_network {
             self.direct.carrier_address = None;
@@ -365,8 +422,13 @@ impl Session {
         let Some(race) = self.direct.race.take() else {
             return;
         };
-        for conn in race.attempts.iter().filter_map(|attempt| attempt.conn) {
-            self.actions.push_back(Action::Close { conn });
+        for attempt in race.attempts {
+            if let Some(conn) = attempt.conn {
+                if matches!(attempt.state, AttemptState::Pending { .. }) {
+                    self.direct.spent.push(attempt.endpoint);
+                }
+                self.actions.push_back(Action::Close { conn });
+            }
         }
     }
 
@@ -381,6 +443,7 @@ impl Session {
         }
         let entries = self.direct.dialable();
         if entries.is_empty() {
+            self.finish_admission();
             return;
         }
         let Some(nat_type) = self
@@ -690,6 +753,7 @@ impl Session {
                     kind: upgrade.kind,
                     nat_type: upgrade.nat_type,
                 });
+                self.finish_admission();
                 self.paths.register(PathKind::Direct);
                 self.refresh_primary();
                 // Measure the newly authenticated provider without retiring
@@ -731,6 +795,31 @@ impl Session {
             Some((stage.name(), reason)),
         );
         self.refresh_direct(now_ms);
+    }
+
+    fn finish_admission(&mut self) {
+        let Some(manifest) = self.direct.manifest.as_ref() else {
+            return;
+        };
+        if manifest.admission_pending
+            || self.direct.race.is_some()
+            || self.direct.upgrade.is_some()
+            || self.direct.admission_done == Some(manifest.generation)
+        {
+            return;
+        }
+        let Some(lanes) = &self.lanes else {
+            return;
+        };
+        let generation = manifest.generation;
+        self.direct.admission_done = Some(generation);
+        self.actions.push_back(Action::SendReliable {
+            conn: lanes.signaling,
+            channel: merkur_wire::protocol::CHANNEL_SIGNALING,
+            payload: ClientSignal::WebtransportAdmissionDone { generation }
+                .to_json()
+                .into_bytes(),
+        });
     }
 
     /// What one attempt came to, for the daemon's log. A race that dialled
