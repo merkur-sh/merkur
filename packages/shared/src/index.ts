@@ -7,6 +7,7 @@ export * from './browser-presence';
 export * from './crypto';
 export * from './device-events';
 export * from './display-stream';
+export * from './display-wire';
 export * from './domain';
 export * from './edge-signaling';
 export * from './edge-webtransport';

@@ -51,16 +51,30 @@ impl DisplayPolicy {
     // bytes, so 1100 gives ~60+ bytes of headroom for path-MTU shifts
     // (carrier handoff, dual-stack). Sends at 1199 bytes were being silently
     // rejected by iOS WT before this cap.
-    pub const DATAGRAM_MAX_PAYLOAD_BYTES: usize = 1100;
-    /// Largest data shard that still leaves room for one fixed-block repair
-    /// shard in a datagram. A repair carries a 16-byte header, so 1084 is the
-    /// exact boundary: 16 + 1084 = 1100; 16 + 1085 cannot use this lane.
+    pub const DATAGRAM_MAX_WIRE_BYTES: usize = 1100;
+    /// [`Self::DATAGRAM_MAX_WIRE_BYTES`] in staged bytes, the unit display
+    /// planning measures frames in (see `encoder::STAGED_SLACK`).
+    pub const DATAGRAM_MAX_PAYLOAD_BYTES: usize =
+        Self::DATAGRAM_MAX_WIRE_BYTES + crate::display::encoder::STAGED_SLACK;
+    /// Largest data shard, in staged bytes, that still leaves room for one
+    /// repair shard in a datagram. A repair carries a 16-byte header and a
+    /// recovery shard a 2-byte length stripe, so on the wire 1082 is the exact
+    /// boundary: 16 + 2 + 1082 = 1100.
     ///
     /// Delta batching targets this value. A single indivisible row may still
     /// occupy the ordinary 1100-byte data cap, but it is then deliberately
     /// unprotected rather than promoted to the reliable lane.
-    pub const FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES: usize =
-        Self::DATAGRAM_MAX_PAYLOAD_BYTES - merkur_codec::DISPLAY_FEC_HEADER_BYTES;
+    pub const FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES: usize = Self::DATAGRAM_MAX_WIRE_BYTES
+        - merkur_codec::DISPLAY_FEC_HEADER_BYTES
+        - merkur_fec::repair::REPAIR_LENGTH_BYTES
+        + crate::display::encoder::STAGED_SLACK;
+    /// Largest data shard, in staged bytes, that two recovery shards cover in
+    /// one repair datagram: 16 + 2 × (2 + 540) = 1100 on the wire.
+    pub const FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES: usize = (Self::DATAGRAM_MAX_WIRE_BYTES
+        - merkur_codec::DISPLAY_FEC_HEADER_BYTES)
+        / Self::FEC_RECOVERY_SHARD_COUNT
+        - merkur_fec::repair::REPAIR_LENGTH_BYTES
+        + crate::display::encoder::STAGED_SLACK;
     pub const SENT_DATAGRAM_PRUNE_AGE_MS: f64 = 2000.0;
     /// Hard object-count bound for immutable send-time ACK/NACK snapshots.
     /// At the 1ms interactive flush floor this retains roughly one second of
@@ -136,9 +150,10 @@ impl DisplayPolicy {
     ) -> f64 {
         let confirm = confirm_ewma_ms + 2.0 * confirm_jitter_ewma_ms;
         let round_trip = path_rtt_ewma_ms + 2.0 * path_jitter_ewma_ms;
-        confirm
-            .max(round_trip)
-            .clamp(Self::ROW_RESEND_TIMER_RESOLUTION_MS, Self::ROW_RESEND_MAX_MS)
+        confirm.max(round_trip).clamp(
+            Self::ROW_RESEND_TIMER_RESOLUTION_MS,
+            Self::ROW_RESEND_MAX_MS,
+        )
     }
 }
 
@@ -188,15 +203,24 @@ mod tests {
     /// no information; the path round trip is the physical floor and wins.
     #[test]
     fn a_blind_confirmation_estimate_never_resends_inside_one_round_trip() {
-        assert_eq!(DisplayPolicy::row_resend_interval_ms(0.0, 0.0, 55.0, 0.0), 55.0);
-        assert_eq!(DisplayPolicy::row_resend_interval_ms(0.0, 0.0, 55.0, 4.0), 63.0);
+        assert_eq!(
+            DisplayPolicy::row_resend_interval_ms(0.0, 0.0, 55.0, 0.0),
+            55.0
+        );
+        assert_eq!(
+            DisplayPolicy::row_resend_interval_ms(0.0, 0.0, 55.0, 4.0),
+            63.0
+        );
     }
 
     /// Once the confirmation delay is measured it is the larger term: it
     /// includes the browser's apply and ACK cadence on top of the round trip.
     #[test]
     fn a_measured_confirmation_delay_outranks_the_round_trip() {
-        assert_eq!(DisplayPolicy::row_resend_interval_ms(90.0, 5.0, 55.0, 4.0), 100.0);
+        assert_eq!(
+            DisplayPolicy::row_resend_interval_ms(90.0, 5.0, 55.0, 4.0),
+            100.0
+        );
     }
 
     /// The only floor is the timer's own resolution; the only ceiling is the

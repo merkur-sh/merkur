@@ -76,7 +76,7 @@ fn encode_repair_parts(
         return false;
     }
 
-    let body_len = recovery_count * shard_size;
+    let body_len = merkur_fec::repair::repair_body_len(recovery_count, shard_size);
     out.reserve(DISPLAY_FEC_HEADER_BYTES + body_len);
     // Generation pins the repair to one seq space: seqs reset to 1 on every
     // generation bump, so without it a decoder can mix shards from different
@@ -92,11 +92,16 @@ fn encode_repair_parts(
         },
         body_len as u16,
     ));
-    // `encode` writes every body byte, straight from the borrowed datagrams.
+    // The body is written whole, straight from the borrowed datagrams: each
+    // recovery shard's length stripe, then its parity.
     out.resize(DISPLAY_FEC_HEADER_BYTES + body_len, 0);
-    let (first, second) = out[DISPLAY_FEC_HEADER_BYTES..].split_at_mut(shard_size);
-    let mut recovery = [first, second];
-    if merkur_fec::encode(payloads, &mut recovery[..recovery_count]).is_err() {
+    if merkur_fec::repair::encode_repair_body(
+        payloads,
+        recovery_count,
+        &mut out[DISPLAY_FEC_HEADER_BYTES..],
+    )
+    .is_err()
+    {
         out.clear();
         return false;
     }
@@ -123,11 +128,13 @@ mod tests {
         u32::from_be_bytes(repair[12..16].try_into().unwrap())
     }
 
-    /// Decode a repair's recovery shards back out of the emitted frame.
+    /// Decode a repair's recovery shards back out of the emitted frame: each
+    /// shard's parity, behind its length stripe.
     fn recovery_shards(repair: &[u8], recovery_count: usize, shard_size: usize) -> Vec<&[u8]> {
         let body = &repair[DISPLAY_FEC_HEADER_BYTES..];
+        let stride = merkur_fec::repair::REPAIR_LENGTH_BYTES + shard_size;
         (0..recovery_count)
-            .map(|j| &body[j * shard_size..(j + 1) * shard_size])
+            .map(|j| &body[j * stride + merkur_fec::repair::REPAIR_LENGTH_BYTES..(j + 1) * stride])
             .collect()
     }
 
@@ -160,7 +167,10 @@ mod tests {
         assert_eq!(recovery_count, DisplayPolicy::FEC_RECOVERY_SHARD_COUNT);
         // GF(2^8) imposes no even-byte constraint — exact max payload survives.
         assert_eq!(shard_size, 100);
-        assert_eq!(body_len, recovery_count * shard_size);
+        assert_eq!(
+            body_len,
+            merkur_fec::repair::repair_body_len(recovery_count, shard_size)
+        );
         assert_eq!(repair.len(), DISPLAY_FEC_HEADER_BYTES + body_len);
     }
 

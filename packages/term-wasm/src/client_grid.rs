@@ -90,8 +90,8 @@ impl DisplayGrid for ClientGrid {
             .expect("terminal mutation namespace exhausted");
     }
 
-    fn stage(&mut self, frame: &[u8]) -> u32 {
-        self.terminal.stage_display_frame_bytes(frame)
+    fn stage(&mut self, header: &[u8], body: &[u8]) -> u32 {
+        self.terminal.stage_display_frame_parts(header, body)
     }
 
     fn validate(&mut self, handle: u32) -> bool {

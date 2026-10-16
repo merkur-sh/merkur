@@ -68,8 +68,23 @@ use merkur_client::viewer::display_serial_is_newer;
 use merkur_client::viewer::input_routing::InputRoutingHold;
 use merkur_codec::{
     FrameHeader, FrameKind, MSG_TYPE_DISPLAY_FEC_REPAIR, MSG_TYPE_DISPLAY_PATCH,
-    STREAM_HEADER_BYTES, parse_frame_header_and_rows_start, parse_stream_header,
+    parse_frame_header_and_rows_start, parse_stream_header,
 };
+
+/// A display frame as it arrived, staged as the browser stages it: patches
+/// travel in their wire form, and anything else (a repair, a control message)
+/// stays as it is.
+pub(crate) fn staged_display_frame(wire: &[u8]) -> Vec<u8> {
+    if wire.first() != Some(&MSG_TYPE_DISPLAY_PATCH) {
+        return wire.to_vec();
+    }
+    let parsed = merkur_codec::wire::parse_wire(wire).unwrap_or_else(|error| {
+        panic!("a display frame with an unreadable wire header: {error:?}")
+    });
+    let mut staged = Vec::new();
+    merkur_codec::wire::stage_wire_frame(&parsed, &wire[parsed.body_offset..], &mut staged);
+    staged
+}
 
 use super::sim::{DisplaySim, ScheduleRun, frame_loss_value, sim_peer_id};
 use crate::connection::{PeerTransport, SimDatagramMetadata, SimDatagramRole};
@@ -603,7 +618,10 @@ impl SimViewer {
         lane: usize,
         framed: &[u8],
     ) -> Result<Vec<u8>, crate::e2e::OpenReject> {
-        self.transport.open_datagram(lane, framed)
+        // Tests read what the browser stages, not the wire header.
+        self.transport
+            .open_datagram(lane, framed)
+            .map(|wire| staged_display_frame(&wire))
     }
 
     fn row_hashes(&mut self, rows: u16) -> Vec<u64> {
@@ -917,13 +935,12 @@ impl SimViewers {
                         frame.peer_id
                     )
                 });
-            let repair = parse_stream_header(&plain)
-                .is_some_and(|header| header.msg_type == MSG_TYPE_DISPLAY_FEC_REPAIR);
+            let repair = plain.first() == Some(&MSG_TYPE_DISPLAY_FEC_REPAIR);
             Self::count_reliable(viewer, repair, frame.len);
             viewer.reliable_deltas += usize::from(
                 !repair
-                    && parse_frame_header_and_rows_start(&plain)
-                        .is_ok_and(|(header, _)| matches!(header.kind, FrameKind::Delta)),
+                    && merkur_codec::wire::parse_wire(&plain)
+                        .is_ok_and(|parsed| matches!(parsed.header.kind, FrameKind::Delta)),
             );
             // A reliable frame is never disturbed, but it is a row's latest
             // version all the same, so it moves what the next unit is judged by.
@@ -972,8 +989,7 @@ impl SimViewers {
                 panic!("viewer {peer_id} could not open a datagram sealed for it: {error:?}")
             }
         };
-        let repair = parse_stream_header(&plain)
-            .is_some_and(|header| header.msg_type == MSG_TYPE_DISPLAY_FEC_REPAIR);
+        let repair = plain.first() == Some(&MSG_TYPE_DISPLAY_FEC_REPAIR);
         assert_eq!(
             repair,
             metadata.role == SimDatagramRole::Repair,
@@ -1032,8 +1048,10 @@ impl SimViewers {
     /// A graphics-only change is the one-cell span at column zero the daemon
     /// sends beside a changed graphics replacement; an empty replacement is an
     /// explicit empty set where the row's previous unit carried graphics.
-    fn classify_unit(viewer: &mut SimViewer, plain: &[u8]) -> UnitShape {
+    fn classify_unit(viewer: &mut SimViewer, wire: &[u8]) -> UnitShape {
         let mut shape = UnitShape::default();
+        let staged = staged_display_frame(wire);
+        let plain = staged.as_slice();
         let Some(stream) = parse_stream_header(plain) else {
             return shape;
         };
@@ -1299,14 +1317,16 @@ impl SimViewers {
         acknowledged
     }
 
-    fn deliver(viewer: &mut SimViewer, plain: &[u8], _rows: u16, recovered: bool, now_ms: f64) {
+    fn deliver(viewer: &mut SimViewer, wire: &[u8], _rows: u16, recovered: bool, now_ms: f64) {
+        if wire.first() == Some(&MSG_TYPE_DISPLAY_FEC_REPAIR) {
+            Self::recover_from_repair(viewer, wire, now_ms);
+            return;
+        }
+        let staged = staged_display_frame(wire);
+        let plain = staged.as_slice();
         let Some(stream) = parse_stream_header(plain) else {
             panic!("a frame reached a viewer with no readable stream header");
         };
-        if stream.msg_type == MSG_TYPE_DISPLAY_FEC_REPAIR {
-            Self::recover_from_repair(viewer, plain, now_ms);
-            return;
-        }
         assert_eq!(
             stream.msg_type, MSG_TYPE_DISPLAY_PATCH,
             "only patch and FEC repair ride the display lanes"
@@ -1336,7 +1356,7 @@ impl SimViewers {
             }
         } else if stream.generation != viewer.display_generation {
             if display_serial_is_newer(stream.generation, viewer.display_generation) {
-                viewer.ahead.push(plain.to_vec());
+                viewer.ahead.push(wire.to_vec());
             }
             return;
         }
@@ -1351,7 +1371,7 @@ impl SimViewers {
         }
         viewer.rows_applied += usize::from(header.row_count);
         if std::env::var("CAPTURE_FRAMES").is_ok() {
-            viewer.captured.push(plain.to_vec());
+            viewer.captured.push(wire.to_vec());
         }
         if std::env::var("DIAG_ROWS").is_ok() {
             let (_h, rows_start) = parse_frame_header_and_rows_start(plain).expect("header");
@@ -1368,12 +1388,12 @@ impl SimViewers {
         }
 
         // Retain protected frames so a following repair can rebuild the ones
-        // that never arrived. Parity is computed over these plaintexts, so this
-        // is exactly what the FEC batch expects to be given.
+        // that never arrived. Parity is computed over these wire plaintexts, so
+        // this is exactly what the FEC batch expects to be given.
         if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_FEC_PROTECTED != 0 {
             viewer
                 .retained
-                .insert((stream.generation, stream.seq), plain.to_vec());
+                .insert((stream.generation, stream.seq), wire.to_vec());
             while viewer.retained.len() > FEC_RETENTION {
                 let oldest = *viewer.retained.keys().next().expect("map is non-empty");
                 viewer.retained.remove(&oldest);
@@ -1391,7 +1411,7 @@ impl SimViewers {
             "staging rejected a frame the daemon sent: {:?}",
             viewer.terminal.take_last_error()
         );
-        viewer.applied_bytes += plain.len();
+        viewer.applied_bytes += wire.len();
 
         if header.chunk_count <= 1 {
             let typing_row_before = viewer.typing_row_hash();
@@ -1584,33 +1604,31 @@ impl SimViewers {
             .iter()
             .map(|shard| shard.as_ref().map(|bytes| bytes.as_slice()))
             .collect();
+        let mut lengths = [0u16; merkur_fec::FEC_MAX_DATA];
         let restored = merkur_fec::repair::recover_batch_into(
             &header,
             &received,
             body,
             &mut viewer.fec_padded,
             &mut viewer.fec_output,
+            &mut lengths,
         );
         if restored == 0 {
             viewer.skipped_repair += 1;
             return;
         }
 
-        for index in 0..data_shards {
+        for (index, &length) in lengths.iter().enumerate().take(data_shards) {
             if restored & (1 << index) == 0 {
                 continue;
             }
-            let shard = &viewer.fec_output[index * shard_size..(index + 1) * shard_size];
-            // A rebuilt shard is zero-padded to shard_size; the frame's own
-            // header says how much of it is real.
-            let Some(rebuilt) = parse_stream_header(shard) else {
-                continue;
-            };
-            let len = STREAM_HEADER_BYTES + rebuilt.body_len as usize;
-            if len > shard.len() || rebuilt.msg_type != MSG_TYPE_DISPLAY_PATCH {
+            // A rebuilt shard is zero-padded to shard_size; the repair's length
+            // stripe says how much of it is real.
+            let start = index * shard_size;
+            let frame = viewer.fec_output[start..start + usize::from(length)].to_vec();
+            if merkur_codec::wire::parse_wire_prefix(&frame).is_none() {
                 continue;
             }
-            let frame = shard[..len].to_vec();
             viewer.recovered_by_fec += 1;
             Self::deliver(viewer, &frame, 0, true, now_ms);
         }
@@ -3382,7 +3400,7 @@ mod tests {
                 )
                 .unwrap();
                 frame[1] |= merkur_codec::DISPLAY_HEADER_FLAG_FEC_PROTECTED;
-                frames.push(frame);
+                frames.push(crate::display::encoder::wire_frame(&mut frame).to_vec());
             }
             let payloads: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
             let repair = FecEncoder::new()

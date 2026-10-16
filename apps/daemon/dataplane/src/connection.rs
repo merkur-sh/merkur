@@ -2711,7 +2711,12 @@ impl PerPeerDisplayCache {
     }
 
     /// Whether `classify_flush_rows` would select `row` at `now_ms`.
-    pub(crate) fn row_selectable(&self, row: usize, current_row_hashes: &[u64], now_ms: f64) -> bool {
+    pub(crate) fn row_selectable(
+        &self,
+        row: usize,
+        current_row_hashes: &[u64],
+        now_ms: f64,
+    ) -> bool {
         let (
             Some(&current),
             Some(&acked),
@@ -3817,8 +3822,8 @@ impl PeerDisplayState {
         let Some(transport) = self.noise.as_mut() else {
             return Err(crate::e2e::OpenReject::Auth);
         };
-        // `open_into` writes at most `ciphertext.len() - 8` bytes.
-        let capacity = ciphertext.len().saturating_sub(8);
+        // `open_into` needs room for everything after the wire counter.
+        let capacity = ciphertext.len().saturating_sub(crate::e2e::COUNTER_BYTES);
         if out.len() < capacity {
             out.resize(capacity, 0);
         }
@@ -5853,7 +5858,7 @@ mod tests {
     ///
     /// The owner loop opens every inbound PTY, CTRL, and display-ACK frame at a
     /// single dispatch point. The superseded shape allocated and zero-filled a
-    /// fresh plaintext buffer per frame (`vec![0u8; ciphertext.len() - 8]`) and
+    /// fresh plaintext buffer per frame (`vec![0u8; ciphertext.len() - COUNTER_BYTES]`) and
     /// freed it once the message was dispatched; production now splits the
     /// plaintext off a retained per-peer buffer. Sizes span what this path
     /// actually carries: an 8-byte display ACK, a 64-byte input run, and a
@@ -6045,7 +6050,7 @@ mod tests {
                     lane,
                     true,
                     frame,
-                    &mut scratch[..frame.len().saturating_sub(8)],
+                    &mut scratch[..frame.len().saturating_sub(crate::e2e::COUNTER_BYTES)],
                 )
                 .expect("benchmark open");
             *checksum ^= plaintext_len;
@@ -6070,7 +6075,7 @@ mod tests {
         let started = std::time::Instant::now();
         for frame in frames {
             let lane = crate::e2e::lane_for_channel(channel_id).expect("lane");
-            let capacity = frame.len().saturating_sub(8);
+            let capacity = frame.len().saturating_sub(crate::e2e::COUNTER_BYTES);
             if scratch.len() < capacity {
                 scratch.resize(capacity, 0);
             }
@@ -6161,7 +6166,7 @@ mod tests {
             .seal_datagram_wire(CHANNEL_DISPLAY_DATAGRAM, b"first")
             .expect("established transport");
         assert_eq!(first[0], CHANNEL_DISPLAY_DATAGRAM);
-        assert_eq!(u64::from_be_bytes(first[1..9].try_into().unwrap()), 0);
+        assert_eq!(crate::sealed_counter(&first[1..]), 0);
         assert_eq!(browser.open_datagram(lane, &first[1..]).unwrap(), b"first");
         assert_eq!(
             browser.open_datagram(lane, &first[1..]),
@@ -6172,7 +6177,7 @@ mod tests {
             .seal_datagram_wire(CHANNEL_DISPLAY_DATAGRAM, b"second")
             .expect("established transport");
         assert_eq!(second[0], CHANNEL_DISPLAY_DATAGRAM);
-        assert_eq!(u64::from_be_bytes(second[1..9].try_into().unwrap()), 1);
+        assert_eq!(crate::sealed_counter(&second[1..]), 1);
         assert_eq!(
             browser.open_datagram(lane, &second[1..]).unwrap(),
             b"second"
@@ -6217,7 +6222,7 @@ mod tests {
         assert_eq!(wire.capacity(), capacity);
         assert!(small_len < high_water);
         assert_eq!(wire[0], CHANNEL_DISPLAY_DATAGRAM);
-        assert_eq!(u64::from_be_bytes(wire[1..9].try_into().unwrap()), 1);
+        assert_eq!(crate::sealed_counter(&wire[1..]), 1);
         // The small seal wrote only its own prefix: the previous frame's tail
         // is still sitting past `small_len`. That residue is exactly why the
         // returned length is the sole valid bound, and why an AEAD-clean open
@@ -6239,7 +6244,7 @@ mod tests {
         let next_len = peer
             .seal_datagram_wire_into(&mut wire, CHANNEL_DISPLAY_DATAGRAM, b"next")
             .expect("established transport");
-        assert_eq!(u64::from_be_bytes(wire[1..9].try_into().unwrap()), 2);
+        assert_eq!(crate::sealed_counter(&wire[1..]), 2);
         assert_eq!(
             browser.open_datagram(lane, &wire[1..next_len]).unwrap(),
             b"next"

@@ -10,6 +10,7 @@ import { ClientViewer, init_regular, initSync } from '../apps/web/src/term-wasm/
 import {
   DISPLAY_PATCH_FLAGS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
+  encodeDisplayWireFrame,
   writeU32BE,
 } from '../packages/shared/src';
 import { perfEnvInteger, summarizeSamples } from './perf/harness';
@@ -40,8 +41,12 @@ for (const dirtyRows of [0, 1, 8, 36]) {
       viewer.fence(0, 1);
       while (viewer.poll_output(0) !== 0) {}
       if (!terminal.apply_state_seq(snapshot, 0)) throw new Error('snapshot oracle refused');
-      new Uint8Array(runtime.memory.buffer, viewerPointer, snapshot.byteLength).set(snapshot);
-      if (!viewer.receive(0, 4, snapshot.byteLength)) throw new Error('snapshot boundary refused');
+      const snapshotWire = encodeDisplayWireFrame(snapshot);
+      new Uint8Array(runtime.memory.buffer, viewerPointer, snapshotWire.byteLength).set(
+        snapshotWire,
+      );
+      if (!viewer.receive(0, 4, snapshotWire.byteLength))
+        throw new Error('snapshot boundary refused');
       viewer.present_now(0);
       terminal.commit_presentation_state();
       let oracleChecks = 0;
@@ -50,6 +55,9 @@ for (const dirtyRows of [0, 1, 8, 36]) {
         if (frame === undefined) throw new Error('missing phase');
         const seq = ordinal + 1;
         writeU32BE(frame, DISPLAY_SEQUENCE_OFFSET, seq);
+        // The viewer receives what the daemon seals; encoding it is the
+        // daemon's work and stays outside both arms' timing.
+        const wire = encodeDisplayWireFrame(frame);
         for (const arm of ordinal % 2 === 0 ? ['terminal', 'viewer'] : ['viewer', 'terminal']) {
           const started = performance.now();
           if (arm === 'terminal') {
@@ -65,8 +73,8 @@ for (const dirtyRows of [0, 1, 8, 36]) {
               terminal.release_staged_frame(handle);
             }
           } else {
-            new Uint8Array(runtime.memory.buffer, viewerPointer, frame.byteLength).set(frame);
-            if (!viewer.receive(ordinal + 1, 3, frame.byteLength))
+            new Uint8Array(runtime.memory.buffer, viewerPointer, wire.byteLength).set(wire);
+            if (!viewer.receive(ordinal + 1, 3, wire.byteLength))
               throw new Error('viewer boundary refused');
           }
           const elapsed = performance.now() - started;

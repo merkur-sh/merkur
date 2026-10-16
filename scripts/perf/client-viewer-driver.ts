@@ -8,6 +8,8 @@ import {
 import {
   DISPLAY_PATCH_FLAGS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
+  encodeDisplayWireFrame,
+  MESSAGE_TYPE_DISPLAY_PATCH,
   writeU32BE,
 } from '../../packages/shared/src';
 import { ingressFixture } from '../term-wasm-ingress-fixture';
@@ -26,7 +28,13 @@ export function createViewerDriver(cols = 120, rows = 40) {
   function drain(now: number) {
     while (viewer.poll_output(now) !== 0) outputs++;
   }
-  function receive(bytes: Uint8Array, channel = 3, now = sequence + 1) {
+  /** Hand the viewer a frame as the daemon seals it: a staged display patch
+   * goes in its wire form; anything else as given. */
+  function receive(staged: Uint8Array, channel = 3, now = sequence + 1) {
+    const bytes =
+      (channel === 3 || channel === 4) && staged[0] === MESSAGE_TYPE_DISPLAY_PATCH
+        ? encodeDisplayWireFrame(staged)
+        : staged;
     const pointer = viewer.reserve_ingress(bytes.length);
     if (pointer === 0) throw new Error('viewer ingress refused');
     new Uint8Array(runtime.memory.buffer, pointer, bytes.length).set(bytes);

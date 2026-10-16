@@ -95,7 +95,9 @@ fn screen(seq: u32, text: &str, mode_flags: u32, input_seq: u32) -> Vec<u8> {
             input_seq,
         },
     );
-    out
+    // The viewer receives frames as they travel.
+    let start = merkur_codec::wire::write_wire_header_in_place(&mut out).expect("a wire header");
+    out.split_off(start)
 }
 
 struct Prompt {

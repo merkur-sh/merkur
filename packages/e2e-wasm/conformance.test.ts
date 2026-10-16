@@ -28,7 +28,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, '../..');
 const PSK = new Uint8Array(32).map((_, index) => (index * 7 + 13) & 0xff);
 const PROLOGUE = new TextEncoder().encode('merkur-conformance-prologue');
 const DAEMON_SIGNATURE_CONTEXT = new TextEncoder().encode('merkur-session-ready');
-const FRAME_OVERHEAD = 24;
+const FRAME_OVERHEAD = 21;
 
 let wasmMemory: WebAssembly.Memory;
 let committedNoiseVector: {

@@ -80,7 +80,7 @@
       "clippy::too_many_lines": 8
     },
     "apps/daemon/dataplane/src/display/send/tests.rs": {
-      "clippy::cast_possible_truncation": 71,
+      "clippy::cast_possible_truncation": 69,
       "clippy::cast_sign_loss": 14,
       "clippy::too_many_lines": 28
     },
@@ -702,7 +702,7 @@
       "clippy::cast_possible_truncation": 4
     },
     "packages/merkur-client/src/viewer/fec/tests.rs": {
-      "clippy::cast_possible_truncation": 7
+      "clippy::cast_possible_truncation": 5
     },
     "packages/merkur-client/src/viewer/graphics.rs": {
       "clippy::cast_possible_truncation": 11,
@@ -733,7 +733,7 @@
       "clippy::too_many_lines": 1
     },
     "packages/merkur-client/src/viewer/receive/tests.rs": {
-      "clippy::cast_possible_truncation": 9
+      "clippy::cast_possible_truncation": 8
     },
     "packages/merkur-client/src/viewer/repaint_hold/tests.rs": {
       "clippy::cast_possible_truncation": 1
@@ -749,12 +749,11 @@
       "clippy::indexing_slicing": 20
     },
     "packages/merkur-codec/src/encode.rs": {
-      "clippy::cast_possible_truncation": 12,
+      "clippy::cast_possible_truncation": 11,
       "clippy::expect_used": 3,
       "clippy::indexing_slicing": 9,
       "clippy::let_underscore_must_use": 2,
-      "clippy::map_err_ignore": 2,
-      "clippy::too_many_lines": 1
+      "clippy::map_err_ignore": 2
     },
     "packages/merkur-codec/src/graphics.rs": {
       "clippy::cast_possible_truncation": 5,
@@ -863,7 +862,7 @@
     },
     "packages/merkur-fec/src/repair.rs": {
       "clippy::cast_possible_truncation": 3,
-      "clippy::indexing_slicing": 15
+      "clippy::indexing_slicing": 14
     },
     "packages/merkur-fec/src/simd.rs": {
       "clippy::cast_possible_truncation": 1,

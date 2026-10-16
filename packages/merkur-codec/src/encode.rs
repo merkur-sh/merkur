@@ -342,46 +342,7 @@ fn encode_frame_impl<'a, const VALIDATE: bool, G: GraphicsSource>(
     out.clear();
     out.resize(STREAM_HEADER_BYTES, 0);
     let mut graphics_scratch = crate::GraphicsEncodeScratch::default();
-    out.push(VERSION);
-    let mut patch_flags = header.kind.patch_flags();
-    if header.presentation_coherent {
-        patch_flags |= crate::PATCH_FLAG_PRESENTATION_COHERENT;
-    }
-    if header.presentation_end {
-        patch_flags |= crate::PATCH_FLAG_PRESENTATION_END;
-    }
-    if header.memory_only {
-        patch_flags |= crate::PATCH_FLAG_MEMORY_ONLY;
-    }
-    if header.demand_limited {
-        patch_flags |= crate::PATCH_FLAG_DEMAND_LIMITED;
-    }
-    if header.demand_prompt {
-        patch_flags |= crate::PATCH_FLAG_DEMAND_PROMPT;
-    }
-    if header.demand_awaits_grant {
-        patch_flags |= crate::PATCH_FLAG_DEMAND_AWAITS_GRANT;
-    }
-    out.push(patch_flags);
-    write_u16(out, header.cols);
-    write_u16(out, header.rows);
-    write_u16(out, header.cursor_col);
-    write_u16(out, header.cursor_row);
-    out.push((header.cursor_shape & 0x0f) | ((header.cursor_visible & 0x01) << 4));
-    write_u16(out, header.mode_flags);
-    write_u32(out, header.frame_id);
-    write_u32(out, header.presentation_id);
-    write_u16(out, header.chunk_index);
-    write_u16(out, header.chunk_count);
-    write_u16(out, header.row_count);
-    write_u16(out, header.presentation_member_index);
-    write_u16(out, header.presentation_member_count);
-    write_u32(out, header.row_predecessor_presentation_id);
-    write_u32(out, header.demand_serial);
-    write_u32(out, (header.closure_digest >> 32) as u32);
-    write_u32(out, header.closure_digest as u32);
-    write_u32(out, header.scroll_serial);
-    write_u32(out, header.echo_horizon);
+    push_frame_header_body(out, header);
 
     let mut encoded_row_count = 0usize;
     for row in rows {
@@ -453,6 +414,77 @@ fn encode_frame_impl<'a, const VALIDATE: bool, G: GraphicsSource>(
         return Err(EncodeError::RowCountMismatch);
     }
     Ok(())
+}
+
+/// Append the staged frame header body: the fixed 55-byte header every
+/// in-memory reader patches and parses at fixed offsets, then the zeroed
+/// headroom the wire header is written into at seal time (see
+/// [`crate::wire`]). The receiver stages a frame it took off the wire in the
+/// same layout, so one parser serves both ends.
+pub fn push_frame_header_body(out: &mut Vec<u8>, header: &FrameHeader) {
+    out.extend_from_slice(&frame_header_fixed(header));
+    out.resize(out.len() + crate::wire::MAX_WIRE_HEADER_BYTES, 0);
+}
+
+/// The fixed frame header every in-memory reader patches and parses at fixed
+/// offsets, without the headroom behind it.
+pub(crate) fn frame_header_fixed(header: &FrameHeader) -> [u8; crate::FRAME_HEADER_FIXED_BYTES] {
+    let fields: [&[u8]; 19] = [
+        &[VERSION, header.patch_flags()],
+        &header.cols.to_be_bytes(),
+        &header.rows.to_be_bytes(),
+        &header.cursor_col.to_be_bytes(),
+        &header.cursor_row.to_be_bytes(),
+        &[(header.cursor_shape & 0x0f) | ((header.cursor_visible & 0x01) << 4)],
+        &header.mode_flags.to_be_bytes(),
+        &header.frame_id.to_be_bytes(),
+        &header.presentation_id.to_be_bytes(),
+        &header.chunk_index.to_be_bytes(),
+        &header.chunk_count.to_be_bytes(),
+        &header.row_count.to_be_bytes(),
+        &header.presentation_member_index.to_be_bytes(),
+        &header.presentation_member_count.to_be_bytes(),
+        &header.row_predecessor_presentation_id.to_be_bytes(),
+        &header.demand_serial.to_be_bytes(),
+        &header.closure_digest.to_be_bytes(),
+        &header.scroll_serial.to_be_bytes(),
+        &header.echo_horizon.to_be_bytes(),
+    ];
+    debug_assert_eq!(
+        fields.iter().map(|field| field.len()).sum::<usize>(),
+        crate::FRAME_HEADER_FIXED_BYTES
+    );
+    let mut out = [0u8; crate::FRAME_HEADER_FIXED_BYTES];
+    for (slot, byte) in out.iter_mut().zip(fields.into_iter().flatten()) {
+        *slot = *byte;
+    }
+    out
+}
+
+impl FrameHeader {
+    /// The patch flags byte this header's booleans and kind spell.
+    pub fn patch_flags(&self) -> u8 {
+        let mut flags = self.kind.patch_flags();
+        if self.presentation_coherent {
+            flags |= crate::PATCH_FLAG_PRESENTATION_COHERENT;
+        }
+        if self.presentation_end {
+            flags |= crate::PATCH_FLAG_PRESENTATION_END;
+        }
+        if self.memory_only {
+            flags |= crate::PATCH_FLAG_MEMORY_ONLY;
+        }
+        if self.demand_limited {
+            flags |= crate::PATCH_FLAG_DEMAND_LIMITED;
+        }
+        if self.demand_prompt {
+            flags |= crate::PATCH_FLAG_DEMAND_PROMPT;
+        }
+        if self.demand_awaits_grant {
+            flags |= crate::PATCH_FLAG_DEMAND_AWAITS_GRANT;
+        }
+        flags
+    }
 }
 
 /// The color and link decisions for an immutable captured span. Retaining

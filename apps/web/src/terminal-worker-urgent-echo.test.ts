@@ -11,6 +11,7 @@ import {
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
   DISPLAY_STREAM_HEADER_BYTES,
+  encodeDisplayWireFrame,
   MESSAGE_TYPE_DISPLAY_PATCH,
   TRANSPORT_CHANNEL_ID,
   writeU32BE,
@@ -77,7 +78,7 @@ function frame(seq: number, rows = 1, held = false): Uint8Array {
     view.setUint16(at + 6, 3);
     bytes[at + DISPLAY_ROW_PREFIX_BYTES + 2] = 97 + seq;
   }
-  return bytes;
+  return encodeDisplayWireFrame(bytes);
 }
 
 async function harness() {

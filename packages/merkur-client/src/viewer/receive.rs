@@ -19,10 +19,10 @@
 
 use std::collections::{HashSet, VecDeque};
 
+use merkur_codec::wire::{WireFrame, parse_wire, staged_header};
 use merkur_codec::{
     FrameKind, MAX_DISPLAY_FRAME_BYTES, MAX_DISPLAY_SNAPSHOT_BYTES, MAX_TERMINAL_CELLS,
-    MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, MSG_TYPE_DISPLAY_FEC_REPAIR, MSG_TYPE_DISPLAY_PATCH,
-    STREAM_HEADER_BYTES, parse_frame_header, parse_stream_header,
+    MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, MSG_TYPE_DISPLAY_FEC_REPAIR,
 };
 use merkur_wire::protocol::{
     CHANNEL_CTRL, CHANNEL_DISPLAY_COMMIT, CHANNEL_DISPLAY_DATAGRAM, DISPLAY_ACK_MASK_WORDS,
@@ -60,8 +60,11 @@ pub trait DisplayGrid {
     /// Reflow a locally owned viewport. Hosts call `Viewer::resize` so that
     /// input modelled against the old geometry is fenced first.
     fn resize(&mut self, cols: u16, rows: u16);
-    /// Stage one display frame, decompressing it; 0 refuses it.
-    fn stage(&mut self, frame: &[u8]) -> u32;
+    /// Stage one display frame, decompressing it; 0 refuses it. The frame is
+    /// `header`, its staged header (`merkur_codec::wire::staged_header`),
+    /// followed by `body`, its wire body: staging is the one copy that joins
+    /// them.
+    fn stage(&mut self, header: &[u8], body: &[u8]) -> u32;
     /// Validate a staged frame without touching the grid.
     fn validate(&mut self, handle: u32) -> bool;
     /// Apply a staged snapshot chunk.
@@ -321,6 +324,8 @@ enum DigestDisposition {
 /// The header fields receipt reads, from one parse.
 #[derive(Clone, Copy)]
 struct Frame {
+    /// The parsed wire header, which stages the frame.
+    wire: WireFrame,
     snapshot: bool,
     seq: u32,
     generation: u32,
@@ -358,19 +363,14 @@ struct Shape {
 }
 
 impl Frame {
-    /// A display patch whose declared body is exactly its bytes, from a
-    /// daemon generation, naming a grid and a chunk inside its frame.
+    /// A canonical wire display patch from a daemon generation, naming a grid
+    /// and a chunk inside its frame.
     fn parse(payload: &[u8]) -> Option<Self> {
         if payload.len() > MAX_DISPLAY_FRAME_BYTES {
             return None;
         }
-        let stream = parse_stream_header(payload)?;
-        if stream.msg_type != MSG_TYPE_DISPLAY_PATCH
-            || stream.body_len as usize != payload.len() - STREAM_HEADER_BYTES
-        {
-            return None;
-        }
-        let header = parse_frame_header(payload).ok()?;
+        let wire = parse_wire(payload).ok()?;
+        let (stream, header) = (wire.stream, wire.header);
         let snapshot = matches!(header.kind, FrameKind::Snapshot);
         // Generation zero is never a daemon's, and sequence zero belongs to
         // the reliable snapshot alone.
@@ -385,6 +385,7 @@ impl Frame {
             return None;
         }
         Some(Self {
+            wire,
             snapshot,
             seq: stream.seq,
             generation: stream.generation,
@@ -1500,7 +1501,10 @@ impl<G: DisplayGrid> Viewer<G> {
             // Superseded work goes before this snapshot stages its own cells.
             self.prune_for_snapshot(frame.generation, frame.frame_id);
         }
-        let handle = self.grid.stage(payload);
+        let handle = self.grid.stage(
+            &staged_header(&frame.wire),
+            &payload[frame.wire.body_offset..],
+        );
         if handle == 0 {
             return self.resync(now_ms, Resync::FrameStageFailed);
         }

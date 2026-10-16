@@ -4,17 +4,16 @@
 //! over the frames' plaintexts, each padded to the shard size. The viewer
 //! keeps every protected frame for a retention window, and when a batch's
 //! repair arrives with no more frames missing than it carries parity, rebuilds
-//! the missing ones. A rebuilt frame must name the sequence and generation its
-//! place in the batch implies; anything else was rebuilt from a wrong input
-//! and is dropped, costing one datagram the daemon re-sends anyway.
+//! the missing ones, each at the length the repair's length stripe rebuilds
+//! with it. A rebuilt frame must name the sequence and generation its place in
+//! the batch implies; anything else was rebuilt from a wrong input and is
+//! dropped, costing one datagram the daemon re-sends anyway.
 //!
 //! Every generation restarts its sequences, so all state belongs to one
 //! generation: an older one is ignored and a newer one clears the slate.
 
-use merkur_codec::{
-    DISPLAY_HEADER_FLAG_FEC_PROTECTED, MSG_TYPE_DISPLAY_FEC_REPAIR, MSG_TYPE_DISPLAY_PATCH,
-    STREAM_HEADER_BYTES, parse_stream_header,
-};
+use merkur_codec::wire::parse_wire_prefix;
+use merkur_codec::{DISPLAY_HEADER_FLAG_FEC_PROTECTED, MSG_TYPE_DISPLAY_FEC_REPAIR};
 use merkur_fec::repair::{RepairHeader, parse_repair, recover_batch_into};
 use merkur_fec::{FEC_MAX_DATA, FEC_MAX_SHARD_BYTES};
 
@@ -124,7 +123,7 @@ impl FecDecoder {
         if payload.first() == Some(&MSG_TYPE_DISPLAY_FEC_REPAIR) {
             return self.repair(payload, rebuilt);
         }
-        let Some(stream) = parse_stream_header(payload) else {
+        let Some(stream) = parse_wire_prefix(payload) else {
             return;
         };
         // A frame longer than a shard is in no batch: the daemon writes no
@@ -223,25 +222,28 @@ impl FecDecoder {
             self.padded.resize(span, 0);
             self.output.resize(span, 0);
         }
+        let mut lengths = [0u16; FEC_MAX_DATA];
         let restored = recover_batch_into(
             &header,
             &received[..data_shards],
             &self.batches[index].recovery,
             &mut self.padded,
             &mut self.output,
+            &mut lengths,
         );
         if restored == 0 {
             self.retire(index);
             return;
         }
-        for offset in 0..data_shards {
+        for (offset, &length) in lengths.iter().enumerate().take(data_shards) {
             if restored & (1 << offset) == 0 {
                 continue;
             }
-            let shard = &self.output[offset * shard_size..(offset + 1) * shard_size];
+            let start = offset * shard_size;
+            let frame = &self.output[start..start + usize::from(length)];
             let seq = add(header.batch_start_seq, offset as u32);
-            if let Some(len) = plausible(shard, seq, self.generation) {
-                rebuilt.push(&shard[..len]);
+            if plausible(frame, seq, self.generation) {
+                rebuilt.push(frame);
             }
         }
         self.complete(index);
@@ -312,20 +314,10 @@ impl FecDecoder {
     }
 }
 
-/// The frame length a rebuilt shard holds, if its header names exactly the
-/// place it was rebuilt for.
-fn plausible(shard: &[u8], seq: u32, generation: u32) -> Option<usize> {
-    let stream = parse_stream_header(shard)?;
-    // The body is measured against what follows the header. Adding the header
-    // length to it first can wrap a 32-bit `usize`, as wasm32's is, to a
-    // length inside the shard.
-    let body_len = usize::try_from(stream.body_len).ok()?;
-    let room = shard.len().checked_sub(STREAM_HEADER_BYTES)?;
-    (stream.msg_type == MSG_TYPE_DISPLAY_PATCH
-        && body_len <= room
-        && stream.seq == seq
-        && stream.generation == generation)
-        .then(|| STREAM_HEADER_BYTES + body_len)
+/// Whether a rebuilt frame names exactly the place it was rebuilt for.
+fn plausible(frame: &[u8], seq: u32, generation: u32) -> bool {
+    parse_wire_prefix(frame)
+        .is_some_and(|stream| stream.seq == seq && stream.generation == generation)
 }
 
 fn expired(newest: Option<u32>, seq: u32) -> bool {

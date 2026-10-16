@@ -21,6 +21,7 @@ import {
   DISPLAY_ROW_PREFIX_BYTES,
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
+  DISPLAY_STAGED_SLACK_BYTES,
   DISPLAY_STREAM_HEADER_BYTES,
   DISPLAY_VERSION_OFFSET,
   MESSAGE_TYPE_DISPLAY_PATCH,
@@ -353,9 +354,11 @@ export function createDisplayReceiverCalibrationRun(
           measurementOperation += 1;
           if (measurementOperation < 2) return { status: 'pending' };
 
+          // The profile buckets a frame by its wire bound, as the planner
+          // that reads it does; the fixtures are staged.
           observations.push({
-            rawBytes: fixture.raw.byteLength,
-            wireBytes: wire.byteLength,
+            rawBytes: fixture.raw.byteLength - DISPLAY_STAGED_SLACK_BYTES,
+            wireBytes: wire.byteLength - DISPLAY_STAGED_SLACK_BYTES,
             dictionary: dictionaryClass === 1,
             rawUs,
             fusedUs,

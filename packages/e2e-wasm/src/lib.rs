@@ -153,8 +153,8 @@ impl E2eTransport {
         if channel_lane >= merkur_e2e::LANE_COUNT || len > self.input.len() {
             return FRAME_DROPPED;
         }
-        // `open_into` needs `framed.len() - 8` bytes of room; `output` is sized
-        // alongside `input`, so it always has at least that much.
+        // `open_into` needs `framed.len() - COUNTER_BYTES` bytes of room;
+        // `output` is sized alongside `input`, so it always has at least that.
         let (framed, out) = (&self.input[..len], &mut self.output);
         match self
             .transport

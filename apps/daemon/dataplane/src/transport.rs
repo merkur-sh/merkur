@@ -366,7 +366,7 @@ mod tests {
         let first = peer
             .seal_display_wire(b"fallback")
             .expect("established transport");
-        assert_eq!(u64::from_be_bytes(first[1..9].try_into().unwrap()), 0);
+        assert_eq!(crate::sealed_counter(&first[1..]), 0);
         let sent = send_display_wire_with_intent(&mut peer, &first, 100.0, SendIntent::SinglePath);
 
         assert_eq!(sent, SentPaths::single(PeerTransport::Edge));
@@ -377,7 +377,7 @@ mod tests {
         let second = peer
             .seal_datagram_wire(CHANNEL_DISPLAY_DATAGRAM, b"next")
             .expect("established transport");
-        assert_eq!(u64::from_be_bytes(second[1..9].try_into().unwrap()), 1);
+        assert_eq!(crate::sealed_counter(&second[1..]), 1);
         let lane = crate::e2e::lane_for_channel(CHANNEL_DISPLAY_DATAGRAM).unwrap();
         assert_eq!(
             browser.open_datagram(lane, &first[1..]).unwrap(),

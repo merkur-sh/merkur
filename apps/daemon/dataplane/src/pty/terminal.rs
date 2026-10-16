@@ -10,7 +10,7 @@ use alacritty_terminal::vte::ansi::{Color, CursorShape, Processor};
 use crossbeam_channel::Sender;
 use merkur_codec::{
     CELL_DIGEST_BYTES, CELL_DIGEST_WRAPPED_BIT, CellRepr, FrameHeader, FrameKind, GraphicsVersion,
-    PreparedGraphics, ROW_FLAG_GRAPHICS, STREAM_HEADER_BYTES, VERSION, append_graphics_digest,
+    PreparedGraphics, ROW_FLAG_GRAPHICS, STREAM_HEADER_BYTES, append_graphics_digest,
     append_link_digest, cell_wraps, encode_cells, pack_cell_digest, resolve_color,
     row_cell_count_field, row_hash_packed, row_left_field,
 };
@@ -345,13 +345,26 @@ impl EventListener for EventForwarder {
 
     fn desktop_notification(&mut self, title: &[u8], body: &[&[u8]]) {
         use merkur_wire::terminal_ui::{TEXT_BYTES_MAX, TerminalUi};
-        let bytes = body.iter().map(|part| part.len()).sum::<usize>()
+        let bytes = body
+            .iter()
+            .map(|part| part.len())
+            .sum::<usize>()
             .saturating_add(body.len().saturating_sub(1));
-        if title.len().saturating_add(bytes) > TEXT_BYTES_MAX { return; }
+        if title.len().saturating_add(bytes) > TEXT_BYTES_MAX {
+            return;
+        }
         let joined = body.join(&b';');
-        let (Ok(title), Ok(body)) = (std::str::from_utf8(title), std::str::from_utf8(&joined)) else { return; };
-        self.ui.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push(TerminalUi::Notification { title: title.into(), body: body.into() });
+        let (Ok(title), Ok(body)) = (std::str::from_utf8(title), std::str::from_utf8(&joined))
+        else {
+            return;
+        };
+        self.ui
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(TerminalUi::Notification {
+                title: title.into(),
+                body: body.into(),
+            });
     }
 
     fn terminal_prompt_boundary(&mut self, cursor: Option<(usize, usize)>) {
@@ -369,10 +382,16 @@ impl EventListener for EventForwarder {
     fn send_event(&self, event: Event) {
         match event {
             Event::Title(title) => {
-                self.ui.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).title(title);
+                self.ui
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .title(title);
             }
             Event::ResetTitle => {
-                self.ui.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).title(String::new());
+                self.ui
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .title(String::new());
             }
             Event::ClipboardStore(selection, text) => {
                 use alacritty_terminal::term::ClipboardType;
@@ -381,8 +400,13 @@ impl EventListener for EventForwarder {
                     ClipboardType::Clipboard => b'c',
                     ClipboardType::Selection => b'p',
                 };
-                self.ui.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .push(TerminalUi::Clipboard { selection, text: zeroize::Zeroizing::new(text) });
+                self.ui
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(TerminalUi::Clipboard {
+                        selection,
+                        text: zeroize::Zeroizing::new(text),
+                    });
             }
             Event::TextAreaSizeRequest(_) => {
                 if let Some(viewport) = self.viewport {
@@ -732,7 +756,11 @@ impl TerminalState {
     }
 
     pub fn terminal_ui(&mut self) -> &mut crate::pty::terminal_ui::Effects {
-        self.term.event_listener_mut().ui.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.term
+            .event_listener_mut()
+            .ui
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Authenticated `merkur open` requests no browser has acknowledged.
@@ -742,19 +770,27 @@ impl TerminalState {
 
     /// A browser handled the request `(epoch, seq)`.
     pub fn acknowledge_open_url(&mut self, epoch: u32, seq: u32) {
-        self.term.event_listener_mut().open_urls.acknowledge(epoch, seq);
+        self.term
+            .event_listener_mut()
+            .open_urls
+            .acknowledge(epoch, seq);
     }
 
     /// The hyperlink ids row capture has issued, for delivering their URIs.
     pub fn link_table(&self) -> MutexGuard<'_, LinkTable> {
-        self.links.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.links
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Apply PTY output. The VTE observer captures shell evidence and the exact
     /// prompt cursor only as bytes enter terminal semantics, below synchronized
     /// buffering. Receipt of a still-buffered prompt grants no echo permission.
     pub fn apply_bytes(&mut self, bytes: &[u8]) -> usize {
-        self.term.event_listener_mut().shell_integration.authority_changed = false;
+        self.term
+            .event_listener_mut()
+            .shell_integration
+            .authority_changed = false;
         let sync_epoch_before = self.parser.completed_sync_updates();
         let forced_sync_before = self.parser.forced_sync_updates();
         if !bytes.is_empty() || self.graphics_pending() {
@@ -779,7 +815,11 @@ impl TerminalState {
             self.clear_editor_anchor();
         }
 
-        if self.term.event_listener().shell_integration.authority_changed
+        if self
+            .term
+            .event_listener()
+            .shell_integration
+            .authority_changed
             || self.synchronized_update_deadline().is_some()
             || self.parser.control_pending()
             || self.graphics_pending()
@@ -1518,7 +1558,12 @@ impl TerminalState {
         graphics: &mut Vec<Option<GraphicsVersion>>,
     ) -> (Vec<u8>, u16) {
         graphics.clear();
-        graphics.extend(self.graphics.projected.iter().map(PreparedGraphics::version));
+        graphics.extend(
+            self.graphics
+                .projected
+                .iter()
+                .map(PreparedGraphics::version),
+        );
         self.encode_snapshot_rows_into(payload, Some(grid), Some(row_hashes))
     }
 
@@ -1552,8 +1597,7 @@ impl TerminalState {
         }
         let mut encoded_rows = 0usize;
         for row_index in 0..rows {
-            let hash =
-                fill_visible_row(
+            let hash = fill_visible_row(
                 &self.term,
                 &self.links,
                 &self.graphics,
@@ -1774,7 +1818,9 @@ impl TerminalState {
         let cursor_row = self.current_cursor_row();
         let rows = match self.dirty_rows.census() {
             DirtyCensus::Clean => PendingRowDamage::None,
-            DirtyCensus::One(row) if cursor_row.is_some_and(|cursor| usize::from(cursor) == row) => {
+            DirtyCensus::One(row)
+                if cursor_row.is_some_and(|cursor| usize::from(cursor) == row) =>
+            {
                 PendingRowDamage::CursorOnly
             }
             DirtyCensus::One(_) | DirtyCensus::Many => PendingRowDamage::Coherent,
@@ -1953,7 +1999,9 @@ fn fill_visible_cells(
                 Some((cached, id)) if cached == allocation => id,
                 _ => {
                     let table = link_table.get_or_insert_with(|| {
-                        links.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                        links
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
                     });
                     let id = table.intern(link);
                     link_cache = Some((allocation, id));
@@ -1999,51 +2047,12 @@ fn resolve_cached_color(color: Color, cache: &mut Option<(Color, [u8; 3])>) -> [
 fn write_display_header(out: &mut Vec<u8>, header: &FrameHeader) -> usize {
     out.clear();
     out.resize(STREAM_HEADER_BYTES, 0);
-    out.push(VERSION);
-    let mut patch_flags = header.kind.patch_flags();
-    if header.presentation_coherent {
-        patch_flags |= merkur_codec::PATCH_FLAG_PRESENTATION_COHERENT;
-    }
-    if header.presentation_end {
-        patch_flags |= merkur_codec::PATCH_FLAG_PRESENTATION_END;
-    }
-    if header.memory_only {
-        patch_flags |= merkur_codec::PATCH_FLAG_MEMORY_ONLY;
-    }
-    if header.demand_limited {
-        patch_flags |= merkur_codec::PATCH_FLAG_DEMAND_LIMITED;
-    }
-    if header.demand_prompt {
-        patch_flags |= merkur_codec::PATCH_FLAG_DEMAND_PROMPT;
-    }
-    if header.demand_awaits_grant {
-        patch_flags |= merkur_codec::PATCH_FLAG_DEMAND_AWAITS_GRANT;
-    }
-    out.push(patch_flags);
-    out.extend_from_slice(&header.cols.to_be_bytes());
-    out.extend_from_slice(&header.rows.to_be_bytes());
-    out.extend_from_slice(&header.cursor_col.to_be_bytes());
-    out.extend_from_slice(&header.cursor_row.to_be_bytes());
-    out.push((header.cursor_shape & 0x0f) | ((header.cursor_visible & 0x01) << 4));
-    out.extend_from_slice(&header.mode_flags.to_be_bytes());
-    out.extend_from_slice(&header.frame_id.to_be_bytes());
-    out.extend_from_slice(&header.presentation_id.to_be_bytes());
-    out.extend_from_slice(&header.chunk_index.to_be_bytes());
-    out.extend_from_slice(&header.chunk_count.to_be_bytes());
-    let row_count_offset = out.len();
-    out.extend_from_slice(&header.row_count.to_be_bytes());
-    out.extend_from_slice(&header.presentation_member_index.to_be_bytes());
-    out.extend_from_slice(&header.presentation_member_count.to_be_bytes());
-    out.extend_from_slice(&header.row_predecessor_presentation_id.to_be_bytes());
-    out.extend_from_slice(&header.demand_serial.to_be_bytes());
-    out.extend_from_slice(&header.closure_digest.to_be_bytes());
-    out.extend_from_slice(&header.scroll_serial.to_be_bytes());
-    out.extend_from_slice(&header.echo_horizon.to_be_bytes());
+    merkur_codec::push_frame_header_body(out, header);
     debug_assert_eq!(
         out.len(),
         STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES
     );
-    row_count_offset
+    merkur_codec::DISPLAY_ROW_COUNT_OFFSET
 }
 
 fn patch_display_row_count(out: &mut [u8], offset: usize, row_count: usize) {
@@ -2353,7 +2362,9 @@ mod tests {
         assert_eq!(terminal.dirty_row_flags(), vec![true; 40]);
 
         terminal.clear_dirty();
-        terminal.parser.advance(&mut terminal.term, b"\x1b[5;3Hxy\x1b[9;1H");
+        terminal
+            .parser
+            .advance(&mut terminal.term, b"\x1b[5;3Hxy\x1b[9;1H");
         crate::edge_tunnel::test_allocations::begin_thread();
         terminal.record_damage();
         terminal.mark_all_dirty();
@@ -2377,7 +2388,10 @@ mod tests {
     fn dirty_rows_never_report_a_row_past_the_viewport() {
         let mut dirty = DirtyRows::all(65);
         assert_eq!(dirty.words.len(), 2);
-        assert_eq!(dirty.iter().collect::<Vec<_>>(), (0..65).collect::<Vec<_>>());
+        assert_eq!(
+            dirty.iter().collect::<Vec<_>>(),
+            (0..65).collect::<Vec<_>>()
+        );
         assert_eq!(dirty.census(), DirtyCensus::Many);
 
         dirty.clear();
@@ -2392,7 +2406,10 @@ mod tests {
         dirty.resize_all(64);
         assert_eq!(dirty.words, vec![u64::MAX]);
         dirty.resize_all(130);
-        assert_eq!(dirty.iter().collect::<Vec<_>>(), (0..130).collect::<Vec<_>>());
+        assert_eq!(
+            dirty.iter().collect::<Vec<_>>(),
+            (0..130).collect::<Vec<_>>()
+        );
         dirty.resize_all(1);
         assert_eq!(dirty.words, vec![1]);
         assert_eq!(dirty.census(), DirtyCensus::One(0));
@@ -2810,8 +2827,10 @@ mod tests {
                 }
             }
             for (candidate, samples) in samples.iter_mut().enumerate() {
-                println!("@@observer_raw workload={name} candidate={candidate} us={}",
-                    serde_json::to_string(samples).expect("finite duration samples"));
+                println!(
+                    "@@observer_raw workload={name} candidate={candidate} us={}",
+                    serde_json::to_string(samples).expect("finite duration samples")
+                );
                 samples.sort_by(f64::total_cmp);
                 let quantile = |p: f64| samples[(p * samples.len() as f64).ceil() as usize - 1];
                 println!(
@@ -2926,7 +2945,10 @@ mod tests {
             let previous_header = terminal.current_display_header_signal();
             terminal.apply_bytes(boundary);
             assert!(!terminal.prediction_safe(), "{boundary:?}");
-            assert!(terminal.has_dirty(), "control-only revocation must wake display");
+            assert!(
+                terminal.has_dirty(),
+                "control-only revocation must wake display"
+            );
             assert_ne!(terminal.current_display_header_signal(), previous_header);
             let (payload, rows) = terminal.encode_delta_for_rows(&baseline, &[], Vec::new());
             assert_eq!(rows, 0);
@@ -3028,7 +3050,9 @@ mod tests {
         }
         for action in 0..3 {
             let mut probe = IntegrationProbe::new(None);
-            if action == 2 { probe.observe(b"\x1b[?2026h"); }
+            if action == 2 {
+                probe.observe(b"\x1b[?2026h");
+            }
             probe.observe(b"\x1b]133;B\x1b");
             match action {
                 0 => {
@@ -3152,7 +3176,11 @@ mod tests {
             let header = terminal.current_display_header(FrameKind::Delta);
             terminal.closure_digest(&header, hashes)
         };
-        assert_eq!(claim(&mut terminal, &mut hashes), 0, "nothing was declared complete");
+        assert_eq!(
+            claim(&mut terminal, &mut hashes),
+            0,
+            "nothing was declared complete"
+        );
         terminal.apply_bytes(b"\x1b[?2026hfirst\r\nsecond\x1b[?2026l");
         let completed = claim(&mut terminal, &mut hashes);
         assert_ne!(completed, 0);
@@ -3180,7 +3208,11 @@ mod tests {
         // A still-buffered successor does not change the completed screen.
         let before = claim(&mut terminal, &mut hashes);
         terminal.apply_bytes(b"\x1b[?2026hhidden");
-        assert_eq!(claim(&mut terminal, &mut hashes), 0, "any byte ends the claim");
+        assert_eq!(
+            claim(&mut terminal, &mut hashes),
+            0,
+            "any byte ends the claim"
+        );
         // A forced release and a resize end the claim as well.
         assert!(terminal.stop_synchronized_update());
         assert_eq!(claim(&mut terminal, &mut hashes), 0);
@@ -3976,8 +4008,17 @@ legacy-marker-with-a-long-suffix";
             .after(0)
             .map(|request| (request.seq, &*request.url))
             .collect();
-        assert_eq!(urls, [(1, "https://a.example/x;y?q=1"), (2, "http://127.0.0.1:5173/")]);
-        assert!(visible_row_text(&terminal, 0).trim().is_empty(), "nothing is drawn");
+        assert_eq!(
+            urls,
+            [
+                (1, "https://a.example/x;y?q=1"),
+                (2, "http://127.0.0.1:5173/")
+            ]
+        );
+        assert!(
+            visible_row_text(&terminal, 0).trim().is_empty(),
+            "nothing is drawn"
+        );
     }
 
     #[test]
@@ -4055,7 +4096,10 @@ legacy-marker-with-a-long-suffix";
             .collect();
         assert_eq!(
             uris,
-            [(links[0], "https://a.example/"), (links[5], "https://b.example/")]
+            [
+                (links[0], "https://a.example/"),
+                (links[5], "https://b.example/")
+            ]
         );
     }
 

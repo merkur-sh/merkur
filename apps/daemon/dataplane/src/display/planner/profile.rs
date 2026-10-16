@@ -307,7 +307,7 @@ impl Worker {
                 ) == Representation::Compressed;
                 let wire = if used { compressed_bytes } else { raw_bytes };
                 job.attempts.push((raw_bytes, wire, class));
-                (wire, Some(compressed_bytes as f64 / raw_bytes as f64))
+                (wire, Some(staged_ratio(raw_bytes, compressed_bytes)))
             }
         } else {
             (raw_bytes, None)
@@ -640,7 +640,7 @@ fn planner_replan_sequence_profile() {
                                 raw,
                                 class,
                                 DictionaryClass::Plain,
-                                (wire as f64 / raw as f64).clamp(0.01, 1.0),
+                                staged_ratio(raw, wire).clamp(0.01, 1.0),
                             );
                         }
                     }
@@ -738,7 +738,7 @@ fn planner_first_call_profile() {
                                 raw,
                                 class,
                                 DictionaryClass::Plain,
-                                (wire as f64 / raw as f64).clamp(0.01, 1.0),
+                                staged_ratio(raw, wire).clamp(0.01, 1.0),
                             );
                         }
                     }
@@ -1062,7 +1062,7 @@ fn planner_reliable_only_scaling_profile() {
                 raw,
                 class,
                 DictionaryClass::Plain,
-                (wire as f64 / raw as f64).clamp(0.01, 1.0),
+                staged_ratio(raw, wire).clamp(0.01, 1.0),
             );
         }
     }

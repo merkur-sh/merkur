@@ -58,7 +58,8 @@ pub fn next_connection_id() -> u64 {
 /// The largest record the reliable lanes carry without a heap allocation:
 /// exactly one sealed input ack. Const-asserted below so the ack can never
 /// silently outgrow its inline slot and start allocating again.
-pub const INLINE_RELIABLE_PAYLOAD_BYTES: usize = 32;
+pub const INLINE_RELIABLE_PAYLOAD_BYTES: usize =
+    crate::network::protocol::INPUT_ACK_FRAME_BYTES + crate::e2e::FRAME_OVERHEAD;
 const _: () = assert!(
     INLINE_RELIABLE_PAYLOAD_BYTES
         == crate::network::protocol::INPUT_ACK_FRAME_BYTES + crate::e2e::FRAME_OVERHEAD,

@@ -424,8 +424,9 @@ smears a redraw into a row-by-row sweep.
 
 Reliable display commit is for snapshots, jumbo frames, resync/fallback, and repair
 paths. Datagrams remain the low-latency default. A display frame is bounded to 2 MiB
-on the wire and after decompression. The 18-byte stream envelope carries a 32-bit body
-length, so a reliable frame can preserve an indivisible row beyond 64 KiB. WASM ingress,
+on the wire and after decompression. The staged stream envelope carries a 32-bit body
+length and a reliable record a 32-bit record length, so a reliable frame can preserve an
+indivisible row beyond 64 KiB. WASM ingress,
 raw validation and decompression enforce the same frame ceiling; aggregate
 staging quotas remain separate. zstd history is also bounded to 2 MiB before decoding.
 The browser frame ring reserves two maximum aligned slots plus sentinel and metadata

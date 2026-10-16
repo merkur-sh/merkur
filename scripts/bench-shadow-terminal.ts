@@ -10,6 +10,7 @@ import {
   DISPLAY_ROW_PREFIX_BYTES,
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SCROLL_SERIAL_OFFSET,
+  DISPLAY_STAGED_HEADROOM_BYTES,
   DISPLAY_STREAM_HEADER_BYTES,
   TERMINAL_MODE_PREDICTION_SAFE,
 } from '@merkur/shared';
@@ -367,16 +368,16 @@ function drainLongMidlineActions(
 /**
  * The closure digest (u64; zero claims no complete frame), the scroll serial
  * (u32; this fixture never scrolls) and the echo horizon (u32; zero claims no
- * answered input) end the body header, all zero. A field added before or
- * between them moves these offsets: fail here rather than encode rows the
- * decoder rejects as `display_row_invalid`.
+ * answered input) end the fixed body header, all zero, before the staged
+ * headroom. A field added before or between them moves these offsets: fail
+ * here rather than encode rows the decoder rejects as `display_row_invalid`.
  */
 function skipHeaderTail(offset: number): number {
   if (
     offset !== DISPLAY_CLOSURE_DIGEST_OFFSET ||
     offset + 8 !== DISPLAY_SCROLL_SERIAL_OFFSET ||
     DISPLAY_SCROLL_SERIAL_OFFSET + 4 !== DISPLAY_ECHO_HORIZON_OFFSET ||
-    DISPLAY_ECHO_HORIZON_OFFSET + 4 !== DISPLAY_ROWS_OFFSET
+    DISPLAY_ECHO_HORIZON_OFFSET + 4 + DISPLAY_STAGED_HEADROOM_BYTES !== DISPLAY_ROWS_OFFSET
   ) {
     throw new Error(`display body header drifted: closure digest written at ${offset}`);
   }

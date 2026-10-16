@@ -18,7 +18,7 @@ use std::hint::black_box;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
-use merkur_fec::repair::{RepairHeader, recover_batch_into};
+use merkur_fec::repair::{RepairHeader, encode_repair_body, recover_batch_into, repair_body_len};
 use merkur_fec::{FEC_MAX_DATA, FEC_MAX_RECOVERY, PARITY, decode, encode};
 
 struct CountingAllocator;
@@ -318,15 +318,25 @@ fn fec_recover_batch_profile() {
             shard_size: shard_len as u16,
             generation: 1,
         };
-        let body: Vec<u8> = fixture.recovery.concat();
+        let shards: Vec<&[u8]> = fixture.data.iter().map(Vec::as_slice).collect();
+        let mut body = vec![0u8; repair_body_len(m, shard_len)];
+        encode_repair_body(&shards, m, &mut body).expect("repair body");
         let received: Vec<Option<&[u8]>> = (0..k)
             .map(|i| (i != 0).then(|| fixture.data[i].as_slice()))
             .collect();
         let mut padded = vec![0u8; k * shard_len];
         let mut output = vec![0u8; k * shard_len];
+        let mut lengths = [0u16; FEC_MAX_DATA];
         let mut restored = 0;
         let (allocations, bytes) = count_allocations(|| {
-            restored = recover_batch_into(&header, &received, &body, &mut padded, &mut output);
+            restored = recover_batch_into(
+                &header,
+                &received,
+                &body,
+                &mut padded,
+                &mut output,
+                &mut lengths,
+            );
         });
         assert_eq!(restored, 1);
         assert_eq!(&output[..shard_len], fixture.data[0].as_slice());
@@ -337,6 +347,7 @@ fn fec_recover_batch_profile() {
                 &body,
                 &mut padded,
                 &mut output,
+                &mut lengths,
             ));
         });
         println!(

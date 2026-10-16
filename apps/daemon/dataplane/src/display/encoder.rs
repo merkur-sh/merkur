@@ -5,9 +5,8 @@ use merkur_codec::{
     DISPLAY_ROW_COUNT_OFFSET, DISPLAY_STREAM_FLAGS_OFFSET, FRAME_HEADER_BODY_BYTES, FrameKind,
     MAX_DISPLAY_FRAME_BYTES, MSG_TYPE_DISPLAY_PATCH, PATCH_FLAG_DEMAND_AWAITS_GRANT,
     PATCH_FLAG_DEMAND_LIMITED, PATCH_FLAG_DEMAND_PROMPT, PATCH_FLAG_PRESENTATION_COHERENT,
-    PATCH_FLAG_PRESENTATION_END,
-    STREAM_HEADER_BYTES, StreamHeader, iter_rows_at, parse_frame_header_and_rows_start,
-    write_stream_header,
+    PATCH_FLAG_PRESENTATION_END, STREAM_HEADER_BYTES, StreamHeader, iter_rows_at,
+    parse_frame_header_and_rows_start, write_stream_header,
 };
 
 // Resource bound on a batch of ordinary snapshot rows. A single larger row is
@@ -15,6 +14,30 @@ use merkur_codec::{
 // Keep the existing ordinary-row batch bound as the envelope becomes wider.
 const SNAPSHOT_PACKING_BYTES: usize = STREAM_HEADER_BYTES + u16::MAX as usize;
 const MAX_STREAM_FRAME_BYTES: usize = MAX_DISPLAY_FRAME_BYTES;
+
+/// Staged bytes a frame that is not a snapshot chunk carries beyond its wire
+/// form at least: its staged header less the longest wire header such a frame
+/// can have. Planning measures frames staged, so a staged length within
+/// `cap + STAGED_SLACK` is a wire length within `cap`.
+pub(crate) const STAGED_SLACK: usize =
+    merkur_codec::wire::STAGED_BODY_OFFSET - merkur_codec::wire::MAX_UNCHUNKED_WIRE_HEADER_BYTES;
+
+/// The exact length of a staged display frame on the wire.
+#[inline]
+pub(crate) fn wire_len(staged: &[u8]) -> usize {
+    merkur_codec::wire::wire_frame_len(staged).expect("an encoded display frame has a wire form")
+}
+
+/// Write a staged display frame's wire header into its headroom and return the
+/// wire frame, the tail of `staged` from there on. Writing it again after a
+/// patch rewrites it in place; the body is never moved.
+#[inline]
+pub(crate) fn wire_frame(staged: &mut [u8]) -> &[u8] {
+    let start = merkur_codec::wire::write_wire_header_in_place(staged)
+        .expect("an encoded display frame has a wire form");
+    &staged[start..]
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayFrameEncodeError {
     HeaderTooShort,

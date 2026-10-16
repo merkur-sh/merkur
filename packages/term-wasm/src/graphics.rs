@@ -268,6 +268,13 @@ mod tests {
         chunk(kind, cols, entries, 0, 1)
     }
 
+    /// A staged frame in the form a viewer receives it off the wire.
+    fn wire(mut staged: Vec<u8>) -> Vec<u8> {
+        let start =
+            merkur_codec::wire::write_wire_header_in_place(&mut staged).expect("a wire header");
+        staged.split_off(start)
+    }
+
     fn chunk(
         kind: FrameKind,
         cols: u16,
@@ -494,7 +501,7 @@ mod tests {
         let mut viewer = Viewer::new(crate::client_grid::ClientGrid::new(16, 2));
         viewer.fence(0.0, merkur_client::session::DisplayFence { lineage: 1 });
         let fragments = [image(6, 1)];
-        let original = frame(
+        let original = wire(frame(
             FrameKind::Snapshot,
             16,
             &[RowRef {
@@ -503,7 +510,7 @@ mod tests {
                 cells: &[CellRepr::BLANK],
                 graphics: &fragments,
             }],
-        );
+        ));
         viewer.receive(
             0.0,
             CHANNEL_DISPLAY_COMMIT,
@@ -521,7 +528,7 @@ mod tests {
         );
         assert_eq!(viewer.grid_mut().row_hashes()[0], hash);
         assert_eq!(viewer.grid_mut().graphics_fragments(), exported);
-        let resized = frame(
+        let resized = wire(frame(
             FrameKind::Snapshot,
             8,
             &[RowRef {
@@ -530,7 +537,7 @@ mod tests {
                 cells: &[CellRepr::BLANK],
                 graphics: &fragments,
             }],
-        );
+        ));
         viewer.receive(
             1.0,
             CHANNEL_DISPLAY_COMMIT,

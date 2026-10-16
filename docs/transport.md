@@ -935,11 +935,21 @@ This section is a summary. The normative rules (idempotent datagrams, advisory p
 selective ACK, the no-coalescing owner loop, compression, the wrap bit) are in
 [`docs/display-invariants.md`](display-invariants.md).
 
-The codec version is 32; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
+The codec version is 33; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
 
-Display frames use `merkur-codec` with a 1100-byte application datagram ceiling. The 18-byte
-stream envelope carries type and flags, a 32-bit body length, sequence, generation, and input
-sequence. **One datagram is one frame**: every batch is framed and, when compression wins,
+Display frames use `merkur-codec` with a 1100-byte application datagram ceiling. A frame has two
+forms. Staged, in memory on both ends, it has an 18-byte stream envelope (type and flags, a
+32-bit body length, sequence, generation, input sequence), a fixed 55-byte frame header that
+every reader patches and parses at fixed offsets, and headroom. On the wire its header is compact
+(`packages/merkur-codec/src/wire.rs`): routing fields at fixed offsets, the grid geometry,
+cursor and mode word packed into seven bytes, ids and the echo horizon as zigzag varints relative
+to the frame's own sequence fields, and the closure digest, echo horizon, chunk pair and row
+predecessor only when they are not at their defaults. A typed echo's header is 35 bytes. The
+body length is not carried: a datagram's length is its opened length, a reliable record's is its
+stream framing, and FEC parity rebuilds it. The daemon writes the wire header into the headroom
+at seal time, right against the body, and the receiver writes the staged header in the copy it
+makes into its staging buffer, so neither end copies the body to change its form. Nothing in the
+compact header depends on another datagram or on receiver state. **One datagram is one frame**: every batch is framed and, when compression wins,
 compressed on its own, so it is complete on arrival and can be decrypted, applied, acknowledged,
 lost, or recovered without any other datagram. Each flush ranks rows into `Critical` (cursor rows
 and changed cursor/mode headers, sent redundantly across live direct and relay paths) and
@@ -959,7 +969,9 @@ work already queued, and a retired session cannot restart a successor session's 
 The browser acknowledges with a selective 128-bit bitmap anchored at the newest applied
 sequence. A sequence is **lost** when it is unacknowledged with `LOSS_PACKET_THRESHOLD` (three) later sequences already applied above it,
 which disowns its rows so the next flush re-sends their current content. Forward error
-correction groups up to four datagrams and adds parity shards sized by the group's payload.
+correction groups up to four datagrams and adds parity shards sized by the group's widest wire
+frame; each shard leads with a two-byte length stripe, parity over the members' lengths, so a
+rebuilt frame comes back at its own length.
 
 Delivery is bounded by presentation. The same ACK carries the browser's cumulative display
 grant: the terminal worker issues at most one per animation frame it is shown, plus one
@@ -1015,8 +1027,9 @@ transactional key cut committed at the successor's final Noise message.
   request; the delegation-authorization digest is in the daemon-signed response and its KDF input.
 - Noise prologues bind session id, canonical `daemonId`, and the request transcript, so no
   handshake message can be replayed across sessions.
-- Stream and datagram nonce spaces are disjoint and replay checked. Each per-lane 56-bit send
-  counter accepts its final value once and then fails closed; it never wraps.
+- Stream and datagram nonce spaces are disjoint and replay checked. Each per-lane send counter
+  travels whole in five bytes, so it is read back exactly; it accepts its final 40-bit value once
+  and then fails closed, and it never wraps.
 - Fresh issuance, session, nonce, ML-KEM keypair, delegate proof, and Noise handshake are
   mandatory for every edge signaling authentication and every reconnect that is not a rebind. A
   rebind keeps the issuance and session id but still runs a fresh ML-KEM exchange and Noise

@@ -16,9 +16,9 @@
     "datagram": {
       "channel": "displayDatagram",
       "framed_hex": [
-        "0000000000000000ba8de17f11af226fa667407fc1e7f45957f4158121",
-        "0000000000000001e4d7ec11b987f765273423741c80c72af44f2b1e5d",
-        "000000000000000265e02cc37120e1571c6c2db4053b1f3b1adaea5d43"
+        "0000000000ba8de17f11af226fa667407fc1e7f45957f4158121",
+        "0000000001e4d7ec11b987f765273423741c80c72af44f2b1e5d",
+        "000000000265e02cc37120e1571c6c2db4053b1f3b1adaea5d43"
       ],
       "lane": 2,
       "plaintexts_hex": [
@@ -30,9 +30,9 @@
     "stream": {
       "channel": "ctrl",
       "framed_hex": [
-        "0000000000000000813e4267975662cb7ddcde5559177c15686e625585",
-        "00000000000000013539d72f6ecd97485b83eb1fff510e9abb838d2362",
-        "000000000000000249dc6ff220eef4f4eac6b070b8ef255c8b"
+        "0000000000813e4267975662cb7ddcde5559177c15686e625585",
+        "00000000013539d72f6ecd97485b83eb1fff510e9abb838d2362",
+        "000000000249dc6ff220eef4f4eac6b070b8ef255c8b"
       ],
       "lane": 1,
       "plaintexts_hex": [
@@ -51,8 +51,8 @@
     "datagram": {
       "channel": "displayAck",
       "framed_hex": [
-        "0000000000000000ee73664b858d5e4b6782f5a0e93d2c280fb5",
-        "0000000000000001603e88b7daaeb177d3e813280124384af94c"
+        "0000000000ee73664b858d5e4b6782f5a0e93d2c280fb5",
+        "0000000001603e88b7daaeb177d3e813280124384af94c"
       ],
       "lane": 4,
       "plaintexts_hex": [
@@ -63,8 +63,8 @@
     "stream": {
       "channel": "pty",
       "framed_hex": [
-        "0000000000000000b0f71232333020b34f817231acfc3a5371f4954171",
-        "00000000000000017dd6edef30dbe0cefa176e4446abfc7dfab15e23b2"
+        "0000000000b0f71232333020b34f817231acfc3a5371f4954171",
+        "00000000017dd6edef30dbe0cefa176e4446abfc7dfab15e23b2"
       ],
       "lane": 0,
       "plaintexts_hex": [

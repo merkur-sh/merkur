@@ -15,6 +15,16 @@ mod geometry;
 // implementation lives in `packages/merkur-e2e` so the browser can compile the
 // same code to WebAssembly instead of maintaining a second one in TypeScript.
 pub(crate) use merkur_e2e as e2e;
+
+/// The lane counter a sealed frame carries in its first
+/// [`merkur_e2e::COUNTER_BYTES`] bytes, for tests that check which nonce a seal
+/// spent.
+#[cfg(test)]
+pub(crate) fn sealed_counter(framed: &[u8]) -> u64 {
+    let mut counter = [0u8; 8];
+    counter[8 - e2e::COUNTER_BYTES..].copy_from_slice(&framed[..e2e::COUNTER_BYTES]);
+    u64::from_be_bytes(counter)
+}
 // Daemon outbound edge tunnel. It is the primary browser dataplane carrier,
 // with direct WebTransport as the latency upgrade.
 mod edge_tunnel;
@@ -65,7 +75,8 @@ use display::send::{
     compute_next_flush_delay_ms, fence_dictionary_preparation_without_consumers,
     fence_display_dictionary_withdrawal, finish_dictionary_prepare, finish_display_prepare,
     finish_snapshot_prepare, flush_display, has_active_display_peers, has_runnable_display_work,
-    send_due_perf_timing_batches, send_open_url_requests, send_terminal_ui, start_display_prepare_worker,
+    send_due_perf_timing_batches, send_open_url_requests, send_terminal_ui,
+    start_display_prepare_worker,
 };
 use ipc::commands::*;
 use ipc::events::*;
@@ -602,9 +613,10 @@ fn spawn_wt_maintenance(
                 .map(|addr| addr.port())
         });
         let result = match request.kind {
-            WtMaintenanceKind::Startup => WtMaintenanceResult::Server(
-                webtransport::start_server(binding.pinned_port, binding.public_endpoint),
-            ),
+            WtMaintenanceKind::Startup => WtMaintenanceResult::Server(webtransport::start_server(
+                binding.pinned_port,
+                binding.public_endpoint,
+            )),
             // Rotation deliberately does NOT re-run `start_server`. The pinned
             // port is still held by the live endpoint and quinn sets no
             // SO_REUSEPORT, so every bind in that path — the STUN probe, the v6
@@ -1085,7 +1097,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
         ipc: mut ipc_rx,
         events: (event_tx, mut event_failure_rx, mut event_output),
         #[cfg(merkur_sim)]
-        pty: simulated_pty,
+            pty: simulated_pty,
     } = host;
     let (identity_completion_tx, mut identity_completion_rx) =
         mpsc::channel::<session::auth_flow::IdentitySignDone>(32);
@@ -3625,7 +3637,11 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
 
         // UI effects do not depend on row damage, display credit, or a pending
         // synchronized-output release. Canonical parsing already owns their boundary.
-        send_terminal_ui(&mut terminal, &mut registry.peers, now_ms_since(start_instant));
+        send_terminal_ui(
+            &mut terminal,
+            &mut registry.peers,
+            now_ms_since(start_instant),
+        );
 
         // The display flush for this turn, whether an arm above asked for it
         // in the same turn (`Some(0)`) or the timer carried a wait here. It
@@ -5289,7 +5305,8 @@ fn admit_user_record(
         Some(InputRecord::Focus(focused)) => Some(focused),
         _ => None,
     };
-    let reported = focus.is_none_or(|focused| terminal.focus_changes_terminal_focus(peer_id, focused));
+    let reported =
+        focus.is_none_or(|focused| terminal.focus_changes_terminal_focus(peer_id, focused));
     let mut payload = PtyWritePayload::with_capacity(input_encoder::encoded_len_hint(record));
     if reported && let Some(decoded) = &decoded {
         input_encoder::encode(decoded, terminal.input_modes(), &mut payload);

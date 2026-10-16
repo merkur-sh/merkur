@@ -12,6 +12,7 @@ mod stream;
 pub mod theme;
 mod validate;
 mod varint;
+pub mod wire;
 
 pub use cell::{CellAttrs, CellRepr, CellTag, cell_wraps};
 pub use decode::{
@@ -21,7 +22,7 @@ pub use decode::{
 pub use encode::{
     CellEncoding, EncodeError, FrameHeader, FrameKind, PreparedRowRef, RowRef, encode_cells,
     encode_frame_into, encode_prepared_frame_into, encoded_cells_size, plan_cell_encoding,
-    row_cell_count_field, row_left_field, try_encode_frame_into,
+    push_frame_header_body, row_cell_count_field, row_left_field, try_encode_frame_into,
 };
 pub use graphics::{
     GraphicsEncodeScratch, GraphicsVersion, GraphicsWireError, MAX_GRAPHICS_SECTION_BYTES,
@@ -48,6 +49,7 @@ pub use validate::{
     validate_display_frame_header, validate_display_rows,
 };
 pub use varint::{decode_varint_u32, encode_varint_u32};
+pub use wire::MAX_WIRE_HEADER_BYTES;
 
 pub const STREAM_HEADER_BYTES: usize = 18;
 /// Resource bound for one encoded or decompressed display frame. It admits a
@@ -243,7 +245,14 @@ pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
 /// already carries the row-body length and the compressed flag. The envelope is
 /// byte-identical, so a version-31 receiver would hand a split payload to its
 /// row validator — the one failure this stream cannot detect on its own.
-pub const VERSION: u8 = 32;
+///
+/// Version 33 separates the wire header from the staged one (see [`wire`]).
+/// In memory a frame keeps the fixed 55-byte header plus headroom; on the wire
+/// the header drops the body length, carries a delta's geometry only through
+/// its generation, encodes ids and the echo horizon relative to the frame's
+/// own sequence fields, and omits default-valued optional fields: a typed echo
+/// carries 33 header bytes instead of 73.
+pub const VERSION: u8 = 33;
 pub const PATCH_FLAG_RESET: u8 = 1 << 0;
 pub const PATCH_FLAG_PRESENTATION_COHERENT: u8 = 1 << 1;
 pub const PATCH_FLAG_PRESENTATION_END: u8 = 1 << 2;
@@ -264,7 +273,12 @@ pub const PATCH_FLAG_DEMAND_PROMPT: u8 = 1 << 5;
 /// newest consumed serial and is never a newer state. A clipped prefix never
 /// carries it: its remainder follows without a grant.
 pub const PATCH_FLAG_DEMAND_AWAITS_GRANT: u8 = 1 << 7;
-pub const FRAME_HEADER_BODY_BYTES: usize = 55;
+/// The staged frame header's fixed fields, which every in-memory reader
+/// patches and parses at fixed offsets.
+pub const FRAME_HEADER_FIXED_BYTES: usize = 55;
+/// The staged frame header body: its fixed fields, then the headroom the wire
+/// header is written into at seal time ([`wire::write_wire_header_in_place`]).
+pub const FRAME_HEADER_BODY_BYTES: usize = FRAME_HEADER_FIXED_BYTES + MAX_WIRE_HEADER_BYTES;
 pub const ROW_PREFIX_BYTES: usize = 8;
 /// Width of the row prefix's cell count. The field is `u16` on the wire but
 /// a row can hold at most [`MAX_TERMINAL_COLUMNS`] cells, so its top bit is

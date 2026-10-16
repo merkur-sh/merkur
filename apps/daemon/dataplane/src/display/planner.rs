@@ -317,8 +317,11 @@ impl ReadMostlyPosterior {
     }
 }
 
+/// The size bucket of a frame `staged_len` long staged, over the bytes it puts
+/// on the wire at most, so buckets keep their wire meaning.
 #[inline]
-pub const fn size_class(bytes: usize) -> usize {
+pub const fn size_class(staged_len: usize) -> usize {
+    let bytes = staged_wire_bound(staged_len);
     if bytes <= 512 {
         0
     } else if bytes <= 1_024 {
@@ -623,34 +626,66 @@ pub struct PacketPlan {
     pub tail_latency_us: f64,
 }
 
-/// Physical bytes admitted for one display datagram. The channel byte is
-/// outside Noise and every sealed record carries the fixed Noise framing.
+/// The most bytes a display frame `staged_len` long in its staged layout puts
+/// on the wire: the planner measures frames staged (see
+/// `encoder::STAGED_SLACK`).
 #[inline]
-pub(crate) const fn display_datagram_wire_len(plaintext_len: usize) -> usize {
-    1 + plaintext_len + crate::e2e::FRAME_OVERHEAD
+pub(crate) const fn staged_wire_bound(staged_len: usize) -> usize {
+    staged_len.saturating_sub(crate::display::encoder::STAGED_SLACK)
+}
+
+/// A staged frame's compression ratio, over the bytes zstd and the wire see:
+/// the staged slack is the same uncompressed constant before and after.
+#[inline]
+pub(crate) fn staged_ratio(raw_staged: usize, compressed_staged: usize) -> f64 {
+    staged_wire_bound(compressed_staged) as f64 / staged_wire_bound(raw_staged).max(1) as f64
+}
+
+/// The staged length a frame `raw_staged` long reaches at `ratio`.
+#[inline]
+fn staged_len_at_ratio(raw_staged: usize, ratio: f64) -> f64 {
+    (staged_wire_bound(raw_staged) as f64)
+        .mul_add(ratio, crate::display::encoder::STAGED_SLACK as f64)
+}
+
+/// Physical bytes admitted for one display datagram `staged_len` long when
+/// staged. The channel byte is outside Noise and every sealed record carries
+/// the fixed Noise framing.
+#[inline]
+pub(crate) const fn display_datagram_wire_len(staged_len: usize) -> usize {
+    1 + staged_wire_bound(staged_len) + crate::e2e::FRAME_OVERHEAD
+}
+
+/// Physical bytes of the repair datagram over a group of staged width
+/// `shard_size` with `recovery` shards.
+#[inline]
+pub(crate) const fn display_repair_wire_len(recovery: usize, shard_size: usize) -> usize {
+    1 + merkur_codec::DISPLAY_FEC_HEADER_BYTES
+        + merkur_fec::repair::repair_body_len(recovery, staged_wire_bound(shard_size))
+        + crate::e2e::FRAME_OVERHEAD
 }
 
 /// Physical bytes contributed by one record on an already-open persistent
 /// reliable lane. Stream binding is paid once per carrier generation, not once
 /// per record; a record owns only its u32 length and Noise-sealed body.
 #[inline]
-pub(crate) const fn display_reliable_record_wire_len(plaintext_len: usize) -> usize {
-    RELIABLE_RECORD_LENGTH_BYTES + plaintext_len + crate::e2e::FRAME_OVERHEAD
+pub(crate) const fn display_reliable_record_wire_len(staged_len: usize) -> usize {
+    RELIABLE_RECORD_LENGTH_BYTES + staged_wire_bound(staged_len) + crate::e2e::FRAME_OVERHEAD
 }
 
-/// Datagram repair width for one adjacent group at its widest plaintext data
-/// shard. Two recovery shards are useful only while both plus the exact FEC
-/// header fit one physical datagram. A k=1 group has no algebraic parity.
+/// Datagram repair width for one adjacent group at its widest staged data
+/// shard. Two recovery shards are useful only while both, their length
+/// stripes and the exact FEC header fit one physical datagram. A k=1 group has
+/// no algebraic parity. Planning and sending both decide it from staged
+/// lengths, so they always agree.
 #[inline]
 pub(crate) const fn fec_recovery_shard_count(group_len: usize, shard_size: usize) -> usize {
     if group_len < 2 || shard_size == 0 {
         return 0;
     }
-    let available = DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
-        .saturating_sub(merkur_codec::DISPLAY_FEC_HEADER_BYTES);
-    if shard_size <= available / DisplayPolicy::FEC_RECOVERY_SHARD_COUNT {
+    if shard_size <= DisplayPolicy::FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES {
         DisplayPolicy::FEC_RECOVERY_SHARD_COUNT
-    } else if shard_size <= available {
+    } else if shard_size <= DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES {
         DisplayPolicy::FEC_SINGLE_RECOVERY_SHARD_COUNT
     } else {
         0
@@ -744,9 +779,7 @@ fn single_record_plan(
         let repair_wire_bytes = if recovery == 0 {
             0
         } else {
-            display_datagram_wire_len(
-                merkur_codec::DISPLAY_FEC_HEADER_BYTES + recovery * shard_size,
-            )
+            display_repair_wire_len(recovery, shard_size)
         };
         let complete_wire_bytes = data_wire_bytes.saturating_add(repair_wire_bytes);
         let incomplete =
@@ -1050,9 +1083,7 @@ pub(crate) fn group_close_cost_us(
     let repair_wire_bytes = if recovery == 0 {
         0
     } else {
-        display_datagram_wire_len(
-            merkur_codec::DISPLAY_FEC_HEADER_BYTES + recovery.saturating_mul(shard_size),
-        )
+        display_repair_wire_len(recovery, shard_size)
     };
     let incomplete = datagram_group_failure_probability(group_len, recovery, carrier.loss_upper);
     carrier.serialization_us(repair_wire_bytes)
@@ -1071,7 +1102,7 @@ const UNFILLED_GROUP_CLOSE_COST_US: f64 = f64::from_bits(0x7ff8_0000_0bad_c105);
 #[inline]
 fn dominance_breakpoints(context: PlanningContext) -> [usize; 7] {
     let protected = DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES;
-    let two_shard = protected / DisplayPolicy::FEC_RECOVERY_SHARD_COUNT;
+    let two_shard = DisplayPolicy::FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES;
     [
         two_shard.saturating_sub(1),
         two_shard,
@@ -1115,9 +1146,7 @@ fn fill_group_close_cost_cache(
         let repair_wire_bytes = if recovery == 0 {
             0
         } else {
-            display_datagram_wire_len(
-                merkur_codec::DISPLAY_FEC_HEADER_BYTES + recovery * shard_size,
-            )
+            display_repair_wire_len(recovery, shard_size)
         };
         let repair_us = carrier.serialization_us(repair_wire_bytes);
         for (costs, group_tails) in cache[2..].iter_mut().zip(&tails[2..]) {
@@ -1443,7 +1472,7 @@ fn batch_candidates(
         .zip(profiles)
         .map(|(bytes, profile)| *bytes as f64 * profile.ratio(raw_bytes))
         .sum::<f64>()
-        + header_bytes as f64 * peer.ratio(raw_bytes);
+        + staged_len_at_ratio(header_bytes, peer.ratio(raw_bytes));
     let raw_lane =
         if raw_bytes <= wire_cap || (singleton && raw_bytes <= datagram_max_payload_bytes) {
             Some(DeliveryLane::Datagram)
@@ -1476,7 +1505,7 @@ fn batch_candidates(
         representation: Representation::Compressed,
         sender_service_us: sender_upper_by_size[size_class(raw_bytes)],
         receiver_service_us: peer
-            .receiver_upper_us(raw_bytes, predicted_bytes as f64 / raw_bytes.max(1) as f64),
+            .receiver_upper_us(raw_bytes, staged_ratio(raw_bytes, predicted_bytes)),
     });
     [raw, compressed]
 }
@@ -1485,16 +1514,20 @@ fn batch_candidates(
 /// independent ratio bucket. Ratios need not be monotone: take each bucket's
 /// own intersection with its size interval before taking the maximum. The
 /// extra byte protects floating-point division at an exact boundary; actual
-/// candidate construction still decides feasibility.
+/// candidate construction still decides feasibility. Sizes are staged, so each
+/// bucket's wire interval is shifted by the staged slack.
 fn multirow_raw_limit(peer: PeerPlanningSnapshot, wire_cap: usize) -> usize {
     let lower = [0, 513, 1_025, 2_049, 4_097, 8_193];
     let upper = [512, 1_024, 2_048, 4_096, 8_192, usize::MAX];
     let mut limit = wire_cap;
     for class in 0..SIZE_CLASSES {
         let ratio = peer.ratio_by_size[class];
-        let compressed_limit = ((wire_cap as f64 / ratio).ceil() as usize).saturating_add(1);
-        let candidate_limit = compressed_limit.min(upper[class]);
-        if candidate_limit >= lower[class] {
+        let slack = crate::display::encoder::STAGED_SLACK;
+        let compressed_limit = ((staged_wire_bound(wire_cap) as f64 / ratio).ceil() as usize)
+            .saturating_add(slack)
+            .saturating_add(1);
+        let candidate_limit = compressed_limit.min(upper[class].saturating_add(slack));
+        if candidate_limit >= lower[class] + slack {
             limit = limit.max(candidate_limit);
         }
     }
@@ -2201,14 +2234,13 @@ pub fn should_attempt_compression(
     dictionary: DictionaryClass,
     mut context: PlanningContext,
 ) -> bool {
-    let predicted_bytes = (raw_bytes as f64 * peer.ratio(raw_bytes)).ceil() as usize;
+    let predicted_bytes = staged_len_at_ratio(raw_bytes, peer.ratio(raw_bytes)).ceil() as usize;
     if predicted_bytes >= raw_bytes {
         return false;
     }
     context.receiver_service_debt_us = peer.receiver_service_debt_us;
     let raw = best_single_record_plan(raw_bytes, 0.0, context);
-    let receiver_us =
-        peer.receiver_upper_us(raw_bytes, predicted_bytes as f64 / raw_bytes.max(1) as f64);
+    let receiver_us = peer.receiver_upper_us(raw_bytes, staged_ratio(raw_bytes, predicted_bytes));
     let sender_service = global.sender_service_upper_us(lane, raw_bytes, content, dictionary);
     let compressed_finish = |context: PlanningContext| {
         let compressed = single_record_plan(predicted_bytes, receiver_us, context);
@@ -2237,7 +2269,7 @@ pub fn choose_after_compression(
     let raw = best_single_record_plan(raw_bytes, 0.0, context);
     let compressed = best_single_record_plan(
         compressed_bytes,
-        peer.receiver_upper_us(raw_bytes, compressed_bytes as f64 / raw_bytes.max(1) as f64),
+        peer.receiver_upper_us(raw_bytes, staged_ratio(raw_bytes, compressed_bytes)),
         context,
     );
     if compressed.tail_latency_us < raw.tail_latency_us {
@@ -3280,8 +3312,8 @@ mod tests {
                     DictionaryClass::Plain,
                     planning,
                     rows,
-                    0,
-                    1_084,
+                    merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES,
+                    DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
                     &mut workspace,
                     result,
                 );
@@ -3332,13 +3364,14 @@ mod tests {
 
     #[test]
     fn exact_wire_shape_distinguishes_datagram_fec_and_one_reliable_record() {
+        let slack = crate::display::encoder::STAGED_SLACK;
         assert_eq!(
             display_datagram_wire_len(1_084),
-            1_084 + 1 + crate::e2e::FRAME_OVERHEAD
+            1_084 - slack + 1 + crate::e2e::FRAME_OVERHEAD
         );
         assert_eq!(
             display_reliable_record_wire_len(1_085),
-            1_085 + std::mem::size_of::<u32>() + crate::e2e::FRAME_OVERHEAD,
+            1_085 - slack + std::mem::size_of::<u32>() + crate::e2e::FRAME_OVERHEAD,
         );
         let mut planning = context();
         planning.datagram_max_payload_bytes = 1_084;
@@ -3352,10 +3385,13 @@ mod tests {
 
         let recovery = fec_recovery_shard_count(4, 500);
         assert_eq!(recovery, 2);
-        let repair_plaintext = merkur_codec::DISPLAY_FEC_HEADER_BYTES + recovery * 500;
-        assert!(repair_plaintext <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES);
+        // The repair over staged 500-byte shards: each wire shard is at most
+        // 500 - slack bytes, behind its two-byte length stripe.
+        let repair_plaintext =
+            merkur_codec::DISPLAY_FEC_HEADER_BYTES + recovery * (2 + 500 - slack);
+        assert!(repair_plaintext <= DisplayPolicy::DATAGRAM_MAX_WIRE_BYTES);
         assert_eq!(
-            display_datagram_wire_len(repair_plaintext),
+            display_repair_wire_len(recovery, 500),
             1 + repair_plaintext + crate::e2e::FRAME_OVERHEAD,
         );
     }
@@ -3366,13 +3402,12 @@ mod tests {
         planning.initial_fec_group_len = 1;
         planning.initial_fec_group_max_bytes = 500;
         let plan = single_record_plan(400, 0.0, planning);
-        let repair_plaintext =
-            merkur_codec::DISPLAY_FEC_HEADER_BYTES + DisplayPolicy::FEC_RECOVERY_SHARD_COUNT * 500;
         assert_eq!(plan.data_packets, 1);
         assert_eq!(plan.repair_packets, 1);
         assert_eq!(
             plan.wire_bytes,
-            display_datagram_wire_len(400) + display_datagram_wire_len(repair_plaintext),
+            display_datagram_wire_len(400)
+                + display_repair_wire_len(DisplayPolicy::FEC_RECOVERY_SHARD_COUNT, 500),
         );
     }
 
@@ -3438,10 +3473,16 @@ mod tests {
         let ends = plan.iter().map(|(end, _)| end).collect::<Vec<_>>();
         let mut start = 0;
         for end in &ends {
-            assert!(end - start >= 2, "every record spans both classes: ends={ends:?}");
+            assert!(
+                end - start >= 2,
+                "every record spans both classes: ends={ends:?}"
+            );
             start = *end;
         }
-        assert!(ends.len() <= 4, "forty alternating rows pack into a few records: ends={ends:?}");
+        assert!(
+            ends.len() <= 4,
+            "forty alternating rows pack into a few records: ends={ends:?}"
+        );
         // The prefix arithmetic returns every row's own bytes under its own class
         // and prices the whole span by its byte-dominant class.
         for (index, row) in rows.iter().enumerate() {

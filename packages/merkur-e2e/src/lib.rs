@@ -43,16 +43,23 @@ pub use renewal::*;
 pub const NOISE_PROTOCOL_NAME: &str = "Noise_XXpsk3_25519_ChaChaPoly_SHA512";
 
 const TAG_BYTES: usize = 16;
-/// Per-frame wire overhead: the 8-byte lane counter plus the AEAD tag. A sealed
-/// frame is exactly `plaintext.len() + FRAME_OVERHEAD` bytes.
-pub const FRAME_OVERHEAD: usize = 8 + TAG_BYTES;
+/// Bytes of the lane counter on the wire, big-endian.
+pub const COUNTER_BYTES: usize = 5;
+/// Per-frame wire overhead: the lane counter plus the AEAD tag. A sealed frame
+/// is exactly `plaintext.len() + FRAME_OVERHEAD` bytes.
+pub const FRAME_OVERHEAD: usize = COUNTER_BYTES + TAG_BYTES;
 const HANDSHAKE_OVERHEAD: usize = 96; // ephemeral + static + two tags, generously rounded.
-const COUNTER_MASK: u64 = (1u64 << 56) - 1;
+/// The largest counter a lane may seal under: the wire carries the counter
+/// whole, so it is read back exactly and never reconstructed from a window.
+/// 2^40 frames is decades of a sustained display flood in one Noise session,
+/// and every rebind installs a fresh session; a lane that reaches it fails
+/// closed rather than reuse a nonce.
+const COUNTER_MASK: u64 = (1u64 << (8 * COUNTER_BYTES)) - 1;
 /// Receiver-local replay window, in slots. A logical channel is delivered across
 /// multiple ordering domains (a frame may fan over the edge AND a direct
 /// WebTransport path, and a replacement carrier may overtake the old one), so a
 /// frame first delivered on a slow lane can trail the highest-seen counter by
-/// far more than 64. Purely local dedup policy — only the 8-byte counter is on
+/// far more than 64. Purely local dedup policy — only the 5-byte counter is on
 /// the wire, so the size is not an interop parameter and can grow without
 /// touching the interop vectors.
 const REPLAY_WINDOW_BITS: u32 = 1024;
@@ -554,7 +561,7 @@ fn transport_cipher(key: &[u8; 32]) -> Result<Box<dyn Cipher>, NoiseError> {
 /// for a genuine failure — the caller drops the frame either way and never
 /// falls back to plaintext.
 ///
-/// BOTH sub-lanes (reliable stream and datagram) carry an explicit 8-byte
+/// BOTH sub-lanes (reliable stream and datagram) carry an explicit 5-byte
 /// big-endian wire counter and a 1024-slot sliding replay window. Individual
 /// persistent QUIC streams are ordered, but a logical channel may be fanned over
 /// the edge AND a direct WebTransport path or cross a carrier replacement. The
@@ -588,7 +595,7 @@ impl NoiseTransport {
     }
 
     /// Shared seal for both sub-lanes: bump the per-lane send counter, encrypt
-    /// under the lane nonce, and frame `counter_be(8) || ciphertext` directly
+    /// under the lane nonce, and frame `counter_be(5) || ciphertext` directly
     /// into `out`. Routing stream and datagram through one code path makes their
     /// wire framing identical by construction — the browser mirror relies on it.
     ///
@@ -619,21 +626,20 @@ impl NoiseTransport {
             &mut self.send_stream[channel_lane]
         };
         let counter = *send;
-        // The high byte is reserved for the lane id, leaving a 56-bit counter.
-        // Exhaustion is practically unreachable, but wrapping would reuse a
-        // ChaChaPoly nonce under the same transport key. Fail closed instead.
+        // The wire carries a 40-bit counter. Wrapping would reuse a ChaChaPoly
+        // nonce under the same transport key. Fail closed instead.
         if counter > COUNTER_MASK {
             return Err(NoiseError::NonceExhausted);
         }
         *send = counter + 1;
-        out[..8].copy_from_slice(&(counter & COUNTER_MASK).to_be_bytes());
+        out[..COUNTER_BYTES].copy_from_slice(&counter.to_be_bytes()[8 - COUNTER_BYTES..]);
         let ciphertext_len = self.send_cipher.encrypt(
             lane_nonce(channel_lane, datagram, counter),
             &[],
             plaintext,
-            &mut out[8..],
+            &mut out[COUNTER_BYTES..],
         );
-        Ok(8 + ciphertext_len)
+        Ok(COUNTER_BYTES + ciphertext_len)
     }
 
     /// Shared open for both sub-lanes: parse the wire counter, reject an
@@ -642,7 +648,7 @@ impl NoiseTransport {
     /// a failed open never disturbs lane state.
     ///
     /// Returns the plaintext length written. `out` must hold at least
-    /// `framed.len() - 8`.
+    /// `framed.len() - COUNTER_BYTES`.
     fn open_framed_into(
         &mut self,
         channel_lane: usize,
@@ -655,20 +661,15 @@ impl NoiseTransport {
         {
             return Err(OpenReject::Auth);
         }
-        if out.len() < framed.len() - 8 {
+        if out.len() < framed.len() - COUNTER_BYTES {
             return Err(OpenReject::Auth);
         }
+        // The wire counter is the whole lane counter: it names the nonce and
+        // drives the replay window, and no value it can hold aliases another
+        // nonce.
         let mut counter_bytes = [0u8; 8];
-        counter_bytes.copy_from_slice(&framed[..8]);
+        counter_bytes[8 - COUNTER_BYTES..].copy_from_slice(&framed[..COUNTER_BYTES]);
         let counter = u64::from_be_bytes(counter_bytes);
-        // The AEAD nonce masks the counter to 56 bits, but the replay window is
-        // driven by the full wire counter. Reject any counter outside the
-        // legitimate 56-bit lane space so an attacker cannot forge a "fresh"
-        // far-future counter (counter + k*2^56) that re-decrypts the same
-        // ciphertext under an unchanged masked nonce.
-        if counter > COUNTER_MASK {
-            return Err(OpenReject::Auth);
-        }
         let fresh = if datagram {
             self.replay_datagram[channel_lane].check(counter)
         } else {
@@ -682,7 +683,7 @@ impl NoiseTransport {
             .decrypt(
                 lane_nonce(channel_lane, datagram, counter),
                 &[],
-                &framed[8..],
+                &framed[COUNTER_BYTES..],
                 out,
             )
             .map_err(|_| OpenReject::Auth)?;
@@ -722,7 +723,7 @@ impl NoiseTransport {
         {
             return Err(OpenReject::Auth);
         }
-        let mut plaintext = vec![0u8; framed.len() - 8];
+        let mut plaintext = vec![0u8; framed.len() - COUNTER_BYTES];
         let len = self.open_framed_into(channel_lane, datagram, framed, &mut plaintext)?;
         plaintext.truncate(len);
         Ok(plaintext)
@@ -1061,7 +1062,7 @@ mod tests {
         ));
         assert_eq!(output, [0xa5; 64]);
         let wire = browser.seal_stream(0, b"valid").unwrap();
-        assert_eq!(&wire[..8], &[0; 8]);
+        assert_eq!(&wire[..COUNTER_BYTES], &[0; COUNTER_BYTES]);
         assert_eq!(daemon.open_stream(LANE_COUNT, &wire), Err(OpenReject::Auth));
         assert_eq!(daemon.open_stream(0, &wire).unwrap(), b"valid");
         assert_eq!(
@@ -1077,10 +1078,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_high_bit_wire_counter_replay() {
-        // Regression for the datagram replay bypass: forging the wire counter to
-        // counter + 2^56 leaves the masked AEAD nonce unchanged (tag verifies) but
-        // would look fresh to the replay window. The COUNTER_MASK guard rejects it.
+    fn a_forged_wire_counter_fails_authentication() {
+        // The wire counter names the nonce whole, so a replayed ciphertext under
+        // any other counter, which the replay window would take as fresh, opens
+        // under a different nonce and fails its tag.
         let psk = hex_decode(PSK_HEX);
         let init_static = hex_decode(INIT_S_HEX);
         let resp_static = hex_decode(RESP_S_HEX);
@@ -1104,14 +1105,16 @@ mod tests {
             "direct replay must be rejected"
         );
 
-        let mut forged = framed.clone();
-        let original = u64::from_be_bytes(forged[..8].try_into().unwrap());
-        forged[..8].copy_from_slice(&(original + (1u64 << 56)).to_be_bytes());
-        assert_eq!(
-            resp_t.open_datagram(2, &forged),
-            Err(OpenReject::Auth),
-            "high-bit forged counter must be rejected"
-        );
+        for forged_counter in [1u64, 1 << 32, COUNTER_MASK] {
+            let mut forged = framed.clone();
+            forged[..COUNTER_BYTES]
+                .copy_from_slice(&forged_counter.to_be_bytes()[8 - COUNTER_BYTES..]);
+            assert_eq!(
+                resp_t.open_datagram(2, &forged),
+                Err(OpenReject::Auth),
+                "a ciphertext under forged counter {forged_counter} must be rejected"
+            );
+        }
     }
 
     #[test]
@@ -1177,7 +1180,7 @@ mod tests {
     }
 
     #[test]
-    fn sealing_fails_closed_after_the_last_56_bit_lane_nonce() {
+    fn sealing_fails_closed_after_the_last_40_bit_lane_nonce() {
         let (mut transport, _) = established_pair(&[9u8; 32], b"nonce-exhaustion-test");
         transport.send_stream[1] = COUNTER_MASK;
         assert!(transport.seal_stream(1, b"last-valid-frame").is_ok());

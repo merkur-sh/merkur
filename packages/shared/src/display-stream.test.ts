@@ -57,6 +57,7 @@ import {
 const RUST_CODEC_SOURCE = [
   readFileSync(fileURLToPath(new URL('../../merkur-codec/src/lib.rs', import.meta.url)), 'utf8'),
   readFileSync(fileURLToPath(new URL('../../merkur-codec/src/stream.rs', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../merkur-codec/src/wire.rs', import.meta.url)), 'utf8'),
 ].join('\n');
 const RUST_ENCODER_SOURCE = readFileSync(
   fileURLToPath(new URL('../../../apps/daemon/dataplane/src/display/encoder.rs', import.meta.url)),
@@ -158,13 +159,17 @@ describe('display stream wire conformance', () => {
   });
 
   test('the patch body header ends with the scroll serial and then the echo horizon', () => {
-    expect(DISPLAY_PROTOCOL_VERSION).toBe(32);
-    expect(DISPLAY_PATCH_BODY_HEADER_BYTES).toBe(55);
+    expect(DISPLAY_PROTOCOL_VERSION).toBe(33);
+    expect(DISPLAY_PATCH_BODY_HEADER_BYTES).toBe(
+      readRustConst('FRAME_HEADER_FIXED_BYTES') + readRustConst('MAX_WIRE_HEADER_BYTES'),
+    );
     expect(DISPLAY_DEMAND_SERIAL_OFFSET).toBe(DISPLAY_ROW_PREDECESSOR_PRESENTATION_ID_OFFSET + 4);
     expect(DISPLAY_CLOSURE_DIGEST_OFFSET).toBe(DISPLAY_DEMAND_SERIAL_OFFSET + 4);
     expect(DISPLAY_SCROLL_SERIAL_OFFSET).toBe(DISPLAY_CLOSURE_DIGEST_OFFSET + 8);
     expect(DISPLAY_ECHO_HORIZON_OFFSET).toBe(DISPLAY_SCROLL_SERIAL_OFFSET + 4);
-    expect(DISPLAY_ECHO_HORIZON_OFFSET + 4).toBe(DISPLAY_ROWS_OFFSET);
+    expect(DISPLAY_ECHO_HORIZON_OFFSET + 4).toBe(
+      DISPLAY_STREAM_HEADER_BYTES + readRustConst('FRAME_HEADER_FIXED_BYTES'),
+    );
     expect(DISPLAY_PATCH_FLAG_DEMAND_LIMITED).toBe(1 << 4);
     expect(DISPLAY_PATCH_FLAG_DEMAND_PROMPT).toBe(1 << 5);
     expect(DISPLAY_PATCH_FLAG_DEMAND_AWAITS_GRANT).toBe(1 << 7);

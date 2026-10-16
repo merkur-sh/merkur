@@ -1,47 +1,33 @@
 //! The browser decoder's rules, over batches the daemon's encoder would send:
 //! protected patches and a repair of `merkur-fec` parity over them.
 
-use merkur_codec::{StreamHeader, write_stream_header};
-use merkur_fec::encode;
-use merkur_fec::repair::repair_header_bytes;
+use merkur_codec::wire::WIRE_FIXED_HEADER_BYTES;
+use merkur_codec::{MSG_TYPE_DISPLAY_PATCH, VERSION};
+use merkur_fec::repair::{encode_repair_body, repair_body_len, repair_header_bytes};
 
 use super::*;
 
-/// A protected patch of `generation`/`seq` whose body is `len` bytes of `fill`.
+/// A protected wire patch of `generation`/`seq`: its fixed header, then `len`
+/// bytes of `fill`. The decoder reads nothing past the fixed fields.
 fn protected(generation: u32, seq: u32, len: usize, fill: u8) -> Vec<u8> {
-    let mut frame = vec![fill; STREAM_HEADER_BYTES + len];
-    write_stream_header(
-        &mut frame,
-        &StreamHeader {
-            msg_type: MSG_TYPE_DISPLAY_PATCH,
-            flags: DISPLAY_HEADER_FLAG_FEC_PROTECTED,
-            body_len: len as u32,
-            seq,
-            generation,
-            input_seq: 0,
-        },
-    );
+    let mut frame = vec![fill; WIRE_FIXED_HEADER_BYTES + len];
+    frame[0] = MSG_TYPE_DISPLAY_PATCH;
+    frame[1] = VERSION;
+    frame[2] = DISPLAY_HEADER_FLAG_FEC_PROTECTED;
+    frame[3] = 0;
+    frame[4..8].copy_from_slice(&generation.to_be_bytes());
+    frame[8..12].copy_from_slice(&seq.to_be_bytes());
+    frame[12..16].copy_from_slice(&0u32.to_be_bytes());
     frame
 }
 
 /// The repair envelope over `frames` with `recovery_shards` parity shards.
 fn repair(generation: u32, frames: &[Vec<u8>], recovery_shards: u8) -> Vec<u8> {
     let shard_size = frames.iter().map(Vec::len).max().expect("frames");
-    let padded: Vec<Vec<u8>> = frames
-        .iter()
-        .map(|frame| {
-            let mut shard = frame.clone();
-            shard.resize(shard_size, 0);
-            shard
-        })
-        .collect();
-    let data: Vec<&[u8]> = padded.iter().map(Vec::as_slice).collect();
-    let mut body = vec![0u8; usize::from(recovery_shards) * shard_size];
-    {
-        let mut parity: Vec<&mut [u8]> = body.chunks_mut(shard_size).collect();
-        encode(&data, &mut parity).expect("parity");
-    }
-    let start = parse_stream_header(&frames[0]).expect("a frame").seq;
+    let data: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    let mut body = vec![0u8; repair_body_len(usize::from(recovery_shards), shard_size)];
+    encode_repair_body(&data, usize::from(recovery_shards), &mut body).expect("parity");
+    let start = parse_wire_prefix(&frames[0]).expect("a frame").seq;
     let header = RepairHeader {
         batch_start_seq: start,
         data_shards: frames.len() as u8,
@@ -268,7 +254,7 @@ fn sequences_wrap_past_zero() {
 fn a_protected_frame_longer_than_a_shard_is_not_retained() {
     let mut decoder = FecDecoder::default();
     for len in [FEC_MAX_SHARD_BYTES + 1, 2 * 1024 * 1024] {
-        let frame = protected(3, 10, len - STREAM_HEADER_BYTES, 7);
+        let frame = protected(3, 10, len - WIRE_FIXED_HEADER_BYTES, 7);
         assert_eq!(frame.len(), len);
         assert!(feed(&mut decoder, &frame).is_empty());
         let slot = &decoder.retained[slot_of(10)];
@@ -281,51 +267,31 @@ fn a_protected_frame_longer_than_a_shard_is_not_retained() {
     );
 
     // The largest shard is kept, and its slot holds exactly that.
-    let frame = protected(3, 10, FEC_MAX_SHARD_BYTES - STREAM_HEADER_BYTES, 7);
+    let frame = protected(3, 10, FEC_MAX_SHARD_BYTES - WIRE_FIXED_HEADER_BYTES, 7);
     assert!(feed(&mut decoder, &frame).is_empty());
     let slot = &decoder.retained[slot_of(10)];
     assert_eq!((slot.seq, slot.bytes.len()), (10, FEC_MAX_SHARD_BYTES));
 }
 
-/// A rebuilt shard whose header claims a body past the shard was rebuilt
-/// from a wrong input. The claim is checked against the bytes after the
-/// header: the sum of the two lengths wraps a 32-bit `usize`.
+/// Frames of different lengths come back at their own lengths: a frame carries
+/// none, and the repair's length stripe rebuilds it with the frame.
 #[test]
-fn a_rebuilt_frame_claiming_a_body_past_its_shard_is_dropped() {
-    let header_bytes = STREAM_HEADER_BYTES as u32;
-    // On a 32-bit target each wraps `header + body` to a length inside the
-    // shard, the last to exactly zero.
-    for body_len in [
-        u32::MAX,
-        u32::MAX - header_bytes + 9,
-        u32::MAX - header_bytes + 1,
-    ] {
-        let mut frames = batch(3, 10);
-        write_stream_header(
-            &mut frames[2],
-            &StreamHeader {
-                msg_type: MSG_TYPE_DISPLAY_PATCH,
-                flags: DISPLAY_HEADER_FLAG_FEC_PROTECTED,
-                body_len,
-                seq: 12,
-                generation: 3,
-                input_seq: 0,
-            },
-        );
-        assert_eq!(plausible(&frames[2], 12, 3), None, "body of {body_len}");
-
-        let mut decoder = FecDecoder::default();
-        for (offset, frame) in frames.iter().enumerate() {
-            if offset != 2 {
-                assert!(feed(&mut decoder, frame).is_empty());
-            }
-        }
-        assert!(
-            feed(&mut decoder, &repair(3, &frames, 1)).is_empty(),
-            "a rebuilt frame claiming a body of {body_len} was handed on"
-        );
+fn a_rebuilt_frame_comes_back_at_its_own_length() {
+    let frames = vec![
+        protected(3, 10, 3, 1),
+        protected(3, 11, 90, 2),
+        protected(3, 12, 0, 3),
+        protected(3, 13, 41, 4),
+    ];
+    let mut decoder = FecDecoder::default();
+    for frame in [&frames[0], &frames[3]] {
+        assert!(feed(&mut decoder, frame).is_empty());
     }
-    // The claim that fits is the frame.
-    let frames = batch(3, 10);
-    assert_eq!(plausible(&frames[2], 12, 3), Some(frames[2].len()));
+    assert_eq!(
+        feed(&mut decoder, &repair(3, &frames, 2)),
+        [frames[1].clone(), frames[2].clone()]
+    );
+    assert!(plausible(&frames[2], 12, 3));
+    assert!(!plausible(&frames[2], 11, 3));
+    assert!(!plausible(&frames[2], 12, 4));
 }

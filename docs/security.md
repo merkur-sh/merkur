@@ -523,14 +523,15 @@ in the same flight as its request, before any response exists; the response is b
 the PSK is derived over the signed response transcript and `XXpsk3` mixes it before the transport
 keys split. Terminal channels open only after Noise succeeds.
 
-Merkur owns the record envelope and admits ciphertext records up to 8 MiB including the 8-byte
+Merkur owns the record envelope and admits ciphertext records up to 8 MiB including the 5-byte
 counter and 16-byte tag; the display codec separately limits frames to 2 MiB. Records are
 ChaCha20-Poly1305 under Noise's Split keys and nonce encoding: natively through ring, in the
 browser through `wasm_chacha` in `packages/merkur-e2e` (a four-block wasm simd128 ChaCha20 with
 the audited `poly1305` crate and a constant-time tag compare). `bun run test:wasm-cipher` pins
 it to the RFC 8439 vectors, all Wycheproof vectors accepted by its fixed 12-byte nonce
 API, and byte-for-byte to the RustCrypto AEAD reference. Streams and datagrams
-use disjoint per-lane nonce spaces with 56-bit counters and replay windows, and counters never wrap.
+use disjoint per-lane nonce spaces with 40-bit counters, carried whole on the wire so they are read
+back exactly, and replay windows; a lane fails closed at its last counter, and counters never wrap.
 Traffic keys last for the committed Noise generation; authorization renewal does not evolve
 them. A carrier rebind performs fresh key agreement. Merkur claims no recovery from a live
 generation's traffic-key disclosure without fresh agreement, and no complete erasure of

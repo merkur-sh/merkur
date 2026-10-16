@@ -13,6 +13,7 @@ import {
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
   DISPLAY_STREAM_HEADER_BYTES,
+  encodeDisplayWireFrame,
   MESSAGE_TYPE_DISPLAY_PATCH,
   TERMINAL_MODE_INPUT_REPORTS,
   TERMINAL_MODE_KEY_RELEASES,
@@ -72,7 +73,7 @@ function displayFrame(seq: number, modeFlags: number, snapshot: boolean): Uint8A
       frame[at + DISPLAY_ROW_PREFIX_BYTES + 1 + col * 2 + 1] = 0x61 + row;
     }
   }
-  return frame;
+  return encodeDisplayWireFrame(frame);
 }
 
 async function createTerminal(committedMode: number): Promise<WasmClientViewerHandle> {

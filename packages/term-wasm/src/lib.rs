@@ -1164,6 +1164,27 @@ impl Terminal {
         self.stage_display_frame_input(len)
     }
 
+    /// [`Self::stage_display_frame_bytes`] for a frame taken off the wire: its
+    /// staged header and its wire body are joined in the one copy staging
+    /// makes anyway.
+    pub fn stage_display_frame_parts(&mut self, header: &[u8], body: &[u8]) -> u32 {
+        let Some(len) = header
+            .len()
+            .checked_add(body.len())
+            .and_then(|len| u32::try_from(len).ok())
+        else {
+            self.last_error = Some(String::from("display_stage_length_invalid"));
+            return 0;
+        };
+        if self.reserve_display_frame_input(len) == 0 {
+            return 0;
+        }
+        let (head, rest) = self.staged_frame_input.split_at_mut(header.len());
+        head.copy_from_slice(header);
+        rest[..body.len()].copy_from_slice(body);
+        self.stage_display_frame_input(len)
+    }
+
     /// The mode half of `prediction_mode_is_unsafe`, which the input path
     /// asks before a key is modelled: `terminalModeAllowsPrediction`.
     pub fn prediction_granted(&self) -> bool {
@@ -1192,7 +1213,6 @@ impl Terminal {
     pub fn reconcile_stats(&self) -> [u32; 7] {
         self.reconcile_stats
     }
-
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -5319,7 +5339,6 @@ impl Terminal {
                     && authoritative_cell_codepoint(cell) == shadow_state_codepoint(state, offset)
             })
     }
-
 }
 
 /// Native only: the dataplane's cursor lab reads it; no browser build exports it.

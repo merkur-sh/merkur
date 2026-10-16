@@ -11,7 +11,15 @@ export const DISPLAY_VERSION_OFFSET = DISPLAY_STREAM_HEADER_BYTES;
 export const DISPLAY_PATCH_FLAGS_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 1;
 export const DISPLAY_COLUMNS_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 2;
 export const DISPLAY_GRID_ROWS_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 4;
-export const DISPLAY_PATCH_BODY_HEADER_BYTES = 55;
+/** Staged headroom behind the fixed frame header: the longest wire header. */
+export const DISPLAY_STAGED_HEADROOM_BYTES = 75;
+/**
+ * The staged frame header body: the fixed 55 bytes these offsets describe,
+ * then the headroom the daemon writes the wire header into (see
+ * `display-wire.ts`). Frames are staged in this layout in memory; on the wire
+ * the header is compact.
+ */
+export const DISPLAY_PATCH_BODY_HEADER_BYTES = 55 + DISPLAY_STAGED_HEADROOM_BYTES;
 export const DISPLAY_FRAME_ID_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 13;
 export const DISPLAY_PRESENTATION_ID_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 17;
 export const DISPLAY_CHUNK_INDEX_OFFSET = DISPLAY_STREAM_HEADER_BYTES + 21;
@@ -167,8 +175,16 @@ export const DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET = DISPLAY_COMPRESSED_LENGTH_
 /// the newest input the captured grid could already show an answer to.
 /// Version 32 carries a compressed frame's rows in the stream-split layout,
 /// as a magicless zstd frame without a content size; the envelope is unchanged.
-export const DISPLAY_PROTOCOL_VERSION = 32;
+/// Version 33 gives the wire its own compact header (`display-wire.ts`); the
+/// staged layout above keeps its fixed fields and gains the headroom.
+export const DISPLAY_PROTOCOL_VERSION = 33;
 export const DISPLAY_FEC_HEADER_BYTES = 16;
+/**
+ * Bytes of the length stripe at the head of every recovery shard: the frames
+ * carry no length, so parity rebuilds it. Mirrors
+ * `merkur_fec::repair::REPAIR_LENGTH_BYTES`.
+ */
+export const DISPLAY_FEC_REPAIR_LENGTH_BYTES = 2;
 export const DISPLAY_FEC_MAX_DATA_SHARDS = 4;
 export const DISPLAY_FEC_MAX_RECOVERY_SHARDS = 2;
 export const MESSAGE_TYPE_DISPLAY_PATCH = 0x20;

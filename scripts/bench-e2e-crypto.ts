@@ -37,7 +37,7 @@ const FNV_OFFSET_BASIS = 0x811c_9dc5;
 const SMALL_PAYLOAD_BYTES = 32;
 const LARGE_PAYLOAD_BYTES = 8 * 1024;
 // Wire counter + AEAD tag; mirrors `merkur_e2e::FRAME_OVERHEAD`.
-const FRAME_OVERHEAD = 24;
+const FRAME_OVERHEAD = 21;
 
 interface BenchTransport {
   sealStream(channel: LogicalChannel, payload: Uint8Array): Uint8Array;

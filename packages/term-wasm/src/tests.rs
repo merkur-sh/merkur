@@ -1147,7 +1147,7 @@ fn restamp_test_body_len(wire: &mut [u8]) {
 #[test]
 fn staged_ingress_returns_the_full_allocation_address() {
     let mut terminal = Terminal::new(1, 1);
-    let pointer = terminal.reserve_display_frame_input(128);
+    let pointer = terminal.reserve_display_frame_input(256);
     assert_eq!(pointer, terminal.staged_frame_input.as_mut_ptr() as usize);
     assert!(terminal.take_last_error().is_none());
 }
@@ -1155,7 +1155,7 @@ fn staged_ingress_returns_the_full_allocation_address() {
 #[test]
 fn oversized_ingress_is_refused_before_growing_or_acquiring_a_slot() {
     let mut terminal = Terminal::new(1, 1);
-    assert_ne!(terminal.reserve_display_frame_input(128), 0);
+    assert_ne!(terminal.reserve_display_frame_input(256), 0);
     let capacity = terminal.staged_frame_input.capacity();
     assert_eq!(
         terminal.reserve_display_frame_input(MAX_DISPLAY_FRAME_BYTES as u32 + 1),

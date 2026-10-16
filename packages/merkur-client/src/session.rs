@@ -766,9 +766,9 @@ impl Session {
             && unsigned.as_ref().is_some_and(|waiting| waiting.id == id)
         {
             let pending = unsigned.take().expect("checked above").auth;
-            let signed = signature.ok_or(AuthError::InvalidRequest).and_then(|signature| {
-                pending.sign(&self.delegation, signature)
-            });
+            let signed = signature
+                .ok_or(AuthError::InvalidRequest)
+                .and_then(|signature| pending.sign(&self.delegation, signature));
             let (bound, flight) = match signed {
                 Ok(signed) => signed,
                 Err(error) => return self.fail(CloseReason::Auth(error)),
@@ -1822,11 +1822,11 @@ impl Session {
         let Some(issuance) = issuance.filter(|issued| issued.daemon_id == self.daemon_id) else {
             return self.fail(CloseReason::IssuanceFailed);
         };
-        let unsigned =
-            match pending.bind(&issuance, &self.delegation, &self.config.browser_node_id) {
-                Ok(unsigned) => unsigned,
-                Err(error) => return self.fail(CloseReason::Auth(error)),
-            };
+        let unsigned = match pending.bind(&issuance, &self.delegation, &self.config.browser_node_id)
+        {
+            Ok(unsigned) => unsigned,
+            Err(error) => return self.fail(CloseReason::Auth(error)),
+        };
         let signature = self.request_signature(unsigned.proof().to_vec());
         self.issued = Some(issuance);
         // All three dials start in the same turn as the signature request,
@@ -3363,8 +3363,8 @@ fn open_pooled(
     {
         return None;
     }
-    // The opener writes the plaintext and its tag behind the 8-byte counter.
-    let mut plaintext = buffers.take(sealed.len() - 8);
+    // The opener needs room for everything behind the wire counter.
+    let mut plaintext = buffers.take(sealed.len() - merkur_e2e::COUNTER_BYTES);
     match established
         .transport
         .open_into(lane, datagram, sealed, &mut plaintext)

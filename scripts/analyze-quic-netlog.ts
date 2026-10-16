@@ -24,13 +24,9 @@ import {
   encodeHeartbeatPingFrame,
   encodeHeartbeatPongFrame,
 } from '../packages/protocol/src/index';
-import {
-  DISPLAY_PATCH_BODY_HEADER_BYTES,
-  DISPLAY_STREAM_HEADER_BYTES,
-} from '../packages/shared/src/display-stream';
 
-/** Noise record overhead: the 8-byte counter and 16-byte tag (`docs/security.md`). */
-const NOISE_RECORD_BYTES = 24;
+/** Noise record overhead: the 5-byte counter and 16-byte tag (`docs/security.md`). */
+const NOISE_RECORD_BYTES = 21;
 /** Every edge session is WebTransport session 0, whose quarter-stream id is one byte. */
 const QUARTER_STREAM_ID_BYTES = 1;
 const CHANNEL_BYTES = 1;
@@ -45,15 +41,16 @@ const recordBytes = (plaintext: number): number =>
 const INPUT_ACK = encode({ kind: 'input_ack', seq: 1 }).byteLength;
 const PING = encodeHeartbeatPingFrame(1n).byteLength;
 const PONG = encodeHeartbeatPongFrame(1n, 1n).byteLength;
-const HEADER_ONLY = DISPLAY_STREAM_HEADER_BYTES + DISPLAY_PATCH_BODY_HEADER_BYTES;
-
-/** Fixed-size messages by DATAGRAM (QUIC MESSAGE frame) length. */
+/**
+ * Fixed-size messages by DATAGRAM (QUIC MESSAGE frame) length. A display frame,
+ * header-only ones included, has no fixed size: its wire header is compact and
+ * varies with its sequence fields, so it reads as `dgram<length>`.
+ */
 export const DATAGRAM_LABELS: ReadonlyMap<number, string> = new Map([
   [datagramBytes(INPUT_ACK), 'input_ack'],
   [datagramBytes(PING), 'ping'],
   [datagramBytes(PONG), 'pong'],
   [datagramBytes(DISPLAY_ACK_PAYLOAD_BYTES), 'display_ack'],
-  [datagramBytes(HEADER_ONLY), 'header_only'],
 ]);
 
 /** Fixed-size reliable records by STREAM frame length, when one frame is one record. */

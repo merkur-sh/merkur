@@ -2,6 +2,7 @@
 //! was asked to do and refuses on cue. Frames are encoded by `merkur-codec`,
 //! as the daemon encodes them.
 
+use merkur_codec::wire::{parse_wire_prefix, write_wire_header_in_place};
 use merkur_codec::{
     FrameHeader, FrameKind, MSG_TYPE_DISPLAY_PATCH, RowRef, STREAM_HEADER_BYTES, StreamHeader,
     encode_frame_into, parse_frame_header, write_stream_header,
@@ -107,8 +108,8 @@ impl DisplayGrid for FakeGrid {
         self.mutation_epoch += 1;
     }
 
-    fn stage(&mut self, frame: &[u8]) -> u32 {
-        self.staged.push(Some(frame.to_vec()));
+    fn stage(&mut self, header: &[u8], body: &[u8]) -> u32 {
+        self.staged.push(Some([header, body].concat()));
         self.staged.len() as u32
     }
 
@@ -360,6 +361,10 @@ impl Spec {
                 input_seq: self.input_seq,
             },
         );
+        // The daemon seals the wire form: the staged frame's wire header,
+        // right-aligned against its body.
+        let start = write_wire_header_in_place(&mut out).expect("a wire header");
+        out.drain(..start);
         out
     }
 }
@@ -694,17 +699,6 @@ fn a_multi_chunk_snapshot_applies_whole_once_its_last_chunk_arrives() {
 fn sized_chunk(index: u16, count: u16, bytes: usize) -> Vec<u8> {
     let mut payload = chunk(2, index, count);
     payload.resize(bytes, 0);
-    write_stream_header(
-        &mut payload,
-        &StreamHeader {
-            msg_type: MSG_TYPE_DISPLAY_PATCH,
-            flags: 0,
-            body_len: (bytes - STREAM_HEADER_BYTES) as u32,
-            seq: 0,
-            generation: 2,
-            input_seq: 0,
-        },
-    );
     payload
 }
 
@@ -1179,21 +1173,15 @@ fn protected_delta(generation: u32, seq: u32) -> Vec<u8> {
 
 /// The repair envelope over `frames` with one parity shard.
 fn fec_repair(generation: u32, frames: &[Vec<u8>]) -> Vec<u8> {
-    use merkur_fec::repair::{RepairHeader, repair_header_bytes};
+    use merkur_fec::repair::{
+        RepairHeader, encode_repair_body, repair_body_len, repair_header_bytes,
+    };
     let shard_size = frames.iter().map(Vec::len).max().expect("frames");
-    let padded: Vec<Vec<u8>> = frames
-        .iter()
-        .map(|frame| {
-            let mut shard = frame.clone();
-            shard.resize(shard_size, 0);
-            shard
-        })
-        .collect();
-    let data: Vec<&[u8]> = padded.iter().map(Vec::as_slice).collect();
-    let mut body = vec![0u8; shard_size];
-    merkur_fec::encode(&data, &mut [&mut body[..]]).expect("parity");
+    let data: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    let mut body = vec![0u8; repair_body_len(1, shard_size)];
+    encode_repair_body(&data, 1, &mut body).expect("parity");
     let header = RepairHeader {
-        batch_start_seq: parse_stream_header(&frames[0]).expect("a frame").seq,
+        batch_start_seq: parse_wire_prefix(&frames[0]).expect("a frame").seq,
         data_shards: frames.len() as u8,
         recovery_shards: 1,
         shard_size: shard_size as u16,

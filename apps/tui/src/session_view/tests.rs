@@ -57,6 +57,21 @@ fn ending_the_input_owner_removes_the_unconfirmed_shadow_line() {
 }
 
 fn snapshot(cols: u16, rows: u16, modes: u16) -> Output {
+    Output::Terminal {
+        datagram: false,
+        channel: CHANNEL_DISPLAY_COMMIT,
+        payload: wire(staged_snapshot(cols, rows, modes)),
+        input: InputMapping::default(),
+    }
+}
+
+/// A staged frame in the form the viewer receives it off the wire.
+fn wire(mut staged: Vec<u8>) -> Vec<u8> {
+    let start = merkur_codec::wire::write_wire_header_in_place(&mut staged).expect("a wire header");
+    staged.split_off(start)
+}
+
+fn staged_snapshot(cols: u16, rows: u16, modes: u16) -> Vec<u8> {
     let header = FrameHeader {
         kind: FrameKind::Snapshot,
         memory_only: false,
@@ -99,12 +114,7 @@ fn snapshot(cols: u16, rows: u16, modes: u16) -> Output {
             input_seq: 0,
         },
     );
-    Output::Terminal {
-        datagram: false,
-        channel: CHANNEL_DISPLAY_COMMIT,
-        payload,
-        input: InputMapping::default(),
-    }
+    payload
 }
 
 #[test]
@@ -342,9 +352,7 @@ fn paste_chunks_preserve_utf8_and_the_host_budget_requires_authenticated_ack() {
 }
 
 fn cursor_delta(coherent: bool) -> Output {
-    let Output::Terminal { mut payload, .. } = snapshot(8, 3, 0) else {
-        unreachable!()
-    };
+    let mut payload = staged_snapshot(8, 3, 0);
     let mut header = merkur_codec::parse_frame_header(&payload).unwrap();
     header.kind = FrameKind::Delta;
     header.cursor_col = 1;
@@ -368,7 +376,7 @@ fn cursor_delta(coherent: bool) -> Output {
     Output::Terminal {
         datagram: true,
         channel: merkur_wire::protocol::CHANNEL_DISPLAY_DATAGRAM,
-        payload,
+        payload: wire(payload),
         input: InputMapping::default(),
     }
 }
@@ -394,9 +402,7 @@ fn urgent_authority_is_composed_before_the_next_maintenance_refresh() {
 
 /// Row `row` reading `text` with the cursor after it, where input is predicted.
 fn row_delta(seq: u32, row: u16, text: &str) -> Output {
-    let Output::Terminal { mut payload, .. } = snapshot(8, 3, 1 << 5) else {
-        unreachable!()
-    };
+    let mut payload = staged_snapshot(8, 3, 1 << 5);
     let mut header = merkur_codec::parse_frame_header(&payload).unwrap();
     header.kind = FrameKind::Delta;
     header.cursor_row = row;
@@ -436,7 +442,7 @@ fn row_delta(seq: u32, row: u16, text: &str) -> Output {
     Output::Terminal {
         datagram: true,
         channel: merkur_wire::protocol::CHANNEL_DISPLAY_DATAGRAM,
-        payload,
+        payload: wire(payload),
         input: InputMapping::default(),
     }
 }

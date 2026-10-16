@@ -29,6 +29,7 @@ import {
   DISPLAY_SEQUENCE_OFFSET,
   DISPLAY_STREAM_HEADER_BYTES,
   DISPLAY_VERSION_OFFSET,
+  encodeDisplayWireFrame,
   MAX_TERMINAL_CELLS,
   MAX_TERMINAL_ROWS,
   MESSAGE_TYPE_DISPLAY_PATCH,
@@ -376,7 +377,7 @@ function buildFrame(spec: FrameSpec): Uint8Array {
       raw[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] =
         (raw[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] ?? 0) | DISPLAY_HEADER_FLAG_FEC_PROTECTED;
     }
-    return raw;
+    return encodeDisplayWireFrame(raw);
   }
   const compressedRows = magiclessFrame(
     Bun.zstdCompressSync(splitPayload(spec.rows), { level: 3 }),
@@ -393,7 +394,7 @@ function buildFrame(spec: FrameSpec): Uint8Array {
     DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
     wire.byteLength - DISPLAY_STREAM_HEADER_BYTES,
   );
-  return wire;
+  return encodeDisplayWireFrame(wire);
 }
 
 function fullGridRows(marker: string): { row: number; text: string }[] {

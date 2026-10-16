@@ -3,6 +3,7 @@ import {
   DISPLAY_CHUNK_COUNT_OFFSET,
   DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
   DISPLAY_FEC_HEADER_BYTES,
+  DISPLAY_FEC_REPAIR_LENGTH_BYTES,
   DISPLAY_FRAME_ID_OFFSET,
   DISPLAY_GENERATION_OFFSET,
   DISPLAY_PATCH_BODY_HEADER_BYTES,
@@ -12,6 +13,7 @@ import {
   DISPLAY_SEQUENCE_OFFSET,
   DISPLAY_STREAM_HEADER_BYTES,
   DISPLAY_VERSION_OFFSET,
+  encodeDisplayWireFrame,
   MESSAGE_TYPE_DISPLAY_FEC_REPAIR,
   MESSAGE_TYPE_DISPLAY_PATCH,
   type SynchronousByteSource,
@@ -43,14 +45,15 @@ function displayFrame(snapshot: boolean): Uint8Array {
   frame[DISPLAY_PATCH_FLAGS_OFFSET] = snapshot ? DISPLAY_PATCH_FLAG_RESET : 0;
   writeU32BE(frame, DISPLAY_FRAME_ID_OFFSET, 13);
   writeU16BE(frame, DISPLAY_CHUNK_COUNT_OFFSET, 1);
-  return frame;
+  return encodeDisplayWireFrame(frame);
 }
 
 function fecRepair(): Uint8Array {
   const shardSize = 4;
-  const repair = new Uint8Array(DISPLAY_FEC_HEADER_BYTES + shardSize);
+  const body = DISPLAY_FEC_REPAIR_LENGTH_BYTES + shardSize;
+  const repair = new Uint8Array(DISPLAY_FEC_HEADER_BYTES + body);
   repair[0] = MESSAGE_TYPE_DISPLAY_FEC_REPAIR;
-  writeU16BE(repair, 2, shardSize);
+  writeU16BE(repair, 2, body);
   writeU32BE(repair, 4, 21);
   repair[8] = 2;
   repair[9] = 1;

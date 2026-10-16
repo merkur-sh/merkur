@@ -100,7 +100,9 @@ fn encode(seq: u32, mode_flags: u32, snapshot: bool, rows: &[RowRef<'_>]) -> Vec
             input_seq: 0,
         },
     );
-    out
+    // The viewer receives frames as they travel.
+    let start = merkur_codec::wire::write_wire_header_in_place(&mut out).expect("a wire header");
+    out.split_off(start)
 }
 
 struct Harness {

@@ -50,21 +50,23 @@ const event = (
 });
 
 const inputAck = [...DATAGRAM_LABELS].find(([, label]) => label === 'input_ack')?.[0];
-const headerOnly = [...DATAGRAM_LABELS].find(([, label]) => label === 'header_only')?.[0];
+/** A header-only display frame's wire length: not a fixed label, so it reads raw. */
+const headerOnly = 60;
 const ackTwin = [...RECORD_LABELS].find(([, label]) => label === 'input_ack_twin')?.[0];
+const pingRecord = [...RECORD_LABELS].find(([, label]) => label === 'ping_record')?.[0];
 
 describe('QUIC net log packet composition', () => {
   test('fixed Merkur message sizes stay distinct', () => {
     expect(new Set(DATAGRAM_LABELS.values()).size).toBe(DATAGRAM_LABELS.size);
-    expect(inputAck).toBe(34);
-    expect(ackTwin).toBe(36);
+    expect(inputAck).toBe(31);
+    expect(ackTwin).toBe(33);
   });
 
   test('sent frames join the next sent packet and read frames join their received packet', () => {
     const packets = parseNetlogPackets(
       netlog([
         // Up: a stream record and an ACK, then the packet that carried them.
-        event('QUIC_SESSION_STREAM_FRAME_SENT', 5, 7, { stream_id: 18, length: 40 }),
+        event('QUIC_SESSION_STREAM_FRAME_SENT', 5, 7, { stream_id: 18, length: pingRecord }),
         event('QUIC_SESSION_ACK_FRAME_SENT', 5, 7),
         event('QUIC_SESSION_PADDING_FRAME_SENT', 5, 7),
         event('QUIC_SESSION_PACKET_SENT', 5, 7, { packet_number: 3, size: 90 }),
@@ -96,7 +98,7 @@ describe('QUIC net log packet composition', () => {
     expect(window.down.packets).toBe(2);
     expect(window.down.ackOnly).toBe(1);
     expect(window.down.signatures).toEqual([
-      ['ack+header_only+input_ack', 1],
+      ['ack+dgram60+input_ack', 1],
       ['ack', 1],
     ]);
   });

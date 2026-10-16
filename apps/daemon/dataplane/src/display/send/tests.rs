@@ -2003,6 +2003,62 @@ fn prepared_for_test(seq: u32, wire_bytes: usize) -> PreparedDisplayDatagram {
     prepared_with_utility_for_test(seq, wire_bytes, DisplayUtility::NonCritical)
 }
 
+/// A staged display frame that is `wire_bytes` long on the wire: a valid
+/// header for `seq`, then a body nothing reads. A frame cannot be shorter on
+/// the wire than its own header, so a smaller request gets the shortest frame.
+fn staged_frame_for_test(seq: u32, wire_bytes: usize) -> Vec<u8> {
+    let header = FrameHeader {
+        kind: merkur_codec::FrameKind::Delta,
+        memory_only: false,
+        cols: 80,
+        rows: 24,
+        cursor_col: 0,
+        cursor_row: 0,
+        cursor_shape: 0,
+        cursor_visible: 1,
+        mode_flags: 0,
+        row_count: 0,
+        frame_id: seq,
+        presentation_id: seq,
+        presentation_member_index: 0,
+        presentation_member_count: 0,
+        row_predecessor_presentation_id: 0,
+        presentation_coherent: false,
+        presentation_end: false,
+        chunk_index: 0,
+        chunk_count: 1,
+        demand_serial: 0,
+        demand_limited: false,
+        demand_prompt: false,
+        demand_awaits_grant: false,
+        closure_digest: 0,
+        scroll_serial: 0,
+        echo_horizon: 0,
+    };
+    let mut frame = Vec::new();
+    encode_frame_into(&mut frame, &header, std::iter::empty());
+    patch_stream_header(&mut frame, seq, 1, 0, seq, seq, false, false, 0, 1, 0, 0)
+        .expect("a header-only frame fits");
+    let header_bytes = wire_len(&frame);
+    frame.resize(frame.len() + wire_bytes.saturating_sub(header_bytes), 0);
+    patch_stream_header(&mut frame, seq, 1, 0, seq, seq, false, false, 0, 1, 0, 0)
+        .expect("a padded frame fits");
+    frame
+}
+
+/// [`staged_frame_for_test`] whose body bytes are all `fill`, so parity and
+/// rebuilds over it are distinguishable from another member's.
+fn filled_staged_frame_for_test(seq: u32, wire_bytes: usize, fill: u8) -> Vec<u8> {
+    let mut frame = staged_frame_for_test(seq, wire_bytes);
+    frame[merkur_codec::wire::STAGED_BODY_OFFSET..].fill(fill);
+    frame
+}
+
+/// The repair plaintext over shards of `width` wire bytes.
+fn repair_plaintext_len_for_test(recovery: usize, width: usize) -> usize {
+    DISPLAY_FEC_HEADER_BYTES + merkur_fec::repair::repair_body_len(recovery, width)
+}
+
 fn prepared_with_utility_for_test(
     seq: u32,
     wire_bytes: usize,
@@ -2015,7 +2071,7 @@ fn prepared_with_utility_for_test(
         encoded_rows: 1,
         utility,
         header_signal: 0,
-        frame: vec![0; wire_bytes],
+        frame: staged_frame_for_test(seq, wire_bytes),
         rows: SentRows::default(),
         compression_attempted: false,
         content_class: ContentClass::Text,
@@ -2179,6 +2235,7 @@ fn captured_original_headers_for_test(
         let Ok(plain) = plain else {
             continue; // Idempotent physical replicas share a Noise counter.
         };
+        let plain = crate::display::viewer::staged_display_frame(&plain);
         headers.push((
             merkur_codec::parse_stream_header(&plain).unwrap().seq,
             merkur_codec::parse_frame_header(&plain).unwrap(),
@@ -2494,29 +2551,33 @@ fn row_predecessor_is_identical_across_raw_compressed_and_recovered_members() {
         precompute_fec_repairs(&mut prepared, 4, peer.generation, &mut encoder, &mut pool);
         let repair = prepared[2].precomputed_fec_repair.as_ref().unwrap();
         assert_ne!(repair, &previous_parity);
-        let width = u16::from_be_bytes([repair[10], repair[11]]) as usize;
-        let recovery: Vec<&[u8]> = repair[DISPLAY_FEC_HEADER_BYTES..]
-            .chunks_exact(width)
+        // Parity covers the wire frames; compressed members differ in length,
+        // and the length stripe restores the lost one at its own length.
+        let repair = repair.clone();
+        let wires: Vec<Vec<u8>> = prepared
+            .iter_mut()
+            .map(|member| wire_frame(&mut member.frame).to_vec())
             .collect();
-        let zero = vec![0u8; width];
-        // Members shorter than the parity width are zero-padded to it, as
-        // the receiver pads them; compressed members differ in length.
-        let padded: Vec<Vec<u8>> = prepared[..2]
-            .iter()
-            .map(|member| {
-                let mut shard = member.frame.clone();
-                shard.resize(width, 0);
-                shard
-            })
-            .collect();
-        let received: [&[u8]; 3] = [&padded[0], &padded[1], &zero];
-        let mut outputs = vec![vec![0u8; width]; 3];
-        let mut slices: Vec<_> = outputs.iter_mut().map(Vec::as_mut_slice).collect();
+        let (header, body) = merkur_fec::repair::parse_repair(&repair).unwrap();
+        let width = usize::from(header.shard_size);
+        let mut padded = vec![0u8; 3 * width];
+        let mut output = vec![0u8; 3 * width];
+        let mut lengths = [0u16; merkur_fec::FEC_MAX_DATA];
         assert_eq!(
-            merkur_fec::decode(0b011, 0b11, &received, &recovery, &mut slices),
+            merkur_fec::repair::recover_batch_into(
+                &header,
+                &[Some(&wires[0]), Some(&wires[1]), None],
+                body,
+                &mut padded,
+                &mut output,
+                &mut lengths,
+            ),
             0b100
         );
-        assert_eq!(&outputs[2][..prepared[2].frame.len()], &prepared[2].frame);
+        assert_eq!(
+            &output[2 * width..2 * width + usize::from(lengths[2])],
+            wires[2].as_slice()
+        );
         // State remains independently applicable in reverse order. The
         // missing predecessor affects only browser presentation timing.
         let mut receiver = term_wasm::Terminal::new_headless(128, 8);
@@ -2609,15 +2670,8 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
         };
         let refused_seq = group[1].seq;
         let refused_hash = group[1].rows.iter().next().unwrap().hash;
-        let original_len = group[1].frame.len();
         peer.sim_datagram_metadata.clear();
-        let outcome = send_planned_group(
-            &mut peer,
-            &mut group,
-            &mut pool,
-            100.0,
-            &mut budget,
-        );
+        let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
         assert!(!outcome.all_sent && outcome.original_admitted);
         assert_eq!(peer.last_datagram_seq, group[0].seq);
         assert_eq!(peer.last_display_seq_sent, refused_seq);
@@ -2631,7 +2685,10 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
         let a0 = browser
             .open_datagram(crate::e2e::lane_for_channel(channel).unwrap(), &wire)
             .unwrap();
-        assert!(receiver.apply_delta_seq(&a0, group[0].seq));
+        assert!(receiver.apply_delta_seq(
+            &crate::display::viewer::staged_display_frame(&a0),
+            group[0].seq
+        ));
         let (channel, wire) = rx.try_recv().unwrap();
         let parity = browser
             .open_datagram(crate::e2e::lane_for_channel(channel).unwrap(), &wire)
@@ -2662,10 +2719,14 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
         let c_frame = browser
             .open_datagram(crate::e2e::lane_for_channel(channel).unwrap(), &wire)
             .unwrap();
-        assert!(receiver.apply_delta_seq(&c_frame, c_seq));
+        assert!(receiver.apply_delta_seq(
+            &crate::display::viewer::staged_display_frame(&c_frame),
+            c_seq
+        ));
         let (repair, body) = merkur_fec::repair::parse_repair(&parity).unwrap();
         let mut padded = vec![0; 2 * usize::from(repair.shard_size)];
         let mut recovered = vec![0; padded.len()];
+        let mut lengths = [0u16; merkur_fec::FEC_MAX_DATA];
         assert_eq!(
             merkur_fec::repair::recover_batch_into(
                 &repair,
@@ -2673,11 +2734,15 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
                 body,
                 &mut padded,
                 &mut recovered,
+                &mut lengths,
             ),
             2
         );
-        let restored = &recovered[usize::from(repair.shard_size)..][..original_len];
-        assert!(receiver.apply_delta_seq(restored, refused_seq));
+        let restored = &recovered[usize::from(repair.shard_size)..][..usize::from(lengths[1])];
+        assert!(receiver.apply_delta_seq(
+            &crate::display::viewer::staged_display_frame(restored),
+            refused_seq
+        ));
         assert_eq!(receiver.row_hash(0), current_hashes[0]);
         assert_eq!(
             receiver.row_hash(1),
@@ -2726,8 +2791,9 @@ async fn fec_exposed_refused_original_survives_revert_and_delayed_recovery() {
 
 #[tokio::test]
 async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_physical_counts() {
-    fn apply(receiver: &mut term_wasm::Terminal, bytes: &[u8], seq: u32) {
-        let handle = receiver.stage_display_frame_bytes(bytes);
+    fn apply(receiver: &mut term_wasm::Terminal, wire: &[u8], seq: u32) {
+        let handle =
+            receiver.stage_display_frame_bytes(&crate::display::viewer::staged_display_frame(wire));
         assert_ne!(handle, 0, "{:?}", receiver.take_last_error());
         assert!(receiver.validate_staged_frame(handle));
         assert!(
@@ -2833,7 +2899,7 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                             .iter()
                             .enumerate()
                             .filter(|(index, _)| admitted_mask & (1 << index) != 0)
-                            .map(|(_, frame)| frame.frame.len() + 1)
+                            .map(|(_, frame)| wire_len(&frame.frame) + 1)
                             .sum();
                         let mut pool = frame_pool_for_test();
                         TEST_ORIGINAL_ADMISSION_TIMING.set(Some(OriginalAdmissionTiming {
@@ -2921,7 +2987,8 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                             if plain[0] == merkur_codec::MSG_TYPE_DISPLAY_FEC_REPAIR {
                                 parity = Some(plain);
                             } else {
-                                let seq = merkur_codec::parse_stream_header(&plain).unwrap().seq;
+                                let seq =
+                                    merkur_codec::wire::parse_wire_prefix(&plain).unwrap().seq;
                                 received[(seq - first_seq) as usize] = Some(plain);
                             }
                             captured += 1;
@@ -2951,19 +3018,21 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                             let mut output = vec![0; span];
                             let references: Vec<_> =
                                 received.iter().map(|frame| frame.as_deref()).collect();
+                            let mut lengths = [0u16; merkur_fec::FEC_MAX_DATA];
                             let restored = merkur_fec::repair::recover_batch_into(
                                 &header,
                                 &references,
                                 body,
                                 &mut padded,
                                 &mut output,
+                                &mut lengths,
                             );
                             assert_eq!(restored, expected_exposed & !admitted_mask);
-                            for (index, frame) in group.iter().enumerate() {
+                            for (index, frame) in group.iter_mut().enumerate() {
                                 if restored & (1 << index) != 0 {
                                     let bytes = &output[index * usize::from(header.shard_size)..]
-                                        [..frame.frame.len()];
-                                    assert_eq!(bytes, frame.frame);
+                                        [..usize::from(lengths[index])];
+                                    assert_eq!(bytes, wire_frame(&mut frame.frame));
                                     apply(&mut receiver, bytes, frame.seq);
                                 }
                             }
@@ -4076,31 +4145,41 @@ fn recovery_shard_count_accounts_for_group_and_wire_width() {
     // its repair should be: both parity producers pass this count straight
     // through. Zero- and one-frame groups use no parity (the latter is
     // replicated as exact sealed bytes), while an ordinary small group gets
-    // two recovery shards.
+    // two recovery shards. Widths are staged: a staged shard `w + STAGED_SLACK`
+    // long is at most `w` long on the wire.
+    let slack = crate::display::encoder::STAGED_SLACK;
     assert_eq!(fec_recovery_shard_count(0, 64), 0);
     assert_eq!(fec_recovery_shard_count(1, 64), 0);
     for group_len in 2..=DisplayPolicy::FEC_GROUP_MAX_SIZE {
         assert_eq!(
-            fec_recovery_shard_count(group_len, 542),
+            fec_recovery_shard_count(group_len, 540 + slack),
             DisplayPolicy::FEC_RECOVERY_SHARD_COUNT,
-            "16 + 2*542 is the exact m=2 boundary"
+            "16 + 2 * (2 + 540) is the exact m=2 boundary"
         );
         assert_eq!(
-            fec_recovery_shard_count(group_len, 543),
+            fec_recovery_shard_count(group_len, 541 + slack),
             DisplayPolicy::FEC_SINGLE_RECOVERY_SHARD_COUNT,
-            "16 + 2*543 is one byte too wide"
+            "16 + 2 * (2 + 541) is one byte too wide"
         );
         assert_eq!(
-            fec_recovery_shard_count(group_len, 1084),
+            fec_recovery_shard_count(group_len, 1082 + slack),
             DisplayPolicy::FEC_SINGLE_RECOVERY_SHARD_COUNT,
-            "16 + 1084 is the exact m=1 boundary"
+            "16 + 2 + 1082 is the exact m=1 boundary"
         );
         assert_eq!(
-            fec_recovery_shard_count(group_len, 1085),
+            fec_recovery_shard_count(group_len, 1083 + slack),
             0,
-            "16 + 1085 cannot ride a display datagram"
+            "16 + 2 + 1083 cannot ride a display datagram"
         );
     }
+    assert_eq!(
+        DisplayPolicy::FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES,
+        540 + slack
+    );
+    assert_eq!(
+        DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
+        1082 + slack
+    );
     const {
         assert!(DisplayPolicy::FEC_GROUP_MAX_SIZE <= merkur_fec::FEC_MAX_DATA);
     }
@@ -4108,22 +4187,26 @@ fn recovery_shard_count_accounts_for_group_and_wire_width() {
 
 #[test]
 fn selected_repair_width_produces_the_exact_plaintext_wire_size() {
+    let slack = crate::display::encoder::STAGED_SLACK;
     let mut encoder = crate::display::fec::FecEncoder::new();
-    for (shard_size, recovery_shards, repair_len) in [
-        (542usize, 2usize, 1100usize),
-        (543, 1, 559),
-        (1084, 1, 1100),
+    for (wire_width, recovery_shards, repair_len) in [
+        (540usize, 2usize, 1100usize),
+        (541, 1, 559),
+        (1082, 1, 1100),
     ] {
-        assert_eq!(fec_recovery_shard_count(2, shard_size), recovery_shards);
-        let left = vec![0xA1; shard_size];
-        let right = vec![0xB2; shard_size];
+        assert_eq!(
+            fec_recovery_shard_count(2, wire_width + slack),
+            recovery_shards
+        );
+        let left = vec![0xA1; wire_width];
+        let right = vec![0xB2; wire_width];
         let repair = encoder
             .encode_borrowed_group(1, 7, &[&left, &right], recovery_shards)
             .expect("selected repair encodes");
         assert_eq!(repair.len(), repair_len);
-        assert!(repair.len() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES);
+        assert!(repair.len() <= DisplayPolicy::DATAGRAM_MAX_WIRE_BYTES);
     }
-    assert_eq!(fec_recovery_shard_count(2, 1085), 0);
+    assert_eq!(fec_recovery_shard_count(2, 1083 + slack), 0);
 }
 
 fn build_large_interactive_row_for_test(
@@ -4879,9 +4962,11 @@ async fn reliable_snapshot_chunks_share_one_positive_identity_per_peer() {
         let mut headers = Vec::new();
         while let Ok((channel, sealed)) = receiver.try_recv() {
             assert_eq!(channel, CHANNEL_DISPLAY_COMMIT);
-            let plain = browser
-                .open_stream(crate::e2e::lane_for_channel(channel).unwrap(), &sealed)
-                .expect("snapshot chunk must authenticate for its peer");
+            let plain = crate::display::viewer::staged_display_frame(
+                &browser
+                    .open_stream(crate::e2e::lane_for_channel(channel).unwrap(), &sealed)
+                    .expect("snapshot chunk must authenticate for its peer"),
+            );
             assert_eq!(
                 merkur_codec::parse_stream_header(&plain)
                     .expect("snapshot stream header")
@@ -5395,7 +5480,7 @@ fn fence_horizon_tracks_only_datagram_sends() {
         encoded_rows: 1,
         utility: DisplayUtility::NonCritical,
         header_signal: 0,
-        frame: vec![0u8; 8],
+        frame: staged_frame_for_test(2, 8),
         rows: SentRows::default(),
         compression_attempted: false,
         content_class: ContentClass::Text,
@@ -6967,7 +7052,7 @@ fn fused_wire_staging_is_byte_exact_and_preserves_noise_invariants() {
         let fused = benchmark_fused_seal(&mut fused_sender, &case.frame);
         assert_eq!(fused[0], CHANNEL_DISPLAY_DATAGRAM);
         assert_eq!(
-            u64::from_be_bytes(fused[1..9].try_into().expect("Noise counter")),
+            crate::sealed_counter(&fused[1..]),
             expected_counter as u64,
             "{} uses the expected equivalent Noise counter state",
             case.route.name()
@@ -7003,11 +7088,7 @@ fn fused_wire_staging_is_byte_exact_and_preserves_noise_invariants() {
             .seal_datagram(CHANNEL_DISPLAY_DATAGRAM, &case.frame)
             .expect("legacy benchmark seal");
         assert_eq!(
-            u64::from_be_bytes(
-                legacy_ciphertext[..8]
-                    .try_into()
-                    .expect("legacy Noise counter")
-            ),
+            crate::sealed_counter(&legacy_ciphertext),
             expected_counter as u64,
             "{} legacy and fused counter schedules match",
             case.route.name()
@@ -7055,7 +7136,7 @@ async fn datagram_fec_repair_uses_the_same_channel_framed_noise_wire() {
 
     let (channel_id, ciphertext) = capture_rx.try_recv().expect("one repair datagram");
     assert_eq!(channel_id, CHANNEL_DISPLAY_DATAGRAM);
-    assert_eq!(u64::from_be_bytes(ciphertext[..8].try_into().unwrap()), 0);
+    assert_eq!(crate::sealed_counter(&ciphertext), 0);
     let lane = crate::e2e::lane_for_channel(CHANNEL_DISPLAY_DATAGRAM).unwrap();
     assert_eq!(browser.open_datagram(lane, &ciphertext).unwrap(), repair);
     assert!(capture_rx.try_recv().is_err());
@@ -7123,14 +7204,13 @@ async fn loss_enabled_one_frame_group_replays_the_exact_sealed_wire_on_its_sole_
         capture_tx,
     )));
     let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::NonCritical);
-    let wire_len = sealed_display_datagram_wire_len(datagram.frame.len());
+    let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
     let mut budget =
         DatagramPhysicalBudget::exact(0, 2 * wire_len + QUINN_DATAGRAM_ENTRY_OVERHEAD_BYTES, 2);
 
-    let outcome =
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
+    let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
     assert_eq!(
         outcome,
         GroupSendOutcome {
@@ -7147,10 +7227,11 @@ async fn loss_enabled_one_frame_group_replays_the_exact_sealed_wire_on_its_sole_
     assert_eq!(first, second, "k=1 must reuse ciphertext and Noise counter");
     assert!(capture_rx.try_recv().is_err());
     let lane = crate::e2e::lane_for_channel(CHANNEL_DISPLAY_DATAGRAM).unwrap();
-    let plain = browser
+    let wire = browser
         .open_datagram(lane, &first.1)
         .expect("first copy opens");
-    assert_eq!(plain, group[0].frame);
+    assert_eq!(wire.as_slice(), wire_frame(&mut group[0].frame));
+    let plain = crate::display::viewer::staged_display_frame(&wire);
     let header = merkur_codec::parse_frame_header(&plain).unwrap();
     assert!(header.presentation_coherent && header.presentation_end);
     assert_eq!(
@@ -7197,12 +7278,11 @@ async fn one_frame_group_adds_no_third_copy_after_dual_admission() {
     peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
 
     let mut datagram = prepared_with_utility_for_test(1, 0, DisplayUtility::Critical);
-    datagram.frame = vec![0xC3; 64];
+    datagram.frame = filled_staged_frame_for_test(datagram.seq, 64, 0xC3);
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(89, 89, 2);
-    let outcome =
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
+    let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
     assert_eq!(
         outcome,
         GroupSendOutcome {
@@ -7282,7 +7362,7 @@ async fn cross_carrier_k1_advances_once_and_records_protected_provenance() {
 
     let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::Critical);
     let seq = datagram.seq;
-    let wire_len = sealed_display_datagram_wire_len(datagram.frame.len());
+    let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(wire_len, wire_len, 2);
@@ -7313,8 +7393,7 @@ async fn cross_carrier_k1_advances_once_and_records_protected_provenance() {
         "planning trials mutate only their copied evidence state",
     );
 
-    let outcome =
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
+    let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
     assert_eq!(
         outcome,
         GroupSendOutcome {
@@ -7403,9 +7482,8 @@ async fn cross_carrier_k1_probe_cadence_reaches_clean_disable_without_double_cou
             .replication_progress();
         let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::Critical);
         let data_seq = datagram.seq;
-        let wire_len = sealed_display_datagram_wire_len(datagram.frame.len());
-        let probe_wire_len =
-            sealed_display_datagram_wire_len(STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES);
+        let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+        let probe_wire_len = K1_PROBE_WIRE_RESERVATION;
         let mut group = [datagram];
         let (webtransport_bytes, edge_bytes) = match owner {
             PeerTransport::WebTransport => (
@@ -7418,13 +7496,7 @@ async fn cross_carrier_k1_probe_cadence_reaches_clean_disable_without_double_cou
             ),
         };
         let mut budget = DatagramPhysicalBudget::exact(webtransport_bytes, edge_bytes, 3);
-        let outcome = send_planned_group(
-            &mut peer,
-            &mut group,
-            &mut pool,
-            100.0,
-            &mut budget,
-        );
+        let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
         assert!(outcome.all_sent && !outcome.stop);
         group[0].physical_plan.probe_path = outcome.probe_path;
         send_prepared_k1_probe_tail(&mut peer, &mut group[0], &mut pool, &mut budget, 100.0);
@@ -7566,14 +7638,12 @@ async fn partial_cross_carrier_k1_copy_is_unprotected_and_does_not_advance() {
 
     let datagram = valid_header_only_prepared_for_test(&mut peer, DisplayUtility::Critical);
     let seq = datagram.seq;
-    let wire_len = sealed_display_datagram_wire_len(datagram.frame.len());
-    let probe_wire_len =
-        sealed_display_datagram_wire_len(STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES);
+    let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
+    let probe_wire_len = K1_PROBE_WIRE_RESERVATION;
     let mut group = [datagram];
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(wire_len + probe_wire_len, wire_len, 3);
-    let outcome =
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
+    let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
 
     assert_eq!(
         outcome,
@@ -7626,7 +7696,7 @@ async fn partial_cross_carrier_k1_copy_is_unprotected_and_does_not_advance() {
     let (_, sealed) = direct_rx.try_recv().unwrap();
     let lane = crate::e2e::lane_for_channel(sealed[0]).unwrap();
     let delivered = browser.open_datagram(lane, &sealed[1..]).unwrap();
-    assert_eq!(delivered, group[0].frame);
+    assert_eq!(delivered.as_slice(), wire_frame(&mut group[0].frame));
     assert!(direct_rx.try_recv().is_err());
 }
 
@@ -7691,9 +7761,9 @@ async fn required_replica_is_admitted_atomically_before_data_or_burst_tail() {
         capture_tx,
     )));
     let mut first = prepared_with_utility_for_test(1, 0, DisplayUtility::NonCritical);
-    first.frame = vec![0xA1; 80];
+    first.frame = filled_staged_frame_for_test(first.seq, 80, 0xA1);
     let mut tail = prepared_with_utility_for_test(2, 0, DisplayUtility::Critical);
-    tail.frame = vec![0xB2; 80];
+    tail.frame = filled_staged_frame_for_test(tail.seq, 80, 0xB2);
     let mut prepared = vec![first, tail];
     let mut pool = frame_pool_for_test();
     peer.display_cache
@@ -8013,7 +8083,7 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                 }
                 let body_before =
                     datagram.frame[STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES..].to_vec();
-                let wire_len = sealed_display_datagram_wire_len(datagram.frame.len());
+                let wire_len = sealed_display_datagram_wire_len(wire_len(&datagram.frame));
                 let mut group = [datagram];
                 let mut pool = frame_pool_for_test();
                 let mut budget = if probe_capacity {
@@ -8025,13 +8095,8 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                         2,
                     )
                 };
-                let outcome = send_planned_group(
-                    &mut peer,
-                    &mut group,
-                    &mut pool,
-                    100.0,
-                    &mut budget,
-                );
+                let outcome =
+                    send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
                 assert!(outcome.all_sent && !outcome.stop);
                 assert_eq!(outcome.presentation_end_admitted, end);
                 assert_eq!(outcome.probe_path.is_some(), probe_capacity);
@@ -8053,7 +8118,8 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                 );
                 let lane = crate::e2e::lane_for_channel(channel).unwrap();
                 let original = browser.open_datagram(lane, &original).unwrap();
-                assert_eq!(original, group[0].frame);
+                assert_eq!(original.as_slice(), wire_frame(&mut group[0].frame));
+                let original = crate::display::viewer::staged_display_frame(&original);
                 assert_eq!(
                     original[STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES..],
                     body_before,
@@ -8084,7 +8150,9 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                 );
                 let probe = probe_capacity.then(|| {
                     let (_, sealed) = rx.try_recv().unwrap();
-                    let probe = browser.open_datagram(lane, &sealed).unwrap();
+                    let probe = crate::display::viewer::staged_display_frame(
+                        &browser.open_datagram(lane, &sealed).unwrap(),
+                    );
                     let header = merkur_codec::parse_frame_header(&probe).unwrap();
                     assert!(header.presentation_coherent && !header.presentation_end);
                     assert_eq!(header.presentation_member_count, 0);
@@ -8136,13 +8204,7 @@ async fn k1_probe_tail_refusal_releases_its_reservation_once_without_retracting_
         let mut group = [datagram];
         let mut pool = frame_pool_for_test();
         let mut budget = DatagramPhysicalBudget::exact(0, 4096, 64);
-        let outcome = send_planned_group(
-            &mut peer,
-            &mut group,
-            &mut pool,
-            100.0,
-            &mut budget,
-        );
+        let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
         assert!(outcome.all_sent && !outcome.stop && outcome.presentation_end_admitted);
         assert_eq!(outcome.probe_path, Some(PeerTransport::Edge));
         let header = merkur_codec::parse_frame_header(&group[0].frame).unwrap();
@@ -8162,10 +8224,7 @@ async fn k1_probe_tail_refusal_releases_its_reservation_once_without_retracting_
             _ => group[0].frame.clear(), // Invalid template cannot manufacture a probe.
         }
         let mut expected = budget;
-        expected.release(
-            PeerTransport::Edge,
-            sealed_display_datagram_wire_len(STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES),
-        );
+        expected.release(PeerTransport::Edge, K1_PROBE_WIRE_RESERVATION);
         send_prepared_k1_probe_tail(&mut peer, &mut group[0], &mut pool, &mut budget, 100.0);
         assert_eq!(budget, expected);
         assert_eq!(group[0].physical_plan.probe_path, None);
@@ -8234,8 +8293,12 @@ async fn clipped_256_original_suffix_is_reclaimed_before_a_k1_probe() {
             "same-path replay has one identity and ciphertext"
         );
         let lane = crate::e2e::lane_for_channel(channel).unwrap();
-        let data = browser.open_datagram(lane, &original).unwrap();
-        let probe = browser.open_datagram(lane, &probe).unwrap();
+        let data = crate::display::viewer::staged_display_frame(
+            &browser.open_datagram(lane, &original).unwrap(),
+        );
+        let probe = crate::display::viewer::staged_display_frame(
+            &browser.open_datagram(lane, &probe).unwrap(),
+        );
         let probe_header = merkur_codec::parse_frame_header(&probe).unwrap();
         let data_seq = u32::from_be_bytes(data[6..10].try_into().unwrap());
         let probe_seq = u32::from_be_bytes(probe[6..10].try_into().unwrap());
@@ -8419,47 +8482,37 @@ async fn inline_group_parity_recovers_a_lost_datagram() {
     )));
 
     // Distinct, unequal-length frames so parity genuinely depends on each
-    // one and on the zero padding to the widest shard.
-    let widest = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES + 7;
-    let mut frames: Vec<Vec<u8>> = vec![
-        vec![0xA1; widest],
-        vec![0xB2; STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES],
-        vec![0xC3; 57],
-    ];
-    for (index, frame) in frames.iter_mut().enumerate() {
-        frame[merkur_codec::DISPLAY_PATCH_FLAGS_OFFSET] = PATCH_FLAG_PRESENTATION_COHERENT
-            | if index + 1 == 3 {
-                PATCH_FLAG_PRESENTATION_END
-            } else {
-                0
-            };
-        frame[merkur_codec::DISPLAY_PRESENTATION_ID_OFFSET
-            ..merkur_codec::DISPLAY_PRESENTATION_ID_OFFSET + 4]
-            .copy_from_slice(&73u32.to_be_bytes());
-        frame[DISPLAY_PRESENTATION_MEMBER_INDEX_OFFSET
-            ..DISPLAY_PRESENTATION_MEMBER_INDEX_OFFSET + 2]
-            .copy_from_slice(&(index as u16).to_be_bytes());
-        frame[DISPLAY_PRESENTATION_MEMBER_COUNT_OFFSET
-            ..DISPLAY_PRESENTATION_MEMBER_COUNT_OFFSET + 2]
-            .copy_from_slice(&3u16.to_be_bytes());
-    }
-    let mut group: Vec<PreparedDisplayDatagram> = frames
-        .iter()
-        .enumerate()
-        .map(|(index, frame)| {
-            let mut datagram =
-                prepared_with_utility_for_test(index as u32 + 1, 0, DisplayUtility::NonCritical);
-            datagram.frame = frame.clone();
+    // one, on the zero padding to the widest shard, and on the length stripe.
+    const MEMBERS: u16 = 3;
+    let members = [(60usize, 0xA1u8), (50, 0xA2), (57, 0xA3)];
+    let mut group: Vec<PreparedDisplayDatagram> = (0..MEMBERS)
+        .zip(members)
+        .map(|(index, (wire_bytes, fill))| {
+            let seq = u32::from(index) + 1;
+            let mut datagram = prepared_with_utility_for_test(seq, 0, DisplayUtility::NonCritical);
+            datagram.frame = filled_staged_frame_for_test(seq, wire_bytes, fill);
+            patch_stream_header(
+                &mut datagram.frame,
+                seq,
+                1,
+                0,
+                seq,
+                73,
+                true,
+                index + 1 == MEMBERS,
+                0,
+                1,
+                index,
+                MEMBERS,
+            )
+            .unwrap();
             datagram
         })
         .collect();
 
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(0, 1 << 20, 16);
-    assert!(
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget,)
-            .all_sent
-    );
+    assert!(send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget,).all_sent);
 
     let lane = crate::e2e::lane_for_channel(CHANNEL_DISPLAY_DATAGRAM).unwrap();
     let mut opened = Vec::new();
@@ -8472,73 +8525,57 @@ async fn inline_group_parity_recovers_a_lost_datagram() {
         );
     }
     // Three data frames plus exactly one parity shard for the group.
-    assert_eq!(opened.len(), frames.len() + 1);
+    assert_eq!(opened.len(), group.len() + 1);
     let repair = opened.pop().expect("parity frame");
     assert_eq!(repair[0], merkur_codec::MSG_TYPE_DISPLAY_FEC_REPAIR);
-    for (sent, original) in opened.iter().zip(&frames) {
+    for (sent, datagram) in opened.iter_mut().zip(&mut group) {
         // Every covered frame is marked FEC-protected, and parity was
-        // computed over exactly these post-flag bytes.
+        // computed over exactly these post-flag wire bytes.
         assert_eq!(
-            sent[1] & DISPLAY_HEADER_FLAG_FEC_PROTECTED,
+            merkur_codec::wire::parse_wire_prefix(sent).unwrap().flags
+                & DISPLAY_HEADER_FLAG_FEC_PROTECTED,
             DISPLAY_HEADER_FLAG_FEC_PROTECTED
         );
-        assert_eq!(sent.len(), original.len());
+        assert_eq!(sent.as_slice(), wire_frame(&mut datagram.frame));
     }
 
-    let data_count = repair[8] as usize;
-    let recovery_count = repair[9] as usize;
-    let shard_size = u16::from_be_bytes([repair[10], repair[11]]) as usize;
-    assert_eq!(u32::from_be_bytes(repair[4..8].try_into().unwrap()), 1);
+    let (header, body) = merkur_fec::repair::parse_repair(&repair).unwrap();
+    assert_eq!(header.batch_start_seq, 1);
+    assert_eq!(header.generation, peer.generation);
+    assert_eq!(usize::from(header.data_shards), group.len());
     assert_eq!(
-        u32::from_be_bytes(repair[12..16].try_into().unwrap()),
-        peer.generation
+        usize::from(header.recovery_shards),
+        DisplayPolicy::FEC_RECOVERY_SHARD_COUNT
     );
-    assert_eq!(data_count, frames.len());
-    assert_eq!(recovery_count, DisplayPolicy::FEC_RECOVERY_SHARD_COUNT);
-    assert_eq!(shard_size, widest);
-
-    let padded: Vec<Vec<u8>> = opened
+    let widest = group
         .iter()
-        .map(|frame| {
-            let mut shard = vec![0u8; shard_size];
-            shard[..frame.len()].copy_from_slice(frame);
-            shard
-        })
-        .collect();
-    let body = &repair[merkur_codec::DISPLAY_FEC_HEADER_BYTES..];
-    let recovery: Vec<&[u8]> = (0..recovery_count)
-        .map(|j| &body[j * shard_size..(j + 1) * shard_size])
-        .collect();
+        .map(|datagram| wire_len(&datagram.frame))
+        .max()
+        .unwrap();
+    assert_eq!(usize::from(header.shard_size), widest);
 
     // Lose the END-bearing datagram; the parity that rode behind it
-    // restores both the independently applicable transformation and its
-    // presentation-only advisory bytes.
-    let zero = vec![0u8; shard_size];
-    let received: Vec<&[u8]> = vec![&padded[0], &padded[1], &zero];
-    let mut output = vec![vec![0u8; shard_size]; data_count];
-    let restored = {
-        let mut output_refs: Vec<&mut [u8]> = output
-            .iter_mut()
-            .map(|shard| shard.as_mut_slice())
-            .collect();
-        merkur_fec::decode(0b011, 0b11, &received, &recovery, &mut output_refs)
-    };
+    // restores both the independently applicable transformation, at its own
+    // length, and its presentation-only advisory bytes.
+    let shard_size = usize::from(header.shard_size);
+    let mut padded = vec![0u8; group.len() * shard_size];
+    let mut output = vec![0u8; group.len() * shard_size];
+    let mut rebuilt_lengths = [0u16; merkur_fec::FEC_MAX_DATA];
+    let restored = merkur_fec::repair::recover_batch_into(
+        &header,
+        &[Some(&opened[0]), Some(&opened[1]), None],
+        body,
+        &mut padded,
+        &mut output,
+        &mut rebuilt_lengths,
+    );
     assert_eq!(restored, 0b100);
-    assert_eq!(output[2], padded[2]);
-    assert_eq!(
-        u32::from_be_bytes(
-            output[2][merkur_codec::DISPLAY_PRESENTATION_ID_OFFSET
-                ..merkur_codec::DISPLAY_PRESENTATION_ID_OFFSET + 4]
-                .try_into()
-                .unwrap()
-        ),
-        73
-    );
-    assert_eq!(
-        output[2][merkur_codec::DISPLAY_PATCH_FLAGS_OFFSET]
-            & (PATCH_FLAG_PRESENTATION_COHERENT | PATCH_FLAG_PRESENTATION_END),
-        PATCH_FLAG_PRESENTATION_COHERENT | PATCH_FLAG_PRESENTATION_END
-    );
+    let rebuilt = &output[2 * shard_size..2 * shard_size + usize::from(rebuilt_lengths[2])];
+    assert_eq!(rebuilt, opened[2].as_slice());
+    let staged = crate::display::viewer::staged_display_frame(rebuilt);
+    let rebuilt_header = merkur_codec::parse_frame_header(&staged).unwrap();
+    assert_eq!(rebuilt_header.presentation_id, 73);
+    assert!(rebuilt_header.presentation_coherent && rebuilt_header.presentation_end);
 }
 
 /// Physical admission is group-atomic: no carrier capacity means no
@@ -8550,22 +8587,20 @@ async fn refused_physical_group_sends_and_records_nothing() {
     // No edge tunnel and no live path: every send is refused.
     peer.edge_tunnel = None;
 
-    let frames: Vec<Vec<u8>> = vec![vec![0xA1; 64], vec![0xB2; 40], vec![0xC3; 57]];
-    let mut group: Vec<PreparedDisplayDatagram> = frames
-        .iter()
+    let mut group: Vec<PreparedDisplayDatagram> = [(64usize, 0xA1u8), (40, 0xB2), (57, 0xC3)]
+        .into_iter()
         .enumerate()
-        .map(|(index, frame)| {
-            let mut datagram =
-                prepared_with_utility_for_test(index as u32 + 1, 0, DisplayUtility::NonCritical);
-            datagram.frame = frame.clone();
+        .map(|(index, (wire_bytes, fill))| {
+            let seq = index as u32 + 1;
+            let mut datagram = prepared_with_utility_for_test(seq, 0, DisplayUtility::NonCritical);
+            datagram.frame = filled_staged_frame_for_test(seq, wire_bytes, fill);
             datagram
         })
         .collect();
 
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(0, 0, 16);
-    let outcome =
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
+    let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
     assert!(
         !outcome.all_sent,
         "the group must report that it was refused"
@@ -8595,16 +8630,15 @@ async fn repair_capacity_is_reserved_before_any_fec_marked_data_is_sent() {
         prepared_with_utility_for_test(1, 64, DisplayUtility::NonCritical),
         prepared_with_utility_for_test(2, 64, DisplayUtility::NonCritical),
     ];
-    group[0].frame = vec![0xA1; 64];
-    group[1].frame = vec![0xB2; 64];
+    group[0].frame = filled_staged_frame_for_test(group[0].seq, 64, 0xA1);
+    group[1].frame = filled_staged_frame_for_test(group[1].seq, 64, 0xB2);
     let mut pool = frame_pool_for_test();
     // Exactly two 64-byte plaintext data frames plus the 25-byte final
     // channel/Noise overhead. Sender bytes and receiver packets are both
     // exhausted before the repair is considered.
     let mut budget =
         DatagramPhysicalBudget::exact(0, 2 * 89 + QUINN_DATAGRAM_ENTRY_OVERHEAD_BYTES, 2);
-    let outcome =
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
+    let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
     assert_eq!(
         outcome,
         GroupSendOutcome {
@@ -8644,11 +8678,12 @@ async fn exact_fec_group_budget_always_carries_its_parity() {
             true,
         ),
     ];
-    let data_wire_len = sealed_display_datagram_wire_len(group[0].frame.len());
+    let data_wire_len = sealed_display_datagram_wire_len(wire_len(&group[0].frame));
     assert_eq!(group[0].frame.len(), group[1].frame.len());
-    let repair_wire_len = sealed_display_datagram_wire_len(
-        DISPLAY_FEC_HEADER_BYTES + DisplayPolicy::FEC_RECOVERY_SHARD_COUNT * group[0].frame.len(),
-    );
+    let repair_wire_len = sealed_display_datagram_wire_len(repair_plaintext_len_for_test(
+        DisplayPolicy::FEC_RECOVERY_SHARD_COUNT,
+        wire_len(&group[0].frame),
+    ));
     let mut pool = frame_pool_for_test();
     let mut budget = DatagramPhysicalBudget::exact(
         0,
@@ -8656,8 +8691,7 @@ async fn exact_fec_group_budget_always_carries_its_parity() {
         3,
     );
 
-    let outcome =
-        send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
+    let outcome = send_planned_group(&mut peer, &mut group, &mut pool, 100.0, &mut budget);
 
     assert_eq!(
         outcome,
@@ -8692,16 +8726,17 @@ fn post_encode_admission_uses_the_maximal_complete_prefix_and_opens_its_presenta
     let mut prepared: Vec<_> = (1..=3)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 80, DisplayUtility::NonCritical);
-            datagram.frame = vec![0xA0 | seq as u8; 80];
+            datagram.frame = filled_staged_frame_for_test(datagram.seq, 80, 0xA0 | seq as u8);
             datagram.frame[DISPLAY_PATCH_FLAGS_OFFSET] =
                 PATCH_FLAG_PRESENTATION_COHERENT | PATCH_FLAG_PRESENTATION_END;
             datagram
         })
         .collect();
     let data_wire_len = sealed_display_datagram_wire_len(80);
-    let repair_wire_len = sealed_display_datagram_wire_len(
-        DISPLAY_FEC_HEADER_BYTES + DisplayPolicy::FEC_RECOVERY_SHARD_COUNT * 80,
-    );
+    let repair_wire_len = sealed_display_datagram_wire_len(repair_plaintext_len_for_test(
+        DisplayPolicy::FEC_RECOVERY_SHARD_COUNT,
+        80,
+    ));
     let mut budget = DatagramPhysicalBudget::exact(
         0,
         2 * data_wire_len + repair_wire_len + 2 * QUINN_DATAGRAM_ENTRY_OVERHEAD_BYTES,
@@ -8783,7 +8818,7 @@ fn awaiting_burst_for_test() -> (PeerDisplayState, Vec<PreparedDisplayDatagram>)
     let prepared = (1..=3)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 80, DisplayUtility::NonCritical);
-            datagram.frame = vec![0xA0 | seq as u8; 80];
+            datagram.frame = filled_staged_frame_for_test(datagram.seq, 80, 0xA0 | seq as u8);
             datagram.frame[DISPLAY_PATCH_FLAGS_OFFSET] = PATCH_FLAG_PRESENTATION_COHERENT
                 | PATCH_FLAG_PRESENTATION_END
                 | PATCH_FLAG_DEMAND_AWAITS_GRANT;
@@ -8797,9 +8832,10 @@ fn awaiting_burst_for_test() -> (PeerDisplayState, Vec<PreparedDisplayDatagram>)
 fn a_clipped_prefix_never_says_its_remainder_waits_for_a_grant() {
     let (mut peer, mut prepared) = awaiting_burst_for_test();
     let data_wire_len = sealed_display_datagram_wire_len(80);
-    let repair_wire_len = sealed_display_datagram_wire_len(
-        DISPLAY_FEC_HEADER_BYTES + DisplayPolicy::FEC_RECOVERY_SHARD_COUNT * 80,
-    );
+    let repair_wire_len = sealed_display_datagram_wire_len(repair_plaintext_len_for_test(
+        DisplayPolicy::FEC_RECOVERY_SHARD_COUNT,
+        80,
+    ));
     let mut budget = DatagramPhysicalBudget::exact(
         0,
         2 * data_wire_len + repair_wire_len + 2 * QUINN_DATAGRAM_ENTRY_OVERHEAD_BYTES,
@@ -8899,7 +8935,7 @@ fn receiver_packet_budget_counts_parity_and_selects_the_exact_prefix() {
     let mut prepared: Vec<_> = (1..=8)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 80, DisplayUtility::NonCritical);
-            datagram.frame = vec![0x80 | seq as u8; 80];
+            datagram.frame = filled_staged_frame_for_test(datagram.seq, 80, 0x80 | seq as u8);
             datagram
         })
         .collect();
@@ -8933,14 +8969,15 @@ fn exact_dual_path_plan_charges_every_critical_copy_and_repair_copy() {
     let mut prepared: Vec<_> = (1..=2)
         .map(|seq| {
             let mut datagram = prepared_with_utility_for_test(seq, 64, DisplayUtility::Critical);
-            datagram.frame = vec![0x60 | seq as u8; 64];
+            datagram.frame = filled_staged_frame_for_test(datagram.seq, 64, 0x60 | seq as u8);
             datagram
         })
         .collect();
     let data_wire_len = sealed_display_datagram_wire_len(64);
-    let repair_wire_len = sealed_display_datagram_wire_len(
-        DISPLAY_FEC_HEADER_BYTES + DisplayPolicy::FEC_RECOVERY_SHARD_COUNT * 64,
-    );
+    let repair_wire_len = sealed_display_datagram_wire_len(repair_plaintext_len_for_test(
+        DisplayPolicy::FEC_RECOVERY_SHARD_COUNT,
+        64,
+    ));
     let per_path = 2 * data_wire_len + repair_wire_len + 2 * QUINN_DATAGRAM_ENTRY_OVERHEAD_BYTES;
     let mut budget = DatagramPhysicalBudget::exact(per_path, per_path, 6);
     let mut pool = frame_pool_for_test();
@@ -13513,9 +13550,11 @@ async fn continuation_discovered_after_worker_prepare_clears_end_before_send() {
     let (channel, ciphertext) = capture_rx.recv().await.expect("display datagram");
     assert_eq!(channel, CHANNEL_DISPLAY_DATAGRAM);
     let lane = crate::e2e::lane_for_channel(channel).unwrap();
-    let plain = browser
-        .open_datagram(lane, &ciphertext)
-        .expect("sealed display datagram");
+    let plain = crate::display::viewer::staged_display_frame(
+        &browser
+            .open_datagram(lane, &ciphertext)
+            .expect("sealed display datagram"),
+    );
     let sent_header = merkur_codec::parse_frame_header(&plain).unwrap();
     assert!(sent_header.presentation_coherent);
     assert!(!sent_header.presentation_end);
@@ -13548,24 +13587,32 @@ fn late_continuation_restamps_original_members_before_rebuilding_fec() {
         );
     }
     precompute_fec_repairs(&mut prepared, 4, 7, &mut encoder, &mut pool);
-    let repair = prepared[2].precomputed_fec_repair.as_ref().unwrap();
-    assert_ne!(*repair, old_repair);
-    let shard_size = u16::from_be_bytes([repair[10], repair[11]]) as usize;
-    assert_eq!(shard_size, 80);
-    assert_eq!(repair[8], 3);
-    assert_eq!(repair[9], 2);
-    let recovery: Vec<&[u8]> = repair[DISPLAY_FEC_HEADER_BYTES..]
-        .chunks_exact(shard_size)
+    let repair = prepared[2].precomputed_fec_repair.clone().unwrap();
+    assert_ne!(repair, old_repair);
+    let wires: Vec<Vec<u8>> = prepared
+        .iter_mut()
+        .map(|datagram| wire_frame(&mut datagram.frame).to_vec())
         .collect();
-    let zero = [0u8; 80];
-    let received: [&[u8]; 3] = [&prepared[0].frame, &prepared[1].frame, &zero];
-    let mut output = [[0u8; 80]; 3];
-    let restored = {
-        let mut outputs: Vec<&mut [u8]> = output.iter_mut().map(|v| &mut v[..]).collect();
-        merkur_fec::decode(0b011, 0b11, &received, &recovery, &mut outputs)
-    };
+    let (header, body) = merkur_fec::repair::parse_repair(&repair).unwrap();
+    let shard_size = usize::from(header.shard_size);
+    assert_eq!(shard_size, wires.iter().map(Vec::len).max().unwrap());
+    assert_eq!((header.data_shards, header.recovery_shards), (3, 2));
+    let mut padded = vec![0u8; 3 * shard_size];
+    let mut output = vec![0u8; 3 * shard_size];
+    let mut lengths = [0u16; merkur_fec::FEC_MAX_DATA];
+    let restored = merkur_fec::repair::recover_batch_into(
+        &header,
+        &[Some(&wires[0]), Some(&wires[1]), None],
+        body,
+        &mut padded,
+        &mut output,
+        &mut lengths,
+    );
     assert_eq!(restored, 0b100);
-    assert_eq!(&output[2][..], &prepared[2].frame);
+    assert_eq!(
+        &output[2 * shard_size..2 * shard_size + usize::from(lengths[2])],
+        wires[2].as_slice()
+    );
 }
 
 #[tokio::test]
@@ -14535,9 +14582,11 @@ async fn owed_same_grid_end_retries_without_spinning_and_parks_after_admission()
         None,
     );
     let (channel, ciphertext) = rx.try_recv().expect("owed END was admitted");
-    let plain = browser
-        .open_datagram(crate::e2e::lane_for_channel(channel).unwrap(), &ciphertext)
-        .unwrap();
+    let plain = crate::display::viewer::staged_display_frame(
+        &browser
+            .open_datagram(crate::e2e::lane_for_channel(channel).unwrap(), &ciphertext)
+            .unwrap(),
+    );
     let header = merkur_codec::parse_frame_header(&plain).unwrap();
     assert!(header.presentation_coherent && header.presentation_end);
     assert_eq!(
@@ -14635,9 +14684,11 @@ async fn actual_send_refusals_never_manufacture_loss_or_strand_a_sparse_ack_tail
                 continue;
             }
             let (channel, wire) = rx.try_recv().expect("successful physical original");
-            let plain = browser
-                .open_datagram(crate::e2e::lane_for_channel(channel).unwrap(), &wire)
-                .unwrap();
+            let plain = crate::display::viewer::staged_display_frame(
+                &browser
+                    .open_datagram(crate::e2e::lane_for_channel(channel).unwrap(), &wire)
+                    .unwrap(),
+            );
             let header = merkur_codec::parse_frame_header(&plain).unwrap();
             assert_eq!(header.row_count, u16::from(input == 1));
             assert!(rx.try_recv().is_err());

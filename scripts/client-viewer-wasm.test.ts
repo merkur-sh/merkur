@@ -24,6 +24,8 @@ import {
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
   DISPLAY_STREAM_HEADER_BYTES,
+  encodeDisplayWireFrame,
+  MESSAGE_TYPE_DISPLAY_PATCH,
   writeU32BE,
 } from '../packages/shared/src';
 import { ingressFixture, ingressFixtureCodepoint } from './term-wasm-ingress-fixture';
@@ -32,7 +34,12 @@ const runtime = initSync({
   module: readFileSync(new URL('../apps/web/src/term-wasm/pkg/term_wasm_bg.wasm', import.meta.url)),
 });
 
-function receive(viewer: ClientViewer, frame: Uint8Array, channel: number, now = 1): void {
+/** A staged display patch reaches the viewer in its wire form, as sealed. */
+function receive(viewer: ClientViewer, staged: Uint8Array, channel: number, now = 1): void {
+  const frame =
+    (channel === 3 || channel === 4) && staged[0] === MESSAGE_TYPE_DISPLAY_PATCH
+      ? encodeDisplayWireFrame(staged)
+      : staged;
   const pointer = viewer.reserve_ingress(frame.byteLength);
   expect(pointer).not.toBe(0);
   new Uint8Array(runtime.memory.buffer, pointer, frame.byteLength).set(frame);

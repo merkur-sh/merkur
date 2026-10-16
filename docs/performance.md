@@ -6,7 +6,7 @@ A synchronized redraw is published exactly when the viewer's grid digests to the
 screen the daemon claimed for it, and not before, however the redraw was clipped, lost,
 repaired or reordered ([complete-screen closure](display-invariants.md#complete-screen-closure)).
 A matched claim submits in the current task when the GPU is idle and no early commit has spent
-the frame's opportunity. The claim costs 8 header bytes per display frame and no packet; it does not establish a
+the frame's opportunity. The claim costs 8 header bytes on each display frame that carries one and no packet; it does not establish a
 universal latency or GPU-contention guarantee.
 
 The terminal worker owns one WebGPU canvas, WASM terminal and renderer. Transport decode/apply and
@@ -842,6 +842,10 @@ path-evidence-gated exact replay for a one-data-shard group. The global display 
 selects row partitions and raw or zstd representations using sender cost, receiver cost,
 carrier delivery quotes, and measured loss. Acknowledged per-peer dictionaries are an
 input to that decision. Benchmarks must exercise the shared planner, not a per-class policy.
+The planner measures frames staged (`encoder::STAGED_SLACK`); it and the browser receiver
+profile bucket each frame by its wire bound, the staged length less that slack, and take
+compression ratios over the same bound, so the uncompressed staged headroom never reads as
+compression.
 
 The browser receiver-cost profile retains each raw-window mean until a raw observation changes
 that size class. Publication recomputes and writes only buckets with new compressed observations;
