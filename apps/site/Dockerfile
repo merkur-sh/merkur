@@ -20,7 +20,7 @@
 
 # The build runs on the build platform: the pages are platform-neutral, and
 # `apps/site/server/build.ts` cross-targets the server executable from TARGETARCH.
-FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS bun
+FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS bun
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && case "$(dpkg --print-architecture)" in \
@@ -92,7 +92,7 @@ FROM scratch AS artifacts
 COPY --from=builder /app/apps/site/server/dist/site-server /site-server
 COPY --from=builder /app/apps/site/dist/ /dist/
 
-FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runner
+FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runner
 
 WORKDIR /site
 

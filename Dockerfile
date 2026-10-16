@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 
 # Build tooling runs on the build platform; see the toolchain stage.
-FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS bun
+FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS bun
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
   && case "$(dpkg --print-architecture)" in \
@@ -169,7 +169,7 @@ COPY scripts/web-build-signature.ts scripts/web-build-signature.ts
 COPY deployment/ deployment/
 RUN bun run deployment:verify -- --directory deployment --commit "$MERKUR_BUILD_COMMIT"
 
-FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
+FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
 
 WORKDIR /app
 
