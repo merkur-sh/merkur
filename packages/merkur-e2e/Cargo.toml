@@ -23,20 +23,20 @@ wasm = ["snow/default-resolver", "snow/default-resolver-crypto"]
 testing = []
 
 [dependencies]
-p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
-hkdf = { version = "=0.12.4", default-features = false }
-hmac = { version = "=0.12.1", default-features = false }
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "arithmetic"] }
+hkdf = { version = "=0.13.0", default-features = false }
+hmac = { version = "=0.13.0", default-features = false }
 libcrux-ml-dsa = { version = "=0.0.10", default-features = false, features = ["mldsa87"] }
 libcrux-ml-kem = { version = "=0.0.10", default-features = false, features = ["mlkem1024"] }
-sha2 = { version = "=0.10.9", default-features = false }
+sha2 = { version = "=0.11.0", default-features = false }
 subtle = { version = "=2.6.1", default-features = false }
 snow = { version = "0.10", default-features = false, features = ["risky-raw-split"] }
-zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 
 # The browser transport cipher (`src/wasm_chacha.rs`) keeps Poly1305 on the
 # audited crate snow's resolver already links; only ChaCha20 is replaced.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-poly1305 = { version = "=0.8.0", default-features = false }
+poly1305 = { version = "=0.9.1", default-features = false }
 
 # The committed interop-vector test parses `packages/shared/test-vectors/`.
 [dev-dependencies]
@@ -49,7 +49,7 @@ criterion = { version = "0.8", features = ["html_reports"] }
 # `bun run test:wasm-cipher` runs the browser cipher's tests inside wasm32
 # under Node, differentially against the RustCrypto AEAD it replaces.
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-chacha20poly1305 = { version = "=0.10.1", default-features = false }
+chacha20poly1305 = { version = "=0.11.0", default-features = false }
 # The same `crypto.getRandomValues` backend e2e-wasm selects; a lone
 # merkur-e2e test build does not inherit that crate's features.
 getrandom = { version = "0.3", features = ["wasm_js"] }
