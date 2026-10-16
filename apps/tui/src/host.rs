@@ -127,9 +127,15 @@ impl Host {
             original,
             owner: Arc::clone(&owner),
         };
-        let tty = AsyncFd::with_interest(tty, Interest::READABLE | Interest::WRITABLE).map_err(
-            |error| io::Error::new(error.kind(), format!("register terminal reactor: {error}")),
-        )?;
+        // SAFETY: the reactor takes ownership of `tty`, an open `OwnedFd` whose raw descriptor
+        // cannot change while it is owned, and nothing replaces it through `get_mut`.
+        let tty = unsafe {
+            AsyncFd::register_with_interest(tty, Interest::READABLE | Interest::WRITABLE)
+        }
+        .map_err(|error| {
+            let error = io::Error::from(error);
+            io::Error::new(error.kind(), format!("register terminal reactor: {error}"))
+        })?;
         tcsetattr(tty.get_ref(), OptionalActions::Now, &raw)?;
         *slot = Some(restore);
         drop(slot);

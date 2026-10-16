@@ -28,7 +28,9 @@ impl HeadlessInput {
             return Ok(Self::File(tokio::fs::File::from_std(fd.into())));
         }
         let original_flags = fcntl_getfl(&fd)?;
-        let fd = AsyncFd::with_interest(fd, tokio::io::Interest::READABLE)?;
+        // SAFETY: the reactor takes ownership of `fd`, an open `OwnedFd` whose raw descriptor
+        // cannot change while it is owned, and nothing replaces it through `get_mut`.
+        let fd = unsafe { AsyncFd::register_with_interest(fd, tokio::io::Interest::READABLE) }?;
         fcntl_setfl(fd.get_ref(), original_flags | OFlags::NONBLOCK)?;
         Ok(Self::Evented(EventedInput { fd, original_flags }))
     }
