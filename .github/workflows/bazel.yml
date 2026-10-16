@@ -1,0 +1,62 @@
+name: Bazel
+
+# Development builds and tests through Bazel against BuildBuddy's remote cache, which CI and
+# every workstation share: an unchanged action or test is downloaded, never rerun. On `main`
+# this starts once CI has finished with the same commit, so it never holds runner slots CI's
+# shards are queued for.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+# A cold build fills the shared cache for every later run, so a newer commit queues behind it
+# instead of discarding it.
+concurrency:
+  group: bazel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Bazel test (linux-x86_64)
+    # A cancelled CI run was superseded by a newer push, whose own completion is built.
+    if: github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # The runner image's preinstalled SDKs leave too little disk for the Bun runtime's
+      # from-source build; none of them is used here.
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Acquire the pinned engine
+        run: |
+          python3 -I scripts/ci/acquire_bazel.py .github/bazel/engine-pins.json "$RUNNER_TEMP/bazel"
+          echo "$RUNNER_TEMP/bazel" >> "$GITHUB_PATH"
+      - name: Bind the remote cache credential
+        env:
+          BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
+        run: |
+          test -n "$BUILDBUDDY_API_KEY"
+          umask 077
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY" > .bazelrc.local
+      - name: Build and test
+        run: |
+          bazel --output_user_root="$RUNNER_TEMP/bazel-root" test --config=development --config=remote-cache \
+            --config=ci --config=linux_x64 --keep_going //...
+      - name: Disk after the build
+        if: always()
+        run: df -h /

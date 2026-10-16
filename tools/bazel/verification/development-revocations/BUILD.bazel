@@ -1,0 +1,10 @@
+load("@//tools/bazel/verification:test-nonce.bzl", "test_epochs")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["REPO.bazel"])
+
+# `--config=development` binds this in place of the refusing default: every test reads the
+# one constant nonce, so its result is cached by its inputs alone. Admission never reads it;
+# the controller supplies its own epoch repository.
+test_epochs(name = "epochs", shared = "development.nonce")

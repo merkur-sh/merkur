@@ -19,5 +19,17 @@ build:linux_arm64 --platforms=//tools/bazel/platforms:linux_arm64
 build:macos_x64 --platforms=//tools/bazel/platforms:macos_x64
 build:macos_arm64 --platforms=//tools/bazel/platforms:macos_arm64
 
+# Ordinary cached builds and tests, with no verification controller: every test reads one
+# constant nonce (test-nonce.bzl), so an unchanged test is a cache hit on any machine.
+common:development --override_repository=verification_revocations=%workspace%/tools/bazel/verification/development-revocations
+
+# BuildBuddy's remote cache, shared by CI and every workstation. The API key header
+# (`--remote_header=x-buildbuddy-api-key=...`) is supplied outside version control.
+common:remote-cache --remote_cache=grpcs://remote.buildbuddy.io
+common:remote-cache --remote_upload_local_results
+common:remote-cache --remote_timeout=600
+common:remote-cache --bes_backend=grpcs://remote.buildbuddy.io
+common:remote-cache --bes_results_url=https://app.buildbuddy.io/invocation/
+
 # Backend addresses and authentication are supplied outside version control.
 try-import %workspace%/.bazelrc.local
