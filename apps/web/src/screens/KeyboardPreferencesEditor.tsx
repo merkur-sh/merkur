@@ -5,10 +5,12 @@ import {
   TERMINAL_KEYBOARD_LAYER_IDS,
   type TerminalKeyboardLayerId,
 } from '@merkur/shared';
+import { animate } from 'motion';
 import { type Component, createMemo, createSignal, For, Show } from 'solid-js';
 import Sheet from '../components/Sheet';
 import ToggleSwitch from '../components/ToggleSwitch';
 import { ariaBool } from '../lib/aria';
+import { hintMotion, SURFACE_SPRING, springTransition } from '../lib/motion';
 import {
   formatKeyboardDiagnostics,
   type KeyboardDiagnosticsSummary,
@@ -87,6 +89,8 @@ const KeyboardPreferencesEditor: Component<Props> = (props) => {
   const [toolbarDragOver, setToolbarDragOver] = createSignal<number | null>(null);
   let layerDrag: PointerDrag | null = null;
   let toolbarDrag: PointerDrag | null = null;
+  let toolbarSlotsEl!: HTMLUListElement;
+  let layerSlotsEl!: HTMLFieldSetElement;
 
   const layer = createMemo(() => {
     const resolved = TERMINAL_US_LAYOUT.layers[activeLayer()];
@@ -126,7 +130,20 @@ const KeyboardPreferencesEditor: Component<Props> = (props) => {
       fromIndex,
       toIndex,
     );
-    if (next !== props.preferences.layerKeyOrder) update({ layerKeyOrder: next });
+    if (next === props.preferences.layerKeyOrder) return;
+    // The slots stay where they are and their labels trade places, so each of
+    // the two settles in from where the other one's key came from.
+    const from = layerSlotsEl.querySelector<HTMLElement>(
+      `[data-keyboard-layer-slot="${fromIndex}"]`,
+    );
+    const to = layerSlotsEl.querySelector<HTMLElement>(`[data-keyboard-layer-slot="${toIndex}"]`);
+    const origins = new Map<HTMLElement, DOMRect>();
+    if (from !== null && to !== null) {
+      origins.set(from, to.getBoundingClientRect());
+      origins.set(to, from.getBoundingClientRect());
+    }
+    update({ layerKeyOrder: next });
+    settleFrom(origins);
   }
 
   function selectLayerSlot(index: number): void {
@@ -200,7 +217,15 @@ const KeyboardPreferencesEditor: Component<Props> = (props) => {
 
   function moveToolbarSlots(fromIndex: number, toIndex: number): void {
     const next = moveToolbarKey(props.preferences.toolbarKeys, fromIndex, toIndex);
-    if (next !== props.preferences.toolbarKeys) update({ toolbarKeys: next });
+    if (next === props.preferences.toolbarKeys) return;
+    // The keys themselves are reordered, so each one settles in from where it
+    // was: the one that moved, and every neighbour it pushed along.
+    const origins = new Map<HTMLElement, DOMRect>();
+    for (const slot of toolbarSlotsEl.querySelectorAll<HTMLElement>('[data-toolbar-editor-slot]')) {
+      origins.set(slot, slot.getBoundingClientRect());
+    }
+    update({ toolbarKeys: next });
+    settleFrom(origins);
   }
 
   function selectToolbarSlot(index: number): void {
@@ -433,6 +458,7 @@ const KeyboardPreferencesEditor: Component<Props> = (props) => {
 
             <div>
               <ul
+                ref={toolbarSlotsEl}
                 class="m-0 flex min-h-15 max-w-full list-none flex-wrap gap-1.5 rounded-md bg-sunken p-2"
                 aria-label="Quick-access key order"
               >
@@ -589,7 +615,7 @@ const KeyboardPreferencesEditor: Component<Props> = (props) => {
               </For>
             </div>
 
-            <fieldset class="m-0 rounded-md border-0 bg-sunken px-2 py-2">
+            <fieldset ref={layerSlotsEl} class="m-0 rounded-md border-0 bg-sunken px-2 py-2">
               <legend class="sr-only">{activeLayer()} layout</legend>
               <For each={layer().rows}>
                 {(row, rowIndex) => {
@@ -690,6 +716,35 @@ const KeyboardPreferencesEditor: Component<Props> = (props) => {
     </section>
   );
 };
+
+/**
+ * Each key settles into its new place from where it was, on the spring a
+ * surface lands with, instead of the arrangement changing in one frame.
+ *
+ * Measured once the reorder has reached the document, before it is painted,
+ * so the first frame of the new order already draws every key where it came
+ * from. The slots carry a CSS transition on `transform` for the drag states,
+ * which the animation overrides while it runs; the inline transform it leaves
+ * is cleared after, or it would outrank those states on the next drag.
+ */
+function settleFrom(origins: ReadonlyMap<HTMLElement, DOMRect>): void {
+  if (origins.size === 0) return;
+  requestAnimationFrame(() => {
+    for (const [slot, was] of origins) {
+      if (!slot.isConnected) continue;
+      const now = slot.getBoundingClientRect();
+      const dx = was.left - now.left;
+      const dy = was.top - now.top;
+      if (dx === 0 && dy === 0) continue;
+      const settle = animate(slot, { x: [dx, 0], y: [dy, 0] }, springTransition(SURFACE_SPRING));
+      hintMotion([slot], settle, 'transform');
+      const release = (): void => {
+        slot.style.transform = '';
+      };
+      settle.finished.then(release, release);
+    }
+  });
+}
 
 function sameKeys(left: readonly string[], right: readonly string[]): boolean {
   if (left === right) return true;

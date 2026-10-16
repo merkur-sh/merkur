@@ -1,4 +1,5 @@
 import { OUT_EASE } from '@merkur/quicksilver/motion';
+import { COLORS } from '@merkur/quicksilver/tokens';
 import type { Device, MachineUsage } from '@merkur/shared';
 import { animate, stagger } from 'motion';
 import {
@@ -24,7 +25,7 @@ import StatusGlyph, { type MachineStatus } from '../components/StatusGlyph';
 import { createKeybinds } from '../hooks/createKeybinds';
 import { ariaBool } from '../lib/aria';
 import { stepIndex } from '../lib/keybinds';
-import { hintMotion, motionDuration } from '../lib/motion';
+import { hintMotion, motionDuration, revealDisclosure } from '../lib/motion';
 import { createOwnedTimeout } from '../lib/owned-scheduled-callback';
 import { formatExactTime, formatLastSeenCompact } from '../lib/relative-time';
 import { isReleaseVersionBehind } from '../lib/release-version';
@@ -571,14 +572,66 @@ const DeviceList: Component<Props> = (props) => {
   let rowMotion: ReturnType<typeof animate> | null = null;
   onCleanup(() => rowMotion?.stop());
 
+  // Every machine this list has shown, by id rather than by row: a row is
+  // re-created whenever its record is replaced, and a status change must not
+  // read as a machine arriving.
+  const shownDeviceIds = new Set<string>();
+  const arrivalMotions = new Set<ReturnType<typeof animate>>();
+  onCleanup(() => {
+    for (const motion of arrivalMotions) motion.stop();
+  });
+
+  /**
+   * A machine linked while the list is on screen is the moment the reader ran
+   * the setup command for, so it arrives the way the first rows did and then
+   * carries an accent wash for a moment, so the eye finds it wherever it
+   * landed. Only the wash outlasts the entrance, and it never moves anything.
+   */
+  function arrive(rows: readonly HTMLElement[]): void {
+    const entrance = animate(
+      rows,
+      { opacity: [0, 1], transform: ['translateX(-8px)', 'translateX(0px)'] },
+      { duration: motionDuration(0.14), ease: OUT_EASE },
+    );
+    hintMotion(rows, entrance);
+    const wash = animate(
+      rows,
+      { backgroundColor: [COLORS.accentsoft, 'rgba(127, 90, 240, 0)'] },
+      { duration: motionDuration(0.7), ease: OUT_EASE, delay: motionDuration(0.14, 0) },
+    );
+    for (const motion of [entrance, wash]) {
+      arrivalMotions.add(motion);
+      const settle = (): void => {
+        arrivalMotions.delete(motion);
+      };
+      motion.finished.then(settle, settle);
+    }
+    const clearWash = (): void => {
+      for (const row of rows) row.style.backgroundColor = '';
+    };
+    wash.finished.then(clearWash, clearWash);
+  }
+
   createEffect(
-    () => props.devices.length,
-    (deviceCount) => {
-      if (rowsAnimated || deviceCount === 0) return;
+    () => props.devices,
+    (devices) => {
+      if (devices.length === 0) return;
+      if (rowsAnimated) {
+        const arrivals: HTMLElement[] = [];
+        for (const device of devices) {
+          if (shownDeviceIds.has(device.id)) continue;
+          shownDeviceIds.add(device.id);
+          const row = sectionEl.querySelector(`[data-device-row="${CSS.escape(device.id)}"]`);
+          if (row instanceof HTMLElement) arrivals.push(row);
+        }
+        if (arrivals.length > 0) arrive(arrivals);
+        return;
+      }
       const rows = Array.from(sectionEl.querySelectorAll<HTMLElement>('.device-row'));
       if (rows.length === 0) return;
 
       rowsAnimated = true;
+      for (const device of devices) shownDeviceIds.add(device.id);
       // A fixed per-row step makes the cascade scale with the machine count: at
       // 30ms a ten-machine list finished 270ms after the first row, so the list
       // felt slower the more you owned. Divide a fixed budget across the rows
@@ -938,124 +991,147 @@ const AddMachineFooter: Component<{
   onApprove(): void;
   onCopyCommand(): void;
   onRefresh(): void;
-}> = (props) => (
-  <details class="shrink-0" open={!props.hasDevices} data-rail-fade data-add-machine>
-    <summary class="cursor-pointer select-none">
-      <div class="hintbar">
-        <Show
-          when={props.hasDevices}
-          fallback={
+}> = (props) => {
+  let detailsEl!: HTMLDetailsElement;
+  let panelEl!: HTMLDivElement;
+  let reveal: ReturnType<typeof animate> | null = null;
+  onCleanup(() => reveal?.stop());
+
+  return (
+    <details
+      ref={detailsEl}
+      class="shrink-0"
+      open={!props.hasDevices}
+      data-rail-fade
+      data-add-machine
+      // With machines on the list, only the reader opens this. Without any it
+      // opens itself as the screen's only action and arrives with the screen,
+      // under the screen's own fade, which a second fade would multiply.
+      onToggle={() => {
+        if (!detailsEl.open || !props.hasDevices) return;
+        reveal?.stop();
+        reveal = revealDisclosure(panelEl);
+      }}
+    >
+      <summary class="cursor-pointer select-none">
+        <div class="hintbar">
+          <Show
+            when={props.hasDevices}
+            fallback={
+              <span class="hint">
+                <span class="kbd">?</span> all
+              </span>
+            }
+          >
             <span class="hint">
-              <span class="kbd">?</span> all
+              <span class="kbd">j</span>
+              <span class="kbd">k</span> move
             </span>
-          }
-        >
-          <span class="hint">
-            <span class="kbd">j</span>
-            <span class="kbd">k</span> move
-          </span>
-          <span class="hint">
-            <span class="kbd">↵</span> connect
-          </span>
-          {/* Moving and connecting are what this screen is for, and `?` is how
+            <span class="hint">
+              <span class="kbd">↵</span> connect
+            </span>
+            {/* Moving and connecting are what this screen is for, and `?` is how
               everything else is found. `n` stays bound and stays in the help
               sheet and the palette; making a box is not a thing anyone needs
               reminding of on every visit. */}
-          <span class="hint">
-            <span class="kbd">?</span> all
-          </span>
-        </Show>
-        {/* The chevron turns to point at what it opened. A disclosure whose
+            <span class="hint">
+              <span class="kbd">?</span> all
+            </span>
+          </Show>
+          {/* The chevron turns to point at what it opened. A disclosure whose
             marker never moves reads as a link to somewhere else, so the panel
             appearing below is a surprise rather than the thing it just did. */}
-        <span
-          data-add-machine-summary
-          class="ml-auto inline-flex items-center gap-[6px] text-[11.5px] font-medium text-body"
-        >
-          Add a machine
-          <span class="add-machine-chevron text-[14px] leading-none text-faint" aria-hidden="true">
-            ›
+          <span
+            data-add-machine-summary
+            class="ml-auto inline-flex items-center gap-[6px] text-[11.5px] font-medium text-body"
+          >
+            Add a machine
+            <span
+              class="add-machine-chevron text-[14px] leading-none text-faint"
+              aria-hidden="true"
+            >
+              ›
+            </span>
           </span>
-        </span>
-      </div>
-    </summary>
+        </div>
+      </summary>
 
-    {/* One sunken block, continuous with the hint bar above it. The spacing
+      {/* One sunken block, continuous with the hint bar above it. The spacing
         lives inside the panel, between the buttons and the boxes, rather than
         between the hint bar and the panel — put there it showed the page ground
         through as a black band across the bottom of the screen. */}
-    <div class="flex flex-col gap-[10px] bg-sunken px-3 pb-[14px] pt-[6px]">
-      {/* Six pixels, not eight: measured at 360px — the narrowest phone this
+      <div ref={panelEl} class="flex flex-col gap-[10px] bg-sunken px-3 pb-[14px] pt-[6px]">
+        {/* Six pixels, not eight: measured at 360px — the narrowest phone this
           has to hold — the four controls need 326 of the 334 available, and at
           eight the row wrapped and dropped Refresh onto a line of its own. */}
-      <div class="flex flex-wrap items-center gap-[6px]">
-        {/* "Approve", not "Approve code": in this panel the three controls read
+        <div class="flex flex-wrap items-center gap-[6px]">
+          {/* "Approve", not "Approve code": in this panel the three controls read
             as the sequence they are, the dialog it opens says what is being
             approved, and the word buys the 35px that keeps the row on one line
             at 360px. */}
-        <button type="button" onClick={props.onApprove} class="btn-ghost btn-sm">
-          Approve
-        </button>
-        {/* Disabled rather than absent until there is something to copy.
+          <button type="button" onClick={props.onApprove} class="btn-ghost btn-sm">
+            Approve
+          </button>
+          {/* Disabled rather than absent until there is something to copy.
             Mounting them on arrival reflowed the whole row a second after the
             screen appeared, which moved the Refresh button out from under a
             pointer already travelling towards it. */}
-        <button
-          type="button"
-          onClick={props.onCopyCommand}
-          disabled={props.linkCommand.length === 0}
-          class="btn-primary btn-sm min-w-[108px]"
-        >
-          {props.copyState === 'command'
-            ? 'Command copied'
-            : props.copyState === 'error'
-              ? 'Selected'
-              : 'Copy command'}
-        </button>
-        {/* An icon, because four text labels do not fit a phone and this is
+          <button
+            type="button"
+            onClick={props.onCopyCommand}
+            disabled={props.linkCommand.length === 0}
+            class="btn-primary btn-sm min-w-[108px]"
+          >
+            {props.copyState === 'command'
+              ? 'Command copied'
+              : props.copyState === 'error'
+                ? 'Selected'
+                : 'Copy command'}
+          </button>
+          {/* An icon, because four text labels do not fit a phone and this is
             the label worth losing: it is the least-used control here, it has a
             keybind, and re-issuing a link command is idempotent. The
             accessible name stays "Refresh" in every state — a name that
             changes to "Refreshing…" is a moving target for a screen reader and
             for the suite, and `aria-busy` says the same thing without moving
             anything. */}
-        <button
-          type="button"
-          onClick={props.onRefresh}
-          disabled={
-            props.linkCommandStatus === 'loading' || props.linkCommandStatus === 'refreshing'
-          }
-          aria-label="Refresh"
-          aria-busy={ariaBool(props.linkCommandStatus === 'refreshing')}
-          title="Refresh the link command"
-          class="btn-icon btn-chrome ml-auto h-[26px] w-[26px] shrink-0 disabled:cursor-wait"
-        >
-          <Show
-            when={props.linkCommandStatus === 'refreshing'}
-            fallback={
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                class="h-[13px] w-[13px]"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.9"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-                <path d="M8 16H3v5" />
-              </svg>
+          <button
+            type="button"
+            onClick={props.onRefresh}
+            disabled={
+              props.linkCommandStatus === 'loading' || props.linkCommandStatus === 'refreshing'
             }
+            aria-label="Refresh"
+            aria-busy={ariaBool(props.linkCommandStatus === 'refreshing')}
+            title="Refresh the link command"
+            class="btn-icon btn-chrome ml-auto h-[26px] w-[26px] shrink-0 disabled:cursor-wait"
           >
-            <span class="spinner h-3 w-3" />
-          </Show>
-        </button>
-      </div>
+            <Show
+              when={props.linkCommandStatus === 'refreshing'}
+              fallback={
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  class="h-[13px] w-[13px]"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.9"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                  <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                  <path d="M8 16H3v5" />
+                </svg>
+              }
+            >
+              <span class="spinner h-3 w-3" />
+            </Show>
+          </button>
+        </div>
 
-      {/* The box is drawn at its final size before the command exists. It sits
+        {/* The box is drawn at its final size before the command exists. It sits
           under a `flex-1` list, so a footer that grows when the command lands —
           a network round trip after the screen appears — takes rows out of the
           list above it and slides them under the reader. The box holds one line
@@ -1066,61 +1142,62 @@ const AddMachineFooter: Component<{
           `textContent`. Failure keeps its own box for
           the same reason — it must not be mistaken for a command that
           arrived. */}
-      <Show
-        when={props.linkCommandStatus !== 'limited'}
-        fallback={
-          <p class="text-[12px] leading-[1.5] text-meta" role="status">
-            Machine limit reached. Unlink a machine from its menu to add another. Hosted boxes do
-            not count toward this limit.
-          </p>
-        }
-      >
         <Show
-          when={props.linkCommandStatus !== 'error'}
+          when={props.linkCommandStatus !== 'limited'}
           fallback={
-            <div class="flex min-h-10 items-center rounded-sm border border-solid border-line2 bg-panel px-3 py-[9px] font-mono text-[12px] leading-[1.5] text-badink">
-              Link command unavailable. Refresh to try again.
-            </div>
+            <p class="text-[12px] leading-[1.5] text-meta" role="status">
+              Machine limit reached. Unlink a machine from its menu to add another. Hosted boxes do
+              not count toward this limit.
+            </p>
           }
         >
-          <code
-            id="link-command"
-            class="block min-h-10 cursor-text select-all whitespace-pre-wrap break-all rounded-sm border border-solid border-line2 bg-panel px-3 py-[9px] font-mono text-[12px] leading-[1.5] text-body"
+          <Show
+            when={props.linkCommandStatus !== 'error'}
+            fallback={
+              <div class="flex min-h-10 items-center rounded-sm border border-solid border-line2 bg-panel px-3 py-[9px] font-mono text-[12px] leading-[1.5] text-badink">
+                Link command unavailable. Refresh to try again.
+              </div>
+            }
           >
-            <Show
-              when={props.linkCommand.length > 0}
-              fallback={
-                <span class="block h-3 w-[78%] animate-pulse rounded bg-white/7 motion-reduce:animate-none" />
-              }
+            <code
+              id="link-command"
+              class="block min-h-10 cursor-text select-all whitespace-pre-wrap break-all rounded-sm border border-solid border-line2 bg-panel px-3 py-[9px] font-mono text-[12px] leading-[1.5] text-body"
             >
-              {props.linkCommand}
-            </Show>
-          </code>
-        </Show>
+              <Show
+                when={props.linkCommand.length > 0}
+                fallback={
+                  <span class="block h-3 w-[78%] animate-pulse rounded bg-white/7 motion-reduce:animate-none" />
+                }
+              >
+                {props.linkCommand}
+              </Show>
+            </code>
+          </Show>
 
-        {/* One command installs (or reinstalls) Merkur and links this machine.
+          {/* One command installs (or reinstalls) Merkur and links this machine.
           The account's link token rides in the installer's environment, never
           its arguments, so `ps` cannot show it; the machine then prints a link
           and a QR code to open here, and only the password is asked for. */}
-        <p class="text-[11px] leading-[1.55] text-meta">
-          Run it on the machine, then open the link it prints.
-        </p>
-      </Show>
+          <p class="text-[11px] leading-[1.55] text-meta">
+            Run it on the machine, then open the link it prints.
+          </p>
+        </Show>
 
-      <Show
-        when={
-          props.linkCommand.length === 0 &&
-          props.linkCommandStatus !== 'error' &&
-          props.linkCommandStatus !== 'limited'
-        }
-      >
-        <span class="sr-only" role="status">
-          Preparing link command
-        </span>
-      </Show>
-    </div>
-  </details>
-);
+        <Show
+          when={
+            props.linkCommand.length === 0 &&
+            props.linkCommandStatus !== 'error' &&
+            props.linkCommandStatus !== 'limited'
+          }
+        >
+          <span class="sr-only" role="status">
+            Preparing link command
+          </span>
+        </Show>
+      </div>
+    </details>
+  );
+};
 
 /**
  * The list before it has any rows.

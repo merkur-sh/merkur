@@ -1,5 +1,8 @@
-import { type Component, createEffect, createSignal, onCleanup, Show } from 'solid-js';
+import { OUT_EASE } from '@merkur/quicksilver/motion';
+import { animate } from 'motion';
+import { type Component, createEffect, createSignal, onCleanup, onSettled, Show } from 'solid-js';
 
+import { fadeTransition, hintMotion, motionDuration } from '../lib/motion';
 import {
   RECONNECT_ESCAPE_REVEAL_MS,
   TERMINAL_SUCCESS_VISIBLE_MS,
@@ -34,12 +37,47 @@ const TerminalStatusOverlay: Component<Props> = (props) => {
   // An error always offers the way out; a long progress state earns it.
   const showControls = () => props.mode === 'error' || escapeVisible();
   const [successVisible, setSuccessVisible] = createSignal(true);
+  // "Connected" leaves rather than vanishing in one frame over a grid that is
+  // already live. It takes no presses while it goes (`pointer-events-none`
+  // outside an error), so the exit never stands between the reader and the
+  // shell. Unmounted only once it has gone, and called off, with the card put
+  // back as it was, by any mode that arrives first.
+  let cardEl: HTMLDivElement | undefined;
+  let successExit: ReturnType<typeof animate> | null = null;
+  function cancelSuccessExit(): void {
+    if (successExit === null) return;
+    successExit.stop();
+    successExit = null;
+    if (cardEl !== undefined) {
+      cardEl.style.opacity = '';
+      cardEl.style.transform = '';
+    }
+  }
+  onCleanup(() => successExit?.stop());
   createEffect(
     () => props.mode,
     (mode) => {
+      cancelSuccessExit();
       setSuccessVisible(true);
       if (mode !== 'success') return;
-      const timer = setTimeout(() => setSuccessVisible(false), TERMINAL_SUCCESS_VISIBLE_MS);
+      const timer = setTimeout(() => {
+        const card = cardEl;
+        if (card === undefined) {
+          setSuccessVisible(false);
+          return;
+        }
+        const exit = animate(card, { opacity: 0, scale: 0.98 }, fadeTransition(0.15));
+        successExit = exit;
+        hintMotion([card], exit);
+        exit.finished.then(
+          () => {
+            if (successExit !== exit) return;
+            successExit = null;
+            setSuccessVisible(false);
+          },
+          () => undefined,
+        );
+      }, TERMINAL_SUCCESS_VISIBLE_MS);
       onCleanup(() => clearTimeout(timer));
     },
   );
@@ -68,6 +106,7 @@ const TerminalStatusOverlay: Component<Props> = (props) => {
         aria-atomic="true"
       >
         <div
+          ref={cardEl}
           class={[
             'flex w-full max-w-[340px] flex-col items-center gap-1 rounded-lg border border-solid px-[22px] py-5 text-center shadow-over backdrop-blur-xl',
             {
@@ -78,7 +117,7 @@ const TerminalStatusOverlay: Component<Props> = (props) => {
         >
           <div
             class={[
-              'mb-2 grid h-9 w-9 place-items-center rounded-full border border-solid',
+              'mb-2 grid h-9 w-9 place-items-center rounded-full border border-solid transition-[background-color,border-color,color] duration-base ease-out motion-reduce:transition-none',
               {
                 'border-line2 bg-raised text-body': props.mode === 'progress',
                 'border-okline bg-oksoft text-ok': props.mode === 'success',
@@ -91,15 +130,7 @@ const TerminalStatusOverlay: Component<Props> = (props) => {
               <span class="spinner h-3.5 w-3.5" />
             </Show>
             <Show when={props.mode === 'success'}>
-              <svg class="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path
-                  d="m5 10.5 3.1 3L15 6.75"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
+              <SuccessMark />
             </Show>
             <Show when={props.mode === 'error'}>
               <span class="text-[17px] leading-none">!</span>
@@ -142,6 +173,35 @@ const TerminalStatusOverlay: Component<Props> = (props) => {
 };
 
 export default TerminalStatusOverlay;
+
+/**
+ * The check lands where the spinner was rather than replacing it in one frame,
+ * as the ring around it turns from neutral to green. Short: the card is on
+ * screen for `TERMINAL_SUCCESS_VISIBLE_MS` in all.
+ */
+const SuccessMark: Component = () => {
+  let markEl!: SVGSVGElement;
+  onSettled(() => {
+    const landing = animate(
+      markEl,
+      { opacity: [0, 1], scale: [0.85, 1] },
+      { duration: motionDuration(0.14), ease: OUT_EASE },
+    );
+    return () => landing.stop();
+  });
+
+  return (
+    <svg ref={markEl} class="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="m5 10.5 3.1 3L15 6.75"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+};
 
 interface StageCopy {
   readonly title: string;

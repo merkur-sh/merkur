@@ -1,5 +1,5 @@
 import { type MotionEase, OUT_EASE } from '@merkur/quicksilver/motion';
-import { spring } from 'motion';
+import { animate, spring } from 'motion';
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -129,4 +129,21 @@ export function dissolveTransition(seconds: number): {
   ease: 'linear';
 } {
   return { duration: motionDuration(seconds), ease: 'linear' };
+}
+
+/**
+ * What a disclosure has just opened settles in under the control that opened
+ * it, rather than being there in one frame with nothing to say where it came
+ * from. Opacity and transform only: the space it takes is claimed at once,
+ * because animating its height would reflow everything below it every frame.
+ * Closing is instant; the reader has already moved on.
+ */
+export function revealDisclosure(element: HTMLElement): ReturnType<typeof animate> {
+  const reveal = animate(
+    element,
+    { opacity: [0, 1], y: [-4, 0] },
+    { duration: motionDuration(0.16), ease: OUT_EASE },
+  );
+  hintMotion([element], reveal);
+  return reveal;
 }

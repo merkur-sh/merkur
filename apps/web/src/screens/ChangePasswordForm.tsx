@@ -4,6 +4,7 @@ import { warmAccountOpaque } from '../auth/account-opaque';
 import { accountPasswordPolicyError } from '../auth/password-policy';
 import { isApiError } from '../lib/api-error';
 import { ariaBool } from '../lib/aria';
+import { revealDisclosure } from '../lib/motion';
 
 interface Props {
   readonly username: string | null;
@@ -143,11 +144,17 @@ interface FieldsProps {
  * on a detached element, where focus is a no-op.
  */
 const PasswordFields: Component<FieldsProps> = (props) => {
+  let formEl!: HTMLFormElement;
   let firstField!: HTMLInputElement;
-  onSettled(() => firstField.focus());
+  onSettled(() => {
+    firstField.focus();
+    const reveal = revealDisclosure(formEl);
+    return () => reveal.stop();
+  });
 
   return (
     <form
+      ref={formEl}
       id={FORM_ID}
       class="relative flex flex-col gap-3 px-[14px] pb-[14px] pt-3 before:(content-empty absolute left-[14px] right-0 top-0 h-px bg-line1)"
       onSubmit={(event) => void props.onSubmit(event)}
