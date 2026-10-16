@@ -377,6 +377,20 @@ The controller downloads all outputs and keeps local JSON BEP File URIs so origi
 materialized output custody can be checked; hosted BES retains its own remote references.
 This transport implementation does not establish hosted-cache or executor qualification.
 
+Development builds need no controller. `--config=development` binds
+`tools/bazel/verification/development-revocations` as the epoch repository: every test reads
+its one constant nonce, so a test's action key is its inputs alone and an unchanged test is a
+cache hit on any machine that shares the cache. `--config=remote-cache` points the build at
+BuildBuddy with the API key header from `.bazelrc.local`. The [Bazel](../workflows/bazel.yml)
+workflow runs `bazel test --config=development --config=remote-cache //...` on Linux x64 after
+each `main` CI run; a workstation passing the same two configs reads what it uploaded.
+Admission never reads a development result: the controller binds its own epoch repository.
+Before it builds, that job regenerates `tools/bazel/bun/import-inventory.json` and the package
+declarations (`generate_graph.py`), then the Rust graph (`refresh_graph.py`) and source inputs
+(`refresh_source_inputs.py`), so it tests the captures the tree implies. A second job, the only
+one with a write token and one that runs no repository code, applies that diff to `main` and
+pushes it as `Refresh the Bazel captures for <sha>`.
+
 The current CLI requires `--ledger-client ABS_DEDICATED_BARE_REPOSITORY`. Its report is a
 `ControllerResult` containing `admitted`, nested `results[]` and `problems[]`; expectation
 publication remains one canonical array. The actual declared engine/Git initializer,

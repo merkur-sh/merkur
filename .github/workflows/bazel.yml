@@ -46,17 +46,83 @@ jobs:
         run: |
           python3 -I scripts/ci/acquire_bazel.py .github/bazel/engine-pins.json "$RUNNER_TEMP/bazel"
           echo "$RUNNER_TEMP/bazel" >> "$GITHUB_PATH"
+      # Every Bazel command in this job, the capture generators' own included, reads and fills
+      # the shared cache.
       - name: Bind the remote cache credential
         env:
           BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
         run: |
           test -n "$BUILDBUDDY_API_KEY"
           umask 077
-          printf 'common --remote_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY" > .bazelrc.local
-      - name: Build and test
+          printf 'common --remote_header=x-buildbuddy-api-key=%s\ncommon --config=remote-cache\n' \
+            "$BUILDBUDDY_API_KEY" > .bazelrc.local
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust: 'false'
+      # The generated captures follow the tree they describe: the build below tests them as
+      # regenerated here, and the `captures` job commits whatever changed.
+      - name: Regenerate the Bazel captures
         run: |
-          bazel --output_user_root="$RUNNER_TEMP/bazel-root" test --config=development --config=remote-cache \
-            --config=ci --config=linux_x64 --keep_going //...
+          bun tools/bazel/bun/import-inventory.ts "$RUNNER_TEMP/import-inventory.json"
+          cp "$RUNNER_TEMP/import-inventory.json" tools/bazel/bun/import-inventory.json
+          python3 -I -B tools/bazel/bun/generate_graph.py
+          python3 -I -B tools/bazel/rust/refresh_graph.py --bazel "$(command -v bazel)"
+          python3 -I -B tools/bazel/rust/refresh_source_inputs.py --bazel "$(command -v bazel)"
+          git diff --binary -- . ':!.bazelrc.local' > "$RUNNER_TEMP/captures.patch"
+          git diff --stat
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bazel-captures-${{ github.run_id }}
+          path: ${{ runner.temp }}/captures.patch
+          if-no-files-found: error
+          retention-days: 1
+      - name: Build and test
+        run: bazel test --config=development --config=ci --config=linux_x64 --keep_going //...
       - name: Disk after the build
         if: always()
         run: df -h /
+
+  captures:
+    name: Commit refreshed Bazel captures
+    needs: test
+    # The patch exists once regeneration succeeded, whatever the tests concluded.
+    if: always() && needs.test.result != 'skipped' && needs.test.result != 'cancelled'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    # The only job holding a write token, and it runs no repository code.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        id: patch
+        continue-on-error: true
+        with:
+          name: bazel-captures-${{ github.run_id }}
+          path: ${{ runner.temp }}/captures
+      - if: steps.patch.outcome == 'success'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: Apply onto main and push
+        if: steps.patch.outcome == 'success'
+        env:
+          PATCH: ${{ runner.temp }}/captures/captures.patch
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          if [[ ! -s "$PATCH" ]]; then
+            echo 'Captures are current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # A newer push can have moved main; the patch then lands three-way, and a capture a
+          # later run regenerates anyway is left to that run.
+          for attempt in 1 2 3; do
+            git fetch --quiet origin main
+            git reset --quiet --hard origin/main
+            git apply --3way --index "$PATCH" || { echo 'Patch no longer applies; a later run regenerates it.'; exit 0; }
+            git diff --cached --quiet && { echo 'Captures are current.'; exit 0; }
+            git commit --quiet -m "Refresh the Bazel captures for ${SOURCE_SHA:0:8}"
+            git push --quiet origin HEAD:main && exit 0
+          done
+          exit 1

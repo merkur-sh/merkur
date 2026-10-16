@@ -76,6 +76,7 @@ Additional workflows run beside CI:
 | [Build deployment](../.github/workflows/build-deployment.yml) | Push to `main`, manual dispatch | Builds the unsigned server, migrations, and web bundle through the Dockerfile's `artifacts` target with the public build pins. It does not deploy. |
 | [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `bun audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, the `bun.lock` source/spec/license/install-script policy, cargo-vet exact-version review coverage and ten offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
 | [Assurance](../.github/workflows/assurance.yml) | Pull requests, each completed `main` CI run (at that run's commit), a daily schedule, manual dispatch | Parser replay, Kani custody proofs, Loom schedules and negative controls, real-session network simulation, and unprivileged profiling-tool checks. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
+| [Bazel](../.github/workflows/bazel.yml) | Each completed `main` CI run (at that run's commit), manual dispatch | `bazel test --config=development --config=remote-cache //...` on Linux x64 against BuildBuddy's remote cache, which workstations share through the same configs; a newer commit queues behind a running build rather than cancelling it. It first regenerates the import inventory, the JavaScript package declarations and the Rust graph and source-input captures, builds against them, and a separate job holding the only write token commits any change to `main`. It gates nothing. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
 | [CodeQL](../.github/workflows/codeql.yml) | Pull requests, each completed `main` CI run (at that run's commit), a weekly schedule, manual dispatch | Code scanning of TypeScript, Rust, the workflows and the Python tooling, with Merkur's models and queries; `Query tests` checks every query against its fixtures. See [static analysis](security.md#static-analysis). |
 | [Dependency updates](../.github/workflows/renovate.yml) | A nightly schedule, a box ticked on the Dependency Dashboard issue, manual dispatch | Renovate proposes dependency, action, image and tool updates as pull requests, which the workflows above then test. See [Dependency updates](#dependency-updates). |
@@ -160,8 +161,9 @@ its files select. Nothing merges on its own.
   new upstream source. An advisory against one of them opens its pull request unasked. For a
   vendored crate that pull request cannot build until the source follows, because the
   workspace lock still names the old version.
-- `pnpm-lock.yaml`, the Bazel module and the Bazel captures are outside Renovate's reach and
-  are refreshed after a merge as [the Bazel notes](../.github/bazel/README.md) describe. The
+- `pnpm-lock.yaml` and the Bazel module are outside Renovate's reach and are refreshed after a
+  merge as [the Bazel notes](../.github/bazel/README.md) describe; the Bazel workflow refreshes
+  the other captures on `main` itself. The
   deployment CLIs that `release.yml` and `deploy-site.yml` install are not watched: no pull
   request can exercise them.
 
