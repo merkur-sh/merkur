@@ -908,7 +908,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 name = "e2e-wasm"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "merkur-authorization",
  "merkur-client",
  "merkur-e2e",
@@ -1224,11 +1224,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -2106,7 +2104,7 @@ dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
  "criterion",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hkdf",
  "hmac",
  "libcrux-ml-dsa",
@@ -3892,7 +3890,7 @@ version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "fontdue",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "hashbrown 0.17.1",
  "merkur-client",
  "merkur-codec",

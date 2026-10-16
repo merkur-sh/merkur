@@ -52,7 +52,7 @@ criterion = { version = "0.8", features = ["html_reports"] }
 chacha20poly1305 = { version = "=0.10.1", default-features = false }
 # The same `crypto.getRandomValues` backend e2e-wasm selects; a lone
 # merkur-e2e test build does not inherit that crate's features.
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen-test = "=0.3.77"
 
 [[bench]]

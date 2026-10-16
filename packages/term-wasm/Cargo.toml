@@ -46,7 +46,7 @@ pgo-train = ["dep:minicov"]
 merkur-client = { path = "../merkur-client", default-features = false, features = ["wasm"] }
 # Feature switch for the browser core's Noise RNG; the backend is selected by
 # the root target rustflags and obtains entropy from crypto.getRandomValues.
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 # Exact: minicov carries a compiler-rt profile runtime for one raw profile
 # format. 0.3.9 is raw version 11, which rustc 1.99.0's LLVM 23 writes; 0.3.8
 # is version 10 and traps on that profile. Move it with the toolchain.
