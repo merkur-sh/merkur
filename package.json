@@ -177,7 +177,7 @@
     "bun-types": "1.4.3",
     "fallow": "^3.17.0",
     "fast-xml-parser": "^5.11.1",
-    "oxc-parser": "0.149.0",
+    "oxc-parser": "0.153.0",
     "rolldown": "1.2.5",
     "typescript": "^7.0.2",
     "vite": "8.2.2"
