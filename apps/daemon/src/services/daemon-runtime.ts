@@ -183,6 +183,9 @@ export function runDaemonRuntimeEffect(
               Fiber.join(perfReporter),
             );
           }).pipe(
+            // Its own scope, inside the dataplane layer's: what this binds to the dataplane
+            // (the signer, the final span flush) is released while the dataplane still runs.
+            Effect.scoped,
             Effect.provide(
               createDataplaneClientLayer(
                 dataplaneConfig(
