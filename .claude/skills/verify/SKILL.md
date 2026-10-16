@@ -196,7 +196,7 @@ these grow by an order of magnitude, which is the whole reason selection matters
 | `rust:deps` | `cargo shear`: unused or misplaced crate dependencies; the cargo lane runs it after `rust:lint`, beside the test build; install it with `setup:shear` | ~1 s |
 | `cargo test -p merkur-dataplane <filters>` | one filtered dataplane run | ~2 s |
 | `build:image-worker`, then `cargo test --locked -p merkur-dataplane -- --ignored real_helper::` | the sandboxed image helper, then every dataplane test that runs it (26 on 2026-09-19) | ~5 s build, ~7 s run |
-| `rust:test` | every workspace crate through the Cargo lane (one build, binaries four at a time, doctests), then release `term-wasm` | ~10 s run after a warm build (2026-09-29) |
+| `rust:test` | `build:image-worker`, then every workspace crate through the Cargo lane (one build, binaries four at a time, doctests, the dataplane's `real_helper` modules), then release `term-wasm` | ~10 s run after a warm build (2026-09-29) |
 | `test:graphics:long` | 64-seed convergence, both drivers, seeds across cores | ~20 s (2026-09-29) |
 | `build:dataplane` | release dataplane binary the dev CLI runs | ~8 s |
 | `rust:all` | lint, then dataplane + WASM + sync builds; **no** Rust tests | — |

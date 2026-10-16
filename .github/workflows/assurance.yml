@@ -1,8 +1,12 @@
 name: Assurance
 
+# On `main` this runs once CI has finished with the same commit, so its proofs never hold runner
+# slots the CI shards are queued for. Nothing gates on it; every commit is still proven.
 on:
   pull_request:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   schedule:
     - cron: '17 5 * * *'
@@ -22,12 +26,15 @@ concurrency:
 jobs:
   parser-smoke:
     name: Fixed-seed parser safety
+    # A cancelled CI run was superseded by a newer push, whose own completion proves it.
+    if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
@@ -38,9 +45,7 @@ jobs:
           path: |
             ~/.cargo/registry
             test-results/bolero/workspace/target
-          key: assurance-parser-smoke-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/bolero/Cargo.lock', 'tools/bolero/targets.json') }}-${{ github.sha }}
-          restore-keys: |
-            assurance-parser-smoke-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/bolero/Cargo.lock', 'tools/bolero/targets.json') }}-
+          key: assurance-parser-smoke-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/bolero/Cargo.lock', 'tools/bolero/targets.json') }}
       - name: Run fixed-seed replay and synthetic valid-frame checks
         run: |
           mkdir -p test-results/assurance/parser-smoke
@@ -56,12 +61,14 @@ jobs:
           retention-days: 7
   ownership:
     name: Ownership proofs and race models
+    if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
@@ -72,9 +79,7 @@ jobs:
           path: |
             ~/.cargo/registry
             target/assurance/ownership/debug
-          key: assurance-loom-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/ownership-proofs/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            assurance-loom-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/ownership-proofs/Cargo.lock') }}-
+          key: assurance-loom-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/ownership-proofs/Cargo.lock') }}
       - name: Cache pinned Kani compiler and executables
         id: kani
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -115,12 +120,14 @@ jobs:
           retention-days: 7
   bounded-proofs:
     name: Bounded parser and state proofs
+    if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
@@ -156,12 +163,14 @@ jobs:
           retention-days: 7
   simulation:
     name: Network simulation
+    if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
@@ -172,9 +181,7 @@ jobs:
           path: |
             ~/.cargo/registry
             test-results/sim/workspace/target
-          key: assurance-simulation-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/sim/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            assurance-simulation-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/sim/Cargo.lock') }}-
+          key: assurance-simulation-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/sim/Cargo.lock') }}
       - name: Replay every scenario seed and recorded regression
         run: |
           mkdir -p test-results/assurance/simulation
@@ -195,6 +202,7 @@ jobs:
           retention-days: 14
   kernel-tool:
     name: Linux diagnostic tool checks
+    if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
@@ -203,6 +211,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - run: rustup show active-toolchain
       - name: Cache Linux diagnostic build dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -210,9 +219,7 @@ jobs:
           path: |
             ~/.cargo/registry
             target/assurance/kernel-tool/debug
-          key: assurance-kernel-tool-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/edge-kernel-profile/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            assurance-kernel-tool-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/edge-kernel-profile/Cargo.lock') }}-
+          key: assurance-kernel-tool-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/edge-kernel-profile/Cargo.lock') }}
       # These checks require no BPF, perf-event, tracefs or network privileges.
       # Kernel/CPU measurements run separately on a representative Linux host.
       - name: Compile diagnostic tool and verify tracepoint layouts
@@ -239,6 +246,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
@@ -249,9 +257,7 @@ jobs:
           path: |
             ~/.cargo/registry
             test-results/bolero/workspace/target
-          key: assurance-libfuzzer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/bolero/Cargo.lock', 'tools/bolero/targets.json') }}-${{ github.sha }}
-          restore-keys: |
-            assurance-libfuzzer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/bolero/Cargo.lock', 'tools/bolero/targets.json') }}-
+          key: assurance-libfuzzer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/bolero/Cargo.lock', 'tools/bolero/targets.json') }}
       - name: Cache pinned cargo-bolero executable
         id: bolero
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -287,7 +293,7 @@ jobs:
           retention-days: 14
   required:
     name: Assurance required
-    if: always()
+    if: always() && github.event.workflow_run.conclusion != 'cancelled'
     needs: [parser-smoke, ownership, bounded-proofs, simulation, kernel-tool, fuzz-campaign]
     runs-on: ubuntu-26.04
     timeout-minutes: 5

@@ -28,9 +28,9 @@ skips fail the check. The workflow itself is never omitted by path filtering.
 | `wasm` | Builds and verifies WASM once, retaining the generated packages, hidden provenance files and the PGO build's native zstd fixture for consumers. |
 | `browser-native` | Builds edge, proxy, dataplane and image worker in one Cargo invocation and retains the native artifact manifest. |
 | `source` | Consumes verified WASM, runs the nine static gates (`check:types`, `check:lint`, `check:latency-boundaries`, `check:span-lifetimes`, `check:span-attributes`, `check:dead`, `check:ratchet` against the pushed or pull-request range, `check:slop` over the whole tree, `check:docs`), the complete Bun test inventory, the Python CI tests, ShellCheck over `scripts/ci/*.sh`, and Actionlint over the workflows. Prose-only plans run `check:docs`. |
-| `native` | Rust lint and tests on Linux and Apple Silicon macOS, plus the dataplane's real-helper tests against a built image worker. |
-| `integration` | Dragonfly compatibility, the hermetic account flows, calibrated carrier rebind, and handshake reorder against a real edge and daemon. |
-| `transport` | Two isolated runners partition the complete functional transport inventory at test level, each using one browser worker. |
+| `native` | `rust:lint` and `rust:test` on Linux and Apple Silicon macOS, each on its own runner. `rust:test` builds the image worker, then compiles every workspace test once, so the dataplane's real-helper tests reuse that build. |
+| `integration` | Three runners: Dragonfly compatibility with the hermetic account flows, calibrated carrier rebind, and handshake reorder, each against a real edge and daemon. |
+| `transport` | Six isolated runners partition the complete functional transport inventory at test level, each using one browser worker. |
 
 Browser checks on Linux run under a virtual X display with SwiftShader, so WebGPU rendering
 and pixel assertions are real. Hardware latency benchmarks are not part of CI: shared
@@ -62,7 +62,9 @@ artifact directory; a path or toolchain mismatch fails rather than rebuilding si
 Setup installs LLVM and wasm-pack only for WASM compilation, Chromium and Redis only for browser
 consumers, and restores Rust compilation caches only where Cargo runs. Pinned wasm-pack,
 lockfile-pinned wasm-bindgen, actionlint and downloaded Bun packages have tool/dependency caches.
-Only `main` writes the Rust dependency cache. Accounts, databases, Redis and daemon state are
+Only `main` writes the Rust dependency cache, one per runner and native task. Assurance keys its
+caches by toolchain and lockfile, never by commit, and the deployment build keeps its layer cache
+in the GitHub container registry, so neither evicts the Rust caches from the Actions cache. Accounts, databases, Redis and daemon state are
 always fresh. The interactive TUI test compiles its PTY driver in a separate preparation
 fixture, then runs the compiler-reported executable against the live daemon. Cold test-profile
 compilation has its own deadline and does not consume the authenticated-session test budget.
@@ -73,14 +75,16 @@ Additional workflows run beside CI:
 | --- | --- | --- |
 | [Build deployment](../.github/workflows/build-deployment.yml) | Push to `main`, manual dispatch | Builds the unsigned server, migrations, and web bundle through the Dockerfile's `artifacts` target with the public build pins. It does not deploy. |
 | [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `bun audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, the `bun.lock` source/spec/license/install-script policy, cargo-vet exact-version review coverage and ten offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
-| [Assurance](../.github/workflows/assurance.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | Parser replay, Kani custody proofs, Loom schedules and negative controls, real-session network simulation, and unprivileged profiling-tool checks. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
+| [Assurance](../.github/workflows/assurance.yml) | Pull requests, each completed `main` CI run (at that run's commit), a daily schedule, manual dispatch | Parser replay, Kani custody proofs, Loom schedules and negative controls, real-session network simulation, and unprivileged profiling-tool checks. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
-| [CodeQL](../.github/workflows/codeql.yml) | Pull requests, pushes to `main`, a weekly schedule, manual dispatch | Code scanning of TypeScript, Rust, the workflows and the Python tooling, with Merkur's models and queries; `Query tests` checks every query against its fixtures. See [static analysis](security.md#static-analysis). |
+| [CodeQL](../.github/workflows/codeql.yml) | Pull requests, each completed `main` CI run (at that run's commit), a weekly schedule, manual dispatch | Code scanning of TypeScript, Rust, the workflows and the Python tooling, with Merkur's models and queries; `Query tests` checks every query against its fixtures. See [static analysis](security.md#static-analysis). |
 | [Dependency updates](../.github/workflows/renovate.yml) | A nightly schedule, a box ticked on the Dependency Dashboard issue, manual dispatch | Renovate proposes dependency, action, image and tool updates as pull requests, which the workflows above then test. See [Dependency updates](#dependency-updates). |
 | [Deploy site](../.github/workflows/deploy-site.yml) | A green CI run of a push to `main`, manual dispatch on `main` | Builds the website through `apps/site/Dockerfile`, serves the result locally, deploys it to its own Railway service, purges the CDN's HTML and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
 
 The assurance aggregate requires successful parser, ownership, bounded-proof, simulation
-and diagnostic-tool jobs. Simulation replays every scenario seed and recorded regression;
+and diagnostic-tool jobs. On `main`, Assurance and CodeQL start when CI finishes, so they
+never hold runner slots CI's browser shards are waiting for; a CI run cancelled by a newer push
+is skipped, since that push's run covers it. Simulation replays every scenario seed and recorded regression;
 scheduled and manual runs also sweep 200 random seeds and retain the scenario log, sweep
 log and failed-seed regression data. A scheduled or manual parser campaign must also succeed. `Assurance required` is listed in the
 checked-in main-protection configuration. Workflow and protection configuration changes

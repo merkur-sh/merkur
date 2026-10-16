@@ -17,6 +17,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     timeout-minutes: 45
+    # The layer cache lives in the registry: the Actions cache is shared with the Rust
+    # dependency caches, and every intermediate stage of this build would evict them.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,6 +29,11 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Require public build pins
         env:
           RELEASE_PIN: ${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
@@ -42,8 +52,8 @@ jobs:
             MERKUR_BUILD_COMMIT=${{ github.sha }}
             MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
             VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY=${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/build-cache:deployment
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/build-cache:deployment,mode=max
       - name: Preserve bundle modes in archive
         run: tar -czf deployment.tar.gz -C deployment .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

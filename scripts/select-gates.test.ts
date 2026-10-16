@@ -191,12 +191,14 @@ test('full verification builds the helper and runs its lane; unit and protocol r
   }
 });
 
-test('the Rust workspace run is one whole-crate cargo selection and nothing else', () => {
+test('the Rust workspace run is one whole-crate cargo selection plus the real-helper lane', () => {
   const plan = rustWorkspacePlan(['merkur-edge', 'merkur-dataplane', 'term-wasm']);
+  expect(plan.builds).toEqual([['bun', 'run', 'build:image-worker']]);
   expect(plan.cargo).toEqual([
     ['cargo', 'test', '--locked', '-p', 'merkur-dataplane', '-p', 'merkur-edge', '-p', 'term-wasm'],
+    REAL_HELPER_LANE,
   ]);
-  expect([...plan.builds, ...plan.preflight, ...plan.static, ...plan.bun]).toEqual([]);
+  expect([...plan.preflight, ...plan.static, ...plan.bun]).toEqual([]);
   expect(() => rustWorkspacePlan([])).toThrow('empty Rust workspace');
 });
 

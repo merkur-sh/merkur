@@ -2,7 +2,11 @@ name: CodeQL
 
 on:
   pull_request:
-  push:
+  # On `main` the analysis starts once CI has finished with the same commit, so its jobs never hold
+  # runner slots the CI shards are queued for.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   # New upstream queries reach an unchanged tree once a week.
   schedule:
@@ -16,15 +20,17 @@ defaults:
   run:
     shell: bash
 
-# Code scanning tracks alerts on `main`, so every push there is analyzed to the end; a pull
-# request's newer push supersedes its older one.
+# Code scanning tracks alerts on `main`, so every commit CI finished there is analyzed to the end;
+# a pull request's newer push supersedes its older one.
 concurrency:
-  group: codeql-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: codeql-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # A cancelled CI run was superseded by a newer push, whose own completion is analyzed.
+    if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
@@ -48,6 +54,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       # CodeQL stores every model pack in `.github/codeql/extensions` in the database and checks
       # each row against the analyzed language's predicates, whatever library the row names. A job
       # installs its own language's pack there and no other.
@@ -64,18 +71,23 @@ jobs:
           build-mode: none
           config-file: ./.github/codeql/codeql-config.yml
           queries: ${{ matrix.queries }}
+      # A run after CI uploads to the commit CI built, not to the branch head it started from.
       - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           category: /language:${{ matrix.language }}
+          ref: ${{ github.event.workflow_run && format('refs/heads/{0}', github.event.workflow_run.head_branch) || '' }}
+          sha: ${{ github.event.workflow_run.head_sha || '' }}
 
   query-tests:
     name: Query tests
+    if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - run: rustup show active-toolchain
       # The same bundle the analysis runs, so the queries compile against the same libraries.
       - id: codeql

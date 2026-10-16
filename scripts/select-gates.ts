@@ -333,19 +333,20 @@ export function verificationPlan(
 /**
  * Every workspace crate's tests and doctests through the cargo lane: one build, then the
  * test binaries side by side. `members` comes from `cargo metadata`, so a new crate joins
- * without an edit here.
+ * without an edit here. The real-helper lane joins the same build: run on its own, its
+ * single-package feature set would recompile the dataplane's whole dependency chain.
  */
 export function rustWorkspacePlan(members: readonly string[]): GatePlan {
   if (members.length === 0) throw new Error('Refusing an empty Rust workspace');
   return assemblePlan({
     files: [],
-    builds: [],
+    builds: ['build:image-worker'],
     tests: [],
     crates: members,
     cargoScripts: [],
     staticGates: [],
     rustLint: false,
-    realHelper: false,
+    realHelper: true,
     clientOracle: false,
     protocol: false,
     audit: false,

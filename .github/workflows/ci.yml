@@ -136,6 +136,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-26.04, macos-15]
+        # Clippy and the test build share no target directory, so they run on separate
+        # runners; each keeps its own dependency cache.
+        task: [rust:lint, rust:test]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -143,13 +146,24 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-merkur
-      - run: bun run rust:lint
-      - run: bun run rust:test
-      - run: bun run build:image-worker
-      - run: 'cargo test --locked -p merkur-dataplane -- --ignored real_helper::'
+        with:
+          cache-key: native-${{ matrix.task == 'rust:lint' && 'lint' || 'test' }}
+      - env:
+          TASK: ${{ matrix.task }}
+        run: bun run "$TASK"
   integration:
     needs: [plan, wasm, browser-native]
     if: needs.plan.outputs.integration == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: auth
+            script: test:e2e
+          - suite: rebind
+            script: test:e2e:rebind
+          - suite: reorder
+            script: test:e2e:transport:reorder
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     env:
@@ -167,23 +181,17 @@ jobs:
         with:
           scope: required
           native: 'true'
-      - run: bun run test:dragonfly
-      - run: xvfb-run -a bun run test:e2e --reporter=line,json --max-failures=1
-        env:
-          PW_E2E_OUTPUT_DIR: test-results/ci-auth
-          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/ci-auth.json
-      - run: xvfb-run -a bun run test:e2e:rebind --reporter=line,json --max-failures=1
-        env:
-          PW_E2E_OUTPUT_DIR: test-results/ci-rebind
-          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/ci-rebind.json
-      - run: xvfb-run -a bun run test:e2e:transport:reorder --reporter=line,json --max-failures=1
-        env:
-          PW_E2E_OUTPUT_DIR: test-results/ci-reorder
-          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/ci-reorder.json
+      - if: matrix.suite == 'auth'
+        run: bun run test:dragonfly
+      - env:
+          SCRIPT: ${{ matrix.script }}
+          PW_E2E_OUTPUT_DIR: test-results/ci-${{ matrix.suite }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/ci-${{ matrix.suite }}.json
+        run: xvfb-run -a bun run "$SCRIPT" --reporter=line,json --max-failures=1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: integration-results-${{ github.run_id }}
+          name: integration-${{ matrix.suite }}-results-${{ github.run_id }}
           overwrite: true
           path: |
             test-results/
@@ -195,7 +203,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     env:
@@ -215,7 +223,7 @@ jobs:
           native: 'true'
       - name: Functional transport shard
         env:
-          SHARD: ${{ matrix.shard }}/2
+          SHARD: ${{ matrix.shard }}/6
           PW_E2E_OUTPUT_DIR: test-results/ci-transport
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/ci-transport.json
         # --functional already enables fullyParallel: Playwright partitions
