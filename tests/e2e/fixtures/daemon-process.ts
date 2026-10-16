@@ -256,16 +256,22 @@ async function killDaemon(proc: DaemonChildProcess): Promise<void> {
 
 /**
  * Every test pays for one daemon stop, so its duration is in the report beside the test's
- * own, with what the daemon logged while it stopped.
+ * own, with what the daemon logged while it stopped. The process exits before its `close`:
+ * that waits for every holder of its output pipes, descendants included.
  */
 function recordDaemonStop(
   testInfo: TestInfo,
   durationMs: number,
+  exitMs: number | null,
   stopLogChunks: readonly string[],
 ): void {
   testInfo.annotations.push({
     type: 'daemon-stop-ms',
     description: String(Math.round(durationMs)),
+  });
+  testInfo.annotations.push({
+    type: 'daemon-stop-exit-ms',
+    description: exitMs === null ? 'none' : String(Math.round(exitMs)),
   });
   testInfo.annotations.push({ type: 'daemon-stop-log', description: stopLogChunks.join('') });
 }
@@ -563,10 +569,15 @@ export const test = base.extend<
         // creates a session. The linked identity and trusted profile stay warm.
         const stopStartedAt = performance.now();
         const stopLogStart = linkedDaemonWorker.logChunks.length;
+        let exitMs: number | null = null;
+        linkedDaemonWorker.process.once('exit', () => {
+          exitMs = performance.now() - stopStartedAt;
+        });
         await killDaemon(linkedDaemonWorker.process);
         recordDaemonStop(
           testInfo,
           performance.now() - stopStartedAt,
+          exitMs,
           linkedDaemonWorker.logChunks.slice(stopLogStart),
         );
       }

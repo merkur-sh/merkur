@@ -657,7 +657,7 @@ def selected_rust_licenses(providers, publisher_inputs, origins, source_packages
     return {'origins': results, 'components': [components[key] for key in sorted(components)]}
 
 
-def validated_compiler_artifacts(specification, compiler, module, namespace, owned, frontend):
+def validated_compiler_artifacts(specification, compiler, module, namespace, owned, frontend, context):
     checker = specification['frontend_checker']
     if not isinstance(checker, dict) or set(checker) != {'bun', 'runner', 'config', 'modules'}:
         raise ValueError('Frontend WASM attribution requires its declared Bun validator')
@@ -684,7 +684,7 @@ def validated_compiler_artifacts(specification, compiler, module, namespace, own
                   'sha256': module.npm.sha256(owned.read(pinned))}
                  for name, (item, pinned, size) in sorted(entries.items())]
     else:
-        facts = module.npm.artifact_facts(specification, compiler, owned)
+        facts = module.npm.artifact_facts(specification, compiler, owned, context)
     with tempfile.TemporaryDirectory() as temporary:
         environment = {'PATH': '', 'HOME': temporary, 'TMPDIR': temporary,
                        'BUN_RUNTIME_TRANSPILER_CACHE_PATH': temporary,
@@ -708,7 +708,8 @@ def zero_application_wasm(specification, compiler, declarations, sources, module
              'rust_attribution_inputs': {}, 'generator_attributions': []}
     if any(specification[name] != value for name, value in empty.items()):
         raise ValueError('Zero application WASM requires exact empty typed producer mappings')
-    artifacts = validated_compiler_artifacts(specification, compiler, module, namespace, owned, frontend)
+    artifacts = validated_compiler_artifacts(specification, compiler, module, namespace, owned, frontend,
+                                         module.pack.load_json(captures['configuration']))
     selection = {name: compiler[name] for name in ('inputs', 'outputs', 'artifacts')} if frontend else compiler
     selected_npm, originals = module.npm.select(selection, declarations, sources)
     source_inputs = specification['zero_source_inputs']
@@ -850,7 +851,7 @@ def collect(specification, wasm_inputs, owned):
     component['source_members'] = generators['authored_sources']
     generators['components'].append(component)
 
-    frontend_facts = validated_compiler_artifacts(specification, compiler, wasm_inputs, namespace, owned, True) if frontend else None
+    frontend_facts = validated_compiler_artifacts(specification, compiler, wasm_inputs, namespace, owned, True, context) if frontend else None
     # Project original frontend fields solely for the common source resolver;
     # the unchanged frontend validator owns the complete five-field inventory.
     selection = {key: compiler[key] for key in ('inputs', 'outputs', 'artifacts')} if frontend else compiler
@@ -882,7 +883,7 @@ def collect(specification, wasm_inputs, owned):
                                              'size': fact['bytes'], 'sha256': fact['sha256']})
     if not selected:
         raise ValueError('Native compiler selected no original WASM package member')
-    artifacts = frontend_facts if frontend else npm.artifact_facts(specification, compiler, owned)
+    artifacts = frontend_facts if frontend else npm.artifact_facts(specification, compiler, owned, context)
     if (not isinstance(specification['rust_attributions'], dict)
             or set(specification['rust_attributions']) != set(captured_origins)):
         raise ValueError('Every selected WASM package requires original compiled Rust attribution and no foreign package mapping')

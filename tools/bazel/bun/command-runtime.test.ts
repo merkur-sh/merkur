@@ -49,6 +49,8 @@ async function fixture() {
           HOME: scratch,
           TEST_TMPDIR: scratch,
           TEST_UNDECLARED_OUTPUTS_DIR: outputs,
+          // The deadline Bazel declares for every test; the runner hands it to Bun.
+          TEST_TIMEOUT: '60',
         },
       },
     );
@@ -162,7 +164,7 @@ test('declared preload survives the shared materializer', () => {
 `,
     );
     const result = await f.execute(['scripts/ordinary.test.ts']);
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.stderr).toContain('1 pass');
     expect(await readFile(path.join(f.outputs, 'bun-junit.xml'), 'utf8')).toContain('<testsuites');
   } finally {

@@ -10,7 +10,8 @@ declare_burst_test(name = "burst_test")
 bun_test(
     name = "burst_controls_test",
     test_files = ["tools/bazel/browser/burst.test.ts"],
-    data = ["burst.ts", "burst.test.ts"],
+    # The factory controls read the rule source they check.
+    data = ["burst.ts", "burst.test.ts", "burst.bzl"],
     bun_config = "//tools/bazel/bun:empty-bunfig.toml",
 )
 

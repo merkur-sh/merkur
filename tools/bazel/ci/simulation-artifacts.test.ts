@@ -283,7 +283,7 @@ for (const name of [
         '--report-file "$report" --temporary-root "$TMPDIR" --output-directory "$archive"',
       );
       expect(String(consumer.run)).toContain(
-        '--ignore_all_rc_files --output_user_root="$BAZEL_OUTPUT_USER_ROOT"',
+        '--ignore_all_rc_files --host_jvm_args=-XX:+ExitOnOutOfMemoryError --output_user_root="$BAZEL_OUTPUT_USER_ROOT"',
       );
       expect(String(consumer.run)).toContain(
         `TMPDIR="\${TMPDIR:?Missing owned Bazel temporary storage}"`,
