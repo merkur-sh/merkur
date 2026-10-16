@@ -171,6 +171,7 @@ const daemonProgram = Effect.scoped(
     );
 
     const runtimeExit = yield* Fiber.await(runtimeFiber);
+    yield* logEffect('info', 'daemon', 'daemon_runtime_stopped', {});
     yield* Fiber.interrupt(shutdownFiber);
 
     if (Exit.isFailure(runtimeExit) && !Cause.hasInterruptsOnly(runtimeExit.cause)) {
@@ -195,6 +196,7 @@ try {
   const exitCode = await Effect.runPromise(
     daemonProgram.pipe(Effect.provide(DaemonHealthServiceLive), Effect.provide(MerkurLoggerLayer)),
   );
+  logger.info('daemon_stopped', { exitCode });
   process.exit(exitCode);
 } catch (error) {
   if (error instanceof DaemonAlreadyRunningError) {
