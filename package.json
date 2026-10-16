@@ -156,7 +156,7 @@
     "test:sim:update-lock": "bun run scripts/sim-tests.ts update-lock",
     "test:ownership": "cargo test --locked --manifest-path tools/ownership-proofs/Cargo.toml",
     "test:ownership:kani": "cargo kani --manifest-path tools/ownership-proofs/Cargo.toml --output-format terse",
-    "setup:shear": "cargo install cargo-shear --locked --version 1.13.2",
+    "setup:shear": "cargo install cargo-shear --locked --version 1.14.0",
     "check:audit": "bun audit && cargo audit --deny yanked",
     "check": "bun run check:types && bun run check:latency-boundaries && bun run check:span-lifetimes && bun run check:span-attributes && bun run check:lint && bun run check:dead && bun run check:ratchet && bun run check:slop && bun run check:protocol && bun run check:docs",
     "verify": "bun run scripts/run-verify.ts",
