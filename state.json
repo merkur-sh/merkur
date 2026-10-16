@@ -313,7 +313,7 @@
       "run": "38954638811",
       "attempt": 1,
       "sequence": 108,
-      "phase": "services",
+      "phase": "published",
       "events": [
         {
           "phase": "signing",
@@ -357,6 +357,10 @@
             "mercury-stun-tntcl": "registry.fly.io/mercury-stun-tntcl@sha256:6d7cd78ee9d35ab0c1b49dc5f3a3850b951cd0397dae86c918eaa0dc57a241e3",
             "railway": "28e64ab7-0d24-4790-af62-67c2347df486"
           }
+        },
+        {
+          "phase": "published",
+          "evidence": {}
         }
       ],
       "configuration": {
