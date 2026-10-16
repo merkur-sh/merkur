@@ -48,7 +48,7 @@ jobs:
           trap 'sha256sum --check test-results/assurance/parser-smoke/production-lock.sha256' EXIT
           python3 tools/bolero/instrumentation_test.py 2>&1 | tee test-results/assurance/parser-smoke/instrumentation.log
           bun run test:fuzz:smoke 2>&1 | tee test-results/assurance/parser-smoke/smoke.log
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: parser-smoke-results-${{ github.run_id }}
@@ -107,7 +107,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target/assurance/negative-controls
         run: bun run test:ownership:negative 2>&1 | tee test-results/assurance/ownership/negative-controls.log
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: ownership-results-${{ github.run_id }}
@@ -148,7 +148,7 @@ jobs:
           sha256sum Cargo.lock > test-results/assurance/bounded-proofs/production-lock.sha256
           trap 'sha256sum --check test-results/assurance/bounded-proofs/production-lock.sha256' EXIT
           bun run test:fuzz:kani 2>&1 | tee test-results/assurance/bounded-proofs/kani.log
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: bounded-proof-results-${{ github.run_id }}
@@ -187,7 +187,7 @@ jobs:
           # A failing seed is recorded here; the artifact carries it to a commit.
           trap 'cp tools/sim/regressions.json test-results/assurance/simulation/' EXIT
           bun run test:sim:sweep 200 2>&1 | tee test-results/assurance/simulation/sweep.log
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: simulation-results-${{ github.run_id }}
@@ -223,7 +223,7 @@ jobs:
           cargo clippy --locked --all-targets --manifest-path tools/edge-kernel-profile/Cargo.toml -- -D warnings 2>&1 | tee test-results/assurance/kernel-tool/clippy.log
           cargo test --locked --all-targets --manifest-path tools/edge-kernel-profile/Cargo.toml 2>&1 | tee test-results/assurance/kernel-tool/layout.log
           python3 scripts/profile-edge-linux_test.py 2>&1 | tee test-results/assurance/kernel-tool/completed-work.log
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: kernel-tool-results-${{ github.run_id }}
@@ -276,7 +276,7 @@ jobs:
           sha256sum Cargo.lock > test-results/assurance/fuzz-campaign/production-lock.sha256
           trap 'sha256sum --check test-results/assurance/fuzz-campaign/production-lock.sha256' EXIT
           bun run test:fuzz:campaign 10000 2>&1 | tee test-results/assurance/fuzz-campaign/campaign.log
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: fuzz-campaign-results-${{ github.run_id }}

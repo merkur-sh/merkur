@@ -86,13 +86,13 @@ jobs:
           # macOS builds the daemon on the runner, including the e2e WebAssembly
           # module the CLI embeds; Linux builds it inside Dockerfile.daemon-release.
           wasm-toolchain: ${{ runner.os == 'macOS' }}
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         if: runner.os == 'Linux'
         with:
           driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
       - name: Build native release and smoke all executables
         run: bash scripts/ci/build-daemon.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-${{ matrix.platform }}
           path: dist/ci-release/*
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
       - name: Build server, web, edge and STUN once
@@ -129,7 +129,7 @@ jobs:
           docker buildx build --load --platform linux/amd64 -f apps/stun/Dockerfile -t merkur-stun:release .
           docker save merkur-stun:release | gzip > dist/ci-release/stun-image.tar.gz
           cp apps/daemon/NOTICES.txt dist/ci-release/NOTICES.txt
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-services
           path: dist/ci-release/*
@@ -167,7 +167,7 @@ jobs:
           scope: required
       - id: state
         run: python3 scripts/ci/release_state.py inspect
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         if: steps.state.outputs.resume == 'false'
         with:
           pattern: release-*

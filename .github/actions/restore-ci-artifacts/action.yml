@@ -10,7 +10,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       with:
         name: ci-${{ inputs.scope }}-wasm-${{ github.run_id }}
         path: ${{ runner.temp }}
@@ -19,7 +19,7 @@ runs:
         python3 scripts/ci/wasm_artifacts.py restore "$RUNNER_TEMP/wasm.tar"
         bun run scripts/check-wasm-artifacts.ts
     - if: inputs.native == 'true'
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       with:
         name: ci-${{ inputs.scope }}-native-${{ github.run_id }}
         path: ${{ runner.temp }}

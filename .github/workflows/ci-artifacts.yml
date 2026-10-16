@@ -40,7 +40,7 @@ jobs:
         run: |
           bun run prepare:e2e-native-artifacts --output="$RUNNER_TEMP/merkur-native"
           tar -cf "$RUNNER_TEMP/native.tar" -C "$RUNNER_TEMP" merkur-native
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-${{ inputs.scope }}-${{ inputs.kind }}-${{ github.run_id }}
           path: ${{ runner.temp }}/${{ inputs.kind }}.tar
