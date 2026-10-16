@@ -3,14 +3,18 @@ import { createHash } from 'node:crypto';
 import {
   accessSync,
   chmodSync,
+  closeSync,
   constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
+  type Stats,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -196,13 +200,12 @@ export async function computeNativeSourceClosure(root: string): Promise<NativeSo
   }
   const entries = files.map((relativePath): NativeSourceClosureEntry => {
     requireSafeRelativePath(relativePath, 'native source');
-    const absolute = path.join(resolvedRoot, relativePath);
-    const metadata = lstatSync(absolute);
-    if (metadata.isSymbolicLink()) {
+    const read = readWithoutFollowing(path.join(resolvedRoot, relativePath), Infinity);
+    if (read === null) {
       throw new Error(`native source closure refuses symbolic links: ${relativePath}`);
     }
+    const { metadata, body } = read;
     if (!metadata.isFile()) throw new Error(`native source is not a file: ${relativePath}`);
-    const body = readFileSync(absolute);
     return {
       path: relativePath,
       kind: 'file',
@@ -413,17 +416,17 @@ async function loadVerifiedPrebuiltManifest(
   if (resolvedManifestPath !== manifestPath) {
     throw new Error('native artifact manifest path must already be fully resolved');
   }
-  const manifestMetadata = lstatSync(resolvedManifestPath);
+  const manifestRead = readWithoutFollowing(resolvedManifestPath, MANIFEST_BYTE_LIMIT);
   if (
-    manifestMetadata.isSymbolicLink() ||
-    !manifestMetadata.isFile() ||
-    manifestMetadata.nlink !== 1 ||
-    manifestMetadata.size <= 0 ||
-    manifestMetadata.size > MANIFEST_BYTE_LIMIT
+    manifestRead === null ||
+    !manifestRead.metadata.isFile() ||
+    manifestRead.metadata.nlink !== 1 ||
+    manifestRead.metadata.size <= 0 ||
+    manifestRead.metadata.size > MANIFEST_BYTE_LIMIT
   ) {
     throw new Error('native artifact manifest has invalid size');
   }
-  const manifestBody = readFileSync(resolvedManifestPath);
+  const manifestBody = manifestRead.body;
   let decoded: unknown;
   try {
     decoded = JSON.parse(manifestBody.toString('utf8'));
@@ -453,13 +456,13 @@ async function loadVerifiedPrebuiltManifest(
     if (resolved !== artifact.path || sourcePaths.has(resolved)) {
       throw new Error(`${name} artifact path is unresolved or reused`);
     }
-    const sourceMetadata = lstatSync(resolved);
-    if (!sourceMetadata.isFile() || sourceMetadata.nlink !== 1) {
+    const read = readWithoutFollowing(resolved, ARTIFACT_BYTE_LIMIT);
+    if (read === null || !read.metadata.isFile() || read.metadata.nlink !== 1) {
       throw new Error(`${name} artifact is not a singly linked regular file`);
     }
     sourcePaths.add(resolved);
     accessSync(resolved, constants.R_OK | constants.X_OK);
-    const body = readFileSync(resolved);
+    const { body } = read;
     if (
       body.byteLength <= 0 ||
       body.byteLength > ARTIFACT_BYTE_LIMIT ||
@@ -667,16 +670,16 @@ function collectArtifact(
 ): NativeArtifactEvidence {
   const absolute = path.resolve(artifactPath);
   const resolved = realpathSync(absolute);
-  const metadata = lstatSync(absolute);
+  const read = resolved === absolute ? readWithoutFollowing(absolute, ARTIFACT_BYTE_LIMIT) : null;
   if (
-    resolved !== absolute ||
-    !metadata.isFile() ||
-    (ownership === 'retained' && metadata.nlink !== 1)
+    read === null ||
+    !read.metadata.isFile() ||
+    (ownership === 'retained' && read.metadata.nlink !== 1)
   ) {
     throw new Error(`native artifact is not a canonical singly linked file: ${absolute}`);
   }
   accessSync(resolved, constants.R_OK | constants.X_OK);
-  const body = readFileSync(resolved);
+  const { body } = read;
   if (body.byteLength <= 0 || body.byteLength > ARTIFACT_BYTE_LIMIT) {
     throw new Error(`native artifact has invalid size: ${resolved}`);
   }
@@ -773,6 +776,32 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]):
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((entry, index) => entry !== wanted[index])) {
     throw new Error(`unexpected ${expected.join('/')} object keys`);
+  }
+}
+
+/**
+ * A file's metadata and bytes through one descriptor, so the type, link count and size checked
+ * are those of the bytes read; `null` when the path itself is a symbolic link. Nonblocking, so a
+ * FIFO planted at the path is opened and refused as not a file rather than waited on. A file
+ * larger than `byteLimit` is not read: its body is empty and its size is in the metadata.
+ */
+function readWithoutFollowing(
+  file: string,
+  byteLimit: number,
+): { readonly metadata: Stats; readonly body: Buffer } | null {
+  let descriptor: number;
+  try {
+    descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ELOOP') return null;
+    throw error;
+  }
+  try {
+    const metadata = fstatSync(descriptor);
+    const readable = metadata.isFile() && metadata.size <= byteLimit;
+    return { metadata, body: readable ? readFileSync(descriptor) : Buffer.alloc(0) };
+  } finally {
+    closeSync(descriptor);
   }
 }
 

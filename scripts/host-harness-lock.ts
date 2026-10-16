@@ -1,5 +1,5 @@
 import { dlopen, FFIType } from 'bun:ffi';
-import { openSync, readFileSync, writeFileSync } from 'node:fs';
+import { constants, ftruncateSync, openSync, readFileSync, writeSync } from 'node:fs';
 
 /**
  * One browser harness per host. The edge harness's latency phase asserts GPU-fenced
@@ -24,11 +24,18 @@ export async function acquireHostHarnessLock(
   label: string,
   lockPath = HOST_HARNESS_LOCK,
 ): Promise<void> {
-  const descriptor = openSync(lockPath, 'a+');
+  // The name is fixed and its directory is writable by every user, so a link planted there is
+  // refused rather than followed, and the holder line is read and written through this one
+  // descriptor, never by the name again.
+  const descriptor = openSync(
+    lockPath,
+    constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW,
+    0o644,
+  );
   let announced = false;
   while (libc.symbols.flock(descriptor, LOCK_EX | LOCK_NB) !== 0) {
     if (!announced) {
-      const holder = readFileSync(lockPath, 'utf8').trim();
+      const holder = readFileSync(descriptor, 'utf8').trim();
       process.stderr.write(
         `[harness] waiting for the browser harness this host is running: ${holder}\n`,
       );
@@ -36,5 +43,6 @@ export async function acquireHostHarnessLock(
     }
     await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
   }
-  writeFileSync(lockPath, `pid ${process.pid}: ${label}\n`);
+  ftruncateSync(descriptor, 0);
+  writeSync(descriptor, `pid ${process.pid}: ${label}\n`, 0);
 }
