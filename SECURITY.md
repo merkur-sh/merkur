@@ -40,8 +40,8 @@ delegation.
   command) and a secret the daemon prints as a link or QR code, which reaches the browser without
   passing through the server. The browser verifies the daemon's claim against that secret before
   the user root signs the binding.
-- **Daemon identity is hardware-bound where the host allows it:** Secure Enclave on macOS, TPM on
-  Linux, paired with an ML-DSA-87 key.
+- **Daemon identity is hardware-bound where the host allows it.** Secure Enclave on macOS, TPM
+  on Linux, paired with an ML-DSA-87 key.
 - **Releases are signed by protected CI.** Every daemon artifact is covered by an ML-DSA-87 manifest
   with a monotonic sequence and a durable rollback floor.
 

@@ -553,7 +553,7 @@ test('Clippy is handed every ratcheted lint as a warning, with nothing denied', 
   const command = clippyCommand();
   const flags = command.slice(command.indexOf('--') + 1);
 
-  expect(RATCHETED_LINTS).toHaveLength(14);
+  expect(RATCHETED_LINTS).toHaveLength(16);
   expect(flags).toEqual([
     '--cap-lints',
     'warn',

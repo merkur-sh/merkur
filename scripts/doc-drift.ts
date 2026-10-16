@@ -14,8 +14,9 @@ const ROOT = path.resolve(import.meta.dir, '..');
  * files — removed exports and `pub` items, serde field names under the IPC tree, IPC string
  * keys, environment names, `package.json` script names, changed literal constants, changed
  * script commands, and deleted or renamed paths — then greps the prose set for each as a
- * whole word. Findings are printed, never enforced, unless `--fail` is passed: the Stop hook
- * and the close-the-loop skill surface them for a human to judge.
+ * whole word. `--files a,b` limits the diff to those paths. Findings are printed, never
+ * enforced, unless `--fail` is passed: the Stop hook and the close-the-loop skill surface them
+ * for a human to judge.
  */
 
 export type DriftKind =
@@ -287,9 +288,12 @@ if (import.meta.main) {
   const sinceIndex = argv.indexOf('--since');
   const since = sinceIndex === -1 ? 'HEAD' : (argv[sinceIndex + 1] ?? 'HEAD');
   const fail = argv.includes('--fail');
+  const filesIndex = argv.indexOf('--files');
+  const scope =
+    filesIndex === -1 ? ['.'] : (argv[filesIndex + 1] ?? '').split(',').filter((file) => file);
 
-  const diff = git(['diff', '--unified=0', since, '--', '.', ':!*.md', ':!**/*.md']);
-  const nameStatus = git(['diff', '--name-status', '--diff-filter=DR', since]);
+  const diff = git(['diff', '--unified=0', since, '--', ...scope, ':!*.md', ':!**/*.md']);
+  const nameStatus = git(['diff', '--name-status', '--diff-filter=DR', since, '--', ...scope]);
   const tokens = [...extractDriftTokens(diff), ...extractPathTokens(nameStatus)];
 
   const docs = listProseFiles(ROOT).map((file) => ({

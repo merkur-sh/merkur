@@ -5,11 +5,18 @@ description: Select and batch Merkur's verification gates for a change - which b
 
 # Verifying a change
 
+**CI verifies; this machine runs the narrowest proof** (AGENTS.md Verification). Locally,
+run the one test file or filtered `cargo test` that reproduces the failure and then passes;
+commit, push, and follow the CI run. Tree-wide runs (the static gates, `gates --run`,
+suites, e2e) happen locally only when the owner asks for one. This skill is the reference
+for what each plan and gate proves, how to read `bun run gates`, and how to batch a run the
+owner asked for.
+
 Verification is **batched and selected**, and re-running it is cheap by construction: the
 bun lane skips every test file already green for the exact bytes it reads, so
-`bun run gates --run` twice with no edit between costs seconds the second time. Run it when
-you want an answer. What you should not do is guess at the answer — "I think that passed"
-after a compaction is a re-run, and a re-run is what the cache is for.
+`bun run gates --run` twice with no edit between costs seconds the second time. Do not guess
+at an answer the print-only plan gives: "is this verified?" is `bun run gates`, which runs
+nothing.
 
 Start with `bun run gates`: it reads the working tree (or `--base <ref>`, or
 `--files a,b`), matches every changed path against `RULES` in `scripts/gate-policy.ts`,
@@ -71,7 +78,7 @@ Two limits worth knowing:
 `bun run gates --force`, or `MERKUR_GATE_CACHE=0` for the other entry points, ignores the
 cache entirely.
 
-## Always: run the static gates
+## The static gates
 
 `bun run check:secrets` is a separate, networked scan of staged file contents using the
 pinned TruffleHog binary installed by `bun run setup:hooks` (also part of `bun run setup`).
@@ -81,8 +88,8 @@ See `docs/security.md` for the failure policy and full-history audit command.
 
 Native tsc, Biome over the whole repo, five single-process source scans, the fallow
 ratchet (about a second, its three analyses concurrent), and the anti-slop baseline (Biome
-again, with the rule plugins, over the files whose bytes it has not seen). Never select among
-them, never skip them:
+again, with the rule plugins, over the files whose bytes it has not seen). CI runs all of
+them on every push; a run the owner asks for takes them together, never a selection:
 
 ```
 bun run check:types && bun run check:lint && bun run check:latency-boundaries && bun run check:span-lifetimes && bun run check:span-attributes && bun run check:dead && bun run check:ratchet && bun run check:slop && bun run check:docs
@@ -101,8 +108,12 @@ GritQL plugins, one file each under `tools/biome/slop/`, listed by `biome.slop.j
 script files; `check:lint` does not load them. The comment rules
 (`scripts/comment-rules.ts`, named `comment-…`) read the comments of script files and of
 first-party Rust: the phrases that put off or doubt what the code does ("for now",
-"temporary", "should work", "hopefully"), and `TODO` or `FIXME` in a comment that holds no
-URL. A file or rule the baseline does not name is allowed nothing, so new code meets every
+"temporary", "should work", "hopefully"), the code's history ("used to be", "the previous
+implementation"), guards against an unnamed case ("just in case", "defensively",
+"best-effort"), a `SAFETY:` comment whose whole reason is "safe", and `TODO` or `FIXME` in a
+comment that holds no URL. Biome's own type-aware rules are not among the Biome set:
+`noUnnecessaryConditions` ignores `noUncheckedIndexedAccess` and reports `while (true)`. A
+file or rule the baseline does not name is allowed nothing, so new code meets every
 rule; a count above its entry fails and prints each finding with the rule's message, which
 is the repair instruction. The baseline is never raised: fix the code. A count below its
 entry, or an entry for a deleted file, fails too until `bun run check:slop --tighten` lowers
@@ -110,6 +121,13 @@ it, and `--tighten` refuses to raise or add an entry. A `biome-ignore` comment t
 `lint` as a whole or `lint/plugin` fails as well: no rule is suppressed, while a suppression
 of one built-in rule (`lint/suspicious/noConsole`) is not the gate's business. The pre-commit
 hook runs it with `--staged`, over the files in the index only.
+
+Prose has its own rules (`scripts/prose-rules.ts`: "not X, it's Y" reveals, stock words such
+as `seamless` and `robust`, filler frames, bold labels before a colon), with no baseline:
+`check:docs` holds every first-party Markdown file to them, and the `commit-msg` hook holds
+the commit message to them and refuses an AI attribution trailer
+(`scripts/check-commit-message.ts`). A skill installed from another repository, named in
+`skills-lock.json`, is not read.
 
 A Biome rule sees one file at a time, so the gate keeps each file's Biome findings under the
 file's bytes and the rule set (`test-results/verification/slop-cache.json`;
@@ -135,13 +153,13 @@ never to satisfy `cargo test`, which builds its own.
 
 Process spawns and Cargo freshness checks dominate small runs.
 
-- **One exact inventory with isolated workers**: use the planner's `bun test --parallel=N` (up to eight available CPUs)
-  command. Bun gives each file a fresh global/module registry inside a worker process,
+- Use the planner's one exact `bun test --parallel=N` inventory (up to eight available CPUs),
+  with isolated workers. Bun gives each file a fresh global/module registry inside a worker process,
   including module-mocking tests. Do not reintroduce directory filters: they can match
   generated copies elsewhere in the tree. The executor adds `--timings`: per-file durations
   from earlier runs (`test-results/verification/test-timings.json`, each run's update
   published by rename) make Bun start the slowest files first. They change only the order.
-- **One Cargo build, package-specific execution**: the executor builds all selected packages
+- The executor builds all selected packages once
   with `cargo test --no-run --message-format=json`, reads the emitted executable paths and
   runs each package’s binaries with its own filters and working directory, four binaries at
   a time; a failing binary's output is printed whole when it finishes. Library doctests
@@ -149,11 +167,11 @@ Process spawns and Cargo freshness checks dominate small runs.
   several filters after `--`:
   `cargo test -p merkur-dataplane --locked -- session::rebind_flow::tests network::peer::tests`.
   Multiple crates share an invocation too: `cargo test -p merkur-e2e -p merkur-edge`.
-- **Never `rust:check` with `rust:lint`**: Clippy `--all-targets` is a strict superset and
+- Never run `rust:check` with `rust:lint`: Clippy `--all-targets` is a strict superset and
   uses different metadata, so running both compiles the workspace twice.
-- **Never `check` plus one of its members**, or `verify` plus `check`.
-- **Cargo serializes on the target-dir lock**: never two Cargo commands on `target/rust` at
-  once. `rust:lint` keeps its own `target/clippy`, so the cargo lane runs Clippy and
+- Never run `check` plus one of its members, or `verify` plus `check`.
+- Cargo serializes on the target-dir lock, so never run two Cargo commands on `target/rust`
+  at once. `rust:lint` keeps its own `target/clippy`, so the cargo lane runs Clippy and
   `rust:deps` beside the test build rather than ahead of it. Cargo and `bun test` overlap too.
 
 The hooks in `.claude/settings.json` / `.codex/hooks.json` refuse the three redundant
@@ -186,7 +204,8 @@ these grow by an order of magnitude, which is the whole reason selection matters
 | `check:dead` | `check:files` reachability + `fallow` unused exports/types | <1 s |
 | `check:ratchet` | dead code, clones and hotspots the diff introduces; hotspot ceilings; its three fallow analyses run concurrently | ~1 s (2026-10-03) |
 | `check:slop` | anti-slop findings per file and rule against `lint-baselines/anti-slop.json`; Biome with the GritQL rule plugins, over the script files whose bytes are new, and the comment rules over script and Rust files | <1 s; ~16 s when every file is linted (2026-10-05) |
-| `check:docs` | prose paths, links, pinned facts, config/e2e/workspace parity, harness shape | <1 s || `check:protocol` | wire/IPC/route suites, WASM provenance, Rust suites (needs Cargo) | no wall-clock retention wait |
+| `check:docs` | prose paths, links, pinned facts, config/e2e/workspace parity, harness shape | <1 s |
+| `check:protocol` | wire/IPC/route suites, WASM provenance, Rust suites (needs Cargo) | no wall-clock retention wait |
 | `check` | the nine static gates plus `check:protocol` | no wall-clock retention wait |
 | `test:unit` | complete source inventory, up to eight isolated workers | ~10 s uncached (2026-10-03) |
 | `check:audit` | Bun and Cargo dependency advisories and yanked Rust releases; install cargo-audit with `setup:audit`; needs network, so it sits in `verify` | network |
@@ -219,7 +238,8 @@ are counted per file and lint against `lint-baselines/clippy.json` on the terms 
 `check:slop`: a file or lint the baseline does not name is allowed nothing, the baseline is
 never raised, and a count that dropped fails until `bun run rust:lint --tighten`. They are
 `cast_possible_truncation`, `cast_sign_loss`, `cast_possible_wrap`, `map_err_ignore`,
-`let_underscore_must_use`, `unwrap_in_result`, `panic` and `too_many_lines` in every
+`let_underscore_must_use`, `unused_result_ok`, `wildcard_enum_match_arm`, `unwrap_in_result`,
+`panic` and `too_many_lines` in every
 first-party file, and the panic lints (`unwrap_used`, `expect_used`, `indexing_slicing`,
 `string_slice`, `get_unwrap`, `unreachable`) in `merkur-codec`, `merkur-fec`, `merkur-e2e`,
 `apps/stun` and `apps/edge`. Vendored `packages/*-patch` crates carry no ratcheted lint.
@@ -241,8 +261,8 @@ binaries use, is unchanged.
 
 ## What the cheap gates cannot tell you
 
-- **`check` and `test:unit` can both pass green while sessions are completely broken**:
-  neither exercises real daemon-to-dataplane IPC or a real edge splice.
+- `check` and `test:unit` can both pass green while sessions are completely broken,
+  because neither exercises real daemon-to-dataplane IPC or a real edge splice.
   `test:e2e:transport` is the only gate that does; run it after any IPC, framing,
   transport, or daemon-config change, not just before a release. `test:e2e:latency` is
   the fast single-spec variant; `:impaired` runs the `typical` network profile with 3%

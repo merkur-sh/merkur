@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 /**
@@ -108,6 +109,22 @@ export function hasCodegraphIndex(
   exists: (candidate: string) => boolean = existsSync,
 ): boolean {
   return exists(path.join(root, CODEGRAPH_DB_RELATIVE));
+}
+
+const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Where the hooks keep one kind of per-session state (`approved-plans`, `edited-files`):
+ * one file per session id under `os.tmpdir()`, which a reboot clears. `null` for an id that is
+ * not a safe file name.
+ */
+export function sessionStatePath(
+  kind: string,
+  sessionId: string,
+  tmpdir: string = os.tmpdir(),
+): string | null {
+  if (!SESSION_ID.test(sessionId)) return null;
+  return path.join(tmpdir, 'merkur-agent-hooks', kind, sessionId);
 }
 
 /** Claude Code exports `CLAUDE_PROJECT_DIR` to every hook; Codex exports nothing of the kind. */

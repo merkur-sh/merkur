@@ -1578,7 +1578,7 @@ unconditional replay in every cell, leaves p90 unchanged, and applies every clea
 
 The ignored statistical companion pools 1,536 keys per cell over 64 paired loss seeds. The trade
 is explicit at the unprotected first loss: an isolated solo key can pay a whole extra RTT that the
-unconditional arm does not. That tail is not hidden as a win; it is the price of avoiding a
+unconditional arm does not. That tail is the price of avoiding a
 permanent 2x clean scalar wire tax before the carrier supplies loss evidence. Exact-fault tests
 separately prove FEC reconstruction, loss of both a scalar data copy and its replica, clean-probe
 demotion, physical queue accounting, and rejection of stale scalar repair.

@@ -11,6 +11,7 @@ import {
   findLayoutViolations,
   findLinkViolations,
   findPathViolations,
+  findProseViolations,
   findScriptViolations,
   findWorkspaceViolations,
   headingSlugs,
@@ -21,6 +22,7 @@ import {
   pathCandidate,
   proseLines,
   rulePaths,
+  vendoredSkillsOf,
 } from './check-docs';
 
 const existsIn =
@@ -486,4 +488,38 @@ test('reference prose is undated outside inline code and fenced blocks', () => {
     'docs/edge-profile-2026-09-13.md:1 edge-profile-2026-09-13.md',
     'docs/transport.md:2 2026-09-08',
   ]);
+});
+
+test('first-party prose is held to the prose rules; a vendored skill and inline code are not', () => {
+  const docs = [
+    {
+      file: 'docs/transport.md',
+      source: [
+        'The relay is seamless and robust.',
+        "It's not a cache, it's a log.",
+        'The ratchet is not just a gate.',
+        '- **Owner**: the daemon.',
+        '- **Owner.** The daemon holds the key.',
+        'The password unlocks the account root, and `seamless` in code is not prose.',
+        '```',
+        'leverage the fence',
+        '```',
+      ].join('\n'),
+    },
+    { file: '.claude/skills/animate/SKILL.md', source: 'A seamless, comprehensive motion.\n' },
+    { file: '.claude/skills/verify/SKILL.md', source: 'It is worth noting the cache.\n' },
+  ];
+  expect(
+    findProseViolations(docs, vendoredSkillsOf('{"version":1,"skills":{"animate":{}}}')).map(
+      (v) => `${v.file}:${v.line} ${v.detail}`,
+    ),
+  ).toEqual([
+    '.claude/skills/verify/SKILL.md:1 filler: It is worth noting',
+    'docs/transport.md:1 stock-word: robust',
+    'docs/transport.md:1 stock-word: seamless',
+    "docs/transport.md:2 not-x-but-y: It's not a cache, it's",
+    'docs/transport.md:3 not-x-but-y: is not just',
+    'docs/transport.md:4 bold-label: - **Owner**:',
+  ]);
+  expect(vendoredSkillsOf(undefined).size).toBe(0);
 });

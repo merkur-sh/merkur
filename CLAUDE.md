@@ -2,18 +2,12 @@
 
 ## Claude Code only
 
-- CodeGraph is the MCP tool `mcp__codegraph__codegraph_explore`; if it is listed but
-  deferred, load it with ToolSearch before the first lookup. In a worktree, pass its path
-  as `projectPath` once it has its own index (`codegraph init .`; a nested worktree
-  without one resolves to the primary's). The shell form keeps no session state, so it
-  tracks neither what it sent nor the call budget.
-- Query CodeGraph yourself, in plan mode too; never hand a code lookup to a subagent.
-  Explore's saving is the current, `Edit`-safe source it leaves in the caller's context,
-  under that session's call budget. A subagent spends its own budget, its copy is thrown
-  away with its context, and its paraphrase sends you back for the same source before an
-  edit. Explore and Plan also skip CLAUDE.md, so they grep and the hook denies it. Fan out
-  only a large audit or migration whose units share little code, one unit per
-  general-purpose subagent, and check each report's evidence before accepting it.
+- In a worktree, pass its path to `codegraph_explore` as `projectPath` (the SessionStart
+  hook builds its index); a nested worktree without one resolves to the primary's.
+- Never hand a code lookup to a subagent, in plan mode too: its explore copy dies with its
+  context, and Explore and Plan skip CLAUDE.md, so they grep and the hook denies it. Fan
+  out only a large audit or migration whose units share little code, one unit per
+  general-purpose subagent, and check each report's evidence.
 - `.claude/rules/*.md` load by their `paths:`; skills load by description. Run `/context`
   to confirm what loaded.
 - Bypass mode suggests reading files with `cat`/`sed` and editing with `sed`, heredocs or
@@ -29,8 +23,8 @@
   the next step without taking it, no offer to continue, no list of options that do not
   block the work. Put a status note in the same message as the next action; stop only for
   the scope, access, approval or destructive-action blockers AGENTS.md names.
-- Wait on builds, CI and harnesses with `run_in_background` or Monitor, never `sleep`,
-  and follow them to the end rather than ending the turn.
+- Wait on CI and any run the owner asked for with `run_in_background` or Monitor, never
+  `sleep`, and follow it to the end rather than ending the turn.
 - For a Codex second opinion: `codex exec -s read-only -C <repo> --ephemeral --color never
   -o <scratchpad>/answer.md - < <scratchpad>/brief`. Codex reads AGENTS.md itself, so the
   brief holds only the question, the evidence and the allowed paths. The owner's own Codex

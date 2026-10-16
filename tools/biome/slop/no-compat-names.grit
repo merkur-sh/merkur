@@ -1,0 +1,57 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A name with a word in it that marks a second version or a bridge to an old one: `legacy`,
+// `compat`, `compatible`, `compatibility`, `shim`, `deprecated`, or `v` and a number (`v2`). A
+// word is a segment of the name in any of its spellings: `legacyConfig`, `readLegacyConfig`,
+// `LegacyConfig`, `legacy_config`, `LEGACY_CONFIG`, `configV2`. A word that only starts the same
+// way (`shimmer`, `legacyish`) is another word. `v4`, `v6` and `v8` are left alone, because here
+// they name IP versions and the V8 engine, and so is `uuidV7`.
+//
+// `fallback` is not in the list: on this tree most such names are a default value (`fallback:
+// number`) or a platform's own field (`isFallbackAdapter`), not a second path.
+//
+// The names covered are those of the shape rule: bindings, references, property and member keys,
+// type names, labels, import and export names. A name read off another value with a dot
+// (`config.legacy`) is exempt, and JSX attribute names are not read, because the reader does not
+// get to choose either.
+
+or {
+  JsIdentifierBinding(),
+  JsIdentifierAssignment(),
+  JsReferenceIdentifier(),
+  JsLiteralMemberName(),
+  JsLiteralExportName(),
+  JsPrivateClassMemberName(),
+  JsLabel(),
+  TsIdentifierBinding(),
+  TsTypeParameterName(),
+  TsLiteralEnumMemberName(),
+  JsxReferenceIdentifier(),
+  JsName(),
+  JsPrivateName()
+} as $name where {
+  or {
+    $name <: r"(?s)(?:.*[_$0-9a-z])?(?:Legacy|Compat|Compatible|Compatibility|Shim|Deprecated|V(?:[0-9]{2,}|[123579]))(?:[A-Z0-9_$].*)?",
+    $name <: r"(?s)(?:.*_)?(?:legacy|compat|compatible|compatibility|shim|deprecated|v(?:[0-9]{2,}|[123579]))(?:[A-Z0-9_$].*)?",
+    $name <: r"(?s)(?:.*_)?(?:LEGACY|COMPAT|COMPATIBLE|COMPATIBILITY|SHIM|DEPRECATED|V(?:[0-9]{2,}|[123579]))(?:_.*)?"
+  },
+  ! $name <: r"(?s).*[Uu][Uu][Ii][Dd][Vv][0-9].*",
+  or {
+    ! $name <: or {
+      JsName(),
+      JsPrivateName()
+    },
+    ! $name <: within or {
+      JsStaticMemberExpression(member=$name),
+      JsStaticMemberAssignment(member=$name)
+    }
+  },
+  register_diagnostic(span=$name, message=join(list=[
+    "[no-compat-names] `",
+
+    $name,
+
+    "` names a second version or a bridge to an old one. There is one version of Merkur: change every side of the contract and delete the old path, then name what is left for what it is.",
+  ], separator=""), severity="error")
+}

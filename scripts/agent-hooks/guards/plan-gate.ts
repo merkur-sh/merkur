@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { GuardContext, GuardDecision, HookInput } from '../hook-io';
+import {
+  type GuardContext,
+  type GuardDecision,
+  type HookInput,
+  sessionStatePath,
+} from '../hook-io';
 
 /**
  * The plan-mode rule for the trust-boundary trees, mechanised.
@@ -27,7 +32,6 @@ export const PLAN_GATED_TREES: readonly string[] = [
 
 const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit']);
 const PLAN_APPROVAL_TOOL = 'ExitPlanMode';
-const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 /** The gated tree a file lives under, or `null` when it is outside every gated tree. */
 export function planGatedTreeOf(file: string, ctx: GuardContext): string | null {
@@ -42,8 +46,7 @@ export function planGatedTreeOf(file: string, ctx: GuardContext): string | null 
 
 /** Where a session's approval marker lives; `null` for an id that is not a safe file name. */
 export function planMarkerPath(sessionId: string, tmpdir: string = os.tmpdir()): string | null {
-  if (!SESSION_ID.test(sessionId)) return null;
-  return path.join(tmpdir, 'merkur-agent-hooks', 'approved-plans', sessionId);
+  return sessionStatePath('approved-plans', sessionId, tmpdir);
 }
 
 export function isPlanApproval(input: HookInput): boolean {

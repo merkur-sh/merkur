@@ -1,0 +1,108 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// An error dropped where it is caught, with nothing in its place:
+//   - a `catch` whose block holds nothing, or only `return;`, `return undefined;`, `return null;`
+//     or `return void 0;`, comments or not;
+//   - a promise `.catch(…)` whose one handler does nothing or gives back `undefined`, `null` or
+//     `void 0`;
+//   - `Effect.ignore` and `Effect.ignoreCause`, unless called with options whose `log` is set and
+//     not `false`;
+//   - `Effect.catch`, `Effect.catchCause`, `Effect.catchIf`, `Effect.catchTag`
+//     and `Effect.orElseSucceed` whose last argument is a handler that gives
+//     back `Effect.void`, an `Effect.succeed` of nothing, or nothing.
+//
+// What GritQL cannot see: a handler named elsewhere (`.catch(noop)`), a `catch` that returns a
+// stand-in value (`return []`), and an `Effect` module imported under another name.
+
+pattern nothing() {
+  or {
+    `undefined`,
+    `null`,
+    `void 0`
+  }
+}
+
+pattern effect_nothing() {
+  or {
+    `Effect.void`,
+    `Effect.succeed()`,
+    `Effect.succeed(undefined)`,
+    `Effect.succeed(null)`,
+    `Effect.succeed(void 0)`
+  }
+}
+
+pattern gives_back($value) {
+  or {
+    JsArrowFunctionExpression(body=$value),
+    JsArrowFunctionExpression(body=JsFunctionBody(statements=[JsReturnStatement(argument=$value)])),
+    JsFunctionExpression(body=JsFunctionBody(statements=[JsReturnStatement(argument=$value)]))
+  }
+}
+
+pattern does_nothing() {
+  or {
+    JsArrowFunctionExpression(body=JsFunctionBody(statements=[])),
+    JsFunctionExpression(body=JsFunctionBody(statements=[])),
+    gives_back(value=nothing())
+  }
+}
+
+pattern swallows_effect() {
+  or {
+    gives_back(value=effect_nothing()),
+    JsArrowFunctionExpression(body=JsFunctionBody(statements=[])),
+    JsFunctionExpression(body=JsFunctionBody(statements=[]))
+  }
+}
+
+or {
+  JsCatchClause(body=JsBlockStatement(statements=$statements)) as $catch where {
+    $statements <: or {
+      [],
+      [`return;`],
+      [JsReturnStatement(argument=nothing())]
+    },
+    register_diagnostic(span=$catch, message="[no-swallowed-error] This drops the error and carries on as if nothing failed. Handle the case you expect by name (narrow the error and rethrow the rest), let it propagate, or fail with a typed error.", severity="error")
+  },
+  JsCallExpression(callee=JsStaticMemberExpression(object=$owner, member="catch"), arguments=JsCallArguments(args=[
+    $handler
+  ])) as $call where {
+    ! $owner <: `Effect`,
+    $handler <: does_nothing(),
+    register_diagnostic(span=$call, message="[no-swallowed-error] This drops the error and carries on as if nothing failed. Handle the case you expect by name (narrow the error and rethrow the rest), let it propagate, or fail with a typed error.", severity="error")
+  },
+  JsStaticMemberExpression(object=JsIdentifierExpression() as $module, member=$member) as $ignore where {
+    $module <: "Effect",
+    $member <: or {
+      "ignore",
+      "ignoreCause"
+    },
+    ! $ignore <: within JsCallExpression(callee=$callee, arguments=$arguments) where {
+      $callee <: $ignore,
+      $arguments <: contains JsPropertyObjectMember(name=$key, value=$value) where {
+        $key <: "log",
+        ! $value <: `false`
+      }
+    } ,
+    register_diagnostic(span=$ignore, message="[no-swallowed-error] This drops the error and carries on as if nothing failed. Handle the case you expect by name (narrow the error and rethrow the rest), let it propagate, or fail with a typed error.", severity="error")
+  },
+  JsCallExpression(callee=JsStaticMemberExpression(object=JsIdentifierExpression() as $module, member=$member), arguments=JsCallArguments(args=[
+    ..., $handler
+  ])) as $call where {
+    $module <: "Effect",
+    $member <: or {
+      "catch",
+      "catchCause",
+      "catchIf",
+      "catchTag",
+      "orElseSucceed"
+    },
+    or {
+      $handler <: swallows_effect(),
+      and { $member <: "orElseSucceed", $handler <: does_nothing() }
+    },
+    register_diagnostic(span=$call, message="[no-swallowed-error] This drops the error and carries on as if nothing failed. Handle the case you expect by name (narrow the error and rethrow the rest), let it propagate, or fail with a typed error.", severity="error")
+  }
+}

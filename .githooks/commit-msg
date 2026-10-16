@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+# core.hooksPath is shared by every worktree; a branch that predates the check has no script.
+if [ -f scripts/check-commit-message.ts ]; then
+  exec bun run scripts/check-commit-message.ts "$1"
+fi

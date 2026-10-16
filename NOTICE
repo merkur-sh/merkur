@@ -14,8 +14,10 @@ and records Merkur's modification in its README.
 
 The lint rules under tools/biome/slop restate the rules of the anti-slop
 Oxlint plugin (https://github.com/dmmulroy/anti-slop, MIT, commit
-c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b) as Biome GritQL plugins, and
-tools/biome/slop/cases.json is taken from its tests.
+c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b) as Biome GritQL plugins, and the
+cases of those rules in tools/biome/slop/cases.json are taken from its tests.
+no-compat-names, no-literal-timer-delay, no-skipped-tests, no-swallowed-error
+and no-weak-assertion, and their cases, are Merkur's own.
 tools/biome/slop/LICENSE-anti-slop holds its license. They are development
 tools; no shipped artifact contains them.
 

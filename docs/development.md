@@ -48,7 +48,9 @@ or service is unavailable.
 Existing checkouts can run `bun run setup:hooks` alone to install the hook; `bun run
 check:secrets` scans staged files on demand. The hook reads staged bytes, including partial
 staging and `git commit -a`, and blocks a commit on findings or scanner errors. See the
-[secret-scanning policy](../docs/security.md#repository-secret-scanning).
+[secret-scanning policy](../docs/security.md#repository-secret-scanning). The same hooks
+path runs `.githooks/commit-msg`, which refuses a commit message with an AI attribution
+trailer or one of the phrasings of `scripts/prose-rules.ts`.
 
 ## Running the stack
 

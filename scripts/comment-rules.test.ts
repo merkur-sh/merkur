@@ -163,6 +163,71 @@ test('each rule matches its words whole, the first four in any letter case', () 
   ]);
 });
 
+test('a comment that recounts the code history is provenance; runtime history is not', () => {
+  const source = [
+    '// The three used to be three passes over the same cells.',
+    '// Previously the cache was keyed by path. Previously, too, it leaked.',
+    '/*',
+    ' * Previously-sent frames are kept; the previously authenticated object resumes.',
+    ' */',
+    '// The previous implementation opened both protocols; the old API read text.',
+    '// Refactored for compatibility and backwards-compatible with backward compat callers.',
+    '// The old value is replaced by the new one; the peer is no longer reachable.',
+    '',
+  ].join('\n');
+
+  expect(found('src/lib.rs', source)).toEqual([
+    '1:14 comment-provenance',
+    '2:4 comment-provenance',
+    '2:44 comment-provenance',
+    '4:4 comment-provenance',
+    '6:8 comment-provenance',
+    '6:59 comment-provenance',
+    '7:4 comment-provenance',
+    '7:15 comment-provenance',
+    '7:37 comment-provenance',
+    '7:63 comment-provenance',
+  ]);
+});
+
+test('a guard against an unnamed case is defensive', () => {
+  const source = [
+    '// Clamp the lengths just in case; to be safe, and to be on the safe side, check again.',
+    '// Lengths are clamped defensively. Teardown is best-effort, cleanup best effort.',
+    '// A defensive caller and a safe value are other words.',
+    '',
+  ].join('\n');
+
+  expect(found('src/lib.rs', source)).toEqual([
+    '1:22 comment-defensive',
+    '1:36 comment-defensive',
+    '1:52 comment-defensive',
+    '2:24 comment-defensive',
+    '2:49 comment-defensive',
+    '2:70 comment-defensive',
+  ]);
+});
+
+test('a SAFETY comment whose whole reason is that the code is safe gives none', () => {
+  const source = [
+    '// SAFETY: safe.',
+    '// SAFETY: this is always safe here',
+    '// SAFETY: the cast is correct',
+    '/* SAFETY: OK */',
+    '// SAFETY: safe because the caller decoded it with `Frame.decode`.',
+    '// SAFETY: the caller guarantees 16 readable bytes.',
+    '// SAFETY: valid UTF-8, checked by `from_utf8` above.',
+    '',
+  ].join('\n');
+
+  expect(found('src/lib.rs', source)).toEqual([
+    '1:4 comment-vacuous-safety',
+    '2:4 comment-vacuous-safety',
+    '3:4 comment-vacuous-safety',
+    '4:4 comment-vacuous-safety',
+  ]);
+});
+
 test('an unfinished-work marker is a finding unless its comment holds a URL', () => {
   const source = [
     '// TODO: retry on a closed stream',
@@ -272,6 +337,9 @@ test('every rule is named as a comment rule and carries its repair instruction',
     'comment-temporary',
     'comment-should-work',
     'comment-hopefully',
+    'comment-provenance',
+    'comment-defensive',
+    'comment-vacuous-safety',
     'comment-todo-without-link',
   ]);
 

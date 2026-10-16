@@ -58,12 +58,10 @@ experiments before a performance change, so one is not re-run.
 
 ## Finding Code
 
-`codegraph_explore` (shell: `codegraph explore "<query>"`) comes before grep or Read. Ask
-the question, name the symbols of a flow, or name a file; its source is safe to `Edit`
-from, so never re-verify it with grep. Read only what it missed or its "edited since the
-last index sync" banner lists. A hook denies grep/cat/sed over source and refuses the whole
-command line, so search prose and config in separate commands. Never delegate a lookup. In
-a worktree run `codegraph init .`, then pass its path as `projectPath`.
+Code lookups go through CodeGraph (`codegraph explore "<question, symbols or file>"`, or
+the `codegraph_explore` MCP tool); its source is safe to `Edit` from. A hook denies
+grep/cat/sed over source and refuses the whole command line, so search prose and config in
+separate commands.
 
 ## Single Version, Hard Cutover
 
@@ -137,26 +135,24 @@ repo root with `bun run --cwd <dir> <script>`, never `cd <package> && bunx`.
 
 ## Verification
 
-`bun run gates` selects exact tests (changed tests, owning suites, workspace consumers);
-`--run` executes them, skipping tests already green for the bytes they read, so a re-run
-costs seconds. Do not chase failures provably outside the change.
-The nine static gates are cheap and always run:
+CI verifies; this machine runs the narrowest proof. Several sessions and Docker workloads
+share it, so tree-wide runs (the static gates, `bun run gates --run`, `check`, test
+suites, e2e, long Docker runs) happen locally only when the owner asks for one. Locally,
+run the one test file or `cargo test -p <crate> <filter>` that reproduces the failure and
+then passes. The pre-commit hook checks the staged files (secrets, ratchet, anti-slop);
+never bypass it. Then commit, push, and follow the CI run (`gh run watch`) to its end; a
+red run your change caused is fixed in the next commit. Do not chase failures provably
+outside the change.
 
-```
-bun run check:types && bun run check:lint && bun run check:latency-boundaries && bun run check:span-lifetimes && bun run check:span-attributes && bun run check:dead && bun run check:ratchet && bun run check:slop && bun run check:docs
-```
-
-Then `bun run gates` prints the batched commands your diff implicates (`--all` adds the
-minutes-long suites); the `verify` skill explains its table, batching, warm costs, and
-what the cheap gates cannot prove.
-`check:protocol` then `test:e2e:transport` gate every protocol, channel-ID, IPC, framing,
-or crypto change; `check` and `test:unit` can both pass while sessions are broken.
-
-- Prose and licence changes need only `check:docs`; questions and analyses run no gates.
-- "Skip verification" skips `gates --run` and e2e for that request; the static gates
-  (seconds) still run. Report what was skipped.
-- A static gate red on committed `main` that you can fix in minutes, fix; one red from
-  another session's uncommitted work, name once.
+- `bun run gates` (print-only, seconds) names the suites a diff implicates and which are
+  already green; the `verify` skill explains its table and what each suite proves.
+- A protocol, channel-ID, IPC, framing or crypto change also runs `check:protocol`
+  locally; CI's `test:e2e:transport` shards prove the sessions, which `check` and
+  `test:unit` cannot.
+- Prose and licence changes need only `check:docs`; questions and analyses run nothing.
+- "Skip verification" skips the local proof too. Report what was skipped.
+- A gate red on committed `main` that you can fix in minutes, fix; one red from another
+  session's uncommitted work, name once.
 
 ## Close The Loop
 

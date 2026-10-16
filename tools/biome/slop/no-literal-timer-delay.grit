@@ -1,0 +1,93 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A wait whose length is written in place: a number other than `0`, a string (`'100 millis'`),
+// a template, or a `Duration.<unit>(…)` of a number, passed as
+//   - the second argument of `setTimeout` or `setInterval`, global or read off `globalThis`,
+//     `window` or `self`;
+//   - any argument of `Bun.sleep`, `Bun.sleepSync`, `Effect.sleep`, `Effect.delay`,
+//     `Effect.timeout`, `Effect.timeoutOption`, `Schedule.spaced`, `Schedule.fixed`,
+//     `Schedule.exponential`, `Schedule.windowed` or `Schedule.duration`.
+//
+// A named constant passes: its name says what the wait is for, which is the point. What GritQL
+// cannot see: a literal bound to a local first (`const ms = 100; setTimeout(f, ms)`), and a
+// module imported under another name.
+
+pattern literal_delay() {
+  or {
+    JsNumberLiteralExpression() as $number where { ! $number <: `0` },
+    JsStringLiteralExpression(),
+    JsTemplateExpression(),
+    JsCallExpression(callee=JsStaticMemberExpression(object=JsIdentifierExpression() as $duration), arguments=JsCallArguments(args=[
+      JsNumberLiteralExpression()
+    ])) where { $duration <: "Duration" }
+  }
+}
+
+pattern timer_callee() {
+  or {
+    JsIdentifierExpression() as $timer where {
+      $timer <: or {
+        "setTimeout",
+        "setInterval"
+      }
+    },
+    JsStaticMemberExpression(object=JsIdentifierExpression() as $global, member=$timer) where {
+      $global <: or {
+        "globalThis",
+        "window",
+        "self"
+      },
+      $timer <: or {
+        "setTimeout",
+        "setInterval"
+      }
+    }
+  }
+}
+
+pattern wait_callee() {
+  JsStaticMemberExpression(object=JsIdentifierExpression() as $module, member=$method) where {
+    or {
+      and {
+        $module <: "Bun",
+        $method <: or {
+          "sleep",
+          "sleepSync"
+        }
+      },
+      and {
+        $module <: "Effect",
+        $method <: or {
+          "sleep",
+          "delay",
+          "timeout",
+          "timeoutOption"
+        }
+      },
+      and {
+        $module <: "Schedule",
+        $method <: or {
+          "spaced",
+          "fixed",
+          "exponential",
+          "windowed",
+          "duration"
+        }
+      }
+    }
+  }
+}
+
+pattern report() {
+  literal_delay() as $delay where {
+    register_diagnostic(span=$delay, message="[no-literal-timer-delay] A wait written as a number is a guess at how long something takes. Wait on the event that says it happened; a wait that is itself the mechanism (a protocol interval, a heartbeat) gets a named constant that says what it is.", severity="error")
+  }
+}
+
+or {
+  JsCallExpression(callee=timer_callee(), arguments=JsCallArguments(args=[$_, report(), ...])),
+  JsCallExpression(callee=wait_callee(), arguments=JsCallArguments(args=$arguments)) where {
+    $arguments <: some report()
+  }
+}

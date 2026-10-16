@@ -1,0 +1,42 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// A test switched off for good: `test.skip`, `it.skip` or `describe.skip` given a name (a string
+// or a template) as its first argument, `test.todo`, `it.todo` or `describe.todo` in any form,
+// `test.skip()` with no arguments, and `xit`, `xtest` or `xdescribe`. The conditional forms are
+// left alone: Playwright's `test.skip(condition, reason)` and Bun's `test.skipIf(condition)`
+// name the fact that makes the test unrunnable.
+//
+// What GritQL cannot see: a test function imported under another name.
+
+pattern runner() {
+  JsIdentifierExpression() as $runner where {
+    $runner <: or {
+      "test",
+      "it",
+      "describe"
+    }
+  }
+}
+
+JsCallExpression(callee=$callee, arguments=JsCallArguments(args=$arguments)) as $call where {
+  or {
+    and {
+      $callee <: JsStaticMemberExpression(object=runner(), member="skip"),
+      $arguments <: or {
+        [],
+        [JsStringLiteralExpression(), ...],
+        [JsTemplateExpression(), ...]
+      }
+    },
+    $callee <: JsStaticMemberExpression(object=runner(), member="todo"),
+    $callee <: JsIdentifierExpression() as $disabled where {
+      $disabled <: or {
+        "xit",
+        "xtest",
+        "xdescribe"
+      }
+    }
+  },
+  register_diagnostic(span=$call, message="[no-skipped-tests] A test switched off for good checks nothing. Fix it, delete it, or gate it on the fact that makes it unrunnable (`test.skipIf(condition)`, Playwright's `test.skip(condition, reason)`).", severity="error")
+}

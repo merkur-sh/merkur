@@ -1,0 +1,36 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+// An assertion that passes for almost any value: `expect(…).toBeDefined()`,
+// `expect(…).not.toBeUndefined()`, `expect(…).toBeTruthy()` and `expect(…).toBeFalsy()`, with or
+// without `await` and `.resolves`/`.rejects` before the matcher.
+//
+// What GritQL cannot see: an `expect` imported under another name.
+
+pattern expectation() {
+  or {
+    `expect($_)`,
+    `expect($_, $_)`,
+    `expect($_).resolves`,
+    `expect($_).rejects`
+  }
+}
+
+JsCallExpression(callee=JsStaticMemberExpression(object=$subject, member=$matcher), arguments=JsCallArguments(args=[
+])) as $assertion where {
+  or {
+    and {
+      $subject <: expectation(),
+      $matcher <: or {
+        "toBeDefined",
+        "toBeTruthy",
+        "toBeFalsy"
+      }
+    },
+    and {
+      $subject <: JsStaticMemberExpression(object=expectation(), member="not"),
+      $matcher <: "toBeUndefined"
+    }
+  },
+  register_diagnostic(span=$assertion, message="[no-weak-assertion] This passes for almost any value. Assert the value itself: `toBe(true)`, `toEqual(expected)`, or narrow it and assert the fields that matter.", severity="error")
+}

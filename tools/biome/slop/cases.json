@@ -143,6 +143,109 @@
       "reported": 1
     }
   ],
+  "no-compat-names": [
+    {
+      "code": "const legacyConfig = 1;",
+      "reported": 1
+    },
+    {
+      "code": "function readLegacyConfig() {}",
+      "reported": 1
+    },
+    {
+      "code": "type LegacyConfig = {};",
+      "reported": 1
+    },
+    {
+      "code": "const legacy_config = 2;",
+      "reported": 1
+    },
+    {
+      "code": "const LEGACY_CONFIG = 3;",
+      "reported": 1
+    },
+    {
+      "code": "const configV2 = 4;",
+      "reported": 1
+    },
+    {
+      "code": "const v2 = 5;",
+      "reported": 1
+    },
+    {
+      "code": "const shimmer = 6;",
+      "reported": 0
+    },
+    {
+      "code": "const legacyish = 7;",
+      "reported": 0
+    },
+    {
+      "code": "const ipv4 = 8;",
+      "reported": 0
+    },
+    {
+      "code": "const isIpV4 = 9;",
+      "reported": 0
+    },
+    {
+      "code": "const uuidV7 = 10;",
+      "reported": 0
+    },
+    {
+      "code": "import v8 from 'node:v8';",
+      "reported": 0
+    },
+    {
+      "code": "const x = config.fallback;",
+      "reported": 0
+    },
+    {
+      "code": "const y = <Show fallback={<p />}>{a}</Show>;",
+      "reported": 0,
+      "filename": "case.tsx"
+    },
+    {
+      "code": "const z = { fallback: 1 };",
+      "reported": 0
+    },
+    {
+      "code": "const fontFallback = 'x';",
+      "reported": 0
+    },
+    {
+      "code": "const isCompatible = true;",
+      "reported": 1
+    },
+    {
+      "code": "const incompatible = false;",
+      "reported": 0
+    },
+    {
+      "code": "const deprecatedField = 1;",
+      "reported": 1
+    },
+    {
+      "code": "const version = 2;",
+      "reported": 0
+    },
+    {
+      "code": "const fallback = 3;",
+      "reported": 0
+    },
+    {
+      "code": "const shim = 4;",
+      "reported": 1
+    },
+    {
+      "code": "const addressV4 = a; const addressV6 = b; const v8Flags = c;",
+      "reported": 0
+    },
+    {
+      "code": "const encoderV3 = 1; const schemaV10 = 2;",
+      "reported": 2
+    }
+  ],
   "no-conditional-empty-object-spread": [
     {
       "code": "const result = { value };",
@@ -427,6 +530,76 @@
     {
       "code": "type User = { readonly id: string }; function isUser(value: unknown): value is User { return true; } function parse(): User { return { id: 'known' }; } const user = parse(); isUser(user);",
       "reported": 1
+    }
+  ],
+  "no-literal-timer-delay": [
+    {
+      "code": "setTimeout(run, 100);",
+      "reported": 1
+    },
+    {
+      "code": "setTimeout(run, 0);",
+      "reported": 0
+    },
+    {
+      "code": "setTimeout(run);",
+      "reported": 0
+    },
+    {
+      "code": "setTimeout(run, RETRY_MS);",
+      "reported": 0
+    },
+    {
+      "code": "globalThis.setInterval(tick, 50);",
+      "reported": 1
+    },
+    {
+      "code": "window.setTimeout(run, 10);",
+      "reported": 1
+    },
+    {
+      "code": "await Bun.sleep(25);",
+      "reported": 1
+    },
+    {
+      "code": "await Bun.sleep(SETTLE_MS);",
+      "reported": 0
+    },
+    {
+      "code": "const a = Effect.sleep('100 millis');",
+      "reported": 1
+    },
+    {
+      "code": "const b = Effect.sleep(Duration.millis(100));",
+      "reported": 1
+    },
+    {
+      "code": "const c = Effect.sleep(HEARTBEAT);",
+      "reported": 0
+    },
+    {
+      "code": "const d = eff.pipe(Effect.timeout('5 seconds'));",
+      "reported": 1
+    },
+    {
+      "code": "const e = Effect.timeout(eff, 5000);",
+      "reported": 1
+    },
+    {
+      "code": "const f = Schedule.spaced(Duration.seconds(1));",
+      "reported": 1
+    },
+    {
+      "code": "const g = Schedule.exponential(`${base} millis`);",
+      "reported": 1
+    },
+    {
+      "code": "const h = other.sleep(10);",
+      "reported": 0
+    },
+    {
+      "code": "const i = setTimeoutLike(run, 10);",
+      "reported": 0
     }
   ],
   "no-manual-effect-error-tag": [
@@ -1026,6 +1199,134 @@
       "reported": 2
     }
   ],
+  "no-skipped-tests": [
+    {
+      "code": "test.skip('name', () => {});",
+      "reported": 1
+    },
+    {
+      "code": "it.skip(`name ${x}`, () => {});",
+      "reported": 1
+    },
+    {
+      "code": "describe.skip('group', () => {});",
+      "reported": 1
+    },
+    {
+      "code": "test.skip();",
+      "reported": 1
+    },
+    {
+      "code": "test.skip(!partitioned, 'needs the proxy');",
+      "reported": 0
+    },
+    {
+      "code": "test.skip(browserName !== 'chromium', 'needs CDP');",
+      "reported": 0
+    },
+    {
+      "code": "test.skipIf(cond)('name', () => {});",
+      "reported": 0
+    },
+    {
+      "code": "test.todo('later');",
+      "reported": 1
+    },
+    {
+      "code": "xit('old', () => {});",
+      "reported": 1
+    },
+    {
+      "code": "test('runs', () => {});",
+      "reported": 0
+    }
+  ],
+  "no-swallowed-error": [
+    {
+      "code": "try { a(); } catch {}",
+      "reported": 1
+    },
+    {
+      "code": "try { a(); } catch (e) { /* why */ }",
+      "reported": 1
+    },
+    {
+      "code": "function f() { try { a(); } catch { return; } }",
+      "reported": 1
+    },
+    {
+      "code": "function f() { try { a(); } catch { return null; } }",
+      "reported": 1
+    },
+    {
+      "code": "function f() { try { a(); } catch { return []; } }",
+      "reported": 0
+    },
+    {
+      "code": "try { a(); } catch (e) { if (!isNotFound(e)) throw e; }",
+      "reported": 0
+    },
+    {
+      "code": "p.catch(() => {});",
+      "reported": 1
+    },
+    {
+      "code": "p.catch(() => undefined);",
+      "reported": 1
+    },
+    {
+      "code": "p.catch(function () {});",
+      "reported": 1
+    },
+    {
+      "code": "p.catch((e) => log(e));",
+      "reported": 0
+    },
+    {
+      "code": "const x = eff.pipe(Effect.ignore);",
+      "reported": 1
+    },
+    {
+      "code": "const y = Effect.ignore(eff);",
+      "reported": 1
+    },
+    {
+      "code": "const z = Effect.ignore(eff, { log: true });",
+      "reported": 0
+    },
+    {
+      "code": "const w = eff.pipe(Effect.ignore({ log: 'Warn' }));",
+      "reported": 0
+    },
+    {
+      "code": "const v = eff.pipe(Effect.ignore({ log: false }));",
+      "reported": 1
+    },
+    {
+      "code": "const u = eff.pipe(Effect.catch(() => Effect.void));",
+      "reported": 1
+    },
+    {
+      "code": "const t = eff.pipe(Effect.catchTag('NotFound', () => Effect.succeed(undefined)));",
+      "reported": 1
+    },
+    {
+      "code": "const s = eff.pipe(Effect.catchTag('NotFound', () => Effect.succeed(0)));",
+      "reported": 0
+    },
+    {
+      "code": "const r = eff.pipe(Effect.orElseSucceed(() => undefined));",
+      "reported": 1
+    },
+    {
+      "code": "const q = eff.pipe(Effect.orElseSucceed(() => 0));",
+      "reported": 0
+    },
+    {
+      "code": "const o = Effect.catch(eff, (e) => { return Effect.void; });",
+      "reported": 1
+    }
+  ],
   "no-unknown-parameters": [
     {
       "code": "function enrich(cause: unknown): void {}",
@@ -1552,6 +1853,48 @@
       "reported": 0,
       "intended": 1,
       "limit": "the lexical scope of a type name"
+    }
+  ],
+  "no-weak-assertion": [
+    {
+      "code": "expect(value).toBeDefined();",
+      "reported": 1
+    },
+    {
+      "code": "expect(value).not.toBeUndefined();",
+      "reported": 1
+    },
+    {
+      "code": "expect(ok).toBeTruthy();",
+      "reported": 1
+    },
+    {
+      "code": "expect(bad).toBeFalsy();",
+      "reported": 1
+    },
+    {
+      "code": "await expect(promise).resolves.toBeDefined();",
+      "reported": 1
+    },
+    {
+      "code": "expect(value, 'msg').toBeTruthy();",
+      "reported": 1
+    },
+    {
+      "code": "expect(value).toBe(true);",
+      "reported": 0
+    },
+    {
+      "code": "expect(value).not.toBeNull();",
+      "reported": 0
+    },
+    {
+      "code": "expect(value).toEqual({ a: 1 });",
+      "reported": 0
+    },
+    {
+      "code": "other(value).toBeDefined();",
+      "reported": 0
     }
   ],
   "no-widen-then-assert": [

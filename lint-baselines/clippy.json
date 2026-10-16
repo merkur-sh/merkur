@@ -28,7 +28,8 @@
       "clippy::cast_possible_truncation": 12,
       "clippy::cast_possible_wrap": 1,
       "clippy::cast_sign_loss": 2,
-      "clippy::too_many_lines": 3
+      "clippy::too_many_lines": 3,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/display/compressor.rs": {
       "clippy::cast_possible_truncation": 15,
@@ -85,7 +86,8 @@
       "clippy::too_many_lines": 28
     },
     "apps/daemon/dataplane/src/display/sim.rs": {
-      "clippy::cast_possible_truncation": 5
+      "clippy::cast_possible_truncation": 5,
+      "clippy::wildcard_enum_match_arm": 2
     },
     "apps/daemon/dataplane/src/display/viewer.rs": {
       "clippy::cast_possible_truncation": 16,
@@ -94,6 +96,9 @@
     },
     "apps/daemon/dataplane/src/display/viewer/closure_tests.rs": {
       "clippy::cast_possible_truncation": 4
+    },
+    "apps/daemon/dataplane/src/display/viewer/presentation.rs": {
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/display/wire/profile.rs": {
       "clippy::cast_possible_truncation": 1,
@@ -109,7 +114,8 @@
       "clippy::cast_sign_loss": 3,
       "clippy::let_underscore_must_use": 5,
       "clippy::map_err_ignore": 8,
-      "clippy::too_many_lines": 2
+      "clippy::too_many_lines": 2,
+      "clippy::wildcard_enum_match_arm": 4
     },
     "apps/daemon/dataplane/src/edge_tunnel_congestion_tests.rs": {
       "clippy::cast_possible_truncation": 1,
@@ -132,7 +138,8 @@
     },
     "apps/daemon/dataplane/src/ipc/events.rs": {
       "clippy::let_underscore_must_use": 4,
-      "clippy::unwrap_in_result": 2
+      "clippy::unwrap_in_result": 2,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/ipc/mod.rs": {
       "clippy::map_err_ignore": 1
@@ -141,7 +148,8 @@
       "clippy::cast_possible_truncation": 2,
       "clippy::let_underscore_must_use": 11,
       "clippy::map_err_ignore": 4,
-      "clippy::too_many_lines": 10
+      "clippy::too_many_lines": 10,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/main_tests/data_handshake_tests.rs": {
       "clippy::too_many_lines": 1
@@ -149,7 +157,11 @@
     "apps/daemon/dataplane/src/main_tests/e2e_dispatch_tests.rs": {
       "clippy::cast_possible_truncation": 2,
       "clippy::too_many_lines": 3,
-      "clippy::unwrap_in_result": 1
+      "clippy::unwrap_in_result": 1,
+      "clippy::wildcard_enum_match_arm": 1
+    },
+    "apps/daemon/dataplane/src/main_tests/resize_order_tests.rs": {
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/main_tests/start_session_edge_config_tests.rs": {
       "clippy::too_many_lines": 4
@@ -184,7 +196,8 @@
     },
     "apps/daemon/dataplane/src/pty/mod.rs": {
       "clippy::let_underscore_must_use": 3,
-      "clippy::too_many_lines": 3
+      "clippy::too_many_lines": 3,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/pty/open_url.rs": {
       "clippy::let_underscore_must_use": 1
@@ -197,13 +210,15 @@
       "clippy::cast_possible_truncation": 11,
       "clippy::cast_possible_wrap": 3,
       "clippy::cast_sign_loss": 1,
-      "clippy::let_underscore_must_use": 2
+      "clippy::let_underscore_must_use": 2,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/pty/terminal/graphics.rs": {
       "clippy::cast_possible_truncation": 13,
       "clippy::cast_possible_wrap": 6,
       "clippy::let_underscore_must_use": 2,
-      "clippy::too_many_lines": 5
+      "clippy::too_many_lines": 5,
+      "clippy::wildcard_enum_match_arm": 5
     },
     "apps/daemon/dataplane/src/pty/terminal/graphics/animation.rs": {
       "clippy::let_underscore_must_use": 2
@@ -214,7 +229,8 @@
       "clippy::map_err_ignore": 2
     },
     "apps/daemon/dataplane/src/pty/terminal/graphics/native/tests.rs": {
-      "clippy::cast_possible_truncation": 1
+      "clippy::cast_possible_truncation": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/pty/terminal/graphics/placeholders.rs": {
       "clippy::cast_possible_truncation": 5,
@@ -276,11 +292,13 @@
       "clippy::cast_sign_loss": 1,
       "clippy::let_underscore_must_use": 6,
       "clippy::map_err_ignore": 1,
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 4
     },
     "apps/daemon/dataplane/src/webtransport/portmap/fixture_tests.rs": {
       "clippy::cast_possible_truncation": 1,
-      "clippy::let_underscore_must_use": 2
+      "clippy::let_underscore_must_use": 2,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/webtransport/portmap/mod.rs": {
       "clippy::cast_possible_truncation": 1,
@@ -299,7 +317,8 @@
       "clippy::let_underscore_must_use": 15
     },
     "apps/daemon/dataplane/src/webtransport/side_channel.rs": {
-      "clippy::cast_possible_truncation": 1
+      "clippy::cast_possible_truncation": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/daemon/dataplane/src/webtransport/stun.rs": {
       "clippy::map_err_ignore": 1,
@@ -392,10 +411,12 @@
       "clippy::indexing_slicing": 3,
       "clippy::let_underscore_must_use": 10,
       "clippy::map_err_ignore": 19,
-      "clippy::too_many_lines": 4
+      "clippy::too_many_lines": 4,
+      "clippy::wildcard_enum_match_arm": 6
     },
     "apps/edge/src/relay_budget_tests.rs": {
-      "clippy::cast_possible_truncation": 3
+      "clippy::cast_possible_truncation": 3,
+      "clippy::wildcard_enum_match_arm": 3
     },
     "apps/edge/src/relay_candidate.rs": {
       "clippy::cast_possible_truncation": 1,
@@ -411,7 +432,8 @@
     },
     "apps/edge/src/relay_finite_tests.rs": {
       "clippy::cast_possible_truncation": 13,
-      "clippy::cast_sign_loss": 8
+      "clippy::cast_sign_loss": 8,
+      "clippy::wildcard_enum_match_arm": 2
     },
     "apps/edge/src/relay_forward_profile.rs": {
       "clippy::cast_possible_truncation": 4
@@ -469,11 +491,13 @@
       "clippy::map_err_ignore": 1
     },
     "apps/tui/src/account_store.rs": {
-      "clippy::map_err_ignore": 20
+      "clippy::map_err_ignore": 20,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/tui/src/chrome.rs": {
       "clippy::cast_possible_truncation": 4,
-      "clippy::cast_sign_loss": 1
+      "clippy::cast_sign_loss": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/tui/src/composer.rs": {
       "clippy::cast_possible_truncation": 3
@@ -481,7 +505,8 @@
     "apps/tui/src/composer/tests.rs": {
       "clippy::cast_possible_truncation": 2,
       "clippy::cast_possible_wrap": 1,
-      "clippy::cast_sign_loss": 1
+      "clippy::cast_sign_loss": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/tui/src/graphics.rs": {
       "clippy::cast_possible_truncation": 12,
@@ -508,14 +533,19 @@
       "clippy::let_underscore_must_use": 1,
       "clippy::too_many_lines": 1
     },
+    "apps/tui/src/host_input.rs": {
+      "clippy::wildcard_enum_match_arm": 1
+    },
     "apps/tui/src/interactive.rs": {
       "clippy::cast_possible_truncation": 5,
       "clippy::cast_sign_loss": 3,
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/tui/src/main.rs": {
       "clippy::let_underscore_must_use": 6,
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/tui/src/password_line.rs": {
       "clippy::cast_possible_truncation": 1,
@@ -523,10 +553,12 @@
     },
     "apps/tui/src/session_view.rs": {
       "clippy::cast_possible_truncation": 3,
-      "clippy::cast_sign_loss": 3
+      "clippy::cast_sign_loss": 3,
+      "clippy::wildcard_enum_match_arm": 2
     },
     "apps/tui/src/session_view/tests.rs": {
-      "clippy::cast_possible_truncation": 7
+      "clippy::cast_possible_truncation": 7,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/tui/src/ui.rs": {
       "clippy::cast_possible_truncation": 4,
@@ -537,12 +569,17 @@
       "clippy::cast_possible_wrap": 2,
       "clippy::cast_sign_loss": 1,
       "clippy::let_underscore_must_use": 9,
-      "clippy::too_many_lines": 3
+      "clippy::too_many_lines": 3,
+      "clippy::wildcard_enum_match_arm": 2
     },
     "apps/tui/src/workspace/management.rs": {
       "clippy::cast_possible_truncation": 4,
       "clippy::map_err_ignore": 1,
-      "clippy::too_many_lines": 2
+      "clippy::too_many_lines": 2,
+      "clippy::wildcard_enum_match_arm": 2
+    },
+    "apps/tui/src/workspace/terminal_ui.rs": {
+      "clippy::wildcard_enum_match_arm": 1
     },
     "apps/tui/tests/interactive_host.rs": {
       "clippy::too_many_lines": 1
@@ -561,7 +598,8 @@
       "clippy::cast_possible_truncation": 8,
       "clippy::cast_sign_loss": 2,
       "clippy::map_err_ignore": 1,
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/e2e-wasm/src/content.rs": {
       "clippy::cast_possible_truncation": 2,
@@ -599,7 +637,8 @@
       "clippy::map_err_ignore": 9
     },
     "packages/merkur-client-native/src/account/devices.rs": {
-      "clippy::map_err_ignore": 3
+      "clippy::map_err_ignore": 3,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-client-native/src/account/management.rs": {
       "clippy::map_err_ignore": 9,
@@ -609,16 +648,24 @@
       "clippy::cast_possible_truncation": 2,
       "clippy::let_underscore_must_use": 3
     },
+    "packages/merkur-client-native/src/carrier/ingress.rs": {
+      "clippy::wildcard_enum_match_arm": 1
+    },
     "packages/merkur-client-native/src/credit.rs": {
       "clippy::cast_possible_truncation": 2
     },
     "packages/merkur-client-native/src/driver.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::let_underscore_must_use": 5,
-      "clippy::too_many_lines": 2
+      "clippy::too_many_lines": 2,
+      "clippy::wildcard_enum_match_arm": 3
     },
     "packages/merkur-client-native/src/driver/command.rs": {
-      "clippy::map_err_ignore": 2
+      "clippy::map_err_ignore": 2,
+      "clippy::wildcard_enum_match_arm": 2
+    },
+    "packages/merkur-client-native/src/driver/output.rs": {
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-client-native/src/grid/tests.rs": {
       "clippy::cast_possible_truncation": 5
@@ -632,7 +679,8 @@
     "packages/merkur-client/examples/browser_session_oracle.rs": {
       "clippy::cast_possible_truncation": 5,
       "clippy::panic": 1,
-      "clippy::too_many_lines": 2
+      "clippy::too_many_lines": 2,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-client/src/auth.rs": {
       "clippy::map_err_ignore": 25
@@ -650,7 +698,11 @@
     "packages/merkur-client/src/session.rs": {
       "clippy::cast_possible_truncation": 7,
       "clippy::cast_sign_loss": 6,
-      "clippy::too_many_lines": 2
+      "clippy::too_many_lines": 2,
+      "clippy::wildcard_enum_match_arm": 10
+    },
+    "packages/merkur-client/src/session/direct.rs": {
+      "clippy::wildcard_enum_match_arm": 4
     },
     "packages/merkur-client/src/session/display_ack.rs": {
       "clippy::cast_possible_wrap": 1,
@@ -676,15 +728,21 @@
       "clippy::cast_possible_truncation": 3
     },
     "packages/merkur-client/src/session/tests.rs": {
-      "clippy::cast_possible_truncation": 1
+      "clippy::cast_possible_truncation": 1,
+      "clippy::wildcard_enum_match_arm": 5
     },
     "packages/merkur-client/src/session/tests/direct.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::cast_sign_loss": 1,
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 4
+    },
+    "packages/merkur-client/src/session/tests/lanes.rs": {
+      "clippy::wildcard_enum_match_arm": 6
     },
     "packages/merkur-client/src/session/tests/recovery.rs": {
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 10
     },
     "packages/merkur-client/src/test_support.rs": {
       "clippy::panic": 5,
@@ -720,20 +778,30 @@
     "packages/merkur-client/src/viewer/playback.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::cast_sign_loss": 1,
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 1
+    },
+    "packages/merkur-client/src/viewer/prediction.rs": {
+      "clippy::wildcard_enum_match_arm": 2
     },
     "packages/merkur-client/src/viewer/presentation.rs": {
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 2
     },
     "packages/merkur-client/src/viewer/presentation/tests.rs": {
-      "clippy::cast_possible_truncation": 2
+      "clippy::cast_possible_truncation": 2,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-client/src/viewer/receive.rs": {
       "clippy::cast_possible_truncation": 7,
       "clippy::too_many_lines": 1
     },
     "packages/merkur-client/src/viewer/receive/tests.rs": {
-      "clippy::cast_possible_truncation": 8
+      "clippy::cast_possible_truncation": 8,
+      "clippy::wildcard_enum_match_arm": 2
+    },
+    "packages/merkur-client/src/viewer/receive/tests/graphics.rs": {
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-client/src/viewer/repaint_hold/tests.rs": {
       "clippy::cast_possible_truncation": 1
@@ -793,6 +861,9 @@
     "packages/merkur-codec/src/varint.rs": {
       "clippy::cast_possible_truncation": 2
     },
+    "packages/merkur-codec/src/wire.rs": {
+      "clippy::wildcard_enum_match_arm": 1
+    },
     "packages/merkur-codec/tests/cell_repr_equivalence.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::cast_sign_loss": 2
@@ -823,7 +894,8 @@
     "packages/merkur-e2e/src/hybrid.rs": {
       "clippy::expect_used": 4,
       "clippy::indexing_slicing": 7,
-      "clippy::map_err_ignore": 13
+      "clippy::map_err_ignore": 13,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-e2e/src/identity.rs": {
       "clippy::map_err_ignore": 6
@@ -882,15 +954,22 @@
       "clippy::cast_possible_truncation": 5
     },
     "packages/merkur-graphics/src/command.rs": {
-      "clippy::cast_possible_wrap": 1
+      "clippy::cast_possible_wrap": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-graphics/src/geometry.rs": {
       "clippy::cast_possible_truncation": 4,
       "clippy::cast_sign_loss": 3,
       "clippy::map_err_ignore": 2
     },
+    "packages/merkur-graphics/src/ingest.rs": {
+      "clippy::wildcard_enum_match_arm": 2
+    },
     "packages/merkur-graphics/src/placeholder.rs": {
       "clippy::cast_possible_truncation": 1
+    },
+    "packages/merkur-graphics/src/placements.rs": {
+      "clippy::wildcard_enum_match_arm": 2
     },
     "packages/merkur-graphics/src/projection.rs": {
       "clippy::cast_possible_truncation": 2
@@ -905,6 +984,9 @@
     },
     "packages/merkur-graphics/tests/integration/animation.rs": {
       "clippy::cast_possible_truncation": 3
+    },
+    "packages/merkur-graphics/tests/integration/canonical.rs": {
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-graphics/tests/integration/projection.rs": {
       "clippy::cast_possible_truncation": 1
@@ -931,7 +1013,8 @@
       "clippy::map_err_ignore": 3
     },
     "packages/merkur-identity-seal/src/lib.rs": {
-      "clippy::map_err_ignore": 3
+      "clippy::map_err_ignore": 3,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-identity-seal/src/macos.rs": {
       "clippy::cast_possible_wrap": 6,
@@ -969,7 +1052,8 @@
       "clippy::cast_possible_truncation": 3,
       "clippy::cast_sign_loss": 2,
       "clippy::map_err_ignore": 7,
-      "clippy::too_many_lines": 1
+      "clippy::too_many_lines": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-image-worker/src/encoding.rs": {
       "clippy::cast_possible_truncation": 2,
@@ -989,12 +1073,14 @@
     "packages/merkur-image-worker/src/lib.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::let_underscore_must_use": 2,
-      "clippy::map_err_ignore": 11
+      "clippy::map_err_ignore": 11,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-image-worker/src/main.rs": {
       "clippy::cast_possible_truncation": 7,
       "clippy::cast_sign_loss": 1,
-      "clippy::map_err_ignore": 9
+      "clippy::map_err_ignore": 9,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/merkur-image-worker/src/pyramid.rs": {
       "clippy::cast_possible_truncation": 12
@@ -1074,7 +1160,8 @@
       "clippy::cast_sign_loss": 1,
       "clippy::map_err_ignore": 1,
       "clippy::too_many_lines": 6,
-      "clippy::unwrap_in_result": 1
+      "clippy::unwrap_in_result": 1,
+      "clippy::wildcard_enum_match_arm": 1
     },
     "packages/term-wasm/src/tests.rs": {
       "clippy::cast_possible_truncation": 44,

@@ -93,6 +93,10 @@ const WHOLE_TREE: ReadonlySet<string> = new Set([
   'clippy::cast_sign_loss',
   'clippy::cast_possible_wrap',
   'clippy::too_many_lines',
+  // `.ok();` drops the error of a `Result` and says nothing about it.
+  'clippy::unused_result_ok',
+  // `_ =>` over an enum takes every variant added later without a decision.
+  'clippy::wildcard_enum_match_arm',
 ]);
 
 /** The panic lints: the forms of panic the panic-free crates deny. */

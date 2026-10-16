@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, type Stats, statSy
 import path from 'node:path';
 
 import { Glob } from 'bun';
+import { Schema } from 'effect';
 
 import {
   currentServerEnvironmentKeys,
@@ -9,6 +10,7 @@ import {
   type GeneratedBlock,
   generatedMarkers,
 } from './generate-docs';
+import { findProseSlop } from './prose-rules';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -20,7 +22,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
  * `.env.example`, three vendored crates absent from the workspace table, five broken
  * links. None of it is path-shaped, so a link checker would have found one of the six.
  *
- * Eight checks, each an exported pure function over text plus injected lookups so the
+ * Ten checks, each an exported pure function over text plus injected lookups so the
  * unit tests run on inline fixtures:
  *
  * - C1 `paths`      backticked repository paths and file names exist
@@ -31,6 +33,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
  * - C6 `generated`  every generated block (README e2e table, verify skill gate table) equals what `generate-docs.ts` renders
  * - C7 `workspace`  Cargo and Bun workspace members ⇔ README Workspace Layout rows
  * - C8 `harness`    rules have matching `paths:`, skills are well-formed, AGENTS.md fits Codex's cap
+ * - C9 `layout`     `docs/` is undated reference
+ * - C10 `prose`     first-party prose holds none of the generated phrasings of `scripts/prose-rules.ts`
  */
 
 export type DocCheck =
@@ -42,7 +46,8 @@ export type DocCheck =
   | 'generated'
   | 'workspace'
   | 'harness'
-  | 'layout';
+  | 'layout'
+  | 'prose';
 
 export interface DocViolation {
   readonly file: string;
@@ -1000,7 +1005,7 @@ export function findHarnessViolations(inputs: HarnessInputs): DocViolation[] {
 // Repository scan
 
 // ---------------------------------------------------------------------------------------
-// C8: layout
+// C9: layout
 //
 // `docs/` is reference: present tense, undated, no results. Dated records, unbuilt designs
 // and open items live in the private `merkur-private-docs` repository, whose own gate
@@ -1039,6 +1044,48 @@ export function findLayoutViolations(docs: readonly ProseFile[]): DocViolation[]
   }
   return sortViolations(violations);
 }
+
+// ---------------------------------------------------------------------------------------
+// C10: prose
+//
+// The phrasings `scripts/prose-rules.ts` lists, in every first-party prose file. A skill
+// installed from another repository (named in `skills-lock.json`) is that author's prose and is
+// not read. Inline code is not prose.
+
+export function findProseViolations(
+  docs: readonly ProseFile[],
+  vendoredSkills: ReadonlySet<string>,
+): DocViolation[] {
+  const violations: DocViolation[] = [];
+  for (const { file, source } of docs) {
+    const skill = /^\.claude\/skills\/([^/]+)\//.exec(file)?.[1];
+    if (skill !== undefined && vendoredSkills.has(skill)) continue;
+    const lines = [...proseLines(source)].map(({ line, text }) => ({
+      line,
+      text: text.replace(INLINE_CODE, ''),
+    }));
+    for (const finding of findProseSlop(lines)) {
+      violations.push({
+        file,
+        line: finding.line,
+        check: 'prose',
+        detail: `${finding.rule}: ${finding.text}`,
+        reason: finding.message,
+      });
+    }
+  }
+  return sortViolations(violations);
+}
+
+/** The skills `skills-lock.json` installs from other repositories, by directory name. */
+export function vendoredSkillsOf(lockText: string | undefined): Set<string> {
+  if (lockText === undefined) return new Set();
+  return new Set(Object.keys(Schema.decodeUnknownSync(SkillsLock)(lockText).skills));
+}
+
+const SkillsLock = Schema.fromJsonString(
+  Schema.Struct({ skills: Schema.Record(Schema.String, Schema.Unknown) }),
+);
 
 /**
  * Every file in the checkout outside the excluded segments, repository-relative and sorted.
@@ -1198,6 +1245,9 @@ export function scanDocsWithIgnoreLookup(
 
   violations.push(...findFactViolations(docs, readSource));
   violations.push(...findLayoutViolations(docs));
+  violations.push(
+    ...findProseViolations(docs, vendoredSkillsOf(readOptional(root, 'skills-lock.json'))),
+  );
 
   const loaderKeys = currentServerEnvironmentKeys();
   const readme = readOptional(root, CONFIG_FILES.readme) ?? '';

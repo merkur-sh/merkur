@@ -1622,7 +1622,7 @@ mod tests {
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             }
         }
-        std::fs::remove_dir_all(&config_home).ok();
+        std::fs::remove_dir_all(&config_home).unwrap();
     }
 
     #[cfg(unix)]

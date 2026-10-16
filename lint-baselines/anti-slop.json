@@ -1,12 +1,58 @@
 {
+  "apps/daemon/dataplane/src/connection.rs": {
+    "comment-defensive": 2,
+    "comment-provenance": 3
+  },
+  "apps/daemon/dataplane/src/display/recv.rs": {
+    "comment-provenance": 1
+  },
+  "apps/daemon/dataplane/src/display/send.rs": {
+    "comment-defensive": 2,
+    "comment-provenance": 1
+  },
+  "apps/daemon/dataplane/src/display/send/tests.rs": {
+    "comment-provenance": 2
+  },
   "apps/daemon/dataplane/src/input.rs": {
     "comment-temporary": 1
   },
+  "apps/daemon/dataplane/src/ipc/events.rs": {
+    "comment-defensive": 1
+  },
   "apps/daemon/dataplane/src/lib.rs": {
+    "comment-defensive": 2,
     "comment-temporary": 6
+  },
+  "apps/daemon/dataplane/src/main_tests/ingress_allocation_oracle.rs": {
+    "comment-provenance": 1
+  },
+  "apps/daemon/dataplane/src/network/peer.rs": {
+    "comment-defensive": 1
+  },
+  "apps/daemon/dataplane/src/pty/mod.rs": {
+    "comment-provenance": 1
+  },
+  "apps/daemon/dataplane/src/pty/terminal.rs": {
+    "comment-defensive": 1,
+    "comment-provenance": 1
+  },
+  "apps/daemon/dataplane/src/pty/writer.rs": {
+    "comment-provenance": 1
+  },
+  "apps/daemon/dataplane/src/session/rebind_flow.rs": {
+    "comment-provenance": 2
+  },
+  "apps/daemon/dataplane/src/webtransport/egress.rs": {
+    "comment-provenance": 1
   },
   "apps/daemon/dataplane/src/webtransport/mod.rs": {
     "comment-temporary": 4
+  },
+  "apps/daemon/dataplane/src/webtransport/portmap/mod.rs": {
+    "comment-defensive": 3
+  },
+  "apps/daemon/dataplane/src/webtransport/side_channel.rs": {
+    "comment-defensive": 2
   },
   "apps/daemon/src/cli/cli-output.test.ts": {
     "no-known-value-widening": 1
@@ -28,26 +74,34 @@
     "no-runtime-typeof": 1
   },
   "apps/daemon/src/cli/legacy-daemon-config-migration.test.ts": {
+    "no-compat-names": 18,
     "no-known-value-widening": 1,
     "no-unsafe-dictionary-type": 9
   },
   "apps/daemon/src/cli/legacy-daemon-config-migration.ts": {
+    "no-compat-names": 23,
     "no-runtime-typeof": 2,
     "no-unknown-parameters": 2,
     "no-unsafe-dictionary-type": 4
   },
   "apps/daemon/src/cli/link.test.ts": {
+    "no-compat-names": 1,
     "no-runtime-typeof": 4,
     "no-unsafe-dictionary-type": 1
   },
   "apps/daemon/src/cli/link.ts": {
+    "no-compat-names": 6,
     "no-known-value-widening": 2,
     "no-manual-tag-comparison": 4,
     "no-runtime-typeof": 7,
+    "no-swallowed-error": 4,
     "no-unknown-parameters": 4
   },
   "apps/daemon/src/cli/open.test.ts": {
     "no-known-value-widening": 2
+  },
+  "apps/daemon/src/cli/open.ts": {
+    "no-swallowed-error": 2
   },
   "apps/daemon/src/cli/setup.ts": {
     "no-known-value-widening": 4
@@ -58,15 +112,23 @@
   "apps/daemon/src/cli/shell-integration.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
+  "apps/daemon/src/cli/stop.ts": {
+    "no-literal-timer-delay": 1,
+    "no-swallowed-error": 3
+  },
   "apps/daemon/src/cli/update.test.ts": {
     "no-known-value-widening": 3,
+    "no-literal-timer-delay": 1,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 2
   },
   "apps/daemon/src/cli/update.ts": {
     "comment-temporary": 1,
     "no-known-value-widening": 3,
+    "no-literal-timer-delay": 2,
     "no-manual-tag-comparison": 2,
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 4,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 1
   },
@@ -77,6 +139,9 @@
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 3
   },
+  "apps/daemon/src/services/bell-report-scheduler.test.ts": {
+    "no-weak-assertion": 1
+  },
   "apps/daemon/src/services/bell-report-scheduler.ts": {
     "no-manual-tag-comparison": 6,
     "no-manual-tagged-construction": 12
@@ -84,13 +149,17 @@
   "apps/daemon/src/services/daemon-control-client.test.ts": {
     "no-array-filter-map": 1,
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 2,
     "no-manual-tagged-construction": 1,
     "no-runtime-typeof": 2,
     "no-unsafe-dictionary-type": 4
   },
   "apps/daemon/src/services/daemon-control-client.ts": {
+    "comment-defensive": 1,
     "no-conditional-empty-object-spread": 1,
+    "no-literal-timer-delay": 5,
     "no-manual-tagged-construction": 1,
+    "no-swallowed-error": 4,
     "prefer-effect-match": 2,
     "require-safety-comment-for-type-assertion": 1
   },
@@ -98,17 +167,22 @@
     "no-runtime-typeof": 1
   },
   "apps/daemon/src/services/daemon-perf-reporter.ts": {
+    "no-literal-timer-delay": 1,
     "no-manual-tag-comparison": 1,
-    "no-manual-tagged-construction": 3
+    "no-manual-tagged-construction": 3,
+    "no-swallowed-error": 1
   },
   "apps/daemon/src/services/daemon-runtime.test.ts": {
     "no-manual-tagged-construction": 2
   },
   "apps/daemon/src/services/daemon-runtime.ts": {
-    "no-conditional-empty-object-spread": 1
+    "no-conditional-empty-object-spread": 1,
+    "no-literal-timer-delay": 1,
+    "no-swallowed-error": 2
   },
   "apps/daemon/src/services/dataplane-client.test.ts": {
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 6,
     "no-object-parameters": 1,
     "no-runtime-typeof": 2,
     "no-unsafe-dictionary-type": 5,
@@ -116,9 +190,12 @@
     "require-safety-comment-for-type-assertion": 6
   },
   "apps/daemon/src/services/dataplane-client.ts": {
+    "comment-defensive": 6,
+    "comment-provenance": 1,
     "no-known-value-widening": 4,
     "no-object-parameters": 2,
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 8,
     "no-unknown-parameters": 19,
     "no-unknown-returns": 1,
     "prefer-effect-match": 1,
@@ -130,6 +207,12 @@
   },
   "apps/daemon/src/single-instance.test.ts": {
     "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/edge/src/relay.rs": {
+    "comment-defensive": 1
+  },
+  "apps/edge/src/splice.rs": {
+    "comment-provenance": 1
   },
   "apps/server/scripts/auth-continue-rate-limit-benchmark.ts": {
     "no-runtime-typeof": 2,
@@ -148,6 +231,8 @@
   },
   "apps/server/scripts/bench-daemon-trace-export.ts": {
     "no-array-filter-map": 1,
+    "no-literal-timer-delay": 1,
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 3
   },
   "apps/server/scripts/bench-logger-sink.ts": {
@@ -187,6 +272,7 @@
   "apps/server/scripts/session-start-benchmark-artifact.ts": {
     "no-array-filter-map": 1,
     "no-runtime-typeof": 6,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 3
   },
   "apps/server/scripts/session-start-benchmark.ts": {
@@ -202,6 +288,12 @@
     "no-unsafe-dictionary-type": 1,
     "require-safety-comment-for-type-assertion": 2
   },
+  "apps/server/src/db/migrate.test.ts": {
+    "no-weak-assertion": 2
+  },
+  "apps/server/src/db/transaction.ts": {
+    "comment-defensive": 1
+  },
   "apps/server/src/http/api-errors.ts": {
     "no-runtime-typeof": 2
   },
@@ -211,6 +303,9 @@
   "apps/server/src/http/daemon-auth-fixture.ts": {
     "require-safety-comment-for-type-assertion": 3
   },
+  "apps/server/src/http/daemon-request-auth.dragonfly.test.ts": {
+    "no-skipped-tests": 1
+  },
   "apps/server/src/http/daemon-request-auth.ts": {
     "no-unknown-returns": 1
   },
@@ -218,6 +313,7 @@
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/http/effect-route.ts": {
+    "comment-provenance": 1,
     "no-conditional-empty-object-spread": 1,
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 4
@@ -254,9 +350,12 @@
   },
   "apps/server/src/http/routes/daemon-control-auth.test.ts": {
     "no-conditional-empty-object-spread": 1,
+    "no-literal-timer-delay": 2,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/http/routes/daemon-control-routes.test.ts": {
+    "no-literal-timer-delay": 2,
+    "no-weak-assertion": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/http/routes/daemon-control-routes.ts": {
@@ -304,7 +403,8 @@
     "require-safety-comment-for-type-assertion": 11
   },
   "apps/server/src/http/routes/telemetry-routes.ts": {
-    "no-runtime-typeof": 3
+    "no-runtime-typeof": 3,
+    "no-swallowed-error": 1
   },
   "apps/server/src/http/routes/web-routes.ts": {
     "no-known-value-widening": 1
@@ -313,10 +413,13 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/server/src/http/sse.test.ts": {
+    "no-literal-timer-delay": 2,
     "no-manual-tagged-construction": 13
   },
   "apps/server/src/http/sse.ts": {
+    "no-literal-timer-delay": 2,
     "no-manual-tag-comparison": 4,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 2
   },
   "apps/server/src/http/web-ui.ts": {
@@ -325,9 +428,15 @@
   "apps/server/src/index.ts": {
     "no-unknown-parameters": 6
   },
+  "apps/server/src/middleware/cookie-origin.ts": {
+    "no-swallowed-error": 1
+  },
   "apps/server/src/middleware/security-headers.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-known-value-widening": 1
+  },
+  "apps/server/src/observability/metrics.test.ts": {
+    "no-weak-assertion": 4
   },
   "apps/server/src/observability/metrics.ts": {
     "no-conditional-empty-object-spread": 2,
@@ -337,6 +446,7 @@
   "apps/server/src/observability/tail-sampling-tracer.test.ts": {
     "no-chained-type-assertions": 2,
     "no-known-value-widening": 2,
+    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 6
   },
   "apps/server/src/observability/tail-sampling-tracer.ts": {
@@ -347,6 +457,7 @@
     "require-safety-comment-for-type-assertion": 5
   },
   "apps/server/src/observability/telemetry.ts": {
+    "comment-provenance": 1,
     "no-known-value-widening": 1,
     "no-service-constructor-imports": 1
   },
@@ -358,16 +469,30 @@
     "no-conditional-empty-object-spread": 1,
     "no-unsafe-dictionary-type": 2
   },
+  "apps/server/src/services/auth-flow-store.dragonfly.test.ts": {
+    "no-skipped-tests": 2
+  },
   "apps/server/src/services/auth-flow-store.ts": {
     "no-runtime-typeof": 12,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 3
   },
+  "apps/server/src/services/auth-service-email.test.ts": {
+    "no-weak-assertion": 1
+  },
   "apps/server/src/services/auth-service-fixture.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/services/auth-service-password.test.ts": {
-    "no-manual-tagged-construction": 1
+    "no-manual-tagged-construction": 1,
+    "no-weak-assertion": 1
+  },
+  "apps/server/src/services/auth-service-reset.test.ts": {
+    "no-weak-assertion": 1
+  },
+  "apps/server/src/services/auth-service.test.ts": {
+    "comment-provenance": 1,
+    "no-literal-timer-delay": 1
   },
   "apps/server/src/services/auth-service.ts": {
     "no-array-filter-map": 1,
@@ -382,35 +507,45 @@
   "apps/server/src/services/box-host-service.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 2,
     "no-unsafe-dictionary-type": 1
   },
   "apps/server/src/services/box-removal.test.ts": {
     "no-manual-tagged-construction": 1
   },
   "apps/server/src/services/browser-session-presence.dragonfly.test.ts": {
-    "no-manual-tag-comparison": 4
+    "no-literal-timer-delay": 1,
+    "no-manual-tag-comparison": 4,
+    "no-skipped-tests": 1
   },
   "apps/server/src/services/browser-session-presence.test.ts": {
     "require-safety-comment-for-type-assertion": 3
   },
   "apps/server/src/services/browser-session-presence.ts": {
+    "no-literal-timer-delay": 1,
     "no-manual-tagged-construction": 7,
-    "no-runtime-typeof": 11
+    "no-runtime-typeof": 11,
+    "no-swallowed-error": 1
   },
   "apps/server/src/services/daemon-control-service.dragonfly.test.ts": {
+    "no-literal-timer-delay": 2,
+    "no-skipped-tests": 1,
     "no-unknown-returns": 2
   },
   "apps/server/src/services/daemon-control-service.test.ts": {
     "no-chained-type-assertions": 1,
+    "no-literal-timer-delay": 2,
     "no-manual-tagged-construction": 9,
     "no-unknown-parameters": 1,
     "require-safety-comment-for-type-assertion": 3
   },
   "apps/server/src/services/daemon-control-service.ts": {
     "no-conditional-empty-object-spread": 1,
+    "no-literal-timer-delay": 1,
     "no-manual-tag-comparison": 7,
     "no-manual-tagged-construction": 6,
     "no-runtime-typeof": 10,
+    "no-swallowed-error": 9,
     "no-unknown-parameters": 6,
     "no-unsafe-dictionary-type": 6
   },
@@ -424,9 +559,16 @@
     "no-manual-tagged-construction": 1,
     "require-safety-comment-for-type-assertion": 10
   },
+  "apps/server/src/services/device-events-service.ts": {
+    "no-swallowed-error": 1
+  },
+  "apps/server/src/services/device-service.ts": {
+    "comment-provenance": 1
+  },
   "apps/server/src/services/edge-registry-service.dragonfly.test.ts": {
     "no-manual-tag-comparison": 1,
     "no-runtime-typeof": 1,
+    "no-skipped-tests": 1,
     "no-unknown-returns": 2
   },
   "apps/server/src/services/edge-registry-service.test.ts": {
@@ -438,11 +580,13 @@
   "apps/server/src/services/edge-registry-service.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 8,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/server/src/services/edge-selection.test.ts": {
+    "no-weak-assertion": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/services/email-admission.test.ts": {
@@ -464,6 +608,9 @@
   "apps/server/src/services/mail-sender.ts": {
     "no-manual-tag-comparison": 1
   },
+  "apps/server/src/services/notification-outbox-service.dragonfly.test.ts": {
+    "no-skipped-tests": 1
+  },
   "apps/server/src/services/notification-outbox-service.test.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
@@ -481,6 +628,9 @@
     "no-unsafe-dictionary-type": 1,
     "require-safety-comment-for-type-assertion": 2
   },
+  "apps/server/src/services/rate-limit-service.dragonfly.test.ts": {
+    "no-skipped-tests": 1
+  },
   "apps/server/src/services/rate-limit-service.test.ts": {
     "require-safety-comment-for-type-assertion": 4
   },
@@ -489,22 +639,30 @@
     "no-unknown-parameters": 1
   },
   "apps/server/src/services/realtime-coordination-service.dragonfly.test.ts": {
-    "no-manual-tag-comparison": 2
+    "no-literal-timer-delay": 1,
+    "no-manual-tag-comparison": 2,
+    "no-skipped-tests": 1
   },
   "apps/server/src/services/realtime-coordination-service.test.ts": {
+    "comment-provenance": 1,
     "no-known-value-widening": 31,
+    "no-literal-timer-delay": 2,
     "no-manual-tag-comparison": 1,
     "no-manual-tagged-construction": 1,
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unknown-returns": 3,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/services/realtime-coordination-service.ts": {
+    "comment-defensive": 1,
+    "no-literal-timer-delay": 1,
     "no-manual-tag-comparison": 3,
     "no-manual-tagged-construction": 7,
     "no-runtime-typeof": 7,
+    "no-swallowed-error": 4,
     "no-unknown-parameters": 3,
     "no-unsafe-dictionary-type": 5,
     "require-safety-comment-for-type-assertion": 1
@@ -513,7 +671,16 @@
     "no-runtime-typeof": 6,
     "no-unknown-parameters": 11
   },
+  "apps/server/src/services/redis-service.dragonfly.test.ts": {
+    "no-literal-timer-delay": 2,
+    "no-skipped-tests": 1
+  },
+  "apps/server/src/services/redis-service.test.ts": {
+    "no-swallowed-error": 1
+  },
   "apps/server/src/services/redis-service.ts": {
+    "no-compat-names": 4,
+    "no-literal-timer-delay": 2,
     "no-unknown-parameters": 2,
     "no-unsafe-dictionary-type": 1
   },
@@ -529,36 +696,46 @@
   },
   "apps/server/src/services/session-issuance-codec.ts": {
     "no-runtime-typeof": 7,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 2,
     "no-unsafe-dictionary-type": 6,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/server/src/services/session-issuance-service.dragonfly.test.ts": {
     "no-conditional-empty-object-spread": 1,
+    "no-literal-timer-delay": 4,
     "no-manual-tagged-construction": 3,
+    "no-skipped-tests": 1,
+    "no-swallowed-error": 2,
     "no-unknown-returns": 1
   },
   "apps/server/src/services/session-issuance-service.test.ts": {
     "no-known-value-widening": 17,
+    "no-literal-timer-delay": 1,
     "no-manual-tagged-construction": 7,
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 4,
     "no-unknown-returns": 2,
     "no-unsafe-dictionary-type": 1,
+    "no-weak-assertion": 1,
     "prefer-effect-match": 2,
     "require-safety-comment-for-type-assertion": 4
   },
   "apps/server/src/services/session-issuance-service.ts": {
-    "no-manual-tagged-construction": 1
+    "no-manual-tagged-construction": 1,
+    "no-swallowed-error": 7
   },
   "apps/server/src/services/session-issuance-store.ts": {
-    "no-runtime-typeof": 3
+    "no-literal-timer-delay": 1,
+    "no-runtime-typeof": 3,
+    "no-swallowed-error": 3
   },
   "apps/server/src/services/session-service.ts": {
     "no-manual-tag-comparison": 2
   },
   "apps/server/src/services/session-test-fixture.ts": {
-    "no-manual-tagged-construction": 2
+    "no-manual-tagged-construction": 2,
+    "no-swallowed-error": 1
   },
   "apps/site/scripts/dist-server.ts": {
     "no-known-value-widening": 1
@@ -619,6 +796,9 @@
   "apps/site/src/gfx/client.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
+  "apps/site/src/motion/cards.ts": {
+    "no-literal-timer-delay": 2
+  },
   "apps/site/src/motion/security.ts": {
     "prefer-effect-match": 1
   },
@@ -660,6 +840,7 @@
   },
   "apps/site/src/waitlist.ts": {
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unknown-returns": 1
   },
@@ -673,16 +854,19 @@
   "apps/web/src/api.refresh.test.ts": {
     "no-runtime-typeof": 1,
     "no-unknown-returns": 1,
+    "no-weak-assertion": 2,
     "require-safety-comment-for-type-assertion": 6
   },
   "apps/web/src/api.ts": {
     "no-conditional-empty-object-spread": 3,
     "no-known-value-widening": 2,
     "no-runtime-typeof": 6,
+    "no-swallowed-error": 4,
     "no-unknown-parameters": 4,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/app/browser-sessions-controller.test.ts": {
+    "no-swallowed-error": 3,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/app/commands.ts": {
@@ -692,10 +876,14 @@
     "no-unknown-parameters": 2
   },
   "apps/web/src/app/createAppController.ts": {
+    "comment-provenance": 1,
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 10,
     "no-unknown-parameters": 1
   },
   "apps/web/src/app/createDeviceListController.ts": {
+    "comment-defensive": 1,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 2
   },
   "apps/web/src/app/device-snapshot-reconciliation.ts": {
@@ -705,11 +893,15 @@
     "no-known-value-widening": 2
   },
   "apps/web/src/app/link-command-refresh.ts": {
+    "no-literal-timer-delay": 1,
     "no-unknown-parameters": 1
   },
   "apps/web/src/app/link-url.test.ts": {
     "no-known-value-widening": 1,
     "no-unknown-parameters": 1
+  },
+  "apps/web/src/app/navigation.ts": {
+    "comment-provenance": 1
   },
   "apps/web/src/auth/account-api.test.ts": {
     "no-known-value-widening": 1,
@@ -720,6 +912,7 @@
   "apps/web/src/auth/account-api.ts": {
     "no-conditional-empty-object-spread": 4,
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 1,
     "no-unknown-returns": 1
   },
   "apps/web/src/auth/account-opaque-finish.test.ts": {
@@ -730,7 +923,8 @@
     "no-unknown-parameters": 1
   },
   "apps/web/src/auth/account-opaque.ts": {
-    "no-runtime-typeof": 1
+    "no-runtime-typeof": 1,
+    "no-swallowed-error": 1
   },
   "apps/web/src/auth/account-workflow.recovery.test.ts": {
     "no-known-value-widening": 2,
@@ -738,15 +932,20 @@
     "no-unsafe-dictionary-type": 6,
     "require-safety-comment-for-type-assertion": 7
   },
+  "apps/web/src/auth/account-workflow.ts": {
+    "no-swallowed-error": 6
+  },
   "apps/web/src/auth/browser-delegation.ts": {
     "no-unknown-parameters": 2
   },
   "apps/web/src/auth/delegation-vault.test.ts": {
     "no-known-value-widening": 5,
+    "no-literal-timer-delay": 1,
     "no-unknown-parameters": 1
   },
   "apps/web/src/auth/delegation-vault.ts": {
     "no-runtime-typeof": 7,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 4,
     "no-unknown-returns": 1
   },
@@ -755,7 +954,11 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/auth/revocation-outbox.ts": {
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1
+  },
+  "apps/web/src/auth/user-root.test.ts": {
+    "no-weak-assertion": 1
   },
   "apps/web/src/components/LinkStatus.tsx": {
     "prefer-effect-match": 2
@@ -770,6 +973,7 @@
     "no-known-value-widening": 1
   },
   "apps/web/src/event-stream-worker-client.test.ts": {
+    "no-literal-timer-delay": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/event-stream-worker.ts": {
@@ -800,6 +1004,7 @@
   "apps/web/src/hooks/createAuth.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 4,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 6,
     "no-unknown-returns": 1,
     "require-safety-comment-for-type-assertion": 5
@@ -809,10 +1014,13 @@
   },
   "apps/web/src/hooks/device-events-recovery.test.ts": {
     "no-known-value-widening": 6,
+    "no-literal-timer-delay": 1,
     "no-manual-tagged-construction": 2,
+    "no-swallowed-error": 4,
     "no-unknown-parameters": 7
   },
   "apps/web/src/hooks/device-events-recovery.ts": {
+    "no-literal-timer-delay": 1,
     "no-manual-tag-comparison": 17,
     "no-manual-tagged-construction": 3,
     "no-runtime-typeof": 1
@@ -820,9 +1028,13 @@
   "apps/web/src/hooks/device-events-source.ts": {
     "no-known-value-widening": 1,
     "no-manual-tagged-construction": 8,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unknown-returns": 1,
     "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/hooks/device-events-status.test.ts": {
+    "no-swallowed-error": 1
   },
   "apps/web/src/hooks/useServiceWorkerLifecycle.test.ts": {
     "no-module-mocking": 1,
@@ -840,13 +1052,16 @@
     "require-safety-comment-for-type-assertion": 11
   },
   "apps/web/src/lib/authenticated-transport.ts": {
-    "no-known-value-widening": 1
+    "no-known-value-widening": 1,
+    "no-swallowed-error": 1
   },
   "apps/web/src/lib/device-list-cache.test.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/lib/device-list-cache.ts": {
-    "no-runtime-typeof": 2
+    "comment-defensive": 2,
+    "no-runtime-typeof": 2,
+    "no-swallowed-error": 3
   },
   "apps/web/src/lib/display-resume-schema.ts": {
     "no-runtime-typeof": 1,
@@ -855,9 +1070,13 @@
     "require-safety-comment-for-type-assertion": 3
   },
   "apps/web/src/lib/display-resume-store.test.ts": {
+    "no-compat-names": 2,
     "no-known-value-widening": 3,
     "no-runtime-typeof": 2,
     "no-unknown-returns": 1
+  },
+  "apps/web/src/lib/display-resume-store.ts": {
+    "no-swallowed-error": 4
   },
   "apps/web/src/lib/e2e-wasm-module.ts": {
     "no-unknown-parameters": 1
@@ -897,11 +1116,16 @@
     "no-conditional-empty-object-spread": 1
   },
   "apps/web/src/lib/task-wake.test.ts": {
+    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/lib/transport-autotuner.ts": {
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 1
+  },
+  "apps/web/src/lib/wt-path-schema.test.ts": {
+    "no-compat-names": 1
   },
   "apps/web/src/lib/wt-path-schema.ts": {
     "no-runtime-typeof": 7,
@@ -910,6 +1134,7 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/perf/bootstrap-spans.test.ts": {
+    "no-weak-assertion": 2,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/perf/bootstrap-spans.ts": {
@@ -925,6 +1150,7 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/perf/error-reporter.test.ts": {
+    "comment-defensive": 1,
     "no-chained-type-assertions": 3,
     "no-known-value-widening": 1,
     "no-runtime-typeof": 1,
@@ -960,11 +1186,15 @@
   "apps/web/src/perf/telemetry-reporter.test.ts": {
     "no-known-value-widening": 1
   },
+  "apps/web/src/perf/telemetry-reporter.ts": {
+    "no-swallowed-error": 1
+  },
   "apps/web/src/perf/terminal-latency.test.ts": {
     "no-conditional-empty-object-spread": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/perf/terminal-latency.ts": {
+    "comment-provenance": 1,
     "no-array-filter-map": 4,
     "no-known-value-widening": 2,
     "no-runtime-typeof": 17,
@@ -975,6 +1205,7 @@
   "apps/web/src/renderer-webgpu.test.ts": {
     "no-object-parameters": 2,
     "no-unknown-parameters": 2,
+    "no-weak-assertion": 1,
     "require-safety-comment-for-type-assertion": 10
   },
   "apps/web/src/renderer-webgpu.ts": {
@@ -999,12 +1230,23 @@
     "no-array-filter-map": 1
   },
   "apps/web/src/screens/KeyboardPreferencesEditor.tsx": {
-    "no-known-value-widening": 1
+    "no-known-value-widening": 1,
+    "no-swallowed-error": 3
+  },
+  "apps/web/src/screens/SessionSettings.tsx": {
+    "comment-provenance": 1,
+    "no-swallowed-error": 2
+  },
+  "apps/web/src/screens/SettingsScreen.tsx": {
+    "comment-provenance": 1,
+    "no-swallowed-error": 1
   },
   "apps/web/src/screens/TerminalPanel.tsx": {
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/screens/TerminalSettings.tsx": {
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/screens/VirtualTerminalKeyboard.tsx": {
@@ -1019,6 +1261,7 @@
   },
   "apps/web/src/session/session-response.ts": {
     "no-runtime-typeof": 13,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 2,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 2
@@ -1029,6 +1272,7 @@
   "apps/web/src/sw.ts": {
     "no-chained-type-assertions": 2,
     "no-runtime-typeof": 9,
+    "no-swallowed-error": 3,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 6
@@ -1037,6 +1281,7 @@
     "require-safety-comment-for-type-assertion": 15
   },
   "apps/web/src/telemetry-worker-client.ts": {
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1
   },
   "apps/web/src/telemetry-worker-protocol.test.ts": {
@@ -1046,6 +1291,9 @@
   },
   "apps/web/src/telemetry-worker-protocol.ts": {
     "no-runtime-typeof": 3
+  },
+  "apps/web/src/telemetry-worker.test.ts": {
+    "no-literal-timer-delay": 1
   },
   "apps/web/src/terminal-worker-client.ts": {
     "no-conditional-empty-object-spread": 1,
@@ -1082,6 +1330,7 @@
     "no-known-value-widening": 2,
     "no-runtime-typeof": 2,
     "no-shape-in-symbol-names": 3,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 5,
     "prefer-effect-match": 1,
     "require-safety-comment-for-type-assertion": 2
@@ -1101,7 +1350,12 @@
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/terminal/display-receiver-calibration.ts": {
+    "comment-defensive": 1,
+    "no-swallowed-error": 3,
     "no-unknown-parameters": 1
+  },
+  "apps/web/src/terminal/display-receiver-profile-cache.ts": {
+    "no-swallowed-error": 2
   },
   "apps/web/src/terminal/editing-surface.test.ts": {
     "prefer-effect-match": 1
@@ -1109,9 +1363,11 @@
   "apps/web/src/terminal/editing-surface.ts": {
     "no-chained-type-assertions": 1,
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 16
   },
   "apps/web/src/terminal/font-loader.ts": {
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "require-safety-comment-for-type-assertion": 1
   },
@@ -1121,6 +1377,7 @@
   "apps/web/src/terminal/input-controller.test.ts": {
     "no-chained-type-assertions": 1,
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 3,
     "no-object-parameters": 1,
     "no-unknown-parameters": 3,
     "no-unsafe-dictionary-type": 2,
@@ -1128,16 +1385,22 @@
   },
   "apps/web/src/terminal/input-controller.ts": {
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 3,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/terminal/keyboard-diagnostics-store.ts": {
     "no-runtime-typeof": 6,
+    "no-swallowed-error": 3,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 2
   },
+  "apps/web/src/terminal/keyboard-diagnostics.test.ts": {
+    "no-weak-assertion": 1
+  },
   "apps/web/src/terminal/keyboard-offset-store.ts": {
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 3,
     "no-unsafe-dictionary-type": 1
   },
   "apps/web/src/terminal/keyboard-settings-sync.test.ts": {
@@ -1145,7 +1408,14 @@
     "no-unknown-parameters": 1,
     "require-safety-comment-for-type-assertion": 1
   },
+  "apps/web/src/terminal/keyboard-settings-sync.ts": {
+    "no-literal-timer-delay": 2
+  },
+  "apps/web/src/terminal/link-detection.ts": {
+    "no-swallowed-error": 1
+  },
   "apps/web/src/terminal/notifications.ts": {
+    "no-swallowed-error": 4,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/terminal/prediction-admission-model.test.ts": {
@@ -1161,6 +1431,12 @@
     "no-known-value-widening": 1,
     "require-safety-comment-for-type-assertion": 3
   },
+  "apps/web/src/terminal/prediction-gate.ts": {
+    "comment-provenance": 1
+  },
+  "apps/web/src/terminal/presented-prediction-sources.ts": {
+    "comment-provenance": 1
+  },
   "apps/web/src/terminal/profiling-viewport-read.test.ts": {
     "no-known-value-widening": 1
   },
@@ -1175,6 +1451,12 @@
     "no-chained-type-assertions": 2,
     "require-safety-comment-for-type-assertion": 4
   },
+  "apps/web/src/terminal/retained-wire-payload-pool.test.ts": {
+    "no-compat-names": 6
+  },
+  "apps/web/src/terminal/ring-wake-readers.test.ts": {
+    "no-literal-timer-delay": 1
+  },
   "apps/web/src/terminal/selection-layer.test.ts": {
     "no-chained-type-assertions": 4,
     "require-safety-comment-for-type-assertion": 8
@@ -1183,12 +1465,14 @@
     "no-known-value-widening": 7
   },
   "apps/web/src/terminal/shared-ring.ts": {
+    "no-swallowed-error": 1,
     "no-unknown-returns": 2
   },
   "apps/web/src/terminal/status-presentation.ts": {
     "no-known-value-widening": 1
   },
   "apps/web/src/terminal/viewer-output-ring.ts": {
+    "no-swallowed-error": 1,
     "no-unknown-returns": 2
   },
   "apps/web/src/terminal/virtual-keyboard.test.ts": {
@@ -1197,6 +1481,7 @@
   "apps/web/src/terminal/virtual-keyboard.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 8,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 4,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 5
@@ -1204,7 +1489,9 @@
   "apps/web/src/transport-worker-client.test.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 3,
     "no-unknown-parameters": 9,
     "no-unknown-returns": 1,
     "require-safety-comment-for-type-assertion": 4
@@ -1217,6 +1504,7 @@
   "apps/web/src/transport-worker.ts": {
     "no-chained-type-assertions": 1,
     "no-conditional-empty-object-spread": 1,
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 1,
     "require-safety-comment-for-type-assertion": 2
@@ -1229,24 +1517,34 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/transport/browser-client-session.ts": {
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 3,
     "require-safety-comment-for-type-assertion": 6
+  },
+  "apps/web/src/transport/client-carrier.test.ts": {
+    "no-swallowed-error": 1
   },
   "apps/web/src/transport/client-carrier.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 10,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/transport/input-ring.test.ts": {
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/transport/input-ring.ts": {
     "no-chained-type-assertions": 1,
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/transport/start-owned-rpc-registry.test.ts": {
     "no-unknown-parameters": 2
+  },
+  "apps/web/src/transport/wire-frame-pool.ts": {
+    "comment-provenance": 1
   },
   "apps/web/src/wasm-loader.ts": {
     "no-chained-type-assertions": 3,
@@ -1261,6 +1559,7 @@
   },
   "packages/auth/src/daemon-proof.ts": {
     "no-runtime-typeof": 7,
+    "no-swallowed-error": 3,
     "no-unknown-parameters": 3,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 2
@@ -1273,16 +1572,22 @@
   },
   "packages/auth/src/session-authorization.ts": {
     "no-runtime-typeof": 4,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 3,
     "no-unsafe-dictionary-type": 2
   },
   "packages/config/src/daemon-config.test.ts": {
+    "no-compat-names": 1,
     "no-unsafe-dictionary-type": 1
   },
   "packages/config/src/daemon-config.ts": {
     "no-runtime-typeof": 9,
+    "no-swallowed-error": 5,
     "no-unknown-parameters": 6,
     "no-unsafe-dictionary-type": 6
+  },
+  "packages/config/src/retry-schedules.ts": {
+    "no-literal-timer-delay": 1
   },
   "packages/config/src/server-config.test.ts": {
     "no-known-value-widening": 1,
@@ -1290,6 +1595,7 @@
   },
   "packages/config/src/server-config.ts": {
     "no-runtime-typeof": 2,
+    "no-swallowed-error": 1,
     "no-unsafe-dictionary-type": 1,
     "require-safety-comment-for-type-assertion": 1
   },
@@ -1298,6 +1604,7 @@
   },
   "packages/daemon-control-protocol/src/index.ts": {
     "no-runtime-typeof": 15,
+    "no-swallowed-error": 4,
     "no-unknown-parameters": 17,
     "no-unknown-returns": 3,
     "no-unsafe-dictionary-type": 9
@@ -1309,6 +1616,7 @@
   "packages/keyboard/src/dom.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-runtime-typeof": 5,
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "packages/keyboard/src/engine.ts": {
@@ -1328,16 +1636,19 @@
     "no-known-value-widening": 4
   },
   "packages/keyboard/src/offset-model.ts": {
+    "comment-provenance": 1,
     "no-runtime-typeof": 8,
     "no-unsafe-dictionary-type": 1
   },
   "packages/keyboard/src/touch-model.test.ts": {
-    "no-known-value-widening": 2
+    "no-known-value-widening": 2,
+    "no-weak-assertion": 1
   },
   "packages/logger/src/effect-logger.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-known-value-widening": 1,
     "no-runtime-typeof": 4,
+    "no-swallowed-error": 1,
     "no-unsafe-dictionary-type": 4,
     "require-safety-comment-for-type-assertion": 1
   },
@@ -1347,6 +1658,7 @@
   "packages/logger/src/index.ts": {
     "no-known-value-widening": 3,
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 13,
     "prefer-effect-match": 1
@@ -1358,6 +1670,7 @@
     "no-known-value-widening": 8,
     "no-object-parameters": 1,
     "no-runtime-typeof": 6,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 1,
     "no-unknown-returns": 1,
     "no-unsafe-dictionary-type": 5,
@@ -1378,6 +1691,9 @@
     "no-known-value-widening": 1,
     "require-safety-comment-for-type-assertion": 1
   },
+  "packages/merkur-client-native/src/carrier.rs": {
+    "comment-defensive": 1
+  },
   "packages/merkur-codec/src/encode.rs": {
     "comment-temporary": 1
   },
@@ -1386,6 +1702,7 @@
   },
   "packages/protocol/src/input-record.ts": {
     "no-known-value-widening": 1,
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 4
   },
   "packages/quicksilver/src/preset.test.ts": {
@@ -1401,6 +1718,9 @@
   "packages/quicksilver/src/vite.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 1
+  },
+  "packages/shared/src/api-contract.test.ts": {
+    "no-compat-names": 1
   },
   "packages/shared/src/api-contract.ts": {
     "no-runtime-typeof": 4,
@@ -1428,7 +1748,8 @@
     "no-object-parameters": 1
   },
   "packages/shared/src/edge-webtransport.ts": {
-    "no-runtime-typeof": 1
+    "no-runtime-typeof": 1,
+    "no-swallowed-error": 1
   },
   "packages/shared/src/errors.ts": {
     "no-unknown-parameters": 1
@@ -1457,6 +1778,7 @@
   },
   "packages/shared/src/parsing.ts": {
     "no-runtime-typeof": 5,
+    "no-swallowed-error": 1,
     "no-unknown-returns": 1,
     "no-unsafe-dictionary-type": 1
   },
@@ -1488,6 +1810,7 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "packages/shared/src/terminal.ts": {
+    "comment-provenance": 1,
     "no-known-value-widening": 1
   },
   "packages/shared/src/traceparent.ts": {
@@ -1502,6 +1825,7 @@
   "packages/shared/src/user-authorization.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 8,
+    "no-swallowed-error": 5,
     "no-unknown-parameters": 24,
     "no-unsafe-dictionary-type": 3,
     "require-safety-comment-for-type-assertion": 1
@@ -1509,7 +1833,11 @@
   "packages/term-wasm/src/client_viewer.rs": {
     "comment-temporary": 1
   },
+  "packages/term-wasm/src/lib.rs": {
+    "comment-provenance": 1
+  },
   "packages/user-agent/src/index.test.ts": {
+    "no-compat-names": 4,
     "prefer-effect-match": 1
   },
   "packages/user-agent/src/index.ts": {
@@ -1524,13 +1852,20 @@
   "scripts/agent-hooks/guards/plan-gate.ts": {
     "no-runtime-typeof": 1
   },
+  "scripts/agent-hooks/guards/source-grep.test.ts": {
+    "no-weak-assertion": 2
+  },
   "scripts/agent-hooks/guards/source-grep.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 3,
     "no-unsafe-dictionary-type": 1
   },
+  "scripts/agent-hooks/guards/workspace-cd.ts": {
+    "comment-provenance": 1
+  },
   "scripts/agent-hooks/hook-io.ts": {
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 2,
     "no-unsafe-dictionary-type": 4
   },
   "scripts/agent-hooks/post-tool-use.test.ts": {
@@ -1538,7 +1873,8 @@
   },
   "scripts/agent-hooks/post-tool-use.ts": {
     "no-array-filter-map": 3,
-    "no-runtime-typeof": 3
+    "no-runtime-typeof": 3,
+    "no-swallowed-error": 1
   },
   "scripts/agent-hooks/pre-tool-use.ts": {
     "no-runtime-typeof": 2
@@ -1560,7 +1896,8 @@
     "require-safety-comment-for-type-assertion": 3
   },
   "scripts/analyze-terminal-gpu-trace.test.ts": {
-    "no-unsafe-dictionary-type": 1
+    "no-unsafe-dictionary-type": 1,
+    "no-weak-assertion": 1
   },
   "scripts/analyze-terminal-gpu-trace.ts": {
     "no-runtime-typeof": 24,
@@ -1591,6 +1928,7 @@
   "scripts/bench-immutable-image.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 2,
     "no-runtime-typeof": 1
   },
   "scripts/bench-kernels-row-geometry.test.ts": {
@@ -1608,6 +1946,7 @@
     "require-safety-comment-for-type-assertion": 6
   },
   "scripts/bench-perf-ring.ts": {
+    "no-compat-names": 6,
     "no-known-value-widening": 1
   },
   "scripts/bench-reconnect-latency.ts": {
@@ -1618,6 +1957,9 @@
   },
   "scripts/bench-terminal-render-readers.ts": {
     "require-safety-comment-for-type-assertion": 1
+  },
+  "scripts/bench-terminal-row-layout.ts": {
+    "no-literal-timer-delay": 1
   },
   "scripts/bench-wasm-font-init.ts": {
     "no-known-value-widening": 1
@@ -1652,7 +1994,8 @@
     "require-safety-comment-for-type-assertion": 3
   },
   "scripts/bench-web-input-keystroke.test.ts": {
-    "no-known-value-widening": 1
+    "no-known-value-widening": 1,
+    "no-weak-assertion": 2
   },
   "scripts/bench-web-input-keystroke.ts": {
     "no-chained-type-assertions": 3,
@@ -1677,6 +2020,7 @@
   "scripts/bench-webgpu-terminal.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 2,
     "no-runtime-typeof": 1
   },
   "scripts/bench-webtransport-frame-parser.test.ts": {
@@ -1685,7 +2029,8 @@
   },
   "scripts/build-daemon-artifacts.ts": {
     "no-known-value-widening": 1,
-    "no-runtime-typeof": 5
+    "no-runtime-typeof": 5,
+    "no-swallowed-error": 1
   },
   "scripts/build-daemon-dist.test.ts": {
     "no-known-value-widening": 1
@@ -1696,10 +2041,14 @@
   "scripts/build-keyboard-bigram.ts": {
     "no-known-value-widening": 2,
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "scripts/build-web.ts": {
     "no-manual-tag-comparison": 1
+  },
+  "scripts/capture-orb-still.ts": {
+    "no-literal-timer-delay": 1
   },
   "scripts/check-dead.ts": {
     "no-runtime-typeof": 2,
@@ -1711,7 +2060,8 @@
   "scripts/check-docs.ts": {
     "no-array-filter-map": 1,
     "no-known-value-widening": 1,
-    "no-runtime-typeof": 5
+    "no-runtime-typeof": 5,
+    "no-swallowed-error": 2
   },
   "scripts/check-ratchet.test.ts": {
     "no-unsafe-dictionary-type": 7,
@@ -1729,6 +2079,9 @@
   "scripts/ci/provision-ledger.ts": {
     "no-known-value-widening": 1
   },
+  "scripts/current-protocol-hard-cut.ts": {
+    "no-compat-names": 2
+  },
   "scripts/deployment-signature.test.ts": {
     "no-known-value-widening": 1
   },
@@ -1740,8 +2093,14 @@
     "no-known-value-widening": 1,
     "prefer-effect-match": 1
   },
+  "scripts/dev-redis.ts": {
+    "no-literal-timer-delay": 1
+  },
   "scripts/dev-server-env.ts": {
     "no-unknown-parameters": 1
+  },
+  "scripts/dev.ts": {
+    "no-literal-timer-delay": 3
   },
   "scripts/doc-drift.ts": {
     "no-array-filter-map": 2
@@ -1761,6 +2120,7 @@
     "no-known-value-widening": 1
   },
   "scripts/edge-fly-config.ts": {
+    "comment-provenance": 1,
     "no-runtime-typeof": 5,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 11
@@ -1773,12 +2133,14 @@
   },
   "scripts/edge-harness-native-artifacts.ts": {
     "no-runtime-typeof": 12,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 6,
     "no-unsafe-dictionary-type": 3,
     "require-safety-comment-for-type-assertion": 11
   },
   "scripts/edge-network-control.test.ts": {
     "no-known-value-widening": 3,
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-unsafe-dictionary-type": 3,
     "require-safety-comment-for-type-assertion": 1
@@ -1787,6 +2149,7 @@
     "no-unknown-parameters": 1
   },
   "scripts/edge-network-profile.ts": {
+    "no-compat-names": 5,
     "no-conditional-empty-object-spread": 3,
     "no-known-value-widening": 2,
     "require-safety-comment-for-type-assertion": 2
@@ -1794,6 +2157,7 @@
   "scripts/edge-network-stats.ts": {
     "no-conditional-empty-object-spread": 1,
     "no-runtime-typeof": 11,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 18,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 53
@@ -1819,10 +2183,12 @@
     "no-known-value-widening": 3,
     "no-manual-tag-comparison": 2,
     "no-runtime-typeof": 6,
+    "no-swallowed-error": 2,
     "no-unsafe-dictionary-type": 1
   },
   "scripts/generate-third-party-notices.ts": {
     "no-runtime-typeof": 2,
+    "no-swallowed-error": 2,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 6
   },
@@ -1858,15 +2224,21 @@
   },
   "scripts/perf/completion-observer-worker.ts": {
     "no-chained-type-assertions": 1,
+    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 2
   },
   "scripts/perf/criterion.ts": {
     "no-known-value-widening": 1
   },
+  "scripts/perf/harness.test.ts": {
+    "no-swallowed-error": 1
+  },
   "scripts/perf/harness.ts": {
+    "comment-defensive": 1,
     "no-array-filter-map": 2,
     "no-known-value-widening": 3,
     "no-runtime-typeof": 40,
+    "no-swallowed-error": 3,
     "no-unknown-parameters": 3,
     "no-unsafe-dictionary-type": 1
   },
@@ -1883,6 +2255,7 @@
   },
   "scripts/perf/render-admission-browser-worker.ts": {
     "no-chained-type-assertions": 1,
+    "no-literal-timer-delay": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "scripts/perf/replay-native-packing.test.ts": {
@@ -1902,10 +2275,12 @@
     "require-safety-comment-for-type-assertion": 1
   },
   "scripts/perf/webgl-fence-cadence-worker.ts": {
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 1
   },
   "scripts/perf/webgpu-renderer-benchmark.ts": {
+    "no-literal-timer-delay": 1,
     "no-object-parameters": 2,
     "no-reflect-apply": 1,
     "no-reflect-get": 1,
@@ -1920,10 +2295,12 @@
     "require-safety-comment-for-type-assertion": 1
   },
   "scripts/perf/webgpu-terminal-worker.ts": {
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 1
   },
   "scripts/prepare-client-session-oracle.ts": {
+    "no-swallowed-error": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "scripts/profile-project.test.ts": {
@@ -1941,14 +2318,17 @@
   },
   "scripts/run-edge-harness.test.ts": {
     "no-known-value-widening": 3,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 2,
     "no-unsafe-dictionary-type": 3,
     "require-safety-comment-for-type-assertion": 2
   },
   "scripts/run-edge-harness.ts": {
-    "no-conditional-empty-object-spread": 1
+    "no-conditional-empty-object-spread": 1,
+    "no-literal-timer-delay": 4
   },
   "scripts/run-edge-topology-harness.ts": {
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 6,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 1,
@@ -1956,6 +2336,7 @@
   },
   "scripts/run-ios-webkit-harness.ts": {
     "no-runtime-typeof": 5,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 3,
     "no-unknown-returns": 3,
     "require-safety-comment-for-type-assertion": 6
@@ -1963,6 +2344,7 @@
   "scripts/run-keyboard-decoder-lab.ts": {
     "no-known-value-widening": 1,
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 2,
     "no-unsafe-dictionary-type": 2,
     "require-safety-comment-for-type-assertion": 4
   },
@@ -1999,6 +2381,7 @@
     "require-safety-comment-for-type-assertion": 2
   },
   "scripts/run-terminal-network-matrix.test.ts": {
+    "no-compat-names": 7,
     "no-known-value-widening": 6,
     "no-unsafe-dictionary-type": 10,
     "require-safety-comment-for-type-assertion": 4
@@ -2006,9 +2389,11 @@
   "scripts/run-terminal-network-matrix.ts": {
     "comment-temporary": 3,
     "no-array-filter-map": 2,
+    "no-compat-names": 4,
     "no-known-value-widening": 5,
     "no-runtime-typeof": 53,
     "no-shape-in-symbol-names": 2,
+    "no-swallowed-error": 2,
     "no-unknown-parameters": 10,
     "no-unknown-returns": 1,
     "no-unsafe-dictionary-type": 3,
@@ -2042,6 +2427,12 @@
   "scripts/stun-entrypoint.test.ts": {
     "no-known-value-widening": 1
   },
+  "scripts/term-wasm-current-glue.test.ts": {
+    "no-compat-names": 10
+  },
+  "scripts/term-wasm-current-glue.ts": {
+    "no-compat-names": 10
+  },
   "scripts/term-wasm-pgo.ts": {
     "no-chained-type-assertions": 1,
     "no-known-value-widening": 1,
@@ -2063,6 +2454,9 @@
   "scripts/test-inventory.test.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
+  "scripts/test-tpm-sim.ts": {
+    "no-literal-timer-delay": 2
+  },
   "scripts/verification-cache.test.ts": {
     "no-known-value-widening": 1
   },
@@ -2077,6 +2471,7 @@
   },
   "scripts/verification-executor.ts": {
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1
   },
   "scripts/verification-junit.ts": {
@@ -2085,7 +2480,8 @@
   },
   "scripts/wasm-toolchain.ts": {
     "no-conditional-empty-object-spread": 2,
-    "no-known-value-widening": 1
+    "no-known-value-widening": 1,
+    "no-swallowed-error": 1
   },
   "scripts/web-build-signature.ts": {
     "no-runtime-typeof": 2
@@ -2093,25 +2489,32 @@
   "spikes/webtransport-ios/worker/drain-worker.ts": {
     "no-chained-type-assertions": 3,
     "no-known-value-widening": 1,
+    "no-swallowed-error": 5,
     "require-safety-comment-for-type-assertion": 10
   },
   "spikes/webtransport-ios/worker/main.ts": {
     "no-chained-type-assertions": 1,
     "require-safety-comment-for-type-assertion": 11
   },
+  "tests/e2e/app.e2e.ts": {
+    "no-literal-timer-delay": 2
+  },
   "tests/e2e/auth-cross-tab.e2e.ts": {
-    "no-known-value-widening": 1
+    "no-known-value-widening": 1,
+    "no-literal-timer-delay": 1
   },
   "tests/e2e/auth-email.e2e.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
   "tests/e2e/auth-resilience.e2e.ts": {
-    "no-known-value-widening": 2
+    "no-known-value-widening": 2,
+    "no-weak-assertion": 2
   },
   "tests/e2e/carrier-rebind.e2e.ts": {
     "no-reflect-get": 12,
     "no-runtime-typeof": 6,
     "no-unknown-parameters": 3,
+    "no-weak-assertion": 2,
     "require-safety-comment-for-type-assertion": 1
   },
   "tests/e2e/client-idle-work.e2e.ts": {
@@ -2123,6 +2526,7 @@
   },
   "tests/e2e/display-burst-paint.e2e.ts": {
     "no-chained-type-assertions": 2,
+    "no-literal-timer-delay": 1,
     "require-safety-comment-for-type-assertion": 4
   },
   "tests/e2e/edge-handshake-reorder.e2e.ts": {
@@ -2130,19 +2534,26 @@
   },
   "tests/e2e/edge-sweep.e2e.ts": {
     "no-chained-type-assertions": 1,
+    "no-weak-assertion": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "tests/e2e/edge-topology.e2e.ts": {
     "no-chained-type-assertions": 3,
+    "no-literal-timer-delay": 4,
     "no-runtime-typeof": 1,
+    "no-weak-assertion": 3,
     "require-safety-comment-for-type-assertion": 11
   },
   "tests/e2e/edge-wt-probe.e2e.ts": {
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "tests/e2e/fake-rybbit.ts": {
     "no-known-value-widening": 1
+  },
+  "tests/e2e/fence-poll-cadence.e2e.ts": {
+    "no-literal-timer-delay": 1
   },
   "tests/e2e/fixtures/daemon-perf-trace-capture.test.ts": {
     "no-object-parameters": 2
@@ -2152,7 +2563,10 @@
     "no-unsafe-dictionary-type": 1
   },
   "tests/e2e/fixtures/daemon-process.ts": {
-    "no-runtime-typeof": 1
+    "comment-defensive": 1,
+    "no-literal-timer-delay": 2,
+    "no-runtime-typeof": 1,
+    "no-swallowed-error": 3
   },
   "tests/e2e/fixtures/daemon-transport-capture.ts": {
     "no-runtime-typeof": 2,
@@ -2164,6 +2578,7 @@
   },
   "tests/e2e/fixtures/direct-cdp-trace.ts": {
     "no-runtime-typeof": 7,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 2,
     "no-unknown-returns": 4,
     "no-unsafe-dictionary-type": 1
@@ -2182,7 +2597,11 @@
     "no-object-parameters": 1
   },
   "tests/e2e/fixtures/direct-network-proxy.ts": {
-    "no-known-value-widening": 1
+    "no-known-value-widening": 1,
+    "no-literal-timer-delay": 3
+  },
+  "tests/e2e/fixtures/direct-redraw-coverage.test.ts": {
+    "no-literal-timer-delay": 1
   },
   "tests/e2e/fixtures/direct-reference-events.ts": {
     "no-array-filter-map": 2,
@@ -2205,6 +2624,7 @@
   "tests/e2e/fixtures/direct-tui-workloads.ts": {
     "no-array-filter-map": 1,
     "no-runtime-typeof": 2,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unknown-returns": 1,
     "require-safety-comment-for-type-assertion": 1
@@ -2279,6 +2699,7 @@
     "no-chained-type-assertions": 2,
     "no-known-value-widening": 3,
     "no-runtime-typeof": 14,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 9,
     "no-unsafe-dictionary-type": 15,
     "require-safety-comment-for-type-assertion": 7
@@ -2302,7 +2723,9 @@
     "no-chained-type-assertions": 4,
     "no-conditional-empty-object-spread": 2,
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 5,
     "no-runtime-typeof": 21,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 3,
     "no-unknown-returns": 3,
     "no-unsafe-dictionary-type": 1,
@@ -2317,6 +2740,7 @@
     "no-unsafe-dictionary-type": 1
   },
   "tests/e2e/fixtures/webgpu-identity.ts": {
+    "comment-provenance": 1,
     "no-reflect-get": 1,
     "no-runtime-typeof": 1
   },
@@ -2329,6 +2753,7 @@
   },
   "tests/e2e/network-handover.e2e.ts": {
     "no-runtime-typeof": 2,
+    "no-swallowed-error": 2,
     "require-safety-comment-for-type-assertion": 1
   },
   "tests/e2e/playwright-edge-config.test.ts": {
@@ -2336,6 +2761,7 @@
   },
   "tests/e2e/runtime-files.ts": {
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 1,
     "no-unsafe-dictionary-type": 1
   },
   "tests/e2e/site-blog.e2e.ts": {
@@ -2350,7 +2776,9 @@
     "require-safety-comment-for-type-assertion": 13
   },
   "tests/e2e/start-server.ts": {
-    "no-known-value-widening": 3
+    "no-known-value-widening": 3,
+    "no-literal-timer-delay": 2,
+    "no-swallowed-error": 1
   },
   "tests/e2e/startup-latency.e2e.ts": {
     "require-safety-comment-for-type-assertion": 1
@@ -2359,6 +2787,7 @@
     "no-known-value-widening": 1,
     "no-runtime-typeof": 2,
     "no-shape-in-symbol-names": 12,
+    "no-swallowed-error": 1,
     "no-unknown-returns": 1,
     "no-unsafe-dictionary-type": 1,
     "require-safety-comment-for-type-assertion": 1
@@ -2371,6 +2800,7 @@
   },
   "tests/e2e/terminal-direct-reference.e2e.ts": {
     "no-known-value-widening": 2,
+    "no-literal-timer-delay": 1,
     "no-reflect-get": 10,
     "no-runtime-typeof": 13,
     "no-unknown-parameters": 4,
@@ -2383,6 +2813,7 @@
   },
   "tests/e2e/terminal-geometry-matrix.e2e.ts": {
     "no-runtime-typeof": 2,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 2,
     "require-safety-comment-for-type-assertion": 1
   },
@@ -2407,7 +2838,9 @@
   "tests/e2e/terminal-redraw-reference.e2e.ts": {
     "no-chained-type-assertions": 1,
     "no-known-value-widening": 1,
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 3,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 1,
     "require-safety-comment-for-type-assertion": 3
@@ -2418,6 +2851,9 @@
   },
   "tests/e2e/wait-edge-registration.ts": {
     "no-runtime-typeof": 1
+  },
+  "tests/helpers/lifecycle-clock.test.ts": {
+    "no-literal-timer-delay": 1
   },
   "tests/helpers/lifecycle-clock.ts": {
     "require-safety-comment-for-type-assertion": 1
@@ -2701,7 +3137,8 @@
   },
   "tools/bazel/tools/node.test.ts": {
     "no-runtime-typeof": 4,
-    "no-unsafe-dictionary-type": 1
+    "no-unsafe-dictionary-type": 1,
+    "no-weak-assertion": 2
   },
   "tools/bazel/verification/action-inputs.ts": {
     "no-runtime-typeof": 11,
@@ -2761,7 +3198,8 @@
     "no-array-filter-map": 2,
     "no-conditional-empty-object-spread": 28,
     "no-known-value-widening": 3,
-    "no-runtime-typeof": 1
+    "no-runtime-typeof": 1,
+    "no-swallowed-error": 1
   },
   "tools/bazel/verification/concurrent-commands.ts": {
     "no-runtime-typeof": 11,
@@ -2796,11 +3234,14 @@
     "no-runtime-typeof": 1
   },
   "tools/bazel/verification/dev-stack.test.ts": {
+    "no-literal-timer-delay": 4,
+    "no-weak-assertion": 1,
     "require-safety-comment-for-type-assertion": 3
   },
   "tools/bazel/verification/dev-stack.ts": {
     "no-conditional-empty-object-spread": 2,
     "no-known-value-widening": 2,
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 13,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 2,
@@ -2867,13 +3308,15 @@
     "no-unsafe-dictionary-type": 1
   },
   "tools/bazel/verification/loading-inputs.test.ts": {
-    "no-known-value-widening": 1
+    "no-known-value-widening": 1,
+    "no-weak-assertion": 2
   },
   "tools/bazel/verification/loading-inputs.ts": {
     "no-runtime-typeof": 5
   },
   "tools/bazel/verification/plan-cache.ts": {
     "no-runtime-typeof": 1,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unknown-returns": 1
   },
@@ -2949,6 +3392,12 @@
     "no-known-value-widening": 1,
     "no-runtime-typeof": 4,
     "require-safety-comment-for-type-assertion": 3
+  },
+  "tools/bazel/verification/staged-controller.test.ts": {
+    "no-weak-assertion": 1
+  },
+  "tools/bazel/verification/staged-gates.test.ts": {
+    "no-weak-assertion": 1
   },
   "tools/bazel/verification/staged-gates.ts": {
     "no-runtime-typeof": 8,

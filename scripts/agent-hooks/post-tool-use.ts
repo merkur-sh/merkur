@@ -13,6 +13,7 @@ import {
   truncateOnLine,
   writeStdout,
 } from './hook-io';
+import { recordEdits } from './session-edits';
 
 /**
  * PostToolUse entry.
@@ -30,6 +31,9 @@ import {
  * while `--unsafe` is never passed, so every fix that could change behaviour — an unused
  * import, a widened type — still comes back for the agent to decide. Files whose bytes
  * actually moved are named, because that is the cue to re-read before editing them again.
+ *
+ * Every edited path, lintable or not, is recorded for the session (`session-edits.ts`), which is
+ * how the Stop hook tells this session's files from another's in the shared checkout.
  *
  * After Claude's `ExitPlanMode`, record the session's plan approval for `guards/plan-gate`.
  */
@@ -161,7 +165,9 @@ if (import.meta.main) {
     const root = findRepoRoot(input.cwd);
     if (root === null) return 0;
 
-    const files = lintableFiles(editedFilesOf(input), input.cwd);
+    const edited = editedFilesOf(input).map((file) => path.resolve(input.cwd, file));
+    recordEdits(input.sessionId, edited);
+    const files = lintableFiles(edited, input.cwd);
     if (files.length === 0) return 0;
     const findings = runBiome(root, files);
     if (findings === null) return 0;

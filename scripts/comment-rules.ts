@@ -3,9 +3,15 @@
  * files and in Rust. `scripts/check-slop.ts` decides which files are read, and holds the findings
  * to `lint-baselines/anti-slop.json` beside those of the Biome rules.
  *
- * The rules are the `RULES` table, matched on the text of comments and nothing else: four
- * phrases that put off or doubt what the code does, in any letter case, and the two upper-case
- * markers of unfinished work when their comment holds no URL. A word or phrase matches whole: a
+ * The rules are the `RULES` table, matched on the text of comments and nothing else, in any
+ * letter case: four phrases that put off or doubt what the code does, the phrases that recount
+ * the code's history (`comment-provenance`) or guard against a case they do not name
+ * (`comment-defensive`), a `SAFETY:` comment whose whole reason is that the code is safe
+ * (`comment-vacuous-safety`; the reason must end its line, so a reason that goes on in the next
+ * `//` comment is not seen), and the two upper-case markers of unfinished work when their
+ * comment holds no URL. Each phrase list is what measured precisely on this tree: "no longer",
+ * "fallback", "gracefully" and "it now" also describe runtime states, and are not in it. A word
+ * or phrase matches whole: a
  * letter, digit or underscore of any script on either side makes it part of another word, and
  * the words of a phrase stand on one line. A comment is one `//` line or one block, doc comments
  * included, so the URL that excuses a marker is in that line or that block. Each finding is at
@@ -69,6 +75,36 @@ export const RULES: readonly Rule[] = [
     excuse: null,
     message:
       '"Hopefully" marks an outcome nobody checked: find the signal that settles it, then state what the code guarantees.',
+  },
+  {
+    name: 'comment-provenance',
+    pattern: whole(
+      String.raw`used[ \t]+to[ \t]+be|(?<=(?:^|[.!?]|\n)[ \t*!/]*)previously|(?:old|previous|former)[ \t]+(?:implementation|version|code|approach|behaviou?r|api)|refactor(?:ed|ing)|backwards?[ \t-]+compat\w*|for[ \t]+compatibility`,
+      'giu',
+    ),
+    excuse: null,
+    message:
+      'A comment that tells what the code used to be is history the reader cannot check against anything: say what the code does now, and leave the change to the commit message.',
+  },
+  {
+    name: 'comment-defensive',
+    pattern: whole(
+      String.raw`just[ \t]+in[ \t]+case|to[ \t]+be[ \t]+(?:on[ \t]+the[ \t]+)?safe(?:[ \t]+side)?|defensively|best[ \t-]+effort`,
+      'giu',
+    ),
+    excuse: null,
+    message:
+      'A comment that guards against a case it does not name ("just in case", "defensively", "best-effort") marks a failure nobody traced: name the case and handle it, or delete the guard.',
+  },
+  {
+    name: 'comment-vacuous-safety',
+    pattern: whole(
+      String.raw`SAFETY[ \t]*:[ \t]*(?:(?:this|it|that|the[ \t]+(?:cast|assertion|type|value))[ \t]+)?(?:is[ \t]+|'s[ \t]+)?(?:always[ \t]+|definitely[ \t]+)?(?:safe|fine|ok|okay|correct|valid|sound|known|checked|guaranteed|right|trusted)(?:[ \t]+here)?[ \t]*\.?(?=[ \t]*(?:\n|$))`,
+      'giu',
+    ),
+    excuse: null,
+    message:
+      'A `SAFETY:` comment that only says the code is safe gives no reason: name the fact that makes it true (who checked the value, which invariant holds, where it was decoded).',
   },
   {
     name: 'comment-todo-without-link',
