@@ -4,10 +4,10 @@
   "platform": "native",
   "execution_host": "x86_64-unknown-linux-gnu",
   "executor_image": "docker://gcc@sha256:a689e29bc3adf4663ef9a141d23081252764d1319c63f591a027bd6fd676f4c1",
-  "cargo_identity": "cargo 1.97.1 (c980f4866 2026-06-30)",
-  "rustc_identity": "rustc 1.97.1 (8bab26f4f 2026-07-14)\nbinary: rustc\ncommit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452\ncommit-date: 2026-07-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.1\nLLVM version: 22.1.6",
+  "cargo_identity": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "rustc_identity": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1",
   "native_runtime": {
-    "bun": "1.4.2",
+    "bun": "1.4.3",
     "os": "linux",
     "arch": "x64"
   },
@@ -19,13 +19,13 @@
     },
     {
       "path": "Cargo.lock",
-      "sha256": "0f356063c84a170d87216030cbf3253ac47a8ac5ce5cddf4420a7b44194c27bf",
-      "size": 121170
+      "sha256": "76771cdd30a0bc3d170b17dd5fb9e61fefef29fd8f2ed5347e504de78a436a7f",
+      "size": 124846
     },
     {
       "path": "Cargo.toml",
-      "sha256": "c2e9bb47c877efaeab0e8c2524e83f2f532b357b8edf6ba34c627d89df067787",
-      "size": 3323
+      "sha256": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
+      "size": 5066
     },
     {
       "path": "packages/alacritty-terminal-patch/Cargo.toml",
@@ -1279,23 +1279,23 @@
     },
     {
       "path": "packages/merkur-fec/src/lib.rs",
-      "sha256": "7547c4f4ef9008c526c50d766546697c1f3104d68cd3e7121ec06ed3705e3e32",
-      "size": 551
+      "sha256": "3ad1f0ddaec90f74c164749638d51b61f7972f4b1fb74f6fe79db26564a953a4",
+      "size": 750
     },
     {
       "path": "packages/merkur-fec/src/repair.rs",
-      "sha256": "e04c7089d71b7378a79988449b14147294a4f2900d1051c1af4bf11bfeaef02f",
-      "size": 13439
+      "sha256": "e77f516e187e419b055abf8acb0f9a1106c752791133fe3d043aa5e8d1a23013",
+      "size": 23577
     },
     {
       "path": "packages/merkur-fec/src/simd.rs",
-      "sha256": "7417756bc9e727004618fae7893031bb8f1e25dd34ba0f2b8da5f7059e6f05a4",
-      "size": 22170
+      "sha256": "a90a39a8039569fa580c9ec9931ec0fb55a5517c0ea3edda6585f1aa231f5365",
+      "size": 25639
     },
     {
       "path": "packages/merkur-fec/tests/kernel_profile.rs",
-      "sha256": "6892ab3ad973ea9dea43e91aa3abae7a6c0708f9d3ea4c19c86d8369de1d820a",
-      "size": 12574
+      "sha256": "dca912ab361d0c59fcf359d37c61cba8cd473f368ee19e9a60ff408ab29acb2d",
+      "size": 13519
     },
     {
       "path": "packages/merkur-fec/tests/roundtrip.rs",
@@ -1309,8 +1309,8 @@
     },
     {
       "path": "packages/quinn-patch/Cargo.toml",
-      "sha256": "9b8086637dfb9c75b32f5f1873ad992ee091a92ea5e4a8f1e29a258e7706b688",
-      "size": 4151
+      "sha256": "a1a16477cb78781f3b577323aff3be540f32619b229b9f48deecc1407bfa49e9",
+      "size": 4154
     },
     {
       "path": "packages/quinn-patch/LICENSE-APACHE",
@@ -1324,13 +1324,13 @@
     },
     {
       "path": "packages/quinn-patch/README.md",
-      "sha256": "b9fd91495cf1a57605c418f16aba34d71b18d85ea711e1cb585a7a3b410fe128",
+      "sha256": "6ac8f436f340f97ff463a1e79100f33b31161d679a7911b26de6530536758d54",
       "size": 8808
     },
     {
       "path": "packages/quinn-patch/src/connection.rs",
-      "sha256": "944e9dd0a277e3e19df148454c384fc6769332fcc0fad14381cf4473f69a3c79",
-      "size": 70874
+      "sha256": "ace008ebfcb7b21cbbfb589e5d6a4353f88a08c575753ab7cc11fe14962eb463",
+      "size": 71900
     },
     {
       "path": "packages/quinn-patch/src/delivery_view.rs",
@@ -1359,8 +1359,8 @@
     },
     {
       "path": "packages/quinn-patch/src/recv_stream.rs",
-      "sha256": "e72934425f6122b6a2a3abbdafa7b0ab04d3ec9d615871312242c075422f2572",
-      "size": 27215
+      "sha256": "c4fb8f60399b31dc1e74904285353814b5db6b2f69f4c878c5c7e6e9ea30859d",
+      "size": 29312
     },
     {
       "path": "packages/quinn-patch/src/runtime.rs",
@@ -1389,8 +1389,8 @@
     },
     {
       "path": "packages/quinn-patch/src/tests.rs",
-      "sha256": "3644d8f73081461cb1c5ca41188307142d156270f520ff197d084f08c92b84d4",
-      "size": 70889
+      "sha256": "8f3a59087a539d73b5453ae236346db67d1936da4a5b383be7450c6a1ea4ff2f",
+      "size": 70885
     },
     {
       "path": "packages/quinn-patch/src/work_limiter.rs",
@@ -1399,12 +1399,12 @@
     },
     {
       "path": "packages/quinn-proto-patch/Cargo.toml",
-      "sha256": "3fae039f382d52ec9add2be3c4d2d1b3f5368f1655835f4c3711a333d10acc35",
+      "sha256": "95aaf88c74814dd46a53d07ca82c0ec90bcb7275c57a739336d287a7478feb58",
       "size": 3796
     },
     {
       "path": "packages/quinn-proto-patch/Cargo.toml.orig",
-      "sha256": "7ea8a5428aea5cf7c6aa582f097245fed6a8b72c5809f8a274b86a972a97ceab",
+      "sha256": "d97931b8f5beb361a8a0151258ab73f4da51fa242ecf26a21405b74d824f467b",
       "size": 3308
     },
     {
@@ -1419,7 +1419,7 @@
     },
     {
       "path": "packages/quinn-proto-patch/README.md",
-      "sha256": "e736690a408afdbaa2c65e4c7028f54c3972f6ca901abe1c494219d73ecfef95",
+      "sha256": "298e4636fbff638d24a0006eda9222b023d4d40a15d179ca068b8037a70e0cad",
       "size": 1284
     },
     {
@@ -1449,13 +1449,13 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/config/transport.rs",
-      "sha256": "6c115185b439b7a455477c939cbf68764c261e19f3dda80d7ba985af61c72be8",
-      "size": 32934
+      "sha256": "6921939145be10e36b01f2e00a1bcd5264b0fb0ca6c9fa393fb1b5a450fab077",
+      "size": 33322
     },
     {
       "path": "packages/quinn-proto-patch/src/congestion.rs",
-      "sha256": "15b7e7dda5d47e4d9b553c6740e0d39888a4e5259d29b849765e399de08814bd",
-      "size": 3196
+      "sha256": "22018842b450a4eabcc87886558c594606c2245eb5705e75c3da99986b568a10",
+      "size": 3564
     },
     {
       "path": "packages/quinn-proto-patch/src/congestion/bbr/bw_estimation.rs",
@@ -1469,13 +1469,18 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/congestion/bbr/mod.rs",
-      "sha256": "0b1f5438b2dc84fe1f2cb3ac080a140cb68990a57172e4da525049471ea9f418",
-      "size": 23504
+      "sha256": "44352e7a87467303a91a6c48da46ef12477aa93b3b640e4f947f0f4c25183f4c",
+      "size": 23681
+    },
+    {
+      "path": "packages/quinn-proto-patch/src/congestion/careful_resume.rs",
+      "sha256": "3499c71afe91b9561505fbac6657c00aefb56c29ca87e887a2d348752c1fdbaa",
+      "size": 24060
     },
     {
       "path": "packages/quinn-proto-patch/src/congestion/cubic.rs",
-      "sha256": "7715fd5f2a59737fd2e16dae6c1f39701ade221a8c07f6f3cd087926d0f9d632",
-      "size": 10328
+      "sha256": "3955cd39d6d39d47d3133d01e8b605d08e40ab41cc6d26b533edc5403de90e04",
+      "size": 10970
     },
     {
       "path": "packages/quinn-proto-patch/src/congestion/delivery.rs",
@@ -1489,18 +1494,18 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/congestion/new_reno.rs",
-      "sha256": "15c6302d6e508e980bb03201f5293301211a8e60c9c40a5759ce543df296ae76",
-      "size": 5229
+      "sha256": "3c171b6cc473cca80e44cfa5f9c334533b16f433cc764892bb751227eb6e51fe",
+      "size": 5692
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/ack_frequency.rs",
-      "sha256": "df7d2bc9b3b02f008e978321784106bca54150700ca89b766b08ce71b918a64c",
-      "size": 6017
+      "sha256": "e740eab803d41c40df34a4edd6924507f8a5374ffc07e31a2761fd094ab7be74",
+      "size": 7879
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/assembler.rs",
-      "sha256": "fcccb864061cc16b3d50e4c2a8dc2e10100fa286e5648d4e46f10ff22a59bb90",
-      "size": 27978
+      "sha256": "5e205df22a27e1735536378836eb5c8d06cb88358c37f72f9935da09b5575852",
+      "size": 29650
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/cid_state.rs",
@@ -1509,8 +1514,8 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/datagrams.rs",
-      "sha256": "5a4126318538734ed6684c008c2eb0f251cdd3d33f18bfc410b4d05d1aff83f1",
-      "size": 34352
+      "sha256": "d4539f8dcd17d7e7754f70f8d880b9b5c363631d12d19c0ff36a6f8dff469372",
+      "size": 35210
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/egress.rs",
@@ -1519,23 +1524,23 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/mod.rs",
-      "sha256": "3a120dfef121c6322a33359e71a563d0ad46573b238950db8e76233c83314f4c",
-      "size": 192664
+      "sha256": "374a40893cc7b724a4f2585db3461c1328f50c9bf2cb53322dfccbb5eaf3028f",
+      "size": 208453
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/mtud.rs",
-      "sha256": "3334afb82a9b8430cf22930246c3443bab96b23c7e1d7ac4f672df1fd33ae6b9",
-      "size": 35247
+      "sha256": "3a2917c053a6ec79e277a2fc895cf20ba8cde2b1fe8b3b8b1c96584062acf782",
+      "size": 37678
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/pacing.rs",
-      "sha256": "662055f72329de7aa4f768eecc57c37b491ebc886fa10e96d0f038a6d7337f55",
-      "size": 15253
+      "sha256": "925aa9ac4b77e02c970ba141f7aca7b6d8ec36c5f61a065deac65e30e5fccf5e",
+      "size": 15846
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/packet_builder.rs",
-      "sha256": "d13366f8933d99abd11d42592fd7f72db88030e829e3255152da4951075f224f",
-      "size": 11858
+      "sha256": "33b3a7c7fb22b8f906db462bab925144e44326b2af52bc9a1391808cf07d948a",
+      "size": 13522
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/packet_crypto.rs",
@@ -1544,8 +1549,8 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/paths.rs",
-      "sha256": "117da4183fcbf8e6863d2793dbc9941cec4301512169dacefdb4391e681180a2",
-      "size": 20771
+      "sha256": "a48ae8a75de838c4be77e5a04ce1e8a3bf5c8de6461f6a10565dcb6fb21ca0b2",
+      "size": 22240
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/probe.rs",
@@ -1559,13 +1564,13 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/send_buffer.rs",
-      "sha256": "67076a399bae9b472044d7b60adeaebb3ed9bb828b9db10c83a74c1e1155c11a",
-      "size": 21462
+      "sha256": "b561ed964f1fe4790d78d8a3176d48d6f6fa917c9920f327ad5e983bafebb16a",
+      "size": 22287
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/spaces.rs",
-      "sha256": "2f0244cab14665cd647ae87f6c3a5a6d9d1f43ff3b2a0b161d10e2e9f64aea76",
-      "size": 44866
+      "sha256": "849a766d64957e322de15ae42b0a441e58f074762fcb4e4b46aefbbfd0400439",
+      "size": 45515
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/stats.rs",
@@ -1574,8 +1579,8 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/streams/mod.rs",
-      "sha256": "ab0c35c5dbaba2842cb5f1f9ee6593b883ae4ae6ee2920c6afe66233895c3ee9",
-      "size": 23764
+      "sha256": "01f48281cd7485a099fdb12a4d1c0385ab08d384a4d3b0207f3e391f29496700",
+      "size": 24572
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/streams/recv.rs",
@@ -1584,13 +1589,13 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/streams/send.rs",
-      "sha256": "af0dc76b5372dd7732d3a9f2b9d0fca24c4837293daf47748aeeb8bac43737ff",
-      "size": 13543
+      "sha256": "254bd9ca68a0dbcf4cc8bd0c79d70c09f988dd26149037bf1fd0197b19264f39",
+      "size": 13724
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/streams/state.rs",
-      "sha256": "c6640f0742d0c55ab61298be1f54d484b08b6743e9b11aaa8f875eb206a8e7eb",
-      "size": 88686
+      "sha256": "f6015304b82486c47e98bf1c6f9d8b601537686afcfb2c44c474e83e83e6aeb5",
+      "size": 97660
     },
     {
       "path": "packages/quinn-proto-patch/src/connection/timer.rs",
@@ -1624,8 +1629,8 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/endpoint.rs",
-      "sha256": "48fe450fc141d05ad628b55c2cac0b684704f0ce14a4e1cb66b5cbf5945c0a9f",
-      "size": 48648
+      "sha256": "0fa025fb488d89f1f1e59ed8c3f86b0632b5ee8fb12cc0f80af597b252fef734",
+      "size": 49519
     },
     {
       "path": "packages/quinn-proto-patch/src/frame.rs",
@@ -1649,8 +1654,8 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/range_set/btree_range_set.rs",
-      "sha256": "02a40dbda0ead57584e27ea6e15a7c77277c12844b3cea921aab9b0bfa12dd3b",
-      "size": 11144
+      "sha256": "ea055e691cc34351c81c5e386ab1ca2996781dca2da35fcb6364e9472a00a75f",
+      "size": 11461
     },
     {
       "path": "packages/quinn-proto-patch/src/range_set/mod.rs",
@@ -1679,8 +1684,8 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/tests/mod.rs",
-      "sha256": "e8f5e0b994e7ebf1a7204b8b9e83fe3dd3f93253364c735d72da504857ff3a7c",
-      "size": 137528
+      "sha256": "bba9b2ff11796e503167f25112e541e7395d7ccfccb3aabdcf27fe922ad8815d",
+      "size": 175235
     },
     {
       "path": "packages/quinn-proto-patch/src/tests/probe.rs",
@@ -1689,13 +1694,13 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/tests/token.rs",
-      "sha256": "f648dd0c171d1f2c498e0363b68c6211d5e9ec2f2b305db4a262d3ec47ebbc79",
-      "size": 10964
+      "sha256": "0996030424a37b8d3e0eab63bca69ef5a5c55295c7ce39e49dd2a264aaea5caf",
+      "size": 15320
     },
     {
       "path": "packages/quinn-proto-patch/src/tests/util.rs",
-      "sha256": "74576eba42b11dc759cd77ac4e6aee3645973883361734b7a3274bcbf29ef4d7",
-      "size": 36348
+      "sha256": "7e412318cb086c1002259e7a82a5425812b85b4b26c4df7cd32dfa92167a6b4b",
+      "size": 36390
     },
     {
       "path": "packages/quinn-proto-patch/src/token_memory_cache.rs",
@@ -1714,8 +1719,8 @@
     },
     {
       "path": "packages/quinn-proto-patch/src/transport_parameters.rs",
-      "sha256": "610461a6cadbc0f2c88ef759eb385b90b2a5bdc97b87019f7cb04bba577bb5a8",
-      "size": 36630
+      "sha256": "e6b70199d2322ddf2b2b6516c39bc4554b17364cf3fc60ba669d718fdc58a266",
+      "size": 39049
     },
     {
       "path": "packages/quinn-proto-patch/src/varint.rs",
@@ -1784,12 +1789,12 @@
     },
     {
       "path": "packages/wtransport-patch/Cargo.toml",
-      "sha256": "2dcdb5c08cda3bc45530ce2a897b3da32c88ba253c1e530ec394bfafd7b62bf6",
-      "size": 5092
+      "sha256": "0941d685523f6901d579145e89af04ff94e56d06d9a42498da2c28d280f224a5",
+      "size": 5236
     },
     {
       "path": "packages/wtransport-patch/Cargo.toml.orig",
-      "sha256": "51eae7b2ff2187bf82898aad06e4e381f5ab0b740dbffb0ea972b0b5e01635f3",
+      "sha256": "e3ea8472d80dd7167adb25863e7dd99b1e6b58b50dabd2ab9c98a4193522dc51",
       "size": 3327
     },
     {
@@ -1809,8 +1814,8 @@
     },
     {
       "path": "packages/wtransport-patch/src/config.rs",
-      "sha256": "8942b2112b1cd6cf20c5447a76c70ed1f6e6d40f470a7f7a6f24dc81a63d211e",
-      "size": 49636
+      "sha256": "7df28e732465e1d19a65087e6838f8dbf1742292fd690a588b82d2fda28517cc",
+      "size": 50072
     },
     {
       "path": "packages/wtransport-patch/src/connection.rs",
@@ -1819,13 +1824,13 @@
     },
     {
       "path": "packages/wtransport-patch/src/datagram.rs",
-      "sha256": "d594886b90011c14c494811825de82fc3b0c451b6935ddb1e3272fae9db01fa3",
-      "size": 5304
+      "sha256": "6e383cc076d9b313ea045fa9d99dfe4db56c9b8e29d590bd0cf64de5f9708f7e",
+      "size": 5903
     },
     {
       "path": "packages/wtransport-patch/src/driver/mod.rs",
-      "sha256": "d5231522b074924b2d1779330121560f9b0510593f463dc9dbbbcc31cec9f155",
-      "size": 33478
+      "sha256": "02e489cce42f43885c255311935c4ef368dc62c888d7d0a66ec6a8ba4e2f2490",
+      "size": 33483
     },
     {
       "path": "packages/wtransport-patch/src/driver/streams/connect.rs",
@@ -1854,8 +1859,8 @@
     },
     {
       "path": "packages/wtransport-patch/src/endpoint.rs",
-      "sha256": "4a1f315de6ce9d2241aab5b7ed1b398e7f2905c04d883215486dd9495158ed63",
-      "size": 30466
+      "sha256": "dc626174ce1bcebc9c0740f102405deb14bfb537abb632a33c1c21af6527a3a2",
+      "size": 32977
     },
     {
       "path": "packages/wtransport-patch/src/error.rs",
@@ -1879,12 +1884,22 @@
     },
     {
       "path": "rust-toolchain.toml",
-      "sha256": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
+      "sha256": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
       "size": 137
     },
     {
+      "path": "tools/bazel/rust/acquisition_sdk.py",
+      "sha256": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
+      "size": 13012
+    },
+    {
+      "path": "tools/bazel/rust/contexts.py",
+      "sha256": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
+      "size": 42491
+    },
+    {
       "path": "tools/bazel/rust/contexts/merkur-fec/build/native/Cargo.lock",
-      "sha256": "d1c743c955763524c381c11feb35a568a289baf9ea6eba1fcdf61f11b6a07a08",
+      "sha256": "a7c8a03f5a91452c8a7c7e8d7e6dbd5bac39799deed76b2325c91abb959653de",
       "size": 490
     },
     {
@@ -1894,196 +1909,196 @@
     },
     {
       "path": "tools/bazel/rust/contexts/merkur-fec/build/native/metadata.json",
-      "sha256": "39444f5ed2e72271790aaa7e8e9c1ea15224e4fb486ba2997bc4c51d2c2877a8",
-      "size": 17299
+      "sha256": "5a878a9f61233ac5f0e0845650e625bc4e362d78b0d0734342bbdc0b968848d0",
+      "size": 17514
     },
     {
       "path": "tools/bazel/rust/metadata.json",
-      "sha256": "c31ebe2ed9a8566ced1d2495eb25532dd4d5a984f72d3f2dbd6ce8306425e825",
-      "size": 1125143
+      "sha256": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9",
+      "size": 1138978
     }
   ],
   "sdk_facts": [
     {
       "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/bin/cargo",
-      "size": 42839824,
-      "sha256": "828980723df339d62434390e9fb8ef8831036583343ae2316b7ab5646b5c1953"
+      "size": 36160240,
+      "sha256": "e951141cc55a6cd7b9876d187bd30a3720e6086b99413af95e3b8de1cdd72f14"
     },
     {
       "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/bin/rustc",
-      "size": 645000,
-      "sha256": "d3a664c970a9fd8361b64194861bebc1ae37b9054e5ee3400dc1c9e691797eea"
+      "size": 647376,
+      "sha256": "f3834d26669b03f6855fa54bd2381443123e860167bc0c7a8dd137e5cf6e5e4f"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/libLLVM-22-rust-1.97.1-stable.so",
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/libLLVM-23-rust-1.99.0-stable.so",
       "size": 42,
-      "sha256": "6694b12226d12f5d36d4b7a0e497e0bdae45e636ef00c64f4b722c595cfa0245"
+      "sha256": "805279dd64ec14a4d5034a0809cb9569a5247d66350d992db173d04fe0ea5300"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/libLLVM.so.22.1-rust-1.97.1-stable",
-      "size": 199494192,
-      "sha256": "ed4f320c4e1ed6de7d2db6fd89faccf764d63186c2f877057ddf31065b1fac09"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/libLLVM.so.23.1-rust-1.99.0-stable",
+      "size": 208094144,
+      "sha256": "7c2c7ebb79211f07e3b32e408a1a65b4d205656792f9c51bdbefcb21c0868cbd"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/librustc_driver-832cf6cfb1386559.so",
-      "size": 157802496,
-      "sha256": "b0726217c199be52842c1318a340f0fc68a2c2ca0e3fa4886191dbf6ee192a58"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/librustc_driver-999a121de2f042be.so",
+      "size": 158319840,
+      "sha256": "f45c41337f1516bb9f4d504a2a507202a01c431fc2063334913dde5480ffee03"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libLLVM-22-rust-1.97.1-stable.so",
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libLLVM-23-rust-1.99.0-stable.so",
       "size": 42,
-      "sha256": "6694b12226d12f5d36d4b7a0e497e0bdae45e636ef00c64f4b722c595cfa0245"
+      "sha256": "805279dd64ec14a4d5034a0809cb9569a5247d66350d992db173d04fe0ea5300"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libLLVM.so.22.1-rust-1.97.1-stable",
-      "size": 199494192,
-      "sha256": "ed4f320c4e1ed6de7d2db6fd89faccf764d63186c2f877057ddf31065b1fac09"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libLLVM.so.23.1-rust-1.99.0-stable",
+      "size": 208094144,
+      "sha256": "7c2c7ebb79211f07e3b32e408a1a65b4d205656792f9c51bdbefcb21c0868cbd"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libaddr2line-02954dcf5cbc5891.rmeta",
-      "size": 470927,
-      "sha256": "01c50e79c1f7aa856e661678186c9547d722133fc7c8b8e72990e19b89cb005f"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libaddr2line-df57c875825aae11.rmeta",
+      "size": 479983,
+      "sha256": "d6a8b3858429a805581db40e88fdfc59751469d0849983c8d3b22523d13a46c2"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libadler2-57de982d9269a3a4.rmeta",
-      "size": 20400,
-      "sha256": "7ec260d73f85127292258f212f3322650bc703b81705570c2afbc7aed905019c"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libadler2-c92358cf71ab9d80.rmeta",
+      "size": 20761,
+      "sha256": "0546f028f3652aa54fd934b454933e2a3cab6ab502f057232fe1795beca7368d"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/liballoc-e17b81f57125c74c.rmeta",
-      "size": 7406501,
-      "sha256": "f88774168ef1ae7887f5a2359ae6a06b00099e316fcbe6c0076920f580ba2565"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/liballoc-a8d2bee804de7f49.rmeta",
+      "size": 8803284,
+      "sha256": "0fc57c34a3ce832526573d670fe6630ab5e5b458040c7bdd5cae5994fd68ce42"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libcfg_if-c966e4159bd8bc70.rmeta",
-      "size": 5505,
-      "sha256": "97f25c4528287a9034f42460c79812c781745dc4a067196715be909f1c883227"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libcfg_if-276f567c6e916760.rmeta",
+      "size": 5530,
+      "sha256": "99a09d1cc265f1b51675f739c927e80c7d23cfd373580d785d77f79ac3ca1867"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libcompiler_builtins-085f534a869f02d5.rmeta",
-      "size": 1997842,
-      "sha256": "b66b15477a45e9848b2100bb857cf5b54a78bb2ae72019ae77ea7e0673983e20"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libcompiler_builtins-2ae2df7d631cccc2.rmeta",
+      "size": 2058680,
+      "sha256": "9bd639a27ec74e08bbe567a91bd236e3e30c5460fd24247f5f8e91214f5c6e51"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libcore-b5d59729c8525f07.rmeta",
-      "size": 64066594,
-      "sha256": "f4dd656e2dc727a519ea6c38216c922ee7c5755663b4e07e1c5b745b55f0bcf6"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libcore-667b96598095cbda.rmeta",
+      "size": 67966588,
+      "sha256": "e1c204a52a389f7e52132035e63909428be4615aeb6463d42caf76cf5b3cf087"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libgetopts-bbdff6f3ac33b345.rmeta",
-      "size": 217660,
-      "sha256": "bf27ef6f9238032ec46cb5eab529319fae5c11595b902785d7285710003d8642"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libgetopts-0ed6ac41bd0ec920.rmeta",
+      "size": 219695,
+      "sha256": "d61759e0a6fcfdf25fbc3a394d05647e99cabbc60f1181c5b31535783ddbcc98"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libgimli-34f31eace0d7245f.rmeta",
-      "size": 5320225,
-      "sha256": "cb024146fd8c2bf2f08d74c9a67ca100d52eb10dc5259182743170abffc99c16"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libgimli-ccadb29741f100ae.rmeta",
+      "size": 5942440,
+      "sha256": "de64f42f3fad6be2b1f48011da9c02f13cd19f9d659b9d2463f84a0dd879c656"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libhashbrown-51d9ae21a16391ba.rmeta",
-      "size": 1700303,
-      "sha256": "c28e09cc43b6ad698b9bea16084f739344b683849d89cb5a583ad56a69abe773"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libhashbrown-a866a54442f41e1a.rmeta",
+      "size": 1733007,
+      "sha256": "b09b156afc5141caa764cccce314d6c7b57bffc64b61f96ee1b6f0daa67f9a55"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/liblibc-8da72b3f3dca3868.rmeta",
-      "size": 4240911,
-      "sha256": "8344a76fd6fcf5da7d50945f893e6ead3e21c87d7ab4d8e090ea66911f06e1b8"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/liblibc-00ed1c777b5c740b.rmeta",
+      "size": 4455050,
+      "sha256": "7767a7ae0f69964d017911b6de468ce2b4dd5620c86484644ba8255e8577c562"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libmemchr-5338843b9da46083.rmeta",
-      "size": 1391139,
-      "sha256": "229d4911def3b17d567347c5e8dd85a0efa28f7df4a38e0d2294a5c290eb5d94"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libmemchr-a82e71cb639e1c05.rmeta",
+      "size": 1408328,
+      "sha256": "890ce0df64d6c0428e9d7042846efe7d17baef751bee1df84f5a9d007a67c2ff"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libminiz_oxide-24b69c27fbe9064f.rmeta",
-      "size": 124922,
-      "sha256": "082980f38144ce4e9c8e3eaeaa192c156a542aef6618204e4b467cf7c7ce4590"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libminiz_oxide-a9ecb409b41a7a16.rmeta",
+      "size": 140141,
+      "sha256": "9e0c0b7c7d8d245fc2c3d6a4d814d13c93316e59b19f396ec4c5c6e810094456"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libobject-f810d9e1ec7b3602.rmeta",
-      "size": 8476715,
-      "sha256": "5654ac05374870fde9058cea67d68f15d09a43f56a8e6eec53aec1623e4925bc"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libobject-3804a19dce00e58e.rmeta",
+      "size": 8930634,
+      "sha256": "baacb6c9618c1e3480f500e10ab4789774e151c13f42d9173ff2812e348c25a6"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libpanic_abort-ccef00ac2e243a21.rmeta",
-      "size": 2908,
-      "sha256": "ccc3dba047d2d5c637d57f08e31f9909a2be89f0e9abb0c90badc0294ff53268"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libpanic_abort-b7133f5b77305b61.rmeta",
+      "size": 2745,
+      "sha256": "535f3973e723330ff709e33345962941071fafa487fed08126fc0a51e8c2090c"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libpanic_unwind-e8f3c569ec017ae8.rmeta",
-      "size": 7084,
-      "sha256": "ad245859d7f2f55d5c1b364f8670327c362cbd55842019a532c52ff1c304a9b7"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libpanic_unwind-9c7be438a18dddd7.rmeta",
+      "size": 7119,
+      "sha256": "f00aeab60b85c0831bdc2c39685cf2987ef714d637dfc9c1e3a3a138045f8963"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libproc_macro-46d5885eef674d45.rmeta",
-      "size": 1100622,
-      "sha256": "94819dc3b39e822ca30f10325dcf2a76d01978c7e843b2080007608d5793f427"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libproc_macro-b65ef0711b0c0bc7.rmeta",
+      "size": 1168118,
+      "sha256": "c418771d34d7cf108ed6885a9a9eca7c6fe216ca5be4a95abba302fda672f12f"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libprofiler_builtins-3bb349696bf4ca2e.rmeta",
-      "size": 1345,
-      "sha256": "e4077f0f20a6b839601bfa9a6cccaf04754b427e521ce36f70ad96a8a38024b3"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libprofiler_builtins-0ffc34a329b998ac.rmeta",
+      "size": 1354,
+      "sha256": "1089112278d26232c3d2679e887379f580b9685144c52952a6ef00fdb7adbe73"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_demangle-73bcb43673848f30.rmeta",
-      "size": 90947,
-      "sha256": "a41772164aaabfdd0294b9417fab88082cfbfbadbd9b9330180046e23938652b"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_demangle-f424ec8139a3c700.rmeta",
+      "size": 92745,
+      "sha256": "8d4020f073edadafed798fd62c3d2dc78aeb129eaf18131671f840f2093c3b66"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_literal_escaper-efb1017eaf01b596.rmeta",
-      "size": 122845,
-      "sha256": "3af4d2bcd0b8dbbc3310b619e4dbb10b25746e241a41cc1af1ec3d6e7c84939d"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_literal_escaper-593ddd7d8172bc83.rmeta",
+      "size": 124048,
+      "sha256": "9af6bb9da4c20567c0ba08fa154ee08e78a9b97a42fc5cf4a25c69759c7a0706"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_alloc-99955b4d3549c390.rmeta",
-      "size": 2167,
-      "sha256": "178828a24509bbca20d32b0326aa3c8c80c1cddd8b5383063e9f97fd2a1462fb"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_alloc-d711658231dabeba.rmeta",
+      "size": 2213,
+      "sha256": "8a4d004717d956381051a2e299fb834f50b9c33b2f0ed6e1059b0dcd6769c3b2"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_core-79f73bde78643b0a.rmeta",
-      "size": 5939,
-      "sha256": "e1fb1e8ffe7827e7fc34b1e14e115690e4d882665f5b5075070705c06143a8b2"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_core-9b5da76dfc4ac20c.rmeta",
+      "size": 6113,
+      "sha256": "dbe1d1709378230d2860b9dc4d7b6be7f37b6d717ad336543302dc1f2017df37"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_std-6aad90a2a10ef45d.rmeta",
-      "size": 7132,
-      "sha256": "833091fbb103d7961e74c050f509b7459e25a0c1e1e7fc5dfbd4f6ee19f680bd"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/librustc_std_workspace_std-f0d350f8e9074f2b.rmeta",
+      "size": 7186,
+      "sha256": "054386c1bf28154c638d81dba39c40c5e07132747e51a4624c78a1358badd59f"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-c64e6e11aa24fc43.rmeta",
-      "size": 8651231,
-      "sha256": "3847f93ceb44f7c976c9facb2013effce10cb63474bc5b0cf351b0ce91646ab7"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-44675f186029a4cd.rmeta",
+      "size": 7768326,
+      "sha256": "a4df9318335ea3195565c9c78eeb68e740d05922e8e6498d887edf78b063b06d"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-c64e6e11aa24fc43.so",
-      "size": 5421888,
-      "sha256": "af148991054c1e1a7ce94bbd9acbf10166b734055c0339aedfe80fdd6e91f02a"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd-44675f186029a4cd.so",
+      "size": 2857168,
+      "sha256": "eecfd9cf54451e1f7f89d14d72dea1e47c12a4e4de68ce17ea133fb2cf03aa09"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd_detect-64da8f7c5e658436.rmeta",
-      "size": 578946,
-      "sha256": "2dc43e3a04574a1768a5b8712cefc1a73b82ac7a1ea5516ed11360588e49b278"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd_detect-fa6b165c4e946934.rmeta",
+      "size": 581971,
+      "sha256": "2f7454cba870598b815a238c1c68ea3d36c28ec9d6fcff06593d16e5fcb0efd9"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libsysroot-1ab7d50ee4e42671.rmeta",
-      "size": 2240,
-      "sha256": "b0dde27cbb7b4e2befbf2c75f04c09e657a499570f75dd11ffa764fa49bfe21d"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libsysroot-bb936d41c642710b.rmeta",
+      "size": 2250,
+      "sha256": "4cac7527aaacdc64fa4b1ffaeb0d23802a0d2c00ba5fe7e51bdf96bb874d721a"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libtest-009e9a84885f0921.rmeta",
-      "size": 1008519,
-      "sha256": "efcda9e91ebcf21e369388db4af1c7380058c5a50d01f9c3b9ae09c5f4eaa54a"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libtest-6cd7df0c60c9e6ae.rmeta",
+      "size": 1035543,
+      "sha256": "ebc82bb5271ab9cfb074046a995967ad633b88b0e17043fc6e67035c566665d1"
     },
     {
-      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libunwind-d90fb703b61b002d.rmeta",
-      "size": 20058,
-      "sha256": "12a3a60a08e96aa2176951d4b65966bb757ce56cfc4c7f171b90c176a858a01d"
+      "path": "bazel-out/darwin_arm64-fastbuild/bin/external/rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__stable_tools/rust_toolchain/lib/rustlib/x86_64-unknown-linux-gnu/lib/libunwind-f8ca72da0011281d.rmeta",
+      "size": 20158,
+      "sha256": "10589beb7b0749b0c437fe884c2ea2aaa37fef90641f528f660b7955878e9242"
     }
   ],
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "0f356063c84a170d87216030cbf3253ac47a8ac5ce5cddf4420a7b44194c27bf",
-    "Cargo.toml": "c2e9bb47c877efaeab0e8c2524e83f2f532b357b8edf6ba34c627d89df067787",
+    "Cargo.lock": "76771cdd30a0bc3d170b17dd5fb9e61fefef29fd8f2ed5347e504de78a436a7f",
+    "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "packages/alacritty-terminal-patch/Cargo.toml": "d58643246c8db2a8688f1d107a0b718f2336ca28a2d6566ab388bb1dc5232bac",
     "packages/alacritty-terminal-patch/Cargo.toml.orig": "08060ac272c930dd9d9cf1a7fa45ec8fa72ce9b959a8f0e120a08245a8a2eaff",
     "packages/alacritty-terminal-patch/CHANGELOG.md": "da5c5b5f9754f8fdc261e71d42b236b0f9c73d269e486cb68f0eafb73e385360",
@@ -2334,94 +2349,95 @@
     "packages/merkur-fec/Cargo.toml": "7fb5d19060da6f9935bca24f5a200c1f4c312d97290c95cf2da011b8fef96329",
     "packages/merkur-fec/src/codec.rs": "243524e8cdfa428d261cf5c1ddbd900868114da1e32c7e5d68484597185d2922",
     "packages/merkur-fec/src/field.rs": "c1220c98af4cdf1d42034ae4f325f25a02170aafaf091e8652e7c67387e00743",
-    "packages/merkur-fec/src/lib.rs": "7547c4f4ef9008c526c50d766546697c1f3104d68cd3e7121ec06ed3705e3e32",
-    "packages/merkur-fec/src/repair.rs": "e04c7089d71b7378a79988449b14147294a4f2900d1051c1af4bf11bfeaef02f",
-    "packages/merkur-fec/src/simd.rs": "7417756bc9e727004618fae7893031bb8f1e25dd34ba0f2b8da5f7059e6f05a4",
-    "packages/merkur-fec/tests/kernel_profile.rs": "6892ab3ad973ea9dea43e91aa3abae7a6c0708f9d3ea4c19c86d8369de1d820a",
+    "packages/merkur-fec/src/lib.rs": "3ad1f0ddaec90f74c164749638d51b61f7972f4b1fb74f6fe79db26564a953a4",
+    "packages/merkur-fec/src/repair.rs": "e77f516e187e419b055abf8acb0f9a1106c752791133fe3d043aa5e8d1a23013",
+    "packages/merkur-fec/src/simd.rs": "a90a39a8039569fa580c9ec9931ec0fb55a5517c0ea3edda6585f1aa231f5365",
+    "packages/merkur-fec/tests/kernel_profile.rs": "dca912ab361d0c59fcf359d37c61cba8cd473f368ee19e9a60ff408ab29acb2d",
     "packages/merkur-fec/tests/roundtrip.rs": "1e0e793d5edd95f11a99a9b60e9ad9ba5c666ba4b7cb574b6aa62c038a1ba599",
     "packages/quinn-patch/build.rs": "da265b34113659b194be9d5972d4af6e5a334e0afa4adf02f949e4a1ab39a7ad",
-    "packages/quinn-patch/Cargo.toml": "9b8086637dfb9c75b32f5f1873ad992ee091a92ea5e4a8f1e29a258e7706b688",
+    "packages/quinn-patch/Cargo.toml": "a1a16477cb78781f3b577323aff3be540f32619b229b9f48deecc1407bfa49e9",
     "packages/quinn-patch/LICENSE-APACHE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "packages/quinn-patch/LICENSE-MIT": "4b2d0aca6789fa39e03d6738e869ea0988cceba210ca34ebb59c15c463e93a04",
-    "packages/quinn-patch/README.md": "b9fd91495cf1a57605c418f16aba34d71b18d85ea711e1cb585a7a3b410fe128",
-    "packages/quinn-patch/src/connection.rs": "944e9dd0a277e3e19df148454c384fc6769332fcc0fad14381cf4473f69a3c79",
+    "packages/quinn-patch/README.md": "6ac8f436f340f97ff463a1e79100f33b31161d679a7911b26de6530536758d54",
+    "packages/quinn-patch/src/connection.rs": "ace008ebfcb7b21cbbfb589e5d6a4353f88a08c575753ab7cc11fe14962eb463",
     "packages/quinn-patch/src/delivery_view.rs": "a816f382d2f37d2adfa4ca4c504b86e57f5ee8dd0395bd83f4d20f14e4022965",
     "packages/quinn-patch/src/endpoint.rs": "a63bf8516128c5dd7ac7fb2e63450886873990f2084ff91b39737c4cf41c6c32",
     "packages/quinn-patch/src/incoming.rs": "d10fcb0efd956d2d4f53e6600737520c04179d0c5850a8c89792c86a762eef98",
     "packages/quinn-patch/src/lib.rs": "039d32c8463d83b77b09b455238d9182e64806fb68acb1ab8fbf344fa98664c2",
     "packages/quinn-patch/src/mutex.rs": "b0e5b58e34fb27be7571e18bc65490cb8e8bdfd706ac94063731cbe7435f4637",
-    "packages/quinn-patch/src/recv_stream.rs": "e72934425f6122b6a2a3abbdafa7b0ab04d3ec9d615871312242c075422f2572",
+    "packages/quinn-patch/src/recv_stream.rs": "c4fb8f60399b31dc1e74904285353814b5db6b2f69f4c878c5c7e6e9ea30859d",
     "packages/quinn-patch/src/runtime.rs": "4e11841da61a966da52dbeeb5567848ea4a65d572f5033b03ca2476388e58eaa",
     "packages/quinn-patch/src/runtime/async_io.rs": "bf2244735eb22438d1d0bedce0417d9d8553b3408d9922eb393cd87af8d21bb9",
     "packages/quinn-patch/src/runtime/pacing_timer.rs": "2ced4c9005967c49aa242ac3165baf296736dc5b7d93ae06aa7de12acc24fc73",
     "packages/quinn-patch/src/runtime/tokio.rs": "40d906922979210c88a08aa555f9f629322e9f50c8fd6cde4f0ff42ce9b9c2bc",
     "packages/quinn-patch/src/send_stream.rs": "b7d6a7a8fe3749321ee6ccd379370d5075285e23f4bf35aff5750b65f7e14640",
-    "packages/quinn-patch/src/tests.rs": "3644d8f73081461cb1c5ca41188307142d156270f520ff197d084f08c92b84d4",
+    "packages/quinn-patch/src/tests.rs": "8f3a59087a539d73b5453ae236346db67d1936da4a5b383be7450c6a1ea4ff2f",
     "packages/quinn-patch/src/work_limiter.rs": "515ee13aaba538843e112d287cc7cd91fb94f1922e246179421e45dbcfe41fea",
-    "packages/quinn-proto-patch/Cargo.toml": "3fae039f382d52ec9add2be3c4d2d1b3f5368f1655835f4c3711a333d10acc35",
-    "packages/quinn-proto-patch/Cargo.toml.orig": "7ea8a5428aea5cf7c6aa582f097245fed6a8b72c5809f8a274b86a972a97ceab",
+    "packages/quinn-proto-patch/Cargo.toml": "95aaf88c74814dd46a53d07ca82c0ec90bcb7275c57a739336d287a7478feb58",
+    "packages/quinn-proto-patch/Cargo.toml.orig": "d97931b8f5beb361a8a0151258ab73f4da51fa242ecf26a21405b74d824f467b",
     "packages/quinn-proto-patch/LICENSE-APACHE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "packages/quinn-proto-patch/LICENSE-MIT": "4b2d0aca6789fa39e03d6738e869ea0988cceba210ca34ebb59c15c463e93a04",
-    "packages/quinn-proto-patch/README.md": "e736690a408afdbaa2c65e4c7028f54c3972f6ca901abe1c494219d73ecfef95",
+    "packages/quinn-proto-patch/README.md": "298e4636fbff638d24a0006eda9222b023d4d40a15d179ca068b8037a70e0cad",
     "packages/quinn-proto-patch/src/bloom_token_log.rs": "31429b70f6a12a9f599ded18f6bd22a9bc98e723c37baa68b23f0218592dc105",
     "packages/quinn-proto-patch/src/cid_generator.rs": "070202c342e60be574ce3256b56d92f63ae7d10e9f553e1945b22ef33a9a4bd0",
     "packages/quinn-proto-patch/src/cid_queue.rs": "fea22a193fe004690b5359ce424d42fdaf29959ff145be2b11c53af300fc66e5",
     "packages/quinn-proto-patch/src/coding.rs": "a446ee044f718ae8c0587815367b8df180311773e9fc31dca1515b348116bb5a",
     "packages/quinn-proto-patch/src/config/mod.rs": "9d2de1a6a4f8957fac9cd565874385e2f86db285c6a51af85b7d9de6777dd294",
-    "packages/quinn-proto-patch/src/config/transport.rs": "6c115185b439b7a455477c939cbf68764c261e19f3dda80d7ba985af61c72be8",
-    "packages/quinn-proto-patch/src/congestion.rs": "15b7e7dda5d47e4d9b553c6740e0d39888a4e5259d29b849765e399de08814bd",
+    "packages/quinn-proto-patch/src/config/transport.rs": "6921939145be10e36b01f2e00a1bcd5264b0fb0ca6c9fa393fb1b5a450fab077",
+    "packages/quinn-proto-patch/src/congestion.rs": "22018842b450a4eabcc87886558c594606c2245eb5705e75c3da99986b568a10",
     "packages/quinn-proto-patch/src/congestion/bbr/bw_estimation.rs": "02eed27edb40e4c12f992f7f683fac238ced0dd153ecb87fdd689654bfb36eb7",
     "packages/quinn-proto-patch/src/congestion/bbr/min_max.rs": "13f455fc98c425e3caea194066f590cbc9b0baac7b54ec922fa973c11c2176f4",
-    "packages/quinn-proto-patch/src/congestion/bbr/mod.rs": "0b1f5438b2dc84fe1f2cb3ac080a140cb68990a57172e4da525049471ea9f418",
-    "packages/quinn-proto-patch/src/congestion/cubic.rs": "7715fd5f2a59737fd2e16dae6c1f39701ade221a8c07f6f3cd087926d0f9d632",
+    "packages/quinn-proto-patch/src/congestion/bbr/mod.rs": "44352e7a87467303a91a6c48da46ef12477aa93b3b640e4f947f0f4c25183f4c",
+    "packages/quinn-proto-patch/src/congestion/careful_resume.rs": "3499c71afe91b9561505fbac6657c00aefb56c29ca87e887a2d348752c1fdbaa",
+    "packages/quinn-proto-patch/src/congestion/cubic.rs": "3955cd39d6d39d47d3133d01e8b605d08e40ab41cc6d26b533edc5403de90e04",
     "packages/quinn-proto-patch/src/congestion/delivery.rs": "7111fb16ed5a5c3196cc99caeb17300f1c3ca940effea57d7cc9cfbf13fb9d15",
     "packages/quinn-proto-patch/src/congestion/egress_model.rs": "a12d5bf404b5ce64d823e8dfe807b725cd27ce417e10dddc16bb328554f047a6",
-    "packages/quinn-proto-patch/src/congestion/new_reno.rs": "15c6302d6e508e980bb03201f5293301211a8e60c9c40a5759ce543df296ae76",
-    "packages/quinn-proto-patch/src/connection/ack_frequency.rs": "df7d2bc9b3b02f008e978321784106bca54150700ca89b766b08ce71b918a64c",
-    "packages/quinn-proto-patch/src/connection/assembler.rs": "fcccb864061cc16b3d50e4c2a8dc2e10100fa286e5648d4e46f10ff22a59bb90",
+    "packages/quinn-proto-patch/src/congestion/new_reno.rs": "3c171b6cc473cca80e44cfa5f9c334533b16f433cc764892bb751227eb6e51fe",
+    "packages/quinn-proto-patch/src/connection/ack_frequency.rs": "e740eab803d41c40df34a4edd6924507f8a5374ffc07e31a2761fd094ab7be74",
+    "packages/quinn-proto-patch/src/connection/assembler.rs": "5e205df22a27e1735536378836eb5c8d06cb88358c37f72f9935da09b5575852",
     "packages/quinn-proto-patch/src/connection/cid_state.rs": "485b3821af4b706789b9ef6d78aaa60b1d49f54dbb2c6785daee801ad2696d24",
-    "packages/quinn-proto-patch/src/connection/datagrams.rs": "5a4126318538734ed6684c008c2eb0f251cdd3d33f18bfc410b4d05d1aff83f1",
+    "packages/quinn-proto-patch/src/connection/datagrams.rs": "d4539f8dcd17d7e7754f70f8d880b9b5c363631d12d19c0ff36a6f8dff469372",
     "packages/quinn-proto-patch/src/connection/egress.rs": "1f3d9ca1cde3457b9129750b3c6cff4cb250362bd32e46aa20d5a0b97b4d9a0d",
-    "packages/quinn-proto-patch/src/connection/mod.rs": "3a120dfef121c6322a33359e71a563d0ad46573b238950db8e76233c83314f4c",
-    "packages/quinn-proto-patch/src/connection/mtud.rs": "3334afb82a9b8430cf22930246c3443bab96b23c7e1d7ac4f672df1fd33ae6b9",
-    "packages/quinn-proto-patch/src/connection/pacing.rs": "662055f72329de7aa4f768eecc57c37b491ebc886fa10e96d0f038a6d7337f55",
-    "packages/quinn-proto-patch/src/connection/packet_builder.rs": "d13366f8933d99abd11d42592fd7f72db88030e829e3255152da4951075f224f",
+    "packages/quinn-proto-patch/src/connection/mod.rs": "374a40893cc7b724a4f2585db3461c1328f50c9bf2cb53322dfccbb5eaf3028f",
+    "packages/quinn-proto-patch/src/connection/mtud.rs": "3a2917c053a6ec79e277a2fc895cf20ba8cde2b1fe8b3b8b1c96584062acf782",
+    "packages/quinn-proto-patch/src/connection/pacing.rs": "925aa9ac4b77e02c970ba141f7aca7b6d8ec36c5f61a065deac65e30e5fccf5e",
+    "packages/quinn-proto-patch/src/connection/packet_builder.rs": "33b3a7c7fb22b8f906db462bab925144e44326b2af52bc9a1391808cf07d948a",
     "packages/quinn-proto-patch/src/connection/packet_crypto.rs": "0507abef0092c4d75c3c839798f2c11769718f7488c1e4aefc05612abbd738e2",
-    "packages/quinn-proto-patch/src/connection/paths.rs": "117da4183fcbf8e6863d2793dbc9941cec4301512169dacefdb4391e681180a2",
+    "packages/quinn-proto-patch/src/connection/paths.rs": "a48ae8a75de838c4be77e5a04ce1e8a3bf5c8de6461f6a10565dcb6fb21ca0b2",
     "packages/quinn-proto-patch/src/connection/probe.rs": "92562ccbbacf7ab598ad857b59c135970e827a92f542dc59a0b59ee867b177b1",
     "packages/quinn-proto-patch/src/connection/qlog.rs": "c637ebdad5281d77cc8cc946856c26e0b25f1e90f23e403230e8c5430b46710a",
-    "packages/quinn-proto-patch/src/connection/send_buffer.rs": "67076a399bae9b472044d7b60adeaebb3ed9bb828b9db10c83a74c1e1155c11a",
-    "packages/quinn-proto-patch/src/connection/spaces.rs": "2f0244cab14665cd647ae87f6c3a5a6d9d1f43ff3b2a0b161d10e2e9f64aea76",
+    "packages/quinn-proto-patch/src/connection/send_buffer.rs": "b561ed964f1fe4790d78d8a3176d48d6f6fa917c9920f327ad5e983bafebb16a",
+    "packages/quinn-proto-patch/src/connection/spaces.rs": "849a766d64957e322de15ae42b0a441e58f074762fcb4e4b46aefbbfd0400439",
     "packages/quinn-proto-patch/src/connection/stats.rs": "41a21dcb8d3ce97543a58624cbffe92ab0074cb6b4a3db9d9df0b78e7d6fb737",
-    "packages/quinn-proto-patch/src/connection/streams/mod.rs": "ab0c35c5dbaba2842cb5f1f9ee6593b883ae4ae6ee2920c6afe66233895c3ee9",
+    "packages/quinn-proto-patch/src/connection/streams/mod.rs": "01f48281cd7485a099fdb12a4d1c0385ab08d384a4d3b0207f3e391f29496700",
     "packages/quinn-proto-patch/src/connection/streams/recv.rs": "cac9323f7a168cfe857c1a7d85d5381aadeb4ed5677613aef2f590415a1ac206",
-    "packages/quinn-proto-patch/src/connection/streams/send.rs": "af0dc76b5372dd7732d3a9f2b9d0fca24c4837293daf47748aeeb8bac43737ff",
-    "packages/quinn-proto-patch/src/connection/streams/state.rs": "c6640f0742d0c55ab61298be1f54d484b08b6743e9b11aaa8f875eb206a8e7eb",
+    "packages/quinn-proto-patch/src/connection/streams/send.rs": "254bd9ca68a0dbcf4cc8bd0c79d70c09f988dd26149037bf1fd0197b19264f39",
+    "packages/quinn-proto-patch/src/connection/streams/state.rs": "f6015304b82486c47e98bf1c6f9d8b601537686afcfb2c44c474e83e83e6aeb5",
     "packages/quinn-proto-patch/src/connection/timer.rs": "b84af0c2f10d693bb0ecf4a89a11cf60882f8f977533898e52154b7c9e796959",
     "packages/quinn-proto-patch/src/constant_time.rs": "35540c4e65fc083894bfedcb811c3495cd5f4168d2f1c25b73cdcdcfe3a44f3b",
     "packages/quinn-proto-patch/src/crypto.rs": "ffa9d1d3071110eb5907af47123379378cac12c229d8251e8c69b967388e23b2",
     "packages/quinn-proto-patch/src/crypto/ring_like.rs": "ea8cfef31b7a238d539ac7a95cf77e34a007a61eb1dcfd2838c4da648a9b2a53",
     "packages/quinn-proto-patch/src/crypto/rustls.rs": "1b487025d07deea95daa7b8596bf6f7eb792436891667a54592697b1c2d479f8",
     "packages/quinn-proto-patch/src/datagram_observer.rs": "09e65afd0ea021e486996876e6f15672c8f425245bee0339c5eeaf75fa4eec89",
-    "packages/quinn-proto-patch/src/endpoint.rs": "48fe450fc141d05ad628b55c2cac0b684704f0ce14a4e1cb66b5cbf5945c0a9f",
+    "packages/quinn-proto-patch/src/endpoint.rs": "0fa025fb488d89f1f1e59ed8c3f86b0632b5ee8fb12cc0f80af597b252fef734",
     "packages/quinn-proto-patch/src/frame.rs": "05476c1a73f3707a2649ebe1c43f8192aa31921889e3b2268d17b7557a0b7828",
     "packages/quinn-proto-patch/src/lib.rs": "230d510a54b761601e54c8071df8072eb769ec5b502852af15a219b8520f158b",
     "packages/quinn-proto-patch/src/packet.rs": "b73d99c36983c4c0cb47e6cc38ba7f723e2f924e397aedd63bf9b8e4cf6a57a9",
     "packages/quinn-proto-patch/src/range_set/array_range_set.rs": "b8372411b941df99a8da2a9a2948f4f8fed8bd116ac7e4b7f7960da36991bc07",
-    "packages/quinn-proto-patch/src/range_set/btree_range_set.rs": "02a40dbda0ead57584e27ea6e15a7c77277c12844b3cea921aab9b0bfa12dd3b",
+    "packages/quinn-proto-patch/src/range_set/btree_range_set.rs": "ea055e691cc34351c81c5e386ab1ca2996781dca2da35fcb6364e9472a00a75f",
     "packages/quinn-proto-patch/src/range_set/mod.rs": "34180938d54029c07d2bee70501e3c6e865581d1be1411c4e5319bf82e98a657",
     "packages/quinn-proto-patch/src/range_set/tests.rs": "195a6ced04ff4fb5d85f7d1aee3404de66ac4325e228cdb0d5fb3c82bb3b657d",
     "packages/quinn-proto-patch/src/shared.rs": "126c72d2c933a8e27cb9264d6d973239fbde78620af7a91b9967a4481ec49599",
     "packages/quinn-proto-patch/src/tests/delivery.rs": "67eed2982c69caf6db7af14a7ca6e5a9e8a97c32f748eac1ac31ee1dbbdb2c1f",
     "packages/quinn-proto-patch/src/tests/egress.rs": "50654643b30d29eeccd0b6703ff01d957992070223e3b05537d027a0b0becced",
-    "packages/quinn-proto-patch/src/tests/mod.rs": "e8f5e0b994e7ebf1a7204b8b9e83fe3dd3f93253364c735d72da504857ff3a7c",
+    "packages/quinn-proto-patch/src/tests/mod.rs": "bba9b2ff11796e503167f25112e541e7395d7ccfccb3aabdcf27fe922ad8815d",
     "packages/quinn-proto-patch/src/tests/probe.rs": "c88f97d0e512e51ad5eb028da83b56cd1db095d9441bd4de447a16ce0053561d",
-    "packages/quinn-proto-patch/src/tests/token.rs": "f648dd0c171d1f2c498e0363b68c6211d5e9ec2f2b305db4a262d3ec47ebbc79",
-    "packages/quinn-proto-patch/src/tests/util.rs": "74576eba42b11dc759cd77ac4e6aee3645973883361734b7a3274bcbf29ef4d7",
+    "packages/quinn-proto-patch/src/tests/token.rs": "0996030424a37b8d3e0eab63bca69ef5a5c55295c7ce39e49dd2a264aaea5caf",
+    "packages/quinn-proto-patch/src/tests/util.rs": "7e412318cb086c1002259e7a82a5425812b85b4b26c4df7cd32dfa92167a6b4b",
     "packages/quinn-proto-patch/src/token_memory_cache.rs": "79d40926f4707fd65b7c497fbde62f1cf40df29af5b5b4c49e840abd669ea03d",
     "packages/quinn-proto-patch/src/token.rs": "b0364bcc2aa821a85e66f476f2314c9dedf01e1a24c456a70f9f9e79bc31d18c",
     "packages/quinn-proto-patch/src/transport_error.rs": "ba17c89e103e44917ec74698bc7e4cc72a4101c344bba37e06b08f87ffd3230f",
-    "packages/quinn-proto-patch/src/transport_parameters.rs": "610461a6cadbc0f2c88ef759eb385b90b2a5bdc97b87019f7cb04bba577bb5a8",
+    "packages/quinn-proto-patch/src/transport_parameters.rs": "e6b70199d2322ddf2b2b6516c39bc4554b17364cf3fc60ba669d718fdc58a266",
     "packages/quinn-proto-patch/src/varint.rs": "6f07845002d5fe7b0a1388fc18eecba0f1d3870110494052d1eeaf963eb1d132",
     "packages/vte-patch/Cargo.toml": "06bfdd57dec95f9172d84e867e9fcdd02c46eb5008b5d7e75848d76cbfaa96ef",
     "packages/vte-patch/Cargo.toml.orig": "180c11737a8870eca54a25ee3c1ad3455a814ec35664bf09a68e1293fe2f8809",
@@ -2435,34 +2451,36 @@
     "packages/vte-patch/src/lib.rs": "ab6a8164c47319092a7ddaa4ef407094630ef0fc20118a595024794b15c2e600",
     "packages/vte-patch/src/params.rs": "a305b112e6779d14537fd420aad45722b9cde756aba75153ac8560b7aa7d4c4a",
     "packages/vte-patch/tests/demo.vte": "1ac4e7fe28999e2aa632cd80f85d4f5dae776499164ffe0fa792151614ef80fe",
-    "packages/wtransport-patch/Cargo.toml": "2dcdb5c08cda3bc45530ce2a897b3da32c88ba253c1e530ec394bfafd7b62bf6",
-    "packages/wtransport-patch/Cargo.toml.orig": "51eae7b2ff2187bf82898aad06e4e381f5ab0b740dbffb0ea972b0b5e01635f3",
+    "packages/wtransport-patch/Cargo.toml": "0941d685523f6901d579145e89af04ff94e56d06d9a42498da2c28d280f224a5",
+    "packages/wtransport-patch/Cargo.toml.orig": "e3ea8472d80dd7167adb25863e7dd99b1e6b58b50dabd2ab9c98a4193522dc51",
     "packages/wtransport-patch/LICENSE-APACHE": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
     "packages/wtransport-patch/LICENSE-MIT": "2cd08fe6d90701192ea4a85e103a5e298c006975e8c4f4cd44decfde290837ca",
     "packages/wtransport-patch/README.md": "0b5b5f04abbd5bda2e3627cc5b74a8cecde36c512f8aa8aabd71ea581c0356b2",
-    "packages/wtransport-patch/src/config.rs": "8942b2112b1cd6cf20c5447a76c70ed1f6e6d40f470a7f7a6f24dc81a63d211e",
+    "packages/wtransport-patch/src/config.rs": "7df28e732465e1d19a65087e6838f8dbf1742292fd690a588b82d2fda28517cc",
     "packages/wtransport-patch/src/connection.rs": "53a1b4b1c48d4c620c6b8c53dc906bb137d4d5b49fe76906c85fc633dbcf105f",
-    "packages/wtransport-patch/src/datagram.rs": "d594886b90011c14c494811825de82fc3b0c451b6935ddb1e3272fae9db01fa3",
-    "packages/wtransport-patch/src/driver/mod.rs": "d5231522b074924b2d1779330121560f9b0510593f463dc9dbbbcc31cec9f155",
+    "packages/wtransport-patch/src/datagram.rs": "6e383cc076d9b313ea045fa9d99dfe4db56c9b8e29d590bd0cf64de5f9708f7e",
+    "packages/wtransport-patch/src/driver/mod.rs": "02e489cce42f43885c255311935c4ef368dc62c888d7d0a66ec6a8ba4e2f2490",
     "packages/wtransport-patch/src/driver/streams/connect.rs": "a505e599ef97401da117ed0940c7d3fff2e8314e6165047afbd752601b360c98",
     "packages/wtransport-patch/src/driver/streams/mod.rs": "ab4d5239b1239990e4be7892075063877398c812d3f54ae00b89f641b08922f7",
     "packages/wtransport-patch/src/driver/streams/qpack.rs": "c66e713db310d53990a49de185d179fa83a4075bce87b9b9a5bf466a577f0a36",
     "packages/wtransport-patch/src/driver/streams/settings.rs": "39c502ae593eb2db68980b2623719ac7fc9bfc65cbe6a753a2191c9809dd4744",
     "packages/wtransport-patch/src/driver/utils.rs": "4dee8ea4364abc832fa3825fdedc96697d3c8b709f5334bfeccd3a902bb026d5",
-    "packages/wtransport-patch/src/endpoint.rs": "4a1f315de6ce9d2241aab5b7ed1b398e7f2905c04d883215486dd9495158ed63",
+    "packages/wtransport-patch/src/endpoint.rs": "dc626174ce1bcebc9c0740f102405deb14bfb537abb632a33c1c21af6527a3a2",
     "packages/wtransport-patch/src/error.rs": "84f7ea50c772a2ebff082e498aa95ce373d7a170e0b7237d5d4482f39f5f6979",
     "packages/wtransport-patch/src/lib.rs": "5baba4e12a3ad074bf45f82042e715f13fc0b57f259c6e6912d8ca5dec7c49e7",
     "packages/wtransport-patch/src/stream.rs": "725b3973ed04fdaa2f967d88841e7ac5086a2521a5f510d7a27bb6898fe63c85",
     "packages/wtransport-patch/src/tls.rs": "3373092184991f2e65f2186b12aebf95020ec33193c3438d407ea5b38d402384",
-    "rust-toolchain.toml": "0b3f86bca24ab0916c8db93b25d5046c5e42b8741e536caccf7ab6f235d3510c",
-    "tools/bazel/rust/contexts/merkur-fec/build/native/Cargo.lock": "d1c743c955763524c381c11feb35a568a289baf9ea6eba1fcdf61f11b6a07a08",
+    "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
+    "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
+    "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
+    "tools/bazel/rust/contexts/merkur-fec/build/native/Cargo.lock": "a7c8a03f5a91452c8a7c7e8d7e6dbd5bac39799deed76b2325c91abb959653de",
     "tools/bazel/rust/contexts/merkur-fec/build/native/Cargo.toml": "87429737eb42266b31d89e7f0044ec6a352eaf6536bba3c4dd43c3bc0120d027",
-    "tools/bazel/rust/contexts/merkur-fec/build/native/metadata.json": "39444f5ed2e72271790aaa7e8e9c1ea15224e4fb486ba2997bc4c51d2c2877a8",
-    "tools/bazel/rust/metadata.json": "c31ebe2ed9a8566ced1d2495eb25532dd4d5a984f72d3f2dbd6ce8306425e825"
+    "tools/bazel/rust/contexts/merkur-fec/build/native/metadata.json": "5a878a9f61233ac5f0e0845650e625bc4e362d78b0d0734342bbdc0b968848d0",
+    "tools/bazel/rust/metadata.json": "af51872ad49e7f0e49db7a27885b958e6492b98bb49e68c0f5be2c82643929f9"
   },
   "generated_inputs": {
     "Cargo.toml": "87429737eb42266b31d89e7f0044ec6a352eaf6536bba3c4dd43c3bc0120d027",
-    "Cargo.lock": "d1c743c955763524c381c11feb35a568a289baf9ea6eba1fcdf61f11b6a07a08"
+    "Cargo.lock": "a7c8a03f5a91452c8a7c7e8d7e6dbd5bac39799deed76b2325c91abb959653de"
   },
   "contexts": {
     "x86_64-unknown-linux-gnu": {
@@ -2597,7 +2615,6 @@
   },
   "resolution_cfg": [
     "debug_assertions",
-    "emscripten_wasm_eh",
     "fmt_debug=\"full\"",
     "overflow_checks",
     "panic=\"unwind\"",
@@ -2631,6 +2648,7 @@
     "target_has_reliable_f128",
     "target_has_reliable_f16",
     "target_has_reliable_f16_math",
+    "target_has_threads",
     "target_object_format=\"elf\"",
     "target_os=\"linux\"",
     "target_pointer_width=\"64\"",
@@ -2642,7 +2660,6 @@
   "effective_cfg": {
     "dev": [
       "debug_assertions",
-      "emscripten_wasm_eh",
       "fmt_debug=\"full\"",
       "overflow_checks",
       "panic=\"unwind\"",
@@ -2678,6 +2695,7 @@
       "target_has_reliable_f128",
       "target_has_reliable_f16",
       "target_has_reliable_f16_math",
+      "target_has_threads",
       "target_object_format=\"elf\"",
       "target_os=\"linux\"",
       "target_pointer_width=\"64\"",
@@ -2687,7 +2705,6 @@
       "unix"
     ],
     "release": [
-      "emscripten_wasm_eh",
       "fmt_debug=\"full\"",
       "panic=\"unwind\"",
       "relocation_model=\"pic\"",
@@ -2722,6 +2739,7 @@
       "target_has_reliable_f128",
       "target_has_reliable_f16",
       "target_has_reliable_f16_math",
+      "target_has_threads",
       "target_object_format=\"elf\"",
       "target_os=\"linux\"",
       "target_pointer_width=\"64\"",
@@ -2742,5 +2760,5 @@
     }
   },
   "configured_resolution_qualified": true,
-  "qualification_scope": "Only the captured dependency-free FEC native dev/release roots on this actual execution host"
+  "qualification_scope": "Only the captured dependency-free FEC native build roots on this actual execution host"
 }

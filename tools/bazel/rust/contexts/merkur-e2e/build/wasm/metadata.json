@@ -269,14 +269,14 @@
             "std": []
           },
           "homepage": "https://github.com/bitflags/bitflags",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.1",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "bitflags",
           "repository": "https://github.com/bitflags/bitflags",
           "rust_version": "1.56.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.13.1"
+          "version": "2.13.2"
         },
         {
           "authors": [
@@ -373,14 +373,14 @@
             ]
           },
           "homepage": "https://github.com/rust-lang/cc-rs",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.8.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cc",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.4.4"
+          "version": "1.8.0"
         },
         {
           "authors": [
@@ -414,14 +414,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cfg-if",
           "repository": "https://github.com/rust-lang/cfg-if",
           "rust_version": "1.32",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.4"
+          "version": "1.0.5"
         },
         {
           "authors": [
@@ -720,32 +720,39 @@
           "edition": "2024",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.1",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cpufeatures",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.3.0"
+          "version": "0.3.1"
         },
         {
           "authors": [],
           "description": "Rust bindings to \"Valgrind Client Request\" interface",
           "edition": "2021",
           "features": {
-            "default": [],
-            "opt-out": []
+            "default": [
+              "valgrind"
+            ],
+            "opt-out": [],
+            "valgrind": [
+              "dep:cc",
+              "dep:bindgen",
+              "dep:pkg-config"
+            ]
           },
           "homepage": "https://github.com/2dav/crabgrind",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.2.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.3.1",
           "license": "MIT",
           "links": null,
           "name": "crabgrind",
           "repository": "https://github.com/2dav/crabgrind",
-          "rust_version": "1.64",
+          "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.6"
+          "version": "0.3.1"
         },
         {
           "authors": [
@@ -1124,14 +1131,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.18.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.19.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "either",
           "repository": "https://github.com/rayon-rs/either",
           "rust_version": "1.63.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.18.0"
+          "version": "1.19.0"
         },
         {
           "authors": [
@@ -1307,14 +1314,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.14",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "find-msvc-tools",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.1.11"
+          "version": "0.1.14"
         },
         {
           "authors": [],
@@ -1709,6 +1716,27 @@
           "authors": [
             "hax Authors"
           ],
+          "description": "Hax-internal types",
+          "edition": "2021",
+          "features": {
+            "schemars": [
+              "dep:schemars"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros-types@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros-types",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
           "description": "Hax-specific proc-macros for Rust programs",
           "edition": "2021",
           "features": {},
@@ -1721,6 +1749,23 @@
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.3.7"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
+          "description": "Hax-specific proc-macros for Rust programs",
+          "edition": "2021",
+          "features": {},
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
         },
         {
           "authors": [
@@ -1745,6 +1790,30 @@
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.3.7"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
+          "description": "Hax-specific helpers for Rust programs",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "macros"
+            ],
+            "macros": [
+              "dep:hax-lib-macros"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
         },
         {
           "authors": [
@@ -1915,14 +1984,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "libc",
           "repository": "https://github.com/rust-lang/libc",
           "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.189"
+          "version": "0.2.190"
         },
         {
           "authors": [
@@ -1935,14 +2004,14 @@
             "simd256": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-intrinsics",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -1952,14 +2021,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-macros",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -1995,14 +2064,14 @@
             "test-utils": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-dsa",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -2053,14 +2122,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-kem",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -2070,14 +2139,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-platform",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -2089,14 +2158,14 @@
             "check-secret-independence": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.7",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-secrets",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.6"
+          "version": "0.0.7"
         },
         {
           "authors": [
@@ -2113,14 +2182,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-sha3",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -2137,14 +2206,14 @@
             "generic-tests": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-traits",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -2922,14 +2991,14 @@
             "unbiased": []
           },
           "homepage": "https://rust-random.github.io/book",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "rand",
           "repository": "https://github.com/rust-random/rand",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.10.2"
+          "version": "0.10.3"
         },
         {
           "authors": [
@@ -3556,10 +3625,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -3576,7 +3642,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -3586,14 +3653,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -3981,14 +4048,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [],
@@ -4023,14 +4090,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -4161,15 +4228,15 @@
               "dep:zerocopy"
             ]
           },
-          "homepage": "https://github.com/uuid-rs/uuid",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.25.0",
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.28.0",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "uuid",
           "repository": "https://github.com/uuid-rs/uuid",
-          "rust_version": "1.85.0",
+          "rust_version": "1.89.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.25.0"
+          "version": "1.28.0"
         },
         {
           "authors": [
@@ -5317,14 +5384,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.1",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "zeroize",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.9.0"
+          "version": "1.9.1"
         },
         {
           "authors": [
@@ -5404,14 +5471,14 @@
     }
   },
   "generated_inputs": {
-    "Cargo.lock": "9fe53fe3ecec74067d7b5e612bf6da394442728a3f9fd009d3027e4e948212e5",
-    "Cargo.toml": "3cbf0191dfd2097cf0c41b7c19330154c7e1b3fe6fc44dc8b7866019492a8126"
+    "Cargo.lock": "d9b83a702ff415d445f03c3e511ecde0876603cdbfb280b47223f4003f928aef",
+    "Cargo.toml": "afcc8d041fcf8283c3604f591acedf10089ff762ab7226c78d28280f7caaf0ea"
   },
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.lock": "76771cdd30a0bc3d170b17dd5fb9e61fefef29fd8f2ed5347e504de78a436a7f",
     "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
-    "packages/merkur-e2e/Cargo.toml": "eba8f670ba04ea9e37a8de0edbbb33ea6cbdae4d5c5b0e08983ac7e32d73b017",
+    "packages/merkur-e2e/Cargo.toml": "52368c04c8f2ac94b99b91f036ccf6061c1473d83f484fea660288ea5351da14",
     "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
     "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",
     "tools/bazel/rust/contexts.py": "5d2b9361c1b653243babab49526922428b6d831dff1a08343725a32275dd7d31",
@@ -5425,7 +5492,7 @@
       "dev": {
         "execution_host": "aarch64-apple-darwin",
         "roots": [
-          59
+          55
         ],
         "units": [
           {
@@ -5585,7 +5652,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -5796,7 +5863,7 @@
               },
               {
                 "extern_crate_name": "shlex",
-                "index": 82,
+                "index": 78,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -5804,7 +5871,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.8.0",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -5845,7 +5912,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -5971,14 +6038,14 @@
               },
               {
                 "extern_crate_name": "poly1305",
-                "index": 62,
+                "index": 58,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6037,14 +6104,14 @@
               },
               {
                 "extern_crate_name": "inout",
-                "index": 39,
+                "index": 35,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6149,21 +6216,21 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6226,7 +6293,7 @@
               },
               {
                 "extern_crate_name": "typenum",
-                "index": 89,
+                "index": 85,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6346,7 +6413,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6450,7 +6517,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rustc_version",
-                "index": 78,
+                "index": 74,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6506,7 +6573,7 @@
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6582,7 +6649,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6665,14 +6732,14 @@
               },
               {
                 "extern_crate_name": "rfc6979",
-                "index": 74,
+                "index": 70,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "signature",
-                "index": 83,
+                "index": 79,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6774,28 +6841,28 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sec1",
-                "index": 79,
+                "index": 75,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6854,14 +6921,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -6913,7 +6980,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.14",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -6961,14 +7028,14 @@
               },
               {
                 "extern_crate_name": "typenum",
-                "index": 89,
+                "index": 85,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -7078,7 +7145,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "version_check",
-                "index": 93,
+                "index": 89,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -7340,14 +7407,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "opaque_debug",
-                "index": 60,
+                "index": 56,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "polyval",
-                "index": 63,
+                "index": 59,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -7406,14 +7473,14 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -7464,232 +7531,8 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "build_script_build",
-                "index": 34,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "hax_lib_macros",
-                "index": 36,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [
-              "default",
-              "macros"
-            ],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.3.7",
-            "platform": "wasm32-unknown-unknown",
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": true,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "dev",
-              "opt_level": "3",
-              "overflow_checks": true,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [
-              "--cfg",
-              "getrandom_backend=\"wasm_js\""
-            ],
-            "target": {
-              "crate_types": [
-                "lib"
-              ],
-              "doc": true,
-              "doctest": true,
-              "edition": "2021",
-              "kind": [
-                "lib"
-              ],
-              "name": "hax_lib",
-              "src_path": "src/lib.rs",
-              "test": true
-            }
-          },
-          {
-            "dependencies": [
-              {
-                "extern_crate_name": "build_script_build",
-                "index": 35,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [
-              "default",
-              "macros"
-            ],
-            "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.3.7",
-            "platform": "wasm32-unknown-unknown",
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": true,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "dev",
-              "opt_level": "3",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [
-              "--cfg",
-              "getrandom_backend=\"wasm_js\""
-            ],
-            "target": {
-              "crate_types": [
-                "bin"
-              ],
-              "doc": false,
-              "doctest": false,
-              "edition": "2021",
-              "kind": [
-                "custom-build"
-              ],
-              "name": "build-script-build",
-              "src_path": "build.rs",
-              "test": false
-            }
-          },
-          {
-            "dependencies": [],
-            "features": [
-              "default",
-              "macros"
-            ],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.3.7",
-            "platform": null,
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": true,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "dev",
-              "opt_level": "3",
-              "overflow_checks": true,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [],
-            "target": {
-              "crate_types": [
-                "bin"
-              ],
-              "doc": false,
-              "doctest": false,
-              "edition": "2021",
-              "kind": [
-                "custom-build"
-              ],
-              "name": "build-script-build",
-              "src_path": "build.rs",
-              "test": false
-            }
-          },
-          {
-            "dependencies": [
-              {
-                "extern_crate_name": "proc_macro2",
-                "index": 65,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "quote",
-                "index": 68,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "syn",
-                "index": 88,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros@0.3.7",
-            "platform": null,
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": true,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "dev",
-              "opt_level": "3",
-              "overflow_checks": true,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [],
-            "target": {
-              "crate_types": [
-                "proc-macro"
-              ],
-              "doc": true,
-              "doctest": true,
-              "edition": "2021",
-              "kind": [
-                "proc-macro"
-              ],
-              "name": "hax_lib_macros",
-              "src_path": "src/lib.rs",
-              "test": true
-            }
-          },
-          {
-            "dependencies": [
-              {
                 "extern_crate_name": "hmac",
-                "index": 38,
+                "index": 34,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -7847,7 +7690,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 41,
+                "index": 37,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -7858,7 +7701,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -7902,7 +7745,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 42,
+                "index": 38,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -7913,7 +7756,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -7960,7 +7803,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8000,15 +7843,8 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
                 "extern_crate_name": "build_script_build",
-                "index": 44,
+                "index": 40,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8016,7 +7852,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8060,7 +7896,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 45,
+                "index": 41,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8068,7 +7904,7 @@
             ],
             "features": [],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8112,7 +7948,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8153,14 +7989,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "quote",
-                "index": 68,
+                "index": 64,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "syn",
-                "index": 88,
+                "index": 84,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8168,7 +8004,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.4",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8208,50 +8044,43 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
                 "extern_crate_name": "libcrux_intrinsics",
-                "index": 43,
+                "index": 39,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_macros",
-                "index": 46,
+                "index": 42,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 48,
+                "index": 44,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_platform",
-                "index": 53,
+                "index": 49,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_secrets",
-                "index": 54,
+                "index": 50,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_sha3",
-                "index": 55,
+                "index": 51,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8261,7 +8090,7 @@
               "mldsa87"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8305,7 +8134,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 49,
+                "index": 45,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8315,7 +8144,7 @@
               "mldsa87"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8361,7 +8190,7 @@
               "mldsa87"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8401,50 +8230,43 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
                 "extern_crate_name": "libcrux_intrinsics",
-                "index": 43,
+                "index": 39,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 51,
+                "index": 47,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_platform",
-                "index": 53,
+                "index": 49,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_secrets",
-                "index": 54,
+                "index": 50,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_sha3",
-                "index": 55,
+                "index": 51,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_traits",
-                "index": 58,
+                "index": 54,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8454,7 +8276,7 @@
               "mlkem1024"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8498,7 +8320,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 52,
+                "index": 48,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8508,7 +8330,7 @@
               "mlkem1024"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8554,7 +8376,7 @@
               "mlkem1024"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8595,7 +8417,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "libc",
-                "index": 40,
+                "index": 36,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8603,7 +8425,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.4",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8644,18 +8466,10 @@
             }
           },
           {
-            "dependencies": [
-              {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
+            "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.6",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.7",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8698,36 +8512,29 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
                 "extern_crate_name": "libcrux_intrinsics",
-                "index": 43,
+                "index": 39,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_platform",
-                "index": 53,
+                "index": 49,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 56,
+                "index": 52,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_traits",
-                "index": 58,
+                "index": 54,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8735,7 +8542,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8779,7 +8586,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 57,
+                "index": 53,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8787,7 +8594,7 @@
             ],
             "features": [],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8831,7 +8638,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8872,14 +8679,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "libcrux_secrets",
-                "index": 54,
+                "index": 50,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rand",
-                "index": 71,
+                "index": 67,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -8887,7 +8694,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -8931,70 +8738,70 @@
             "dependencies": [
               {
                 "extern_crate_name": "hkdf",
-                "index": 37,
+                "index": 33,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "hmac",
-                "index": 38,
+                "index": 34,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_ml_dsa",
-                "index": 47,
+                "index": 43,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_ml_kem",
-                "index": 50,
+                "index": 46,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "p256",
-                "index": 61,
+                "index": 57,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "poly1305",
-                "index": 62,
+                "index": 58,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sha2",
-                "index": 81,
+                "index": 77,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "snow",
-                "index": 84,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9105,14 +8912,14 @@
               },
               {
                 "extern_crate_name": "primeorder",
-                "index": 64,
+                "index": 60,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sha2",
-                "index": 81,
+                "index": 77,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9171,14 +8978,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "opaque_debug",
-                "index": 60,
+                "index": 56,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "universal_hash",
-                "index": 91,
+                "index": 87,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9237,14 +9044,14 @@
               },
               {
                 "extern_crate_name": "opaque_debug",
-                "index": 60,
+                "index": 56,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "universal_hash",
-                "index": 91,
+                "index": 87,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9348,21 +9155,20 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 66,
+                "index": 62,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 90,
+                "index": 86,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               }
             ],
             "features": [
-              "default",
               "proc-macro"
             ],
             "mode": "build",
@@ -9407,14 +9213,13 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 67,
+                "index": 63,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               }
             ],
             "features": [
-              "default",
               "proc-macro"
             ],
             "mode": "run-custom-build",
@@ -9458,7 +9263,6 @@
           {
             "dependencies": [],
             "features": [
-              "default",
               "proc-macro"
             ],
             "mode": "build",
@@ -9503,14 +9307,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 65,
+                "index": 61,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 69,
+                "index": 65,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9562,7 +9366,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 70,
+                "index": 66,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9658,7 +9462,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rand_core",
-                "index": 73,
+                "index": 69,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9666,7 +9470,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.3",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -9798,14 +9602,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "hmac",
-                "index": 38,
+                "index": 34,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9871,14 +9675,14 @@
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 76,
+                "index": 72,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "untrusted",
-                "index": 92,
+                "index": 88,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -9935,7 +9739,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 77,
+                "index": 73,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10046,7 +9850,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "semver",
-                "index": 80,
+                "index": 76,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10116,14 +9920,14 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10337,7 +10141,7 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10427,28 +10231,28 @@
               },
               {
                 "extern_crate_name": "ring",
-                "index": 75,
+                "index": 71,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sha2",
-                "index": 81,
+                "index": 77,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 85,
+                "index": 81,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10520,14 +10324,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 76,
+                "index": 72,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 86,
+                "index": 82,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10599,7 +10403,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rustc_version",
-                "index": 78,
+                "index": 74,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10715,21 +10519,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 65,
+                "index": 61,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 68,
+                "index": 64,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 90,
+                "index": 86,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -10742,12 +10546,10 @@
               "full",
               "parsing",
               "printing",
-              "proc-macro",
-              "visit",
-              "visit-mut"
+              "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -10832,7 +10634,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -10880,7 +10682,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -11019,7 +10821,7 @@
               "alloc"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.1",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -11065,7 +10867,7 @@
       "release": {
         "execution_host": "aarch64-apple-darwin",
         "roots": [
-          59
+          55
         ],
         "units": [
           {
@@ -11225,7 +11027,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -11436,7 +11238,7 @@
               },
               {
                 "extern_crate_name": "shlex",
-                "index": 82,
+                "index": 78,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -11444,7 +11246,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.8.0",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -11485,7 +11287,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -11611,14 +11413,14 @@
               },
               {
                 "extern_crate_name": "poly1305",
-                "index": 62,
+                "index": 58,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -11677,14 +11479,14 @@
               },
               {
                 "extern_crate_name": "inout",
-                "index": 39,
+                "index": 35,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -11789,21 +11591,21 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -11866,7 +11668,7 @@
               },
               {
                 "extern_crate_name": "typenum",
-                "index": 89,
+                "index": 85,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -11986,7 +11788,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12038,7 +11840,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rustc_version",
-                "index": 78,
+                "index": 74,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12146,7 +11948,7 @@
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12222,7 +12024,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12305,14 +12107,14 @@
               },
               {
                 "extern_crate_name": "rfc6979",
-                "index": 74,
+                "index": 70,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "signature",
-                "index": 83,
+                "index": 79,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12414,28 +12216,28 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sec1",
-                "index": 79,
+                "index": 75,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12494,14 +12296,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12553,7 +12355,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.14",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -12601,14 +12403,14 @@
               },
               {
                 "extern_crate_name": "typenum",
-                "index": 89,
+                "index": 85,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12663,7 +12465,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "version_check",
-                "index": 93,
+                "index": 89,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -12980,14 +12782,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "opaque_debug",
-                "index": 60,
+                "index": 56,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "polyval",
-                "index": 63,
+                "index": 59,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13046,14 +12848,14 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13104,232 +12906,8 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "build_script_build",
-                "index": 35,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "hax_lib_macros",
-                "index": 36,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [
-              "default",
-              "macros"
-            ],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.3.7",
-            "platform": "wasm32-unknown-unknown",
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "3",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [
-              "--cfg",
-              "getrandom_backend=\"wasm_js\""
-            ],
-            "target": {
-              "crate_types": [
-                "lib"
-              ],
-              "doc": true,
-              "doctest": true,
-              "edition": "2021",
-              "kind": [
-                "lib"
-              ],
-              "name": "hax_lib",
-              "src_path": "src/lib.rs",
-              "test": true
-            }
-          },
-          {
-            "dependencies": [],
-            "features": [
-              "default",
-              "macros"
-            ],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.3.7",
-            "platform": null,
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "0",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [],
-            "target": {
-              "crate_types": [
-                "bin"
-              ],
-              "doc": false,
-              "doctest": false,
-              "edition": "2021",
-              "kind": [
-                "custom-build"
-              ],
-              "name": "build-script-build",
-              "src_path": "build.rs",
-              "test": false
-            }
-          },
-          {
-            "dependencies": [
-              {
-                "extern_crate_name": "build_script_build",
-                "index": 34,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [
-              "default",
-              "macros"
-            ],
-            "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.3.7",
-            "platform": "wasm32-unknown-unknown",
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "3",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [
-              "--cfg",
-              "getrandom_backend=\"wasm_js\""
-            ],
-            "target": {
-              "crate_types": [
-                "bin"
-              ],
-              "doc": false,
-              "doctest": false,
-              "edition": "2021",
-              "kind": [
-                "custom-build"
-              ],
-              "name": "build-script-build",
-              "src_path": "build.rs",
-              "test": false
-            }
-          },
-          {
-            "dependencies": [
-              {
-                "extern_crate_name": "proc_macro2",
-                "index": 65,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "quote",
-                "index": 68,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "syn",
-                "index": 88,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros@0.3.7",
-            "platform": null,
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "0",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [],
-            "target": {
-              "crate_types": [
-                "proc-macro"
-              ],
-              "doc": true,
-              "doctest": true,
-              "edition": "2021",
-              "kind": [
-                "proc-macro"
-              ],
-              "name": "hax_lib_macros",
-              "src_path": "src/lib.rs",
-              "test": true
-            }
-          },
-          {
-            "dependencies": [
-              {
                 "extern_crate_name": "hmac",
-                "index": 38,
+                "index": 34,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13487,7 +13065,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 42,
+                "index": 38,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13498,7 +13076,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -13545,7 +13123,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -13586,7 +13164,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 41,
+                "index": 37,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13597,7 +13175,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -13640,15 +13218,8 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
                 "extern_crate_name": "build_script_build",
-                "index": 45,
+                "index": 41,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -13656,7 +13227,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -13700,7 +13271,247 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
+            "platform": null,
+            "profile": {
+              "codegen_backend": null,
+              "codegen_units": null,
+              "debug_assertions": false,
+              "debuginfo": 0,
+              "incremental": false,
+              "lto": "false",
+              "name": "release",
+              "opt_level": "0",
+              "overflow_checks": false,
+              "panic": "unwind",
+              "rpath": false,
+              "split_debuginfo": null,
+              "strip": {
+                "resolved": {
+                  "Named": "debuginfo"
+                }
+              }
+            },
+            "rust_flags": [],
+            "target": {
+              "crate_types": [
+                "bin"
+              ],
+              "doc": false,
+              "doctest": false,
+              "edition": "2021",
+              "kind": [
+                "custom-build"
+              ],
+              "name": "build-script-build",
+              "src_path": "build.rs",
+              "test": false
+            }
+          },
+          {
+            "dependencies": [
+              {
+                "extern_crate_name": "build_script_build",
+                "index": 40,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              }
+            ],
+            "features": [],
+            "mode": "run-custom-build",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
+            "platform": "wasm32-unknown-unknown",
+            "profile": {
+              "codegen_backend": null,
+              "codegen_units": null,
+              "debug_assertions": false,
+              "debuginfo": 0,
+              "incremental": false,
+              "lto": "false",
+              "name": "release",
+              "opt_level": "3",
+              "overflow_checks": false,
+              "panic": "unwind",
+              "rpath": false,
+              "split_debuginfo": null,
+              "strip": {
+                "resolved": {
+                  "Named": "debuginfo"
+                }
+              }
+            },
+            "rust_flags": [
+              "--cfg",
+              "getrandom_backend=\"wasm_js\""
+            ],
+            "target": {
+              "crate_types": [
+                "bin"
+              ],
+              "doc": false,
+              "doctest": false,
+              "edition": "2021",
+              "kind": [
+                "custom-build"
+              ],
+              "name": "build-script-build",
+              "src_path": "build.rs",
+              "test": false
+            }
+          },
+          {
+            "dependencies": [
+              {
+                "extern_crate_name": "quote",
+                "index": 64,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "syn",
+                "index": 84,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              }
+            ],
+            "features": [],
+            "mode": "build",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.4",
+            "platform": null,
+            "profile": {
+              "codegen_backend": null,
+              "codegen_units": null,
+              "debug_assertions": false,
+              "debuginfo": 0,
+              "incremental": false,
+              "lto": "false",
+              "name": "release",
+              "opt_level": "0",
+              "overflow_checks": false,
+              "panic": "unwind",
+              "rpath": false,
+              "split_debuginfo": null,
+              "strip": {
+                "resolved": {
+                  "Named": "debuginfo"
+                }
+              }
+            },
+            "rust_flags": [],
+            "target": {
+              "crate_types": [
+                "proc-macro"
+              ],
+              "doc": true,
+              "doctest": true,
+              "edition": "2021",
+              "kind": [
+                "proc-macro"
+              ],
+              "name": "libcrux_macros",
+              "src_path": "src/lib.rs",
+              "test": true
+            }
+          },
+          {
+            "dependencies": [
+              {
+                "extern_crate_name": "libcrux_intrinsics",
+                "index": 39,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "libcrux_macros",
+                "index": 42,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "build_script_build",
+                "index": 45,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "libcrux_platform",
+                "index": 49,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "libcrux_secrets",
+                "index": 50,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              },
+              {
+                "extern_crate_name": "libcrux_sha3",
+                "index": 51,
+                "noprelude": false,
+                "nounused": false,
+                "public": false
+              }
+            ],
+            "features": [
+              "mldsa87"
+            ],
+            "mode": "build",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
+            "platform": "wasm32-unknown-unknown",
+            "profile": {
+              "codegen_backend": null,
+              "codegen_units": null,
+              "debug_assertions": false,
+              "debuginfo": 0,
+              "incremental": false,
+              "lto": "false",
+              "name": "release",
+              "opt_level": "3",
+              "overflow_checks": false,
+              "panic": "unwind",
+              "rpath": false,
+              "split_debuginfo": null,
+              "strip": {
+                "resolved": {
+                  "Named": "debuginfo"
+                }
+              }
+            },
+            "rust_flags": [
+              "--cfg",
+              "getrandom_backend=\"wasm_js\""
+            ],
+            "target": {
+              "crate_types": [
+                "lib"
+              ],
+              "doc": true,
+              "doctest": true,
+              "edition": "2021",
+              "kind": [
+                "lib"
+              ],
+              "name": "libcrux_ml_dsa",
+              "src_path": "src/lib.rs",
+              "test": true
+            }
+          },
+          {
+            "dependencies": [],
+            "features": [
+              "mldsa87"
+            ],
+            "mode": "build",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -13747,9 +13558,11 @@
                 "public": false
               }
             ],
-            "features": [],
+            "features": [
+              "mldsa87"
+            ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -13791,300 +13604,44 @@
           },
           {
             "dependencies": [
-              {
-                "extern_crate_name": "quote",
-                "index": 68,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "syn",
-                "index": 88,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.3",
-            "platform": null,
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "0",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [],
-            "target": {
-              "crate_types": [
-                "proc-macro"
-              ],
-              "doc": true,
-              "doctest": true,
-              "edition": "2021",
-              "kind": [
-                "proc-macro"
-              ],
-              "name": "libcrux_macros",
-              "src_path": "src/lib.rs",
-              "test": true
-            }
-          },
-          {
-            "dependencies": [
-              {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
               {
                 "extern_crate_name": "libcrux_intrinsics",
-                "index": 43,
+                "index": 39,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
-              {
-                "extern_crate_name": "libcrux_macros",
-                "index": 46,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "build_script_build",
-                "index": 49,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "libcrux_platform",
-                "index": 53,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "libcrux_secrets",
-                "index": 54,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "libcrux_sha3",
-                "index": 55,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
-            "features": [
-              "mldsa87"
-            ],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
-            "platform": "wasm32-unknown-unknown",
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "3",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [
-              "--cfg",
-              "getrandom_backend=\"wasm_js\""
-            ],
-            "target": {
-              "crate_types": [
-                "lib"
-              ],
-              "doc": true,
-              "doctest": true,
-              "edition": "2021",
-              "kind": [
-                "lib"
-              ],
-              "name": "libcrux_ml_dsa",
-              "src_path": "src/lib.rs",
-              "test": true
-            }
-          },
-          {
-            "dependencies": [],
-            "features": [
-              "mldsa87"
-            ],
-            "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
-            "platform": null,
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "0",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [],
-            "target": {
-              "crate_types": [
-                "bin"
-              ],
-              "doc": false,
-              "doctest": false,
-              "edition": "2021",
-              "kind": [
-                "custom-build"
-              ],
-              "name": "build-script-build",
-              "src_path": "build.rs",
-              "test": false
-            }
-          },
-          {
-            "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
                 "index": 48,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
-              }
-            ],
-            "features": [
-              "mldsa87"
-            ],
-            "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
-            "platform": "wasm32-unknown-unknown",
-            "profile": {
-              "codegen_backend": null,
-              "codegen_units": null,
-              "debug_assertions": false,
-              "debuginfo": 0,
-              "incremental": false,
-              "lto": "false",
-              "name": "release",
-              "opt_level": "3",
-              "overflow_checks": false,
-              "panic": "unwind",
-              "rpath": false,
-              "split_debuginfo": null,
-              "strip": {
-                "resolved": {
-                  "Named": "debuginfo"
-                }
-              }
-            },
-            "rust_flags": [
-              "--cfg",
-              "getrandom_backend=\"wasm_js\""
-            ],
-            "target": {
-              "crate_types": [
-                "bin"
-              ],
-              "doc": false,
-              "doctest": false,
-              "edition": "2021",
-              "kind": [
-                "custom-build"
-              ],
-              "name": "build-script-build",
-              "src_path": "build.rs",
-              "test": false
-            }
-          },
-          {
-            "dependencies": [
-              {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "libcrux_intrinsics",
-                "index": 43,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
-                "extern_crate_name": "build_script_build",
-                "index": 52,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
               },
               {
                 "extern_crate_name": "libcrux_platform",
-                "index": 53,
+                "index": 49,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_secrets",
-                "index": 54,
+                "index": 50,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_sha3",
-                "index": 55,
+                "index": 51,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_traits",
-                "index": 58,
+                "index": 54,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14094,7 +13651,7 @@
               "mlkem1024"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14140,7 +13697,7 @@
               "mlkem1024"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -14181,7 +13738,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 51,
+                "index": 47,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14191,7 +13748,7 @@
               "mlkem1024"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14235,7 +13792,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "libc",
-                "index": 40,
+                "index": 36,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14243,7 +13800,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.4",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14284,18 +13841,10 @@
             }
           },
           {
-            "dependencies": [
-              {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              }
-            ],
+            "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.6",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.7",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14338,36 +13887,29 @@
           {
             "dependencies": [
               {
-                "extern_crate_name": "hax_lib",
-                "index": 33,
-                "noprelude": false,
-                "nounused": false,
-                "public": false
-              },
-              {
                 "extern_crate_name": "libcrux_intrinsics",
-                "index": 43,
+                "index": 39,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_platform",
-                "index": 53,
+                "index": 49,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 57,
+                "index": 53,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_traits",
-                "index": 58,
+                "index": 54,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14375,7 +13917,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14419,7 +13961,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -14460,7 +14002,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 56,
+                "index": 52,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14468,7 +14010,7 @@
             ],
             "features": [],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14512,14 +14054,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "libcrux_secrets",
-                "index": 54,
+                "index": 50,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "rand",
-                "index": 71,
+                "index": 67,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14527,7 +14069,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.8",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.9",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -14571,70 +14113,70 @@
             "dependencies": [
               {
                 "extern_crate_name": "hkdf",
-                "index": 37,
+                "index": 33,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "hmac",
-                "index": 38,
+                "index": 34,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_ml_dsa",
-                "index": 47,
+                "index": 43,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "libcrux_ml_kem",
-                "index": 50,
+                "index": 46,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "p256",
-                "index": 61,
+                "index": 57,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "poly1305",
-                "index": 62,
+                "index": 58,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sha2",
-                "index": 81,
+                "index": 77,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "snow",
-                "index": 84,
+                "index": 80,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14747,14 +14289,14 @@
               },
               {
                 "extern_crate_name": "primeorder",
-                "index": 64,
+                "index": 60,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sha2",
-                "index": 81,
+                "index": 77,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14813,14 +14355,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "opaque_debug",
-                "index": 60,
+                "index": 56,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "universal_hash",
-                "index": 91,
+                "index": 87,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14879,14 +14421,14 @@
               },
               {
                 "extern_crate_name": "opaque_debug",
-                "index": 60,
+                "index": 56,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "universal_hash",
-                "index": 91,
+                "index": 87,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -14990,21 +14532,20 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 67,
+                "index": 63,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 90,
+                "index": 86,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               }
             ],
             "features": [
-              "default",
               "proc-macro"
             ],
             "mode": "build",
@@ -15048,7 +14589,6 @@
           {
             "dependencies": [],
             "features": [
-              "default",
               "proc-macro"
             ],
             "mode": "build",
@@ -15093,14 +14633,13 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 66,
+                "index": 62,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               }
             ],
             "features": [
-              "default",
               "proc-macro"
             ],
             "mode": "run-custom-build",
@@ -15145,14 +14684,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 65,
+                "index": 61,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 70,
+                "index": 66,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15248,7 +14787,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 69,
+                "index": 65,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15300,7 +14839,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rand_core",
-                "index": 73,
+                "index": 69,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15308,7 +14847,7 @@
             ],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.3",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,
@@ -15440,14 +14979,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "hmac",
-                "index": 38,
+                "index": 34,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15513,14 +15052,14 @@
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 77,
+                "index": 73,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "untrusted",
-                "index": 92,
+                "index": 88,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15631,7 +15170,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 76,
+                "index": 72,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15688,7 +15227,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "semver",
-                "index": 80,
+                "index": 76,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15758,14 +15297,14 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "zeroize",
-                "index": 94,
+                "index": 90,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -15979,7 +15518,7 @@
               },
               {
                 "extern_crate_name": "rand_core",
-                "index": 72,
+                "index": 68,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16069,28 +15608,28 @@
               },
               {
                 "extern_crate_name": "ring",
-                "index": 75,
+                "index": 71,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "sha2",
-                "index": 81,
+                "index": 77,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 86,
+                "index": 82,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16162,7 +15701,7 @@
             "dependencies": [
               {
                 "extern_crate_name": "rustc_version",
-                "index": 78,
+                "index": 74,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16231,14 +15770,14 @@
             "dependencies": [
               {
                 "extern_crate_name": "build_script_build",
-                "index": 77,
+                "index": 73,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "build_script_build",
-                "index": 85,
+                "index": 81,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16357,21 +15896,21 @@
             "dependencies": [
               {
                 "extern_crate_name": "proc_macro2",
-                "index": 65,
+                "index": 61,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "quote",
-                "index": 68,
+                "index": 64,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
               },
               {
                 "extern_crate_name": "unicode_ident",
-                "index": 90,
+                "index": 86,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16384,12 +15923,10 @@
               "full",
               "parsing",
               "printing",
-              "proc-macro",
-              "visit",
-              "visit-mut"
+              "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -16474,7 +16011,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -16522,7 +16059,7 @@
               },
               {
                 "extern_crate_name": "subtle",
-                "index": 87,
+                "index": 83,
                 "noprelude": false,
                 "nounused": false,
                 "public": false
@@ -16661,7 +16198,7 @@
               "alloc"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.1",
             "platform": "wasm32-unknown-unknown",
             "profile": {
               "codegen_backend": null,

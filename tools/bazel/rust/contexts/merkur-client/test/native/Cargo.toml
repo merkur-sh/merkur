@@ -6,7 +6,7 @@
 ["dependencies"."base64"]
 "default-features" = false
 "features" = ["alloc"]
-"version" = "0.22"
+"version" = "0.23"
 
 ["dependencies"."merkur-authorization"]
 "default-features" = false
@@ -39,7 +39,14 @@
 ["dependencies"."zeroize"]
 "default-features" = false
 "features" = ["alloc"]
-"version" = "=1.9.0"
+"version" = "=1.9.1"
+
+["dev-dependencies"]
+
+["dev-dependencies"."merkur-e2e"]
+"default-features" = false
+"features" = ["testing"]
+"path" = "../../../../../../../packages/merkur-e2e"
 
 [["example"]]
 "name" = "browser_session_oracle"

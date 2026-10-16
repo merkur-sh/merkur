@@ -11,25 +11,25 @@
 "version" = "0.26.0"
 
 ["dependencies"."merkur-authorization"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/merkur-authorization"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/merkur-authorization"
 
 ["dependencies"."merkur-client"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/merkur-client"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/merkur-client"
 
 ["dependencies"."merkur-client-native"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/merkur-client-native"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/merkur-client-native"
 
 ["dependencies"."merkur-dataplane"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/apps/daemon/dataplane"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/apps/daemon/dataplane"
 
 ["dependencies"."merkur-e2e"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/merkur-e2e"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/merkur-e2e"
 
 ["dependencies"."merkur-edge"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/apps/edge"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/apps/edge"
 
 ["dependencies"."merkur-wire"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/packages/merkur-wire"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/packages/merkur-wire"
 
 ["dependencies"."serde"]
 "features" = ["derive"]
@@ -44,14 +44,14 @@
 "version" = "0.7"
 
 ["lib"]
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/src/lib.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/src/lib.rs"
 
 ["lints"]
 "workspace" = true
 
 ["package"]
 "autotests" = false
-"build" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/build.rs"
+"build" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/build.rs"
 "edition" = "2024"
 "license" = "AGPL-3.0-only"
 "name" = "merkur-sim"
@@ -60,44 +60,44 @@
 
 [["test"]]
 "name" = "bounces"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/bounces.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/bounces.rs"
 
 [["test"]]
 "name" = "expiry"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/expiry.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/expiry.rs"
 
 [["test"]]
 "name" = "faults"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/faults.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/faults.rs"
 
 [["test"]]
 "name" = "issuer"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/issuer.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/issuer.rs"
 
 [["test"]]
 "name" = "network"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/network.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/network.rs"
 
 [["test"]]
 "name" = "recovery"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/recovery.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/recovery.rs"
 
 [["test"]]
 "name" = "regressions"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/regressions.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/regressions.rs"
 
 [["test"]]
 "name" = "rotation"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/rotation.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/rotation.rs"
 
 [["test"]]
 "name" = "session"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/session.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/session.rs"
 
 [["test"]]
 "name" = "spike"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/spike.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/spike.rs"
 
 [["test"]]
 "name" = "sweep"
-"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-mjug5bhs/merkur-acquisition-presentation-7xw59glm/sources/tools/sim/tests/sweep.rs"
+"path" = "/private/var/folders/kv/32l5gccs4t565lv74djvmps80000gn/T/merkur-rust-contexts-coashsx1/merkur-acquisition-presentation-q4oi9qle/sources/tools/sim/tests/sweep.rs"

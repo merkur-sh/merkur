@@ -43,21 +43,21 @@
 ["dependencies"."opentelemetry"]
 "default-features" = false
 "features" = ["trace", "metrics", "logs", "internal-logs"]
-"version" = "=0.32.0"
+"version" = "=0.33.0"
 
 ["dependencies"."opentelemetry-appender-tracing"]
 "default-features" = false
-"version" = "=0.32.0"
+"version" = "=0.33.0"
 
 ["dependencies"."opentelemetry-otlp"]
 "default-features" = false
 "features" = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs", "internal-logs"]
-"version" = "=0.32.0"
+"version" = "=0.33.0"
 
 ["dependencies"."opentelemetry_sdk"]
 "default-features" = false
 "features" = ["trace", "metrics", "logs", "internal-logs"]
-"version" = "=0.32.1"
+"version" = "=0.33.0"
 
 ["dependencies"."reqwest"]
 "default-features" = false
@@ -67,7 +67,7 @@
 ["dependencies"."rustls"]
 "default-features" = false
 "features" = ["ring"]
-"version" = "0.23"
+"version" = "0.23.46"
 
 ["dependencies"."serde"]
 "features" = ["derive"]
@@ -79,7 +79,7 @@
 
 ["dependencies"."tracing-opentelemetry"]
 "default-features" = false
-"version" = "=0.33.0"
+"version" = "=0.34.0"
 
 ["dependencies"."tracing-subscriber"]
 "features" = ["env-filter"]

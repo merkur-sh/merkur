@@ -1,6 +1,6 @@
 
 ["dependencies"]
-"base64" = "0.22"
+"base64" = "0.23"
 "bytes" = "1"
 "futures" = "0.3"
 "generic-array" = "0.14"
@@ -44,7 +44,7 @@
 ["dependencies"."rustls"]
 "default-features" = false
 "features" = ["ring"]
-"version" = "0.23"
+"version" = "0.23.46"
 
 ["dependencies"."serde"]
 "features" = ["derive"]

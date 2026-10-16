@@ -16,11 +16,11 @@ version = "0.9.4"
 
 [[patch.unused]]
 name = "quinn"
-version = "0.11.11"
+version = "0.11.12"
 
 [[patch.unused]]
 name = "quinn-proto"
-version = "0.11.17"
+version = "0.11.19"
 
 [[patch.unused]]
 name = "vte"

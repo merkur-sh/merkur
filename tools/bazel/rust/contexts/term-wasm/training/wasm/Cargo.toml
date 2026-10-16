@@ -22,12 +22,12 @@
 ["dependencies"."zeroize"]
 "default-features" = false
 "features" = ["alloc"]
-"version" = "=1.9.0"
+"version" = "=1.9.1"
 
 ["dependencies"."zstd-safe"]
 "default-features" = false
 "features" = ["std", "experimental"]
-"version" = "7.2"
+"version" = "8.0"
 
 ["features"]
 "pgo-train" = ["dep:minicov"]

@@ -43,7 +43,7 @@
 ["dependencies"."libcrux-ml-dsa"]
 "default-features" = false
 "features" = ["mldsa87"]
-"version" = "=0.0.10"
+"version" = "=0.0.11"
 
 ["dependencies"."merkur-authorization"]
 "path" = "../../../../../../../packages/merkur-authorization"
@@ -101,7 +101,7 @@
 
 ["dependencies"."zstd"]
 "features" = ["experimental"]
-"version" = "0.13"
+"version" = "0.14"
 
 ["dev-dependencies"]
 "proptest" = "1.11"

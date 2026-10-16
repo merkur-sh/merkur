@@ -9,7 +9,7 @@
 ["dependencies"."base64"]
 "default-features" = false
 "features" = ["alloc"]
-"version" = "0.22"
+"version" = "0.23"
 
 ["dependencies"."hkdf"]
 "default-features" = false
@@ -40,7 +40,7 @@
 ["dependencies"."zeroize"]
 "default-features" = false
 "features" = ["alloc"]
-"version" = "=1.9.0"
+"version" = "=1.9.1"
 
 ["features"]
 "default" = ["std"]

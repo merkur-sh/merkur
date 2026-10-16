@@ -286,31 +286,6 @@
             "Marshall Pierce <marshall@mpierce.org>"
           ],
           "description": "encodes and decodes base64 as bytes or utf8",
-          "edition": "2018",
-          "features": {
-            "alloc": [],
-            "default": [
-              "std"
-            ],
-            "std": [
-              "alloc"
-            ]
-          },
-          "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#base64@0.22.1",
-          "license": "MIT OR Apache-2.0",
-          "links": null,
-          "name": "base64",
-          "repository": "https://github.com/marshallpierce/rust-base64",
-          "rust_version": "1.48.0",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.22.1"
-        },
-        {
-          "authors": [
-            "Marshall Pierce <marshall@mpierce.org>"
-          ],
-          "description": "encodes and decodes base64 as bytes or utf8",
           "edition": "2021",
           "features": {
             "alloc": [],
@@ -404,14 +379,14 @@
             "std": []
           },
           "homepage": "https://github.com/bitflags/bitflags",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.1",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "bitflags",
           "repository": "https://github.com/bitflags/bitflags",
           "rust_version": "1.56.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.13.1"
+          "version": "2.13.2"
         },
         {
           "authors": [
@@ -562,14 +537,14 @@
             ]
           },
           "homepage": "https://github.com/rust-lang/cc-rs",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.8.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cc",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.4.4"
+          "version": "1.8.0"
         },
         {
           "authors": [
@@ -603,14 +578,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cfg-if",
           "repository": "https://github.com/rust-lang/cfg-if",
           "rust_version": "1.32",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.4"
+          "version": "1.0.5"
         },
         {
           "authors": [
@@ -979,32 +954,39 @@
           "edition": "2024",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.1",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cpufeatures",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.3.0"
+          "version": "0.3.1"
         },
         {
           "authors": [],
           "description": "Rust bindings to \"Valgrind Client Request\" interface",
           "edition": "2021",
           "features": {
-            "default": [],
-            "opt-out": []
+            "default": [
+              "valgrind"
+            ],
+            "opt-out": [],
+            "valgrind": [
+              "dep:cc",
+              "dep:bindgen",
+              "dep:pkg-config"
+            ]
           },
           "homepage": "https://github.com/2dav/crabgrind",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.2.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.3.1",
           "license": "MIT",
           "links": null,
           "name": "crabgrind",
           "repository": "https://github.com/2dav/crabgrind",
-          "rust_version": "1.64",
+          "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.6"
+          "version": "0.3.1"
         },
         {
           "authors": [],
@@ -1021,14 +1003,14 @@
             "std": []
           },
           "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-utils",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.22",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.23",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "crossbeam-utils",
           "repository": "https://github.com/crossbeam-rs/crossbeam",
           "rust_version": "1.60",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.22"
+          "version": "0.8.23"
         },
         {
           "authors": [
@@ -1435,14 +1417,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.18.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.19.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "either",
           "repository": "https://github.com/rayon-rs/either",
           "rust_version": "1.63.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.18.0"
+          "version": "1.19.0"
         },
         {
           "authors": [
@@ -1549,14 +1531,14 @@
           "edition": "2015",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.3",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "equivalent",
           "repository": "https://github.com/indexmap-rs/equivalent",
           "rust_version": "1.6",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.2"
+          "version": "1.0.3"
         },
         {
           "authors": [
@@ -1690,14 +1672,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.14",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "find-msvc-tools",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.1.11"
+          "version": "0.1.14"
         },
         {
           "authors": [
@@ -2274,6 +2256,27 @@
           "authors": [
             "hax Authors"
           ],
+          "description": "Hax-internal types",
+          "edition": "2021",
+          "features": {
+            "schemars": [
+              "dep:schemars"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros-types@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros-types",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
           "description": "Hax-specific proc-macros for Rust programs",
           "edition": "2021",
           "features": {},
@@ -2286,6 +2289,23 @@
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.3.7"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
+          "description": "Hax-specific proc-macros for Rust programs",
+          "edition": "2021",
+          "features": {},
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
         },
         {
           "authors": [
@@ -2313,8 +2333,30 @@
         },
         {
           "authors": [
-            "Stefan Lankes"
+            "hax Authors"
           ],
+          "description": "Hax-specific helpers for Rust programs",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "macros"
+            ],
+            "macros": [
+              "dep:hax-lib-macros"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [],
           "description": "Hermit system calls definitions.",
           "edition": "2021",
           "features": {
@@ -2331,14 +2373,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "hermit-abi",
           "repository": "https://github.com/hermit-os/hermit-rs",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.5.2"
+          "version": "0.5.3"
         },
         {
           "authors": [
@@ -2543,14 +2585,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "libc",
           "repository": "https://github.com/rust-lang/libc",
           "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.189"
+          "version": "0.2.190"
         },
         {
           "authors": [
@@ -2563,14 +2605,14 @@
             "simd256": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-intrinsics",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -2580,14 +2622,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-macros",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -2623,14 +2665,14 @@
             "test-utils": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-dsa",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -2681,14 +2723,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-kem",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -2698,14 +2740,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-platform",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -2717,14 +2759,14 @@
             "check-secret-independence": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.7",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-secrets",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.6"
+          "version": "0.0.7"
         },
         {
           "authors": [
@@ -2741,14 +2783,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-sha3",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -2765,14 +2807,14 @@
             "generic-tests": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-traits",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -3836,14 +3878,14 @@
             "unbiased": []
           },
           "homepage": "https://rust-random.github.io/book",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "rand",
           "repository": "https://github.com/rust-random/rand",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.10.2"
+          "version": "0.10.3"
         },
         {
           "authors": [
@@ -4444,14 +4486,14 @@
             "use-libc-auxv": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.5",
           "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
           "links": null,
           "name": "rustix",
           "repository": "https://github.com/bytecodealliance/rustix",
-          "rust_version": "1.63",
+          "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.1.4"
+          "version": "1.1.5"
         },
         {
           "authors": [
@@ -4681,10 +4723,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -4701,7 +4740,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -4711,14 +4751,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -4861,14 +4901,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "signal-hook",
           "repository": "https://github.com/vorner/signal-hook",
           "rust_version": "1.66",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.4.4"
+          "version": "0.4.5"
         },
         {
           "authors": [
@@ -4944,7 +4984,6 @@
             "const_new": [
               "const_generics"
             ],
-            "debugger_visualizer": [],
             "drain_filter": [],
             "drain_keep_rest": [
               "drain_filter"
@@ -4968,14 +5007,14 @@
             "write": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.15.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.16.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "smallvec",
           "repository": "https://github.com/servo/rust-smallvec",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.15.2"
+          "version": "1.16.3"
         },
         {
           "authors": [
@@ -5212,14 +5251,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -5296,14 +5335,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -5468,15 +5507,15 @@
               "dep:zerocopy"
             ]
           },
-          "homepage": "https://github.com/uuid-rs/uuid",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.25.0",
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.28.0",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "uuid",
           "repository": "https://github.com/uuid-rs/uuid",
-          "rust_version": "1.85.0",
+          "rust_version": "1.89.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.25.0"
+          "version": "1.28.0"
         },
         {
           "authors": [
@@ -7400,14 +7439,14 @@
             "xxh64": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.19",
           "license": "BSL-1.0",
           "links": null,
           "name": "xxhash-rust",
           "repository": "https://github.com/DoumanAsh/xxhash-rust",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.18"
+          "version": "0.8.19"
         },
         {
           "authors": [
@@ -7436,14 +7475,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.1",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "zeroize",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.9.0"
+          "version": "1.9.1"
         },
         {
           "authors": [
@@ -7476,6 +7515,9 @@
             "arrays": [],
             "bindgen": [
               "zstd-sys/bindgen"
+            ],
+            "cmake": [
+              "zstd-sys/cmake"
             ],
             "debug": [
               "zstd-sys/debug"
@@ -7513,6 +7555,12 @@
             "thin-lto": [
               "zstd-sys/thin-lto"
             ],
+            "vendored": [
+              "zstd-sys/vendored"
+            ],
+            "with-rust-allocator": [
+              "experimental"
+            ],
             "zdict_builder": [
               "zstd-sys/zdict_builder"
             ],
@@ -7521,14 +7569,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@7.2.4",
-          "license": "MIT OR Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@8.1.0",
+          "license": "BSD-3-Clause",
           "links": null,
           "name": "zstd-safe",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "7.2.4"
+          "version": "8.1.0"
         },
         {
           "authors": [
@@ -7540,11 +7588,13 @@
             "bindgen": [
               "dep:bindgen"
             ],
+            "cmake": [
+              "dep:cmake"
+            ],
             "debug": [],
             "default": [
               "legacy",
-              "zdict_builder",
-              "bindgen"
+              "zdict_builder"
             ],
             "experimental": [],
             "fat-lto": [],
@@ -7557,18 +7607,19 @@
             "std": [],
             "thin": [],
             "thin-lto": [],
+            "vendored": [],
             "zdict_builder": [],
             "zstdmt": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.0.16+zstd.1.5.7",
-          "license": "MIT/Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.1.1+zstd.1.5.7",
+          "license": "BSD-3-Clause",
           "links": "zstd",
           "name": "zstd-sys",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.0.16+zstd.1.5.7"
+          "version": "2.1.1+zstd.1.5.7"
         },
         {
           "authors": [
@@ -8385,31 +8436,6 @@
             "Marshall Pierce <marshall@mpierce.org>"
           ],
           "description": "encodes and decodes base64 as bytes or utf8",
-          "edition": "2018",
-          "features": {
-            "alloc": [],
-            "default": [
-              "std"
-            ],
-            "std": [
-              "alloc"
-            ]
-          },
-          "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#base64@0.22.1",
-          "license": "MIT OR Apache-2.0",
-          "links": null,
-          "name": "base64",
-          "repository": "https://github.com/marshallpierce/rust-base64",
-          "rust_version": "1.48.0",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.22.1"
-        },
-        {
-          "authors": [
-            "Marshall Pierce <marshall@mpierce.org>"
-          ],
-          "description": "encodes and decodes base64 as bytes or utf8",
           "edition": "2021",
           "features": {
             "alloc": [],
@@ -8503,14 +8529,14 @@
             "std": []
           },
           "homepage": "https://github.com/bitflags/bitflags",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.1",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "bitflags",
           "repository": "https://github.com/bitflags/bitflags",
           "rust_version": "1.56.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.13.1"
+          "version": "2.13.2"
         },
         {
           "authors": [
@@ -8661,14 +8687,14 @@
             ]
           },
           "homepage": "https://github.com/rust-lang/cc-rs",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.8.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cc",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.4.4"
+          "version": "1.8.0"
         },
         {
           "authors": [
@@ -8702,14 +8728,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cfg-if",
           "repository": "https://github.com/rust-lang/cfg-if",
           "rust_version": "1.32",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.4"
+          "version": "1.0.5"
         },
         {
           "authors": [
@@ -9078,32 +9104,39 @@
           "edition": "2024",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.1",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cpufeatures",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.3.0"
+          "version": "0.3.1"
         },
         {
           "authors": [],
           "description": "Rust bindings to \"Valgrind Client Request\" interface",
           "edition": "2021",
           "features": {
-            "default": [],
-            "opt-out": []
+            "default": [
+              "valgrind"
+            ],
+            "opt-out": [],
+            "valgrind": [
+              "dep:cc",
+              "dep:bindgen",
+              "dep:pkg-config"
+            ]
           },
           "homepage": "https://github.com/2dav/crabgrind",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.2.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.3.1",
           "license": "MIT",
           "links": null,
           "name": "crabgrind",
           "repository": "https://github.com/2dav/crabgrind",
-          "rust_version": "1.64",
+          "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.6"
+          "version": "0.3.1"
         },
         {
           "authors": [],
@@ -9120,14 +9153,14 @@
             "std": []
           },
           "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-utils",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.22",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.23",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "crossbeam-utils",
           "repository": "https://github.com/crossbeam-rs/crossbeam",
           "rust_version": "1.60",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.22"
+          "version": "0.8.23"
         },
         {
           "authors": [
@@ -9534,14 +9567,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.18.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.19.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "either",
           "repository": "https://github.com/rayon-rs/either",
           "rust_version": "1.63.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.18.0"
+          "version": "1.19.0"
         },
         {
           "authors": [
@@ -9648,14 +9681,14 @@
           "edition": "2015",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.3",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "equivalent",
           "repository": "https://github.com/indexmap-rs/equivalent",
           "rust_version": "1.6",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.2"
+          "version": "1.0.3"
         },
         {
           "authors": [
@@ -9789,14 +9822,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.14",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "find-msvc-tools",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.1.11"
+          "version": "0.1.14"
         },
         {
           "authors": [
@@ -10373,6 +10406,27 @@
           "authors": [
             "hax Authors"
           ],
+          "description": "Hax-internal types",
+          "edition": "2021",
+          "features": {
+            "schemars": [
+              "dep:schemars"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros-types@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros-types",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
           "description": "Hax-specific proc-macros for Rust programs",
           "edition": "2021",
           "features": {},
@@ -10385,6 +10439,23 @@
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.3.7"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
+          "description": "Hax-specific proc-macros for Rust programs",
+          "edition": "2021",
+          "features": {},
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
         },
         {
           "authors": [
@@ -10412,8 +10483,30 @@
         },
         {
           "authors": [
-            "Stefan Lankes"
+            "hax Authors"
           ],
+          "description": "Hax-specific helpers for Rust programs",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "macros"
+            ],
+            "macros": [
+              "dep:hax-lib-macros"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [],
           "description": "Hermit system calls definitions.",
           "edition": "2021",
           "features": {
@@ -10430,14 +10523,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "hermit-abi",
           "repository": "https://github.com/hermit-os/hermit-rs",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.5.2"
+          "version": "0.5.3"
         },
         {
           "authors": [
@@ -10642,14 +10735,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "libc",
           "repository": "https://github.com/rust-lang/libc",
           "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.189"
+          "version": "0.2.190"
         },
         {
           "authors": [
@@ -10662,14 +10755,14 @@
             "simd256": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-intrinsics",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -10679,14 +10772,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-macros",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -10722,14 +10815,14 @@
             "test-utils": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-dsa",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -10780,14 +10873,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-kem",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -10797,14 +10890,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-platform",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -10816,14 +10909,14 @@
             "check-secret-independence": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.7",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-secrets",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.6"
+          "version": "0.0.7"
         },
         {
           "authors": [
@@ -10840,14 +10933,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-sha3",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -10864,14 +10957,14 @@
             "generic-tests": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-traits",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -11935,14 +12028,14 @@
             "unbiased": []
           },
           "homepage": "https://rust-random.github.io/book",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "rand",
           "repository": "https://github.com/rust-random/rand",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.10.2"
+          "version": "0.10.3"
         },
         {
           "authors": [
@@ -12543,14 +12636,14 @@
             "use-libc-auxv": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.5",
           "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
           "links": null,
           "name": "rustix",
           "repository": "https://github.com/bytecodealliance/rustix",
-          "rust_version": "1.63",
+          "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.1.4"
+          "version": "1.1.5"
         },
         {
           "authors": [
@@ -12780,10 +12873,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -12800,7 +12890,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -12810,14 +12901,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -12960,14 +13051,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "signal-hook",
           "repository": "https://github.com/vorner/signal-hook",
           "rust_version": "1.66",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.4.4"
+          "version": "0.4.5"
         },
         {
           "authors": [
@@ -13043,7 +13134,6 @@
             "const_new": [
               "const_generics"
             ],
-            "debugger_visualizer": [],
             "drain_filter": [],
             "drain_keep_rest": [
               "drain_filter"
@@ -13067,14 +13157,14 @@
             "write": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.15.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.16.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "smallvec",
           "repository": "https://github.com/servo/rust-smallvec",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.15.2"
+          "version": "1.16.3"
         },
         {
           "authors": [
@@ -13311,14 +13401,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -13395,14 +13485,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -13567,15 +13657,15 @@
               "dep:zerocopy"
             ]
           },
-          "homepage": "https://github.com/uuid-rs/uuid",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.25.0",
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.28.0",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "uuid",
           "repository": "https://github.com/uuid-rs/uuid",
-          "rust_version": "1.85.0",
+          "rust_version": "1.89.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.25.0"
+          "version": "1.28.0"
         },
         {
           "authors": [
@@ -15499,14 +15589,14 @@
             "xxh64": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.19",
           "license": "BSL-1.0",
           "links": null,
           "name": "xxhash-rust",
           "repository": "https://github.com/DoumanAsh/xxhash-rust",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.18"
+          "version": "0.8.19"
         },
         {
           "authors": [
@@ -15535,14 +15625,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.1",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "zeroize",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.9.0"
+          "version": "1.9.1"
         },
         {
           "authors": [
@@ -15575,6 +15665,9 @@
             "arrays": [],
             "bindgen": [
               "zstd-sys/bindgen"
+            ],
+            "cmake": [
+              "zstd-sys/cmake"
             ],
             "debug": [
               "zstd-sys/debug"
@@ -15612,6 +15705,12 @@
             "thin-lto": [
               "zstd-sys/thin-lto"
             ],
+            "vendored": [
+              "zstd-sys/vendored"
+            ],
+            "with-rust-allocator": [
+              "experimental"
+            ],
             "zdict_builder": [
               "zstd-sys/zdict_builder"
             ],
@@ -15620,14 +15719,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@7.2.4",
-          "license": "MIT OR Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@8.1.0",
+          "license": "BSD-3-Clause",
           "links": null,
           "name": "zstd-safe",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "7.2.4"
+          "version": "8.1.0"
         },
         {
           "authors": [
@@ -15639,11 +15738,13 @@
             "bindgen": [
               "dep:bindgen"
             ],
+            "cmake": [
+              "dep:cmake"
+            ],
             "debug": [],
             "default": [
               "legacy",
-              "zdict_builder",
-              "bindgen"
+              "zdict_builder"
             ],
             "experimental": [],
             "fat-lto": [],
@@ -15656,18 +15757,19 @@
             "std": [],
             "thin": [],
             "thin-lto": [],
+            "vendored": [],
             "zdict_builder": [],
             "zstdmt": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.0.16+zstd.1.5.7",
-          "license": "MIT/Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.1.1+zstd.1.5.7",
+          "license": "BSD-3-Clause",
           "links": "zstd",
           "name": "zstd-sys",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.0.16+zstd.1.5.7"
+          "version": "2.1.1+zstd.1.5.7"
         },
         {
           "authors": [
@@ -16484,31 +16586,6 @@
             "Marshall Pierce <marshall@mpierce.org>"
           ],
           "description": "encodes and decodes base64 as bytes or utf8",
-          "edition": "2018",
-          "features": {
-            "alloc": [],
-            "default": [
-              "std"
-            ],
-            "std": [
-              "alloc"
-            ]
-          },
-          "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#base64@0.22.1",
-          "license": "MIT OR Apache-2.0",
-          "links": null,
-          "name": "base64",
-          "repository": "https://github.com/marshallpierce/rust-base64",
-          "rust_version": "1.48.0",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.22.1"
-        },
-        {
-          "authors": [
-            "Marshall Pierce <marshall@mpierce.org>"
-          ],
-          "description": "encodes and decodes base64 as bytes or utf8",
           "edition": "2021",
           "features": {
             "alloc": [],
@@ -16602,14 +16679,14 @@
             "std": []
           },
           "homepage": "https://github.com/bitflags/bitflags",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.1",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "bitflags",
           "repository": "https://github.com/bitflags/bitflags",
           "rust_version": "1.56.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.13.1"
+          "version": "2.13.2"
         },
         {
           "authors": [
@@ -16760,14 +16837,14 @@
             ]
           },
           "homepage": "https://github.com/rust-lang/cc-rs",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.8.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cc",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.4.4"
+          "version": "1.8.0"
         },
         {
           "authors": [
@@ -16801,14 +16878,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cfg-if",
           "repository": "https://github.com/rust-lang/cfg-if",
           "rust_version": "1.32",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.4"
+          "version": "1.0.5"
         },
         {
           "authors": [
@@ -17177,32 +17254,39 @@
           "edition": "2024",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.1",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cpufeatures",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.3.0"
+          "version": "0.3.1"
         },
         {
           "authors": [],
           "description": "Rust bindings to \"Valgrind Client Request\" interface",
           "edition": "2021",
           "features": {
-            "default": [],
-            "opt-out": []
+            "default": [
+              "valgrind"
+            ],
+            "opt-out": [],
+            "valgrind": [
+              "dep:cc",
+              "dep:bindgen",
+              "dep:pkg-config"
+            ]
           },
           "homepage": "https://github.com/2dav/crabgrind",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.2.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.3.1",
           "license": "MIT",
           "links": null,
           "name": "crabgrind",
           "repository": "https://github.com/2dav/crabgrind",
-          "rust_version": "1.64",
+          "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.6"
+          "version": "0.3.1"
         },
         {
           "authors": [],
@@ -17219,14 +17303,14 @@
             "std": []
           },
           "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-utils",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.22",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.23",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "crossbeam-utils",
           "repository": "https://github.com/crossbeam-rs/crossbeam",
           "rust_version": "1.60",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.22"
+          "version": "0.8.23"
         },
         {
           "authors": [
@@ -17633,14 +17717,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.18.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.19.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "either",
           "repository": "https://github.com/rayon-rs/either",
           "rust_version": "1.63.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.18.0"
+          "version": "1.19.0"
         },
         {
           "authors": [
@@ -17747,14 +17831,14 @@
           "edition": "2015",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.3",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "equivalent",
           "repository": "https://github.com/indexmap-rs/equivalent",
           "rust_version": "1.6",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.2"
+          "version": "1.0.3"
         },
         {
           "authors": [
@@ -17888,14 +17972,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.14",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "find-msvc-tools",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.1.11"
+          "version": "0.1.14"
         },
         {
           "authors": [
@@ -18472,6 +18556,27 @@
           "authors": [
             "hax Authors"
           ],
+          "description": "Hax-internal types",
+          "edition": "2021",
+          "features": {
+            "schemars": [
+              "dep:schemars"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros-types@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros-types",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
           "description": "Hax-specific proc-macros for Rust programs",
           "edition": "2021",
           "features": {},
@@ -18484,6 +18589,23 @@
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.3.7"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
+          "description": "Hax-specific proc-macros for Rust programs",
+          "edition": "2021",
+          "features": {},
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
         },
         {
           "authors": [
@@ -18511,8 +18633,30 @@
         },
         {
           "authors": [
-            "Stefan Lankes"
+            "hax Authors"
           ],
+          "description": "Hax-specific helpers for Rust programs",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "macros"
+            ],
+            "macros": [
+              "dep:hax-lib-macros"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [],
           "description": "Hermit system calls definitions.",
           "edition": "2021",
           "features": {
@@ -18529,14 +18673,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "hermit-abi",
           "repository": "https://github.com/hermit-os/hermit-rs",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.5.2"
+          "version": "0.5.3"
         },
         {
           "authors": [
@@ -18741,14 +18885,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "libc",
           "repository": "https://github.com/rust-lang/libc",
           "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.189"
+          "version": "0.2.190"
         },
         {
           "authors": [
@@ -18761,14 +18905,14 @@
             "simd256": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-intrinsics",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -18778,14 +18922,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-macros",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -18821,14 +18965,14 @@
             "test-utils": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-dsa",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -18879,14 +19023,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-kem",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -18896,14 +19040,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-platform",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -18915,14 +19059,14 @@
             "check-secret-independence": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.7",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-secrets",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.6"
+          "version": "0.0.7"
         },
         {
           "authors": [
@@ -18939,14 +19083,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-sha3",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -18963,14 +19107,14 @@
             "generic-tests": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-traits",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -20034,14 +20178,14 @@
             "unbiased": []
           },
           "homepage": "https://rust-random.github.io/book",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "rand",
           "repository": "https://github.com/rust-random/rand",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.10.2"
+          "version": "0.10.3"
         },
         {
           "authors": [
@@ -20642,14 +20786,14 @@
             "use-libc-auxv": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.5",
           "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
           "links": null,
           "name": "rustix",
           "repository": "https://github.com/bytecodealliance/rustix",
-          "rust_version": "1.63",
+          "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.1.4"
+          "version": "1.1.5"
         },
         {
           "authors": [
@@ -20879,10 +21023,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -20899,7 +21040,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -20909,14 +21051,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -21059,14 +21201,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "signal-hook",
           "repository": "https://github.com/vorner/signal-hook",
           "rust_version": "1.66",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.4.4"
+          "version": "0.4.5"
         },
         {
           "authors": [
@@ -21142,7 +21284,6 @@
             "const_new": [
               "const_generics"
             ],
-            "debugger_visualizer": [],
             "drain_filter": [],
             "drain_keep_rest": [
               "drain_filter"
@@ -21166,14 +21307,14 @@
             "write": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.15.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.16.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "smallvec",
           "repository": "https://github.com/servo/rust-smallvec",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.15.2"
+          "version": "1.16.3"
         },
         {
           "authors": [
@@ -21410,14 +21551,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -21494,14 +21635,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -21666,15 +21807,15 @@
               "dep:zerocopy"
             ]
           },
-          "homepage": "https://github.com/uuid-rs/uuid",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.25.0",
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.28.0",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "uuid",
           "repository": "https://github.com/uuid-rs/uuid",
-          "rust_version": "1.85.0",
+          "rust_version": "1.89.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.25.0"
+          "version": "1.28.0"
         },
         {
           "authors": [
@@ -23598,14 +23739,14 @@
             "xxh64": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.19",
           "license": "BSL-1.0",
           "links": null,
           "name": "xxhash-rust",
           "repository": "https://github.com/DoumanAsh/xxhash-rust",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.18"
+          "version": "0.8.19"
         },
         {
           "authors": [
@@ -23634,14 +23775,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.1",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "zeroize",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.9.0"
+          "version": "1.9.1"
         },
         {
           "authors": [
@@ -23674,6 +23815,9 @@
             "arrays": [],
             "bindgen": [
               "zstd-sys/bindgen"
+            ],
+            "cmake": [
+              "zstd-sys/cmake"
             ],
             "debug": [
               "zstd-sys/debug"
@@ -23711,6 +23855,12 @@
             "thin-lto": [
               "zstd-sys/thin-lto"
             ],
+            "vendored": [
+              "zstd-sys/vendored"
+            ],
+            "with-rust-allocator": [
+              "experimental"
+            ],
             "zdict_builder": [
               "zstd-sys/zdict_builder"
             ],
@@ -23719,14 +23869,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@7.2.4",
-          "license": "MIT OR Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@8.1.0",
+          "license": "BSD-3-Clause",
           "links": null,
           "name": "zstd-safe",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "7.2.4"
+          "version": "8.1.0"
         },
         {
           "authors": [
@@ -23738,11 +23888,13 @@
             "bindgen": [
               "dep:bindgen"
             ],
+            "cmake": [
+              "dep:cmake"
+            ],
             "debug": [],
             "default": [
               "legacy",
-              "zdict_builder",
-              "bindgen"
+              "zdict_builder"
             ],
             "experimental": [],
             "fat-lto": [],
@@ -23755,18 +23907,19 @@
             "std": [],
             "thin": [],
             "thin-lto": [],
+            "vendored": [],
             "zdict_builder": [],
             "zstdmt": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.0.16+zstd.1.5.7",
-          "license": "MIT/Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.1.1+zstd.1.5.7",
+          "license": "BSD-3-Clause",
           "links": "zstd",
           "name": "zstd-sys",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.0.16+zstd.1.5.7"
+          "version": "2.1.1+zstd.1.5.7"
         },
         {
           "authors": [
@@ -24583,31 +24736,6 @@
             "Marshall Pierce <marshall@mpierce.org>"
           ],
           "description": "encodes and decodes base64 as bytes or utf8",
-          "edition": "2018",
-          "features": {
-            "alloc": [],
-            "default": [
-              "std"
-            ],
-            "std": [
-              "alloc"
-            ]
-          },
-          "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#base64@0.22.1",
-          "license": "MIT OR Apache-2.0",
-          "links": null,
-          "name": "base64",
-          "repository": "https://github.com/marshallpierce/rust-base64",
-          "rust_version": "1.48.0",
-          "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.22.1"
-        },
-        {
-          "authors": [
-            "Marshall Pierce <marshall@mpierce.org>"
-          ],
-          "description": "encodes and decodes base64 as bytes or utf8",
           "edition": "2021",
           "features": {
             "alloc": [],
@@ -24701,14 +24829,14 @@
             "std": []
           },
           "homepage": "https://github.com/bitflags/bitflags",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.1",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#bitflags@2.13.2",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "bitflags",
           "repository": "https://github.com/bitflags/bitflags",
           "rust_version": "1.56.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.13.1"
+          "version": "2.13.2"
         },
         {
           "authors": [
@@ -24859,14 +24987,14 @@
             ]
           },
           "homepage": "https://github.com/rust-lang/cc-rs",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cc@1.8.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cc",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.4.4"
+          "version": "1.8.0"
         },
         {
           "authors": [
@@ -24900,14 +25028,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cfg-if@1.0.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cfg-if",
           "repository": "https://github.com/rust-lang/cfg-if",
           "rust_version": "1.32",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.4"
+          "version": "1.0.5"
         },
         {
           "authors": [
@@ -25276,32 +25404,39 @@
           "edition": "2024",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#cpufeatures@0.3.1",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "cpufeatures",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.3.0"
+          "version": "0.3.1"
         },
         {
           "authors": [],
           "description": "Rust bindings to \"Valgrind Client Request\" interface",
           "edition": "2021",
           "features": {
-            "default": [],
-            "opt-out": []
+            "default": [
+              "valgrind"
+            ],
+            "opt-out": [],
+            "valgrind": [
+              "dep:cc",
+              "dep:bindgen",
+              "dep:pkg-config"
+            ]
           },
           "homepage": "https://github.com/2dav/crabgrind",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.2.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crabgrind@0.3.1",
           "license": "MIT",
           "links": null,
           "name": "crabgrind",
           "repository": "https://github.com/2dav/crabgrind",
-          "rust_version": "1.64",
+          "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.6"
+          "version": "0.3.1"
         },
         {
           "authors": [],
@@ -25318,14 +25453,14 @@
             "std": []
           },
           "homepage": "https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-utils",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.22",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#crossbeam-utils@0.8.23",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "crossbeam-utils",
           "repository": "https://github.com/crossbeam-rs/crossbeam",
           "rust_version": "1.60",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.22"
+          "version": "0.8.23"
         },
         {
           "authors": [
@@ -25732,14 +25867,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.18.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#either@1.19.0",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "either",
           "repository": "https://github.com/rayon-rs/either",
           "rust_version": "1.63.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.18.0"
+          "version": "1.19.0"
         },
         {
           "authors": [
@@ -25846,14 +25981,14 @@
           "edition": "2015",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#equivalent@1.0.3",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "equivalent",
           "repository": "https://github.com/indexmap-rs/equivalent",
           "rust_version": "1.6",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.2"
+          "version": "1.0.3"
         },
         {
           "authors": [
@@ -25987,14 +26122,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.11",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#find-msvc-tools@0.1.14",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "find-msvc-tools",
           "repository": "https://github.com/rust-lang/cc-rs",
           "rust_version": "1.65.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.1.11"
+          "version": "0.1.14"
         },
         {
           "authors": [
@@ -26571,6 +26706,27 @@
           "authors": [
             "hax Authors"
           ],
+          "description": "Hax-internal types",
+          "edition": "2021",
+          "features": {
+            "schemars": [
+              "dep:schemars"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros-types@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros-types",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
           "description": "Hax-specific proc-macros for Rust programs",
           "edition": "2021",
           "features": {},
@@ -26583,6 +26739,23 @@
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
           "version": "0.3.7"
+        },
+        {
+          "authors": [
+            "hax Authors"
+          ],
+          "description": "Hax-specific proc-macros for Rust programs",
+          "edition": "2021",
+          "features": {},
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib-macros@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib-macros",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
         },
         {
           "authors": [
@@ -26610,8 +26783,30 @@
         },
         {
           "authors": [
-            "Stefan Lankes"
+            "hax Authors"
           ],
+          "description": "Hax-specific helpers for Rust programs",
+          "edition": "2021",
+          "features": {
+            "default": [
+              "macros"
+            ],
+            "macros": [
+              "dep:hax-lib-macros"
+            ]
+          },
+          "homepage": "https://github.com/cryspen/hax",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hax-lib@0.4.2",
+          "license": "Apache-2.0",
+          "links": null,
+          "name": "hax-lib",
+          "repository": "https://github.com/cryspen/hax",
+          "rust_version": null,
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.4.2"
+        },
+        {
+          "authors": [],
           "description": "Hermit system calls definitions.",
           "edition": "2021",
           "features": {
@@ -26628,14 +26823,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#hermit-abi@0.5.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "hermit-abi",
           "repository": "https://github.com/hermit-os/hermit-rs",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.5.2"
+          "version": "0.5.3"
         },
         {
           "authors": [
@@ -26840,14 +27035,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.189",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libc@0.2.190",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "libc",
           "repository": "https://github.com/rust-lang/libc",
           "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.2.189"
+          "version": "0.2.190"
         },
         {
           "authors": [
@@ -26860,14 +27055,14 @@
             "simd256": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-intrinsics@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-intrinsics",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -26877,14 +27072,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-macros@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-macros",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -26920,14 +27115,14 @@
             "test-utils": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-dsa@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-dsa",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -26978,14 +27173,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-ml-kem@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-ml-kem",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -26995,14 +27190,14 @@
           "edition": "2021",
           "features": {},
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-platform@0.0.4",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-platform",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.3"
+          "version": "0.0.4"
         },
         {
           "authors": [
@@ -27014,14 +27209,14 @@
             "check-secret-independence": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.6",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-secrets@0.0.7",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-secrets",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.6"
+          "version": "0.0.7"
         },
         {
           "authors": [
@@ -27038,14 +27233,14 @@
             ]
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.10",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-sha3@0.0.11",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-sha3",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.10"
+          "version": "0.0.11"
         },
         {
           "authors": [
@@ -27062,14 +27257,14 @@
             "generic-tests": []
           },
           "homepage": "https://github.com/cryspen/libcrux",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.8",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#libcrux-traits@0.0.9",
           "license": "Apache-2.0",
           "links": null,
           "name": "libcrux-traits",
           "repository": "https://github.com/cryspen/libcrux",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.0.8"
+          "version": "0.0.9"
         },
         {
           "authors": [
@@ -28133,14 +28328,14 @@
             "unbiased": []
           },
           "homepage": "https://rust-random.github.io/book",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rand@0.10.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "rand",
           "repository": "https://github.com/rust-random/rand",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.10.2"
+          "version": "0.10.3"
         },
         {
           "authors": [
@@ -28741,14 +28936,14 @@
             "use-libc-auxv": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#rustix@1.1.5",
           "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
           "links": null,
           "name": "rustix",
           "repository": "https://github.com/bytecodealliance/rustix",
-          "rust_version": "1.63",
+          "rust_version": "1.65",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.1.4"
+          "version": "1.1.5"
         },
         {
           "authors": [
@@ -28978,10 +29173,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -28998,7 +29190,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -29008,14 +29201,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -29158,14 +29351,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.4",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#signal-hook@0.4.5",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "signal-hook",
           "repository": "https://github.com/vorner/signal-hook",
           "rust_version": "1.66",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.4.4"
+          "version": "0.4.5"
         },
         {
           "authors": [
@@ -29241,7 +29434,6 @@
             "const_new": [
               "const_generics"
             ],
-            "debugger_visualizer": [],
             "drain_filter": [],
             "drain_keep_rest": [
               "drain_filter"
@@ -29265,14 +29457,14 @@
             "write": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.15.2",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#smallvec@1.16.3",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "smallvec",
           "repository": "https://github.com/servo/rust-smallvec",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.15.2"
+          "version": "1.16.3"
         },
         {
           "authors": [
@@ -29509,14 +29701,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -29593,14 +29785,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -29765,15 +29957,15 @@
               "dep:zerocopy"
             ]
           },
-          "homepage": "https://github.com/uuid-rs/uuid",
-          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.25.0",
+          "homepage": null,
+          "id": "registry+https://github.com/rust-lang/crates.io-index#uuid@1.28.0",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "uuid",
           "repository": "https://github.com/uuid-rs/uuid",
-          "rust_version": "1.85.0",
+          "rust_version": "1.89.0",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.25.0"
+          "version": "1.28.0"
         },
         {
           "authors": [
@@ -31697,14 +31889,14 @@
             "xxh64": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.18",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.19",
           "license": "BSL-1.0",
           "links": null,
           "name": "xxhash-rust",
           "repository": "https://github.com/DoumanAsh/xxhash-rust",
           "rust_version": null,
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "0.8.18"
+          "version": "0.8.19"
         },
         {
           "authors": [
@@ -31733,14 +31925,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zeroize@1.9.1",
           "license": "Apache-2.0 OR MIT",
           "links": null,
           "name": "zeroize",
           "repository": "https://github.com/RustCrypto/utils",
           "rust_version": "1.85",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.9.0"
+          "version": "1.9.1"
         },
         {
           "authors": [
@@ -31773,6 +31965,9 @@
             "arrays": [],
             "bindgen": [
               "zstd-sys/bindgen"
+            ],
+            "cmake": [
+              "zstd-sys/cmake"
             ],
             "debug": [
               "zstd-sys/debug"
@@ -31810,6 +32005,12 @@
             "thin-lto": [
               "zstd-sys/thin-lto"
             ],
+            "vendored": [
+              "zstd-sys/vendored"
+            ],
+            "with-rust-allocator": [
+              "experimental"
+            ],
             "zdict_builder": [
               "zstd-sys/zdict_builder"
             ],
@@ -31818,14 +32019,14 @@
             ]
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@7.2.4",
-          "license": "MIT OR Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-safe@8.1.0",
+          "license": "BSD-3-Clause",
           "links": null,
           "name": "zstd-safe",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "7.2.4"
+          "version": "8.1.0"
         },
         {
           "authors": [
@@ -31837,11 +32038,13 @@
             "bindgen": [
               "dep:bindgen"
             ],
+            "cmake": [
+              "dep:cmake"
+            ],
             "debug": [],
             "default": [
               "legacy",
-              "zdict_builder",
-              "bindgen"
+              "zdict_builder"
             ],
             "experimental": [],
             "fat-lto": [],
@@ -31854,18 +32057,19 @@
             "std": [],
             "thin": [],
             "thin-lto": [],
+            "vendored": [],
             "zdict_builder": [],
             "zstdmt": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.0.16+zstd.1.5.7",
-          "license": "MIT/Apache-2.0",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#zstd-sys@2.1.1+zstd.1.5.7",
+          "license": "BSD-3-Clause",
           "links": "zstd",
           "name": "zstd-sys",
           "repository": "https://github.com/gyscos/zstd-rs",
           "rust_version": "1.64",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "2.0.16+zstd.1.5.7"
+          "version": "2.1.1+zstd.1.5.7"
         },
         {
           "authors": [
@@ -32398,25 +32602,25 @@
     }
   },
   "generated_inputs": {
-    "Cargo.lock": "2b108e82a335c58e175f79c06dedaa7626b310b627c2d21304d965328179eb26",
+    "Cargo.lock": "a6b761de46eb22b53264434674ed8388c0ad22ac3778456e4c99bd8567001c40",
     "Cargo.toml": "0b80ad511c562c0eb7ebdeae2d6336167dac58712d951164826659fd81a7cd51"
   },
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.lock": "76771cdd30a0bc3d170b17dd5fb9e61fefef29fd8f2ed5347e504de78a436a7f",
     "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "packages/alacritty-terminal-patch/Cargo.toml": "d58643246c8db2a8688f1d107a0b718f2336ca28a2d6566ab388bb1dc5232bac",
     "packages/fontdue-patch/Cargo.toml": "1a016c2ab2d2665aed18552d7262d67d12fb3f622c950d8669ee9635fd08fb50",
-    "packages/merkur-authorization/Cargo.toml": "4133621abafbb39101ef9783d69176d0a11b1680e4823a50317306f5c2a3b294",
-    "packages/merkur-client/Cargo.toml": "c1ab1436a19913e112e8f32e4f15168449ead721a31e380fa72f6931f076e4d8",
+    "packages/merkur-authorization/Cargo.toml": "92b12cb00c08259a9b258548066cecd702bcc274905e5b36f6a5d0d77c43f381",
+    "packages/merkur-client/Cargo.toml": "20ea5cacd4b05649d7c80efa39902b18f58802413ab69174988ad6e3bffd70d1",
     "packages/merkur-codec/Cargo.toml": "acc315fc91f30c2b070f48ba646658b66830f9a234f915e52640860c7aa0a8d3",
-    "packages/merkur-e2e/Cargo.toml": "eba8f670ba04ea9e37a8de0edbbb33ea6cbdae4d5c5b0e08983ac7e32d73b017",
+    "packages/merkur-e2e/Cargo.toml": "52368c04c8f2ac94b99b91f036ccf6061c1473d83f484fea660288ea5351da14",
     "packages/merkur-edge-protocol/Cargo.toml": "f26b3e31d61d431641ba770a5357da1407d7bb7009dbcc848624adf436b5de57",
     "packages/merkur-fec/Cargo.toml": "7fb5d19060da6f9935bca24f5a200c1f4c312d97290c95cf2da011b8fef96329",
     "packages/merkur-graphics/Cargo.toml": "294be154927d0a6aee800b4fccd05f99ab4f9329c044cbe44370103e435f4c6f",
     "packages/merkur-wire/Cargo.toml": "7aa52a13af5e3575988a53fdac80a646e62e6b18f7c1064f3e152caac61f4a45",
     "packages/term-wasm-pgo/Cargo.toml": "c3c42a86173fdc02b79673fc7f4dd5591a4af5b5bccbfff9e7de2f2f4aa6e3b0",
-    "packages/term-wasm/Cargo.toml": "40aeab34b1cf2c294af4856569fcff0a97e0389c88c24e61c824c8fbda93b0f9",
+    "packages/term-wasm/Cargo.toml": "cb1d82c24aad9e8b674502611af2e1a9d49b92b979de03af598f38d22c5812ea",
     "packages/vte-patch/Cargo.toml": "06bfdd57dec95f9172d84e867e9fcdd02c46eb5008b5d7e75848d76cbfaa96ef",
     "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
     "tools/bazel/rust/acquisition_sdk.py": "c0a7d0376bf85cead17c85f4fd4e37e1db84a172f829c45b24364695c978466a",

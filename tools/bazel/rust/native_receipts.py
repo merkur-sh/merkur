@@ -29,7 +29,8 @@ def same_json(left, right):
 
 def declared_sources(mode):
     """Exact regular File inventory of acquire/rules.bzl's package_data groups."""
-    names = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "tools/bazel/rust/metadata.json"}
+    names = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "tools/bazel/rust/metadata.json",
+             "tools/bazel/rust/contexts.py", "tools/bazel/rust/acquisition_sdk.py"}
     names.update(f"tools/bazel/rust/contexts/merkur-fec/{mode}/native/{name}" for name in ["Cargo.toml", "Cargo.lock", "metadata.json"])
     packages = ["merkur-fec"] + [name + "-patch" for name in ["alacritty-terminal", "fontdue", "quinn", "quinn-proto", "vte", "wtransport"]]
     for package in packages:
@@ -49,10 +50,10 @@ def validate(document):
     host, mode = document["execution_host"], document["mode"]
     if host not in HOSTS or mode not in ["build", "test"] or document["package"] != "merkur-fec" or document["platform"] != "native":
         raise ValueError("unsupported native-host receipt root")
-    if document["native_runtime"] != {"bun": "1.4.2", "os": "linux", "arch": HOSTS[host]}:
+    if document["native_runtime"] != {"bun": "1.4.3", "os": "linux", "arch": HOSTS[host]}:
         raise ValueError("native execution identity does not match the selected host")
     identity = document["rustc_identity"].splitlines()
-    if not document["cargo_identity"].startswith("cargo 1.97.1 ") or not identity[0].startswith("rustc 1.97.1 ") or f"host: {host}" not in identity or "commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452" not in identity or "LLVM version: 22.1.6" not in identity:
+    if not document["cargo_identity"].startswith("cargo 1.99.0 ") or not identity[0].startswith("rustc 1.99.0 ") or f"host: {host}" not in identity or "commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4" not in identity or "LLVM version: 23.1.1" not in identity:
         raise ValueError("receipt compiler identity differs from the pinned native toolchain")
     facts = document["source_facts"]
     names = [fact["path"] for fact in facts]

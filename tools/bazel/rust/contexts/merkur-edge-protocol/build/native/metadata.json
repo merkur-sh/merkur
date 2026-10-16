@@ -204,10 +204,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -224,7 +221,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -234,14 +232,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -277,14 +275,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -294,14 +292,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -556,10 +554,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -576,7 +571,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -586,14 +582,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -629,14 +625,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -646,14 +642,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -908,10 +904,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -928,7 +921,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -938,14 +932,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -981,14 +975,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -998,14 +992,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -1260,10 +1254,7 @@
           "version": "1.0.229"
         },
         {
-          "authors": [
-            "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
-            "David Tolnay <dtolnay@gmail.com>"
-          ],
+          "authors": [],
           "description": "A JSON serialization file format",
           "edition": "2021",
           "features": {
@@ -1280,7 +1271,8 @@
             ],
             "preserve_order": [
               "indexmap",
-              "std"
+              "alloc",
+              "dep:foldhash"
             ],
             "raw_value": [],
             "std": [
@@ -1290,14 +1282,14 @@
             "unbounded_depth": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "serde_json",
           "repository": "https://github.com/serde-rs/json",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.151"
+          "version": "1.0.154"
         },
         {
           "authors": [
@@ -1333,14 +1325,14 @@
             "visit-mut": []
           },
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
           "license": "MIT OR Apache-2.0",
           "links": null,
           "name": "syn",
           "repository": "https://github.com/dtolnay/syn",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "3.0.3"
+          "version": "3.0.9"
         },
         {
           "authors": [
@@ -1350,14 +1342,14 @@
           "edition": "2021",
           "features": {},
           "homepage": null,
-          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+          "id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
           "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
           "links": null,
           "name": "unicode-ident",
           "repository": "https://github.com/dtolnay/unicode-ident",
           "rust_version": "1.71",
           "source": "registry+https://github.com/rust-lang/crates.io-index",
-          "version": "1.0.24"
+          "version": "1.0.27"
         },
         {
           "authors": [
@@ -1410,12 +1402,12 @@
     }
   },
   "generated_inputs": {
-    "Cargo.lock": "ee63a620a3a00251d0d7705b1121cbb5d4914fc5d0a1bf42f8718f1eee9b2272",
+    "Cargo.lock": "12597845d169ad001e37133fd08d181fcc4740017463f9b3ab3a5e413e5d5ca8",
     "Cargo.toml": "3d4cddc49599c1b27af1ac2f63b709b273c87d32651a7b8b379b08f4b83f8aea"
   },
   "inputs": {
     ".cargo/config.toml": "7f64fa10b9fbf8e906088ae1d164828125cb5853db8042e3a915a2b6ebd275bc",
-    "Cargo.lock": "a8acec4a2eb51db954da8b48e249cbf6fb6009d6c1ccb2d4a2ed09f152e08cec",
+    "Cargo.lock": "76771cdd30a0bc3d170b17dd5fb9e61fefef29fd8f2ed5347e504de78a436a7f",
     "Cargo.toml": "8275d78cc53e71b4b8790bb035b2992eff9b782ea74b6eddb92046f44fdc3803",
     "packages/merkur-edge-protocol/Cargo.toml": "f26b3e31d61d431641ba770a5357da1407d7bb7009dbcc848624adf436b5de57",
     "rust-toolchain.toml": "32d4aec277989caa0ad9fd749790903de89fcb467513e3e0b8d3e3ac14c23ed1",
@@ -2301,7 +2293,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -2353,7 +2345,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -2397,7 +2389,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -2466,7 +2458,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -2507,7 +2499,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -3561,7 +3553,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -3605,7 +3597,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -3657,7 +3649,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -3726,7 +3718,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -3767,7 +3759,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -4821,7 +4813,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "aarch64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -4873,7 +4865,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "aarch64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -4917,7 +4909,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -4986,7 +4978,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -5027,7 +5019,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -6081,7 +6073,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "aarch64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -6125,7 +6117,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -6177,7 +6169,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "aarch64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -6246,7 +6238,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -6287,7 +6279,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -7362,7 +7354,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-apple-darwin",
             "profile": {
               "codegen_backend": null,
@@ -7417,7 +7409,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-apple-darwin",
             "profile": {
               "codegen_backend": null,
@@ -7464,7 +7456,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -7533,7 +7525,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -7574,7 +7566,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8655,7 +8647,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-apple-darwin",
             "profile": {
               "codegen_backend": null,
@@ -8702,7 +8694,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8754,7 +8746,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-apple-darwin",
             "profile": {
               "codegen_backend": null,
@@ -8826,7 +8818,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -8867,7 +8859,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -9948,7 +9940,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -10003,7 +9995,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -10050,7 +10042,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -10119,7 +10111,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -10160,7 +10152,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -11241,7 +11233,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -11288,7 +11280,7 @@
               "std"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -11340,7 +11332,7 @@
               "std"
             ],
             "mode": "run-custom-build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.154",
             "platform": "x86_64-unknown-linux-gnu",
             "profile": {
               "codegen_backend": null,
@@ -11412,7 +11404,7 @@
               "proc-macro"
             ],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.3",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#syn@3.0.9",
             "platform": null,
             "profile": {
               "codegen_backend": null,
@@ -11453,7 +11445,7 @@
             "dependencies": [],
             "features": [],
             "mode": "build",
-            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.24",
+            "pkg_id": "registry+https://github.com/rust-lang/crates.io-index#unicode-ident@1.0.27",
             "platform": null,
             "profile": {
               "codegen_backend": null,
