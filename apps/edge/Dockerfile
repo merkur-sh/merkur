@@ -43,7 +43,7 @@ COPY apps/edge/ apps/edge/
 
 RUN cargo build --release --locked -p merkur-edge --bin merkur-edge
 
-FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
+FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates util-linux iproute2 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 merkur \
