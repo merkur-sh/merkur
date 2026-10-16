@@ -1,6 +1,6 @@
 # Merkur quinn-proto patch
 
-Merkur's pinned copy of [`quinn-proto`](https://crates.io/crates/quinn-proto) 0.11.18,
+Merkur's pinned copy of [`quinn-proto`](https://crates.io/crates/quinn-proto) 0.11.19,
 applied through the root workspace's `[patch.crates-io]`. **This is a modified copy of
 quinn-proto, not upstream quinn-proto**, and it is redistributed under upstream's terms:
 MIT or Apache-2.0, whose texts are the `LICENSE-MIT` and `LICENSE-APACHE` files beside
