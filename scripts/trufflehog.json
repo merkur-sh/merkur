@@ -1,9 +1,9 @@
 {
-  "version": "3.97.5",
+  "version": "3.99.2",
   "checksums": {
-    "darwin-amd64": "cc8b12f8120fe47d7de929928e9183285b7a39eba60b3ac01f085f522ec19e50",
-    "darwin-arm64": "b4e5fd54aaea368342b226cbea228e7a33898b177598d1d8cd66edb14f87444e",
-    "linux-amd64": "e3d97199c565c37ca6152750197f667e08ae6a1edf5911fbdec168622b28620c",
-    "linux-arm64": "e5c8b2418b0a7c78cf4c47ac783c52c63f989e4e536cfe328b5271e819b6d52d"
+    "darwin-amd64": "c23a1b10522b8b84cfd04dc88a3a8819d3dc23b20f15e23540ba442b4b2fbeed",
+    "darwin-arm64": "b612143d840b4c75d41fe40436c5932efead001951283f18c87013c4145e1675",
+    "linux-amd64": "3c7b0d1dc4278294269bfdd7594bca8bb28c78da0a4a06ad202ded37b48deca4",
+    "linux-arm64": "929b81efffca752eafd58bf6f17bf725d354f338636a7bbbee65c086d2f9ddf3"
   }
 }
