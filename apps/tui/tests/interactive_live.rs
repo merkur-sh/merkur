@@ -38,7 +38,12 @@ impl Pty {
         ));
         let mut command = Command::new("python3");
         command
-            .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/pty_bridge.py"))
+            .arg(
+                std::path::Path::new(
+                    &std::env::var("CARGO_MANIFEST_DIR").expect("test manifest directory"),
+                )
+                .join("tests/pty_bridge.py"),
+            )
             .arg(&binary)
             .arg("connect")
             .args([

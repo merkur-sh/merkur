@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { Schema } from 'effect';
 import { parseSync } from 'oxc-parser';
 
 import { gatePathMatches as matches, RULES, ruleMatches, STATIC_GATES } from './gate-policy';
@@ -21,7 +22,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 /** Shared plan for gates, verify, unit tests and protocol checks.
  * RULES also generates the README gate table. Builds and provenance
- * precede static checks and the single Cargo / isolated Bun lanes.
+ * precede static checks, the Bazel Rust lane and the isolated Bun lane.
  */
 export interface GateDeps {
   readonly testFiles: readonly string[];
@@ -45,7 +46,8 @@ export interface GatePlan {
   readonly preflight: readonly Command[];
   readonly reasons: readonly string[];
   readonly static: readonly Command[];
-  readonly cargo: readonly Command[];
+  /** `rust:lint` and the `bazel test` runs of the selected crates, then their scripts. */
+  readonly rust: readonly Command[];
   readonly bun: readonly Command[];
   /** The bun lane's test files, named so the result cache can drop the proven ones. */
   readonly tests: readonly string[];
@@ -58,25 +60,14 @@ export interface GatePlan {
   readonly deferred: readonly Command[];
 }
 
-/**
- * The dataplane tests that run the separately built image helper. A dataplane test run never
- * builds another package's binary, so they stay `#[ignore]`d in every other lane and live in
- * `real_helper` modules; `build:image-worker` precedes this lane in the same profile and
- * target directory, and Cargo's own freshness check rebuilds a changed helper there.
- */
 const DATAPLANE = 'apps/daemon/dataplane';
 const WASM_CIPHER_TESTS = 'test:wasm-cipher';
 
-export const REAL_HELPER_LANE: Command = [
-  'cargo',
-  'test',
-  '--locked',
-  '-p',
-  'merkur-dataplane',
-  '--',
-  '--ignored',
-  'real_helper::',
-];
+/**
+ * The dataplane tests that run the image helper the test target builds and hands over: the
+ * `real_helper` modules, which a filtered dataplane run selects by this filter.
+ */
+export const REAL_HELPER_FILTER = 'real_helper::';
 
 /**
  * Libtest filters for the dataplane, derived from the changed module paths.
@@ -241,12 +232,38 @@ interface PlanSelection {
   readonly docsOnly: boolean;
 }
 
+/** Each workspace crate's directory, by package name, as the workspace manifests declare them. */
+const WorkspaceManifest = Schema.Struct({
+  workspace: Schema.Struct({ members: Schema.Array(Schema.String) }),
+});
+const CrateManifest = Schema.Struct({ package: Schema.Struct({ name: Schema.String }) });
+
+export function crateDirectories(root: string = ROOT): ReadonlyMap<string, string> {
+  const toml = (file: string) => Bun.TOML.parse(readFileSync(path.join(root, file), 'utf8'));
+  const { members } = Schema.decodeUnknownSync(WorkspaceManifest)(toml('Cargo.toml')).workspace;
+  return new Map(
+    members.map((member) => [
+      Schema.decodeUnknownSync(CrateManifest)(toml(`${member}/Cargo.toml`)).package.name,
+      member,
+    ]),
+  );
+}
+
+let directories: ReadonlyMap<string, string> | undefined;
+
+function crateDirectory(crate: string): string {
+  directories ??= crateDirectories();
+  const directory = directories.get(crate);
+  if (directory === undefined) throw new Error(`No workspace crate is named ${crate}`);
+  return directory;
+}
+
 function assemblePlan(selection: PlanSelection): GatePlan {
   const tests = new Set(selection.tests);
   const reasons = [...selection.reasons];
   const preflight: Command[] = [];
-  const cargo: Command[] = [];
-  if (selection.rustLint) cargo.push(['bun', 'run', 'rust:lint'], ['bun', 'run', 'rust:deps']);
+  const rust: Command[] = [];
+  if (selection.rustLint) rust.push(['bun', 'run', 'rust:lint'], ['bun', 'run', 'rust:deps']);
   const wholeCrates = new Set(selection.crates.filter((crate) => crate !== 'merkur-dataplane'));
   const filters = selection.crates.includes('merkur-dataplane')
     ? dataplaneTestFilters(selection.files)
@@ -267,26 +284,28 @@ function assemblePlan(selection: PlanSelection): GatePlan {
     preflight.push(['bun', 'run', 'scripts/prepare-client-session-oracle.ts']);
   if (filters?.length === 0) wholeCrates.add('merkur-dataplane');
   if (wholeCrates.size > 0)
-    cargo.push([
-      'cargo',
+    rust.push([
+      'bazel',
       'test',
-      '--locked',
-      ...[...wholeCrates].sort().flatMap((crate) => ['-p', crate]),
+      ...[...wholeCrates].map((crate) => `//${crateDirectory(crate)}/...`).sort(),
     ]);
-  if (!wholeCrates.has('merkur-dataplane') && (filters !== undefined || selection.protocol)) {
-    cargo.push([
-      'cargo',
+  const dataplaneFilters = dedupe([
+    ...(filters ?? []),
+    ...(selection.protocol ? PROTOCOL_DATAPLANE_FILTERS : []),
+    ...(selection.realHelper ? [REAL_HELPER_FILTER] : []),
+  ]);
+  if (!wholeCrates.has('merkur-dataplane') && dataplaneFilters.length > 0) {
+    rust.push([
+      'bazel',
       'test',
-      '--locked',
-      '-p',
-      'merkur-dataplane',
-      '--',
-      ...dedupe([...(filters ?? []), ...(selection.protocol ? PROTOCOL_DATAPLANE_FILTERS : [])]),
-      ...(selection.protocol ? PROTOCOL_DATAPLANE_SKIPS.flatMap((test) => ['--skip', test]) : []),
+      `//${DATAPLANE}:unit`,
+      ...dataplaneFilters.map((filter) => `--test_arg=${filter}`),
+      ...(selection.protocol
+        ? PROTOCOL_DATAPLANE_SKIPS.flatMap((test) => ['--test_arg=--skip', `--test_arg=${test}`])
+        : []),
     ]);
   }
-  if (selection.realHelper) cargo.push(REAL_HELPER_LANE);
-  for (const script of selection.cargoScripts) cargo.push(['bun', 'run', script]);
+  for (const script of selection.cargoScripts) rust.push(['bun', 'run', script]);
   const bun: Command[] = tests.size > 0 ? [testCommand([...tests])] : [];
   if (selection.audit) {
     bun.push(['bun', 'run', 'check:audit'], ['bun', 'run', 'check:js-dependency-policy']);
@@ -297,7 +316,7 @@ function assemblePlan(selection: PlanSelection): GatePlan {
     builds: selection.builds.map((script) => ['bun', 'run', script]),
     preflight,
     static: selection.staticGates.map((script) => ['bun', 'run', script]),
-    cargo,
+    rust,
     bun,
     tests: [...tests].sort(),
     bunInputs: selection.bunInputs ?? [],
@@ -312,14 +331,14 @@ export function verificationPlan(
 ): GatePlan {
   return assemblePlan({
     files: [],
-    // Full verification also proves the decoded-image paths, which only the helper runs.
-    builds: mode === 'verify' ? ['build:image-worker'] : [],
+    builds: [],
     tests: mode === 'protocol' ? [] : testFiles,
     crates: [],
     // The browser cipher is protocol crypto that only a wasm32 run reaches.
     cargoScripts: mode === 'unit' ? [] : [WASM_CIPHER_TESTS],
     staticGates: mode === 'verify' ? STATIC_GATES : [],
     rustLint: false,
+    // Full verification also proves the decoded-image paths, which only the helper runs.
     realHelper: mode === 'verify',
     clientOracle: mode !== 'protocol',
     protocol: mode !== 'unit',
@@ -327,32 +346,6 @@ export function verificationPlan(
     deferred: [],
     docsOnly: false,
     reasons: [`${mode}: complete owned test inventory and shared protocol prerequisites`],
-  });
-}
-
-/**
- * Every workspace crate's tests and doctests through the cargo lane: one build, then the
- * test binaries side by side. `members` comes from `cargo metadata`, so a new crate joins
- * without an edit here. The real-helper lane joins the same build: run on its own, its
- * single-package feature set would recompile the dataplane's whole dependency chain.
- */
-export function rustWorkspacePlan(members: readonly string[]): GatePlan {
-  if (members.length === 0) throw new Error('Refusing an empty Rust workspace');
-  return assemblePlan({
-    files: [],
-    builds: ['build:image-worker'],
-    tests: [],
-    crates: members,
-    cargoScripts: [],
-    staticGates: [],
-    rustLint: false,
-    realHelper: true,
-    clientOracle: false,
-    protocol: false,
-    audit: false,
-    deferred: [],
-    docsOnly: false,
-    reasons: ['rust: every workspace crate'],
   });
 }
 
@@ -388,14 +381,11 @@ export function renderPlan(
   section('# builds (first)', plan.builds);
   section('# preflight', plan.preflight);
   section('# static (always)', plan.static);
-  section(
-    '# cargo lane (one shared test build; per-package filters; Cargo-owned doctests)',
-    plan.cargo,
-  );
+  section('# rust lane (rust:lint, then `bazel test` of the selected crates)', plan.rust);
   const cache = options.cache;
   if (cache !== undefined && plan.tests.length > 0) {
     lines.push(
-      `# bun lane (may overlap cargo): ${cache.fresh.length} of ${plan.tests.length} test files; ${cache.cached.length} already green for these inputs`,
+      `# bun lane: ${cache.fresh.length} of ${plan.tests.length} test files; ${cache.cached.length} already green for these inputs`,
     );
     if (cache.unclaimed.length > 0) {
       lines.push(
@@ -403,7 +393,7 @@ export function renderPlan(
       );
     }
     for (const command of cachedBunLane(plan, cache.fresh)) lines.push(command.join(' '));
-  } else section('# bun lane (may overlap cargo)', plan.bun);
+  } else section('# bun lane', plan.bun);
   if (plan.deferred.length > 0) {
     lines.push(options.all === true ? '# then (minutes)' : '# then, by hand (minutes)');
     for (const command of plan.deferred) lines.push(command.join(' '));

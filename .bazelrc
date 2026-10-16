@@ -1,39 +1,46 @@
 startup --host_jvm_args=-XX:+ExitOnOutOfMemoryError
 
-common --enable_bzlmod
-common --announce_rc
 build --incompatible_strict_action_env
-build --remote_verify_downloads
-build --guard_against_concurrent_changes
-build --remote_download_outputs=toplevel
-build --noexecution_log_sort
+# No `bazel-*` links in the checkout: Biome, fallow, the doc checks and every other tree walk see
+# sources only. `bazel info output_path` names Bazel's outputs.
 build --symlink_prefix=/
 test --test_output=errors
-test --keep_going
-test --local_test_jobs=4
 
-# These execution configurations have separate compiler action identities.
-build:ci --remote_download_outputs=minimal
-build:linux_x64 --platforms=//tools/bazel/platforms:linux_x64
-build:linux_arm64 --platforms=//tools/bazel/platforms:linux_arm64
-build:macos_x64 --platforms=//tools/bazel/platforms:macos_x64
-build:macos_arm64 --platforms=//tools/bazel/platforms:macos_arm64
+# `fastbuild`, what `bazel build` and `bazel test` use, is Cargo's test profile: first-party crates
+# at opt-level 1 (`MODULE.bazel`) with line tables and every assertion on, dependencies at
+# opt-level 3 with no debuginfo. `--config=release` is Cargo's release profile.
+build --@rules_rust//rust/settings:extra_rustc_flags=-Cdebug-assertions=on,-Coverflow-checks=on,-Cdebuginfo=line-tables-only
+build --@rules_rust//rust/settings:per_crate_rustc_flag=external/@-Copt-level=3
+build --@rules_rust//rust/settings:per_crate_rustc_flag=external/@-Cdebuginfo=0
+build:release --compilation_mode=opt
+build:release --@rules_rust//rust/settings:extra_rustc_flags=
 
-# Ordinary cached builds and tests, with no verification controller: every test reads one
-# constant nonce (test-nonce.bzl), so an unchanged test is a cache hit on any machine.
-common:development --override_repository=verification_revocations=%workspace%/tools/bazel/verification/development-revocations
+# Clippy, which `bun run rust:lint` runs over every first-party target: the repository's
+# `clippy.toml` and JSON diagnostics for the ratchet to read. The script hands Clippy the
+# ratcheted lints itself.
+build --@rules_rust//rust/settings:clippy.toml=//:clippy.toml
+build --@rules_rust//rust/settings:clippy_output_diagnostics=true
 
-# BuildBuddy's remote cache, shared by CI and every workstation. The API key header
-# (`--remote_header=x-buildbuddy-api-key=...`) is supplied outside version control.
+# Target platforms. The host is the default; these name another one to build for.
+build:linux_x86_64 --platforms=//tools/bazel/platforms:linux_x86_64
+build:linux_aarch64 --platforms=//tools/bazel/platforms:linux_aarch64
+build:macos_x86_64 --platforms=//tools/bazel/platforms:macos_x86_64
+build:macos_aarch64 --platforms=//tools/bazel/platforms:macos_aarch64
+
+# BuildBuddy's remote cache. A workstation reads what CI wrote and uploads nothing; CI is the
+# only writer. `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
+# `--remote_header=x-buildbuddy-api-key=...` line; CI writes the same from its secret.
 common:remote-cache --remote_cache=grpcs://remote.buildbuddy.io
-common:remote-cache --remote_upload_local_results
 common:remote-cache --remote_timeout=600
-common:remote-cache --bes_backend=grpcs://remote.buildbuddy.io
-common:remote-cache --bes_results_url=https://app.buildbuddy.io/invocation/
-# Full ctime guarding also checks external and generated inputs, which Linux can report as
-# changed after a delayed write, and skips those uploads; main-repository sources are what a
-# workstation edits mid-build, and `lite` guards exactly those.
+common:remote-cache --noremote_upload_local_results
+# A workstation edits main-repository sources mid-build; `lite` guards exactly those, where
+# full guarding also skips uploads of external and generated inputs whose ctime Linux reports late.
 common:remote-cache --guard_against_concurrent_changes=lite
+common:ci --config=remote-cache
+common:ci --remote_upload_local_results
+common:ci --bes_backend=grpcs://remote.buildbuddy.io
+common:ci --bes_results_url=https://app.buildbuddy.io/invocation/
+common:ci --color=yes
+common:ci --curses=no
 
-# Backend addresses and authentication are supplied outside version control.
 try-import %workspace%/.bazelrc.local

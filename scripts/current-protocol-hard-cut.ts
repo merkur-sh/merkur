@@ -116,10 +116,10 @@ const FORBIDDEN_SOURCE_RULES: readonly ForbiddenSourceRule[] = [
       'Dockerfile',
       'Dockerfile.daemon-release',
       'apps',
-      'bun.lock',
       'docker-compose.dev.yaml',
       'package.json',
       'packages',
+      'pnpm-lock.yaml',
       'scripts',
     ],
     patterns: [/iroh/i, /Dockerfile\.relay/],
@@ -326,8 +326,8 @@ const FORBIDDEN_SOURCE_RULES: readonly ForbiddenSourceRule[] = [
     roots: [
       'Dockerfile',
       'README.md',
-      'bun.lock',
       'package.json',
+      'pnpm-lock.yaml',
       'scripts/check-dead.ts',
       'tsconfig.base.json',
     ],
@@ -487,7 +487,6 @@ function isProductionFile(file: string): boolean {
     !/\.spec\.[cm]?[jt]sx?$/.test(file) &&
     (/\.(?:json|md|rs|sh|toml|ya?ml|[cm]?[jt]sx?)$/.test(file) ||
       /^\.env\..+$/.test(basename) ||
-      basename === 'bun.lock' ||
       basename === 'Cargo.lock' ||
       basename.startsWith('Dockerfile'))
   );

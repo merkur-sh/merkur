@@ -268,24 +268,12 @@ impl Graphics {
         }
     }
 
-    /// The helper `bun run build:image-worker` builds, one level above the test
-    /// binary's `deps` directory: the lane that runs real-helper tests builds it
-    /// first, with the same profile and target directory. Production resolves
-    /// the helper beside the dataplane binary.
+    /// The helper the test's build graph built, at the runfiles path Bazel names
+    /// in `MERKUR_IMAGE_WORKER`. Production resolves the helper beside the
+    /// dataplane binary.
     #[cfg(test)]
     pub(super) fn built_worker() -> PathBuf {
-        let executable = std::env::current_exe()
-            .expect("test executable path")
-            .parent()
-            .and_then(std::path::Path::parent)
-            .expect("test binaries run from the target's deps directory")
-            .join("merkur-image-worker");
-        assert!(
-            executable.is_file(),
-            "{} is missing: run `bun run build:image-worker` first",
-            executable.display()
-        );
-        executable
+        std::fs::canonicalize(env!("MERKUR_IMAGE_WORKER")).expect("the built image helper")
     }
 
     /// A test owner with its own resource ceilings that runs [`Self::built_worker`].
@@ -2083,7 +2071,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn matches_pinned_kitty_core_geometry_and_grid_trace() {
             use futures::FutureExt;
             let corpus: serde_json::Value = serde_json::from_str(include_str!(concat!(
@@ -2249,7 +2236,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn a_viewport_without_cell_pixels_retires_placements_and_refuses_new_ones() {
             let (mut terminal, rx) = terminal();
             let viewport = |seq, cell: Option<CellMetrics>| crate::pty::Viewport {
@@ -2295,7 +2281,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn animation_commands_preserve_placements_and_parser_order() {
             use merkur_image_worker::frame::Raster;
             let (mut terminal, rx) = terminal();
@@ -2390,7 +2375,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn frame_numbers_and_controls_follow_kitty() {
             use merkur_graphics::animation::Mode;
             let (mut terminal, rx) = terminal();
@@ -2457,7 +2441,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn selectors_delete_selected_descendants_directly() {
             let (mut terminal, rx) = terminal();
             terminal.resize_viewport(crate::pty::Viewport {
@@ -2493,7 +2476,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn graphics_damage_only_tracks_changed_rows() {
             let (mut terminal, rx) = terminal();
             terminal.resize_viewport(crate::pty::Viewport {
@@ -2525,7 +2507,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn placeholder_rebinding_is_sparse_and_resolves_late_prototypes() {
             let (mut terminal, _rx) = terminal();
             terminal.resize_viewport(crate::pty::Viewport {
@@ -2575,7 +2556,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn placeholders_follow_grid_edits_and_move_relative_descendants() {
             let (mut terminal, rx) = terminal();
             terminal.resize_viewport(crate::pty::Viewport {
@@ -2669,7 +2649,6 @@ mod tests {
         /// same scene and rows with and without those captures: releasing the
         /// projector's own rows covers the scroll, so no original is evicted.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn retained_captures_never_evict_an_original() {
             let mut outcomes = Vec::new();
             for retain in [false, true] {
@@ -2736,7 +2715,6 @@ mod tests {
         /// rebuilt sweep still reuses every row whose content is unchanged: those
         /// rows keep their versions, so no viewer is sent their graphics again.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn a_new_placement_keeps_the_versions_of_unchanged_rows() {
             let (mut terminal, rx) = terminal();
             terminal.resize_viewport(crate::pty::Viewport {
@@ -2828,7 +2806,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn projection_evicts_one_source_per_observed_release() {
             let (mut terminal, _rx, held, pressure) = deferred_behind_the_oldest_source(true).await;
             assert_eq!(terminal.graphics.scene.len(), 2);
@@ -2877,7 +2854,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn spatial_deletion_sees_placeholder_origins_while_projection_is_deferred() {
             let mut outcomes = Vec::new();
             for deferred in [false, true] {
@@ -2941,7 +2917,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn source_authorization_revokes_retained_readers_at_scene_mutations() {
             let (mut terminal, rx) = terminal();
             let upload = b"\x1b_Ga=t,f=24,s=1,v=1,i=71;AAAA\x1b\\";
@@ -2993,7 +2968,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn extent_clipping_controls_deletion_and_source_retention() {
             let (mut terminal, rx) = terminal();
             terminal.resize_viewport(crate::pty::Viewport {
@@ -3099,7 +3073,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn query_upload_replacement_and_reset() {
             let (mut terminal, rx) = terminal();
             let query = b"\x1b_Ga=q,f=24,s=1,v=1,i=31;AAAA\x1b\\\x1b[c";
@@ -3215,7 +3188,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn queue_backpressure_preserves_every_chunk_once() {
             let (mut terminal, rx) = terminal();
             // 64 encoded chunks are exactly one 256x256 RGB image. A current-thread
@@ -3312,7 +3284,6 @@ mod tests {
         /// upload waits, neither started nor answered, while its storage is still
         /// held, and starts over once the release lands.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn an_upload_after_a_delete_answers_alike_in_one_read_or_two() {
             let mut outcomes = Vec::new();
             for split in [false, true] {
@@ -3348,7 +3319,6 @@ mod tests {
         /// A shortfall the landed releases leave is answered, and only once they
         /// have landed.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn a_shortfall_every_release_leaves_is_answered_once_they_land() {
             let (mut terminal, rx, held, pressure) = full_but_for_71().await;
             let bytes = [DELETE_71, &transmit(72, 24)].concat();
@@ -3370,7 +3340,6 @@ mod tests {
         /// parser's help: a transfer ends when the content retires, as `assets`
         /// does. A delete and an upload that waits on its storage always finish.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn a_transfer_in_flight_releases_the_source_a_waiting_upload_needs() {
             let (mut terminal, rx, held, pressure) = full_but_for_71().await;
             let transfer = tokio::spawn(async move {
@@ -3413,7 +3382,6 @@ mod tests {
         /// fits starts at once: an uploaded frame and a command after a delete
         /// are answered while the delete's release is still in flight.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn an_edit_that_fits_never_waits_for_a_release_in_flight() {
             let (mut terminal, rx) = terminal();
             let setup =
@@ -3446,7 +3414,6 @@ mod tests {
         /// release landed: alike in one read or two, and a shortfall the release
         /// leaves is answered once it lands.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn an_edit_short_of_storage_waits_for_the_releases_in_flight() {
             const FRAME: &[u8] = b"\x1b_Ga=f,i=41,f=24,s=1,v=1;AAD/\x1b\\";
             let mut outcomes = Vec::new();
@@ -3514,7 +3481,6 @@ mod tests {
         /// the grid retires it while the upload is in flight. Only the new
         /// image's output and scene metadata must fit.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn a_retransmit_over_a_placed_image_admits_no_second_placement() {
             for retired_in_flight in [false, true] {
                 let (mut terminal, rx) = terminal();
@@ -3572,7 +3538,6 @@ mod tests {
         /// delete's release is in flight: it may be what the release covers. Once
         /// it lands the projection fits, and the other original stays.
         #[tokio::test]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn a_projection_right_after_a_delete_evicts_nothing_while_its_release_is_in_flight()
         {
             let (mut terminal, rx) = terminal();

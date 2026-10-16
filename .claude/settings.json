@@ -16,7 +16,7 @@
       "Bash(bun run generate:docs)",
       "Bash(bun run verify)",
       "Bash(bun run test:unit)",
-      "Bash(bun install)",
+      "Bash(pnpm install)",
       "Bash(bunx biome check:*)",
       "Bash(bunx biome format:*)",
       "Bash(cargo test:*)",

@@ -21,11 +21,11 @@ export interface RuleEffects {
   readonly bunTestDir?: string;
   /** Individual test files handed to `bun test`. */
   readonly bunTestFiles?: readonly string[];
-  /** Crates for one `cargo test --locked -p …`; every Rust row also runs `rust:lint`. */
+  /** Crates, by package name, for one `bazel test` of their packages; every Rust row also runs `rust:lint`. */
   readonly crates?: readonly string[];
-  /** The dataplane tests that run the built image helper: `REAL_HELPER_LANE`. */
+  /** The dataplane tests that run the image helper its test target builds: `REAL_HELPER_FILTER`. */
   readonly realHelper?: true;
-  /** Scripts that compile Rust, run in the cargo lane after its `cargo test` runs. */
+  /** Scripts that compile Rust themselves, run in the Rust lane after its `bazel test` runs. */
   readonly cargoScripts?: readonly string[];
   readonly rustLint?: true;
   /** Scripts run before everything else, in this order. */
@@ -166,7 +166,7 @@ export const RULES: readonly Rule[] = [
     name: 'dataplane',
     globs: [`${DATAPLANE}/src/**`, `${DATAPLANE}/Cargo.toml`, `${DATAPLANE}/build.rs`],
     effects: { rustLint: true, crates: ['merkur-dataplane'] },
-    note: 'The cargo run is filtered to the changed modules: a directory module selects its subtree, a root-level file selects by name, and `main.rs`, the manifest or the build script select the whole crate.',
+    note: 'The dataplane test run is filtered to the changed modules: a directory module selects its subtree, a root-level file selects by name, and `main.rs`, the manifest or the build script select the whole crate.',
   },
   {
     name: 'edge',
@@ -284,7 +284,7 @@ export const RULES: readonly Rule[] = [
     name: 'e2e-wasm-cipher',
     globs: ['packages/merkur-e2e/**', 'packages/e2e-wasm/.cargo/**'],
     effects: { cargoScripts: [WASM_CIPHER_TESTS] },
-    note: 'The browser transport cipher compiles only for wasm32, so a native `cargo test` never reaches it; its vectors and differential run inside wasm32 under Node.',
+    note: 'The browser transport cipher compiles only for wasm32, so a native test never reaches it; its vectors and differential run inside wasm32 under Node.',
   },
   {
     name: 'e2e-wasm',
@@ -326,11 +326,10 @@ export const RULES: readonly Rule[] = [
       'Cargo.lock',
     ],
     effects: {
-      builds: ['build:image-worker'],
       realHelper: true,
       deferred: ['test:graphics:long'],
     },
-    note: 'Decoded images exist only in the sandboxed helper, which a dataplane test run does not build: the helper is built first, then the `real_helper` modules run against it. Those modules drive the display simulator through the connection, session, network and crate-root code as well as the graphics owner, so every dataplane change selects them. The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers.',
+    note: 'Decoded images exist only in the sandboxed helper, which the dataplane test target builds and hands over: the `real_helper` modules run against it. Those modules drive the display simulator through the connection, session, network and crate-root code as well as the graphics owner, so every dataplane change selects them. The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers.',
   },
   {
     name: 'scripts',
@@ -389,12 +388,10 @@ export const RULES: readonly Rule[] = [
       'scripts/select-gates*.ts',
       'scripts/gate-policy*.ts',
       'scripts/verification-executor*.ts',
-      'scripts/verification-cargo*.ts',
       'scripts/verification-junit*.ts',
       'scripts/verification-cache*.ts',
       'scripts/run-unit-tests.ts',
       'scripts/run-verify.ts',
-      'scripts/run-rust-tests.ts',
       'scripts/check-current-protocol.ts',
       'scripts/protocol-gates.ts',
     ],
@@ -422,7 +419,7 @@ export const RULES: readonly Rule[] = [
   },
   {
     name: 'dependencies',
-    globs: ['package.json', '**/package.json', 'bun.lock'],
+    globs: ['package.json', '**/package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'],
     effects: { audit: true },
   },
   {

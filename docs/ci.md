@@ -28,7 +28,7 @@ skips fail the check. The workflow itself is never omitted by path filtering.
 | `wasm` | Builds and verifies WASM once, retaining the generated packages, hidden provenance files and the PGO build's native zstd fixture for consumers. |
 | `browser-native` | Builds edge, proxy, dataplane and image worker in one Cargo invocation and retains the native artifact manifest. |
 | `source` | Consumes verified WASM, runs the nine static gates (`check:types`, `check:lint`, `check:latency-boundaries`, `check:span-lifetimes`, `check:span-attributes`, `check:dead`, `check:ratchet` against the pushed or pull-request range, `check:slop` over the whole tree, `check:docs`), the complete Bun test inventory, the Python CI tests, ShellCheck over `scripts/ci/*.sh`, and Actionlint over the workflows. Prose-only plans run `check:docs`. |
-| `native` | `rust:lint` and `rust:test` on Linux and Apple Silicon macOS, each on its own runner. `rust:test` builds the image worker, then compiles every workspace test once, so the dataplane's real-helper tests reuse that build. |
+| `native` | `bazel test` over every Rust target, then `rust:lint`, on Linux and Apple Silicon macOS, each against the shared BuildBuddy remote cache that only CI writes. The dataplane's real-helper tests take the image helper their test target builds. |
 | `integration` | Three runners: Dragonfly compatibility with the hermetic account flows, calibrated carrier rebind, and handshake reorder, each against a real edge and daemon. |
 | `transport` | Six isolated runners partition the complete functional transport inventory at test level, each using one browser worker. |
 
@@ -74,7 +74,7 @@ Additional workflows run beside CI:
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | [Build deployment](../.github/workflows/build-deployment.yml) | Push to `main`, manual dispatch | Builds the unsigned server, migrations, and web bundle through the Dockerfile's `artifacts` target with the public build pins. It does not deploy. |
-| [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `bun audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, the `bun.lock` source/spec/license/install-script policy, cargo-vet exact-version review coverage and ten offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
+| [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `pnpm audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, the `pnpm-lock.yaml` source/spec/license/install-script policy, cargo-vet exact-version review coverage and ten offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
 | [Assurance](../.github/workflows/assurance.yml) | Pull requests, each completed `main` CI run (at that run's commit), a daily schedule, manual dispatch | Parser replay, Kani custody proofs, Loom schedules and negative controls, real-session network simulation, and unprivileged profiling-tool checks. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
 | [CodeQL](../.github/workflows/codeql.yml) | Pull requests, each completed `main` CI run (at that run's commit), a weekly schedule, manual dispatch | Code scanning of TypeScript, Rust, the workflows and the Python tooling, with Merkur's models and queries; `Query tests` checks every query against its fixtures. See [static analysis](security.md#static-analysis). |
@@ -144,24 +144,24 @@ its files select. Nothing merges on its own.
   daily dependency audit's to report; its fix arrives with the lock refresh.
 - A manifest range moves only when a release falls outside it. Releases within a range, and
   every transitive dependency, arrive with a weekly lock refresh: one pull request for the
-  Cargo locks and one for `bun.lock`.
+  Cargo locks and one for `pnpm-lock.yaml`.
 - A Cargo pull request regenerates `tools/sim/Cargo.lock` and `tools/bolero/Cargo.lock`
   through `test:sim:update-lock` and `test:fuzz:update-lock`. A catalog entry moves in
-  `package.json` and `pnpm-workspace.yaml` together, and `bun.lock` follows.
+  `pnpm-workspace.yaml`, and `pnpm-lock.yaml` follows.
 - Packages that have to agree move in one pull request: the Rust toolchain with its builder
   images, Solid's release candidate, the RustCrypto crates, the Dockerfile frontend digest,
   and the workflows' minor action updates.
 - Renovate does not write `supply-chain/`. A Cargo pull request fails the dependency audit's
   cargo-vet step until each new crate version has been reviewed and its audit or exemption
   pushed to the branch ([policy](security.md#dependency-source-and-audit-policy)).
-- Four updates wait on the dashboard until they are ticked, because the version is not the
-  whole change: the Bun runtime and TruffleHog are installed by archive checksum, Kani is tied
-  to a nightly toolchain, and a vendored patch crate moves by carrying its patches onto the
-  new upstream source. An advisory against one of them opens its pull request unasked. For a
+- Six updates wait on the dashboard until they are ticked, because the version is not the
+  whole change: the Bun runtime, pnpm, LLVM and TruffleHog are installed by archive checksum,
+  Kani is tied to a nightly toolchain, and a vendored patch crate moves by carrying its patches
+  onto the new upstream source. An advisory against one of them opens its pull request unasked. For a
   vendored crate that pull request cannot build until the source follows, because the
   workspace lock still names the old version.
-- `pnpm-lock.yaml` and the Bazel module are outside Renovate's reach and are refreshed after a
-  merge as [the Bazel notes](../.github/bazel/README.md) describe. The
+- The Bazel module's dependencies and `.bazelversion` move like any other update; the Rust
+  release in `MODULE.bazel` moves with `rust-toolchain.toml` in the Rust toolchain group. The
   deployment CLIs that `release.yml` and `deploy-site.yml` install are not watched: no pull
   request can exercise them.
 

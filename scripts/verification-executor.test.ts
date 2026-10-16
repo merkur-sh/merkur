@@ -91,7 +91,7 @@ test('a failed task is streamed before a stalled sibling; cancellation leaves la
         'process.on("SIGTERM",()=>process.exit(0));process.stdout.write("sibling-ready\\n");setInterval(()=>{},1000)',
       ],
     ],
-    cargo: [],
+    rust: [],
     bun: [['bun', '-e', 'process.stdout.write("MUST-NOT-START\\n")']],
     tests: [],
     bunInputs: [],
@@ -146,7 +146,7 @@ test('test files already green for their inputs never reach a worker', async () 
     preflight: [],
     reasons: [],
     static: [],
-    cargo: [],
+    rust: [],
     // Shaped like a real bun lane: the cache narrows this command, it does not skip lanes.
     bun: [['bun', 'test', '--parallel=4', './proven.test.ts']],
     tests: ['proven.test.ts'],

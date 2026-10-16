@@ -918,7 +918,6 @@ mod real_helper {
     use super::*;
 
     #[test]
-    #[ignore = "real helper: bun run build:image-worker"]
     fn kitty_graphics_converge_under_disturbed_display_units() {
         converge_across_seeds(Driver::Kitty, &SEEDS, 160);
     }

@@ -141,7 +141,6 @@ mod real_helper {
     use super::*;
 
     #[tokio::test]
-    #[ignore = "real helper: bun run build:image-worker"]
     async fn references_are_bounded_one_use_terminal_bound_and_reset_fenced() {
         let (broker, endpoint) = broker(Graphics::built_worker());
         let (other, _) = self::broker(Graphics::built_worker());
@@ -188,7 +187,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "real helper: bun run build:image-worker"]
     async fn native_descriptor_is_invisible_until_its_parser_boundary_and_cannot_replay() {
         let (tx, rx) = crossbeam_channel::unbounded();
         let mut terminal = crate::pty::TerminalState::new(80, 3, tx);

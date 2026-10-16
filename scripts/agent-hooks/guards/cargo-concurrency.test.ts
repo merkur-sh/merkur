@@ -9,16 +9,13 @@ function staticDecision(line: string) {
   return evaluateCargoStatic(splitCommandLine(line, ROOT, '/home/agent'));
 }
 
-test('rust:check next to rust:lint is denied with the superset', () => {
-  const decision = staticDecision('bun run rust:check && bun run rust:lint');
+test('cargo check next to cargo clippy is denied with the superset', () => {
+  const decision = staticDecision('cargo check --workspace && cargo clippy --all-targets');
   expect(decision?.kind).toBe('deny');
   if (decision?.kind !== 'deny') return;
   expect(decision.reason).toContain('bun run rust:lint');
-  expect(staticDecision('cargo check --workspace && cargo clippy --all-targets')?.kind).toBe(
-    'deny',
-  );
   expect(staticDecision('bun run rust:lint')).toBeNull();
-  expect(staticDecision('bun run rust:check')).toBeNull();
+  expect(staticDecision('cargo check --workspace')).toBeNull();
 });
 
 test('check next to one of its members is denied', () => {
@@ -66,7 +63,7 @@ test('cargo-backed scripts are recognised', () => {
   expect(isCargoCommand(commandOf('bun run check:protocol'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run check'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run verify'))).toBe(true);
-  expect(isCargoCommand(commandOf('bun run bench:display-pipeline:rust'))).toBe(true);
+  expect(isCargoCommand(commandOf('bun run spike:ios:server'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run --silent check'))).toBe(true);
   expect(isCargoCommand(commandOf('bun test apps/web'))).toBe(false);
   expect(isCargoCommand(commandOf('bun run check:types'))).toBe(false);

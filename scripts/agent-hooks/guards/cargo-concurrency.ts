@@ -7,7 +7,7 @@ import type { SimpleCommand } from '../shell-command';
  * "Batch what you selected", mechanised.
  *
  * Static rules over one command line: a line that pays for the same compile twice —
- * `rust:check` next to `rust:lint`, `check` next to one of its members, `verify` next to
+ * `cargo check` next to `cargo clippy`, `check` next to one of its members, `verify` next to
  * what it already runs, or two Cargo commands with one backgrounded — is refused with the
  * batched form. Whether a Cargo command from an earlier tool call is still running is not
  * this guard's question: Cargo's own target-dir lock serializes that, deterministically.
@@ -21,12 +21,6 @@ const CARGO_BACKED_SCRIPTS: ReadonlySet<string> = new Set([
   'check:protocol',
   'check',
   'verify',
-  'bench:scroll-prepare',
-  'bench:display-pipeline:rust',
-  'bench:compression-planner',
-  'bench:packing:whole-span:full',
-  'bench:packing:whole-span:owner',
-  'bench:display-ack:rust',
   'spike:ios:server',
 ]);
 
@@ -95,14 +89,11 @@ export function evaluateCargoStatic(commands: readonly SimpleCommand[]): GuardDe
     if (isCargoCommand(command)) cargoCommands.push(command);
   }
 
-  const checkAndLint =
-    (scripts.has('rust:check') && scripts.has('rust:lint')) ||
-    (cargoSubs.has('check') && cargoSubs.has('clippy'));
-  if (checkAndLint) {
+  if (cargoSubs.has('check') && cargoSubs.has('clippy')) {
     return {
       kind: 'deny',
       reason:
-        'Denied: `rust:check` together with `rust:lint` (or `cargo check` with `cargo clippy`) compiles the workspace twice — Clippy `--all-targets` is a strict superset of check and uses different metadata.\nRun only: bun run rust:lint',
+        'Denied: `cargo check` together with `cargo clippy` compiles the workspace twice — Clippy `--all-targets` is a strict superset of check and uses different metadata.\nRun only: bun run rust:lint',
     };
   }
 

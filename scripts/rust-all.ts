@@ -1,6 +1,5 @@
-// Clippy with `--all-targets` type-checks bins, libs, tests and benches, so it
-// is a strict superset of `rust:check`. Running both would pay for two separate
-// compilations of the same workspace for no extra coverage.
+// Clippy over every first-party target type-checks bins, libs, tests and benches, so it
+// needs no separate check build.
 await run('bun', ['run', 'rust:lint']);
 await run('bun', ['run', 'build:dataplane']);
 await run('bun', ['run', 'build:wasm']);

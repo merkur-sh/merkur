@@ -34,14 +34,7 @@ const environment = await Effect.runPromise(
 if (process.argv.includes('--sources') && environment._tag === 'Success') {
   process.stdout.write(`${environmentSources(environment.success.sources)}\n`);
 }
-const manifest: unknown = await Bun.file(path.join(REPO_ROOT, 'package.json')).json();
-const pinnedBun =
-  typeof manifest === 'object' &&
-  manifest !== null &&
-  'packageManager' in manifest &&
-  typeof manifest.packageManager === 'string'
-    ? manifest.packageManager.replace('bun@', '')
-    : '';
+const pinnedBun = (await Bun.file(path.join(REPO_ROOT, '.bun-version')).text()).trim();
 
 checks.push(await checkFile('apps/server/.env', true, 'create with: bun run setup'));
 checks.push(await checkServerConfiguration());
@@ -49,7 +42,7 @@ checks.push({
   label: 'bun runtime',
   ok: process.versions.bun === pinnedBun,
   critical: true,
-  details: `${process.versions.bun}; use the packageManager-pinned Bun ${pinnedBun}`,
+  details: `${process.versions.bun}; use the Bun .bun-version pins, ${pinnedBun}`,
 });
 
 checks.push(await checkCommand('cargo', true));

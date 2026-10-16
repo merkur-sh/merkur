@@ -24,7 +24,7 @@ function fixture(): string {
   roots.push(root);
   const files: Record<string, string> = {
     'package.json': '{}',
-    'bun.lock': '',
+    'pnpm-lock.yaml': '',
     'bunfig.toml': '',
     'tsconfig.base.json': '{}',
     'scripts/test-preload.ts': '',
@@ -66,7 +66,7 @@ test('a key is stable across runs and moves with the workspace inputs every test
   const root = fixture();
   expect(keysOf(root).get('tests/alone.test.ts')).toBe(keysOf(root).get('tests/alone.test.ts'));
   const before = keysOf(root).get('tests/alone.test.ts');
-  writeFileSync(path.join(root, 'bun.lock'), 'changed');
+  writeFileSync(path.join(root, 'pnpm-lock.yaml'), 'changed');
   expect(keysOf(root).get('tests/alone.test.ts')).not.toBe(before);
 });
 

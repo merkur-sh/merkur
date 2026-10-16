@@ -13,31 +13,6 @@ bun run test:sim:sweep 50 7000      # seeds 7000..7050
 bun run test:sim:update-lock        # after a production dependency change
 ```
 
-## Declared simulator targets
-
-The Bazel factory consumes the original release capture from `tools/sim/manifest.toml`
-and its retained lock. It declares the library, all 11 authored harnesses (including
-rotation), and rustdoc from that captured graph. `//tools/sim:simulator` selects the
-library; `//tools/sim:scenarios` selects the library test, every harness and rustdoc.
-These targets are manual diagnostics until the matching native runtime is qualified.
-The generated `test:sim` operation lists those exact 13 tests.
-
-Each Bun harness uses the existing configured Rust test wrapper. The declared executable
-has basename `merkur-sim`; the launcher exports its absolute runfile path as
-`MERKUR_SIM_BINARY`. The Rust wrapper sets `CARGO_MANIFEST_DIR` and the working directory
-to the original `tools/sim` package. Tests retain `--test-threads=1 --nocapture`, and
-compilation retains `--cfg merkur_sim --cfg tokio_unstable`.
-
-`//tools/sim:configured_sweep` runs the captured sweep wrapper with the original
-`--ignored --exact --test-threads=1 --nocapture` selection and declared regressions.
-It is a fresh, uncached external test. Each selected test receives its own nonce;
-dependency runtime files exclude the dependency's nonce.
-
-Capture requires a matched declared SDK and native execution host. The supported shapes
-are Darwin ARM64 and x64, and Linux ARM64 and x64. Runnable bindings exist only for
-captured hosts; an absent host is refused, with no foreign fallback. A successful source
-capture or declaration control does not qualify native compilation or scenario execution.
-
 ## How production code ends up simulated
 
 - **Isolation.** `scripts/sim-tests.ts` writes `manifest.toml` into the generated workspace

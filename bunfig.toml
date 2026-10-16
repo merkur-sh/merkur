@@ -1,10 +1,3 @@
-[install]
-# Pinned rather than left to Bun's default: the isolated linker is what keeps a
-# package out of reach unless something actually declares it. A hoisted layout
-# silently resolves phantom dependencies, which is how `better-sqlite3` — an
-# optional peer nothing here declares — became load-bearing for `db:codegen`.
-linker = "isolated"
-
 [test]
 # Generated release trees must never become a second test suite.
 pathIgnorePatterns = ["**/dist/**", "**/target/**", "**/node_modules/**", "test-results/**"]

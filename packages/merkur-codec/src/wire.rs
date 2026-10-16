@@ -1112,8 +1112,10 @@ mod tests {
     }
 
     fn vector_path() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../shared/test-vectors/display-wire.json")
+        std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR").expect("test manifest directory"),
+        )
+        .join("../shared/test-vectors/display-wire.json")
     }
 
     #[test]

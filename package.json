@@ -2,22 +2,7 @@
   "name": "merkur",
   "private": true,
   "license": "AGPL-3.0-only",
-  "packageManager": "bun@1.4.3",
-  "workspaces": {
-    "packages": [
-      "apps/*",
-      "packages/*"
-    ],
-    "catalog": {
-      "@elysia/eden": "2.0.0-beta.6",
-      "@noble/post-quantum": "0.7.1",
-      "@serenity-kit/opaque": "1.1.0",
-      "effect": "4.0.2",
-      "elysia": "2.0.0-beta.27",
-      "exact-mirror": "1.2.6",
-      "typebox": "1.3.36"
-    }
-  },
+  "packageManager": "pnpm@11.28.3",
   "scripts": {
     "setup": "bun --bun --no-env-file run scripts/dev-setup.ts",
     "setup:hooks": "bun run scripts/secret-scanning.ts install",
@@ -41,7 +26,6 @@
     "build:e2e-wasm": "bun run scripts/build-e2e-wasm.ts",
     "build:graphics-wasm": "bun run scripts/build-graphics-wasm.ts",
     "build:graphics-codec-probe": "bun run scripts/build-graphics-codec-probe.ts",
-    "build:image-worker": "cargo build --locked -p merkur-image-worker",
     "bench:graphics-codec:browser": "bun run scripts/bench-graphics-codec-browser.ts",
     "release:public-key": "bun run scripts/derive-release-public-key.ts",
     "ci:canary": "bun run scripts/ci-release-canary.ts",
@@ -53,15 +37,14 @@
     "deployment:check-server": "bun run scripts/web-build-signature.ts verify-server",
     "edge:fly-config": "bun run scripts/edge-fly-config.ts",
     "sync:wasm": "bun run scripts/sync-term-wasm.ts",
-    "rust:check": "cargo check --manifest-path Cargo.toml --workspace --locked",
     "rust:lint": "bun run scripts/rust-lint.ts",
     "rust:deps": "cargo shear --locked --deny-warnings --exclude alacritty_terminal --exclude vte",
     "rust:all": "bun run scripts/rust-all.ts",
-    "rust:test": "bun run scripts/run-rust-tests.ts && cargo test --manifest-path Cargo.toml --release -p term-wasm --locked",
-    "bench:scroll-prepare": "cargo test --release --locked -p merkur-dataplane production_scroll_literal_benchmark -- --ignored --nocapture --test-threads=1",
+    "rust:test": "bazel test //apps/... //packages/... //tools/...",
+    "bench:scroll-prepare": "bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 production_scroll_literal_benchmark",
     "test:unit": "bun run scripts/run-unit-tests.ts",
     "test:tpm-sim": "bun run scripts/test-tpm-sim.ts",
-    "test:graphics:long": "bun run build:image-worker && cargo test --locked -p merkur-dataplane -- --ignored display::graphics_convergence::long::",
+    "test:graphics:long": "bazel run //apps/daemon/dataplane:unit -- --ignored display::graphics_convergence::long::",
     "test:e2e": "playwright test",
     "test:e2e:email": "playwright test -c playwright.email.config.mjs",
     "test:e2e:burst": "playwright test -c playwright.burst.config.mjs",
@@ -86,12 +69,12 @@
     "bench:display-encoding": "bun run scripts/bench-display-encoding.ts",
     "bench:reconnect": "bun run scripts/bench-reconnect-latency.ts",
     "bench:relay-keystroke-packets": "bun run scripts/run-relay-keystroke-packets.ts",
-    "bench:display-pipeline:rust": "BENCH_SAMPLES=200 cargo test --release --locked -p merkur-dataplane display::send::tests::production_display_pipeline_benchmark -- --ignored --exact --nocapture",
-    "bench:compression-planner": "cargo test --release --locked -p merkur-dataplane display::compressor::tests::production_compression_planner_surface_benchmark -- --ignored --exact --nocapture",
-    "bench:packing:whole-span:full": "BENCH_SAMPLES=100 cargo test --release --locked -p merkur-dataplane whole_span_candidate_full_job_benchmark -- --ignored --nocapture --test-threads=1",
-    "bench:packing:whole-span:owner": "BENCH_SAMPLES=100 cargo test --release --locked -p merkur-dataplane whole_span_candidate_owner_loop_benchmark -- --ignored --nocapture --test-threads=1",
+    "bench:display-pipeline:rust": "BENCH_SAMPLES=200 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --exact --nocapture display::send::tests::production_display_pipeline_benchmark",
+    "bench:compression-planner": "bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --exact --nocapture display::compressor::tests::production_compression_planner_surface_benchmark",
+    "bench:packing:whole-span:full": "BENCH_SAMPLES=100 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 whole_span_candidate_full_job_benchmark",
+    "bench:packing:whole-span:owner": "BENCH_SAMPLES=100 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 whole_span_candidate_owner_loop_benchmark",
     "bench:packing:replay": "bun run scripts/perf/replay-native-packing.ts",
-    "bench:display-ack:rust": "cargo test --release --locked -p merkur-dataplane display::recv::tests::production_display_ack_advance_benchmark -- --ignored --exact --nocapture",
+    "bench:display-ack:rust": "bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --exact --nocapture display::recv::tests::production_display_ack_advance_benchmark",
     "bench:display-pipeline:browser": "bun run scripts/bench-browser-display-pipeline.ts",
     "bench:terminal-network-matrix": "bun run scripts/run-terminal-network-matrix.ts",
     "bench:display-multichunk:wasm": "bun run scripts/bench-term-wasm-multichunk.ts",
@@ -158,7 +141,7 @@
     "test:ownership": "cargo test --locked --manifest-path tools/ownership-proofs/Cargo.toml",
     "test:ownership:kani": "cargo kani --manifest-path tools/ownership-proofs/Cargo.toml --output-format terse",
     "setup:shear": "cargo install cargo-shear --locked --version 1.14.0",
-    "check:audit": "bun audit && cargo audit --deny yanked",
+    "check:audit": "pnpm audit && cargo audit --deny yanked",
     "check": "bun run check:types && bun run check:latency-boundaries && bun run check:span-lifetimes && bun run check:span-attributes && bun run check:lint && bun run check:dead && bun run check:ratchet && bun run check:slop && bun run check:protocol && bun run check:docs",
     "verify": "bun run scripts/run-verify.ts",
     "gates": "bun run scripts/select-gates.ts",
@@ -186,7 +169,6 @@
   "dependencies": {
     "effect": "catalog:"
   },
-  "trustedDependencies": [],
   "aube": {
     "allowBuilds": {
       "fallow": true,

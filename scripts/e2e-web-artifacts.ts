@@ -18,7 +18,7 @@ import { runVerificationCommand } from './verification-executor';
 export function webArtifactInput(root: string, forceEdge: boolean): string {
   const files = [
     'package.json',
-    'bun.lock',
+    'pnpm-lock.yaml',
     'bunfig.toml',
     'tsconfig.base.json',
     'scripts/e2e-web-artifacts.ts',

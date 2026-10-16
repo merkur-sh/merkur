@@ -27,7 +27,7 @@ export const CACHE_VERSION = 'merkur-gate-cache-v1';
 /** Files that change what every test run means, whatever the test imports. */
 const GLOBAL_INPUTS: readonly string[] = [
   'package.json',
-  'bun.lock',
+  'pnpm-lock.yaml',
   'bunfig.toml',
   'tsconfig.base.json',
   'scripts/test-preload.ts',

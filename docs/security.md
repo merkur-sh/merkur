@@ -1008,16 +1008,16 @@ workspaces and runs ten offline policy controls. Advisory scanning remains a sep
 `check:audit` gate; cargo-vet's review coverage is not a vulnerability database.
 
 `bun run check:js-dependency-policy`, the last step of `check:dependency-policy`, holds
-`bun.lock` to the same kind of policy. Every package resolves from the npm registry under a
-sha512 integrity, and a workspace names a dependency only by exact version, caret or tilde
-range, catalog entry or workspace. The lockfile records no licenses, so the check installs it
-into `target/js-dependency-policy` for every OS and CPU with scripts off and reads each
-installed manifest; a package the lockfile marks installable nowhere is skipped. A license
-must be an SPDX expression the allowlist in `scripts/check-js-dependency-policy.ts` grants.
+`pnpm-lock.yaml` to the same kind of policy. Every package resolves from the npm registry
+under a sha512 integrity, and a workspace names a dependency only by exact version, caret or
+tilde range, catalog entry or workspace. The lockfile records no licenses, so the check
+installs it into `target/js-dependency-policy` with scripts off, for every OS, CPU and libc
+any locked package names, and reads each installed manifest. A license must be an SPDX
+expression the allowlist in `scripts/check-js-dependency-policy.ts` grants.
 `LICENSE_EXCEPTIONS` admits a named package under one exact expression, together with the
-platform binaries it lists as optional dependencies. The root `trustedDependencies` is an
-explicit empty list, so no dependency runs an install script, including the packages Bun
-trusts by default, and a name added there must belong to a package that has one.
+platform binaries it lists as optional dependencies. `onlyBuiltDependencies` in
+`pnpm-workspace.yaml` is an explicit empty list, so no dependency runs an install script, and
+a name added there must belong to a package that has one.
 
 `supply-chain/config.toml` imports review evidence from Mozilla, Google and the Bytecode
 Alliance. Existing versions without complete evidence have explicit exact-version

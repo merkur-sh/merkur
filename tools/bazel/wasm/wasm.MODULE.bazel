@@ -1,4 +1,0 @@
-bindings = use_extension("//tools/bazel/wasm:extensions.bzl", "bindings")
-use_repo(bindings, "wasm_bindgen_darwin_aarch64", "wasm_bindgen_darwin_x64", "wasm_bindgen_linux_aarch64", "wasm_bindgen_linux_x64")
-use_repo(bindings, "binaryen_darwin_aarch64", "binaryen_darwin_x64", "binaryen_linux_aarch64", "binaryen_linux_x64")
-register_toolchains("//tools/bazel/wasm:all")

@@ -214,13 +214,13 @@ Report vulnerabilities privately through the [security policy](SECURITY.md).
 
 ## Development
 
-Use the Bun version in [`package.json`](package.json), the pinned
-[Rust toolchain](rust-toolchain.toml), Docker with Compose, `wasm-pack`, and LLVM
-(Homebrew `llvm` on macOS).
+Use Bazelisk (it runs the Bazel release in [`.bazelversion`](.bazelversion)), pnpm, the Bun
+release in [`.bun-version`](.bun-version), the pinned [Rust toolchain](rust-toolchain.toml),
+Docker with Compose, `wasm-pack`, and LLVM (Homebrew `llvm` on macOS).
 Run these commands from the repository root:
 
 ```sh
-bun install
+pnpm install
 bun run infra:up  # Start local Redis
 bun run setup    # Configure local env, hooks, and Rust/WASM artifacts
 bun run dev      # Start the edge, server, and browser app

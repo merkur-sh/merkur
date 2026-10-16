@@ -136,9 +136,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-26.04, macos-15]
-        # Clippy and the test build share no target directory, so they run on separate
-        # runners; each keeps its own dependency cache.
-        task: [rust:lint, rust:test]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -147,10 +144,12 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-merkur
         with:
-          cache-key: native-${{ matrix.task == 'rust:lint' && 'lint' || 'test' }}
-      - env:
-          TASK: ${{ matrix.task }}
-        run: bun run "$TASK"
+          rust: 'false'
+          rust-cache: 'false'
+          bazel: 'true'
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - run: bazel test //apps/... //packages/... //tools/...
+      - run: bun run rust:lint
   integration:
     needs: [plan, wasm, browser-native]
     if: needs.plan.outputs.integration == 'true'
@@ -250,7 +249,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version-file: package.json
+          bun-version-file: .bun-version
       - name: Require every selected lane to succeed
         env:
           RESULTS: ${{ toJSON(needs) }}

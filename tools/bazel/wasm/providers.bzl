@@ -1,3 +1,0 @@
-"""The shared configured WASM package identity, independent of Bun rules."""
-
-WasmPackageInfo = provider(fields = {"tree": "Configured immutable package tree", "inventory": "Producer-complete regular member digest facts", "producer": "Original configured package producer", "original_wasm": "Exact original compiled Rust WASM File", "generator_inputs": "Original configured binding/optimizer/package tool and source Files", "generator_sources": "Exact original generator action input SourceFiles selected by File.is_source", "generator_configurations": "Original producer action arguments and File identities", "crate_manifest": "Original packaged Rust manifest File"})

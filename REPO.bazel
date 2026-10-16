@@ -1,1 +1,10 @@
-ignore_directories(["**/node_modules", "**/target", "test-results"])
+# Trees Bazel never loads as packages: installed dependencies, other build systems' outputs and
+# Bazel's own convenience links.
+ignore_directories([
+    "**/node_modules",
+    "**/target",
+    "**/dist",
+    "test-results",
+    ".claude/worktrees",
+    "bazel-*",
+])

@@ -16,7 +16,7 @@ function fixture(): string {
     mkdirSync(path.join(root, directory), { recursive: true });
   for (const file of [
     'package.json',
-    'bun.lock',
+    'pnpm-lock.yaml',
     'bunfig.toml',
     'tsconfig.base.json',
     'scripts/e2e-web-artifacts.ts',

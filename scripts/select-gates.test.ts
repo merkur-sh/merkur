@@ -7,9 +7,8 @@ import {
   gateDependencies,
   parseArgs,
   playwrightPatterns,
-  REAL_HELPER_LANE,
+  REAL_HELPER_FILTER,
   renderPlan,
-  rustWorkspacePlan,
   selectGates,
   verificationPlan,
 } from './select-gates';
@@ -35,7 +34,7 @@ const deps: GateDeps = {
 const commands = (plan: ReturnType<typeof selectGates>) => [
   ...plan.preflight,
   ...plan.bun,
-  ...plan.cargo,
+  ...plan.rust,
 ];
 
 test('prose and empty diffs do not trigger unit or native work', () => {
@@ -63,7 +62,7 @@ test('protocol tests appear once even when their owning suites are selected', ()
   ).toHaveLength(1);
   expect(selected.filter((file) => file === `./${PROTOCOL_SCAN}`)).toHaveLength(1);
   for (const file of PROTOCOL_TESTS) expect(selected).toContain(`./${file}`);
-  expect(plan.cargo.flat()).not.toContain('check:protocol');
+  expect(plan.rust.flat()).not.toContain('check:protocol');
 });
 
 test('unit and full verification include tests-root files with identical isolation', () => {
@@ -76,22 +75,20 @@ test('unit and full verification include tests-root files with identical isolati
   }
 });
 
-test('Cargo coverage is unioned with protocol coverage without repeating whole crates', () => {
+test('Rust coverage is unioned with protocol coverage without repeating whole crates', () => {
   const plan = selectGates(
     ['apps/edge/src/relay.rs', 'apps/daemon/dataplane/src/display/send.rs'],
     deps,
   );
-  expect(plan.cargo.filter((command) => command.includes('merkur-edge'))).toHaveLength(1);
-  // The real-helper lane a display change adds is its own `--ignored` run.
-  const dataplane = plan.cargo.filter(
-    (command) => command.includes('merkur-dataplane') && command !== REAL_HELPER_LANE,
-  );
+  expect(plan.rust.filter((command) => command.includes('//apps/edge/...'))).toHaveLength(1);
+  const dataplane = plan.rust.filter((command) => command.includes('//apps/daemon/dataplane:unit'));
   expect(dataplane).toHaveLength(1);
-  expect(dataplane[0]).toContain('display::');
-  expect(dataplane[0]).toContain('auth::tests');
+  expect(dataplane[0]).toContain('--test_arg=display::');
+  expect(dataplane[0]).toContain('--test_arg=auth::tests');
+  expect(dataplane[0]).toContain(`--test_arg=${REAL_HELPER_FILTER}`);
 });
 
-test('a change the image helper can observe builds it, then runs the real-helper lane', () => {
+test('a change the image helper can observe runs the real-helper modules against it', () => {
   for (const file of [
     'packages/merkur-image-worker/src/retirement.rs',
     'apps/daemon/dataplane/src/pty/terminal/graphics.rs',
@@ -99,42 +96,46 @@ test('a change the image helper can observe builds it, then runs the real-helper
     'Cargo.lock',
   ]) {
     const plan = selectGates([file], deps);
-    expect(plan.builds).toEqual([['bun', 'run', 'build:image-worker']]);
-    expect(plan.cargo).toContainEqual(REAL_HELPER_LANE);
-    expect(plan.cargo).toContainEqual([
-      'cargo',
-      'test',
-      '--locked',
-      '-p',
-      'merkur-dataplane',
-      '--',
-      '--ignored',
-      'real_helper::',
-    ]);
+    expect(plan.builds).toEqual([]);
+    const dataplane = plan.rust.filter((command) =>
+      command.some((arg) => arg.startsWith('//apps/daemon/dataplane')),
+    );
+    expect(dataplane).toHaveLength(1);
     expect(plan.deferred).toContainEqual(['bun', 'run', 'test:graphics:long']);
   }
-  // The helper lane follows the ordinary dataplane run, never replaces it.
+  // One dataplane run holds the changed modules and the real-helper modules together.
   const plan = selectGates(['apps/daemon/dataplane/src/pty/terminal/graphics.rs'], deps);
-  const dataplane = plan.cargo.filter((command) => command.includes('merkur-dataplane'));
-  expect(dataplane).toHaveLength(2);
-  expect(dataplane[0]).toContain('pty::');
-  expect(dataplane[0]).not.toContain('--ignored');
-  expect(dataplane[1]).toEqual(REAL_HELPER_LANE);
+  expect(plan.rust).toContainEqual([
+    'bazel',
+    'test',
+    '//apps/daemon/dataplane:unit',
+    '--test_arg=pty::',
+    `--test_arg=${REAL_HELPER_FILTER}`,
+  ]);
+  expect(selectGates(['packages/merkur-image-worker/src/retirement.rs'], deps).rust).toContainEqual(
+    ['bazel', 'test', '//apps/daemon/dataplane:unit', `--test_arg=${REAL_HELPER_FILTER}`],
+  );
 });
 
-test('a dataplane change outside the graphics owner still runs the real-helper lane', () => {
+test('a dataplane change outside the graphics owner still runs the real-helper modules', () => {
   // The display simulator the `real_helper` modules drive runs ACK provenance, resume,
   // the peer network state and crate-root handlers as the daemon does.
   for (const file of [
     'apps/daemon/dataplane/src/connection.rs',
     'apps/daemon/dataplane/src/session/resume.rs',
     'apps/daemon/dataplane/src/network/peer.rs',
-    'apps/daemon/dataplane/src/main.rs',
-    'apps/daemon/dataplane/Cargo.toml',
   ]) {
     const plan = selectGates([file], deps);
-    expect(plan.builds).toEqual([['bun', 'run', 'build:image-worker']]);
-    expect(plan.cargo).toContainEqual(REAL_HELPER_LANE);
+    const dataplane = plan.rust.find((command) => command.includes('//apps/daemon/dataplane:unit'));
+    expect(dataplane).toContain(`--test_arg=${REAL_HELPER_FILTER}`);
+  }
+  // A whole-crate change runs every dataplane test, the real-helper modules included.
+  for (const file of ['apps/daemon/dataplane/src/main.rs', 'apps/daemon/dataplane/Cargo.toml']) {
+    expect(selectGates([file], deps).rust).toContainEqual([
+      'bazel',
+      'test',
+      '//apps/daemon/dataplane/...',
+    ]);
   }
 });
 
@@ -148,10 +149,10 @@ test('the client, edge, dataplane, transport patches and simulator replay the si
     'tools/sim/tests/session.rs',
     'scripts/sim-tests.ts',
   ]) {
-    expect(selectGates([file], deps).cargo).toContainEqual(['bun', 'run', 'test:sim']);
+    expect(selectGates([file], deps).rust).toContainEqual(['bun', 'run', 'test:sim']);
   }
   for (const file of ['apps/web/src/view.ts', 'tools/sim/README.md', 'apps/stun/src/main.rs']) {
-    expect(selectGates([file], deps).cargo).not.toContainEqual(['bun', 'run', 'test:sim']);
+    expect(selectGates([file], deps).rust).not.toContainEqual(['bun', 'run', 'test:sim']);
   }
 });
 
@@ -171,35 +172,28 @@ test('the crates the Kani proofs compile, and their runner, defer the bounded pr
   }
 });
 
-test('a change the helper cannot observe neither builds it nor runs its lane', () => {
+test('a change the helper cannot observe runs no real-helper modules', () => {
   for (const file of ['apps/edge/src/relay.rs', 'apps/web/src/view.ts']) {
     const plan = selectGates([file], deps);
-    expect(plan.builds.flat()).not.toContain('build:image-worker');
-    expect(plan.cargo).not.toContainEqual(REAL_HELPER_LANE);
+    expect(plan.rust.flat()).not.toContain(`--test_arg=${REAL_HELPER_FILTER}`);
     expect(plan.deferred).not.toContainEqual(['bun', 'run', 'test:graphics:long']);
   }
 });
 
-test('full verification builds the helper and runs its lane; unit and protocol runs do not', () => {
+test('full verification runs the real-helper modules; unit and protocol runs do not', () => {
   const verify = verificationPlan('verify', deps.testFiles);
-  expect(verify.builds).toEqual([['bun', 'run', 'build:image-worker']]);
-  expect(verify.cargo).toContainEqual(REAL_HELPER_LANE);
+  expect(verify.builds).toEqual([]);
+  expect(verify.rust.flat()).toContain(`--test_arg=${REAL_HELPER_FILTER}`);
   for (const mode of ['unit', 'protocol'] as const) {
-    const plan = verificationPlan(mode, deps.testFiles);
-    expect(plan.builds).toEqual([]);
-    expect(plan.cargo).not.toContainEqual(REAL_HELPER_LANE);
+    expect(verificationPlan(mode, deps.testFiles).rust.flat()).not.toContain(
+      `--test_arg=${REAL_HELPER_FILTER}`,
+    );
   }
 });
 
-test('the Rust workspace run is one whole-crate cargo selection plus the real-helper lane', () => {
-  const plan = rustWorkspacePlan(['merkur-edge', 'merkur-dataplane', 'term-wasm']);
-  expect(plan.builds).toEqual([['bun', 'run', 'build:image-worker']]);
-  expect(plan.cargo).toEqual([
-    ['cargo', 'test', '--locked', '-p', 'merkur-dataplane', '-p', 'merkur-edge', '-p', 'term-wasm'],
-    REAL_HELPER_LANE,
-  ]);
-  expect([...plan.preflight, ...plan.static, ...plan.bun]).toEqual([]);
-  expect(() => rustWorkspacePlan([])).toThrow('empty Rust workspace');
+test('every gate crate names a workspace package Bazel tests by its directory', () => {
+  const plan = selectGates(['packages/merkur-wire/src/input_record.rs'], deps);
+  expect(plan.rust.some((command) => command.includes('//packages/merkur-wire/...'))).toBe(true);
 });
 
 test('a whole dataplane test run subsumes its protocol filters', () => {
@@ -207,11 +201,11 @@ test('a whole dataplane test run subsumes its protocol filters', () => {
     ['apps/daemon/dataplane/src/main.rs', 'packages/protocol/src/index.ts'],
     deps,
   );
-  const dataplane = plan.cargo.filter(
-    (command) => command.includes('merkur-dataplane') && command !== REAL_HELPER_LANE,
+  expect(plan.rust.filter((command) => command.includes('//apps/daemon/dataplane:unit'))).toEqual(
+    [],
   );
-  expect(dataplane).toHaveLength(1);
-  expect(dataplane[0]).not.toContain('--');
+  const whole = plan.rust.find((command) => command.includes('//apps/daemon/dataplane/...'));
+  expect(whole?.some((arg) => arg.startsWith('--test_arg='))).toBe(false);
 });
 
 test('default auth E2E and calibrated rebind select their owning suites', () => {

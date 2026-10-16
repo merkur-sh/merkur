@@ -28,29 +28,31 @@
   // A fix always changes the file that names the version. That is what turns an advisory
   // against a vendored crate, which has no lock entry of its own to move, into a pull request.
   vulnerabilityAlerts: { labels: ['dependencies', 'security'], rangeStrategy: 'bump' },
-  // `pnpm-lock.yaml` mirrors `bun.lock` for Bazel and is written by
-  // `tools/bazel/bun/refresh-npm-lock.ts`, so the npm manager, which would hand the workspace
-  // to pnpm, stays off. The Bazel module and its captures are regenerated together by hand.
+  // pnpm resolves the workspace into `pnpm-lock.yaml`, which Bazel reads as it is; the npm
+  // manager updates both, catalog included.
   enabledManagers: [
-    'bun',
+    'bazel-module',
+    'bazelisk',
+    'bun-version',
     'cargo',
     'custom.regex',
     'docker-compose',
     'dockerfile',
     'github-actions',
     'nodenv',
+    'npm',
     'rust-toolchain',
   ],
-  ignorePaths: ['**/node_modules/**', 'spikes/**', 'tools/bazel/**'],
+  ignorePaths: ['**/node_modules/**', 'spikes/**'],
   // The releases Renovate installs in its container for its own Cargo and Bun runs: Cargo
   // there is not rustup's, so it does not read rust-toolchain.toml, and the tasks below run
-  // outside the Bun manager, which is what reads `packageManager`.
+  // outside the bun-version manager, which is what reads `.bun-version`.
   constraints: { bun: '1.4.3', rust: '1.99.0' },
   lockFileMaintenance: { enabled: true, schedule: ['before 6am on monday'] },
   cargo: {
     // The vendored crates keep upstream's manifests; their dependencies resolve in the
     // workspace lock, which the lock refresh updates.
-    ignorePaths: ['**/node_modules/**', 'spikes/**', 'tools/bazel/**', 'packages/*-patch/**'],
+    ignorePaths: ['**/node_modules/**', 'spikes/**', 'packages/*-patch/**'],
     // The simulator's lock is seeded from the production lock and the fuzz workspace resolves
     // the same manifests, so both follow every change to either. The workspace lock is listed
     // because `packages/term-wasm` has a lock beside its manifest, which Renovate takes for
@@ -168,22 +170,20 @@
     },
     {
       customType: 'regex',
-      description: 'The workspace catalog, which the Bun manager does not read',
-      managerFilePatterns: ['/^package\\.json$/'],
-      matchStringsStrategy: 'recursive',
-      matchStrings: ['"catalog": \\{[^}]*\\}', '"(?<depName>[^"]+)": "(?<currentValue>[^"]+)"'],
-      datasourceTemplate: 'npm',
+      description: 'The Rust release Bazel builds with, which rust-toolchain.toml also names',
+      managerFilePatterns: ['/^MODULE\\.bazel$/'],
+      matchStrings: ['versions = \\["(?<currentValue>\\d+\\.\\d+\\.\\d+)"\\]'],
+      depNameTemplate: 'rust',
+      datasourceTemplate: 'rust-version',
     },
     {
       customType: 'regex',
-      description: 'The same catalog as fallow and the Bazel lock mirror read it',
-      managerFilePatterns: ['/^pnpm-workspace\\.yaml$/'],
-      matchStringsStrategy: 'recursive',
-      matchStrings: [
-        'catalog:\\n(?:  [^\\n]+\\n)+',
-        "  '?(?<depName>[^':\\n]+)'?: (?<currentValue>[^\\s]+)",
-      ],
-      datasourceTemplate: 'npm',
+      description: 'The LLVM release Bazel compiles C and C++ with, by archive checksum',
+      managerFilePatterns: ['/^MODULE\\.bazel$/'],
+      matchStrings: ['llvm_version = "(?<currentValue>\\d+\\.\\d+\\.\\d+)"'],
+      depNameTemplate: 'llvm/llvm-project',
+      datasourceTemplate: 'github-releases',
+      extractVersionTemplate: '^llvmorg-(?<version>\\d+\\.\\d+\\.\\d+)$',
     },
     {
       customType: 'regex',
@@ -273,17 +273,6 @@
       groupName: 'GitHub Actions',
     },
     {
-      description: 'A catalog entry moves in both files and resolves in bun.lock',
-      matchManagers: ['custom.regex'],
-      matchFileNames: ['package.json', 'pnpm-workspace.yaml'],
-      matchDatasources: ['npm'],
-      postUpgradeTasks: {
-        commands: ['bun install --lockfile-only --ignore-scripts'],
-        fileFilters: ['bun.lock'],
-        installTools: { bun: {} },
-      },
-    },
-    {
       description: 'A new Bolero resolves in the fuzz workspace lock',
       matchManagers: ['custom.regex'],
       matchDepNames: ['bolero'],
@@ -293,15 +282,31 @@
         installTools: { bun: {}, rust: {} },
       },
     },
-    // The four rules below cover updates Renovate can name but not complete. Each waits on the
+    // The rules below cover updates Renovate can name but not complete. Each waits on the
     // dashboard until it is ticked, and its branch then needs the work its note describes.
     {
-      description: 'The Bun runtime is installed in the Dockerfiles by archive checksum',
+      description: 'The Bun runtime is installed in the Dockerfiles and Bazel by archive checksum',
       matchDepNames: ['bun', 'bun-types'],
       dependencyDashboardApproval: true,
       groupName: 'Bun runtime',
       prBodyNotes: [
-        'The Dockerfiles install Bun by release archive checksum and `dependency-audit.yml` names the version; move them in this branch before merging.',
+        'The Dockerfiles and `tools/bazel/bun/extensions.bzl` install Bun by release archive checksum; move them in this branch before merging.',
+      ],
+    },
+    {
+      description: 'pnpm is installed in the Dockerfiles by archive checksum',
+      matchDepNames: ['pnpm'],
+      dependencyDashboardApproval: true,
+      prBodyNotes: [
+        'The Dockerfiles install pnpm by release archive checksum; move them in this branch before merging.',
+      ],
+    },
+    {
+      description: 'LLVM is fetched by archive checksum for every host',
+      matchDepNames: ['llvm/llvm-project'],
+      dependencyDashboardApproval: true,
+      prBodyNotes: [
+        "`MODULE.bazel` names each host's LLVM archive by checksum, and its major is rustc's: move the checksums in this branch, and the release only with a Rust release on the same major.",
       ],
     },
     {

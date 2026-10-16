@@ -1,3 +1,0 @@
-package(default_visibility = ["//visibility:public"])
-exports_files(["Cargo.toml", "Cargo.lock", "merkur-sim/Cargo.toml", "metadata.json"])
-filegroup(name = "verification_inputs", srcs = ["Cargo.toml", "Cargo.lock", "merkur-sim/Cargo.toml", "metadata.json", "BUILD.bazel"])

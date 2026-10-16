@@ -239,10 +239,6 @@
     "cyclomatic": 40,
     "cognitive": 76
   },
-  "scripts/verification-cargo.ts::cargoTestExecutions": {
-    "cyclomatic": 33,
-    "cognitive": 58
-  },
   "scripts/web-build-signature.ts::runWebBuildSignature": {
     "cyclomatic": 43,
     "cognitive": 46

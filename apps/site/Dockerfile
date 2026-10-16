@@ -35,14 +35,24 @@ RUN apt-get update \
   && ln -s bun /usr/local/bin/bunx \
   && ln -s bun /usr/local/bin/node \
   && test "$(bun --version)" = 1.4.3 \
-  && rm -rf /tmp/bun.zip /var/lib/apt/lists/*
+  && case "$(dpkg --print-architecture)" in \
+    amd64) pnpm=linux-x64; pnpm_digest=b0c9673be13d4b914b8045a56986418c55c446bb8d113b65ec65bf7cb7bec35f ;; \
+    arm64) pnpm=linux-arm64; pnpm_digest=f41d5272bdc1d07139daa31412d24bd5394476a4b8b6eb72c269d3bd52e95d4a ;; \
+  esac \
+  && curl --fail --silent --show-error --location "https://github.com/pnpm/pnpm/releases/download/v11.28.3/pnpm-$pnpm.tar.gz" -o /tmp/pnpm.tgz \
+  && printf '%s  /tmp/pnpm.tgz\n' "$pnpm_digest" | sha256sum --check \
+  && mkdir -p /opt/pnpm \
+  && tar -xzf /tmp/pnpm.tgz -C /opt/pnpm \
+  && ln -s /opt/pnpm/pnpm /usr/local/bin/pnpm \
+  && test "$(pnpm --version)" = 11.28.3 \
+  && rm -rf /tmp/bun.zip /tmp/pnpm.tgz /var/lib/apt/lists/*
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin
 
 FROM bun AS dependencies
 WORKDIR /app
 
 # Every workspace manifest, or `--frozen-lockfile` refuses the lockfile.
-COPY package.json bun.lock ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/daemon/package.json apps/daemon/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/site/package.json apps/site/package.json
@@ -57,7 +67,7 @@ COPY packages/quicksilver/package.json packages/quicksilver/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/user-agent/package.json packages/user-agent/package.json
 
-RUN bun install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 FROM dependencies AS builder
 # SECURITY.md carries the release-key fingerprint the security page prints.

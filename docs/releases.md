@@ -323,7 +323,7 @@ release is withdrawn.
 : "${MERKUR_OPAQUE_SERVER_PUBLIC_KEY:?set the trusted account OPAQUE pin}"
 export MERKUR_PUBLIC_ORIGIN MERKUR_OPAQUE_SERVER_PUBLIC_KEY
 
-bun install --frozen-lockfile
+pnpm install --frozen-lockfile
 bun run scripts/build-daemon-dist.ts --version "$VERSION" --sequence "$SEQUENCE" --platform darwin-arm64
 test "$(apps/daemon/dist/merkur version)" = "$VERSION"
 COPYFILE_DISABLE=1 tar --format=ustar --no-xattrs \

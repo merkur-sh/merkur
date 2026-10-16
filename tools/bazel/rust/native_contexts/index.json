@@ -1,6 +1,0 @@
-{
-  "aarch64-unknown-linux-gnu/build.json": "b119f7420c75410c78ae288737f3f73d6156991b826a3b0689a6efb76ec9bf77",
-  "aarch64-unknown-linux-gnu/test.json": "f18a975b548cf400b95765983397505585232ea171df1667d245f1ca9cdd8033",
-  "x86_64-unknown-linux-gnu/build.json": "4dad31e39d5924a956608ea86d1ef0f8f408f674ce0459d9d987ab59212dddcc",
-  "x86_64-unknown-linux-gnu/test.json": "a9e5c8692f0ed315921529a6c42b440a6923722d2c20f9e72e391a8429ce4491"
-}

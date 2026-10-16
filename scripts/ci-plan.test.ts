@@ -7,7 +7,7 @@ describe('CI selection', () => {
     for (const files of [
       [],
       ['Cargo.lock'],
-      ['bun.lock'],
+      ['pnpm-lock.yaml'],
       ['.github/workflows/ci.yml'],
       ['scripts/build-term-wasm.ts'],
       ['new-package/source.ts'],

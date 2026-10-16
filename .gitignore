@@ -12,8 +12,6 @@ node_modules/
 /.bazelrc.local
 dist/
 build/
-# These directories contain declared Cargo resolution facts, not build outputs.
-!/tools/bazel/rust/contexts/*/build/
 coverage/
 **/*.tsbuildinfo
 packages/*/dist/

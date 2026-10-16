@@ -14,13 +14,9 @@ import path from 'node:path';
 import { type Command, cachedBunLane, type GatePlan } from './select-gates';
 import { testCommand } from './test-inventory';
 import { planPartition, recordGreen, type TestPartition } from './verification-cache';
-import { cargoTestBuild, cargoTestExecutions, cargoTestSelection } from './verification-cargo';
 import { greenTestFiles } from './verification-junit';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-
-/** Concurrent Cargo test binaries; libtest threads each one across the host's cores. */
-const CARGO_TEST_WORKERS = 4;
 
 /**
  * Per-file durations from earlier runs, so Bun starts the slowest files first and one long file
@@ -132,9 +128,9 @@ export async function runVerificationCommand(
 /**
  * Run a plan, skipping the test files the result cache already proves green for exactly the
  * bytes they read. `cache` comes precomputed from `gates`, which needed it to print the plan;
- * the other entry points let it be derived here. Only the bun lane is cached: the static
- * gates are the correctness floor and cost seconds, Cargo owns its own incremental state,
- * and the browser harnesses depend on a live environment no content key can see.
+ * the other entry points let it be derived here. Only the bun lane is cached here: the static
+ * gates are the correctness floor and cost seconds, Bazel caches the Rust lane's results
+ * itself, and the browser harnesses depend on a live environment no content key can see.
  */
 export async function executePlan(
   plan: GatePlan,
@@ -166,7 +162,7 @@ export async function executePlan(
       ...plan.builds,
       ...plan.preflight,
       ...plan.static,
-      ...plan.cargo,
+      ...plan.rust,
       ...bunLane,
       ...plan.deferred,
     ].map((command) => command.join(' ')),
@@ -233,61 +229,12 @@ export async function executePlan(
     }
     return true;
   };
-  // `rust:lint` compiles in its own target directory, so Clippy and the other Cargo checks no
-  // longer queue on the test build's directory lock: they run beside it.
-  const cargoLane = () =>
-    Promise.all([
-      serial(
-        plan.cargo.filter((command) => cargoTestSelection(command) === undefined),
-        false,
-      ),
-      cargoTests(),
-    ]);
-  const cargoTests = async () => {
-    const build = cargoTestBuild(plan.cargo);
-    if (build === undefined || interrupted) return;
-    const stdoutPath = path.join(directory, 'cargo-artifacts.jsonl');
-    outstanding.add(build.join(' '));
-    if ((await run(build, { stdoutPath })) !== 0) return;
-    const executions = cargoTestExecutions(
-      readFileSync(stdoutPath, 'utf8'),
-      plan.cargo,
-      ROOT,
-      environment,
-    );
-    // Test binaries are independent processes, so they run side by side. Each one's
-    // stdout goes to its own file and is printed whole if it fails, never interleaved.
-    const queue = [...executions].flatMap(([selection, tasks]) =>
-      tasks.map((task) => ({ selection, task })),
-    );
-    for (const { task } of queue) outstanding.add(task.command.join(' '));
-    const failedSelections = new Set<Command>();
-    let queued = 0;
-    const worker = async () => {
-      while (!interrupted && queued < queue.length) {
-        const index = queued++;
-        const item = queue[index];
-        if (item === undefined) return;
-        const output = path.join(directory, `cargo-test-${index}.out`);
-        if ((await run(item.task.command, { ...item.task, stdoutPath: output })) !== 0) {
-          failedSelections.add(item.selection);
-          process.stdout.write(readFileSync(output, 'utf8'));
-        }
-      }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(CARGO_TEST_WORKERS, queue.length) }, () => worker()),
-    );
-    if (interrupted) return;
-    for (const selection of executions.keys()) {
-      if (!failedSelections.has(selection)) outstanding.delete(selection.join(' '));
-    }
-  };
   let ready = await serial(plan.builds, true);
   if (ready) ready = await serial(plan.preflight, true);
   if (ready) {
     await Promise.all(plan.static.map((command) => run(command)));
-    await Promise.all([cargoLane(), serial(bunLane, false)]);
+    // Bazel schedules the Rust lane's compilation and tests across the host itself.
+    await Promise.all([serial(plan.rust, false), serial(bunLane, false)]);
   }
   const pending = new Set(plan.deferred.map((command) => command.join(' ')));
   if (all && ready && results.every((result) => result.exitCode === 0)) {

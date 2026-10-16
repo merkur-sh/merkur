@@ -1,15 +1,5 @@
 use std::{env, path::PathBuf, process::Command};
 
-const DECLARED_SWIFT: [&str; 3] = ["MERKUR_SWIFTC", "MERKUR_SWIFT_SDK", "MERKUR_SWIFT_TOOLCHAIN"];
-
-fn declared_path(name: &str) -> PathBuf {
-    let path = PathBuf::from(env::var_os(name).unwrap_or_else(|| {
-        panic!("macOS identity build requires declared {name}")
-    }));
-    assert!(path.is_absolute(), "macOS identity build requires absolute {name}");
-    path
-}
-
 fn selected(args: &[&str]) -> String {
     let result = Command::new("/usr/bin/xcrun")
         .args(args)
@@ -31,32 +21,16 @@ fn selected(args: &[&str]) -> String {
 
 fn main() {
     println!("cargo::rerun-if-changed=src/macos.swift");
-    for name in DECLARED_SWIFT.into_iter().chain(["AR"]) {
-        println!("cargo::rerun-if-env-changed={name}");
-    }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
-    // A build that declares any Swift input uses exactly the declared set; a build that
-    // declares none takes the selected Xcode's tools, as Cargo runs outside a declaring engine.
-    let declared = DECLARED_SWIFT.iter().any(|name| env::var_os(name).is_some());
-    let (swift, sdk, toolchain, ar) = if declared {
-        (
-            declared_path("MERKUR_SWIFTC"),
-            declared_path("MERKUR_SWIFT_SDK"),
-            declared_path("MERKUR_SWIFT_TOOLCHAIN"),
-            declared_path("AR"),
-        )
-    } else {
-        let swift = PathBuf::from(selected(&["--find", "swiftc"]));
-        let toolchain = swift
-            .parent()
-            .and_then(|p| p.parent())
-            .expect("Swift toolchain path")
-            .to_path_buf();
-        let sdk = PathBuf::from(selected(&["--show-sdk-path"]));
-        (swift, sdk, toolchain, PathBuf::from("/usr/bin/ar"))
-    };
+    let swift = PathBuf::from(selected(&["--find", "swiftc"]));
+    let toolchain = swift
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("Swift toolchain path")
+        .to_path_buf();
+    let sdk = PathBuf::from(selected(&["--show-sdk-path"]));
     let arch = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("aarch64") => "arm64",
         Ok("x86_64") => "x86_64",
@@ -64,24 +38,16 @@ fn main() {
     };
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let object = out.join("merkur_identity_seal.o");
-    let mut compile = Command::new(&swift);
-    compile.args([
-        "-module-cache-path",
-        out.join("swift-module-cache").to_str().expect("module cache path"),
-        "-parse-as-library",
-        "-O",
-        "-emit-object",
-    ]);
-    if declared {
-        compile
-            .env("SWIFT_DRIVER_SWIFT_FRONTEND_EXEC", toolchain.join("bin/swift-frontend"))
-            .args(["-Xfrontend", "-disable-incremental-llvm-codegen"]);
-    }
-    compile.arg("-sdk").arg(&sdk);
-    if declared {
-        compile.arg("-resource-dir").arg(toolchain.join("lib/swift"));
-    }
-    let status = compile
+    let status = Command::new(&swift)
+        .args([
+            "-module-cache-path",
+            out.join("swift-module-cache").to_str().expect("module cache path"),
+            "-parse-as-library",
+            "-O",
+            "-emit-object",
+        ])
+        .arg("-sdk")
+        .arg(&sdk)
         .args(["-target", &format!("{arch}-apple-macos11.0"), "src/macos.swift", "-o"])
         .arg(&object)
         .status()
@@ -90,12 +56,10 @@ fn main() {
         status.success(),
         "Secure Enclave Swift bridge compilation failed"
     );
-    let mut archive = Command::new(&ar);
-    if declared {
-        archive.env("ZERO_AR_DATE", "1");
-    }
+    // A fixed archive date keeps the archive's bytes, and every action keyed on them, stable.
     assert!(
-        archive
+        Command::new("/usr/bin/ar")
+            .env("ZERO_AR_DATE", "1")
             .arg("crs")
             .arg(out.join("libmerkur_identity_seal.a"))
             .arg(object)

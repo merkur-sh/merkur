@@ -851,7 +851,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_request_for_an_absent_root_completes_once_it_is_published() {
         let mut h = harness().await;
         h.apply(UPLOAD).await;
@@ -879,7 +878,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_source_replaced_by_identical_content_serves_the_same_request_id() {
         let mut h = harness().await;
         h.apply(UPLOAD).await;
@@ -911,7 +909,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn deleting_one_of_two_images_sharing_a_root_serves_from_the_other() {
         let mut h = harness().await;
         h.apply(UPLOAD).await;
@@ -972,7 +969,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_retirement_before_every_byte_is_queued_resets_the_stream_and_owes_no_refusal() {
         // The browser grants each stream 16 KiB, so the tile's writes wait on
         // the browser while its source retires.
@@ -1013,7 +1009,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_retirement_after_every_byte_is_queued_is_delivered() {
         let (hold, holding) = watch::channel(false);
         let mut h = harness_on(loopback_with(None, Some(holding))).await;
@@ -1041,7 +1036,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_consumed_window_admits_its_successor_before_fin_acknowledgment() {
         let (hold, holding) = watch::channel(false);
         let mut h = harness_on(loopback_with(None, Some(holding))).await;
@@ -1079,7 +1073,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_pairing_report_does_not_withdraw_a_stream_the_edge_forwards() {
         use crate::network::protocol::EdgeLane;
         let mut h = harness().await;
@@ -1112,7 +1105,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_republished_root_encodes_byte_identical_tiles() {
         let mut h = harness().await;
         h.apply(UPLOAD).await;
@@ -1131,7 +1123,6 @@ mod real_helper {
     }
 
     #[tokio::test]
-    #[ignore = "requires cargo build --locked -p merkur-image-worker; real sandbox integration"]
     async fn a_request_ahead_of_its_pairing_report_starts_when_the_report_lands() {
         use crate::network::protocol::EdgeLane;
         let mut h = harness().await;

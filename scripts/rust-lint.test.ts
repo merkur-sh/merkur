@@ -5,6 +5,7 @@ import {
   type ClippyRun,
   classify,
   clippyCommand,
+  diagnosticFiles,
   formatClippyBaseline,
   hostTriple,
   judgeElsewhere,
@@ -15,7 +16,6 @@ import {
   sortFindings,
   tightenRefusal,
   unverifiedReason,
-  workspaceMembers,
   zeroFailures,
 } from './rust-lint';
 
@@ -23,33 +23,11 @@ const ROOT = '/repo';
 
 const TRUNCATION = 'clippy::cast_possible_truncation';
 
-const FINISHED = '{"reason":"build-finished","success":true}';
-
-const FAILED = '{"reason":"build-finished","success":false}';
-
-const FEC = 'path+file:///repo/packages/merkur-fec#0.1.0';
-
-const EDGE = 'path+file:///repo/apps/edge#merkur-edge@0.1.0';
-
-/** A `[patch]` crate that is a path dependency of the workspace and not one of its members. */
-const QUINN = 'path+file:///repo/packages/quinn-patch#quinn@0.11.9';
-
-const METADATA = JSON.stringify({
-  packages: [{ name: 'merkur-fec', id: FEC }],
-  workspace_members: [FEC, EDGE],
-  workspace_default_members: [FEC, EDGE],
-  resolve: null,
-  target_directory: '/repo/target/rust',
-  version: 1,
-  workspace_root: '/repo',
-});
-
+/** What rustc writes before its diagnostics: the dependency file it emitted. */
 const ARTIFACT = JSON.stringify({
-  reason: 'compiler-artifact',
-  package_id: FEC,
-  target: { kind: ['lib'], name: 'merkur_fec' },
-  profile: { test: false },
-  filenames: ['/repo/target/clippy/debug/deps/libmerkur_fec.rmeta'],
+  $message_type: 'artifact',
+  artifact: 'bazel-out/darwin_arm64-fastbuild/bin/packages/merkur-fec/merkur_fec-1.d',
+  emit: 'dep-info',
 });
 
 /** A span as rustc writes it: `expansion` is the macro call the span came out of. */
@@ -71,84 +49,76 @@ function span(file: string, line: number, column: number, from?: Span): Span {
   };
 }
 
-/** One `compiler-message` line; `kind` is the target that reported it, `owner` its package. */
+/** One diagnostic line, its `rendered` coloured as rustc colours it for a terminal. */
 function message(
   code: string | null,
   spans: readonly Span[],
   text: string,
   level = 'warning',
-  kind = 'lib',
-  owner = FEC,
 ): string {
   return JSON.stringify({
-    reason: 'compiler-message',
-    package_id: owner,
-    manifest_path: '/repo/packages/merkur-fec/Cargo.toml',
-    target: { kind: [kind], name: 'merkur_fec', test: true },
-    message: {
-      rendered: `${level}: ${text}\n`,
-      $message_type: 'diagnostic',
-      children: [],
-      level,
-      message: text,
-      spans,
-      code: code === null ? null : { code, explanation: null },
-    },
+    $message_type: 'diagnostic',
+    message: text,
+    code: code === null ? null : { code, explanation: null },
+    level,
+    spans,
+    children: [],
+    rendered: `\u001b[1m${level}\u001b[0m: ${text}\n`,
   });
 }
 
-function stream(...lines: readonly string[]): string {
+/** rustc's closing count of a crate's warnings. */
+function summary(count: number): string {
+  return message(null, [], `${count} warning${count === 1 ? '' : 's'} emitted`);
+}
+
+function file(...lines: readonly string[]): string {
   return `${lines.join('\n')}\n`;
 }
 
-function read(text: string): ClippyRun {
-  return readClippy(text, ROOT, workspaceMembers(METADATA));
+function read(...files: readonly string[]): ClippyRun {
+  return readClippy(files, ROOT);
 }
 
-function finding(file: string, rule: string, line: number, column: number): ClippyFinding {
+function finding(path: string, rule: string, line: number, column: number): ClippyFinding {
   const rendered = [
     `warning: message of ${rule}`,
-    `  --> ${file}:${line}:${column}`,
+    `  --> ${path}:${line}:${column}`,
     '   |',
     '   = help: the suggestion',
     '',
     '',
   ].join('\n');
 
-  return { file, rule, line, column, message: `message of ${rule}`, rendered };
+  return { file: path, rule, line, column, message: `message of ${rule}`, rendered };
 }
 
 test('a diagnostic every target reports is one finding at its primary span', () => {
   const cast = 'casting `usize` to `u8` may truncate the value';
   const secondary = { ...span('packages/merkur-fec/src/codec.rs', 12, 1), is_primary: false };
-
-  const run = read(
-    stream(
-      ARTIFACT,
-      message(TRUNCATION, [span('packages/merkur-fec/src/codec.rs', 69, 24)], cast),
-      // The library's test build and an integration test that includes the module say it again.
-      message(TRUNCATION, [span('packages/merkur-fec/src/codec.rs', 69, 24)], cast),
-      message(
-        TRUNCATION,
-        [span('packages/merkur-fec/src/codec.rs', 69, 24)],
-        cast,
-        'warning',
-        'test',
-      ),
-      message(TRUNCATION, [span('packages/merkur-fec/src/codec.rs', 69, 36)], cast),
-      message(
-        'clippy::cast_sign_loss',
-        [secondary, span('packages/merkur-fec/src/codec.rs', 69, 24)],
-        'casting `i32` to `u8` may lose the sign of the value',
-      ),
-      message(
-        'unused_variables',
-        [span('/repo/apps/edge/src/relay.rs', 7, 9)],
-        'unused variable: `x`',
-      ),
-      FINISHED,
+  const library = file(
+    ARTIFACT,
+    message(TRUNCATION, [span('packages/merkur-fec/src/codec.rs', 69, 24)], cast),
+    message(TRUNCATION, [span('packages/merkur-fec/src/codec.rs', 69, 36)], cast),
+    message(
+      'clippy::cast_sign_loss',
+      [secondary, span('packages/merkur-fec/src/codec.rs', 69, 24)],
+      'casting `i32` to `u8` may lose the sign of the value',
     ),
+    summary(3),
   );
+  // The library's test target compiles the same module and says it again.
+  const tests = file(
+    message(TRUNCATION, [span('packages/merkur-fec/src/codec.rs', 69, 24)], cast),
+    message(
+      'unused_variables',
+      [span('/repo/apps/edge/src/relay.rs', 7, 9)],
+      'unused variable: `x`',
+    ),
+    summary(2),
+  );
+
+  const run = read(library, tests);
 
   expect(run).toEqual({
     findings: [
@@ -186,7 +156,6 @@ test('a diagnostic every target reports is one finding at its primary span', () 
       },
     ],
     unplaced: [],
-    finished: true,
   });
   expect(unverifiedReason(run, 0)).toBeNull();
 });
@@ -196,19 +165,18 @@ test('a diagnostic inside a macro of another crate is placed where this reposito
   const core = '/rustc/8bab26f4f68e/library/core/src/macros/mod.rs';
   const local = span('apps/edge/src/macros.rs', 5, 13, span('apps/edge/src/splice.rs', 80, 5));
   const nested = span(
-    '/home/u/.cargo/registry/src/x/proptest-1.11.0/src/sugar.rs',
+    'external/rules_rust++crate+crates__proptest-1.11.0/src/sugar.rs',
     3,
     1,
     span(core, 9, 9, call),
   );
 
   const run = read(
-    stream(
+    file(
       message('clippy::float_cmp', [span(core, 45, 22, call)], 'strict comparison of `f32`'),
       message('clippy::panic', [local], '`panic` should not be present in production code'),
       message('clippy::unwrap_used', [nested], 'used `unwrap()` on an `Option` value'),
       message('clippy::float_cmp', [span(core, 45, 22)], 'strict comparison of `f32`'),
-      FINISHED,
     ),
   );
 
@@ -221,61 +189,105 @@ test('a diagnostic inside a macro of another crate is placed where this reposito
   expect(run.unplaced).toEqual(['warning: strict comparison of `f32`\n']);
 });
 
-test('a warning in a package that is not a workspace member is not a finding', () => {
+test('a span in an external repository or a Bazel output is outside this repository', () => {
   const run = read(
-    stream(
+    file(
       message(
         'dead_code',
-        [span('packages/quinn-patch/src/lib.rs', 4, 1)],
+        [span('external/rules_rust++crate+crates__quinn-0.11.12/src/lib.rs', 4, 1)],
         'unused',
-        'warning',
-        'lib',
-        QUINN,
       ),
-      message(null, [], 'a note with no code', 'warning', 'lib', QUINN),
-      message(
-        'dead_code',
-        [span('apps/edge/src/relay.rs', 4, 1)],
-        'unused',
-        'warning',
-        'bin',
-        EDGE,
-      ),
-      // An error there stops the build, so it is read like any other.
-      message(
-        'E0425',
-        [span('packages/quinn-patch/src/lib.rs', 9, 5)],
-        'not found',
-        'error',
-        'lib',
-        QUINN,
-      ),
-      FAILED,
+      message('dead_code', [span('bazel-out/darwin_arm64-fastbuild/bin/x/out.rs', 2, 1)], 'unused'),
+      message('dead_code', [span('apps/edge/src/relay.rs', 4, 1)], 'unused'),
     ),
   );
 
   expect(run.findings.map((found) => [found.rule, found.file])).toEqual([
     ['dead_code', 'apps/edge/src/relay.rs'],
-    ['E0425', 'packages/quinn-patch/src/lib.rs'],
   ]);
-  expect(run.unplaced).toEqual([]);
+  expect(run.unplaced).toEqual(['warning: unused\n', 'warning: unused\n']);
 });
 
-test('the workspace members are the package ids cargo metadata lists', () => {
-  expect([...workspaceMembers(METADATA)]).toEqual([FEC, EDGE]);
+test('the diagnostics files are those of the aspect output group, through nested sets', () => {
+  const aspect = '//tools/bazel/rust:clippy.bzl%clippy_diagnostics';
+  const events = file(
+    JSON.stringify({
+      id: { namedSet: { id: '0' } },
+      namedSetOfFiles: {
+        files: [
+          {
+            name: 'a.clippy.diagnostics',
+            pathPrefix: ['bazel-out', 'k8', 'bin'],
+            uri: 'bytestream://c/a',
+          },
+        ],
+      },
+    }),
+    JSON.stringify({
+      id: { namedSet: { id: '1' } },
+      namedSetOfFiles: {
+        files: [{ name: 'b.clippy.diagnostics', pathPrefix: ['bazel-out', 'k8-ST-1', 'bin'] }],
+        fileSets: [{ id: '0' }],
+      },
+    }),
+    JSON.stringify({
+      id: { namedSet: { id: '2' } },
+      namedSetOfFiles: { files: [{ name: 'c.rlib', pathPrefix: ['bazel-out', 'k8', 'bin'] }] },
+    }),
+    JSON.stringify({
+      id: { targetCompleted: { label: '//apps/edge:unit', aspect } },
+      completed: {
+        success: true,
+        outputGroup: [{ name: 'clippy_diagnostics', fileSets: [{ id: '1' }] }],
+      },
+    }),
+    // The target itself, and any other output group, are not Clippy's.
+    JSON.stringify({
+      id: { targetCompleted: { label: '//apps/edge:unit' } },
+      completed: { success: true, outputGroup: [{ name: 'default', fileSets: [{ id: '2' }] }] },
+    }),
+    JSON.stringify({
+      id: { targetCompleted: { label: '//apps/edge:lints', aspect } },
+      completed: { success: true },
+    }),
+  );
 
-  for (const broken of ['', '{}', '{"workspace_members": []}', '{"workspace_members": [1]}']) {
-    expect(() => workspaceMembers(broken)).toThrow('`cargo metadata` names no workspace member');
-  }
+  // Under the execution root, whatever cache the event's URI names.
+  expect(diagnosticFiles(events)).toEqual([
+    'bazel-out/k8-ST-1/bin/b.clippy.diagnostics',
+    'bazel-out/k8/bin/a.clippy.diagnostics',
+  ]);
+
+  const failed = file(
+    JSON.stringify({
+      id: { targetCompleted: { label: '//apps/edge:unit', aspect } },
+      completed: { success: false },
+    }),
+  );
+
+  expect(() => diagnosticFiles(failed)).toThrow('Clippy did not complete for //apps/edge:unit');
+  expect(() =>
+    diagnosticFiles(
+      file(
+        JSON.stringify({
+          id: { targetCompleted: { label: '//apps/edge:unit', aspect } },
+          completed: {
+            success: true,
+            outputGroup: [{ name: 'clippy_diagnostics', fileSets: [{ id: '9' }] }],
+          },
+        }),
+      ),
+    ),
+  ).toThrow("Bazel's events name no file set 9");
+  expect(() => diagnosticFiles('not json\n')).toThrow('Bazel wrote an event that is not JSON');
 });
 
 test('a message without a lint code or a place leaves the run unverified', () => {
   const run = read(
-    stream(
+    file(
       message(null, [span('apps/stun/src/main.rs', 3, 1)], 'expected one of `!` or `::`', 'error'),
       message('unused_imports', [], 'unused import: `std::fmt`'),
       message(TRUNCATION, [span('apps/stun/src/main.rs', 9, 4)], 'casting `u64` to `u8`'),
-      FINISHED,
     ),
   );
 
@@ -299,43 +311,29 @@ test('a message without a lint code or a place leaves the run unverified', () =>
   expect(renderUnplaced([])).toBe('');
 });
 
-test('a stream cut short, or one that is not build records, is no answer', () => {
-  const whole = stream(
-    message(TRUNCATION, [span('apps/stun/src/main.rs', 9, 4)], 'casting `u64` to `u8`'),
-    FINISHED,
-  );
+test("rustc's count of a file's warnings is read only as that count", () => {
+  const cast = message(TRUNCATION, [span('apps/stun/src/main.rs', 9, 4)], 'casting `u64` to `u8`');
 
-  expect(unverifiedReason(read(whole), 0)).toBeNull();
-  expect(() => read(whole.slice(0, 200))).toThrow(
-    'cargo wrote a line that is not a build record: {"reason":"compiler-message"',
-  );
-  expect(() => read(`warning: unused manifest key\n${whole}`)).toThrow(
-    'cargo wrote a line that is not a build record: warning: unused manifest key',
-  );
-  expect(() => read(stream('{"reason":"compiler-message"}', FINISHED))).toThrow(
-    'cargo wrote a compiler message with no message',
-  );
-
-  // Cut between two records, every line still parses and only the closing record is missing.
-  const cut = read(whole.slice(0, whole.indexOf(FINISHED)));
-
-  expect(cut.findings).toHaveLength(1);
-  expect(cut.finished).toBe(false);
-  expect(unverifiedReason(cut, 0)).toBe('cargo clippy exited 0 without reporting a finished build');
-  expect(unverifiedReason(read(''), 0)).toBe(
-    'cargo clippy exited 0 without reporting a finished build',
-  );
+  expect(read(file(cast, cast, summary(2))).unplaced).toEqual([]);
+  expect(read(file(summary(0))).unplaced).toEqual([]);
+  // A count that does not match what the file reported is a message like any other.
+  expect(read(file(cast, summary(3))).unplaced).toEqual(['warning: 3 warnings emitted\n']);
+  // The count belongs to its own file.
+  expect(read(file(cast), file(summary(1))).unplaced).toEqual(['warning: 1 warning emitted\n']);
 });
 
-test('a build that did not finish is no answer, and its errors are still read', () => {
-  const run = read(
-    stream(
-      message('E0308', [span('apps/edge/src/relay.rs', 20, 5)], 'mismatched types', 'error'),
-      FAILED,
-    ),
+test('a file that is not rustc JSON is no answer, and neither is a failed build', () => {
+  expect(() => read('warning: unused manifest key\n')).toThrow(
+    'rustc wrote a line that is not a diagnostic: warning: unused manifest key',
+  );
+  expect(() => read(file('{"$message_type":"diagnostic"}'))).toThrow(
+    'rustc wrote a diagnostic with no level, message or spans',
   );
 
-  expect(run.finished).toBe(false);
+  const run = read(
+    file(message('E0308', [span('apps/edge/src/relay.rs', 20, 5)], 'mismatched types', 'error')),
+  );
+
   expect(sortFindings(run.findings).zero).toEqual([
     {
       file: 'apps/edge/src/relay.rs',
@@ -346,13 +344,8 @@ test('a build that did not finish is no answer, and its errors are still read', 
       rendered: 'error: mismatched types\n',
     },
   ]);
-  expect(unverifiedReason(run, 101)).toBe(
-    'cargo clippy exited 101 without reporting a finished build',
-  );
-  // A success record from a run that still exited non-zero is not believed either.
-  expect(unverifiedReason(read(stream(FINISHED)), 101)).toBe(
-    'cargo clippy exited 101 without reporting a finished build',
-  );
+  expect(unverifiedReason(run, 1)).toBe('bazel build exited 1');
+  expect(unverifiedReason(read(), 1)).toBe('bazel build exited 1');
 });
 
 test('every finding has exactly one class, from its lint and its file', () => {
@@ -534,42 +527,29 @@ test('the baseline names its host and round-trips in one key order', () => {
   );
 });
 
-test('the host is the triple rustc names', () => {
-  const version = [
-    'rustc 1.97.1 (8bab26f4f 2026-08-04)',
-    'binary: rustc',
-    'commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452',
-    'host: aarch64-apple-darwin',
-    'release: 1.97.1',
-    'LLVM version: 21.1.0',
-    '',
-  ].join('\n');
-
-  expect(hostTriple(version)).toBe('aarch64-apple-darwin');
-  expect(() => hostTriple('rustc 1.97.1\n')).toThrow('`rustc -vV` names no host');
+test('the host is the Rust triple of the platform Bazel builds for', () => {
+  expect(hostTriple('darwin', 'arm64')).toBe('aarch64-apple-darwin');
+  expect(hostTriple('darwin', 'x64')).toBe('x86_64-apple-darwin');
+  expect(hostTriple('linux', 'arm64')).toBe('aarch64-unknown-linux-gnu');
+  expect(hostTriple('linux', 'x64')).toBe('x86_64-unknown-linux-gnu');
+  expect(() => hostTriple('win32', 'x64')).toThrow('no Rust target for win32 on x64');
 });
 
 test('Clippy is handed every ratcheted lint as a warning, with nothing denied', () => {
-  const command = clippyCommand();
-  const flags = command.slice(command.indexOf('--') + 1);
+  const command = clippyCommand('/tmp/events.json');
 
   expect(RATCHETED_LINTS).toHaveLength(16);
-  expect(flags).toEqual([
-    '--cap-lints',
-    'warn',
-    ...RATCHETED_LINTS.flatMap((lint) => ['-W', lint]),
-  ]);
-  expect(command.slice(0, command.indexOf('--'))).toEqual([
-    'cargo',
-    'clippy',
-    '--manifest-path',
-    'Cargo.toml',
-    '--workspace',
-    '--locked',
-    '--all-targets',
-    '--target-dir',
-    'target/clippy',
-    '--message-format=json',
+  expect(command).toEqual([
+    'bazel',
+    'build',
+    '--keep_going',
+    '--output_filter=^$',
+    '--aspects=//tools/bazel/rust:clippy.bzl%clippy_diagnostics',
+    '--output_groups=clippy_diagnostics',
+    '--build_event_json_file=/tmp/events.json',
+    ...RATCHETED_LINTS.map((lint) => `--@rules_rust//rust/settings:clippy_flag=-W${lint}`),
+    '--',
+    '//...',
   ]);
   // Every ratcheted lint has a class other than zero somewhere, and zero in no vendored crate.
   expect(RATCHETED_LINTS.map((lint) => classify(lint, 'apps/edge/src/relay.rs'))).toEqual(

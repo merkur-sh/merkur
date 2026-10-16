@@ -9,7 +9,7 @@ datagram drain behaviour, so this page is run by hand on a phone.
 
 The harness is not wired into any app build. The echo server is a standalone cargo crate
 with its own empty `[workspace]`, so it never joins the Merkur workspace and
-`bun run rust:check` does not see it. The `worker/*.ts` files are checked by Biome and
+Bazel does not build it. The `worker/*.ts` files are checked by Biome and
 `bun run check:files`.
 
 ## Layout

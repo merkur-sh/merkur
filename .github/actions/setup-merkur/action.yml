@@ -16,32 +16,47 @@ inputs:
   wasm-toolchain:
     description: Install the pinned WASM build tools and matching LLVM
     default: 'false'
+  bazel:
+    description: Install Bazel at `.bazelversion` and connect it to the shared remote cache
+    default: 'false'
+  buildbuddy-api-key:
+    description: The remote cache's API key; empty on a fork's pull request, which then builds locally
+    default: ''
 runs:
   using: composite
   steps:
+    # The Secure Enclave bridge compiles against CryptoKit's SecureEnclave.MLDSA87, which the
+    # macOS 26 SDK declares; the image's default Xcode carries the macOS 15 SDK.
+    - if: runner.os == 'macOS' && (inputs.rust == 'true' || inputs.bazel == 'true')
+      shell: bash
+      run: sudo xcode-select --switch /Applications/Xcode_26.3.app
+    - if: inputs.bazel == 'true'
+      uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+      with:
+        bazelisk-cache: true
+        repository-cache: true
+    # CI is the remote cache's only writer (`--config=ci`).
+    - if: inputs.bazel == 'true' && inputs.buildbuddy-api-key != ''
+      shell: bash
+      env:
+        BUILDBUDDY_API_KEY: ${{ inputs.buildbuddy-api-key }}
+      run: |
+        printf 'common --config=ci\ncommon --remote_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY" > .bazelrc.local
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version-file: .node-version
         package-manager-cache: false
-    - id: bun
-      shell: bash
-      run: jq -r '"version=" + (.packageManager | sub("^bun@"; ""))' package.json >> "$GITHUB_OUTPUT"
+    # pnpm installs at `packageManager` and caches its store by `pnpm-lock.yaml`; Bun, the
+    # runtime and test runner, is the release `.bun-version` names.
+    - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      with:
+        cache: true
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       with:
-        bun-version: ${{ steps.bun.outputs.version }}
-    - name: Cache downloaded Bun packages
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/.bun/install/cache
-        key: bun-${{ runner.os }}-${{ runner.arch }}-${{ steps.bun.outputs.version }}-${{ hashFiles('bun.lock') }}
+        bun-version-file: .bun-version
     - if: inputs.rust == 'true'
       shell: bash
       run: rustup show active-toolchain
-    # The Secure Enclave bridge compiles against CryptoKit's SecureEnclave.MLDSA87, which the
-    # macOS 26 SDK declares; the image's default Xcode carries the macOS 15 SDK.
-    - if: runner.os == 'macOS' && inputs.rust == 'true'
-      shell: bash
-      run: sudo xcode-select --switch /Applications/Xcode_26.3.app
     - name: Cache Rust dependencies
       if: inputs.rust == 'true' && inputs.rust-cache == 'true'
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -74,10 +89,10 @@ runs:
         sudo apt-get install -y clang-23 lld-23 llvm-23
         echo /usr/lib/llvm-23/bin >> "$GITHUB_PATH"
     - shell: bash
-      run: bun install --frozen-lockfile
+      run: pnpm install --frozen-lockfile
     - if: inputs.browser == 'true'
       shell: bash
-      run: bunx --no-install playwright install --with-deps chromium
+      run: pnpm exec playwright install --with-deps chromium
     - if: runner.os == 'Linux' && inputs.browser == 'true'
       shell: bash
       run: sudo apt-get install -y --no-install-recommends redis-server libvulkan1 mesa-vulkan-drivers xvfb xauth

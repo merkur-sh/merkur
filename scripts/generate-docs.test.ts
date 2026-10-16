@@ -276,7 +276,6 @@ const GATE_RULES: readonly Rule[] = [
     name: 'real-helper',
     globs: ['packages/merkur-image-worker/**'],
     effects: {
-      builds: ['build:image-worker'],
       realHelper: true,
       deferred: ['test:graphics:long'],
     },
@@ -296,15 +295,15 @@ test('the Changed cell lists globs, prints a group by its label, and names the e
   );
 });
 
-test('the Also run cell follows the plan phases: builds, cargo lane, bun lane, deferred', () => {
+test('the Also run cell follows the plan phases: builds, Rust lane, bun lane, deferred', () => {
   const cells = GATE_RULES.map(gateRuleAlsoRunCell);
   expect(cells).toEqual([
     '`check:docs` only',
     'by hand: `test:e2e:latency`',
-    'first `build:wasm`, then `sync:wasm`; `rust:lint`; `cargo test --locked -p term-wasm`; isolated source tests under `apps/web`',
-    '`rust:lint`; `cargo test --locked -p merkur-dataplane` filtered to the changed modules',
-    '`rust:lint`; `cargo test --locked -p merkur-stun`; isolated `apps/server/src/services/stun-ticket-service.test.ts`; then, by hand: `test:natlab`',
-    'first `build:image-worker`; `cargo test --locked -p merkur-dataplane -- --ignored real_helper::`; then, by hand: `test:graphics:long`',
+    'first `build:wasm`, then `sync:wasm`; `rust:lint`; `bazel test //packages/term-wasm/...`; isolated source tests under `apps/web`',
+    '`rust:lint`; `bazel test //apps/daemon/dataplane/...` filtered to the changed modules',
+    '`rust:lint`; `bazel test //apps/stun/...`; isolated `apps/server/src/services/stun-ticket-service.test.ts`; then, by hand: `test:natlab`',
+    '`bazel test //apps/daemon/dataplane:unit` filtered to `real_helper::`; then, by hand: `test:graphics:long`',
     '`check:audit`; `check:js-dependency-policy`',
     '`check:protocol`; then, by hand: `test:e2e:transport`',
   ]);

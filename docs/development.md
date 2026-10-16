@@ -7,12 +7,14 @@ this page links.
 
 ## Prerequisites
 
-Merkur is a Bun, TypeScript, and Rust monorepo. The toolchain is pinned in the repository,
-so install the tools and let the pins pick the versions.
+Merkur is a Bun, TypeScript, and Rust monorepo that Bazel builds and tests. The toolchain is
+pinned in the repository, so install the tools and let the pins pick the versions.
 
 | Tool | Where the version is pinned | Why |
 | --- | --- | --- |
-| Bun | `packageManager` in `package.json` | Package manager, script runner, server runtime, and the daemon CLI's compile target. |
+| Bazel, through Bazelisk (`brew install bazelisk`) | `.bazelversion` | Builds and tests the Rust crates with the Rust, LLVM and Bun releases `MODULE.bazel` pins by checksum. |
+| pnpm | `packageManager` in `package.json` | Installs the workspace from `pnpm-lock.yaml`, which Bazel reads too. |
+| Bun | `.bun-version` | Script runner, test runner, server runtime, and the daemon CLI's compile target. |
 | Rust | `rust-toolchain.toml` (includes the `wasm32-unknown-unknown` target) | The dataplane, the edge, the STUN responder, the display codec, and the terminal WASM. |
 | `wasm-pack` | Installed by `bun run setup` | Builds the WASM packages. The server and the daemon CLI embed `e2e-wasm`, their ML-DSA-87 and SHA-2 implementation. |
 | LLVM (`clang` with the wasm32 target, `llvm-ar`) | Homebrew `llvm` on macOS; on Linux the release matching the pinned Rust's LLVM (23 today; `apt.llvm.org` on Debian, as the `Dockerfile` does) | `term-wasm` compiles libzstd for wasm32, and Apple clang has no WebAssembly backend. Its profile-guided build instruments that C, so an older clang (Debian bookworm's 14) leaves profiler symbols the Rust runtime does not define. |
@@ -25,7 +27,7 @@ Run everything from the repository root. Four commands take a fresh clone to a r
 stack.
 
 ```bash
-bun install
+pnpm install
 bun run infra:up # isolated Redis in Docker
 bun run setup    # Git hooks + local env + required Rust/WASM artifacts
 bun run dev      # edge + watched server + Vite
@@ -120,8 +122,8 @@ resolves against that package alone and can silently upgrade its dependencies.
 | `bun run check` | The static gates: types, lint, latency boundaries, span lifetimes and attributes, dead code, the ratchet, the anti-slop baseline, protocol, docs. |
 | `bun run test:unit` | Every Bun unit test in the workspace. |
 | `bun run test:e2e` | The hermetic Playwright suite (below). |
-| `bun run rust:check`, `bun run rust:lint`, `bun run rust:test` | Cargo check, Clippy with no warning allowed outside the ratcheted lints of `lint-baselines/clippy.json`, and Cargo tests for the whole Rust workspace. |
-| `bun run rust:all` | All three in one command. |
+| `bun run rust:lint`, `bun run rust:test` | Clippy over every first-party Rust target with no warning allowed outside the ratcheted lints of `lint-baselines/clippy.json`, and `bazel test` over every Rust test target. |
+| `bun run rust:all` | `rust:lint`, then the dataplane and WASM builds. |
 | `bun run rust:deps` | Unused and misplaced crate dependencies (`cargo shear`; install it once with `bun run setup:shear`). |
 | `bun run gates` | Prints the tests a diff implicates and why; `--run` executes the cheap ones and `--run --all` adds the browser and container suites. |
 | `bun run verify` | The pre-push gate. |
@@ -134,7 +136,6 @@ Build commands produce the same artifacts CI ships:
 | `bun run build:server` | Compiles `apps/server/src/index.ts` to a Bun executable. |
 | `bun run build:daemon` | The daemon JS entry plus the Rust dataplane artifact. |
 | `bun run build:dataplane` | `merkur-dataplane` and `merkur-image-worker` in release mode, copied into the daemon's distribution directory. |
-| `bun run build:image-worker` | `merkur-image-worker` alone, for the Rust tests that need it. |
 | `bun run build:wasm` | The terminal, end-to-end crypto, and graphics WASM with a lockfile-matched `wasm-bindgen`. |
 | `bun run sync:wasm` | Copies terminal WASM output into the web app source tree. |
 
@@ -154,7 +155,7 @@ Signing and deployment packaging commands are in [`docs/releases.md`](../docs/re
 | Kind | Where | Runner |
 | --- | --- | --- |
 | TypeScript unit tests | `*.test.ts` next to the module under test, in every app and package | Bun test, through `bun run test:unit` |
-| Rust unit and integration tests | Inside each crate | Cargo test, through `bun run rust:test` |
+| Rust unit, integration and doc tests | Inside each crate, declared in its `BUILD.bazel` | `bazel test`, through `bun run rust:test` or `bazel test //<crate directory>/...` |
 | Browser transport cipher | `packages/merkur-e2e/src/wasm_chacha.rs`, compiled only for wasm32 with simd128 | `wasm-bindgen-test` under Node, through `bun run test:wasm-cipher` |
 | Browser end-to-end specs | `tests/e2e/*.e2e.ts`, with shared fixtures in `tests/fixtures` and helpers in `tests/helpers` | Playwright, through the `test:e2e*` commands |
 | Container labs | `scripts/natlab` | Docker, through `bun run test:natlab` |

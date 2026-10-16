@@ -330,12 +330,9 @@ function readRepository(manifest: Manifest): string | null {
 }
 
 async function resolveBunVersion(): Promise<string> {
-  const manifest = await readManifest(path.join(REPO_ROOT, 'package.json'));
-  const pinned = (manifest as { readonly packageManager?: string }).packageManager;
-  if (pinned === undefined || !pinned.startsWith('bun@')) {
-    throw new Error('root package.json has no bun packageManager pin');
-  }
-  return pinned.slice('bun@'.length);
+  const pinned = (await Bun.file(path.join(REPO_ROOT, '.bun-version')).text()).trim();
+  if (!/^\d+\.\d+\.\d+$/.test(pinned)) throw new Error('.bun-version names no Bun release');
+  return pinned;
 }
 
 async function runJson(command: readonly string[]): Promise<Record<string, unknown>> {

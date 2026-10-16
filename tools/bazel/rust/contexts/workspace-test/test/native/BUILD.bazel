@@ -1,3 +1,0 @@
-package(default_visibility = ["//visibility:public"])
-exports_files(["Cargo.toml", "Cargo.lock", "metadata.json"])
-filegroup(name = "verification_inputs", srcs = glob(["**"], exclude = [".*", "**/.*", ".*/**", "**/.*/**", "__pycache__/**", "**/__pycache__/**", "*.pyc", "**/*.pyc"]))

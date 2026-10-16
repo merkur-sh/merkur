@@ -5,7 +5,7 @@ import { Glob } from 'bun';
 import { type Config, ConfigProvider, Effect } from 'effect';
 import { serverEnvironment } from '../packages/config/src/server-environment';
 
-import { REAL_HELPER_LANE, RULES, type Rule, ruleGlobs } from './select-gates';
+import { crateDirectories, REAL_HELPER_FILTER, RULES, type Rule, ruleGlobs } from './select-gates';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -271,7 +271,7 @@ export function gateRuleChangedCell(rule: Rule): string {
 
 /**
  * The `Also run` cell, in the order `bun run gates` phases the plan: builds first, the
- * cargo lane, the bun lane, then the minutes-long gates it prints for the operator. The
+ * Rust lane, the bun lane, then the minutes-long gates it prints for the operator. The
  * static gates are implied by every row and stated once above the table.
  */
 export function gateRuleAlsoRunCell(rule: Rule): string {
@@ -283,11 +283,17 @@ export function gateRuleAlsoRunCell(rule: Rule): string {
   }
   if (effects.rustLint) parts.push(code('rust:lint'));
   if (effects.crates !== undefined) {
-    const command = `cargo test --locked ${effects.crates.map((crate) => `-p ${crate}`).join(' ')}`;
+    const directories = crateDirectories();
+    const packages = effects.crates.map((crate) => `//${directories.get(crate) ?? crate}/...`);
+    const command = `bazel test ${packages.join(' ')}`;
     const filtered = effects.crates.length === 1 && effects.crates[0] === 'merkur-dataplane';
     parts.push(filtered ? `${code(command)} filtered to the changed modules` : code(command));
   }
-  if (effects.realHelper) parts.push(code(REAL_HELPER_LANE.join(' ')));
+  if (effects.realHelper) {
+    parts.push(
+      `${code('bazel test //apps/daemon/dataplane:unit')} filtered to ${code(REAL_HELPER_FILTER)}`,
+    );
+  }
   for (const script of effects.cargoScripts ?? []) parts.push(code(script));
   if (effects.protocol) parts.push(code('check:protocol'));
   if (effects.bunTestDir !== undefined)

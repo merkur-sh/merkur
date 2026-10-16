@@ -5,38 +5,11 @@ import { assertCurrentTermWasmGlue } from './term-wasm-current-glue';
 
 export const TERM_WASM_BUILD_MANIFEST = '.merkur-build.json';
 
-/** Inputs that fix the declared compiler, profile, binding, and packaging pipeline. */
-export const TERM_WASM_BAZEL_PIPELINE_INPUTS = [
-  '.bazelversion',
-  '.bazelrc',
-  'MODULE.bazel',
+/** Inputs that fix the compiler configuration, the TypeScript build and the trained-on font. */
+export const TERM_WASM_PIPELINE_INPUTS = [
   '.cargo/config.toml',
   'tsconfig.json',
   'tsconfig.base.json',
-  'tools/bazel/bun/bun.MODULE.bazel',
-  'tools/bazel/bun/extensions.bzl',
-  'tools/bazel/bun/rules.bzl',
-  'tools/bazel/rust/rust.MODULE.bazel',
-  'tools/bazel/rust/defs.bzl',
-  'tools/bazel/rust/generate.py',
-  'tools/bazel/rust/contexts.py',
-  'tools/bazel/wasm/wasm.MODULE.bazel',
-  'tools/bazel/wasm/BUILD.bazel',
-  'tools/bazel/wasm/extensions.bzl',
-  'tools/bazel/wasm/rules.bzl',
-  'tools/bazel/wasm/train-profile.ts',
-  'tools/bazel/wasm/package.ts',
-  'tools/bazel/wasm/optimize.ts',
-  'tools/bazel/wasm/input-tree.ts',
-  'tools/bazel/rust/units.bzl',
-  'tools/bazel/rust/units.py',
-  'tools/bazel/rust/llvm_tools.bzl',
-  'tools/bazel/rust/units/provenance/term_wasm_profile_use.json',
-  'tools/bazel/rust/units/provenance/term_wasm_instrumented.json',
-  'packages/term-wasm/wasm_artifacts.bzl',
-  'tools/bazel/cc/cc.MODULE.bazel',
-  'tools/bazel/cc/wasm_config.bzl',
-  'tools/bazel/cc/sdk.BUILD.bazel',
   'apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf',
 ] as const;
 
@@ -69,7 +42,7 @@ export async function calculateTermWasmSourceSha256(repoRoot: string): Promise<s
     ]),
   );
   const inputs = [
-    ...TERM_WASM_BAZEL_PIPELINE_INPUTS.map((input) => path.join(repoRoot, input)),
+    ...TERM_WASM_PIPELINE_INPUTS.map((input) => path.join(repoRoot, input)),
     path.join(repoRoot, 'Cargo.toml'),
     path.join(repoRoot, 'rust-toolchain.toml'),
     path.join(repoRoot, 'scripts', 'build-term-wasm.ts'),

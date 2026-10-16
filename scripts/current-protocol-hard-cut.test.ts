@@ -237,8 +237,9 @@ describe('current protocol hard cut', () => {
     {
       name: 'retired package reference',
       label: 'retired package or workspace reference',
-      file: 'bun.lock',
-      source: '"@merkur/typebox": ["@merkur/typebox@workspace:packages/typebox"]\n',
+      file: 'pnpm-lock.yaml',
+      source:
+        "      '@merkur/typebox':\n        specifier: workspace:*\n        version: link:../typebox\n",
     },
     {
       name: 'permissive auth default',

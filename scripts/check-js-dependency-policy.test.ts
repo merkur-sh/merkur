@@ -8,25 +8,34 @@ import {
   parseLicense,
   policyFindings,
   readLockfile,
+  supportedArchitectures,
 } from './check-js-dependency-policy';
 
 const INTEGRITY = `sha512-${'A'.repeat(86)}==`;
 
-function lockfile<P extends object, W extends object>(packages: P, workspace?: W) {
-  return readLockfile(
-    decodeLockfile({
-      workspaces: {
-        '': { name: 'merkur', dependencies: { effect: 'catalog:' }, ...workspace },
-        'packages/auth': { name: '@merkur/auth', dependencies: { nanoid: '^6.0.1' } },
+function lockfile<P extends object, I extends object, S extends object>(
+  packages: P,
+  importer?: I,
+  snapshots?: S,
+) {
+  const lock = {
+    importers: {
+      '.': {
+        dependencies: { effect: { specifier: 'catalog:', version: '4.0.2' } },
+        ...importer,
       },
-      catalog: { effect: '4.0.2' },
-      packages: { '@merkur/auth': ['@merkur/auth@workspace:packages/auth'], ...packages },
-    }),
-  );
+      'packages/auth': {
+        dependencies: { nanoid: { specifier: '^6.0.1', version: '6.0.1' } },
+      },
+    },
+    catalogs: { default: { effect: { specifier: '4.0.2', version: '4.0.2' } } },
+    packages,
+  };
+  return readLockfile(decodeLockfile(snapshots === undefined ? lock : { ...lock, snapshots }));
 }
 
-function registry<I extends object>(ident: string, info?: I) {
-  return [ident, '', info ?? {}, INTEGRITY];
+function registry<I extends object>(info?: I) {
+  return { resolution: { integrity: INTEGRITY }, ...info };
 }
 
 function manifest(ident: string, license?: string): InstalledManifest {
@@ -44,10 +53,10 @@ function installed(
   );
 }
 
-const ROOT = { trustedDependencies: [] };
+const SETTINGS = { onlyBuiltDependencies: [] };
 const UNUSED_EXCEPTIONS = [
-  'LICENSE_EXCEPTIONS names lightningcss, which bun.lock does not resolve',
-  'LICENSE_EXCEPTIONS names caniuse-lite, which bun.lock does not resolve',
+  'LICENSE_EXCEPTIONS names lightningcss, which pnpm-lock.yaml does not resolve',
+  'LICENSE_EXCEPTIONS names caniuse-lite, which pnpm-lock.yaml does not resolve',
 ];
 
 test('SPDX expressions are granted by OR of any and AND of all allowed licences', () => {
@@ -100,7 +109,7 @@ test('the declared licence reads SPDX, object and single-entry legacy forms only
 });
 
 test('the current lockfile shape passes the source and spec checks', () => {
-  const result = lockfile({ nanoid: registry('nanoid@6.0.1') });
+  const result = lockfile({ 'nanoid@6.0.1': registry() });
   expect(result.findings).toEqual([]);
   expect(result.workspaces).toEqual(['packages/auth']);
   expect(result.packages.map((locked) => locked.name)).toEqual(['nanoid']);
@@ -108,89 +117,115 @@ test('the current lockfile shape passes the source and spec checks', () => {
 
 test('sources outside the npm registry, foreign registries and missing integrity are refused', () => {
   const result = lockfile({
-    fromGit: ['left-pad@git+ssh://git@github.com/x/left-pad.git#abc', {}, 'abc'],
-    fromGithub: ['left-pad@github:x/left-pad#abc', {}, 'abc'],
-    fromTarball: ['left-pad@https://example.invalid/left-pad.tgz', '', {}, INTEGRITY],
-    fromMirror: ['left-pad@1.3.0', 'https://mirror.invalid/', {}, INTEGRITY],
-    unpinned: ['right-pad@1.0.0', '', {}, 'sha1-abc'],
-    stray: ['@merkur/ghost@workspace:packages/ghost'],
+    'left-pad@https://codeload.github.com/x/left-pad/tar.gz/abc': {
+      resolution: { tarball: 'https://codeload.github.com/x/left-pad/tar.gz/abc' },
+    },
+    'mirror@1.3.0': {
+      resolution: { integrity: INTEGRITY, tarball: 'https://mirror.invalid/mirror-1.3.0.tgz' },
+    },
+    'from-git@1.0.0': {
+      resolution: { type: 'git', repo: 'https://github.com/x/y', commit: 'abc' },
+    },
+    'right-pad@1.0.0': { resolution: { integrity: 'sha1-abc' } },
+    'bare@1.0.0': { resolution: {} },
   });
   expect(result.packages).toEqual([]);
-  expect(result.findings).toHaveLength(6);
-  expect(result.findings).toContain(
-    'left-pad@1.3.0: resolved from "https://mirror.invalid/", not npm',
-  );
-  expect(result.findings).toContain('right-pad@1.0.0: has no sha512 integrity');
+  expect(result.findings).toEqual([
+    'left-pad@https://codeload.github.com/x/left-pad/tar.gz/abc: resolved outside the npm registry',
+    'mirror@1.3.0: resolved from "https://mirror.invalid/mirror-1.3.0.tgz", not npm',
+    'from-git@1.0.0: resolved from "https://github.com/x/y", not npm',
+    'right-pad@1.0.0: has no sha512 integrity',
+    'bare@1.0.0: has no sha512 integrity',
+  ]);
 });
 
 test('wildcard, tag, URL and inexact catalog specs are refused', () => {
+  const spec = (specifier: string) => ({ specifier, version: '1.0.0' });
   const result = readLockfile(
     decodeLockfile({
-      workspaces: {
-        '': {
+      importers: {
+        '.': {
           devDependencies: {
-            a: '*',
-            b: 'latest',
-            c: 'github:x/c',
-            d: '>=1.0.0',
-            e: 'npm:left-pad@1.3.0',
-            f: '~1.2.3',
-            g: '1.2.3-rc.1',
-            h: 'catalog:',
-            i: 'workspace:*',
+            a: spec('*'),
+            b: spec('latest'),
+            c: spec('github:x/c'),
+            d: spec('>=1.0.0'),
+            e: spec('npm:left-pad@1.3.0'),
+            f: spec('~1.2.3'),
+            g: spec('1.2.3-rc.1'),
+            h: spec('catalog:'),
+            i: spec('workspace:*'),
           },
         },
       },
-      catalog: { effect: '^4.0.2' },
-      packages: {},
+      catalogs: { default: { effect: { specifier: '^4.0.2', version: '4.0.5' } } },
     }),
   );
   expect(result.findings).toHaveLength(6);
-  expect(result.findings).toContain('catalog effect: "^4.0.2" is not an exact version');
+  expect(result.findings).toContain('catalog default effect: "^4.0.2" is not an exact version');
 });
 
-test('a package installable nowhere, and everything beneath it, is skipped', () => {
+test('the policy install covers every platform any locked package names', () => {
   const result = lockfile({
-    'binding-wasm32': registry('binding-wasm32@1.0.0', { cpu: 'none' }),
-    'binding-wasm32/@emnapi/core': registry('@emnapi/core@1.10.0'),
-    'binding-riscv': registry('binding-riscv@1.0.0', { os: 'linux', cpu: 'none' }),
-    '@emnapi/core': registry('@emnapi/core@1.10.0'),
+    'binding-darwin-arm64@1.0.0': registry({ os: ['darwin'], cpu: ['arm64'] }),
+    'binding-linux-x64-musl@1.0.0': registry({ os: ['linux'], cpu: ['x64'], libc: ['musl'] }),
+    'binding-not-windows@1.0.0': registry({ os: ['!win32'] }),
+    '@emnapi/core@1.10.0': registry(),
   });
-  expect(
-    Object.fromEntries(result.packages.map((locked) => [locked.key, locked.installable])),
-  ).toEqual({
-    'binding-wasm32': false,
-    'binding-wasm32/@emnapi/core': false,
-    'binding-riscv': false,
-    '@emnapi/core': true,
+  expect(result.architectures).toEqual({
+    os: ['darwin', 'linux'],
+    cpu: ['arm64', 'x64'],
+    libc: ['musl'],
   });
-  expect(policyFindings(ROOT, result.packages, installed([])).findings).toEqual([
+  expect(supportedArchitectures(result.architectures)).toBe(
+    [
+      'supportedArchitectures:',
+      '  os: ["darwin", "linux"]',
+      '  cpu: ["arm64", "x64"]',
+      '  libc: ["musl"]',
+      '',
+    ].join('\n'),
+  );
+  expect(policyFindings(SETTINGS, result.packages, installed([])).findings).toEqual([
     ...UNUSED_EXCEPTIONS,
+    'binding-darwin-arm64@1.0.0: not installed',
+    'binding-linux-x64-musl@1.0.0: not installed',
+    'binding-not-windows@1.0.0: not installed',
     '@emnapi/core@1.10.0: not installed',
   ]);
 });
 
 test('licences are checked, and an exception admits its exact expression and platform binaries', () => {
-  const { packages } = lockfile({
-    lightningcss: registry('lightningcss@1.33.0', {
-      optionalDependencies: { 'lightningcss-linux-x64-gnu': '1.33.0' },
-    }),
-    'lightningcss-linux-x64-gnu': registry('lightningcss-linux-x64-gnu@1.33.0'),
-    'caniuse-lite': registry('caniuse-lite@1.0.30001810'),
-    copyleft: registry('copyleft@1.0.0'),
-    unstated: registry('unstated@1.0.0'),
-    prose: registry('prose@1.0.0'),
-  });
+  const { packages } = lockfile(
+    {
+      'lightningcss@1.33.0': registry(),
+      'lightningcss-linux-x64-gnu@1.33.0': registry(),
+      'caniuse-lite@1.0.30001810': registry(),
+      'copyleft@1.0.0': registry(),
+      'unstated@1.0.0': registry(),
+      'prose@1.0.0': registry(),
+    },
+    undefined,
+    // The binaries are the snapshot's optional dependencies, under each peer set it resolved with.
+    {
+      'lightningcss@1.33.0(peer@1.0.0)': {
+        optionalDependencies: { 'lightningcss-linux-x64-gnu': '1.33.0' },
+      },
+    },
+  );
   const report = policyFindings(
-    ROOT,
+    SETTINGS,
     packages,
     installed([
-      ['lightningcss', manifest('lightningcss@1.33.0', 'MPL-2.0')],
-      ['lightningcss-linux-x64-gnu', manifest('lightningcss-linux-x64-gnu@1.33.0', 'MPL-2.0')],
-      ['caniuse-lite', manifest('caniuse-lite@1.0.30001810', 'CC-BY-4.0 OR MIT')],
-      ['copyleft', manifest('copyleft@1.0.0', 'GPL-2.0-only')],
-      ['unstated', manifest('unstated@1.0.0')],
-      ['prose', manifest('prose@1.0.0', 'SEE LICENSE IN LICENSE.md')],
+      ['lightningcss@1.33.0', manifest('lightningcss@1.33.0', 'MPL-2.0')],
+      [
+        'lightningcss-linux-x64-gnu@1.33.0',
+        manifest('lightningcss-linux-x64-gnu@1.33.0', 'MPL-2.0'),
+      ],
+      ['caniuse-lite@1.0.30001810', manifest('caniuse-lite@1.0.30001810', 'CC-BY-4.0 OR MIT')],
+      ['copyleft@1.0.0', manifest('copyleft@1.0.0', 'GPL-2.0-only')],
+      ['unstated@1.0.0', manifest('unstated@1.0.0')],
+      ['prose@1.0.0', manifest('prose@1.0.0', 'SEE LICENSE IN LICENSE.md')],
     ]),
   );
   expect(report.checked).toBe(6);
@@ -204,15 +239,15 @@ test('licences are checked, and an exception admits its exact expression and pla
 
 test('a manifest for another package, or one that does not decode, is refused', () => {
   const { packages } = lockfile({
-    nanoid: registry('nanoid@6.0.1'),
-    odd: registry('odd@1.0.0'),
+    'nanoid@6.0.1': registry(),
+    'odd@1.0.0': registry(),
   });
   const report = policyFindings(
-    ROOT,
+    SETTINGS,
     packages,
     installed([
-      ['nanoid', manifest('nanoid@6.0.2', 'MIT')],
-      ['odd', null],
+      ['nanoid@6.0.1', manifest('nanoid@6.0.2', 'MIT')],
+      ['odd@1.0.0', null],
     ]),
   );
   expect(report.findings).toEqual([
@@ -222,33 +257,34 @@ test('a manifest for another package, or one that does not decode, is refused', 
   ]);
 });
 
-test('install scripts stay blocked unless trusted, and trust must be explicit and current', () => {
+test('install scripts stay blocked unless built, and the build list must stay current', () => {
   const { packages } = lockfile({
-    native: registry('native@1.0.0'),
-    gyp: registry('gyp@1.0.0'),
-    plain: registry('plain@1.0.0'),
+    'native@1.0.0': registry(),
+    'gyp@1.0.0': registry(),
+    'plain@1.0.0': registry(),
   });
   const manifests = installed(
     [
-      ['native', { ...manifest('native@1.0.0', 'MIT'), scripts: { postinstall: 'node build.js' } }],
-      ['gyp', manifest('gyp@1.0.0', 'MIT')],
-      ['plain', { ...manifest('plain@1.0.0', 'MIT'), scripts: { test: 'x' } }],
+      [
+        'native@1.0.0',
+        { ...manifest('native@1.0.0', 'MIT'), scripts: { postinstall: 'node build.js' } },
+      ],
+      ['gyp@1.0.0', manifest('gyp@1.0.0', 'MIT')],
+      ['plain@1.0.0', { ...manifest('plain@1.0.0', 'MIT'), scripts: { test: 'x' } }],
     ],
-    ['gyp'],
+    ['gyp@1.0.0'],
   );
 
-  const blocked = policyFindings(ROOT, packages, manifests);
+  const blocked = policyFindings(SETTINGS, packages, manifests);
   expect(blocked.findings).toEqual(UNUSED_EXCEPTIONS);
   expect(blocked.blocked).toEqual(['gyp', 'native']);
 
-  const trusted = policyFindings({ trustedDependencies: ['native', 'plain'] }, packages, manifests);
-  expect(trusted.blocked).toEqual(['gyp']);
-  expect(trusted.findings).toEqual([
+  const built = policyFindings({ onlyBuiltDependencies: ['native', 'plain'] }, packages, manifests);
+  expect(built.blocked).toEqual(['gyp']);
+  expect(built.findings).toEqual([
     ...UNUSED_EXCEPTIONS,
-    'package.json: trustedDependencies names plain, which has no install script',
+    'pnpm-workspace.yaml: onlyBuiltDependencies names plain, which has no install script',
   ]);
-
-  expect(policyFindings({}, packages, manifests).findings).toContain(
-    'package.json: trustedDependencies must list the dependencies allowed to run install scripts; without it Bun runs its built-in list',
-  );
+  // Without the setting pnpm builds nothing, as with an empty list.
+  expect(policyFindings({}, packages, manifests).blocked).toEqual(['gyp', 'native']);
 });

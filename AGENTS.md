@@ -127,7 +127,7 @@ edition 2024 on the pinned toolchain (unset an ambient `RUSTUP_TOOLCHAIN`); neve
 
 ## Running The Stack
 
-`bun install`, `bun run infra:up`, `bun run setup`, then `bun run dev` (edge + watched
+`pnpm install`, `bun run infra:up`, `bun run setup`, then `bun run dev` (edge + watched
 server + Vite), `dev:server`, or `dev:full` (adds the linked daemon; needs
 `~/.merkur/config.json`, and `merkur stop` leaves macOS without a daemon until
 `merkur start`). `bun run dev:doctor` names the fix for each failure. Run scripts from the
@@ -138,8 +138,8 @@ repo root with `bun run --cwd <dir> <script>`, never `cd <package> && bunx`.
 CI verifies; this machine runs the narrowest proof. Several sessions and Docker workloads
 share it, so tree-wide runs (the static gates, `bun run gates --run`, `check`, test
 suites, e2e, long Docker runs) happen locally only when the owner asks for one. Locally,
-run the one test file or `cargo test -p <crate> <filter>` that reproduces the failure and
-then passes. The pre-commit hook checks the staged files (secrets, ratchet, anti-slop);
+run the one test file or `bazel test //<crate dir>:unit --test_arg=<filter>` that reproduces
+the failure and then passes. The pre-commit hook checks the staged files (secrets, ratchet, anti-slop);
 never bypass it. Then commit, push, and follow the CI run (`gh run watch`) to its end; a
 red run your change caused is fixed in the next commit. Do not chase failures provably
 outside the change.

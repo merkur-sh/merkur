@@ -5,7 +5,9 @@
 
 # Workspace manifests and build configuration.
 !package.json
-!bun.lock
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
 !tsconfig.base.json
 !apps/*/package.json
 !packages/*/package.json

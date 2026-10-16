@@ -8,9 +8,9 @@ import {
   calculateTermWasmSourceSha256,
   hasExactTermWasmArtifactSet,
   TERM_WASM_ARTIFACT_FILES,
-  TERM_WASM_BAZEL_PIPELINE_INPUTS,
   TERM_WASM_BUILD_MANIFEST,
   TERM_WASM_PACKAGE_FILES,
+  TERM_WASM_PIPELINE_INPUTS,
   termWasmArtifactSetsEqual,
   termWasmArtifactsMatchSource,
   writeTermWasmBuildManifest,
@@ -41,7 +41,7 @@ describe('terminal WASM provenance', () => {
     try {
       const baseline = await calculateTermWasmSourceSha256(repoRoot);
       const inputs = [
-        ...TERM_WASM_BAZEL_PIPELINE_INPUTS,
+        ...TERM_WASM_PIPELINE_INPUTS,
         'scripts/build-term-wasm.ts',
         'scripts/sync-term-wasm.ts',
         'scripts/term-wasm-current-glue.ts',
@@ -297,7 +297,7 @@ checksum = "${'3'.repeat(64)}"
 async function createSourceFixture(): Promise<string> {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'merkur-wasm-source-'));
   const files: (readonly [string, string])[] = [
-    ...TERM_WASM_BAZEL_PIPELINE_INPUTS.map((file): readonly [string, string] => [file, file]),
+    ...TERM_WASM_PIPELINE_INPUTS.map((file): readonly [string, string] => [file, file]),
     ['Cargo.lock', FIXTURE_LOCKFILE],
     ['Cargo.toml', FIXTURE_ROOT_MANIFEST],
     ['rust-toolchain.toml', 'rust-toolchain.toml'],

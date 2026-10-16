@@ -1002,9 +1002,6 @@
       "clippy::cast_possible_wrap": 2,
       "clippy::too_many_lines": 1
     },
-    "packages/merkur-identity-seal/build.rs": {
-      "clippy::panic": 2
-    },
     "packages/merkur-identity-seal/src/hardware.rs": {
       "clippy::map_err_ignore": 4
     },

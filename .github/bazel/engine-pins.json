@@ -1,9 +1,0 @@
-{
-  "version": "9.2.0",
-  "binaries": {
-    "darwin-arm64": "dd466352a3e4d3581b8898740ee1ff208866ccbe25f8d367c5dcb950219587e6",
-    "darwin-x86_64": "14c9bcb01303b38192e0e2895051c1bcf19bf89d7e416f5aeeeb48b6b624cfbf",
-    "linux-arm64": "049dd21f40ad979db11c3ee68c96a42ce75f1185e69ac61ab20de1501427a410",
-    "linux-x86_64": "7668a95db1250f12c40407251e4e203b4ec8bf39bc495d2f485b2d8c99048694"
-  }
-}

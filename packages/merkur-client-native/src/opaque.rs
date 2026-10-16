@@ -257,24 +257,9 @@ mod tests {
 
     #[test]
     fn native_sign_in_opens_a_browser_worker_registration() {
-        // A declaring runner supplies the oracle as one executable; a source run has Bun
-        // run the same script from the workspace root.
-        let mut oracle = match std::env::var_os("MERKUR_BROWSER_REGISTRATION_ORACLE") {
-            Some(executable) => std::process::Command::new(executable),
-            None => {
-                let mut bun = std::process::Command::new("bun");
-                bun.current_dir(
-                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .parent()
-                        .unwrap()
-                        .parent()
-                        .unwrap(),
-                )
-                .arg("packages/merkur-client-native/scripts/browser-registration-oracle.ts");
-                bun
-            }
-        };
-        let output = oracle
+        // The real browser registration worker, which the test's build graph hands over as one
+        // executable.
+        let output = std::process::Command::new(env!("MERKUR_BROWSER_REGISTRATION_ORACLE"))
             .output()
             .expect("run the real browser registration worker in Bun");
         assert!(

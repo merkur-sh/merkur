@@ -3936,7 +3936,6 @@ mod tests {
         /// never storage: the projector's charge alone decides what fits, so no
         /// viewer can make it evict an application's original.
         #[tokio::test(flavor = "current_thread")]
-        #[ignore = "real helper: bun run build:image-worker"]
         async fn viewers_that_never_acknowledge_change_no_storage_and_no_reply() {
             let alone = without_viewers().await;
             let viewed = with_silent_viewers().await;
