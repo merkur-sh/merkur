@@ -18,10 +18,10 @@ defaults:
   run:
     shell: bash
 
-# A cold build fills the shared cache for every later run, so a newer commit queues behind it
-# instead of discarding it.
+# One group per commit: a newer commit's run, or the skip a superseded CI run triggers, never
+# cancels or replaces another commit's build. Concurrent builds share the remote cache.
 concurrency:
-  group: bazel-${{ github.ref }}
+  group: bazel-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -61,17 +61,24 @@ jobs:
           rust: 'false'
       # The generated captures follow the tree they describe: the build below tests them as
       # regenerated here, and the `captures` job commits whatever changed.
+      # Each capture is refreshed on its own: one generator's refusal keeps the others' results,
+      # and still fails this step.
       - name: Regenerate the Bazel captures
         run: |
-          bun tools/bazel/bun/import-inventory.ts "$RUNNER_TEMP/import-inventory.json"
-          cp "$RUNNER_TEMP/import-inventory.json" tools/bazel/bun/import-inventory.json
-          python3 -I -B tools/bazel/bun/generate_graph.py
-          python3 -I -B tools/bazel/rust/refresh_graph.py --bazel "$(command -v bazel)"
-          python3 -I -B tools/bazel/rust/refresh_source_inputs.py --bazel "$(command -v bazel)"
-          CARGO_BAZEL_REPIN=true bazel mod deps --lockfile_mode=update
+          failed=()
+          refresh() { "$@" || failed+=("$*"); }
+          refresh bun tools/bazel/bun/import-inventory.ts "$RUNNER_TEMP/import-inventory.json" &&
+            cp "$RUNNER_TEMP/import-inventory.json" tools/bazel/bun/import-inventory.json
+          refresh python3 -I -B tools/bazel/bun/generate_graph.py
+          refresh python3 -I -B tools/bazel/rust/acquire/workspace-sdk.py
+          refresh env CARGO_BAZEL_REPIN=true bazel mod deps --lockfile_mode=update
+          refresh python3 -I -B tools/bazel/rust/refresh_graph.py --bazel "$(command -v bazel)"
+          refresh python3 -I -B tools/bazel/rust/refresh_source_inputs.py --bazel "$(command -v bazel)"
           git diff --binary -- . ':!.bazelrc.local' > "$RUNNER_TEMP/captures.patch"
           git diff --stat
+          if (( ${#failed[@]} )); then printf 'Refresh failed: %s\n' "${failed[@]}" >&2; exit 1; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
         with:
           name: bazel-captures-${{ github.run_id }}
           path: ${{ runner.temp }}/captures.patch
@@ -81,6 +88,7 @@ jobs:
       # tmux SDKs build with the declared GCC 14.3 bookworm toolchain; a hosted Ubuntu runner is
       # neither (.github/bazel/execution-pools.md), so those packages wait for a qualified pool.
       - name: Build and test
+        if: ${{ !cancelled() }}
         run: |
           bazel test --config=development --config=ci --config=linux_x64 --keep_going -- //... \
             -//tools/bazel/rust/units/... -//tools/bazel/tools/ninja_sdk/... -//tools/bazel/tools/shell_sdk/...
@@ -123,7 +131,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           # A newer push can have moved main; the patch then lands three-way, and a capture a
           # later run regenerates anyway is left to that run.
-          for attempt in 1 2 3; do
+          for _ in 1 2 3; do
             git fetch --quiet origin main
             git reset --quiet --hard origin/main
             git apply --3way --index "$PATCH" || { echo 'Patch no longer applies; a later run regenerates it.'; exit 0; }

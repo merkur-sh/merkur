@@ -19,8 +19,10 @@ defaults:
   run:
     shell: bash
 
+# After CI the group is that run's commit: a newer commit's run, or the skip a superseded CI
+# run triggers, never cancels another commit's proofs.
 concurrency:
-  group: assurance-${{ github.event_name }}-${{ github.ref }}
+  group: assurance-${{ github.event_name }}-${{ github.event.workflow_run.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
