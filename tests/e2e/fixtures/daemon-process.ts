@@ -256,25 +256,18 @@ async function killDaemon(proc: DaemonChildProcess): Promise<void> {
 
 /**
  * Every test pays for one daemon stop, so its duration is in the report beside the test's
- * own. A stop that ran out the dataplane's grace period ended in a forced kill, which skips
- * the dataplane's own teardown; the report keeps the daemon's last lines for it.
+ * own, with what the daemon logged while it stopped.
  */
 function recordDaemonStop(
   testInfo: TestInfo,
   durationMs: number,
-  logChunks: readonly string[],
+  stopLogChunks: readonly string[],
 ): void {
   testInfo.annotations.push({
     type: 'daemon-stop-ms',
     description: String(Math.round(durationMs)),
   });
-  const lines = logChunks.join('').trimEnd().split('\n');
-  if (lines.some((line) => line.includes('dataplane_shutdown_force_kill'))) {
-    testInfo.annotations.push({
-      type: 'daemon-stop-forced',
-      description: lines.slice(-40).join('\n'),
-    });
-  }
+  testInfo.annotations.push({ type: 'daemon-stop-log', description: stopLogChunks.join('') });
 }
 
 async function waitForProcessExit(proc: DaemonChildProcess): Promise<number> {
@@ -569,8 +562,13 @@ export const test = base.extend<
         // Retire every peer and carrier owned by this test before another page
         // creates a session. The linked identity and trusted profile stay warm.
         const stopStartedAt = performance.now();
+        const stopLogStart = linkedDaemonWorker.logChunks.length;
         await killDaemon(linkedDaemonWorker.process);
-        recordDaemonStop(testInfo, performance.now() - stopStartedAt, linkedDaemonWorker.logChunks);
+        recordDaemonStop(
+          testInfo,
+          performance.now() - stopStartedAt,
+          linkedDaemonWorker.logChunks.slice(stopLogStart),
+        );
       }
     }
   },
