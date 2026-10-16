@@ -53,8 +53,9 @@ export function llmsText(
   for (const [route, html] of Object.entries(pages)) {
     // The home page is the summary and the questions above the lists.
     if (route === HOME) continue;
-    // A bracket in a title would close the link it is the text of.
-    const title = meta(html, 'property="og:title"', route).replace(/[[\]]/g, '\\$&');
+    // A bracket in a title would close the link it is the text of, and a backslash would escape
+    // the character after it.
+    const title = meta(html, 'property="og:title"', route).replace(/[\\[\]]/g, '\\$&');
     sections[sectionOf(route)].push(
       `- [${title}](${environment.siteOrigin}${route}): ${meta(html, 'name="description"', route)}`,
     );

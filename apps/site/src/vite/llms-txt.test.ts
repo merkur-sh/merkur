@@ -59,6 +59,14 @@ Questions the home page answers:
 `);
   });
 
+  test('a backslash in a title is escaped, so it cannot escape the character after it', () => {
+    const text = llmsText(ORIGINS, {
+      '/': HOME,
+      '/security': page('A\\]B', 'Who holds which key.'),
+    });
+    expect(text).toContain('- [A\\\\\\]B](https://merkur.sh/security)');
+  });
+
   test('a site with no blog has no blog section', () => {
     const text = llmsText(ORIGINS, { '/': HOME, '/security': PAGES['/security'] });
     expect(text).not.toContain('## Blog');

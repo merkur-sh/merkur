@@ -575,10 +575,12 @@ async fn probe_first_hop(
     }
 }
 
-fn random_nonce() -> [u8; 12] {
+/// The nonce that proves this client owns its PCP mapping (RFC 6887 §11.1). Without entropy there
+/// is no such proof, so no mapping is requested.
+fn random_nonce() -> Option<[u8; 12]> {
     let mut nonce = [0u8; 12];
-    let _ = ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce);
-    nonce
+    ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce).ok()?;
+    Some(nonce)
 }
 
 fn lease(
@@ -611,7 +613,10 @@ async fn map_pcp(
     reflexive: Ipv4Addr,
     schedule: RetransmitSchedule,
 ) -> Attempt {
-    let nonce = random_nonce();
+    let Some(nonce) = random_nonce() else {
+        warn!("pcp: no entropy for a mapping nonce; no mapping requested");
+        return Attempt::Refused;
+    };
     let client = IpAddr::V4(egress.local_ipv4);
     let mapping = match pcp::map(
         client,
@@ -1149,7 +1154,10 @@ async fn open_pcp_pinhole(
     port: u16,
     schedule: RetransmitSchedule,
 ) -> Option<Box<Pinhole>> {
-    let nonce = random_nonce();
+    let Some(nonce) = random_nonce() else {
+        warn!("pcp6: no entropy for a pinhole nonce; no pinhole requested");
+        return None;
+    };
     let client = IpAddr::V6(egress.local);
     match pcp::map(
         client,

@@ -112,6 +112,9 @@ describe('site-manifest.json', () => {
     expect(() => pageStyleHashes('<script>alert(1)</script>', 'index.html')).toThrow(
       'index.html has an inline script',
     );
+    expect(() => pageStyleHashes('<SCRIPT>alert(1)</SCRIPT>', 'index.html')).toThrow(
+      'index.html has an inline script',
+    );
     expect(() => pageStyleHashes('<p style="color:red">', 'index.html')).toThrow('style attribute');
     site();
     write('assets/unhashed.js', '');

@@ -1,7 +1,7 @@
 import '../packages/shared/src/e2e-wasm-bun';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -20,6 +20,7 @@ import {
   encodeReleaseSignature,
   signReleaseManifest,
 } from '../packages/shared/src/release-signature';
+import { readReleaseSigningSeed } from './release-seed';
 
 interface SignArguments {
   readonly directory: string;
@@ -47,7 +48,7 @@ if (
 ) {
   throw new Error('release expiry must be within the next 30 days');
 }
-const seed = await readSigningSeed(args.seedFile);
+const seed = await readReleaseSigningSeed(args.seedFile);
 const entropy = randomBytes(32);
 const key = deriveReleaseSigningKey(seed);
 const publicKey = key.publicKey;
@@ -137,17 +138,6 @@ function parsePositiveInteger(value: string | undefined, name: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) throw new Error(`${name} exceeds the safe-integer range`);
   return parsed;
-}
-
-async function readSigningSeed(seedFile: string): Promise<Buffer> {
-  const metadata = await stat(seedFile);
-  if (!metadata.isFile() || metadata.size !== 32) {
-    throw new Error('release signing seed file must be exactly 32 raw bytes');
-  }
-  if (process.platform !== 'win32' && (metadata.mode & 0o077) !== 0) {
-    throw new Error('release signing seed file must not be accessible by group or other users');
-  }
-  return readFile(seedFile);
 }
 
 async function sha512File(filePath: string): Promise<string> {

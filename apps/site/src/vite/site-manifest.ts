@@ -81,15 +81,16 @@ function listFiles(directory: string): string[] {
 
 /** The CSP hashes of a page's inline stylesheets; throws on anything the CSP would block. */
 export function pageStyleHashes(html: string, page: string): string[] {
-  for (const script of html.matchAll(/<script\b([^>]*)>/g)) {
+  // HTML names are case-insensitive: `<SCRIPT>` runs as `<script>` does.
+  for (const script of html.matchAll(/<script\b([^>]*)>/gi)) {
     const attributes = script[1] ?? '';
     // Structured data is a data block: nothing runs it, so the CSP has nothing to refuse.
-    if (/\stype="application\/ld\+json"/.test(attributes)) continue;
-    if (!/\ssrc=/.test(attributes)) throw new Error(`site-manifest: ${page} has an inline script`);
+    if (/\stype="application\/ld\+json"/i.test(attributes)) continue;
+    if (!/\ssrc=/i.test(attributes)) throw new Error(`site-manifest: ${page} has an inline script`);
   }
   if (/<[a-z][^>]*\sstyle=/i.test(html))
     throw new Error(`site-manifest: ${page} has a style attribute`);
-  return [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map(
+  return [...html.matchAll(/<style>([\s\S]*?)<\/style>/gi)].map(
     (match) =>
       `sha256-${createHash('sha256')
         .update(match[1] ?? '')
