@@ -1,6 +1,6 @@
 # Merkur's Quinn runtime patch
 
-Merkur's pinned copy of [`quinn`](https://crates.io/crates/quinn) 0.11.11, applied through
+Merkur's pinned copy of [`quinn`](https://crates.io/crates/quinn) 0.11.12, applied through
 the root workspace's `[patch.crates-io]` and redistributed under upstream's MIT or
 Apache-2.0 terms. It is excluded from workspace membership so cargo resolves the features
 its dependents ask for, not the crate's defaults; the comment above `[patch.crates-io]` in

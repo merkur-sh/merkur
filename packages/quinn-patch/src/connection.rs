@@ -64,6 +64,7 @@ impl Connecting {
         let driver = ConnectionDriver {
             conn: conn.clone(),
             io: TransmitIo::new(socket),
+            span: debug_span!("drive", id = handle.0),
         };
         runtime.spawn(Box::pin(
             async {
@@ -242,6 +243,7 @@ impl Future for ZeroRttAccepted {
 struct ConnectionDriver {
     conn: ConnectionRef,
     io: TransmitIo,
+    span: Span,
 }
 
 impl Future for ConnectionDriver {
@@ -254,8 +256,7 @@ impl Future for ConnectionDriver {
 
         conn.inner.register_egress_waker(cx.waker());
         conn.inner.register_probe_waker(cx.waker());
-        let span = debug_span!("drive", id = conn.handle.0);
-        let _guard = span.enter();
+        let _guard = this.span.enter();
 
         if let Err(e) = conn.process_conn_events(shared, cx) {
             conn.terminate(e, shared);
@@ -810,6 +811,11 @@ impl Connection {
     /// Current best estimate of this connection's latency (round-trip-time)
     pub fn rtt(&self) -> Duration {
         self.0.state.lock("rtt").inner.rtt()
+    }
+
+    /// Minimum RTT seen on this path, ignoring ack delay
+    pub fn min_rtt(&self) -> Duration {
+        self.0.state.lock("min_rtt").inner.min_rtt()
     }
 
     /// Returns connection statistics
