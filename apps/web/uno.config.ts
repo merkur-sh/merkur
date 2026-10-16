@@ -100,6 +100,21 @@ export default defineConfig({
         }
 
         /*
+         * The document as an installed app rather than a page. A double tap
+         * never zooms, so a tap fires at once without waiting to see whether a
+         * second one follows; pinch zoom stays. The root never rubber-bands or
+         * pulls to refresh: every phase is a fixed layer that owns its own
+         * scrolling, and the root has nothing to scroll. Landscape does not
+         * inflate the type.
+         */
+        html {
+          touch-action: manipulation;
+          overscroll-behavior: none;
+          -webkit-text-size-adjust: 100%;
+          text-size-adjust: 100%;
+        }
+
+        /*
          * The type layer, and the one place the app's base measure is set.
          * 14px/1.6 is the compact baseline. Desktop frames raise that baseline
          * through the shared shortcuts below: the extra room should buy
@@ -274,6 +289,22 @@ export default defineConfig({
           .field {
             height: 38px;
             font-size: 16px;
+          }
+        }
+
+        /*
+         * The same floor for every other control that takes text, which is
+         * what lets the viewport leave zoom on. The terminal's touch input is
+         * a hidden textarea that inherits the body's 14px, and without the
+         * floor every native-keyboard open would zoom the whole terminal.
+         * Important, because a size utility on a field outranks an element
+         * selector and would put it back under 16px.
+         */
+        @media (pointer: coarse) {
+          input:not([type='range'], [type='checkbox'], [type='radio']),
+          textarea,
+          select {
+            font-size: 16px !important;
           }
         }
 
@@ -571,7 +602,7 @@ export default defineConfig({
      * as well, which is part of the same row. Instant, both ways: a cursor that
      * fades in reads as lag.
      */
-    'device-row': 'relative flex items-center rounded-sm text-left tap-transparent',
+    'device-row': 'relative flex items-center rounded-sm text-left select-none tap-transparent',
     'row-name':
       'block text-[14px] frame:text-[16px] font-medium text-ink tracking-[-0.012em] truncate',
     'row-meta':
@@ -593,7 +624,7 @@ export default defineConfig({
     // accent: selection is white on black everywhere in the app, and the
     // accent is kept for the one action on a screen and the live dot.
     tabbar: 'flex shrink-0 gap-[2px] px-2 border-b border-solid border-line1',
-    tab: 'relative px-[10px] pt-[11px] pb-[10px] bg-transparent border-none text-[13px] frame:text-[15px] font-medium tracking-[-0.008em] text-meta cursor-pointer tap-transparent transition-[color] duration-tint hover:text-body motion-reduce:transition-none focusable',
+    tab: 'relative px-[10px] pt-[11px] pb-[10px] bg-transparent border-none text-[13px] frame:text-[15px] font-medium tracking-[-0.008em] text-meta cursor-pointer select-none tap-transparent transition-[color] duration-tint hover:text-body motion-reduce:transition-none focusable',
     'tab-on':
       'text-ink after:(content-empty absolute left-2 right-2 -bottom-px h-[2px] rounded-[1px] bg-ink)',
   },

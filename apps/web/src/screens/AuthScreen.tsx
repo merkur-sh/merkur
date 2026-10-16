@@ -112,6 +112,8 @@ const AuthScreen: Component<Props> = (props) => {
                       type={identity() === 'email' ? 'email' : 'text'}
                       inputmode={identity() === 'email' ? 'email' : undefined}
                       autocomplete="username"
+                      autocapitalize="none"
+                      autocorrect="off"
                       spellcheck={false}
                       required
                       disabled={props.pending}

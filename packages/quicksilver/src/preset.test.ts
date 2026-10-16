@@ -210,6 +210,26 @@ describe('button shortcuts', () => {
   });
 });
 
+describe('touch', () => {
+  test('a hover tint exists only where the pointer can hover', async () => {
+    // A tap applies `:hover` and leaves it until the next tap lands elsewhere,
+    // so an ungated tint stays on every button a phone has pressed.
+    const uno = await generator();
+    const { css } = await uno.generate('btn-ghost btn-icon hover:text-ink frame:hover:bg-raised', {
+      preflights: false,
+    });
+    const gate = '@media (hover: hover) and (pointer: fine)';
+    const hovers = [...css.matchAll(/:hover\{/g)].map((match) => match.index);
+    expect(hovers).toHaveLength(4);
+    for (const index of hovers) {
+      const opened = css.lastIndexOf(gate, index);
+      expect(opened).toBeGreaterThanOrEqual(0);
+      // No block closed between the gate and the rule: the rule is inside it.
+      expect(css.slice(opened, index)).not.toContain('}\n}');
+    }
+  });
+});
+
 describe('selector merging', () => {
   test('a vendor pseudo-element never shares a rule with a plain utility', async () => {
     // A selector list is dropped whole when any member is unparseable, and

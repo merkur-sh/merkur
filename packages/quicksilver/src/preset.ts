@@ -286,6 +286,30 @@ ${CSS_VARIABLES}
       'alert-warn': 'alert bg-warnsoft border-warnline text-warnink',
       'alert-ok': 'alert bg-oksoft border-okline text-okink',
     },
+    variants: [
+      /**
+       * `hover:` only where the primary input can hover. Touch has no hover, so
+       * WebKit and Blink fake one: the first tap applies `:hover` and leaves it
+       * until the next tap lands somewhere else, and a button tapped on a phone
+       * kept its hover tint after the press had ended. Press feedback on touch
+       * is `active:`, which every control already carries.
+       *
+       * Ordered ahead of preset-mini's pseudo-class variant, which would
+       * otherwise claim `hover:` first and emit a bare `:hover`.
+       */
+      {
+        name: 'hover',
+        order: -1,
+        match(matcher) {
+          if (!matcher.startsWith('hover:')) return undefined;
+          return {
+            matcher: matcher.slice('hover:'.length),
+            selector: (selector) => `${selector}:hover`,
+            parent: '@media (hover: hover) and (pointer: fine)',
+          };
+        },
+      },
+    ],
     rules: [
       [
         'h-app',

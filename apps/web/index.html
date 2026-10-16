@@ -2,9 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!--
+      Zoom stays enabled: what used to zoom the page is a focused field under
+      16px, and every field is 16px on a coarse pointer. The terminal surface
+      takes every gesture itself (`touch-action: none`), so a pinch on the grid
+      never reaches the page. `resizes-content` makes Android's keyboard shrink
+      the layout viewport, as iOS's already does to the visual one.
+    -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#08080c" />
     <meta
