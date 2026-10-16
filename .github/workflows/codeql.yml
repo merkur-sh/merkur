@@ -16,9 +16,11 @@ defaults:
   run:
     shell: bash
 
+# Code scanning tracks alerts on `main`, so every push there is analyzed to the end; a pull
+# request's newer push supersedes its older one.
 concurrency:
-  group: codeql-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: codeql-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
