@@ -2,7 +2,7 @@ import '@merkur/shared/e2e-wasm-bun';
 import { merkurReleasePublicKey, merkurVersion } from '@merkur/shared';
 import { waitForProcessSignal } from '@merkur/shared/node-signals';
 import { releasePublicKeyFingerprint } from '@merkur/shared/release-signature';
-import { Cause, Deferred, Effect, Exit, Fiber } from 'effect';
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Scope } from 'effect';
 import { createCliLogger } from './cli/cli-output';
 import { renderCliHelp } from './cli/help';
 import { runInstallCommand } from './cli/install';
@@ -148,10 +148,21 @@ const daemonProgram = Effect.scoped(
     // for a few hundred milliseconds and have no server relationship to speak
     // of; only the long-lived runtime does.
     const signer = createDaemonProofSigner();
+    // The exporter signs every request with the identity the dataplane holds, so its life ends
+    // with that binding: the runtime closes this scope, which flushes signed, before it releases
+    // the signer. A span recorded after that has no identity to travel with and is dropped.
+    const telemetryScope = yield* Scope.make();
+    const retireTelemetry = Scope.close(telemetryScope, Exit.void);
+    yield* Effect.addFinalizer(() => retireTelemetry);
+    const telemetry = yield* Layer.buildWithScope(
+      daemonTracerLayer(config, signer),
+      telemetryScope,
+    );
     const runtimeFiber = yield* runDaemonRuntimeEffect(config, logger, signer, {
       shutdownIntent,
+      retireTelemetry,
       enableFinalTransportCapture: process.env.MERKUR_E2E_FINAL_TRANSPORT_CAPTURE === '1',
-    }).pipe(Effect.provide(daemonTracerLayer(config, signer)), Effect.forkScoped);
+    }).pipe(Effect.provide(telemetry), Effect.forkScoped);
     const shutdownFiber = yield* waitForProcessSignal().pipe(
       Effect.tap((signal) => logEffect('info', 'daemon', 'daemon_shutdown_requested', { signal })),
       Effect.tap(() => Deferred.succeed(shutdownIntent, undefined)),

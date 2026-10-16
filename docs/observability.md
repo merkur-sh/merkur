@@ -628,7 +628,9 @@ never at the backend (`apps/daemon/src/observability/telemetry.ts`). It exports 
 seconds, at a constant `Info` threshold, and only around the long-lived runtime: the CLI
 commands never open an exporter. The request is signed by the daemon identity after
 serialization; the server hashes the raw bytes and relays them, and with its own telemetry
-unconfigured it reports `discarded_unconfigured`. See
+unconfigured it reports `discarded_unconfigured`. The identity lives in the dataplane, so the
+exporter ends with the dataplane binding: on shutdown it flushes while it can still sign, before
+the dataplane stops, and a span recorded after that is dropped rather than retried unsigned. See
 [`security.md`](./security.md#daemon-management-proofs) for the proof.
 
 | Span | Lifetime | Attributes |

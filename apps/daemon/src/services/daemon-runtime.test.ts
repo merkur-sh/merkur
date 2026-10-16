@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { Cause, Data, Effect, Exit } from 'effect';
+import { Cause, Data, Effect, Exit, Result } from 'effect';
 
-import { superviseCriticalDaemonEffects } from './daemon-runtime';
+import { createDaemonProofSigner } from './daemon-proof-signer';
+import { bindDaemonSignerScoped, superviseCriticalDaemonEffects } from './daemon-runtime';
 
 class TestDataplaneFatalError extends Data.TaggedError('TestDataplaneFatalError')<{
   readonly reason: string;
@@ -75,6 +76,25 @@ describe('daemon critical supervision', () => {
     if (Exit.isFailure(exit)) {
       expect(Cause.pretty(exit.cause)).toContain('health reporter defect');
     }
+  });
+
+  test('retires span export while the signer can still sign, then releases it', async () => {
+    const signer = createDaemonProofSigner();
+    const client = {
+      signDaemonProofEffect: () =>
+        Effect.succeed({ status: 'accepted' as const, signature: 'mldsa', p256Signature: 'p256' }),
+    };
+    const sign = Effect.result(signer.signEffect('http', new Uint8Array([1])));
+    const retirementSigned: boolean[] = [];
+    const retireTelemetry = Effect.map(sign, (result) => {
+      retirementSigned.push(Result.isSuccess(result));
+    });
+
+    await Effect.runPromise(Effect.scoped(bindDaemonSignerScoped(signer, client, retireTelemetry)));
+    const afterRelease = await Effect.runPromise(sign);
+
+    expect(retirementSigned).toEqual([true]);
+    expect(Result.isFailure(afterRelease)).toBe(true);
   });
 
   test('surfaces a perf reporter defect through the owner fiber', async () => {

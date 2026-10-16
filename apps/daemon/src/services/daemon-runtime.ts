@@ -1,5 +1,5 @@
 import { waitForProcessSignal } from '@merkur/shared/node-signals';
-import { Clock, type Deferred, Effect, Fiber, Metric, Queue, Redacted } from 'effect';
+import { Clock, type Deferred, Effect, Fiber, Metric, Queue, Redacted, type Scope } from 'effect';
 import { ensureOpenUrlCommandsEffect } from '../cli/open';
 import {
   type DaemonConfig,
@@ -21,7 +21,7 @@ import {
   runDaemonObservabilityReporterEffect,
 } from './daemon-metrics';
 import { createDaemonPerfSender, runDaemonPerfReporterEffect } from './daemon-perf-reporter';
-import type { createDaemonProofSigner } from './daemon-proof-signer';
+import type { createDaemonProofSigner, DaemonProofSigningClient } from './daemon-proof-signer';
 import {
   createDataplaneClientLayer,
   type DataplaneClient,
@@ -40,6 +40,29 @@ export interface DaemonRuntimeOptions {
   readonly shutdownIntent?: Deferred.Deferred<void>;
   /** Test-harness-only SIGUSR2 capture of one final owner-loop transport sample. */
   readonly enableFinalTransportCapture?: boolean;
+  /**
+   * Ends span export: its final flush, then no more. Run while the signer is still bound to the
+   * dataplane, since every export is signed; afterwards an export could only fail and retry.
+   */
+  readonly retireTelemetry?: Effect.Effect<void>;
+}
+
+/**
+ * Binds the proof signer to this dataplane for the scope's life. Span export ends first, while
+ * an export can still be signed: its final flush is delivered, and nothing is left to retry
+ * unsigned once the binding is released.
+ */
+export function bindDaemonSignerScoped(
+  signer: ReturnType<typeof createDaemonProofSigner>,
+  client: DaemonProofSigningClient,
+  retireTelemetry: Effect.Effect<void>,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.asVoid(
+    Effect.acquireRelease(
+      Effect.sync(() => signer.bind(client)),
+      (unbind) => retireTelemetry.pipe(Effect.andThen(Effect.sync(unbind))),
+    ),
+  );
 }
 
 export function runDaemonRuntimeEffect(
@@ -98,8 +121,11 @@ export function runDaemonRuntimeEffect(
           const pathSignals = yield* Queue.sliding<DaemonControlPathSignal>(1);
           return yield* Effect.gen(function* () {
             const dataplaneClient = yield* DataplaneClientService;
-            const unbindSigner = signer.bind(dataplaneClient);
-            yield* Effect.addFinalizer(() => Effect.sync(unbindSigner));
+            yield* bindDaemonSignerScoped(
+              signer,
+              dataplaneClient,
+              options.retireTelemetry ?? Effect.void,
+            );
             if (options.enableFinalTransportCapture === true) {
               yield* Effect.forever(
                 waitForProcessSignal(['SIGUSR2']).pipe(

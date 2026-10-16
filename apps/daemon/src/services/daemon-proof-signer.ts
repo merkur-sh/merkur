@@ -13,11 +13,14 @@ export interface DaemonProofSigner {
   ): Effect.Effect<DaemonSignaturePair, DaemonProofSigningError>;
 }
 
+/** What a bound signer asks of the dataplane. */
+export type DaemonProofSigningClient = Pick<DataplaneClient, 'signDaemonProofEffect'>;
+
 /** The exporter is constructed before the scoped dataplane becomes available. */
 export function createDaemonProofSigner(): DaemonProofSigner & {
-  bind(client: DataplaneClient): () => void;
+  bind(client: DaemonProofSigningClient): () => void;
 } {
-  let bound: DataplaneClient | null = null;
+  let bound: DaemonProofSigningClient | null = null;
   return {
     bind(client) {
       bound = client;
