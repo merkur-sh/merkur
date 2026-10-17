@@ -1,0 +1,23 @@
+{
+  "hosts": [
+    {
+      "name": "nbg-1",
+      "address": "46.225.209.73",
+      "sshHostKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHpfBkiT/GCaZEG7+QmvERioRt39+N+3k5it5l/fQolH",
+      "interface": "eth0",
+      "edge": {
+        "edgeId": "nbg-1",
+        "region": "nbg",
+        "publicUrl": "https://46.225.209.73:4433",
+        "egressRateMbit": 1000,
+        "egressBudgetGB": 19456,
+        "signalingReserveGB": 512
+      },
+      "stun": {
+        "addresses": ["46.225.209.73", "2a01:4f8:1c18:1eed::10", "2a01:4f8:1c18:1eed::11"],
+        "ports": [3478, 3479, 3480],
+        "changePorts": [3481]
+      }
+    }
+  ]
+}

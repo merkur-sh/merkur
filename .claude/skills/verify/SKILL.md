@@ -119,7 +119,7 @@ runs every case through the same Biome invocation as the gate. Change a rule and
 together. A rule file that does not compile fails the gate as unverified, never as a pass.
 
 Changes confined to prose (`*.md`, `docs/**`) need only `check:docs`. A file no
-row matches (a `fly.toml`, a Dockerfile) still earns `bazel test //...`. `build:native` is
+row matches (a systemd unit, a Dockerfile) still earns `bazel test //...`. `build:native` is
 not a gate: run it only when something will *execute* the programs (dev CLI, a harness run
 outside the harness scripts, which sync themselves), never to satisfy a test: Bazel builds
 what each test declares.

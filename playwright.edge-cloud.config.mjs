@@ -1,5 +1,5 @@
 // Runs the edge-sweep spec against the REMOTE experiment cloud server (Railway)
-// + Fly edge, with a REAL local daemon linked to it. No local webServer — the
+// + deployed edge, with a REAL local daemon linked to it. No local webServer — the
 // remote server owns the authenticated daemon WSS control connection and
 // presence. The daemon uses the local (fixed) dataplane binary, so the
 // WebTransport relay-path burst fix is exercised end-to-end.

@@ -270,13 +270,13 @@ from `EDGE_REGISTRATION_KEYS_JSON`, which `parseEdgeRegistrationKeys`
 | `MERKUR_EDGE_HOSTNAME` | `localhost` | Extra SAN on the certificate; advisory, the browser pins the hash. |
 | `MERKUR_EDGE_REGISTER_URL` | required | Server `/api/edge/register` URL. Canonical HTTPS; loopback HTTP is accepted for development. |
 | `MERKUR_EDGE_REGISTRATION_KEY` | required | Canonical base64url of this replica's distinct 64-byte HMAC-SHA-512 key. |
-| `MERKUR_EDGE_EGRESS_RATE_MBIT` | required in the image | Aggregate egress ceiling in Mbit/s. The image entrypoint (`entrypoint.sh`) installs it with `tc` (HTB, 10 ms burst, fq_codel beneath) on `MERKUR_EDGE_EGRESS_INTERFACE` before dropping privileges, and refuses to start without it. Rendered per replica from `egressRateMbit` in `replicas.json`. It bounds the worst month's egress bill at rate × seconds in the month; set it well above honest use. |
-| `MERKUR_EDGE_EGRESS_INTERFACE` | required | Metered NIC, also used by the image cap. Fly uses `eth0`; local scripts use `lo0` on macOS and `lo` on Linux. Missing interfaces refuse startup. |
+| `MERKUR_EDGE_EGRESS_RATE_MBIT` | required on a host | Aggregate egress ceiling in Mbit/s. `egress-cap.sh`, which `merkur-edge.service` runs as root before every start, installs it with `tc` (HTB, 10 ms burst, fq_codel beneath) on `MERKUR_EDGE_EGRESS_INTERFACE`, rebuilding the tree each time, and the relay does not start without it. Rendered per host from `egressRateMbit` in `deploy/service-hosts.json`: the host's line rate, so it shapes nothing honest traffic reaches. |
+| `MERKUR_EDGE_EGRESS_INTERFACE` | required | Metered NIC, also shaped by the egress cap. Service hosts use `eth0`; local scripts use `lo0` on macOS and `lo` on Linux. Missing interfaces refuse startup. |
 | `MERKUR_EDGE_DATA_BUDGET_GB` | required | Positive integer monthly data budget in GiB (2³⁰ bytes). |
 | `MERKUR_EDGE_SIGNALING_RESERVE_GB` | required | Positive integer additional monthly signaling allowance in GiB. |
 | `MERKUR_EDGE_ATTACH_TICKET_KEY` | required | Canonical base64url of the 64-byte deployment key every replica verifies attach tickets with; the same value as the server's `EDGE_ATTACH_TICKET_KEY`. The edge refuses to start without it. |
-| `MERKUR_EDGE_ID` | required | Stable replica id, for example `fra-1`; unique across the deployment. |
-| `MERKUR_EDGE_REGION` | required | Region label, for example `fra`; a key of `ZONE_BY_FLY_REGION` in `apps/server/src/services/ip-region.ts`. |
+| `MERKUR_EDGE_ID` | required | Stable replica id, for example `nbg-1`; unique across the deployment. |
+| `MERKUR_EDGE_REGION` | required | The host's location, for example `nbg`; a key of `ZONE_BY_EDGE_REGION` in `apps/server/src/services/ip-region.ts`. |
 | `MERKUR_EDGE_PUBLIC_URL` | required | This replica's canonical root HTTPS WebTransport URL. |
 | `MERKUR_EDGE_IDENTITY_DIR` | required | Durable directory for the certificate, private key, and exclusive egress ledger. |
 | `RUST_LOG` | `info` | `tracing` env filter. |
@@ -399,22 +399,29 @@ and the browser transport harness for server issuance, Noise authentication, PTY
 presentation. Retain exact native artifacts and compare equal completed work, latency tails,
 CPU and RSS as described in [the performance guide](../../docs/performance.md).
 
-The image is `apps/edge/Dockerfile`: the runtime around the release binary Bazel builds from the
-workspace's one lockfile (`bazel run --config=release //tools/bazel/release:image_binaries`),
-on Linux x86_64; it drops to an unprivileged user before the binary starts. Replicas are listed in `apps/edge/replicas.json` (id, app, region, public
-URL, rate cap, data budget, and signaling reserve). `scripts/edge-fly-config.ts` renders everything else into a per-replica `<edge-id>.toml`
-under an ignored `fly/` directory inside `apps/edge`, so no deployment manifest is tracked,
-and it refuses a duplicate id, app, or URL, a non-canonical public URL, and a region missing
-from `ZONE_BY_FLY_REGION`, which would leave `selectEdge` unable to rank the replica.
+Production runs the release binary Bazel builds from the workspace's one lockfile
+(`bazel run --config=release //tools/bazel/release:service_binaries`, Linux x86_64) on the
+service hosts in `deploy/service-hosts.json`, under `merkur-edge.service`: a transient user
+with no capabilities, its identity in the unit's state directory, and `egress-cap.sh` run as
+root before every start. Each host lists its address, the SSH host key the release pins, the
+edge's id, region, public URL, rate cap, data budget and signaling reserve, and the STUN
+responder's addresses and ports. `scripts/service-hosts.ts` renders the non-secret
+`/etc/merkur/edge.env` per release, and refuses a duplicate host, address, id or URL, a
+non-canonical public URL, and a region missing from `ZONE_BY_EDGE_REGION`, which would leave
+`selectEdge` unable to rank the edge.
 
 ```bash
-bun run edge:fly-config list                    # what is deployed, and where
-bun run edge:fly-config render <edge-id> <ver>  # writes the manifest for one replica
+bun run service-hosts list            # the hosts, and where
+bun run service-hosts stun-servers    # the server's STUN_SERVERS for these hosts
+bun run service-hosts render <host> <version> <server-origin> <dir>
 ```
 
-Adding a replica: give it a dedicated public address that routes to exactly one machine, a
-persistent volume for `MERKUR_EDGE_IDENTITY_DIR`, and its own registration key as a secret;
-add that key to the server's `EDGE_REGISTRATION_KEYS_JSON`; add the entry to
-`apps/edge/replicas.json`, render, and deploy with the rendered manifest and
-`apps/edge/Dockerfile`. Browsers and daemons learn the URL and pin from the server, so no
-client release is involved. The release tooling owns the procedure that deploys every replica.
+Adding a host: give it a public IPv4 that routes to exactly that machine and its own IPv6
+/64; generate a registration key and add it to the server's `EDGE_REGISTRATION_KEYS_JSON`;
+write `/etc/merkur/edge.secrets.env` (`MERKUR_EDGE_ATTACH_TICKET_KEY`,
+`MERKUR_EDGE_REGISTRATION_KEY`, `MERKUR_EDGE_OTLP_TOKEN`) and `/etc/merkur/stun.secrets.env`
+(`MERKUR_STUN_TICKET_KEY`), both mode 0600; add the deploy key to root's `authorized_keys`;
+add the host to `deploy/service-hosts.json` with its `ssh-ed25519` host key; and set the
+server's `STUN_SERVERS` to `bun run service-hosts stun-servers`. The next release installs
+and starts both services. Browsers and daemons learn the URL and pin from the server, so no
+client release is involved.

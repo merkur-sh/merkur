@@ -120,27 +120,31 @@ Dockerfiles use the canonical `docker/dockerfile` syntax reference required by R
 at the identical digest. An unavailable selected image fails the build.
 Bun is installed from its versioned GitHub release archives, checked against pinned SHA-256
 digests for Linux x64 baseline and arm64.
-No image compiles Rust: the edge and STUN images copy in the release binaries Bazel builds
-(`//tools/bazel/release:image_binaries`), and the server image the signed deployment. The
+No image compiles Rust: the server image takes the signed deployment, and the edge and STUN
+are release binaries Bazel builds (`//tools/bazel/release:service_binaries`) that run on the
+service hosts without an image. The
 WebAssembly packages the verifier embeds arrive built by Bazel, whose wasm-bindgen CLI is the
 version `Cargo.lock` resolves and whose binaryen is pinned by checksum. Review and refresh these pins when publishing security updates. Digest pinning does not automatically update old images,
 and APT packages still come from Debian's authenticated repositories at build time. Rebuild and
 scan the final images when OS advisories require updates; application signatures do not cover
 the base OS, shared libraries, or entrypoint.
 
-The root `.dockerignore` admits only what the three runtime images read: the verifier's
-manifests and sources, the complete signed deployment directory, the service entrypoints and
-the service binaries. Keep signing keys outside the checkout.
+The root `.dockerignore` admits only what the server image reads: the verifier's manifests
+and sources and the complete signed deployment directory. Keep signing keys outside the
+checkout.
 Do not filter extra files inside the signed directory: the verifier must see and reject them.
 
-The edge entrypoint starts as root only to repair ownership of its mounted `/data` directory,
-without following symlinks, then executes the service as UID/GID 10001. The server has no
-mounted directory to repair -- its database is a separate service -- so it starts as root only
-long enough to drop to the same UID/GID. Both clear supplementary groups and inheritable,
-ambient, and bounding capabilities, and set the irreversible `no_new_privs` bit. They use an owner-only creation mask and have no writable home directory.
-The application directory stays root-owned. STUN starts directly as UID/GID 10001 and sets
-`no_new_privs`. The server package normalizes directory modes to 0555, file modes to 0444,
-and its executable to 0555; supplied setuid/setgid modes do not survive packaging.
+The server has no mounted directory -- its database is a separate service -- so it starts as
+root only long enough to drop to UID/GID 10001. It clears supplementary groups and inheritable,
+ambient, and bounding capabilities, sets the irreversible `no_new_privs` bit, uses an
+owner-only creation mask and has no writable home directory. The application directory stays
+root-owned. The server package normalizes directory modes to 0555, file modes to 0444, and its
+executable to 0555; supplied setuid/setgid modes do not survive packaging.
+
+The edge and STUN run under systemd on the service hosts (`apps/edge/merkur-edge.service`,
+`apps/stun/merkur-stun.service`) as transient users with no capabilities, `NoNewPrivileges`, a
+strict read-only system and a system-call filter. Only the edge's egress cap runs as root,
+before the relay starts; the edge's identity lives in its unit's state directory.
 
 Production server deployment is a stage of the tag-triggered release workflow. The hosting
 service never builds from its own Git source: a plain Git checkout lacks the signed bundle.
@@ -161,8 +165,10 @@ server and client signatures. Release CI requires this proof before publishing d
 [Build deployment](../.github/workflows/build-deployment.yml) retains unsigned candidates
 from main. [Release](../.github/workflows/release.yml) reserves a durable monotonic sequence,
 builds all components from one tagged commit, signs with the protected GitHub environment
-seed, and retains exact bytes before production changes. It deploys the server and edge, then
-publishes the daemon assets. See [CI operations](ci.md).
+seed, and retains exact bytes before production changes. It deploys the server, then the edge
+and STUN to every host in `deploy/service-hosts.json` over SSH pinned to each host's key, and
+publishes the daemon assets once each host reports running exactly the retained binaries. See
+[CI operations](ci.md).
 
 ### Runtime filesystem restrictions
 
@@ -184,9 +190,7 @@ The runtime environment file must contain the production server configuration an
 outside the checkout. The digest and environment-file path are required; Compose has no
 default image tag or bundled credentials. The server keeps no
 durable state of its own: its database is a separate libSQL service reached through `DB_URL`,
-so the server container needs no volume. Use the same read-only root and capability policy
-for an independently hosted edge, keeping its identity volume writable at `/data`. STUN
-needs no persistent writable storage and can run with all capabilities dropped.
+so the server container needs no volume.
 
 Hosted platforms run their own container configurations; this Compose file does not
 configure them. The image entrypoints enforce the privilege drop everywhere, but

@@ -8,7 +8,7 @@ from release_assets import extract, inventory, validate_unsigned
 
 class ArtifactTests(unittest.TestCase):
     def test_unsigned_inventory_refuses_missing_extra_and_symlink_assets(self):
-        names = ['deployment.tar.gz', 'edge-image.tar.gz', 'stun-image.tar.gz', 'NOTICES.txt',
+        names = ['deployment.tar.gz', 'merkur-edge', 'merkur-stun', 'NOTICES.txt',
                  'merkur-daemon-linux-x64.tar.gz', 'merkur-daemon-linux-arm64.tar.gz',
                  'merkur-daemon-darwin-x64.tar.gz', 'merkur-daemon-darwin-arm64.tar.gz',
                  'verify-linux-x64', 'verify-linux-arm64']

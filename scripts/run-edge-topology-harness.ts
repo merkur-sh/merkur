@@ -35,8 +35,8 @@ const EDGE_PORTS = [
   Number(process.env.EDGE_TOPOLOGY_FRA_PORT ?? 24_353),
 ] as const;
 const EDGE_REGISTRATION_KEYS = new Map([
-  ['fra-1', Buffer.alloc(64, 0x61).toString('base64url')],
-  ['iad-1', Buffer.alloc(64, 0x62).toString('base64url')],
+  ['nbg-1', Buffer.alloc(64, 0x61).toString('base64url')],
+  ['ash-1', Buffer.alloc(64, 0x62).toString('base64url')],
 ]);
 const EDGE_REGISTRATION_KEYS_JSON = JSON.stringify(Object.fromEntries(EDGE_REGISTRATION_KEYS));
 // `EDGE_ATTACH_TICKET_KEY` in tests/e2e/start-server.ts, which mints the real session's.
@@ -252,8 +252,8 @@ async function main(): Promise<void> {
   await acquireHostHarnessLock('run-edge-topology-harness');
   await syncNativeArtifacts(ROOT);
   const nativePrograms = nativeProgramDigests(ROOT);
-  await startEdge('iad-1', 'iad', EDGE_PORTS[0]);
-  await startEdge('fra-1', 'fra', EDGE_PORTS[1]);
+  await startEdge('ash-1', 'ash', EDGE_PORTS[0]);
+  await startEdge('nbg-1', 'nbg', EDGE_PORTS[1]);
 
   const playwright = track(
     spawn('bunx', ['playwright', 'test', '-c', 'playwright.edge-topology.config.mjs'], {

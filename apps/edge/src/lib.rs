@@ -1,4 +1,4 @@
-//! merkur-edge — Fly.io anycast WebTransport edge relay.
+//! merkur-edge — WebTransport edge relay.
 //!
 //! A BLIND splice: it pairs a browser's native WebTransport session with the
 //! matching daemon HTTP/3 tunnel session and forwards opaque, Noise-encrypted
@@ -24,11 +24,11 @@ mod splice;
 mod telemetry;
 
 use std::env;
-use std::net::{Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::net::{Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::cert::EdgeCerts;
 use crate::endpoint_secret::EndpointSecret;
@@ -62,7 +62,7 @@ pub(crate) fn install_crypto_provider() {
 /// A single panic anywhere is therefore fatal to every user on the replica, and
 /// without this hook the only trace is a bare `SIGABRT` in the platform log.
 ///
-/// Chains to the previous hook so the stderr backtrace still reaches `fly logs`.
+/// Chains to the previous hook so the stderr backtrace still reaches the journal.
 fn install_panic_reporter() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -110,23 +110,9 @@ struct RegistrationConfig {
     identity_dir: PathBuf,
 }
 
-/// Resolve the UDP bind address. On Fly.io, UDP services MUST bind the address
-/// that `fly-global-services` resolves to inside the VM (per Fly's docs), not a
-/// wildcard — otherwise no inbound datagrams are delivered. Off Fly (detected via
-/// `FLY_APP_NAME`), bind the dual-stack wildcard so local runs and the probe work.
+/// The UDP bind address: the dual-stack wildcard. A service host owns its public
+/// addresses, so replies leave from the address each peer dialled.
 fn resolve_bind_addr(port: u16) -> SocketAddr {
-    if env::var_os("FLY_APP_NAME").is_some() {
-        match ("fly-global-services", port).to_socket_addrs() {
-            Ok(mut addrs) => {
-                if let Some(addr) = addrs.next() {
-                    info!(%addr, "edge: binding fly-global-services for Fly UDP routing");
-                    return addr;
-                }
-                warn!("edge: fly-global-services resolved to no addresses; using wildcard");
-            }
-            Err(e) => warn!("edge: failed to resolve fly-global-services ({e}); using wildcard"),
-        }
-    }
     SocketAddr::from((Ipv6Addr::UNSPECIFIED, port))
 }
 

@@ -53,31 +53,29 @@ source NAT; on Linux, host networking does that when the host owns them.
 
 | Env var | Default | Meaning |
 | --- | --- | --- |
-| `MERKUR_STUN_EGRESS_RATE_MBIT` | required in the Fly image | Positive integer aggregate transmit ceiling in Mbit/s; Fly sets `1`. |
-| `MERKUR_STUN_EGRESS_INTERFACE` | required in the Fly image | Interface shaped by the entrypoint; Fly sets `eth0`. |
 | `MERKUR_STUN_TICKET_KEY` | required | Canonical base64url of the 64-byte master key; the same value as the server's `STUN_TICKET_KEY`, never a daemon's ticket secret. |
 | `MERKUR_STUN_PORTS` | `3478,3479,3480` | Mapping-observer ports, bound on every address. |
 | `MERKUR_STUN_CHANGE_PORTS` | unset | Change-only ports, bound on every address. A port present in both lists is refused at startup. |
 | `MERKUR_STUN_BIND` | unset (wildcard) | Comma-separated explicit IP addresses to bind. Set it for any multi-address responder. |
 
 Bazel builds the release binary from the workspace's lockfile and the vendored QUIC and
-WebTransport patches, on Linux x86_64, and the image copies it in from the repository root:
+WebTransport patches, on Linux x86_64, and the release installs it on every host in
+`deploy/service-hosts.json`:
 
 ```sh
-bazel run --config=release //tools/bazel/release:image_binaries
-docker build -f apps/stun/Dockerfile -t merkur-stun .
+bazel run --config=release //tools/bazel/release:service_binaries
 ```
+
+On a host, `merkur-stun.service` runs it as a transient user with no capabilities and a
+system-call filter, bound to the host's IPv4 and two addresses from its routed IPv6 /64, which
+`merkur-stun-addrs.service` adds to the interface on every boot. Both read
+`/etc/merkur/stun.env`, rendered per release by `scripts/service-hosts.ts`, and the ticket key
+from `/etc/merkur/stun.secrets.env`, which never leaves the host. The server's `STUN_SERVERS`
+for the hosts is `bun run service-hosts stun-servers`.
 
 Allow inbound UDP to the listener ports, outbound UDP from them, and outbound QUIC from
 ephemeral ports on both addresses with its reply traffic. The responder has no HTTP listener,
 no public CA certificate, no terminal credential, and no configurable callback URL.
-
-The Fly image starts its entrypoint as root, verifies the configured interface, and
-installs an HTB ceiling with a 10 ms burst and fq_codel beneath it. Any configuration or
-shaping failure prevents startup. It then uses `setpriv` to run UID/GID 10001 with no
-supplementary groups or capabilities and with `no-new-privs`. This caps aggregate egress,
-including authenticated traffic; it does not change silent ticket rejection. The Hetzner
-box-host systemd responder is unchanged by this container-only cap.
 
 ## Verify Locally
 

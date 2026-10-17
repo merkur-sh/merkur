@@ -16,11 +16,4 @@
 !scripts/web-build-signature.ts
 !deployment/**
 
-# The edge and STUN images: their entrypoints, which install egress caps and then drop
-# privileges, and the release binaries Bazel built (`//tools/bazel/release:image_binaries`).
-!apps/edge/entrypoint.sh
-!apps/stun/entrypoint.sh
-!dist/images/merkur-edge
-!dist/images/merkur-stun
-
 **/*.test.ts

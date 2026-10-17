@@ -5235,8 +5235,8 @@ mod tests {
         );
     }
 
-    /// Live integration test against a running edge (local or the deployed Fly
-    /// app). Set MERKUR_EDGE_URL + MERKUR_EDGE_CERT_HASH (base64), plus the
+    /// Live integration test against a running edge (local or a deployed service
+    /// host). Set MERKUR_EDGE_URL + MERKUR_EDGE_CERT_HASH (base64), plus the
     /// attach tickets that edge admits: MERKUR_EDGE_DAEMON_ID,
     /// MERKUR_EDGE_DAEMON_TICKET and MERKUR_EDGE_BROWSER_TICKET for session
     /// `edge-tunnel-live`. When any is unset it returns early so the normal

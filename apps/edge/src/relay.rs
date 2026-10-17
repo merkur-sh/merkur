@@ -199,9 +199,8 @@ async fn settle_session_pump(
 }
 
 /// Build the browser+daemon-facing WebTransport server endpoint bound to
-/// `bind_addr`. No NAT discovery: the anycast address is stable and externally
-/// fixed. On Fly.io the caller passes the `fly-global-services` address (UDP
-/// services must bind it, not a wildcard); locally it is the dual-stack wildcard.
+/// `bind_addr`, the dual-stack wildcard. No NAT discovery: the host's public
+/// address is stable and externally fixed.
 pub fn build_server_config(cert: &EdgeCert, bind_addr: std::net::SocketAddr) -> ServerConfig {
     let mut tls_config =
         wtransport::tls::server::build_default_tls_config(cert.identity.clone_identity());

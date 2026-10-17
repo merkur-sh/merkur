@@ -169,13 +169,13 @@ describe('issuer', () => {
   test("a box daemon is not given its own host's observers", () => {
     const issuer = createStunTicketIssuer(
       new Uint8Array(KEY),
-      ['fly:3478', 'fly:3479', '[2001:db8::5]:34780', '198.51.100.9:34780'],
+      ['edge-host:3478', 'edge-host:3479', '[2001:db8::5]:34780', '198.51.100.9:34780'],
       ['[2001:db8::5]:34780', '198.51.100.9:34780'],
     );
-    expect([...issuer.serversFor('calm-harbor')]).toEqual(['fly:3478', 'fly:3479']);
+    expect([...issuer.serversFor('calm-harbor')]).toEqual(['edge-host:3478', 'edge-host:3479']);
     expect([...issuer.serversFor(null)]).toEqual([
-      'fly:3478',
-      'fly:3479',
+      'edge-host:3478',
+      'edge-host:3479',
       '[2001:db8::5]:34780',
       '198.51.100.9:34780',
     ]);

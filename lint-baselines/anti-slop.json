@@ -2098,12 +2098,6 @@
   "scripts/edge-entrypoint.test.ts": {
     "no-known-value-widening": 1
   },
-  "scripts/edge-fly-config.ts": {
-    "comment-provenance": 1,
-    "no-runtime-typeof": 5,
-    "no-unsafe-dictionary-type": 2,
-    "require-safety-comment-for-type-assertion": 11
-  },
   "scripts/edge-network-control.test.ts": {
     "no-known-value-widening": 3,
     "no-literal-timer-delay": 1,

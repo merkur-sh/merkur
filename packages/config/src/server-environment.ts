@@ -219,7 +219,7 @@ export const serverEnvironment = {
     secret: false,
     requirement: 'Yes',
     notes:
-      'Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; use `1` behind a single proxy such as Railway or Fly. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default.',
+      'Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; use `1` behind a single proxy such as Railway. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default.',
     example: '0',
   },
   SESSION_TOKEN_MLDSA87_SEED: {

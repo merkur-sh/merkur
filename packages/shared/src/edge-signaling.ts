@@ -3,7 +3,7 @@ import { TRANSPORT_CHANNEL_ID } from './transport';
 /**
  * Edge signaling contract.
  *
- * Signaling rides the same anycast edge WebTransport carrier as terminal data
+ * Signaling rides the same edge WebTransport carrier as terminal data
  * (`apps/web/src/session/connect-webtransport-edge.ts`,
  * `apps/daemon/dataplane/src/edge_tunnel.rs`). Only the carrier changes. Current
  * message shapes include hybrid `session_auth`, `session_ready`, `noise_*`,

@@ -164,8 +164,8 @@ directory_archive(
     tags = _RELEASE,
 )
 
-# The service binaries the edge and STUN images copy in (`apps/edge/Dockerfile`,
-# `apps/stun/Dockerfile`): `bazel run --config=release //tools/bazel/release:image_binaries`.
+# The edge and STUN binaries the service hosts run (deploy/service-hosts.json), as release
+# assets: `bazel run --config=release //tools/bazel/release:service_binaries`.
 release_binary(
     name = "merkur-edge",
     binary = "//apps/edge:merkur-edge",
@@ -179,11 +179,11 @@ release_binary(
 )
 
 checkout_sync(
-    name = "image_binaries",
+    name = "service_binaries",
     executable = True,
     sources = {
-        ":merkur-edge": "dist/images",
-        ":merkur-stun": "dist/images",
+        ":merkur-edge": "dist/services",
+        ":merkur-stun": "dist/services",
     },
     tags = _RELEASE,
 )

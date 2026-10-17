@@ -146,18 +146,12 @@ fn service_version() -> String {
 }
 
 fn resource(config: &TelemetryConfig) -> Resource {
-    let mut attributes = vec![
+    let attributes = vec![
         KeyValue::new("service.version", service_version()),
         KeyValue::new("deployment.environment.name", config.environment.clone()),
         KeyValue::new("merkur.edge.id", config.edge_id.clone()),
         KeyValue::new("merkur.edge.region", config.edge_region.clone()),
     ];
-    if let Ok(alloc) = env::var("FLY_ALLOC_ID") {
-        attributes.push(KeyValue::new("fly.alloc.id", alloc));
-    }
-    if let Ok(machine) = env::var("FLY_MACHINE_ID") {
-        attributes.push(KeyValue::new("fly.machine.id", machine));
-    }
     Resource::builder()
         .with_service_name(SERVICE_NAME)
         .with_attributes(attributes)
@@ -166,7 +160,7 @@ fn resource(config: &TelemetryConfig) -> Resource {
 
 /// Install the tracing subscriber, and the OTLP pipelines when configured.
 ///
-/// Always initializes the subscriber, so the `fmt` layer keeps `fly logs`
+/// Always initializes the subscriber, so the `fmt` layer keeps the journal
 /// working whether or not telemetry is on.
 pub fn init(config: Option<TelemetryConfig>) -> Result<Option<Telemetry>, String> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -260,7 +254,7 @@ pub fn init(config: Option<TelemetryConfig>) -> Result<Option<Telemetry>, String
     // Only this crate's events become OTLP logs. `internal-logs` makes the SDK
     // emit `tracing` events on export failure; if those fed the log pipeline, a
     // failed export would enqueue a log, which triggers an export, which fails.
-    // They still reach the `fmt` layer and `fly logs`.
+    // They still reach the `fmt` layer and the journal.
     let log_bridge = OpenTelemetryTracingBridge::new(&logger_provider)
         .with_filter(Targets::new().with_target("merkur_edge", LevelFilter::INFO));
 

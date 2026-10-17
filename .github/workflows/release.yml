@@ -11,7 +11,6 @@ concurrency:
 env:
   MERKUR_RELEASE_MLDSA87_PUBLIC_KEY: ${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
   VERSION: ${{ github.ref_name }}
-  STUN_APPS: ${{ vars.STUN_APPS }}
   SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
   OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
   MINIMUM_SEQUENCE: ${{ vars.RELEASE_MINIMUM_SEQUENCE }}
@@ -38,8 +37,7 @@ jobs:
           persist-credentials: false
       - name: Validate deployment inventory and public configuration
         env:
-          STUN_APPS: ${{ vars.STUN_APPS }}
-          ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+                  ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
           OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
         run: python3 scripts/ci/release_inventory.py
       - id: reserve
@@ -166,8 +164,7 @@ jobs:
       RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
       RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
       SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
-      STUN_APPS: ${{ vars.STUN_APPS }}
-    steps:
+        steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -183,17 +180,10 @@ jobs:
       - run: bazel run //tools/bazel/wasm:sync
       - run: python3 scripts/ci/release_assets.py restore dist/ci-release
       - run: npm install --global @railway/cli@5.12.1
-      - name: Install verified Fly CLI
-        run: |
-          curl --fail --silent --show-error --location https://github.com/superfly/flyctl/releases/download/v0.4.104/flyctl_0.4.104_Linux_x86_64.tar.gz -o "$RUNNER_TEMP/flyctl.tar.gz"
-          printf '4023d2a4f5e76198197f80bde74271184b200b9034bb16d799acba373714bfbc  %s\n' "$RUNNER_TEMP/flyctl.tar.gz" | sha256sum --check
-          mkdir "$RUNNER_TEMP/fly-bin"
-          tar -xzf "$RUNNER_TEMP/flyctl.tar.gz" -C "$RUNNER_TEMP/fly-bin" flyctl
-          echo "$RUNNER_TEMP/fly-bin" >> "$GITHUB_PATH"
       - name: Deploy retained services and publish
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          SERVICE_HOSTS_SSH_KEY: ${{ secrets.SERVICE_HOSTS_SSH_KEY }}
         run: |
           gh auth setup-git
           bash scripts/ci/deploy-services.sh

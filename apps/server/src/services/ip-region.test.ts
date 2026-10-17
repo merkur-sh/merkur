@@ -114,13 +114,15 @@ describe('IPv6 zone resolution', () => {
 });
 
 describe('edge region mapping', () => {
-  test('the deployed edge regions are mapped', () => {
-    expect(zoneForEdgeRegion('fra')).toBe('eu');
-    expect(zoneForEdgeRegion('iad')).toBe('na');
+  test('the Hetzner locations an edge can run in are mapped', () => {
+    expect(zoneForEdgeRegion('nbg')).toBe('eu');
+    expect(zoneForEdgeRegion('hel')).toBe('eu');
+    expect(zoneForEdgeRegion('ash')).toBe('na');
+    expect(zoneForEdgeRegion('sin')).toBe('apac');
   });
 
   test('region codes are matched case-insensitively', () => {
-    expect(zoneForEdgeRegion('FRA')).toBe('eu');
+    expect(zoneForEdgeRegion('NBG')).toBe('eu');
   });
 
   /**
@@ -130,6 +132,7 @@ describe('edge region mapping', () => {
    */
   test('an unknown region declines', () => {
     expect(zoneForEdgeRegion('zzz')).toBeNull();
+    expect(zoneForEdgeRegion('fra')).toBeNull();
     expect(zoneForEdgeRegion('')).toBeNull();
   });
 });

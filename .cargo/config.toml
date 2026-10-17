@@ -21,7 +21,7 @@ rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 # merkur-fec has one SIMD lane per target and no runtime dispatch. On x86_64
 # that lane is SSSE3 (`pshufb`), and the crate refuses to compile without it,
 # so every x86_64 build enables it. SSSE3 dates from 2006 (Core 2); every
-# Hetzner and Fly host has it. It is the x86_64 CPU floor for the daemon, the
+# Hetzner host has it. It is the x86_64 CPU floor for the daemon, the
 # edge and STUN. A `RUSTFLAGS` environment variable replaces this list.
 [target.'cfg(target_arch = "x86_64")']
 rustflags = ["-C", "target-feature=+ssse3"]

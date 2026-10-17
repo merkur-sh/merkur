@@ -1,0 +1,53 @@
+# The edge relay on a service host (deploy/service-hosts.json).
+#
+# `scripts/ci/install-service-release.sh` installs this unit, the release binary
+# behind /usr/local/bin/merkur-edge, and the rendered /etc/merkur/edge.env on
+# every release. /etc/merkur/edge.secrets.env is provisioned once on the host and
+# never leaves it: MERKUR_EDGE_ATTACH_TICKET_KEY (the server's
+# EDGE_ATTACH_TICKET_KEY), MERKUR_EDGE_REGISTRATION_KEY (this edge's entry in the
+# server's EDGE_REGISTRATION_KEYS_JSON) and MERKUR_EDGE_OTLP_TOKEN.
+#
+# The relay is reachable by anyone with a UDP socket, so it runs as a transient
+# user with no capabilities. Only the egress cap before it runs as root.
+
+[Unit]
+Description=Merkur edge relay
+Documentation=https://github.com/merkur-sh/merkur
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/merkur/edge.env
+EnvironmentFile=/etc/merkur/edge.secrets.env
+ExecStartPre=+/usr/local/lib/merkur/edge-egress-cap
+ExecStart=/usr/local/bin/merkur-edge
+Restart=always
+RestartSec=2s
+
+# The certificate pair, endpoint secret and egress ledger survive restarts and
+# upgrades here (MERKUR_EDGE_IDENTITY_DIR is /var/lib/merkur-edge/identity).
+StateDirectory=merkur-edge
+StateDirectoryMode=0700
+DynamicUser=yes
+LimitNOFILE=65536
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+[Install]
+WantedBy=multi-user.target

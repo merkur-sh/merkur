@@ -111,10 +111,7 @@ jobs:
           rust: 'false'
           bazel: 'true'
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
-      # Bazel builds the deployment and the service binaries; the images are their runtimes.
+      # Bazel builds the deployment and the edge and STUN binaries the service hosts run.
       - name: Build server, web, edge and STUN once
         run: |
           mkdir -p dist/ci-release
@@ -125,11 +122,8 @@ jobs:
           )
           bazel build --config=release "${identity[@]}" //tools/bazel/release:deployment
           cp "$(bazel info --config=release "${identity[@]}" execution_root)/$(bazel cquery --config=release "${identity[@]}" --output=files //tools/bazel/release:deployment)" dist/ci-release/deployment.tar.gz
-          bazel run --config=release //tools/bazel/release:image_binaries
-          docker buildx build --load --platform linux/amd64 -f apps/edge/Dockerfile -t merkur-edge:release .
-          docker save merkur-edge:release | gzip > dist/ci-release/edge-image.tar.gz
-          docker buildx build --load --platform linux/amd64 -f apps/stun/Dockerfile -t merkur-stun:release .
-          docker save merkur-stun:release | gzip > dist/ci-release/stun-image.tar.gz
+          bazel run --config=release //tools/bazel/release:service_binaries
+          cp dist/services/merkur-edge dist/services/merkur-stun dist/ci-release/
           cp apps/daemon/NOTICES.txt dist/ci-release/NOTICES.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -15,10 +15,10 @@ function edge(edgeId: string, edgeRegion: string): EdgeRegistration {
   };
 }
 
-const FRA = edge('fra-1', 'fra'); // eu
-const IAD = edge('iad-1', 'iad'); // na
-const SYD = edge('syd-1', 'syd'); // apac
-const GRU = edge('gru-1', 'gru'); // sa
+const NBG = edge('nbg-1', 'nbg'); // eu
+const ASH = edge('ash-1', 'ash'); // na
+const SIN = edge('sin-1', 'sin'); // apac
+const HIL = edge('hil-1', 'hil'); // na
 
 /** One representative public address per zone, taken from the pinned vectors. */
 const ADDRESS_IN: Readonly<Record<IpZone, string>> = {
@@ -39,7 +39,7 @@ describe('daemon-anchored selection', () => {
    */
   test('every session for one daemon lands on the same edge', () => {
     // Two edges in one zone, so the hash tie-break is what decides.
-    const edges = [FRA, edge('fra-2', 'fra')];
+    const edges = [NBG, edge('hel-1', 'hel')];
     const first = selectEdge(edges, 'daemon-a', 'eu', null)?.edgeId;
     expect(first).toBeDefined();
     for (let index = 0; index < 32; index += 1) {
@@ -48,7 +48,7 @@ describe('daemon-anchored selection', () => {
   });
 
   test('distinct daemons still spread across edges in one zone', () => {
-    const edges = [FRA, edge('fra-2', 'fra')];
+    const edges = [NBG, edge('hel-1', 'hel')];
     const chosen = new Set<string>();
     for (let index = 0; index < 64; index += 1) {
       const selected = selectEdge(edges, `daemon-${index}`, 'eu', null)?.edgeId;
@@ -58,9 +58,9 @@ describe('daemon-anchored selection', () => {
   });
 
   test('a daemon is placed on the edge in its own zone', () => {
-    const edges = [FRA, IAD];
-    expect(selectEdge(edges, 'session-a', 'eu', null)?.edgeId).toBe('fra-1');
-    expect(selectEdge(edges, 'session-a', 'na', null)?.edgeId).toBe('iad-1');
+    const edges = [NBG, ASH];
+    expect(selectEdge(edges, 'session-a', 'eu', null)?.edgeId).toBe('nbg-1');
+    expect(selectEdge(edges, 'session-a', 'na', null)?.edgeId).toBe('ash-1');
   });
 
   /**
@@ -68,24 +68,24 @@ describe('daemon-anchored selection', () => {
    * chance of every one of its sessions crossing the Atlantic twice.
    */
   test('zone beats the hash for every session key', () => {
-    const edges = [FRA, IAD];
+    const edges = [NBG, ASH];
     for (let index = 0; index < 200; index += 1) {
-      expect(selectEdge(edges, `session-${index}`, 'eu', null)?.edgeId).toBe('fra-1');
+      expect(selectEdge(edges, `session-${index}`, 'eu', null)?.edgeId).toBe('nbg-1');
     }
   });
 
   /**
    * With no edge in the daemon's own zone, selection walks the proximity order
-   * rather than giving up. An African daemon reaches Frankfurt, not Virginia.
+   * rather than giving up. An African daemon reaches Nuremberg, not Virginia.
    */
   test('a daemon with no local edge takes the nearest one', () => {
-    expect(selectEdge([FRA, IAD], 'k', 'af', null)?.edgeId).toBe('fra-1');
-    expect(selectEdge([FRA, IAD], 'k', 'sa', null)?.edgeId).toBe('iad-1');
-    expect(selectEdge([FRA, IAD], 'k', 'apac', null)?.edgeId).toBe('iad-1');
+    expect(selectEdge([NBG, ASH], 'k', 'af', null)?.edgeId).toBe('nbg-1');
+    expect(selectEdge([NBG, ASH], 'k', 'sa', null)?.edgeId).toBe('ash-1');
+    expect(selectEdge([NBG, ASH], 'k', 'apac', null)?.edgeId).toBe('ash-1');
     // North America reaches Europe before Asia-Pacific: `na` ranks eu third and
-    // apac fourth, and Frankfurt really is the shorter hop from most of the US.
-    expect(selectEdge([FRA, SYD], 'k', 'na', null)?.edgeId).toBe('fra-1');
-    expect(selectEdge([FRA, GRU], 'k', 'apac', null)?.edgeId).toBe('fra-1');
+    // apac fourth, and Nuremberg really is the shorter hop from most of the US.
+    expect(selectEdge([NBG, SIN], 'k', 'na', null)?.edgeId).toBe('nbg-1');
+    expect(selectEdge([NBG, SIN], 'k', 'sa', null)?.edgeId).toBe('nbg-1');
   });
 });
 
@@ -96,8 +96,8 @@ describe('browser tie-break', () => {
    * session while the browser's position changes between them.
    */
   test('the browser does not override the daemon anchor', () => {
-    const chosen = selectEdge([FRA, IAD], 'k', 'eu', ADDRESS_IN.na);
-    expect(chosen?.edgeId).toBe('fra-1');
+    const chosen = selectEdge([NBG, ASH], 'k', 'eu', ADDRESS_IN.na);
+    expect(chosen?.edgeId).toBe('nbg-1');
   });
 
   /**
@@ -107,24 +107,24 @@ describe('browser tie-break', () => {
    */
   test('among edges tied for the daemon, the browser decides', () => {
     // Both are `na`, so the daemon cannot separate them.
-    const iadAndSjc = [IAD, edge('sjc-1', 'sjc')];
+    const ashAndHil = [ASH, HIL];
     // A browser in apac ranks `na` edges equally too, so this still ties and
     // falls to the hash; the meaningful case needs edges in different zones
-    // that are equidistant from the daemon, which `na` -> [sa, eu] provides.
-    const saAndEu = [GRU, FRA];
-    const viaEurope = selectEdge(saAndEu, 'k', null, ADDRESS_IN.eu);
-    const viaBrazil = selectEdge(saAndEu, 'k', null, ADDRESS_IN.sa);
-    expect(viaEurope?.edgeId).toBe('fra-1');
-    expect(viaBrazil?.edgeId).toBe('gru-1');
+    // the daemon cannot separate, which an unknown daemon zone provides.
+    const naAndEu = [ASH, NBG];
+    const viaEurope = selectEdge(naAndEu, 'k', null, ADDRESS_IN.eu);
+    const viaBrazil = selectEdge(naAndEu, 'k', null, ADDRESS_IN.sa);
+    expect(viaEurope?.edgeId).toBe('nbg-1');
+    expect(viaBrazil?.edgeId).toBe('ash-1');
     // Sanity: the tied-in-zone pair really does tie and stays deterministic.
-    expect(selectEdge(iadAndSjc, 'k', 'na', ADDRESS_IN.na)?.edgeId).toBe(
-      selectEdge(iadAndSjc, 'k', 'na', ADDRESS_IN.na)?.edgeId,
+    expect(selectEdge(ashAndHil, 'k', 'na', ADDRESS_IN.na)?.edgeId).toBe(
+      selectEdge(ashAndHil, 'k', 'na', ADDRESS_IN.na)?.edgeId,
     );
   });
 
   test('an unplaceable browser address is simply no opinion', () => {
-    expect(selectEdge([FRA, IAD], 'k', 'eu', '10.0.0.1')?.edgeId).toBe('fra-1');
-    expect(selectEdge([FRA, IAD], 'k', 'eu', 'not-an-ip')?.edgeId).toBe('fra-1');
+    expect(selectEdge([NBG, ASH], 'k', 'eu', '10.0.0.1')?.edgeId).toBe('nbg-1');
+    expect(selectEdge([NBG, ASH], 'k', 'eu', 'not-an-ip')?.edgeId).toBe('nbg-1');
   });
 });
 
@@ -140,8 +140,8 @@ describe('fallbacks', () => {
    */
   test('an unmapped edge region loses to a mapped one', () => {
     const mystery = edge('aaa-1', 'zzz');
-    expect(selectEdge([mystery, FRA], 'k', 'eu', null)?.edgeId).toBe('fra-1');
-    expect(selectEdge([mystery, IAD], 'k', 'eu', null)?.edgeId).toBe('iad-1');
+    expect(selectEdge([mystery, NBG], 'k', 'eu', null)?.edgeId).toBe('nbg-1');
+    expect(selectEdge([mystery, ASH], 'k', 'eu', null)?.edgeId).toBe('ash-1');
   });
 
   test('when nothing can be placed, the deterministic hash still decides', () => {
@@ -150,19 +150,19 @@ describe('fallbacks', () => {
     expect(first).not.toBeNull();
     expect(selectEdge(unmapped, 'session-x', 'eu', null)?.edgeId).toBe(first?.edgeId);
     // An unknown daemon zone with mapped edges is the same "no opinion" case.
-    const both = selectEdge([FRA, IAD], 'session-x', null, null);
+    const both = selectEdge([NBG, ASH], 'session-x', null, null);
     expect(both).not.toBeNull();
   });
 });
 
 describe('determinism and totality', () => {
   const FLEETS: ReadonlyArray<readonly EdgeRegistration[]> = [
-    [FRA],
-    [IAD],
-    [FRA, IAD],
-    [FRA, IAD, SYD],
-    [FRA, IAD, SYD, GRU],
-    [FRA, edge('aaa-1', 'zzz')],
+    [NBG],
+    [ASH],
+    [NBG, ASH],
+    [NBG, ASH, SIN],
+    [NBG, ASH, SIN, HIL],
+    [NBG, edge('aaa-1', 'zzz')],
   ];
 
   /**
@@ -205,8 +205,8 @@ describe('determinism and totality', () => {
   test('registration order does not change the outcome', () => {
     const daemonZones: ReadonlyArray<IpZone | null> = [...IP_ZONES, null];
     for (const daemonZone of daemonZones) {
-      const forward = selectEdge([FRA, IAD, SYD, GRU], 'session-fixed', daemonZone, null);
-      const reversed = selectEdge([GRU, SYD, IAD, FRA], 'session-fixed', daemonZone, null);
+      const forward = selectEdge([NBG, ASH, SIN, HIL], 'session-fixed', daemonZone, null);
+      const reversed = selectEdge([HIL, SIN, ASH, NBG], 'session-fixed', daemonZone, null);
       expect(reversed?.edgeId).toBe(forward?.edgeId);
     }
   });

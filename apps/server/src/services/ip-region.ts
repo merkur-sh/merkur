@@ -93,54 +93,26 @@ const ZONE_PREFERENCE: Readonly<Record<IpZone, readonly IpZone[]>> = {
 };
 
 /**
- * Zone for each Fly region code, since edges report their Fly region verbatim.
+ * Zone for each Hetzner location an edge runs in, since edges report the
+ * location code from `deploy/service-hosts.json` verbatim.
  *
  * An unlisted region resolves to `null`, which makes selection fall back to the
  * deterministic hash rather than guess. That is the safe direction: a wrong
  * zone silently routes every session in a continent to the far edge, while an
  * absent one only forfeits the improvement.
  */
-const ZONE_BY_FLY_REGION: Readonly<Record<string, IpZone>> = {
-  ams: 'eu',
-  arn: 'eu',
-  atl: 'na',
-  bog: 'sa',
-  bom: 'apac',
-  bos: 'na',
-  cdg: 'eu',
-  den: 'na',
-  dfw: 'na',
-  ewr: 'na',
-  eze: 'sa',
-  fra: 'eu',
-  gdl: 'na',
-  gig: 'sa',
-  gru: 'sa',
-  hkg: 'apac',
-  iad: 'na',
-  jnb: 'af',
-  lax: 'na',
-  lhr: 'eu',
-  mad: 'eu',
-  mia: 'na',
-  nrt: 'apac',
-  ord: 'na',
-  otp: 'eu',
-  phx: 'na',
-  qro: 'na',
-  scl: 'sa',
-  sea: 'na',
+const ZONE_BY_EDGE_REGION: Readonly<Record<string, IpZone>> = {
+  ash: 'na',
+  fsn: 'eu',
+  hel: 'eu',
+  hil: 'na',
+  nbg: 'eu',
   sin: 'apac',
-  sjc: 'na',
-  syd: 'apac',
-  waw: 'eu',
-  yul: 'na',
-  yyz: 'na',
 };
 
-/** Zone for a Fly region code, or `null` when the region is not mapped. */
+/** Zone for an edge region code, or `null` when the region is not mapped. */
 export function zoneForEdgeRegion(region: string): IpZone | null {
-  return ZONE_BY_FLY_REGION[region.toLowerCase()] ?? null;
+  return ZONE_BY_EDGE_REGION[region.toLowerCase()] ?? null;
 }
 
 /**

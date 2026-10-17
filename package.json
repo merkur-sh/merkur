@@ -35,7 +35,7 @@
     "deployment:sign": "bun run scripts/web-build-signature.ts sign-deployment",
     "deployment:verify": "bun run scripts/web-build-signature.ts verify-deployment",
     "deployment:check-server": "bun run scripts/web-build-signature.ts verify-server",
-    "edge:fly-config": "bun run scripts/edge-fly-config.ts",
+    "service-hosts": "bun run scripts/service-hosts.ts",
     "rust:lint": "bazel test //:rust_lint",
     "rust:deps": "cargo shear --locked --deny-warnings --exclude alacritty_terminal --exclude vte",
     "rust:test": "bazel test //apps/... //packages/... //tools/...",

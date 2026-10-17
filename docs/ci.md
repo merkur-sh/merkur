@@ -58,7 +58,7 @@ Additional workflows run beside CI:
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | [Build deployment](../.github/workflows/build-deployment.yml) | Push to `main`, manual dispatch | Builds the unsigned server, migrations, and web bundle with Bazel (`//tools/bazel/release:deployment`) and the public build pins. It does not deploy. |
-| [Release build](../.github/workflows/release-build.yml) | A nightly schedule, manual dispatch, and each release | Builds every artifact a release signs with Bazel and a release identity (`v0.0.0`, sequence 1, outside a release): the daemon on all four platforms with its profile-guided dataplane, the server deployment, and the edge and STUN images. It smoke-tests each executable where it ships and checks the exact unsigned inventory signing accepts. It signs, publishes and deploys nothing. |
+| [Release build](../.github/workflows/release-build.yml) | A nightly schedule, manual dispatch, and each release | Builds every artifact a release signs with Bazel and a release identity (`v0.0.0`, sequence 1, outside a release): the daemon on all four platforms with its profile-guided dataplane, the server deployment, and the edge and STUN binaries. It smoke-tests each executable where it ships and checks the exact unsigned inventory signing accepts. It signs, publishes and deploys nothing. |
 | [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `pnpm audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, the `pnpm-lock.yaml` source/spec/license/install-script policy, cargo-vet exact-version review coverage and ten offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
 | [Assurance](../.github/workflows/assurance.yml) | Pull requests, each completed `main` CI run (at that run's commit), a daily schedule, manual dispatch | Parser replay, Kani custody proofs and their negative controls, real-session network simulation, and the profile reader's accounting check; the Loom models and the kernel profiler's tests run in CI's `bazel test //...`. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
@@ -183,7 +183,7 @@ The version is a placeholder: use a new numeric version greater than every reser
 | `build` | [Release build](../.github/workflows/release-build.yml): the daemon on all four platforms, the deployment and the service container images, once, with their smoke tests and the unsigned inventory check. |
 | `sign` | On an isolated runner, signs the retained bytes with the ML-DSA-87 release seed and stores them in a draft release. |
 | `package-smoke` | Installs the signed daemon packages on every platform. |
-| `deploy` | Deploys the application server from the signed bundle, verifies the live signatures match it, deploys the edge and STUN images by registry digest, then publishes the daemon release and verifies its unauthenticated public downloads. |
+| `deploy` | Deploys the application server from the signed bundle, verifies the live signatures match it, deploys the edge and STUN binaries to every service host over pinned SSH and verifies each runs them, then publishes the daemon release and verifies its unauthenticated public downloads. |
 
 The `sign` stage receives the seed through `RELEASE_SEED_BASE64`. It installs locked
 dependencies without lifecycle scripts, materializes the raw 32-byte seed in an owner-only
@@ -250,9 +250,8 @@ tag; the workflow fails closed on missing state or credentials.
 | Repository variables | `MERKUR_SITE_ORIGIN`, `MERKUR_SITE_RYBBIT_SITE_ID`, `RAILWAY_SITE_SERVICE_ID` | The website's origin, its Rybbit site, and its deployment destination |
 | Repository variable | `RELEASE_MINIMUM_SEQUENCE` | Positive prerequisite sequence; raise it only deliberately |
 | Repository variables | `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID`, `RAILWAY_SERVICE_ID` | The application server's deployment destination |
-| Repository variable | `STUN_APPS` | Space-separated names of the deployed STUN responders |
 | `release-signing` secret | `RELEASE_SEED_BASE64` | Base64 of the raw 32-byte release seed |
-| `production` secrets | `RAILWAY_TOKEN`, `FLY_API_TOKEN` | Deployment credentials for the application server and for the edge and STUN services, scoped to those services only |
+| `production` secrets | `RAILWAY_TOKEN`, `SERVICE_HOSTS_SSH_KEY` | Deployment credentials for the application server and for the edge and STUN service hosts in `deploy/service-hosts.json`, whose SSH host keys the manifest pins |
 | `site` secret | `RAILWAY_TOKEN` | Deployment credential for the website's service only |
 
 ## Terminal canary

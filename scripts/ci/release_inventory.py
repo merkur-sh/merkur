@@ -18,15 +18,12 @@ def configuration():
         raise ValueError('production requires an HTTPS origin without credentials')
     if not re.fullmatch(r'[1-9][0-9]*', result['MINIMUM_SEQUENCE']):
         raise ValueError('minimum sequence must be a positive integer')
-    apps =os.environ['STUN_APPS'].split()
-    if not apps or not all(NAME.fullmatch(app) for app in apps) or len(apps) != len(set(apps)):
-        raise ValueError('STUN_APPS must list unique app names')
-    with open('apps/edge/replicas.json') as stream:
-        edges = json.load(stream)['replicas']
-    if set(apps) & {edge['app'] for edge in edges}:
-        raise ValueError('edge and STUN applications must be distinct')
-    result['stunApps'] = apps
-    result['edges'] = edges
+    with open('deploy/service-hosts.json') as stream:
+        hosts = json.load(stream)['hosts']
+    names = [host['name'] for host in hosts]
+    if not hosts or not all(NAME.fullmatch(name) for name in names) or len(names) != len(set(names)):
+        raise ValueError('deploy/service-hosts.json must list uniquely named hosts')
+    result['serviceHosts'] = hosts
     return result
 
 

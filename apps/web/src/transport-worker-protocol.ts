@@ -43,7 +43,7 @@ export interface RequestSessionResult {
   readonly sessionTokenExpiresAtMs: number;
   readonly sessionId: string;
   /**
-   * Anycast edge WebTransport URL — the required bootstrap and baseline relay
+   * Edge WebTransport URL — the required bootstrap and baseline relay
    * path. Carried verbatim from `SessionRequestResponse`; the worker dials the
    * edge with the SAME session_id (routing preface).
    */

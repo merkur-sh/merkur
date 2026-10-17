@@ -57,7 +57,7 @@ test('real server and daemon use one replica and survive its certificate rotatio
       return initial.length;
     })
     .toBe(2);
-  expect(new Set(initial.map((edge) => edge.edgeRegion))).toEqual(new Set(['iad', 'fra']));
+  expect(new Set(initial.map((edge) => edge.edgeRegion))).toEqual(new Set(['ash', 'nbg']));
   expect(new Set(initial.map((edge) => edge.edgeWtUrl)).size).toBe(2);
 
   for (const edge of initial) {
@@ -158,8 +158,8 @@ test('real server and daemon use one replica and survive its certificate rotatio
  * deployment reads behind its proxy.
  */
 for (const { zone, browserIp, expectedRegion } of [
-  { zone: 'na', browserIp: '8.8.8.8', expectedRegion: 'iad' },
-  { zone: 'eu', browserIp: '193.0.6.139', expectedRegion: 'fra' },
+  { zone: 'na', browserIp: '8.8.8.8', expectedRegion: 'ash' },
+  { zone: 'eu', browserIp: '193.0.6.139', expectedRegion: 'nbg' },
 ] as const) {
   test(`a browser in ${zone} is placed on the ${expectedRegion} edge`, async ({
     page,
@@ -174,7 +174,7 @@ for (const { zone, browserIp, expectedRegion } of [
     });
 
     const registrations = await readRegistrations();
-    expect(new Set(registrations.map((edge) => edge.edgeRegion))).toEqual(new Set(['iad', 'fra']));
+    expect(new Set(registrations.map((edge) => edge.edgeRegion))).toEqual(new Set(['ash', 'nbg']));
 
     const sessionResponsePromise = page.waitForResponse((response) =>
       response.url().endsWith('/api/sessions/request'),

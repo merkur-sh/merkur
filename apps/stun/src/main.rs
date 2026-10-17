@@ -11,8 +11,9 @@
 //! reaches this service.
 //!
 //! Multiple ports reveal port-dependent mapping. Equal mappings prove address
-//! independence only when distinct IP addresses were actually observed. The
-//! existing single-IP Fly deployment cannot perform the different-IP tests.
+//! independence only when distinct IP addresses were actually observed: the
+//! service host's single IPv4 cannot perform the different-IP tests, its IPv6
+//! addresses can.
 //!
 //! # Refusals are silent
 //!
@@ -28,7 +29,7 @@ mod ticket;
 mod packet_profile;
 
 use std::env;
-use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -78,13 +79,12 @@ struct Config {
     /// anything. Bound and served like the others, so a misconfigured
     /// `STUN_SERVERS` that names one still gets an answer.
     change_ports: Vec<u16>,
-    /// Explicit bind addresses, or empty for the platform default.
+    /// Explicit bind addresses, or empty for the IPv4 wildcard.
     ///
-    /// The Fly deployment leaves this empty and binds one anycast IPv4, where
-    /// `change_ip` is unanswerable — a second *region* is not a second address.
-    /// The Hetzner box host sets it to two addresses from its routed /64, which
-    /// is what makes the address-change half of RFC 5780 answerable at all, and
-    /// costs nothing because a /64 is one allocation.
+    /// The service host sets its public IPv4, where `change_ip` is unanswerable,
+    /// and two addresses from its routed IPv6 /64, which is what makes the
+    /// address-change half of RFC 5780 answerable at all, and costs nothing
+    /// because a /64 is one allocation.
     bind_addresses: Vec<std::net::IpAddr>,
     ticket_key: TicketKey,
 }
@@ -170,30 +170,8 @@ fn config_from_env() -> Result<Config, String> {
     })
 }
 
-/// Resolve the IPv4 bind address for `port`.
-///
-/// On Fly, UDP services must bind the address `fly-global-services` resolves to
-/// inside the VM; a wildcard bind receives nothing. Off Fly, bind the IPv4
-/// wildcard. This mirrors `apps/edge/src/main.rs`, because the constraint is
-/// the platform's, not the application's.
+/// The IPv4 wildcard for `port`, used when no explicit address is configured.
 fn resolve_v4_bind_addr(port: u16) -> SocketAddr {
-    if env::var_os("FLY_APP_NAME").is_some() {
-        match ("fly-global-services", port).to_socket_addrs() {
-            Ok(mut addrs) => {
-                if let Some(addr) = addrs.next() {
-                    return addr;
-                }
-                warn!(
-                    port,
-                    "fly-global-services resolved to no addresses; using wildcard"
-                );
-            }
-            Err(e) => warn!(
-                port,
-                "failed to resolve fly-global-services ({e}); using wildcard"
-            ),
-        }
-    }
     SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, port))
 }
 
@@ -214,12 +192,10 @@ fn now_unix_secs() -> u64 {
 /// Keyed by the full local address, not by port, because two deployments need
 /// different halves of RFC 5780 and only the full address distinguishes them.
 ///
-/// Fly binds one anycast IPv4 on several ports: `change_port` is answerable,
-/// `change_ip` is not, and a second region would not help because the address
-/// belongs to the app rather than the machine. The Hetzner box host binds
-/// several addresses out of its routed IPv6 /64, where both halves are
-/// answerable — which matters because IPv6 has no NAT, so filtering is the
-/// entire question a `host6` candidate turns on.
+/// The service host's single IPv4 has several ports: `change_port` is
+/// answerable, `change_ip` is not. Its addresses out of the routed IPv6 /64
+/// answer both halves — which matters because IPv6 has no NAT, so filtering is
+/// the entire question a `host6` candidate turns on.
 type Responders = std::collections::HashMap<SocketAddr, Arc<UdpSocket>>;
 
 /// A socket on the same address as `arrived_on`, bound to a different port.
@@ -504,7 +480,7 @@ fn main() {
 
     // Report counters on a slow cadence. There is no metrics exporter here on
     // purpose: this process is reachable by anyone and every additional client
-    // it runs is additional surface, so its observability is `fly logs`.
+    // it runs is additional surface, so its observability is the journal.
     let report_counters = Arc::clone(&counters);
     std::thread::spawn(move || -> ! {
         loop {
@@ -705,7 +681,7 @@ mod tests {
 
     #[test]
     fn alternate_selection_never_answers_from_what_was_asked_to_change() {
-        // One address, three observer ports and one change-only port — Fly.
+        // One address, three observer ports and one change-only port — the IPv4.
         let one_address = [
             addr("10.0.0.1:3478"),
             addr("10.0.0.1:3479"),
@@ -729,7 +705,7 @@ mod tests {
             Some(addr("10.0.0.1:3479"))
         );
         // ...and it cannot answer an address change at all, which is exactly why
-        // a second Fly region was rejected: the address belongs to the app.
+        // the service host binds addresses from its IPv6 /64 as well.
         assert_eq!(
             alternate_address_addr(&one_address, &change, addr("10.0.0.1:3478"), false),
             None

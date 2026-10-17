@@ -22,7 +22,7 @@ def inventory(directory):
 
 
 def validate_unsigned(directory):
-    expected = {'deployment.tar.gz', 'edge-image.tar.gz', 'stun-image.tar.gz', 'NOTICES.txt'}
+    expected = {'deployment.tar.gz', 'merkur-edge', 'merkur-stun', 'NOTICES.txt'}
     expected.update(f'merkur-daemon-{platform}.tar.gz' for platform in
                     ('linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'))
     expected.update(f'verify-{platform}' for platform in ('linux-x64', 'linux-arm64'))

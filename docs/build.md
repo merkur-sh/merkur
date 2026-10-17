@@ -99,7 +99,7 @@ command line's configuration. The release identity arrives as settings
 | `:verify` | The release verifier the signing and deployment jobs run. |
 | `:deployment` | The unsigned server deployment, on Linux x64: `server/server`, `migrations/`, the precompressed `web/`. |
 | `:site` | The website's `site-server` and `dist/`, on Linux x64. |
-| `:image_binaries` | `bazel run` installs the edge and STUN release binaries into `dist/images`, which their Dockerfiles copy in. |
+| `:service_binaries` | `bazel run` installs the edge and STUN release binaries into `dist/services`, which the release ships to the service hosts. |
 
 ## Baselines
 

@@ -77,10 +77,6 @@ merkur-daemon-*.tar.gz
 # Offline-signed server/web bundle consumed by Docker packaging.
 /deployment/
 
-# Per-replica Fly configs rendered by scripts/edge-fly-config.ts from
-# apps/edge/replicas.json. Re-rendered on every deploy; never committed.
-apps/edge/fly/
-
 # Python release orchestration bytecode
 __pycache__/
 
