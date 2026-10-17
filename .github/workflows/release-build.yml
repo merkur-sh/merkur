@@ -1,0 +1,125 @@
+name: Release build
+# Every artifact a release signs, built by Bazel with a release identity and smoke-tested where it
+# ships, then checked as the exact unsigned inventory signing accepts. `release.yml` runs it for a
+# tag; nightly and on dispatch it builds `v0.0.0` (sequence 1) from main, so the release path is
+# proven before a tag needs it. Nothing here signs, publishes or deploys.
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      sequence:
+        type: string
+        required: true
+      commit:
+        type: string
+        required: true
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version || 'v0.0.0' }}
+  SEQUENCE: ${{ inputs.sequence || '1' }}
+  COMMIT: ${{ inputs.commit || github.sha }}
+  MERKUR_RELEASE_MLDSA87_PUBLIC_KEY: ${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
+  SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+  OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
+
+jobs:
+  daemon:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-26.04
+            platform: linux-x64
+          - os: ubuntu-26.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: darwin-arm64
+          - os: macos-15
+            platform: darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.COMMIT }}
+      # Bazel builds the release; the notices the CLI embeds come from `cargo metadata`.
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust-cache: 'false'
+          bazel: 'true'
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - name: Build native release and smoke all executables
+        run: bash scripts/ci/build-daemon.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/ci-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+  services:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.COMMIT }}
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust: 'false'
+          bazel: 'true'
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+      # Bazel builds the deployment and the service binaries; the images are their runtimes.
+      - name: Build server, web, edge and STUN once
+        run: |
+          mkdir -p dist/ci-release
+          identity=(
+            "--//tools/bazel/release:commit=$COMMIT"
+            "--//tools/bazel/release:release_public_key=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY"
+            "--//tools/bazel/release:opaque_pin=$OPAQUE_PIN"
+          )
+          bazel build --config=release "${identity[@]}" //tools/bazel/release:deployment
+          cp "$(bazel info --config=release "${identity[@]}" execution_root)/$(bazel cquery --config=release "${identity[@]}" --output=files //tools/bazel/release:deployment)" dist/ci-release/deployment.tar.gz
+          bazel run --config=release //tools/bazel/release:image_binaries
+          docker buildx build --load --platform linux/amd64 -f apps/edge/Dockerfile -t merkur-edge:release .
+          docker save merkur-edge:release | gzip > dist/ci-release/edge-image.tar.gz
+          docker buildx build --load --platform linux/amd64 -f apps/stun/Dockerfile -t merkur-stun:release .
+          docker save merkur-stun:release | gzip > dist/ci-release/stun-image.tar.gz
+          cp apps/daemon/NOTICES.txt dist/ci-release/NOTICES.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-services
+          path: dist/ci-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+  inventory:
+    needs: [daemon, services]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.COMMIT }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: release-*
+          path: dist/ci-release
+          merge-multiple: true
+      - name: Validate exact unsigned artifact inventory
+        run: python3 scripts/ci/release_assets.py validate-unsigned dist/ci-release

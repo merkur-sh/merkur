@@ -58,6 +58,7 @@ Additional workflows run beside CI:
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | [Build deployment](../.github/workflows/build-deployment.yml) | Push to `main`, manual dispatch | Builds the unsigned server, migrations, and web bundle with Bazel (`//tools/bazel/release:deployment`) and the public build pins. It does not deploy. |
+| [Release build](../.github/workflows/release-build.yml) | A nightly schedule, manual dispatch, and each release | Builds every artifact a release signs with Bazel and a release identity (`v0.0.0`, sequence 1, outside a release): the daemon on all four platforms with its profile-guided dataplane, the server deployment, and the edge and STUN images. It smoke-tests each executable where it ships and checks the exact unsigned inventory signing accepts. It signs, publishes and deploys nothing. |
 | [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `pnpm audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, the `pnpm-lock.yaml` source/spec/license/install-script policy, cargo-vet exact-version review coverage and ten offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
 | [Assurance](../.github/workflows/assurance.yml) | Pull requests, each completed `main` CI run (at that run's commit), a daily schedule, manual dispatch | Parser replay, Kani custody proofs and their negative controls, real-session network simulation, and the profile reader's accounting check; the Loom models and the kernel profiler's tests run in CI's `bazel test //...`. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
@@ -179,7 +180,7 @@ The version is a placeholder: use a new numeric version greater than every reser
 | --- | --- |
 | `validate` | Reserves a sequence number in the release journal and captures the public deployment configuration. |
 | `checks`, `extended` | Reuses CI and Extended CI against the release checkout. |
-| `daemon`, `services` | Builds the daemon on all four platforms and the service container images, once. |
+| `build` | [Release build](../.github/workflows/release-build.yml): the daemon on all four platforms, the deployment and the service container images, once, with their smoke tests and the unsigned inventory check. |
 | `sign` | On an isolated runner, signs the retained bytes with the ML-DSA-87 release seed and stores them in a draft release. |
 | `package-smoke` | Installs the signed daemon packages on every platform. |
 | `deploy` | Deploys the application server from the signed bundle, verifies the live signatures match it, deploys the edge and STUN images by registry digest, then publishes the daemon release and verifies its unauthenticated public downloads. |

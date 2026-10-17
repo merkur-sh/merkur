@@ -56,96 +56,22 @@ jobs:
     needs: validate
     uses: ./.github/workflows/extended-ci.yml
     secrets: inherit
-  daemon:
+  # Every artifact signing takes, built by the workflow that also proves them nightly.
+  build:
     needs: validate
     if: needs.validate.outputs.resume == 'false'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-26.04
-            platform: linux-x64
-          - os: ubuntu-26.04-arm
-            platform: linux-arm64
-          - os: macos-15
-            platform: darwin-arm64
-          - os: macos-15
-            platform: darwin-x64
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    env:
-      SEQUENCE: ${{ needs.validate.outputs.sequence }}
-      PLATFORM: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # Bazel builds the release; the notices the CLI embeds come from `cargo metadata`.
-      - uses: ./.github/actions/setup-merkur
-        with:
-          rust-cache: 'false'
-          bazel: 'true'
-          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
-      - name: Build native release and smoke all executables
-        run: bash scripts/ci/build-daemon.sh
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-${{ matrix.platform }}
-          path: dist/ci-release/*
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
-  services:
-    needs: validate
-    if: needs.validate.outputs.resume == 'false'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-merkur
-        with:
-          rust: 'false'
-          bazel: 'true'
-          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
-      # Bazel builds the deployment and the service binaries; the images are their runtimes.
-      - name: Build server, web, edge and STUN once
-        env:
-          COMMIT: ${{ needs.validate.outputs.commit }}
-          OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
-        run: |
-          mkdir -p dist/ci-release
-          identity=(
-            "--//tools/bazel/release:commit=$COMMIT"
-            "--//tools/bazel/release:release_public_key=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY"
-            "--//tools/bazel/release:opaque_pin=$OPAQUE_PIN"
-          )
-          bazel build --config=release "${identity[@]}" //tools/bazel/release:deployment
-          cp "$(bazel info --config=release "${identity[@]}" execution_root)/$(bazel cquery --config=release "${identity[@]}" --output=files //tools/bazel/release:deployment)" dist/ci-release/deployment.tar.gz
-          bazel run --config=release //tools/bazel/release:image_binaries
-          docker buildx build --load --platform linux/amd64 -f apps/edge/Dockerfile -t merkur-edge:release .
-          docker save merkur-edge:release | gzip > dist/ci-release/edge-image.tar.gz
-          docker buildx build --load --platform linux/amd64 -f apps/stun/Dockerfile -t merkur-stun:release .
-          docker save merkur-stun:release | gzip > dist/ci-release/stun-image.tar.gz
-          cp apps/daemon/NOTICES.txt dist/ci-release/NOTICES.txt
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-services
-          path: dist/ci-release/*
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
+    uses: ./.github/workflows/release-build.yml
+    with:
+      version: ${{ github.ref_name }}
+      sequence: ${{ needs.validate.outputs.sequence }}
+      commit: ${{ needs.validate.outputs.commit }}
+    secrets: inherit
   sign:
-    needs: [validate, checks, extended, daemon, services]
+    needs: [validate, checks, extended, build]
     if: >-
       !cancelled() && needs.validate.result == 'success' &&
       needs.checks.result == 'success' && needs.extended.result == 'success' &&
-      (needs.validate.outputs.resume == 'true' ||
-       (needs.daemon.result == 'success' && needs.services.result == 'success'))
+      (needs.validate.outputs.resume == 'true' || needs.build.result == 'success')
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     environment: release-signing
