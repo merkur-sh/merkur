@@ -7864,20 +7864,27 @@ async fn handle_configure(
     let backend = seal.backend;
     let daemon_id = cmd.daemon_id.clone();
     let started = Instant::now();
-    let new_daemon_identity =
-        match tokio::task::spawn_blocking(move || DaemonIdentity::open(&seal, &daemon_id)).await {
-            Ok(Ok(identity)) => identity,
-            _ => {
-                send_json_event(
-                    event_tx,
-                    EVT_ERROR,
-                    &ErrorEvt {
-                        message: "identity_unsealable: re-link this machine".to_string(),
-                    },
-                );
-                return Err(identity_seal::SealError::Hardware);
-            }
-        };
+    #[cfg(not(merkur_sim))]
+    let opened = tokio::task::spawn_blocking(move || DaemonIdentity::open(&seal, &daemon_id))
+        .await
+        .ok();
+    // The network simulator opens in place, so the identity's draws from the run's entropy
+    // stream are ordered by simulated time and not by a blocking-pool thread's (`crate::sim`).
+    #[cfg(merkur_sim)]
+    let opened = Some(DaemonIdentity::open(&seal, &daemon_id));
+    let new_daemon_identity = match opened {
+        Some(Ok(identity)) => identity,
+        _ => {
+            send_json_event(
+                event_tx,
+                EVT_ERROR,
+                &ErrorEvt {
+                    message: "identity_unsealable: re-link this machine".to_string(),
+                },
+            );
+            return Err(identity_seal::SealError::Hardware);
+        }
+    };
     info!(
         backend = backend.as_str(),
         duration_ms = started.elapsed().as_millis() as u64,
