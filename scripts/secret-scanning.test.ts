@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test';
 import {
   chmod,
   copyFile,
@@ -15,6 +15,10 @@ import path from 'node:path';
 import { installSecretScanning, scanStagedSecrets } from './secret-scanning';
 import { linkTestExecutable } from './test-executables';
 import pin from './trufflehog.json';
+
+// Each test builds a real repository with a dozen git processes, which a loaded CI runner
+// spreads past the default five seconds.
+setDefaultTimeout(30_000);
 
 const directories: string[] = [];
 const script = path.join(import.meta.dir, 'secret-scanning.ts');
