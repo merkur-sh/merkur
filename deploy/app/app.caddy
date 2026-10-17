@@ -1,12 +1,12 @@
-# app-1.
+# The app role (deploy/service-hosts.json).
 #
 # app.merkur.sh is reached directly, so TLS ends here and nowhere else: Caddy
 # holds its Let's Encrypt certificate and is the one proxy in front of the
 # server (TRUSTED_PROXY_HOPS=1).
 #
 # The website is reached only through Cloudflare. Its names answer only
-# Cloudflare's ranges (CLOUDFLARE_RANGES, rendered from the same OpenTofu data
-# source as analytics-1's firewall), with the zone's Origin CA certificate, and
+# Cloudflare's ranges (CLOUDFLARE_RANGES, OpenTofu's `cloudflare_ranges`
+# output), with the zone's Origin CA certificate, and
 # Caddy extends X-Forwarded-For only for those peers, so the site's
 # TRUSTED_PROXY_HOPS=2 reads the visitor's address.
 

@@ -13,12 +13,12 @@ locals {
   zone_id = cloudflare_zone.merkur.id
 }
 
-# The website on app-1, through Cloudflare.
+# The website, through Cloudflare, on the host with the app role.
 resource "cloudflare_dns_record" "apex" {
   zone_id = local.zone_id
   name    = "merkur.sh"
   type    = "A"
-  content = hcloud_server.app_1.ipv4_address
+  content = hcloud_server.nbg_1.ipv4_address
   ttl     = 1
   proxied = true
 }
@@ -27,17 +27,17 @@ resource "cloudflare_dns_record" "www" {
   zone_id = local.zone_id
   name    = "www.merkur.sh"
   type    = "A"
-  content = hcloud_server.app_1.ipv4_address
+  content = hcloud_server.nbg_1.ipv4_address
   ttl     = 1
   proxied = true
 }
 
-# The application server on app-1, reached directly: TLS ends in its Caddy.
+# The application server, reached directly: TLS ends in its host's Caddy.
 resource "cloudflare_dns_record" "app" {
   zone_id = local.zone_id
   name    = "app.merkur.sh"
   type    = "A"
-  content = hcloud_server.app_1.ipv4_address
+  content = hcloud_server.nbg_1.ipv4_address
   ttl     = 1
   proxied = false
 }
@@ -46,17 +46,17 @@ resource "cloudflare_dns_record" "app_v6" {
   zone_id = local.zone_id
   name    = "app.merkur.sh"
   type    = "AAAA"
-  content = hcloud_server.app_1.ipv6_address
+  content = hcloud_server.nbg_1.ipv6_address
   ttl     = 1
   proxied = false
 }
 
-# The Rybbit dashboard on analytics-1, through Cloudflare.
+# The Rybbit dashboard, through Cloudflare, on the host with the analytics role.
 resource "cloudflare_dns_record" "analytics" {
   zone_id = local.zone_id
   name    = "analytics.merkur.sh"
   type    = "A"
-  content = hcloud_server.analytics_1.ipv4_address
+  content = hcloud_server.nbg_1.ipv4_address
   ttl     = 1
   proxied = true
 }

@@ -1,4 +1,4 @@
-# merkur.sh on app-1.
+# merkur.sh, on the host with the app role (deploy/service-hosts.json).
 #
 # `scripts/ci/install-site-release.sh` unpacks each site deployment (`site-server`
 # and the precompressed `dist/`) into /usr/local/lib/merkur/site/<commit> and points
@@ -12,8 +12,9 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-# Rybbit's backend on analytics-1 over the private network; Cloudflare, then Caddy.
-Environment=PORT=8080 RYBBIT_HOST=http://10.10.0.3:3001 TRUSTED_PROXY_HOPS=2 HOME=/nonexistent
+# Rybbit's backend on this host (the analytics role); on a host of its own it is
+# that host's private address. Cloudflare, then Caddy.
+Environment=PORT=8080 RYBBIT_HOST=http://127.0.0.1:3001 TRUSTED_PROXY_HOPS=2 HOME=/nonexistent
 ExecStart=/usr/local/lib/merkur/site/current/site-server /usr/local/lib/merkur/site/current/dist
 Restart=always
 RestartSec=2s

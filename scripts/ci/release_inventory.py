@@ -21,9 +21,11 @@ def configuration():
     with open('deploy/service-hosts.json') as stream:
         manifest = json.load(stream)
     hosts, app = manifest['hosts'], manifest['app']
-    names = [host['name'] for host in hosts] + [app['name']]
+    names = [host['name'] for host in hosts]
     if not hosts or not all(NAME.fullmatch(name) for name in names) or len(names) != len(set(names)):
         raise ValueError('deploy/service-hosts.json must list uniquely named hosts')
+    if app not in names:
+        raise ValueError('deploy/service-hosts.json must give the app role to one of its hosts')
     result['serviceHosts'] = hosts
     result['appHost'] = app
     return result

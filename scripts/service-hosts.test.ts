@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  type AppHost,
+  type EdgeHost,
   loadServiceHosts,
   parseServiceHosts,
   renderEdgeEnvironment,
@@ -10,7 +10,7 @@ import {
   stunServers,
 } from './service-hosts';
 
-const NBG: ServiceHost = {
+const NBG: EdgeHost = {
   name: 'nbg-1',
   address: '46.225.209.73',
   sshHostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHpfBkiT/GCaZEG7+QmvERioRt39+N+3k5it5l/fQolH',
@@ -30,7 +30,7 @@ const NBG: ServiceHost = {
   },
 };
 
-const ASH: ServiceHost = {
+const ASH: EdgeHost = {
   ...NBG,
   name: 'ash-1',
   address: '198.51.100.7',
@@ -38,25 +38,31 @@ const ASH: ServiceHost = {
   stun: { ...NBG.stun, addresses: ['198.51.100.7', '2001:db8::10', '2001:db8::11'] },
 };
 
-const APP: AppHost = {
+/** A host of its own for the app, which runs no edge. */
+const APP: ServiceHost = {
   name: 'app-1',
   address: '203.0.113.9',
   sshHostKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGECP9BCHWh6gTCPnKMCwY3030Nc7jKkBrtcTC52XMVI',
+  interface: 'eth0',
 };
 
+/** The hosts, with the app on nbg-1. */
 function manifest(...hosts: readonly object[]): string {
-  return JSON.stringify({ hosts, app: APP });
+  return JSON.stringify({ hosts, app: NBG.name });
 }
 
 describe('parseServiceHosts', () => {
   test('accepts a host and keeps its fields', () => {
-    expect(parseServiceHosts(manifest(NBG))).toEqual({ hosts: [NBG], app: APP });
+    expect(parseServiceHosts(manifest(NBG))).toEqual({ hosts: [NBG], edgeHosts: [NBG], app: NBG });
   });
 
   test('rejects an empty or malformed manifest', () => {
     expect(() => parseServiceHosts('{}')).toThrow('Missing key\n  at ["hosts"]');
     expect(() => parseServiceHosts(JSON.stringify({ hosts: [NBG] }))).toThrow(
       'Missing key\n  at ["app"]',
+    );
+    expect(() => parseServiceHosts(JSON.stringify({ hosts: [NBG], app: 'app-9' }))).toThrow(
+      /not a host/,
     );
     expect(() => parseServiceHosts(manifest())).toThrow('Missing key\n  at ["hosts"][0]');
     expect(() => parseServiceHosts('[')).toThrow(/JSON/);
@@ -138,7 +144,7 @@ describe('parseServiceHosts', () => {
       ...NBG,
       edge: { ...NBG.edge, ...{ publicUrl: 'https://nbg-1.edge.example.com:4433' } },
     };
-    expect(parseServiceHosts(manifest(named)).hosts[0]?.edge.publicUrl).toBe(
+    expect(parseServiceHosts(manifest(named)).edgeHosts[0]?.edge.publicUrl).toBe(
       'https://nbg-1.edge.example.com:4433',
     );
   });
@@ -192,16 +198,21 @@ describe('parseServiceHosts', () => {
     ).toThrow(/duplicate publicUrl/);
   });
 
-  test('pins the app host and keeps it apart from the service hosts', () => {
-    const app = (fields: Readonly<Record<string, string>>) =>
-      JSON.stringify({ hosts: [NBG], app: { ...APP, ...fields } });
-    expect(() => parseServiceHosts(app({ sshHostKey: 'ssh-rsa AAAA' }))).toThrow(/ssh-ed25519/);
-    expect(() => parseServiceHosts(app({ address: 'app.example' }))).toThrow(/IPv4 literal/);
-    expect(() => parseServiceHosts(app({ name: NBG.name }))).toThrow(/duplicate name/);
-    expect(() => parseServiceHosts(app({ address: NBG.address }))).toThrow(/duplicate address/);
-    expect(() => parseServiceHosts(app({ role: 'server' }))).toThrow(
-      'Expected no excess property\n  at ["app"]["role"]',
+  test('moves the app to a host of its own, which runs no edge', () => {
+    const split = parseServiceHosts(JSON.stringify({ hosts: [NBG, APP], app: APP.name }));
+    expect(split.app).toEqual(APP);
+    expect(split.edgeHosts).toEqual([NBG]);
+    expect(() => parseServiceHosts(JSON.stringify({ hosts: [NBG, APP], app: NBG.name }))).toThrow(
+      'host `app-1` runs no role',
     );
+    expect(() => parseServiceHosts(manifest({ ...APP, stun: NBG.stun }, NBG))).toThrow(
+      'host `app-1` must run the edge and STUN together',
+    );
+    expect(() =>
+      parseServiceHosts(
+        JSON.stringify({ hosts: [NBG, { ...APP, address: NBG.address }], app: APP.name }),
+      ),
+    ).toThrow(/duplicate address/);
   });
 });
 
@@ -264,9 +275,10 @@ describe('rendered environments', () => {
 
 describe('the committed manifest', () => {
   test('parses, and every host renders', () => {
-    const { hosts } = loadServiceHosts();
-    expect(hosts.length).toBeGreaterThan(0);
-    for (const host of hosts) {
+    const { edgeHosts, app } = loadServiceHosts();
+    expect(edgeHosts.length).toBeGreaterThan(0);
+    expect(app.name).toMatch(/\S/);
+    for (const host of edgeHosts) {
       expect(renderEdgeEnvironment(host, 'v0.0.0', 'https://app.merkur.sh')).toContain(
         `MERKUR_EDGE_ID=${host.edge.edgeId}\n`,
       );

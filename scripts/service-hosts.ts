@@ -10,8 +10,10 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const MANIFEST = 'deploy/service-hosts.json';
 
 /**
- * The hosts the edge relay and the STUN responder run on, and the app host that
- * runs the server, its database and the website, from `deploy/service-hosts.json`.
+ * Merkur's hosts and the roles each runs, from `deploy/service-hosts.json`. A
+ * host with `edge` and `stun` runs the relay and the STUN responder; the host
+ * `app` names runs the server, its database and the website. One host may run
+ * every role, and a role moves to another host by editing this manifest.
  *
  * The manifest holds only what genuinely differs per host: its address, the SSH
  * host key the deploy pins, the edge's identity and egress limits, and the STUN
@@ -73,27 +75,38 @@ const ServiceHost = Schema.Struct({
   address: Schema.String,
   sshHostKey: Schema.String.check(Schema.isPattern(SSH_HOST_KEY_PATTERN)),
   interface: Schema.String.check(Schema.isPattern(INTERFACE_PATTERN)),
-  edge: EdgeService,
-  stun: StunService,
-});
-
-/** The server, sqld, Dragonfly and the website (`deploy/app`). */
-const AppHost = Schema.Struct({
-  name: Schema.String.check(Schema.isPattern(NAME_PATTERN)),
-  address: Schema.String,
-  sshHostKey: Schema.String.check(Schema.isPattern(SSH_HOST_KEY_PATTERN)),
+  edge: Schema.optionalKey(EdgeService),
+  stun: Schema.optionalKey(StunService),
 });
 
 const Manifest = Schema.fromJsonString(
-  Schema.Struct({ hosts: Schema.NonEmptyArray(ServiceHost), app: AppHost }),
+  Schema.Struct({
+    hosts: Schema.NonEmptyArray(ServiceHost),
+    /** The host that runs the server, sqld, Dragonfly and the website (`deploy/app`). */
+    app: Schema.String,
+  }),
 );
 
 export type ServiceHost = typeof ServiceHost.Type;
-export type AppHost = typeof AppHost.Type;
+type EdgeService = typeof EdgeService.Type;
+type StunService = typeof StunService.Type;
+
+/** A host that runs the edge relay and the STUN responder. */
+export interface EdgeHost extends ServiceHost {
+  readonly edge: EdgeService;
+  readonly stun: StunService;
+}
 
 export interface ServiceHosts {
   readonly hosts: readonly ServiceHost[];
-  readonly app: AppHost;
+  /** The hosts that run the edge and STUN. */
+  readonly edgeHosts: readonly EdgeHost[];
+  /** The host that runs the server, its database and the website. */
+  readonly app: ServiceHost;
+}
+
+function isEdgeHost(host: ServiceHost): host is EdgeHost {
+  return host.edge !== undefined && host.stun !== undefined;
 }
 
 export class ServiceHostManifestError extends Error {}
@@ -127,9 +140,8 @@ function assertCanonicalPublicUrl(value: string): void {
  * answer: the single IPv4 answers the port change, two addresses out of the
  * host's IPv6 /64 answer both.
  */
-function assertHost(host: ServiceHost): void {
+function assertEdgeHost(host: EdgeHost): void {
   const { edge, stun } = host;
-  if (!isIPv4(host.address)) fail(`host address \`${host.address}\` must be an IPv4 literal`);
   if (edge.egressBudgetGB + edge.signalingReserveGB > MAX_EGRESS_BUDGET_GB) {
     fail('combined egress budget exceeds u64 bytes');
   }
@@ -162,26 +174,37 @@ function assertHost(host: ServiceHost): void {
  * registry's atomic ownership claim only once the edge is already live.
  */
 export function parseServiceHosts(source: string): ServiceHosts {
-  let manifest: ServiceHosts;
+  let manifest: typeof Manifest.Type;
   try {
     manifest = Schema.decodeUnknownSync(Manifest, { onExcessProperty: 'error' })(source);
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }
-  const { hosts, app } = manifest;
-  hosts.forEach(assertHost);
-  if (!isIPv4(app.address)) fail(`app address \`${app.address}\` must be an IPv4 literal`);
+  const { hosts } = manifest;
+  for (const host of hosts) {
+    if (!isIPv4(host.address)) fail(`host address \`${host.address}\` must be an IPv4 literal`);
+    if ((host.edge === undefined) !== (host.stun === undefined)) {
+      fail(`host \`${host.name}\` must run the edge and STUN together`);
+    }
+    if (!isEdgeHost(host) && host.name !== manifest.app) {
+      fail(`host \`${host.name}\` runs no role`);
+    }
+  }
+  const edgeHosts = hosts.filter(isEdgeHost);
+  edgeHosts.forEach(assertEdgeHost);
   const unique: ReadonlyArray<[string, readonly string[]]> = [
-    ['name', [...hosts.map((host) => host.name), app.name]],
-    ['address', [...hosts.map((host) => host.address), app.address]],
-    ['edgeId', hosts.map((host) => host.edge.edgeId)],
-    ['publicUrl', hosts.map((host) => host.edge.publicUrl)],
+    ['name', hosts.map((host) => host.name)],
+    ['address', hosts.map((host) => host.address)],
+    ['edgeId', edgeHosts.map((host) => host.edge.edgeId)],
+    ['publicUrl', edgeHosts.map((host) => host.edge.publicUrl)],
   ];
   for (const [field, values] of unique) {
     const duplicate = values.find((value, index) => values.indexOf(value) !== index);
     if (duplicate !== undefined) fail(`duplicate ${field} \`${duplicate}\``);
   }
-  return manifest;
+  const app = hosts.find((host) => host.name === manifest.app);
+  if (app === undefined) fail(`app names \`${manifest.app}\`, which is not a host`);
+  return { hosts, edgeHosts, app };
 }
 
 export function loadServiceHosts(root: string = ROOT): ServiceHosts {
@@ -207,7 +230,7 @@ function environmentFile(entries: ReadonlyArray<[string, string]>): string {
 
 /** The edge unit's non-secret environment, `/etc/merkur/edge.env`. */
 export function renderEdgeEnvironment(
-  host: ServiceHost,
+  host: EdgeHost,
   version: string,
   serverOrigin: string,
 ): string {
@@ -239,7 +262,7 @@ export function renderEdgeEnvironment(
 }
 
 /** The STUN units' non-secret environment, `/etc/merkur/stun.env`. */
-export function renderStunEnvironment(host: ServiceHost): string {
+export function renderStunEnvironment(host: EdgeHost): string {
   const [, v6a, v6b] = host.stun.addresses;
   return environmentFile([
     ['MERKUR_STUN_BIND', host.stun.addresses.join(',')],
@@ -257,7 +280,7 @@ export function renderStunEnvironment(host: ServiceHost): string {
  * differing mappings classify the daemon's NAT, and one observer per IPv6
  * address, bracketed, which is all a NAT-free family needs to be reached at.
  */
-export function stunServers(hosts: readonly ServiceHost[]): string {
+export function stunServers(hosts: readonly EdgeHost[]): string {
   return hosts
     .flatMap((host) => {
       const [v4, ...v6] = host.stun.addresses;
@@ -284,22 +307,20 @@ function usage(): never {
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2);
   try {
-    const { hosts, app } = loadServiceHosts();
+    const { hosts, edgeHosts, app } = loadServiceHosts();
     if (command === 'list') {
-      for (const host of hosts) process.stdout.write(`${host.name}\t${host.address}\n`);
+      for (const host of edgeHosts) process.stdout.write(`${host.name}\t${host.address}\n`);
     } else if (command === 'known-hosts') {
-      for (const host of [...hosts, app]) {
-        process.stdout.write(`${host.address} ${host.sshHostKey}\n`);
-      }
+      for (const host of hosts) process.stdout.write(`${host.address} ${host.sshHostKey}\n`);
     } else if (command === 'app') {
       process.stdout.write(`${app.address}\n`);
     } else if (command === 'stun-servers') {
-      process.stdout.write(`${stunServers(hosts)}\n`);
+      process.stdout.write(`${stunServers(edgeHosts)}\n`);
     } else if (command === 'render') {
       const [name, version, origin, outDir] = rest;
       if (name === undefined || version === undefined || origin === undefined || !outDir) usage();
-      const host = hosts.find((candidate) => candidate.name === name);
-      if (host === undefined) fail(`no host \`${name}\` in ${MANIFEST}`);
+      const host = edgeHosts.find((candidate) => candidate.name === name);
+      if (host === undefined) fail(`no edge host \`${name}\` in ${MANIFEST}`);
       mkdirSync(outDir, { recursive: true });
       writeFileSync(path.join(outDir, 'edge.env'), renderEdgeEnvironment(host, version, origin));
       writeFileSync(path.join(outDir, 'stun.env'), renderStunEnvironment(host));

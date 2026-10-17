@@ -102,7 +102,7 @@ jobs:
           # A header's value; names compare without case (HTTP/1.1 here, HTTP/2 live).
           header() { tr -d '\r' < "$2" | grep -i "^$1:" | head -n 1 | sed 's/^[^:]*:[[:space:]]*//'; }
           test -x site-deployment/site-server
-          PORT=18080 RYBBIT_HOST=http://10.10.0.3:3001 TRUSTED_PROXY_HOPS=2 \
+          PORT=18080 RYBBIT_HOST=http://127.0.0.1:3001 TRUSTED_PROXY_HOPS=2 \
             site-deployment/site-server site-deployment/dist > "$RUNNER_TEMP/site-server.log" 2>&1 &
           server_pid=$!
           curl --fail --silent --show-error --retry 50 --retry-delay 0 --retry-connrefused \
@@ -131,12 +131,12 @@ jobs:
           mkdir -m 0700 "$work"
           printf '%s\n' "$SITE_DEPLOY_SSH_KEY" > "$work/id"
           chmod 0600 "$work/id"
-          jq -r '(.hosts[], .app) | "\(.address) \(.sshHostKey)"' deploy/service-hosts.json > "$work/known_hosts"
+          jq -r '.hosts[] | "\(.address) \(.sshHostKey)"' deploy/service-hosts.json > "$work/known_hosts"
           # The key's only command is the host's site installer, which takes the
           # commit as its argument and the deployment on stdin.
           tar -C site-deployment -czf - . \
             | ssh -i "$work/id" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile="$work/known_hosts" "root@$(jq -r .app.address deploy/service-hosts.json)" \
+              -o UserKnownHostsFile="$work/known_hosts" "root@$(jq -r '.app as $app | .hosts[] | select(.name == $app) | .address' deploy/service-hosts.json)" \
               "$DEPLOY_SHA" > "$RUNNER_TEMP/site.json"
           jq -e --arg commit "$DEPLOY_SHA" --arg digest "$(sha512sum site-deployment/site-server | cut -d' ' -f1)" \
             '.commit == $commit and ."site-server" == $digest and .active == "active"' "$RUNNER_TEMP/site.json"

@@ -121,8 +121,15 @@ Review and refresh these pins when publishing security updates.
 
 ### The app host
 
-The application server, its database, Dragonfly and the website run on one host, `app` in
-`deploy/service-hosts.json`. Caddy terminates TLS (`deploy/app/Caddyfile`). `app.merkur.sh`
+`deploy/service-hosts.json` assigns each role to a host: the edge and STUN to every host with
+`edge` and `stun`, and the application server, its database, Dragonfly and the website to the
+host `app` names. One host, nbg-1, runs every role today, with Rybbit beside them. A role moves
+to a host of its own by adding that host to `infra/hetzner.tf` and the manifest and pointing
+the role there; what another host then calls, Rybbit's backend, listens on the hosts' private
+network (`infra/network.tf`).
+
+Caddy terminates TLS, with one site file per role (`deploy/app/app.caddy`,
+`deploy/analytics/analytics.caddy`) that `deploy/caddy/Caddyfile` imports. `app.merkur.sh`
 points at the host directly, with a Let's Encrypt certificate Caddy holds, so no third party
 decrypts the app's traffic: TLS ends on the host, and Caddy is the server's one proxy
 (`TRUSTED_PROXY_HOPS=1`). Cloudflare could not shield the terminal path anyway, which runs
@@ -442,12 +449,12 @@ description and questions, then every other page under its `og:title` with its d
 
 ### Analytics
 
-Rybbit is self-hosted on its own host, analytics-1 (`deploy/analytics/compose.yaml`), from
-upstream images at exact versions. Only the dashboard is public, at `https://analytics.merkur.sh` behind
+Rybbit is self-hosted beside the app (`deploy/analytics/compose.yaml`), from upstream images
+at exact versions. Only the dashboard is public, at `https://analytics.merkur.sh` behind
 Cloudflare, where Caddy routes `/api/*` and the OAuth discovery paths to the backend and
-everything else to the client (`deploy/analytics/Caddyfile`). The site and the app server
-reach the backend over the hosts' private network at `http://10.10.0.3:3001`, so a visit never
-crosses the internet twice.
+everything else to the client (`deploy/analytics/analytics.caddy`). The site and the app server
+reach the backend on loopback at `http://127.0.0.1:3001`, so a visit never crosses the
+internet twice; on a host of its own, Rybbit publishes the backend on its private address.
 
 | Service | Image | Holds |
 | --- | --- | --- |

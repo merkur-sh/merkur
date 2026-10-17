@@ -1,10 +1,11 @@
-# Rybbit, the website's analytics, on analytics-1. `install.sh` installs this
-# file at /srv/analytics and runs it. Secrets come from
+# Rybbit, the website's analytics, on the host deploy/service-hosts.json gives
+# the `analytics` role, run from /srv/analytics. Secrets come from
 # /etc/merkur-analytics/secrets.env, which never leaves the host.
 #
-# Only the backend is reachable from outside the host: on loopback for Caddy
-# (analytics.merkur.sh, the dashboard) and on the private network for the
-# website, which proxies tracking through its own origin.
+# The backend and the client listen on loopback: Caddy serves the dashboard
+# (analytics.merkur.sh) and the website, on the same host, proxies tracking
+# through its own origin. A Rybbit host of its own publishes the backend on its
+# private address (10.10.0.0/24) instead, for the website's RYBBIT_HOST.
 name: analytics
 
 services:
@@ -66,7 +67,6 @@ services:
       REDIS_PORT: '6379'
     ports:
       - 127.0.0.1:3001:3001
-      - 10.10.0.3:3001:3001
 
   client:
     image: ghcr.io/rybbit-io/rybbit-client:v2.9.0

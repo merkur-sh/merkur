@@ -1,5 +1,5 @@
-# The application server's database (sqld) and Dragonfly on app-1, run from
-# /srv/app. Both listen on loopback only; the server and the website are systemd
+# The application server's database (sqld) and Dragonfly, on the host with the
+# app role (deploy/service-hosts.json), run from /srv/app. Both listen on loopback only; the server and the website are systemd
 # units (merkur-server.service, merkur-site.service). /etc/merkur/data.env holds
 # SQLD_AUTH_JWT_KEY and DRAGONFLY_PASSWORD and never leaves the host.
 name: app

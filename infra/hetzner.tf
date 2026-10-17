@@ -1,5 +1,8 @@
-# The service hosts in deploy/service-hosts.json. The release installs the
-# edge and STUN on them over SSH; this file owns the machines, their addresses
+# The hosts in deploy/service-hosts.json. One host, nbg-1, runs every role
+# today: the edge and STUN, the application server with its database and the
+# website, and Rybbit. The manifest assigns each role to a host, so a role
+# moves to a host of its own by adding the host here and there. The release
+# installs the software over SSH; this file owns the machines, their addresses
 # and their firewall.
 
 resource "hcloud_ssh_key" "owner" {
@@ -8,7 +11,7 @@ resource "hcloud_ssh_key" "owner" {
 }
 
 resource "hcloud_firewall" "service_host" {
-  name = "merkur-edge"
+  name = "merkur-nbg-1"
 
   rule {
     description = "ssh (key only)"
@@ -31,6 +34,22 @@ resource "hcloud_firewall" "service_host" {
     port        = "3478-3481"
     source_ips  = ["0.0.0.0/0", "::/0"]
   }
+  # The app answers everyone directly; Caddy answers the website's and the
+  # dashboard's names only for Cloudflare (deploy/caddy).
+  rule {
+    description = "http, for the redirect and ACME"
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "80"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+  }
+  rule {
+    description = "https"
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "443"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+  }
   rule {
     description = "icmp"
     direction   = "in"
@@ -40,13 +59,16 @@ resource "hcloud_firewall" "service_host" {
 }
 
 resource "hcloud_server" "nbg_1" {
-  name         = "merkur-edge-1"
-  server_type  = "cx23"
-  location     = "nbg1"
-  image        = "debian-12"
+  name        = "merkur-nbg-1"
+  server_type = "cx33"
+  location    = "nbg1"
+  image       = "debian-12"
+  backups     = true
+  # The disk stays at the smaller type's size, so the host can move down again.
+  keep_disk    = true
   ssh_keys     = [hcloud_ssh_key.owner.id]
   firewall_ids = [hcloud_firewall.service_host.id]
-  labels       = { app = "merkur", role = "edge" }
+  labels       = { app = "merkur" }
 
   # The primary IPs the manifest and the server's STUN_SERVERS name.
   public_net {

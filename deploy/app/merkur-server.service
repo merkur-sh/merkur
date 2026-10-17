@@ -1,4 +1,4 @@
-# The application server on app-1.
+# The application server, on the host with the app role (deploy/service-hosts.json).
 #
 # `scripts/ci/install-app-release.sh` unpacks each release's signed deployment into
 # /usr/local/lib/merkur/server/<version> and points `current` at it. The compiled

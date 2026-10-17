@@ -1,7 +1,9 @@
-# The Rybbit dashboard behind Cloudflare. Cloudflare reaches the host only on
-# 443 (the firewall admits nothing else), with the zone's Origin CA certificate.
+# The analytics role: the Rybbit dashboard behind Cloudflare. The name answers
+# only Cloudflare's ranges, with the zone's Origin CA certificate.
 analytics.merkur.sh {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+	@direct not remote_ip {$CLOUDFLARE_RANGES}
+	abort @direct
 	encode zstd gzip
 	request_body {
 		max_size 10MB

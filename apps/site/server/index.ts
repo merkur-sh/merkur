@@ -9,7 +9,7 @@ import { loadSite, startSiteServer, UPSTREAM_TIMEOUT_MS } from './site-server';
  * missing file stops the start, so a broken build never passes the health
  * check that would put it in front of visitors.
  */
-/** Caddy, on the same host, is the only client (`deploy/app/Caddyfile`). */
+/** Caddy, on the same host, is the only client (`deploy/app/app.caddy`). */
 const LISTEN_HOSTNAME = '127.0.0.1';
 const logger = createLogger('site-server');
 

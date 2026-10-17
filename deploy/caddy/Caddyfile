@@ -1,0 +1,4 @@
+# Caddy on every web host: each role installs its own site file into
+# /etc/caddy/sites (deploy/app/app.caddy, deploy/analytics/analytics.caddy), so
+# a role moves to another host with its file.
+import /etc/caddy/sites/*.caddy
