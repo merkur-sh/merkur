@@ -1,8 +1,8 @@
 # Merkur's infrastructure: the Hetzner hosts and the Cloudflare zone.
 #
 # Run it through `scripts/tofu.sh`, which reads every credential from the
-# macOS Keychain. State lives in Hetzner Object Storage, encrypted client-side,
-# because the repository is public and state holds secrets.
+# macOS Keychain. State lives in Cloudflare R2 (EU jurisdiction), encrypted
+# client-side, because the repository is public and state holds secrets.
 terraform {
   required_version = ">= 1.10"
 
@@ -24,8 +24,8 @@ terraform {
   backend "s3" {
     bucket                      = "merkur-infra-state"
     key                         = "merkur.tfstate"
-    region                      = "nbg1"
-    endpoints                   = { s3 = "https://nbg1.your-objectstorage.com" }
+    region                      = "auto"
+    endpoints                   = { s3 = "https://562c6d031f1a5828df411c499318392b.eu.r2.cloudflarestorage.com" }
     use_path_style              = true
     use_lockfile                = true
     skip_credentials_validation = true

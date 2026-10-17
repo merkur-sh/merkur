@@ -137,8 +137,9 @@ daemon_archive(
     tags = _RELEASE,
 )
 
-# The unsigned deployment the release signs and the server image runs, for Linux x64, the
-# server's platform: `server/server`, `migrations/` and the precompressed `web/`.
+# The unsigned deployment the release signs and the app host runs, for Linux x64, the
+# server's platform: `server/server`, `migrations/`, the backup tool in `tools/` and the
+# precompressed `web/`.
 bun_compile(
     name = "deployment_files",
     entry = "//scripts:build-deployment.ts",

@@ -19,6 +19,9 @@ tar -C deployment -czf "$work/bundle/deployment.tar.gz" .
 cp deploy/app/compose.yaml deploy/app/merkur-server.service deploy/app/merkur-site.service \
   "$work/bundle/"
 cp scripts/ci/install-site-release.sh "$work/bundle/install-site"
+cp deploy/backup/merkur-backup.sh "$work/bundle/merkur-backup"
+cp deploy/backup/recipient.txt "$work/bundle/backup-recipient.txt"
+cp deploy/backup/merkur-backup@.service deploy/backup/merkur-backup@.timer "$work/bundle/"
 tar -C "$work/bundle" -cf - . | ssh "${ssh_options[@]}" "root@$address" \
   'rm -rf /tmp/merkur-app-release && mkdir -m 0700 /tmp/merkur-app-release && tar -C /tmp/merkur-app-release -xf -'
 ssh "${ssh_options[@]}" "root@$address" bash -s -- "$VERSION" \

@@ -1,0 +1,17 @@
+# One role's nightly off-site backup (deploy/backup/merkur-backup.sh), started by
+# merkur-backup@<role>.timer. Root: the analytics dump reaches Rybbit's containers
+# through the Docker socket.
+
+[Unit]
+Description=Merkur backup: %i
+Documentation=https://github.com/merkur-sh/merkur
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/merkur/merkur-backup %i
+UMask=0077
+PrivateTmp=yes
+ProtectHome=yes
+NoNewPrivileges=yes

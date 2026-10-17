@@ -29,8 +29,8 @@ import type { DatabaseSchema } from '../src/db/types';
 
 /**
  * Every table, ordered so a row's parents load before it does. Restoring walks
- * this list forwards; a table missing from it is not dumped, so it is also the
- * list a new table has to join.
+ * this list forwards. A dump refuses a database with a table this list lacks,
+ * so a new table has to join it before the next backup runs.
  */
 const TABLES = [
   'users',
@@ -45,7 +45,12 @@ const TABLES = [
   'keyboard_settings',
   'box_access',
   'box_waitlist',
+  'box_removals',
+  'notification_outbox',
 ] as const;
+
+/** Tables the migrator and SQLite own, which a restore recreates. */
+const INTERNAL_TABLE = /^(kysely_migration|kysely_migration_lock|sqlite_.*)$/;
 
 type TableName = (typeof TABLES)[number];
 
@@ -86,6 +91,13 @@ async function dump(url: string, outFile: string): Promise<void> {
       takenAt: new Date().toISOString(),
       source: redactUrl(url),
     };
+    const present = await client.execute("SELECT name FROM sqlite_master WHERE type = 'table'");
+    const unlisted = present.rows
+      .map((row) => String(row[0]))
+      .filter((name) => !INTERNAL_TABLE.test(name) && !TABLES.some((table) => table === name));
+    if (unlisted.length > 0) {
+      throw new Error(`tables missing from the dump list: ${unlisted.sort().join(', ')}`);
+    }
     const lines: string[] = [JSON.stringify(header)];
     const counts: Record<string, number> = {};
     for (const table of TABLES) {

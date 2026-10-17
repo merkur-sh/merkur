@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 
+import { sql } from 'kysely';
+
 import { createMigratedKyselyDatabase } from '../src/db/migrate';
 import type { DatabaseSchema } from '../src/db/types';
 
@@ -53,6 +55,10 @@ describe('database backup', () => {
       expect(access).toEqual([{ status: 'approved' }]);
       const waitlist = await restored.selectFrom('box_waitlist').selectAll().execute();
       expect(waitlist).toEqual([{ email: 'bob@example.com', created_at: 3 }]);
+      const removals = await restored.selectFrom('box_removals').selectAll().execute();
+      expect(removals).toEqual([{ box_id: 'box-1', requested_at: 4 }]);
+      const outbox = await restored.selectFrom('notification_outbox').selectAll().execute();
+      expect(outbox).toEqual([{ id: 'note-1', user_id: 'user-1', kind: 'welcome', payload: '{}' }]);
     } finally {
       await restored.destroy();
     }
@@ -75,6 +81,23 @@ describe('database backup', () => {
     await Bun.write(dumpFile, `${[...lines.slice(0, -1), trailer].join('\n')}\n`);
 
     expect(await run(['restore', '--url', target, '--in', dumpFile])).not.toBe(0);
+  });
+
+  test('refuses to dump a database with a table it does not know', async () => {
+    // A table a migration adds but the list lacks would silently be left out of
+    // every backup; the dump fails instead, so the gap shows the first night.
+    const directory = await scratchDirectory();
+    const source = `file:${path.join(directory, 'source.db')}`;
+    const db = await createMigratedKyselyDatabase<DatabaseSchema>(source);
+    try {
+      await sql`CREATE TABLE unlisted (id TEXT PRIMARY KEY)`.execute(db);
+    } finally {
+      await db.destroy();
+    }
+
+    expect(
+      await run(['dump', '--url', source, '--out', path.join(directory, 'dump.jsonl')]),
+    ).not.toBe(0);
   });
 
   test('refuses to restore over a database that already holds accounts', async () => {
@@ -144,6 +167,11 @@ async function seed(url: string): Promise<void> {
     await db
       .insertInto('box_waitlist')
       .values({ email: 'bob@example.com', created_at: 3 })
+      .execute();
+    await db.insertInto('box_removals').values({ box_id: 'box-1', requested_at: 4 }).execute();
+    await db
+      .insertInto('notification_outbox')
+      .values({ id: 'note-1', user_id: 'user-1', kind: 'welcome', payload: '{}' })
       .execute();
   } finally {
     await db.destroy();

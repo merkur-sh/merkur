@@ -1,0 +1,11 @@
+# Each role's backup at 03:00 UTC; a night the host was down runs at the next boot.
+
+[Unit]
+Description=Merkur nightly backup: %i
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

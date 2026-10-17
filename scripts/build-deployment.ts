@@ -1,7 +1,8 @@
 /**
- * Builds the unsigned deployment the release signs and the server image runs: the compiled
- * server, its bundled migrations and the web app, precompressed. `//tools/bazel/release:deployment`
- * runs it inside a checkout of the repository, on Linux x64, the server's platform.
+ * Builds the unsigned deployment the release signs and the app host runs: the compiled
+ * server, its bundled migrations, the database backup tool and the web app, precompressed.
+ * `//tools/bazel/release:deployment` runs it inside a checkout of the repository, on Linux x64,
+ * the server's platform.
  *
  *   bun run scripts/build-deployment.ts <absolute output directory>
  *
@@ -144,6 +145,21 @@ async function build(output: string, inputs: DeploymentInputs): Promise<void> {
       'apps/server/migrations',
       '--outdir',
       path.join(output, 'migrations'),
+    ],
+    {},
+  );
+  // The nightly backup's dump tool (deploy/backup), signed with the schema it reads. The
+  // server executable runs it as Bun (`BUN_BE_BUN=1`), so the host needs no other runtime.
+  await run(
+    [
+      process.execPath,
+      'build',
+      'apps/server/scripts/database-backup.ts',
+      '--target',
+      'bun',
+      '--conditions=workerd',
+      '--outdir',
+      path.join(output, 'tools'),
     ],
     {},
   );

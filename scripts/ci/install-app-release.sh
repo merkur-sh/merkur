@@ -12,6 +12,7 @@ src=/tmp/merkur-app-release
 # Secrets are provisioned once and never shipped; a host without them is unfinished.
 test -s /etc/merkur/server.env
 test -s /etc/merkur/data.env
+test -s /etc/merkur/backup.env
 
 install -m 0644 "$src/compose.yaml" /srv/app/compose.yaml
 docker compose --project-directory /srv/app up --detach --remove-orphans --quiet-pull
@@ -36,10 +37,14 @@ else
 fi
 ln -sfn "$version" "$root/.current.new"
 mv -Tf "$root/.current.new" "$root/current"
-install -m 0644 "$src/merkur-server.service" "$src/merkur-site.service" /etc/systemd/system/
+install -m 0644 "$src/merkur-server.service" "$src/merkur-site.service" \
+  "$src/merkur-backup@.service" "$src/merkur-backup@.timer" /etc/systemd/system/
 install -m 0755 "$src/install-site" /usr/local/lib/merkur/install-site
+install -m 0755 "$src/merkur-backup" /usr/local/lib/merkur/merkur-backup
+install -m 0644 "$src/backup-recipient.txt" /usr/local/lib/merkur/backup-recipient.txt
 systemctl daemon-reload
 systemctl enable --quiet merkur-server merkur-site
+systemctl enable --quiet --now merkur-backup@app.timer
 
 since=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 systemctl restart merkur-server

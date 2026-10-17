@@ -10,6 +10,7 @@ key each deploy pins, and the roles it runs.
 | edge and STUN (a host's `edge` and `stun`) | The relay and the STUN responder (systemd) | The release (`scripts/ci/deploy-service-hosts.sh`) |
 | app (the host `app` names) | The server and the website (systemd), sqld and Dragonfly (`app/compose.yaml`) | The release (`scripts/ci/deploy-app-host.sh`); the site by Deploy site |
 | analytics | Rybbit (`analytics/compose.yaml`) | By hand: `docker compose up -d` in `/srv/analytics` |
+| backups | Each role's nightly encrypted backup (`backup/`), `merkur-backup@app.timer` and `merkur-backup@analytics.timer` | The release, for the app; `systemctl enable --now merkur-backup@analytics.timer` by hand |
 
 One host, nbg-1, runs every role. To move a role to a host of its own, add the host to
 `infra/hetzner.tf` and `service-hosts.json`, give it the role, install the role's files below
@@ -35,6 +36,11 @@ carries them.
   - `/var/lib/merkur/sqld`, owned by UID 666, which the sqld image runs as.
   - The site deploy key, restricted to its installer:
     `restrict,command="/usr/local/lib/merkur/install-site" ssh-ed25519 …`.
+- Every host with the app or analytics role keeps `/etc/merkur/backup.env`: the backup bucket's
+  endpoint and name and the write-only key (`bash scripts/tofu.sh output -raw
+  backup_access_key_id`, `… backup_secret_access_key`), as `MERKUR_BACKUP_ENDPOINT`,
+  `MERKUR_BACKUP_BUCKET`, `MERKUR_BACKUP_ACCESS_KEY_ID` and `MERKUR_BACKUP_SECRET_ACCESS_KEY`,
+  and the `age` package.
 - The analytics host keeps `/etc/merkur-analytics/secrets.env`, with the Rybbit, Postgres,
   ClickHouse and Redis credentials `analytics/compose.yaml` names, and its data under
   `/var/lib/merkur-analytics`.
@@ -48,3 +54,18 @@ carries them.
   `Environment="CLOUDFLARE_RANGES=<bash scripts/tofu.sh output -raw cloudflare_ranges>"`.
 
 Hetzner's daily backups are on for nbg-1.
+
+## Restoring a backup
+
+Backups are `<role>/<UTC time>.tar.gz.age` in the `merkur-backups` bucket. Decrypt one on the
+owner's machine, the only place the key is:
+
+```sh
+age --decrypt -i <(security find-generic-password -a merkur -s merkur-backup-age-identity -w) \
+  app.tar.gz.age | tar -xzf -
+```
+
+`app/database.jsonl` restores into an empty database with
+`bun run apps/server/scripts/database-backup.ts restore --url <url> --in app/database.jsonl`,
+which runs the migrations and checks every table's row count. `analytics/postgres.dump` restores
+with `pg_restore`, and each ClickHouse table from its `.sql` schema and `.native` rows.
