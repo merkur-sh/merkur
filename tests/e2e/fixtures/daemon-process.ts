@@ -1,6 +1,5 @@
 import { type ChildProcessByStdio, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { createSocket } from 'node:dgram';
 import {
   appendFileSync,
   copyFileSync,
@@ -22,6 +21,7 @@ import {
   type DaemonPerfTraceCapture,
 } from './daemon-perf-trace-capture';
 import { waitForFinalDaemonTransportCapture } from './daemon-transport-capture';
+import { releaseHarnessPort, takeHarnessPort } from './harness-ports';
 import { enableE2ETelemetryPreference } from './terminal-perf-artifacts';
 import { test as base, expect } from './test';
 import { redirectTransportWorker } from './transport-worker-prelude';
@@ -329,20 +329,13 @@ function readDaemonConfig(daemonHome: string): DaemonConfig {
 const E2E_SHELL = '/bin/bash';
 
 /**
- * The linked config with this run's shell and an unused WebTransport port, and
- * that shell's one setting in its home (`bashrc` says which and why).
+ * The linked config with this run's shell and a WebTransport port of this
+ * worker's own (`harness-ports.ts`), and that shell's one setting in its home
+ * (`bashrc` says which and why).
  */
-async function pinLinkedConfig(daemonHome: string): Promise<DaemonConfig> {
+function pinLinkedConfig(daemonHome: string, port: number): DaemonConfig {
   copyFileSync(path.join(__dirname, 'bashrc'), path.join(daemonHome, '.bashrc'));
 
-  const port = await new Promise<number>((resolve, reject) => {
-    const socket = createSocket('udp6');
-    socket.once('error', reject);
-    socket.bind(0, '::', () => {
-      const address = socket.address();
-      socket.close(() => resolve(address.port));
-    });
-  });
   const configPath = path.join(daemonHome, '.merkur', 'config.json');
   const config = validateDaemonConfig({
     ...readDaemonConfig(daemonHome),
@@ -394,6 +387,7 @@ async function completeDaemonLink(
     [],
     token,
   );
+  let port: number | undefined;
   try {
     const approvalUrl = await waitForDaemonLinkUrl(link);
     await approveDaemonLink(page, approvalUrl, password);
@@ -401,7 +395,8 @@ async function completeDaemonLink(
     if (exitCode !== 0) {
       throw new Error(`daemon link command exited ${exitCode}:\n${link.logChunks.join('')}`);
     }
-    const config = await pinLinkedConfig(daemonHome);
+    port = takeHarnessPort();
+    const config = pinLinkedConfig(daemonHome, port);
     expect(config.daemon_identity_seal.backend).toBe(software ? 'software' : 'hardware');
     return {
       daemonHome,
@@ -411,6 +406,7 @@ async function completeDaemonLink(
     };
   } catch (error) {
     await killDaemon(link.process);
+    if (port !== undefined) releaseHarnessPort(port);
     rmSync(daemonHome, { recursive: true, force: true });
     const daemonLog = link.logChunks.join('').trim();
     throw new Error(
@@ -429,7 +425,10 @@ export async function linkOfflineDaemon(
   return {
     daemonId: linked.config.daemon_id,
     daemonName: linked.daemonName,
-    dispose: () => rmSync(linked.daemonHome, { recursive: true, force: true }),
+    dispose: () => {
+      releaseHarnessPort(linked.config.webtransport_port);
+      rmSync(linked.daemonHome, { recursive: true, force: true });
+    },
   };
 }
 
@@ -630,6 +629,7 @@ async function acquireLinkedDaemon(options: AcquireOptions): Promise<LinkedDaemo
     };
   } catch (error) {
     await killDaemon(daemon.process);
+    releaseHarnessPort(linked.config.webtransport_port);
     rmSync(linked.daemonHome, { recursive: true, force: true });
     const daemonLog = daemon.logChunks.join('').trim();
     throw new Error(
@@ -641,6 +641,7 @@ async function acquireLinkedDaemon(options: AcquireOptions): Promise<LinkedDaemo
 
 async function releaseLinkedDaemon(resources: LinkedDaemonResources): Promise<void> {
   await killDaemon(resources.process);
+  releaseHarnessPort(resources.webTransportPort);
   rmSync(resources.daemonHome, { recursive: true, force: true });
 }
 

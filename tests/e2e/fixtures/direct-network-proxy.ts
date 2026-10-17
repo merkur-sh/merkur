@@ -1,5 +1,4 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { createSocket } from 'node:dgram';
 import path from 'node:path';
 import type { BrowserContext } from '@playwright/test';
 import {
@@ -14,6 +13,7 @@ import {
 } from '../../../scripts/edge-network-profile';
 import type { ProxyImpairmentStats } from '../../../scripts/edge-network-stats';
 import { nativeProgram } from '../../../scripts/native-artifacts';
+import { releaseHarnessPort, takeHarnessPort } from './harness-ports';
 import {
   redirectTransportWorker,
   type TransportWorkerRedirect,
@@ -104,11 +104,8 @@ export async function startDirectNetworkProxy(
   if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffff_ffff)
     throw new Error('direct proxy seed must be a u32');
   const profile = EDGE_NETWORK_PROFILES[profileName];
-  const ports: number[] = [];
-  while (ports.length < 4) {
-    const port = await unusedUdpPort();
-    if (port !== backendPort && !ports.includes(port)) ports.push(port);
-  }
+  // Each proxy hop's ports, held until the proxy closes (`harness-ports.ts`).
+  const ports = [takeHarnessPort(), takeHarnessPort(), takeHarnessPort(), takeHarnessPort()];
   const [outerPort, innerPort, outerControl, innerControl] = ports;
   if (
     outerPort === undefined ||
@@ -186,6 +183,7 @@ export async function startDirectNetworkProxy(
       await redirect?.remove();
     } finally {
       await Promise.all(children.map(stopChild));
+      for (const port of ports) releaseHarnessPort(port);
     }
   }
   try {
@@ -231,20 +229,6 @@ export async function startDirectNetworkProxy(
     await close();
     throw error;
   }
-}
-
-async function unusedUdpPort(): Promise<number> {
-  const socket = createSocket('udp6');
-  return new Promise((resolve, reject) => {
-    socket.once('error', (error) => {
-      socket.close();
-      reject(error);
-    });
-    socket.bind(0, '::1', () => {
-      const port = socket.address().port;
-      socket.close(() => resolve(port));
-    });
-  });
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {
