@@ -57,7 +57,7 @@
       "exports": ["default"]
     },
     {
-      "file": "apps/server/src/file-imports.d.ts",
+      "file": "apps/server/src/services/mail-lockup.png.d.ts",
       "exports": ["default"]
     },
     {
