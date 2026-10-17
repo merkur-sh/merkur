@@ -1,0 +1,24 @@
+# app-1.
+#
+# app.merkur.sh is reached directly, so TLS ends here and nowhere else: Caddy
+# holds its Let's Encrypt certificate and is the one proxy in front of the
+# server (TRUSTED_PROXY_HOPS=1).
+#
+# The website is reached only through Cloudflare. Its names answer only
+# Cloudflare's ranges (CLOUDFLARE_RANGES, rendered from the same OpenTofu data
+# source as analytics-1's firewall), with the zone's Origin CA certificate, and
+# Caddy extends X-Forwarded-For only for those peers, so the site's
+# TRUSTED_PROXY_HOPS=2 reads the visitor's address.
+
+app.merkur.sh {
+	reverse_proxy 127.0.0.1:3000
+}
+
+merkur.sh, www.merkur.sh {
+	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+	@direct not remote_ip {$CLOUDFLARE_RANGES}
+	abort @direct
+	reverse_proxy 127.0.0.1:8080 {
+		trusted_proxies {$CLOUDFLARE_RANGES}
+	}
+}

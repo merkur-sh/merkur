@@ -464,9 +464,9 @@ than inferring their expiry from its page-suspension duration.
 The edge exists so a daemon behind NAT can be reached without the server touching terminal
 bytes. It terminates WebTransport and forwards application frames blindly. It holds no account
 material, no session-token signing key, no Noise PSK, and no terminal decryption path. It runs as
-UID/GID 10001 with all capabilities dropped and `no_new_privs` set; only `/data/identity` is
-writable, for its certificate (see
-[runtime restrictions](releases.md#runtime-filesystem-restrictions)).
+a transient systemd user with no capabilities and `NoNewPrivileges`; only its state directory,
+`/var/lib/merkur-edge`, is writable, for its certificate and egress ledger (see
+[the app host](releases.md#the-app-host)).
 
 ### Three connections and the routing preface
 

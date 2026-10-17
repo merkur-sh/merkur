@@ -927,7 +927,7 @@ inspected artifacts, not the OS, shared libraries, or container entrypoint. The 
 initialize only their `/data` volume as root, then run as UID and GID 10001 with `no_new_privs`;
 STUN starts that way. Account settings verifies the server's reported proof pair against the loaded
 client's build marker, and an independently trusted local bundle can be compared with
-`bun run deployment:check-server` ([signed deployment](releases.md#signed-docker-deployment)). The
+`bun run deployment:check-server` ([signed deployment](releases.md#signed-deployment)). The
 verifier is still delivered by the same origin, so the first-load boundary is unchanged.
 
 ## Repository And Dependency Protection

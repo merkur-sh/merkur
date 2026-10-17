@@ -9,7 +9,8 @@ import { loadSite, startSiteServer, UPSTREAM_TIMEOUT_MS } from './site-server';
  * missing file stops the start, so a broken build never passes the health
  * check that would put it in front of visitors.
  */
-const LISTEN_HOSTNAME = '0.0.0.0';
+/** Caddy, on the same host, is the only client (`deploy/app/Caddyfile`). */
+const LISTEN_HOSTNAME = '127.0.0.1';
 const logger = createLogger('site-server');
 
 try {
@@ -34,9 +35,9 @@ try {
     paths: site.resources.size,
     rybbitHost: config.rybbitHost,
   });
-  // Railway stops the previous container with SIGTERM once the next one is
-  // healthy. Stop listening and let the requests in flight finish; the process
-  // exits when the last connection closes.
+  // systemd stops the site with SIGTERM before it starts the next deployment.
+  // Stop listening and let the requests in flight finish; the process exits when
+  // the last connection closes.
   process.once('SIGTERM', () => {
     logger.info('site_server_stopping', {});
     void server.stop();

@@ -10,8 +10,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const MANIFEST = 'deploy/service-hosts.json';
 
 /**
- * The hosts the edge relay and the STUN responder run on, from
- * `deploy/service-hosts.json`.
+ * The hosts the edge relay and the STUN responder run on, and the app host that
+ * runs the server, its database and the website, from `deploy/service-hosts.json`.
  *
  * The manifest holds only what genuinely differs per host: its address, the SSH
  * host key the deploy pins, the edge's identity and egress limits, and the STUN
@@ -77,9 +77,24 @@ const ServiceHost = Schema.Struct({
   stun: StunService,
 });
 
-const Manifest = Schema.fromJsonString(Schema.Struct({ hosts: Schema.NonEmptyArray(ServiceHost) }));
+/** The server, sqld, Dragonfly and the website (`deploy/app`). */
+const AppHost = Schema.Struct({
+  name: Schema.String.check(Schema.isPattern(NAME_PATTERN)),
+  address: Schema.String,
+  sshHostKey: Schema.String.check(Schema.isPattern(SSH_HOST_KEY_PATTERN)),
+});
+
+const Manifest = Schema.fromJsonString(
+  Schema.Struct({ hosts: Schema.NonEmptyArray(ServiceHost), app: AppHost }),
+);
 
 export type ServiceHost = typeof ServiceHost.Type;
+export type AppHost = typeof AppHost.Type;
+
+export interface ServiceHosts {
+  readonly hosts: readonly ServiceHost[];
+  readonly app: AppHost;
+}
 
 export class ServiceHostManifestError extends Error {}
 
@@ -146,29 +161,30 @@ function assertHost(host: ServiceHost): void {
  * silently loses proximity selection, and a duplicate URL is refused by the
  * registry's atomic ownership claim only once the edge is already live.
  */
-export function parseServiceHosts(source: string): readonly ServiceHost[] {
-  let hosts: readonly ServiceHost[];
+export function parseServiceHosts(source: string): ServiceHosts {
+  let manifest: ServiceHosts;
   try {
-    hosts = Schema.decodeUnknownSync(Manifest, { onExcessProperty: 'error' })(source).hosts;
+    manifest = Schema.decodeUnknownSync(Manifest, { onExcessProperty: 'error' })(source);
   } catch (error) {
     return fail(error instanceof Error ? error.message : String(error));
   }
+  const { hosts, app } = manifest;
   hosts.forEach(assertHost);
-  const unique: ReadonlyArray<[string, (host: ServiceHost) => string]> = [
-    ['name', (host) => host.name],
-    ['address', (host) => host.address],
-    ['edgeId', (host) => host.edge.edgeId],
-    ['publicUrl', (host) => host.edge.publicUrl],
+  if (!isIPv4(app.address)) fail(`app address \`${app.address}\` must be an IPv4 literal`);
+  const unique: ReadonlyArray<[string, readonly string[]]> = [
+    ['name', [...hosts.map((host) => host.name), app.name]],
+    ['address', [...hosts.map((host) => host.address), app.address]],
+    ['edgeId', hosts.map((host) => host.edge.edgeId)],
+    ['publicUrl', hosts.map((host) => host.edge.publicUrl)],
   ];
-  for (const [field, key] of unique) {
-    const values = hosts.map(key);
+  for (const [field, values] of unique) {
     const duplicate = values.find((value, index) => values.indexOf(value) !== index);
     if (duplicate !== undefined) fail(`duplicate ${field} \`${duplicate}\``);
   }
-  return hosts;
+  return manifest;
 }
 
-export function loadServiceHosts(root: string = ROOT): readonly ServiceHost[] {
+export function loadServiceHosts(root: string = ROOT): ServiceHosts {
   return parseServiceHosts(readFileSync(path.join(root, MANIFEST), 'utf8'));
 }
 
@@ -258,6 +274,7 @@ function usage(): never {
   process.stderr.write(
     'usage: bun run service-hosts list\n' +
       '       bun run service-hosts known-hosts\n' +
+      '       bun run service-hosts app\n' +
       '       bun run service-hosts stun-servers\n' +
       '       bun run service-hosts render <host> <version> <server-origin> <out-dir>\n',
   );
@@ -267,11 +284,15 @@ function usage(): never {
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2);
   try {
-    const hosts = loadServiceHosts();
+    const { hosts, app } = loadServiceHosts();
     if (command === 'list') {
       for (const host of hosts) process.stdout.write(`${host.name}\t${host.address}\n`);
     } else if (command === 'known-hosts') {
-      for (const host of hosts) process.stdout.write(`${host.address} ${host.sshHostKey}\n`);
+      for (const host of [...hosts, app]) {
+        process.stdout.write(`${host.address} ${host.sshHostKey}\n`);
+      }
+    } else if (command === 'app') {
+      process.stdout.write(`${app.address}\n`);
     } else if (command === 'stun-servers') {
       process.stdout.write(`${stunServers(hosts)}\n`);
     } else if (command === 'render') {

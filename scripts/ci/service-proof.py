@@ -10,13 +10,21 @@ root = Path('dist/service-proofs')
 SERVICES = ('merkur-edge', 'merkur-stun')
 
 
-def digest(name):
-    return hashlib.sha512(Path('dist/ci-release', name).read_bytes()).hexdigest()
+# The verified deployment's server, which deploy-services.sh extracts beside the release.
+SERVER = Path('deployment/server/server')
+
+
+def digest(path):
+    return hashlib.sha512(path.read_bytes()).hexdigest()
+
+
+def service_digest(name):
+    return digest(Path('dist/ci-release', name))
 
 
 if sys.argv[1] == 'record':
-    identities = {name: digest(name) for name in SERVICES}
-    identities['railway'] = json.loads((root / 'railway.json').read_text())['deploymentId']
+    identities = {name: service_digest(name) for name in SERVICES}
+    identities['server'] = digest(SERVER)
     (root / 'identities.json').write_text(json.dumps(identities))
     parent, state = read_state()
     entry = state['releases'][-1]
@@ -24,11 +32,17 @@ if sys.argv[1] == 'record':
         raise ValueError('stale release')
     entry['events'].append({'phase': entry['phase'], 'targetIdentities': identities})
     write_state(parent, state, f'{entry["version"]}: deployment identities')
+elif sys.argv[1] == 'verify-app':
+    report = json.loads((root / 'app.json').read_text())
+    if report['version'] != os.environ['VERSION']:
+        raise ValueError(f'app: installed {report["version"]}, not {os.environ["VERSION"]}')
+    if report['server'] != digest(SERVER) or report['active'] != 'active':
+        raise ValueError('app: the server is not the verified deployment')
 else:
     host = sys.argv[2]
     report = json.loads((root / f'{host}.json').read_text())
     if report['version'] != os.environ['VERSION']:
         raise ValueError(f'{host}: installed {report["version"]}, not {os.environ["VERSION"]}')
     for name in SERVICES:
-        if report[name] != digest(name) or report['active'][name] != 'active':
+        if report[name] != service_digest(name) or report['active'][name] != 'active':
             raise ValueError(f'{host}: {name} does not run the retained binary')

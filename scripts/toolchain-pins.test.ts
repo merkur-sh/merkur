@@ -15,8 +15,6 @@ function captures(file: string, pattern: RegExp): string[] {
   return found;
 }
 
-const DOCKERFILES = ['Dockerfile'];
-
 test('Bazel builds with the Rust release rust-toolchain.toml names', () => {
   const [channel] = captures('rust-toolchain.toml', /^channel = "([^"]+)"$/gm);
   expect(captures('MODULE.bazel', /versions = \["([^"]+)"\]/g)).toEqual([channel ?? '']);
@@ -24,23 +22,12 @@ test('Bazel builds with the Rust release rust-toolchain.toml names', () => {
     expect(archive).toBe(channel ?? '');
 });
 
-test('Bazel, CI and the images run the Bun release .bun-version names', () => {
+test('Bazel and CI run the Bun release .bun-version names', () => {
   const pinned = read('.bun-version').trim();
   expect(captures('tools/bazel/bun/extensions.bzl', /^BUN_VERSION = "([^"]+)"$/gm)).toEqual([
     pinned,
   ]);
   expect(captures('package.json', /"bun-types": "([^"]+)"/g)).toEqual([pinned]);
-  for (const file of DOCKERFILES) {
-    for (const version of captures(file, /bun-v(\d+\.\d+\.\d+)\//g)) expect(version).toBe(pinned);
-  }
-});
-
-test('the images install the pnpm release packageManager names', () => {
-  const [pinned] = captures('package.json', /"packageManager": "pnpm@([^"]+)"/g);
-  for (const file of DOCKERFILES) {
-    for (const version of captures(file, /pnpm\/releases\/download\/v(\d+\.\d+\.\d+)\//g))
-      expect(version).toBe(pinned ?? '');
-  }
 });
 
 test('the wasm-bindgen CLI is the release of the crate Cargo.lock pins', () => {

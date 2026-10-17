@@ -5,8 +5,8 @@ FIPS 204 context `merkur-release-manifest`. There is no algorithm identifier, ke
 legacy signature reader, unsigned checksum mode, or verification fallback.
 
 Web and deployment bundles use the same CI-held release key with separate FIPS 204 contexts:
-`merkur-web-release-manifest` and `merkur-deployment-release-manifest`. Docker verifies
-the complete signed bundle before packaging it. Only the protected signing job receives the seed.
+`merkur-web-release-manifest` and `merkur-deployment-release-manifest`. The release verifies
+the complete signed bundle before it installs it. Only the protected signing job receives the seed.
 
 [CI operations](ci.md) defines the tag-triggered release pipeline, one-time setup and recovery.
 The commands below document its build/signing primitives; production releases run in CI.
@@ -41,7 +41,7 @@ bun run web:verify -- --directory apps/web/dist --commit "$WEB_COMMIT"
 The root `bun run build:web` command is the local-development wrapper: it resolves the
 public OPAQUE pin from `apps/server/.env` plus literal process overrides and projects only
 public inputs into the Vite build. Production artifact builds use the package command
-above with explicit public inputs; Docker uses that same boundary.
+above with explicit public inputs; the deployment build uses that same boundary.
 
 Both commands default to the generated web build directory shown above when `--directory` is omitted. The signer creates
 `merkur-web-release.json` and `merkur-web-release.sig` in that directory and refuses to
@@ -64,16 +64,16 @@ There is no persistent rollback counter or expiry for web artifacts: the caller 
 the expected commit independently, and the signature alone does not establish freshness.
 
 This is artifact authentication at the explicit verification step. It does not establish
-browser first-load trust or protect assets modified after verification. Docker enforces
+browser first-load trust or protect assets modified after verification. The release enforces
 the separate deployment verification step below. Keep the seed off build hosts and the application server.
 
-## Signed Docker Deployment
+## Signed Deployment
 
 Bazel builds the unsigned deployment on Linux x64, the server's platform
 (`//tools/bazel/release:deployment`, `scripts/build-deployment.ts`): the server executable,
 migrations, and finished web assets (including Brotli copies), as `deployment.tar.gz`. The
-default Docker target packages a finished signed directory named `deployment` at the
-repository root. It never rebuilds signed files.
+release installs a finished signed directory named `deployment` at the repository root on
+the app host. Nothing rebuilds signed files.
 
 ```sh
 DEPLOYMENT_COMMIT=$(git rev-parse HEAD)
@@ -97,12 +97,8 @@ bun run web:sign -- --directory deployment/web --commit "$DEPLOYMENT_COMMIT" \
 bun run deployment:sign -- --directory deployment --commit "$DEPLOYMENT_COMMIT" \
   --seed-file "$SEED_FILE"
 
-# Return only the signed bundle to the packaging host, at repository-root deployment/.
+# Return only the signed bundle to the deploying job, at repository-root deployment/.
 bun run deployment:verify -- --directory deployment --commit "$DEPLOYMENT_COMMIT"
-docker buildx build --platform linux/amd64 --load \
-  --build-arg "MERKUR_BUILD_COMMIT=$DEPLOYMENT_COMMIT" \
-  --build-arg "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
-  -t merkur .
 ```
 
 The deployment commands default to `deployment`. Signing creates
@@ -110,47 +106,52 @@ The deployment commands default to `deployment`. Signing creates
 The manifest covers every file in the bundle except those two root proof files. Verification
 checks both signatures, the expected commit, and the exact file sets. A non-empty server
 executable and migration set are required. Missing, changed, additional, or unsigned files
-fail packaging. The final image runs as `merkur`; signed files are root-owned and read-only
-under `/deployment`, with the identical signed migrations copied to `/migrations`.
+fail verification. On the app host the signed files are root-owned and read-only, and the
+server sees them at `/deployment`, with the signed migrations at `/migrations`.
 
-All Docker base images and the Dockerfile frontend are pinned by multi-platform digest.
-The Rust and Debian images, CI's BuildKit image and the Dockerfile frontend all come from
-Google's public Docker Hub mirror at their pinned digests. CI selects the frontend with `BUILDKIT_SYNTAX`; the app and site
-Dockerfiles use the canonical `docker/dockerfile` syntax reference required by Railway,
-at the identical digest. An unavailable selected image fails the build.
-Bun is installed from its versioned GitHub release archives, checked against pinned SHA-256
-digests for Linux x64 baseline and arm64.
-No image compiles Rust: the server image takes the signed deployment, and the edge and STUN
-are release binaries Bazel builds (`//tools/bazel/release:service_binaries`) that run on the
-service hosts without an image. The
-WebAssembly packages the verifier embeds arrive built by Bazel, whose wasm-bindgen CLI is the
-version `Cargo.lock` resolves and whose binaryen is pinned by checksum. Review and refresh these pins when publishing security updates. Digest pinning does not automatically update old images,
-and APT packages still come from Debian's authenticated repositories at build time. Rebuild and
-scan the final images when OS advisories require updates; application signatures do not cover
-the base OS, shared libraries, or entrypoint.
+Nothing in the deployment comes from an image. Bun is installed from its versioned GitHub
+release archives, checked against pinned SHA-256 digests, and the WebAssembly packages the
+verifier embeds arrive built by Bazel, whose wasm-bindgen CLI is the version `Cargo.lock`
+resolves and whose binaryen is pinned by checksum. The edge and STUN are release binaries
+Bazel builds (`//tools/bazel/release:service_binaries`). The app host's libSQL server (sqld)
+and Dragonfly are upstream images pinned by digest in `deploy/app/compose.yaml`; Debian
+packages come from Debian's authenticated repositories and update unattended. Application
+signatures do not cover the host's operating system, its shared libraries or those images.
+Review and refresh these pins when publishing security updates.
 
-The root `.dockerignore` admits only what the server image reads: the verifier's manifests
-and sources and the complete signed deployment directory. Keep signing keys outside the
-checkout.
-Do not filter extra files inside the signed directory: the verifier must see and reject them.
+### The app host
 
-The server has no mounted directory -- its database is a separate service -- so it starts as
-root only long enough to drop to UID/GID 10001. It clears supplementary groups and inheritable,
-ambient, and bounding capabilities, sets the irreversible `no_new_privs` bit, uses an
-owner-only creation mask and has no writable home directory. The application directory stays
-root-owned. The server package normalizes directory modes to 0555, file modes to 0444, and its
-executable to 0555; supplied setuid/setgid modes do not survive packaging.
+The application server, its database, Dragonfly and the website run on one host, `app` in
+`deploy/service-hosts.json`. Caddy terminates TLS (`deploy/app/Caddyfile`). `app.merkur.sh`
+points at the host directly, with a Let's Encrypt certificate Caddy holds, so no third party
+decrypts the app's traffic: TLS ends on the host, and Caddy is the server's one proxy
+(`TRUSTED_PROXY_HOPS=1`). Cloudflare could not shield the terminal path anyway, which runs
+over UDP to the edges, and Hetzner's network mitigation covers volumetric attacks on the
+host. The website's names answer only Cloudflare (below). sqld and Dragonfly listen on
+loopback only (`deploy/app/compose.yaml`).
+
+The server and the website are systemd units (`deploy/app/merkur-server.service`,
+`deploy/app/merkur-site.service`) that run as transient users with no capabilities,
+`NoNewPrivileges`, a strict read-only system, private `/tmp`, an owner-only creation mask
+and a system-call filter, listening on loopback for Caddy. Each release unpacks into
+`/usr/local/lib/merkur/server/<version>`, normalized to directory mode 0555, file mode 0444
+and an executable 0555, so supplied setuid/setgid modes do not survive; `current` names the
+running one, and the unit binds it read-only at `/deployment` and its migrations at
+`/migrations`. A version is installed once: shipping it again with different bytes fails.
+The server holds no durable state of its own: its database is sqld, reached through `DB_URL`.
 
 The edge and STUN run under systemd on the service hosts (`apps/edge/merkur-edge.service`,
-`apps/stun/merkur-stun.service`) as transient users with no capabilities, `NoNewPrivileges`, a
-strict read-only system and a system-call filter. Only the edge's egress cap runs as root,
+`apps/stun/merkur-stun.service`) the same way. Only the edge's egress cap runs as root,
 before the relay starts; the edge's identity lives in its unit's state directory.
 
-Production server deployment is a stage of the tag-triggered release workflow. The hosting
-service never builds from its own Git source: a plain Git checkout lacks the signed bundle.
-CI uploads a clean checkout plus that signed directory, and the default Docker target verifies
-and packages those bytes. Runtime variables, volume, port, and readiness settings stay on the
-service. Retain the exact local signed bundle so rollout checks can compare it with production:
+Production server deployment is a stage of the tag-triggered release workflow
+(`scripts/ci/deploy-services.sh`). CI verifies the signed bundle, ships that verified
+directory to the app host over SSH pinned to the host's key in the manifest, and runs
+`scripts/ci/install-app-release.sh` there, which restarts the server, waits for it to log
+`server_started` and reports the SHA-512 of the executable it runs; CI requires that digest to
+be the verified one. Secrets never travel: the host holds them in `/etc/merkur/server.env`
+and `/etc/merkur/data.env`. Retain the exact local signed bundle so rollout checks can
+compare it with production:
 
 ```sh
 bun run deployment:check-server -- --directory deployment \
@@ -165,41 +166,11 @@ server and client signatures. Release CI requires this proof before publishing d
 [Build deployment](../.github/workflows/build-deployment.yml) retains unsigned candidates
 from main. [Release](../.github/workflows/release.yml) reserves a durable monotonic sequence,
 builds all components from one tagged commit, signs with the protected GitHub environment
-seed, and retains exact bytes before production changes. It deploys the server, then the edge
-and STUN to every host in `deploy/service-hosts.json` over SSH pinned to each host's key, and
-publishes the daemon assets once each host reports running exactly the retained binaries. See
+seed, and retains exact bytes before production changes. It deploys the server to the app host,
+then the edge and STUN to every service host in `deploy/service-hosts.json`, over SSH pinned to
+each host's key, and publishes the daemon assets once each host reports running exactly the
+retained binaries. See
 [CI operations](ci.md).
-
-### Runtime filesystem restrictions
-
-For Docker hosting, `docker-compose.production.yaml` enforces a read-only root filesystem,
-`no-new-privileges`, and a minimal initialization capability set. The entrypoint drops that
-entire set before starting the server. Only `/data` and a `nosuid,nodev,noexec` temporary
-filesystem at `/tmp` are writable. It binds port 3000 to loopback for a TLS reverse proxy;
-provision Redis/Dragonfly separately and configure its URL in the runtime environment file.
-
-```sh
-export MERKUR_IMAGE_REPOSITORY=registry.example.com/your-org/merkur
-# Exactly the 64 hexadecimal digest characters from the trusted release record.
-export MERKUR_IMAGE_SHA256=your_verified_image_digest
-export MERKUR_RUNTIME_ENV_FILE=/secure/runtime/merkur.env
-docker compose -f docker-compose.production.yaml up -d
-```
-
-The runtime environment file must contain the production server configuration and remain
-outside the checkout. The digest and environment-file path are required; Compose has no
-default image tag or bundled credentials. The server keeps no
-durable state of its own: its database is a separate libSQL service reached through `DB_URL`,
-so the server container needs no volume.
-
-Hosted platforms run their own container configurations; this Compose file does not
-configure them. The image entrypoints enforce the privilege drop everywhere, but
-filesystem mount restrictions must be enforced by the hosting platform. Do not describe
-a production root filesystem as read-only without verifying its actual mount settings.
-Keep the default entrypoint: replacing it bypasses its initialization and restrictions.
-
-The Debian Bookworm runtime image runs as the non-root `merkur` user, exposes port `3000`, holds no
-persistent state, and starts `/deployment/server/server`.
 
 ### Settings Verification ID
 
@@ -207,7 +178,7 @@ Each web build emits a fresh build marker, embedded in the client and compiled i
 server. The server checks the signed proofs before opening HTTP and exposes them through
 an uncached `/api/build-identity` response. Source development serves `null`.
 
-The Docker artifact build sets `MERKUR_VERSION` to the required `MERKUR_BUILD_COMMIT`
+The deployment build sets `MERKUR_VERSION` to the required `MERKUR_BUILD_COMMIT`
 for both server and browser. `/api/version`, health version, and telemetry therefore
 identify the deployment commit; source runs report `dev`.
 
@@ -381,14 +352,17 @@ not need a separate `node_modules` tree.
 
 ## Website (merkur.sh)
 
-The public site is `apps/site`, served by its own Railway service behind Railway's CDN at
-`https://merkur.sh`; `www.merkur.sh` is attached to the same service and answers every path
-with a 308 to the bare host. The app is a different origin, `https://app.merkur.sh`: Railway
-maps a custom domain to one service and cannot route by path, and the app's origin is bound
-into OPAQUE and delegation. The site answers one path on the app's behalf, `/install`, with a
-308 to the app's installer, so `curl -fsSL merkur.sh/install | sh` works as the page prints it.
+The public site is `apps/site`, served from the app host behind Cloudflare at
+`https://merkur.sh`; `www.merkur.sh` reaches the same server, which answers every path there
+with a 308 to the bare host. The app is a different origin, `https://app.merkur.sh`: the
+app's origin is bound into OPAQUE and delegation, and the site shares nothing with it. The
+site answers one path on the app's behalf, `/install`, with a 308 to the app's installer, so `curl -fsSL merkur.sh/install | sh` works as the page prints it.
 [Deploy site](../.github/workflows/deploy-site.yml) runs for each commit of `main` whose CI
 run ends green, and can be dispatched by hand. The app is released only by a tag.
+
+Cloudflare reaches the host with the zone's Origin CA certificate. Caddy refuses the site's
+names to any other peer and extends `X-Forwarded-For` only for Cloudflare's ranges, so the
+site's `TRUSTED_PROXY_HOPS=2` reads the visitor's address.
 
 ### No signing, by design
 
@@ -413,11 +387,15 @@ exports exactly the executable and the page build. The build refuses to start wi
 is compiled into the server too, because the CSP must name the origin the page posts to. The build needs no Rust toolchain and no WebAssembly:
 the pages are static markup, and what moves on them is one script and one render worker.
 
-`apps/site/Dockerfile` packages an exported `site-deployment/` directory from its build
-context, root-owned and read-only, and starts the server as UID/GID 10001 through the same
-`setpriv` entrypoint as the app. Railway builds it from an upload of the
-Dockerfile, its `apps/site/Dockerfile.dockerignore` and the exported bytes, so it compiles
-nothing and serves exactly what the workflow tested.
+The app host runs it as `merkur-site.service` (`deploy/app/merkur-site.service`), a transient
+user with no capabilities listening on loopback for Caddy, from
+`/usr/local/lib/merkur/site/<commit>`: root-owned, read-only, only the executable executable.
+The `site` environment's SSH key can run one command on that host,
+`/usr/local/lib/merkur/install-site` (`scripts/ci/install-site-release.sh`, which the release
+installs), so a site deploy can replace the website and nothing else. It takes the commit as
+its argument and the exported `site-deployment/` on stdin, refuses a commit already installed
+with different bytes, restarts the site, waits for `site_server_started`, and reports the
+SHA-512 of the executable it runs, which the workflow requires to be the one it built.
 
 The server reads the manifest at startup, holds every listed file in memory, and answers exact
 paths only; nothing it does resolves a URL against the filesystem, and a manifest naming a
@@ -434,76 +412,57 @@ description and questions, then every other page under its `og:title` with its d
 
 ### One-time setup
 
-1. Create an empty service in the production project and environment, with its variables.
-   `TRUSTED_PROXY_HOPS` means what it means on the server service: the proxies that append
-   to `X-Forwarded-For` in front of this one.
-
-   ```sh
-   railway add --service site \
-     --variables PORT=8080 \
-     --variables RYBBIT_HOST=http://rybbit-backend.railway.internal:3001 \
-     --variables TRUSTED_PROXY_HOPS=1 \
-     --variables RAILWAY_DOCKERFILE_PATH=apps/site/Dockerfile
-   ```
-
-   Set the service's healthcheck path to `/healthz` in its settings.
-2. Attach both domains and add the DNS records they print:
-   `railway domain merkur.sh --service site --port 8080`, then the same for `www.merkur.sh`.
-3. Enable the CDN. HTML caching stays `auto`: every response carries its own directive, so
-   the server's headers decide what is cached and the default TTL never applies. Purging HTML
-   on deploy covers rollbacks and dashboard redeploys; the workflow purges again itself.
-
-   ```sh
-   railway cdn enable --service site
-   railway cdn update --service site --html-caching auto --swr --purge-on-deploy html
-   ```
-
-4. Add GitHub variables `RAILWAY_SITE_SERVICE_ID`, `MERKUR_SITE_ORIGIN`
-   (`https://merkur.sh`) and `MERKUR_SITE_RYBBIT_SITE_ID`. The workflow reuses
-   `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID` and `MERKUR_SERVER_ORIGIN` (the page's API
-   origin, `https://app.merkur.sh`). Create the `site` GitHub environment with the branch
-   deployment policy `main` and its own `RAILWAY_TOKEN`, scoped to this service: the
-   `production` environment admits release tags only, and its token reaches the app.
-5. In Rybbit (Analytics below), register `merkur.sh` and turn on First-Party Proxy and User
+1. Authorize the site deploy key on the app host as
+   `restrict,command="/usr/local/lib/merkur/install-site" ssh-ed25519 …`, and put its private
+   half in the `site` GitHub environment as `SITE_DEPLOY_SSH_KEY`. That environment admits the
+   branch `main` only; `production` admits release tags only, and its key reaches the host as
+   root.
+2. `infra/cloudflare.tf` declares the site's records, proxied, the cache rule that lets the
+   edge hold the site's pages, and a token that can only purge the zone's cache:
+   `bash scripts/tofu.sh output -raw site_purge_token` goes into the `site` environment as
+   `SITE_CLOUDFLARE_PURGE_TOKEN`, and the repository variable `CLOUDFLARE_ZONE_ID` names the
+   zone.
+3. Add GitHub variables `MERKUR_SITE_ORIGIN` (`https://merkur.sh`) and
+   `MERKUR_SITE_RYBBIT_SITE_ID`. The workflow reuses `MERKUR_SERVER_ORIGIN` (the page's API
+   origin, `https://app.merkur.sh`).
+4. In Rybbit (Analytics below), register `merkur.sh` and turn on First-Party Proxy and User
    ID Salting under the site's Privacy & Security settings, with IP tracking off. The first
    makes it trust the visitor address the proxy sends in `X-Forwarded-For`; the second is
    what the privacy policy's "cannot be linked to you after the day they occur" rests on.
-6. On the server service, set `SITE_ORIGIN=https://merkur.sh`, and to count new waitlist
+5. In the server's `/etc/merkur/server.env`, set `SITE_ORIGIN=https://merkur.sh`, and to count new waitlist
    addresses `RYBBIT_HOST`, `RYBBIT_SITE_ID` and `RYBBIT_API_KEY` (the README configuration
    table). The key is an organization API key scoped to `ingest:write`; without that scope
    Rybbit treats the event as a visit from the server's own address. The waitlist route
    exists only while `SITE_ORIGIN` is set.
-7. After the first deploy, open the site from a known network and confirm Rybbit's realtime
+6. After the first deploy, open the site from a known network and confirm Rybbit's realtime
    view places the visit there. A wrong `TRUSTED_PROXY_HOPS` attributes every visitor to one
    proxy's address.
-8. Verify `merkur.sh` in Google Search Console and Bing Webmaster Tools by DNS TXT record and
+7. Verify `merkur.sh` in Google Search Console and Bing Webmaster Tools by DNS TXT record and
    submit `https://merkur.sh/sitemap.xml` to each.
 
 ### Analytics
 
-Rybbit is self-hosted in the same Railway project and environment, as six services built
-from pinned upstream images. Only the gateway has a public domain; the site and the app
-server reach the backend over the private network, so a visit never leaves the project.
+Rybbit is self-hosted on its own host, analytics-1 (`deploy/analytics/compose.yaml`), from
+upstream images at exact versions. Only the dashboard is public, at `https://analytics.merkur.sh` behind
+Cloudflare, where Caddy routes `/api/*` and the OAuth discovery paths to the backend and
+everything else to the client (`deploy/analytics/Caddyfile`). The site and the app server
+reach the backend over the hosts' private network at `http://10.10.0.3:3001`, so a visit never
+crosses the internet twice.
 
 | Service | Image | Holds |
 | --- | --- | --- |
-| `rybbit-gateway` | `caddy` | The dashboard's one origin: `/api/*` and the OAuth discovery paths to the backend, everything else to the client |
-| `rybbit-client` | `ghcr.io/rybbit-io/rybbit-client` | The dashboard; it calls `/api` on its own origin, so the gateway is not optional |
-| `rybbit-backend` | `ghcr.io/rybbit-io/rybbit-backend` | Ingestion and the dashboard's API, port 3001 |
-| `rybbit-clickhouse` | `clickhouse/clickhouse-server` | Events, on a volume at `/var/lib/clickhouse` |
-| `rybbit-postgres` | `postgres` | Accounts, sites and API keys, on a volume at `/var/lib/postgresql/data` |
-| `rybbit-redis` | `redis` | Sessions and identity state, on a volume at `/data`; never the app's Dragonfly |
+| `client` | `ghcr.io/rybbit-io/rybbit-client` | The dashboard; it calls `/api` on its own origin |
+| `backend` | `ghcr.io/rybbit-io/rybbit-backend` | Ingestion and the dashboard's API, port 3001 |
+| `clickhouse` | `clickhouse/clickhouse-server` | Events, under `/var/lib/merkur-analytics/clickhouse` |
+| `postgres` | `postgres` | Accounts, sites and API keys |
+| `redis` | `redis` | Sessions and identity state; never the app's Dragonfly |
 
 - The backend runs with `DISABLE_TELEMETRY=true`, `DISABLE_SIGNUP=true` and
-  `CLUSTER_WORKERS=1`, and `BASE_URL` is the gateway's public origin. Sign-up is opened only
+  `CLUSTER_WORKERS=1`, and `BASE_URL` is the dashboard's public origin. Sign-up is opened only
   to create the first account.
-- ClickHouse and Redis take their configuration from a start command, since an image
-  service has no file to mount: ClickHouse writes its memory cap, thread limit and disabled
-  system logs into `config.d` and `users.d` before its entrypoint, and Redis starts with
-  `--appendonly yes --maxmemory-policy noeviction`. The gateway writes its Caddyfile from
-  the `CADDYFILE` variable the same way.
-- `RYBBIT_HOST` on the site and server services is
-  `http://rybbit-backend.railway.internal:3001`.
+- ClickHouse reads its memory cap, thread limit and disabled system logs from
+  `deploy/analytics/clickhouse`; Redis runs with `--appendonly yes --maxmemory-policy
+  noeviction`. Secrets live only on the host, in `/etc/merkur-analytics/secrets.env`.
 - Upgrading is a new image tag on the backend and the client together; the backend applies
   its own database migrations at start.
 
@@ -520,12 +479,10 @@ gh workflow run deploy-site.yml --ref main
 ```
 
 The workflow requires a green CI run of the commit, builds the site with Bazel, serves the result locally and records its CSP and the home page's
-Brotli entity tag, checks that `/install` answers with the app's installer address, uploads,
-waits for Railway to report `SUCCESS`, purges the CDN's HTML, then polls production until it
+Brotli entity tag, checks that `/install` answers with the app's installer address, installs
+it on the app host, purges both hosts from Cloudflare's cache, then polls production until it
 presents that entity tag and the same CSP with `content-encoding: br`. A request without
-Brotli must get identity bytes, which proves the CDN keys its cache on `Accept-Encoding`, and
-the `www.` host must answer with the bare host's address. The workflow pins Railway CLI
-5.62.1; the release workflow's 5.12.1 predates `railway cdn`.
+Brotli must get identity bytes, and the `www.` host must answer with the bare host's address.
 
 To build or package by hand:
 
@@ -538,7 +495,6 @@ bazel build --config=release //tools/bazel/release:site \
 mkdir site-deployment
 tar -xzf "$(bazel info --config=release execution_root)/$(bazel cquery --config=release \
   --output=files //tools/bazel/release:site)" -C site-deployment
-docker buildx build -f apps/site/Dockerfile --platform linux/amd64 --load -t merkur-site .
 ```
 
 `bun run test:e2e:site` builds the same pages and server locally and drives them in Chromium:
@@ -547,17 +503,17 @@ page itself asks for no animation frames at rest.
 
 ### Deploy order
 
-The CDN holds a page for an hour and a hashed asset for a year, and each container serves only
-its own build. The purge runs only after Railway reports `SUCCESS`: purged any earlier, an edge
-would refetch the page from the previous container and keep it for another hour. Between the
+Cloudflare holds a page for an hour and a hashed asset for a year, and the host serves only
+one build. The purge runs only after the new build reports serving: purged any earlier, an
+edge would refetch the page from the previous build and keep it for another hour. Between the
 switch and the purge, an edge can still hand out the previous page; if it no longer holds that
 page's assets, it gets the 404 document for them, cached for a minute. A page opened before
 the switch meets the same 404 when it loads its motion and render worker after `load`. The
 page reads without script and every picture is a still in the markup until the worker draws,
-so what such a visitor sees is the page at rest. Unhashed files other than HTML (`robots.txt`,
-`sitemap.xml`, `llms.txt`, icons) are not in an HTML purge and can stay an hour stale.
+so what such a visitor sees is the page at rest. The purge covers both hosts entirely, so
+unhashed files (`robots.txt`, `sitemap.xml`, `llms.txt`, icons) are fresh after it too.
 
-Carrying the previous build's assets into the new image would close that window, but it needs
-the previous build's bytes at build time, from the live site or a retained artifact. That
-makes every deploy, including the fix for a broken one, depend on the deployment it replaces,
-so the site does not do it.
+Carrying the previous build's assets into the new deployment would close that window, but it
+needs the previous build's bytes at build time, from the live site or a retained artifact.
+That makes every deploy, including the fix for a broken one, depend on the deployment it
+replaces, so the site does not do it.

@@ -1,0 +1,49 @@
+# The application server on app-1.
+#
+# `scripts/ci/install-app-release.sh` unpacks each release's signed deployment into
+# /usr/local/lib/merkur/server/<version> and points `current` at it. The compiled
+# server reads its signed build at /deployment and its migrations at /migrations,
+# which this unit binds read-only from `current`. /etc/merkur/server.env is
+# provisioned once on the host and never leaves it.
+#
+# Only Caddy reaches it, on loopback; sqld and Dragonfly are the compose project's
+# loopback ports (deploy/app/compose.yaml).
+
+[Unit]
+Description=Merkur application server
+Documentation=https://github.com/merkur-sh/merkur
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/merkur/server.env
+Environment=HOST=127.0.0.1 PORT=3000 HOME=/nonexistent
+ExecStart=/deployment/server/server
+BindReadOnlyPaths=/usr/local/lib/merkur/server/current:/deployment
+BindReadOnlyPaths=/usr/local/lib/merkur/server/current/migrations:/migrations
+Restart=always
+RestartSec=2s
+UMask=0077
+
+DynamicUser=yes
+LimitNOFILE=65536
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+[Install]
+WantedBy=multi-user.target

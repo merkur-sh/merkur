@@ -13,7 +13,7 @@
 # spawns its own non-persistent `redis-server` binary on a private port, so the
 # binary has to exist locally even when this container is up.
 #
-# Dragonfly (used in production via Railway) is wire-compatible, but swapping it
+# Dragonfly (used in production) is wire-compatible, but swapping it
 # in here is not an image change alone: the `command` below names `redis-server`,
 # which the Dragonfly image does not provide, and `--save` is not one of its
 # flags. `bun run test:dragonfly` already runs every Redis-backed service against

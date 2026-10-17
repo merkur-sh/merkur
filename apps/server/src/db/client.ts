@@ -42,10 +42,10 @@ export const DatabaseLive = Layer.effect(
  * exercises.
  *
  * The compiled server binary resolves `@libsql/client` to its pure-JavaScript
- * build (`--conditions=workerd` in the Dockerfile), because the local driver is
+ * build (`--conditions=workerd` in `scripts/build-deployment.ts`), because the local driver is
  * a native module and the signed runtime deliberately carries no `node_modules`
  * for one to live in. A local URL therefore fails in production, loudly, rather
- * than reaching for a file on a container's disk.
+ * than reaching for a file on the host's disk.
  */
 export function createDatabase(url: string, authToken: string | undefined): Kysely<DatabaseSchema> {
   return new Kysely<DatabaseSchema>({

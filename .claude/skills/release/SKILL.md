@@ -28,9 +28,9 @@ Once the user has authorized shipping that version:
 Use a real numeric version in place of the placeholder. Tagging is the release decision;
 there is no second confirmation between CI stages. The existing release seed lives only in
 the protected signing environment, with an offline backup. Never print, copy into the
-checkout, or pass it to Railway. Do not change the trusted public pin.
+checkout, or copy it to a host. Do not change the trusted public pin.
 
-CI deploys and proves Railway, edge and STUN before publishing daemon assets, then verifies
+CI deploys and proves the app host, edge and STUN before publishing daemon assets, then verifies
 the public downloads. Daemons are not rolled by this workflow: personal computers update
 under their owners' control, and a deployment that hosts daemons of its own rolls them from
 the published release and proves a terminal session with `bun run ci:canary <device>`.

@@ -71,7 +71,7 @@ export const serverEnvironment = {
     required: true,
     secret: true,
     requirement: 'Yes',
-    notes: 'Redis or Dragonfly URL. Railway Dragonfly can be mapped from `DRAGONFLY_PRIVATE_URL`.',
+    notes: 'Redis or Dragonfly URL.',
     example: 'redis://127.0.0.1:6379',
   },
   ACCESS_TOKEN_HMAC_KEY: {
@@ -210,7 +210,7 @@ export const serverEnvironment = {
     secret: false,
     requirement: 'Build + standalone startup',
     notes:
-      'Must equal `OPAQUE_SERVER_PUBLIC_KEY`. The browser pins this value; Docker validates it as a build argument and compiles it into the server for a pre-migration startup comparison.',
+      'Must equal `OPAQUE_SERVER_PUBLIC_KEY`. The browser pins this value; the deployment build validates it and compiles it into the server for a pre-migration startup comparison.',
     example: '',
   },
   TRUSTED_PROXY_HOPS: {
@@ -219,7 +219,7 @@ export const serverEnvironment = {
     secret: false,
     requirement: 'Yes',
     notes:
-      'Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; use `1` behind a single proxy such as Railway. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default.',
+      'Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; production is `1`, behind Caddy. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default.',
     example: '0',
   },
   SESSION_TOKEN_MLDSA87_SEED: {

@@ -19,5 +19,10 @@
         "changePorts": [3481]
       }
     }
-  ]
+  ],
+  "app": {
+    "name": "app-1",
+    "address": "91.99.201.78",
+    "sshHostKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGECP9BCHWh6gTCPnKMCwY3030Nc7jKkBrtcTC52XMVI"
+  }
 }

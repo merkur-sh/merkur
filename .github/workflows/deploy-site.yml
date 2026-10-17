@@ -52,20 +52,18 @@ jobs:
     if: needs.newest.outputs.sha != ''
     runs-on: ubuntu-26.04
     timeout-minutes: 60
-    # Its own environment: `production` admits release tags only, and its
-    # Railway token reaches the app. This one admits `main` and holds a token
-    # for the site service alone.
+    # Its own environment: `production` admits release tags only, and its key
+    # reaches the app host as root. This one admits `main`, and its key can only
+    # run the app host's site installer (scripts/ci/install-site-release.sh).
     environment: site
     permissions:
       contents: read
       actions: read
     env:
-      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
-      RAILWAY_SITE_SERVICE_ID: ${{ vars.RAILWAY_SITE_SERVICE_ID }}
       SITE_ORIGIN: ${{ vars.MERKUR_SITE_ORIGIN }}
       SITE_API_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
       SITE_RYBBIT_SITE_ID: ${{ vars.MERKUR_SITE_RYBBIT_SITE_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,15 +72,15 @@ jobs:
       - name: Require the deployment inventory and a green CI run of this commit
         env:
           GH_TOKEN: ${{ github.token }}
-          HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
+          HAS_SITE_DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_SSH_KEY != '' }}
+          HAS_PURGE_TOKEN: ${{ secrets.SITE_CLOUDFLARE_PURGE_TOKEN != '' }}
         run: |
-          test -n "$RAILWAY_PROJECT_ID"
-          test -n "$RAILWAY_ENVIRONMENT_ID"
-          test -n "$RAILWAY_SITE_SERVICE_ID"
+          test -n "$CLOUDFLARE_ZONE_ID"
           test -n "$SITE_ORIGIN"
           test -n "$SITE_API_ORIGIN"
           test -n "$SITE_RYBBIT_SITE_ID"
-          test "$HAS_RAILWAY_TOKEN" = true
+          test "$HAS_SITE_DEPLOY_KEY" = true
+          test "$HAS_PURGE_TOKEN" = true
           conclusion=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$DEPLOY_SHA" \
             --event push --json conclusion --jq '.[0].conclusion')
           test "$conclusion" = success
@@ -104,7 +102,7 @@ jobs:
           # A header's value; names compare without case (HTTP/1.1 here, HTTP/2 live).
           header() { tr -d '\r' < "$2" | grep -i "^$1:" | head -n 1 | sed 's/^[^:]*:[[:space:]]*//'; }
           test -x site-deployment/site-server
-          PORT=18080 RYBBIT_HOST=http://rybbit-backend.railway.internal:3001 TRUSTED_PROXY_HOPS=1 \
+          PORT=18080 RYBBIT_HOST=http://10.10.0.3:3001 TRUSTED_PROXY_HOPS=2 \
             site-deployment/site-server site-deployment/dist > "$RUNNER_TEMP/site-server.log" 2>&1 &
           server_pid=$!
           curl --fail --silent --show-error --retry 50 --retry-delay 0 --retry-connrefused \
@@ -122,39 +120,34 @@ jobs:
           test -s "$RUNNER_TEMP/built.csp"
           test -s "$RUNNER_TEMP/built.etag"
           cat "$RUNNER_TEMP/built.csp" "$RUNNER_TEMP/built.etag"
-      # release.yml's 5.12.1 predates `railway cdn`.
-      - run: npm install --global @railway/cli@5.62.1
-      - name: Deploy, purge the CDN's HTML, and prove production serves these bytes
+      - name: Deploy and prove production serves these bytes
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SITE_DEPLOY_SSH_KEY: ${{ secrets.SITE_DEPLOY_SSH_KEY }}
+          SITE_CLOUDFLARE_PURGE_TOKEN: ${{ secrets.SITE_CLOUDFLARE_PURGE_TOKEN }}
         run: |
           set -euo pipefail
-          : "${RAILWAY_TOKEN:?}"
           header() { tr -d '\r' < "$2" | grep -i "^$1:" | head -n 1 | sed 's/^[^:]*:[[:space:]]*//'; }
-          scope=(--project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT_ID" --service "$RAILWAY_SITE_SERVICE_ID")
-          # The service builds apps/site/Dockerfile's default (runner) stage from an
-          # upload of that file, its ignore file and the exported bytes, nothing else.
-          railway variable set RAILWAY_DOCKERFILE_PATH=apps/site/Dockerfile "${scope[@]}" --skip-deploys >/dev/null
-          upload_dir="$RUNNER_TEMP/site-upload"
-          mkdir -p "$upload_dir/apps/site"
-          cp apps/site/Dockerfile apps/site/Dockerfile.dockerignore "$upload_dir/apps/site/"
-          cp -R site-deployment "$upload_dir/site-deployment"
-          railway up "$upload_dir" --path-as-root --no-gitignore --detach --json "${scope[@]}" \
-            --message "site ($DEPLOY_SHA)" > "$RUNNER_TEMP/railway-up.json"
-          deployment_id=$(jq -er '.deploymentId' "$RUNNER_TEMP/railway-up.json")
-          for attempt in $(seq 1 60); do
-            deploy_state=$(railway deployment list "${scope[@]}" --json \
-              | jq -r --arg id "$deployment_id" '.[] | select(.id == $id) | .status')
-            case "$deploy_state" in
-              SUCCESS) break ;;
-              FAILED|CRASHED|REMOVED|SKIPPED) exit 1 ;;
-            esac
-            if [ "$attempt" = 60 ]; then exit 1; fi
-            sleep 10
-          done
-          # Only now: the previous container has stopped serving, so a page the
-          # CDN refetches can only name assets this build has (docs/releases.md).
-          railway cdn purge html "${scope[@]}"
+          work="$RUNNER_TEMP/app-host"
+          mkdir -m 0700 "$work"
+          printf '%s\n' "$SITE_DEPLOY_SSH_KEY" > "$work/id"
+          chmod 0600 "$work/id"
+          jq -r '(.hosts[], .app) | "\(.address) \(.sshHostKey)"' deploy/service-hosts.json > "$work/known_hosts"
+          # The key's only command is the host's site installer, which takes the
+          # commit as its argument and the deployment on stdin.
+          tar -C site-deployment -czf - . \
+            | ssh -i "$work/id" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$work/known_hosts" "root@$(jq -r .app.address deploy/service-hosts.json)" \
+              "$DEPLOY_SHA" > "$RUNNER_TEMP/site.json"
+          jq -e --arg commit "$DEPLOY_SHA" --arg digest "$(sha512sum site-deployment/site-server | cut -d' ' -f1)" \
+            '.commit == $commit and ."site-server" == $digest and .active == "active"' "$RUNNER_TEMP/site.json"
+          # Only now: the previous build has stopped serving, so a page the CDN
+          # refetches can only name assets this build has (docs/releases.md).
+          curl --fail --silent --show-error -X POST \
+            --header "Authorization: Bearer $SITE_CLOUDFLARE_PURGE_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -cn --arg host "${SITE_ORIGIN#https://}" '{hosts: [$host, "www." + $host]}')" \
+            "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/purge_cache" \
+            | jq -e '.success' > /dev/null
           for attempt in $(seq 1 30); do
             curl --fail --silent --show-error --head --header 'Accept-Encoding: br' "$SITE_ORIGIN/" \
               > "$RUNNER_TEMP/live.headers"

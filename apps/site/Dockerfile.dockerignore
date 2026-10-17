@@ -1,4 +1,0 @@
-# Replaces the root .dockerignore for apps/site/Dockerfile: the image packages the exported
-# site-deployment directory, and nothing else.
-**
-!site-deployment/**

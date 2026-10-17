@@ -11,7 +11,7 @@ def configuration():
     """Public deployment inputs are immutable for the lifetime of a reservation."""
     result = {key: os.environ[key] for key in (
         'SERVER_ORIGIN', 'OPAQUE_PIN', 'MERKUR_RELEASE_MLDSA87_PUBLIC_KEY',
-        'MINIMUM_SEQUENCE', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID')}
+        'MINIMUM_SEQUENCE')}
     if not all(result.values()): raise ValueError('required public release configuration is empty')
     origin = urlsplit(result['SERVER_ORIGIN'])
     if origin.scheme != 'https' or not origin.hostname or origin.username or origin.password or origin.query or origin.fragment:
@@ -19,11 +19,13 @@ def configuration():
     if not re.fullmatch(r'[1-9][0-9]*', result['MINIMUM_SEQUENCE']):
         raise ValueError('minimum sequence must be a positive integer')
     with open('deploy/service-hosts.json') as stream:
-        hosts = json.load(stream)['hosts']
-    names = [host['name'] for host in hosts]
+        manifest = json.load(stream)
+    hosts, app = manifest['hosts'], manifest['app']
+    names = [host['name'] for host in hosts] + [app['name']]
     if not hosts or not all(NAME.fullmatch(name) for name in names) or len(names) != len(set(names)):
         raise ValueError('deploy/service-hosts.json must list uniquely named hosts')
     result['serviceHosts'] = hosts
+    result['appHost'] = app
     return result
 
 

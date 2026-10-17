@@ -64,7 +64,7 @@ Additional workflows run beside CI:
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
 | [CodeQL](../.github/workflows/codeql.yml) | Pull requests, each completed `main` CI run (at that run's commit), a weekly schedule, manual dispatch | Code scanning of TypeScript, Rust, the workflows and the Python tooling, with Merkur's models and queries; `Query tests` checks every query against its fixtures. See [static analysis](security.md#static-analysis). |
 | [Dependency updates](../.github/workflows/renovate.yml) | A nightly schedule, a box ticked on the Dependency Dashboard issue, manual dispatch | Renovate proposes dependency, action, image and tool updates as pull requests, which the workflows above then test. See [Dependency updates](#dependency-updates). |
-| [Deploy site](../.github/workflows/deploy-site.yml) | A green CI run of a push to `main`, manual dispatch on `main` | Builds the website with Bazel (`//tools/bazel/release:site`) and packages it through `apps/site/Dockerfile`, serves the result locally, deploys it to its own Railway service, purges the CDN's HTML and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
+| [Deploy site](../.github/workflows/deploy-site.yml) | A green CI run of a push to `main`, manual dispatch on `main` | Builds the website with Bazel (`//tools/bazel/release:site`), serves the result locally, installs it on the app host through a key that can run only the site installer, purges both site hosts from Cloudflare's cache and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
 
 The assurance aggregate requires successful parser, ownership, bounded-proof, simulation
 and diagnostic-tool jobs. On `main`, Assurance and CodeQL start when CI finishes, so they
@@ -96,26 +96,18 @@ not run in CI. A release additionally builds and runs all four daemon binaries n
 four platforms: Linux x64 and arm64 on Debian 12, and macOS on Apple Silicon and Intel.
 Native macOS runner tests do not attest a physical Secure Enclave.
 
-Release builders, Linux smoke tests, NAT labs and the TPM simulator pull digest-pinned
-Rust and Debian images, Docker's official images, from Google's public Docker Hub mirror.
-Anonymous pulls from Docker Hub and from Amazon ECR Public are both quota-limited per
-address, and GitHub's hosted runners share their addresses.
-Linux daemon smoke tests load their Debian runtime through the release's BuildKit builder,
-then run the loaded image with pulls disabled. This reuses the builder's base-image content
-instead of downloading the same runtime again through Docker Engine.
-Buildx bootstraps a digest-pinned BuildKit image from Google's public Docker Hub mirror.
-CI selects its digest-pinned Dockerfile frontend from that same mirror with
-`BUILDKIT_SYNTAX`. The app and site Dockerfiles keep the canonical `docker/dockerfile`
-syntax reference required by Railway's builder, at the identical digest. Builds fail if
-their selected pinned image is unavailable.
+Linux daemon smoke tests, NAT labs and the TPM simulator pull digest-pinned Debian and Rust
+images, Docker's official images, from Google's public Docker Hub mirror. Anonymous pulls
+from Docker Hub and from Amazon ECR Public are both quota-limited per address, and GitHub's
+hosted runners share their addresses. A run fails if its pinned image is unavailable.
 
 ## Dependency updates
 
 [Dependency updates](../.github/workflows/renovate.yml) runs
 [Renovate](https://docs.renovatebot.com/) every night from a digest-pinned image, configured
 by [`.github/renovate.json5`](../.github/renovate.json5). It reads the Cargo and Bun
-manifests, the actions the workflows pin, the image digests in the Dockerfiles and the compose
-file, the Rust and Node pins, and the tool versions the setup scripts and workflows install.
+manifests, the actions the workflows pin, the image digests in the compose files, the Rust
+and Node pins, and the tool versions the setup scripts and workflows install.
 Each change is a pull request from a `renovate/` branch, so CI, the dependency audit,
 assurance and secret scanning run on it like on any other. Nothing merges on its own.
 
@@ -132,8 +124,8 @@ assurance and secret scanning run on it like on any other. Nothing merges on its
   through `test:sim:update-lock` and `test:fuzz:update-lock`. A catalog entry moves in
   `pnpm-workspace.yaml`, and `pnpm-lock.yaml` follows.
 - Packages that have to agree move in one pull request: the Rust toolchain with its builder
-  images, Solid's release candidate, the RustCrypto crates, the Dockerfile frontend digest,
-  and the workflows' minor action updates.
+  images, Solid's release candidate, the RustCrypto crates, and the workflows' minor action
+  updates.
 - Renovate does not write `supply-chain/`. A Cargo pull request fails the dependency audit's
   cargo-vet step until each new crate version has been reviewed and its audit or exemption
   pushed to the branch ([policy](security.md#dependency-source-and-audit-policy)).
@@ -180,10 +172,10 @@ The version is a placeholder: use a new numeric version greater than every reser
 | --- | --- |
 | `validate` | Reserves a sequence number in the release journal and captures the public deployment configuration. |
 | `checks`, `extended` | Reuses CI and Extended CI against the release checkout. |
-| `build` | [Release build](../.github/workflows/release-build.yml): the daemon on all four platforms, the deployment and the service container images, once, with their smoke tests and the unsigned inventory check. |
+| `build` | [Release build](../.github/workflows/release-build.yml): the daemon on all four platforms, the deployment and the edge and STUN binaries, once, with their smoke tests and the unsigned inventory check. |
 | `sign` | On an isolated runner, signs the retained bytes with the ML-DSA-87 release seed and stores them in a draft release. |
 | `package-smoke` | Installs the signed daemon packages on every platform. |
-| `deploy` | Deploys the application server from the signed bundle, verifies the live signatures match it, deploys the edge and STUN binaries to every service host over pinned SSH and verifies each runs them, then publishes the daemon release and verifies its unauthenticated public downloads. |
+| `deploy` | Deploys the application server from the signed bundle to the app host over pinned SSH, verifies it runs the verified executable and that the live signatures match the bundle, deploys the edge and STUN binaries to every service host over pinned SSH and verifies each runs them, then publishes the daemon release and verifies its unauthenticated public downloads. |
 
 The `sign` stage receives the seed through `RELEASE_SEED_BASE64`. It installs locked
 dependencies without lifecycle scripts, materializes the raw 32-byte seed in an owner-only
@@ -247,12 +239,12 @@ tag; the workflow fails closed on missing state or credentials.
 | Repository variable | `MERKUR_RELEASE_MLDSA87_PUBLIC_KEY` | The canonical public release pin |
 | Repository variable | `MERKUR_OPAQUE_SERVER_PUBLIC_KEY` | The production OPAQUE pin |
 | Repository variable | `MERKUR_SERVER_ORIGIN` | The application's production HTTPS origin |
-| Repository variables | `MERKUR_SITE_ORIGIN`, `MERKUR_SITE_RYBBIT_SITE_ID`, `RAILWAY_SITE_SERVICE_ID` | The website's origin, its Rybbit site, and its deployment destination |
+| Repository variables | `MERKUR_SITE_ORIGIN`, `MERKUR_SITE_RYBBIT_SITE_ID` | The website's origin and its Rybbit site |
+| Repository variable | `CLOUDFLARE_ZONE_ID` | The `merkur.sh` zone, whose cache the site deploy purges |
 | Repository variable | `RELEASE_MINIMUM_SEQUENCE` | Positive prerequisite sequence; raise it only deliberately |
-| Repository variables | `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID`, `RAILWAY_SERVICE_ID` | The application server's deployment destination |
 | `release-signing` secret | `RELEASE_SEED_BASE64` | Base64 of the raw 32-byte release seed |
-| `production` secrets | `RAILWAY_TOKEN`, `SERVICE_HOSTS_SSH_KEY` | Deployment credentials for the application server and for the edge and STUN service hosts in `deploy/service-hosts.json`, whose SSH host keys the manifest pins |
-| `site` secret | `RAILWAY_TOKEN` | Deployment credential for the website's service only |
+| `production` secret | `SERVICE_HOSTS_SSH_KEY` | Root SSH key for the app host and the edge and STUN service hosts in `deploy/service-hosts.json`, whose SSH host keys the manifest pins |
+| `site` secrets | `SITE_DEPLOY_SSH_KEY`, `SITE_CLOUDFLARE_PURGE_TOKEN` | A key the app host lets run only its site installer, and a token that can only purge the zone's cache |
 
 ## Terminal canary
 

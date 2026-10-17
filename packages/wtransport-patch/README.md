@@ -42,8 +42,8 @@ the same rule for `quinn-patch` and `quinn-proto-patch`.
 
 Move this crate, `packages/quinn-patch`, `packages/quinn-proto-patch`, `apps/edge`,
 `apps/daemon/dataplane` and the root lockfile together or not at all.
-`apps/edge/Dockerfile` builds from the repository root so this patch reaches production;
-a standalone edge build would silently ship the registry crate.
+`//tools/bazel/release:service_binaries` builds the edge in the root workspace so this patch
+reaches production; a standalone edge build would silently ship the registry crate.
 
 ## Validating
 

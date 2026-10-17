@@ -1,6 +1,7 @@
 # The merkur.sh zone. Records start as exact copies of what Namecheap served
-# before the nameserver switch, DNS-only, so the switch changes nothing; a
-# service is proxied through Cloudflare when it moves behind it.
+# before the nameserver switch, DNS-only, so the switch changes nothing. The
+# website and the Rybbit dashboard are proxied through Cloudflare; app.merkur.sh
+# never is, so TLS for the app ends on the app host and nowhere else.
 
 resource "cloudflare_zone" "merkur" {
   account = { id = var.cloudflare_account_id }
@@ -12,33 +13,52 @@ locals {
   zone_id = cloudflare_zone.merkur.id
 }
 
-# The website (Railway service `site`).
+# The website on app-1, through Cloudflare.
 resource "cloudflare_dns_record" "apex" {
   zone_id = local.zone_id
   name    = "merkur.sh"
-  type    = "CNAME"
-  content = "r1nd4wcc.up.railway.app"
+  type    = "A"
+  content = hcloud_server.app_1.ipv4_address
   ttl     = 1
-  proxied = false
+  proxied = true
 }
 
 resource "cloudflare_dns_record" "www" {
   zone_id = local.zone_id
   name    = "www.merkur.sh"
-  type    = "CNAME"
-  content = "2hpd8m07.up.railway.app"
+  type    = "A"
+  content = hcloud_server.app_1.ipv4_address
+  ttl     = 1
+  proxied = true
+}
+
+# The application server on app-1, reached directly: TLS ends in its Caddy.
+resource "cloudflare_dns_record" "app" {
+  zone_id = local.zone_id
+  name    = "app.merkur.sh"
+  type    = "A"
+  content = hcloud_server.app_1.ipv4_address
   ttl     = 1
   proxied = false
 }
 
-# The application server (Railway service `mercury`).
-resource "cloudflare_dns_record" "app" {
+resource "cloudflare_dns_record" "app_v6" {
   zone_id = local.zone_id
   name    = "app.merkur.sh"
-  type    = "CNAME"
-  content = "7qs1larj.up.railway.app"
+  type    = "AAAA"
+  content = hcloud_server.app_1.ipv6_address
   ttl     = 1
   proxied = false
+}
+
+# The Rybbit dashboard on analytics-1, through Cloudflare.
+resource "cloudflare_dns_record" "analytics" {
+  zone_id = local.zone_id
+  name    = "analytics.merkur.sh"
+  type    = "A"
+  content = hcloud_server.analytics_1.ipv4_address
+  ttl     = 1
+  proxied = true
 }
 
 # Outbound mail through Resend.
@@ -67,11 +87,11 @@ resource "cloudflare_dns_record" "dmarc" {
   ttl     = 1
 }
 
-# The proxy serves the bytes the origins send. The app's web bundle is signed and its
-# pages carry a strict CSP, so nothing may rewrite a response on the way (email
-# obfuscation, HTTPS rewrites, Rocket Loader, server-side excludes), and the daemon,
-# the edges and the installer are programs, which a browser challenge would lock
-# out. Cloudflare's DDoS mitigation applies whatever the security level.
+# The proxy serves the bytes the origins send: the site's pages carry a strict
+# CSP, so nothing may rewrite a response on the way (email obfuscation, HTTPS
+# rewrites, Rocket Loader, server-side excludes), and `curl merkur.sh/install`
+# is a program, which a browser challenge would lock out. Cloudflare's DDoS
+# mitigation applies whatever the security level.
 locals {
   zone_settings = {
     ssl                      = "strict"
@@ -94,4 +114,49 @@ resource "cloudflare_zone_setting" "merkur" {
   zone_id    = local.zone_id
   setting_id = each.key
   value      = each.value
+}
+
+# The website's pages are cached at the edge for as long as the site's own
+# `s-maxage` says (an hour); Cloudflare would otherwise cache only its default
+# file extensions. Deploy site purges both hosts once the new build serves.
+resource "cloudflare_ruleset" "cache" {
+  zone_id = local.zone_id
+  name    = "cache"
+  kind    = "zone"
+  phase   = "http_request_cache_settings"
+  rules = [{
+    description = "cache the website's pages by its own headers"
+    expression  = "(http.host in {\"merkur.sh\" \"www.merkur.sh\"})"
+    action      = "set_cache_settings"
+    action_parameters = {
+      cache    = true
+      edge_ttl = { mode = "respect_origin" }
+    }
+  }]
+}
+
+data "cloudflare_account_api_token_permission_groups_list" "cache_purge" {
+  account_id = var.cloudflare_account_id
+  name       = "Cache Purge"
+}
+
+# The `site` GitHub environment's SITE_CLOUDFLARE_PURGE_TOKEN: purges this zone's
+# cache and can do nothing else.
+resource "cloudflare_account_token" "site_purge" {
+  account_id = var.cloudflare_account_id
+  name       = "merkur-site-purge"
+  policies = [{
+    effect            = "allow"
+    permission_groups = [{ id = one(data.cloudflare_account_api_token_permission_groups_list.cache_purge.result).id }]
+    resources         = jsonencode({ "com.cloudflare.api.account.zone.${local.zone_id}" = "*" })
+  }]
+}
+
+output "zone_id" {
+  value = local.zone_id
+}
+
+output "site_purge_token" {
+  value     = cloudflare_account_token.site_purge.value
+  sensitive = true
 }

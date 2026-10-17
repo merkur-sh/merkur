@@ -144,16 +144,6 @@
     },
     {
       customType: 'regex',
-      description: 'BuildKit and the Dockerfile frontend the workflows select',
-      managerFilePatterns: ['/^\\.github/workflows/[^/]+\\.yml$/'],
-      matchStrings: [
-        'image=(?<depName>mirror\\.gcr\\.io/moby/buildkit):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})',
-        'BUILDKIT_SYNTAX=(?<depName>mirror\\.gcr\\.io/docker/dockerfile):(?<currentValue>[\\w.-]+)@(?<currentDigest>sha256:[a-f0-9]{64})',
-      ],
-      datasourceTemplate: 'docker',
-    },
-    {
-      customType: 'regex',
       description: 'The Renovate image the dependency update workflow runs',
       managerFilePatterns: ['/^\\.github/workflows/renovate\\.yml$/'],
       matchStrings: [
@@ -230,11 +220,6 @@
       groupName: 'Rust toolchain',
     },
     {
-      description: 'The frontend digest is the same in every Dockerfile and workflow',
-      matchDepNames: ['docker/dockerfile', 'mirror.gcr.io/docker/dockerfile'],
-      groupName: 'Dockerfile frontend',
-    },
-    {
       description: 'Solid is one release candidate across its packages',
       matchPackageNames: ['solid-js', '@solidjs/**'],
       groupName: 'Solid',
@@ -294,20 +279,12 @@
     // The rules below cover updates Renovate can name but not complete. Each waits on the
     // dashboard until it is ticked, and its branch then needs the work its note describes.
     {
-      description: 'The Bun runtime is installed in the Dockerfiles and Bazel by archive checksum',
+      description: 'The Bun runtime is installed in Bazel by archive checksum',
       matchDepNames: ['bun', 'bun-types'],
       dependencyDashboardApproval: true,
       groupName: 'Bun runtime',
       prBodyNotes: [
-        'The Dockerfiles and `tools/bazel/bun/extensions.bzl` install Bun by release archive checksum; move them in this branch before merging.',
-      ],
-    },
-    {
-      description: 'pnpm is installed in the Dockerfiles by archive checksum',
-      matchDepNames: ['pnpm'],
-      dependencyDashboardApproval: true,
-      prBodyNotes: [
-        'The Dockerfiles install pnpm by release archive checksum; move them in this branch before merging.',
+        '`tools/bazel/bun/extensions.bzl` installs Bun by release archive checksum; move it in this branch before merging.',
       ],
     },
     {

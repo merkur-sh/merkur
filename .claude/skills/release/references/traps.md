@@ -10,8 +10,9 @@
   retry with a new tag; after retention, rerun the original run and reuse the retained bytes.
 - Do not regenerate signatures to repair an expired release. A new sequence and version are
   required. Deleting a draft release does not erase the journal or release a sequence.
-- A Railway success must refer to the deployment ID returned by that upload, then match the
-  retained server/client signatures. A health response or commit label alone is insufficient.
+- An app host report must name the verified server executable's digest, then the live
+  `/api/build-identity` must match the retained server/client signatures. A health response
+  or commit label alone is insufficient.
 - A canary identity invalidated by a schema hard cut must be relinked through its owner-authorized
   procedure. CI cannot manufacture an account owner's binding signature.
 - Hosted macOS executable smoke tests do not prove physical Secure Enclave availability.
@@ -24,8 +25,9 @@
   codec version at the tag with the daemon's before blaming transport.
 - `daemon_perf_report_rejected` with status 400 in a daemon's log means its report no
   longer matches the deployed server's schema: a half-rolled telemetry cutover. It posts every
-  60 s, so it is the quickest post-release signal. A 503 on the same path is Railway's edge,
-  not the release.
+  60 s, so it is the quickest post-release signal. A 5xx from Cloudflare on the same path
+  (its own error page, `cf-ray` header) means it could not reach the app host, not the
+  release.
 - Another session can commit or unstage in the shared checkout mid-release. Re-read
   `git log` and `git status` immediately before tagging, not the opening snapshot.
 - A local `check:types` error naming a `term-wasm` export is the gitignored `pkg/` from an

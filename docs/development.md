@@ -217,16 +217,16 @@ never in the terminal hot path. This is what a deployment needs.
 | Merkur STUN | A reachable authenticated Binding responder. At least two `host:port` vantage points on independent addresses must be configured, because NAT mapping classification needs two observers; one IP cannot establish address independence. |
 | HTTPS public origin | Required outside loopback development. WebTransport, service workers, secure cookies, browser crypto, and `SharedArrayBuffer` isolation all depend on a secure context and the server's cross-origin isolation headers. |
 
-The Dockerfile exports the server, migrations, and web artifacts through its `artifacts`
-target. After CI signing, the default target verifies the complete bundle before packaging
-it and does not rebuild signed assets; see
-[signed deployment](../docs/releases.md#signed-docker-deployment). Production needs
+Bazel builds the server, migrations, and web artifacts as one deployment
+(`//tools/bazel/release:deployment`). After CI signing, the release verifies the complete
+bundle before installing it and does not rebuild signed assets; see
+[signed deployment](../docs/releases.md#signed-deployment). Production needs
 a separate durable libSQL service, a Redis-compatible private URL, the secrets in the
 [Configuration](../README.md#configuration) table, at least two `STUN_SERVERS` vantage
-points, and a web image built with the same OPAQUE public key it serves. At startup the
+points, and a web build made with the same OPAQUE public key it serves. At startup the
 server derives the public key from `OPAQUE_SERVER_SETUP` and compares it with
 `OPAQUE_SERVER_PUBLIC_KEY` and the pin compiled into the executable before it runs
-migrations, so a stale image fails closed. Build arguments, the runtime image, and the
-signing steps are in [`docs/releases.md`](../docs/releases.md).
+migrations, so a stale build fails closed. Build inputs, the app host, and the signing
+steps are in [`docs/releases.md`](../docs/releases.md).
 
 [Back to Merkur](../README.md).

@@ -337,7 +337,7 @@ function createDatabase(databaseUrl = ':memory:'): Kysely<DatabaseSchema> {
  * declaring `kysely`. Under the isolated linker that is `apps/server`, never the
  * repository root: a root-level scratch folder resolved only where a stale
  * hoisted install had left a root `kysely` behind. Production has the same
- * requirement met a different way: the Dockerfile bundles the migrations with
+ * requirement met a different way: `scripts/build-deployment.ts` bundles the migrations with
  * their runtime imports, because the signed runtime has no `node_modules` at
  * all. (`data/` is ignored at any depth.)
  */

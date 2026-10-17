@@ -331,7 +331,7 @@ Loaded by `packages/config/src/server-config.ts`.
 | `PUBLIC_ORIGIN` | No | Canonical origin browsers reach Merkur at. Set explicitly for deployments. Local setup uses http://127.0.0.1:3000. It is checked against signed browser delegations and used as the daemon linking target. Default: `https://localhost:3000`. |
 | `DB_URL` | No | Defaults to `file:./data/merkur.db`. `file:` opens a local database in-process; `http(s)://` or `libsql://` reach a libSQL server, which is what production runs so more than one process can share one database. The compiled server carries only the network client, so a `file:` URL is refused there. Default: `file:./data/merkur.db`. |
 | `DB_AUTH_TOKEN` | No | Bearer credential for a remote database; unset for a local one. |
-| `REDIS_URL` | Yes | Redis or Dragonfly URL. Railway Dragonfly can be mapped from `DRAGONFLY_PRIVATE_URL`. |
+| `REDIS_URL` | Yes | Redis or Dragonfly URL. |
 | `ACCESS_TOKEN_HMAC_KEY` | Yes | Canonical unpadded base64url for exactly 64 random bytes. It authenticates the single fixed access-token format; there is no key id or algorithm negotiation. |
 | `JWT_ISSUER` | No | Access-token issuer. Default: `merkur`. |
 | `JWT_AUDIENCE` | No | Access-token audience. Default: `merkur-clients`. |
@@ -347,8 +347,8 @@ Loaded by `packages/config/src/server-config.ts`.
 | `RYBBIT_API_KEY` | With `RYBBIT_HOST` and `RYBBIT_SITE_ID` | Rybbit API key, sent as `Authorization: Bearer`. It marks the event as ingestion from this server and never reaches the website. |
 | `OPAQUE_SERVER_SETUP` | Yes | Stable canonical OPAQUE server setup. Replacing it invalidates every OPAQUE registration record. Keep it secret and durable. |
 | `OPAQUE_SERVER_PUBLIC_KEY` | Yes | Canonical public key derived from `OPAQUE_SERVER_SETUP`; startup fails if they do not match. |
-| `VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY` | Build + standalone startup | Must equal `OPAQUE_SERVER_PUBLIC_KEY`. The browser pins this value; Docker validates it as a build argument and compiles it into the server for a pre-migration startup comparison. |
-| `TRUSTED_PROXY_HOPS` | Yes | Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; use `1` behind a single proxy such as Railway. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default. |
+| `VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY` | Build + standalone startup | Must equal `OPAQUE_SERVER_PUBLIC_KEY`. The browser pins this value; the deployment build validates it and compiles it into the server for a pre-migration startup comparison. |
+| `TRUSTED_PROXY_HOPS` | Yes | Number of reverse proxies in front of the server that append to `X-Forwarded-For`. `0` ignores the header and keys rate limits on the socket address; production is `1`, behind Caddy. Wrong values either let a client forge its own rate-limit key or collapse every client into one bucket, so there is no default. |
 | `SESSION_TOKEN_MLDSA87_SEED` | Yes | Canonical unpadded base64url for exactly 32 random bytes used to derive the fixed ML-DSA-87 session-authorization keypair. Existing daemons must relink after an intentional hard-cut key replacement. |
 | `SESSION_TOKEN_TTL_MS` | No | Session-capability lifetime from 2000 through 300000 milliseconds. Reconnects request fresh capabilities. Server and daemon clocks must be synchronized. Default: `60000`. |
 | `BOX_HOST_URL` | No | Canonical HTTP(S) origin of the box host. Configure together with `BOX_HOST_TOKEN`; both absent disables hosted-box provisioning. Credentials, paths, queries, fragments, and trailing slashes are refused. |

@@ -1,0 +1,41 @@
+# merkur.sh on app-1.
+#
+# `scripts/ci/install-site-release.sh` unpacks each site deployment (`site-server`
+# and the precompressed `dist/`) into /usr/local/lib/merkur/site/<commit> and points
+# `current` at it. The site holds no secrets.
+
+[Unit]
+Description=Merkur website
+Documentation=https://github.com/merkur-sh/merkur
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+# Rybbit's backend on analytics-1 over the private network; Cloudflare, then Caddy.
+Environment=PORT=8080 RYBBIT_HOST=http://10.10.0.3:3001 TRUSTED_PROXY_HOPS=2 HOME=/nonexistent
+ExecStart=/usr/local/lib/merkur/site/current/site-server /usr/local/lib/merkur/site/current/dist
+Restart=always
+RestartSec=2s
+UMask=0077
+
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+[Install]
+WantedBy=multi-user.target

@@ -143,7 +143,7 @@ export default defineConfig(({ command }) => {
     envDir: false,
     // The release version, folded into the bundle (and every worker bundle) so
     // `merkurVersion()` answers in the browser the way it already does in the
-    // server and daemon. `Dockerfile` sets `MERKUR_VERSION` to the required
+    // server and daemon. `scripts/build-deployment.ts` sets `MERKUR_VERSION` to the
     // deployment commit in `build:web`'s environment; a source run reports 'dev'.
     //
     // A `define` rather than a `VITE_` variable because this is not operator

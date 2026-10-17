@@ -14,9 +14,6 @@ env:
   SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
   OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
   MINIMUM_SEQUENCE: ${{ vars.RELEASE_MINIMUM_SEQUENCE }}
-  RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-  RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
-  RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
 
 jobs:
   validate:
@@ -160,9 +157,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       COMMIT: ${{ needs.validate.outputs.commit }}
       SEQUENCE: ${{ needs.validate.outputs.sequence }}
-      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
-      RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
       SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -179,10 +173,8 @@ jobs:
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
       - run: bazel run //tools/bazel/wasm:sync
       - run: python3 scripts/ci/release_assets.py restore dist/ci-release
-      - run: npm install --global @railway/cli@5.12.1
       - name: Deploy retained services and publish
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           SERVICE_HOSTS_SSH_KEY: ${{ secrets.SERVICE_HOSTS_SSH_KEY }}
         run: |
           gh auth setup-git
