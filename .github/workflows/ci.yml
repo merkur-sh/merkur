@@ -48,6 +48,14 @@ jobs:
           bazel test //... --test_env=DISPLAY=:99 --test_env=BENCH_HEADED=1
       - if: runner.os == 'macOS'
         run: bazel test //...
+      # Two macOS runs lost a process with no message of its own: a checkout's receiving tar and
+      # the Bazel server. What the server last logged and whether the kernel reclaimed memory by
+      # killing processes then is the evidence that names the cause.
+      - if: failure() && runner.os == 'macOS'
+        run: |
+          tail -n 200 "$(bazel info output_base 2>/dev/null)/server/jvm.out" || true
+          vm_stat
+          log show --last 2h --style compact --predicate 'eventMessage CONTAINS[c] "jetsam" OR eventMessage CONTAINS[c] "memorystatus"' | tail -n 100 || true
   workflow:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
