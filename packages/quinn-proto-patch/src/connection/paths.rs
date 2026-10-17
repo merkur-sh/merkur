@@ -569,48 +569,33 @@ mod tests {
         assert_eq!(path.packet_threshold, 3);
         assert!((path.time_threshold - 9.0 / 8.0).abs() < 1e-6);
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn reset_refreshes_pacer_budget() {
+        use crate::connection::pacing::{connection_rate, optimal_capacity};
+
         let now = Instant::now();
         let config = TransportConfig::default();
         let remote = "203.0.113.1:4433".parse().unwrap();
         let mut path = PathData::new(remote, true, None, 0, now, &config);
-        let mtu = path.current_mtu();
-        let window = path.congestion.window();
+        // One full packet at the connection's own rate, as `poll_transmit` asks.
+        let delay = |path: &mut PathData| {
+            let (rtt, window, mtu) = (path.rtt.get(), path.congestion.window(), path.current_mtu());
+            let rate = connection_rate(window, rtt).expect("a paced connection");
+            path.pacing
+                .delay(rate, optimal_capacity(rtt, window, mtu), mtu.into(), now)
+        };
 
         for _ in 0..1000 {
-            if path
-                .pacing
-                .delay(path.rtt.get(), mtu.into(), mtu, window, now)
-                .is_some()
-            {
+            if delay(&mut path).is_some() {
                 break;
             }
-            path.pacing.on_transmit(mtu);
+            path.pacing.on_transmit(path.current_mtu());
         }
-        assert!(
-            path.pacing
-                .delay(path.rtt.get(), mtu.into(), mtu, window, now)
-                .is_some()
-        );
+        assert!(delay(&mut path).is_some());
 
         path.reset(now, &config);
 
-        assert_eq!(
-            path.pacing.delay(
-                path.rtt.get(),
-                path.current_mtu().into(),
-                path.current_mtu(),
-                path.congestion.window(),
-                now
-            ),
-            None
-        );
+        assert_eq!(delay(&mut path), None);
     }
 }

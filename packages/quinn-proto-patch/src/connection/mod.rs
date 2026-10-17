@@ -3026,6 +3026,13 @@ impl Connection {
         space.time_of_last_ack_eliciting_packet = None;
         space.loss_time = None;
         space.declared_lost.clear();
+        // Nothing queued here can leave without its keys. A probe owed when the
+        // keys went would otherwise queue a PING on every transmit, and that
+        // read as interactive work forever holds every bulk packet behind it.
+        space.loss_probes = 0;
+        space.ping_pending = false;
+        space.immediate_ack_pending = false;
+        space.pending = Retransmits::default();
         let sent_packets = mem::take(&mut space.sent_packets);
         for packet in sent_packets.into_values() {
             self.remove_in_flight(&packet);

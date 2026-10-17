@@ -463,6 +463,60 @@ fn closed_and_wrong_class_attachments_cannot_reacquire_credit() {
 }
 
 #[test]
+fn a_handshake_probe_left_by_discarded_keys_never_holds_bulk() {
+    let mut high = Pair::default();
+    let mut config = client_config();
+    let mut transport = TransportConfig::default();
+    transport.mtu_discovery_config(None);
+    config.transport_config(Arc::new(transport));
+    let hc = high.begin_connect(config);
+    high.drive_client();
+    high.drive_server();
+    high.drive_client();
+    high.drive_server();
+    // HANDSHAKE_DONE is on its way when the handshake probe timer fires: the
+    // probe is owed to the Handshake space, whose keys that frame discards
+    // before the probe can be built.
+    let done = mem::take(&mut high.client.inbound);
+    let pto = high
+        .client_conn_mut(hc)
+        .poll_timeout()
+        .expect("the client's Finished is in flight");
+    high.time = pto;
+    high.client_conn_mut(hc).handle_timeout(pto);
+    high.client.inbound = done;
+    high.drive_client();
+    assert!(!high.client_conn_mut(hc).is_handshaking());
+    let (mut low, lc, _) = pair();
+    let now = high.time.max(low.time);
+    high.time = now;
+    low.time = now;
+    let group = high.client_conn_mut(hc).start_egress_group(now).unwrap();
+    low.client_conn_mut(lc)
+        .join_egress_group(&group, EgressClass::Bulk)
+        .unwrap();
+    // The idle interactive member publishes what it has queued: nothing.
+    high.drive_client();
+    let image = low.client_streams(lc).open(Dir::Uni).unwrap();
+    low.client_send(lc, image)
+        .set_priority(EGRESS_IMAGE_PRIORITY)
+        .unwrap();
+    low.client_send(lc, image).write(b"image").unwrap();
+    low.client_send(lc, image).finish().unwrap();
+    let before = low.client_conn_mut(lc).stats().frame_tx.stream;
+    let mut out = Vec::new();
+    while low
+        .client_conn_mut(lc)
+        .poll_transmit(now, 1, &mut out)
+        .is_some()
+    {
+        out.clear();
+    }
+    assert_eq!(low.client_conn_mut(lc).stats().frame_tx.stream, before + 1);
+    assert_eq!(group.stats().bulk.blocked, 0);
+}
+
+#[test]
 fn blocked_bulk_still_acknowledges_without_sending_queued_control_or_images() {
     let (mut high, hc, _) = pair();
     let (mut low, lc, ls) = pair();
