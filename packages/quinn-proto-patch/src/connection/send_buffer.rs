@@ -258,6 +258,11 @@ impl SendBuffer {
     pub(super) fn buffered(&self) -> u64 {
         (self.unacked_len + self.front_trimmed) as u64
     }
+
+    /// Bytes written and not yet acknowledged
+    pub(super) fn unacked(&self) -> u64 {
+        self.unacked_len as u64 - self.acks.iter().map(|x| x.end - x.start).sum::<u64>()
+    }
 }
 
 #[cfg(test)]

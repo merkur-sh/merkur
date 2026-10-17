@@ -127,10 +127,12 @@ pub struct StreamsState {
     ///
     /// Note this may be less than `buffered_data` if the user has set a new value.
     pub(super) send_window: u64,
-    /// The part of `buffered_data` retained by image-priority streams
-    /// (`EGRESS_IMAGE_PRIORITY`).
-    pub(super) buffered_images: u64,
-    /// Upper bound for `buffered_images`. No other stream's writes answer to
+    /// Unacknowledged bytes written to image-priority streams
+    /// (`EGRESS_IMAGE_PRIORITY`). The egress model sizes the image window as
+    /// image flight, so acknowledged bytes still retained count only against
+    /// `send_window`.
+    pub(super) unacked_images: u64,
+    /// Upper bound for `unacked_images`. No other stream's writes answer to
     /// it, so image bytes already written never hold back a durable lane.
     pub(super) image_send_window: u64,
     /// Image streams whose last write found no image send window
@@ -188,7 +190,7 @@ impl StreamsState {
             data_recvd: 0,
             buffered_data: 0,
             send_window,
-            buffered_images: 0,
+            unacked_images: 0,
             image_send_window: u64::MAX,
             images_blocked: Vec::new(),
             stream_receive_window: stream_receive_window.into(),
@@ -793,11 +795,10 @@ impl StreamsState {
         }
         let id = frame.id;
         let buffered = stream.pending.buffered();
-        let finished = stream.ack(frame);
-        let released = buffered - stream.pending.buffered();
-        self.buffered_data -= released;
+        let (acked, finished) = stream.ack(frame);
+        self.buffered_data -= buffered - stream.pending.buffered();
         if stream.priority == EGRESS_IMAGE_PRIORITY {
-            self.buffered_images -= released;
+            self.unacked_images -= acked;
         }
         // An acknowledgment can empty the retransmission queue before it
         // is packetized: a declared loss that arrived after all.
@@ -1035,7 +1036,7 @@ impl StreamsState {
         self.send_window = send_window;
     }
 
-    /// Bound retained image-priority bytes without touching any other
+    /// Bound unacknowledged image-priority bytes without touching any other
     /// stream's send credit.
     pub(crate) fn set_image_send_window(&mut self, window: u64) {
         self.image_send_window = window;
@@ -1043,7 +1044,7 @@ impl StreamsState {
 
     /// The image-priority bytes the image send window still admits.
     pub(crate) fn image_write_limit(&self) -> u64 {
-        self.image_send_window.saturating_sub(self.buffered_images)
+        self.image_send_window.saturating_sub(self.unacked_images)
     }
 
     /// Set the receive_window and returns whether the receive_window has been
@@ -2595,32 +2596,29 @@ mod tests {
         assert_eq!(send!(image).write(&[1; 200]), Err(WriteError::Blocked));
         // Image bytes already written hold back no other stream.
         assert_eq!(send!(durable).write(&[2; 200]), Ok(200));
-        assert_eq!(server.buffered_images, 100);
+        assert_eq!(server.unacked_images, 100);
         assert_eq!(server.poll(), None);
 
-        // A partly acknowledged write still holds its whole allocation.
-        server.received_ack_of(frame::StreamMeta {
-            id: image,
-            offsets: 0..60,
-            fin: false,
-        });
-        assert_eq!(server.buffered_images, 100);
-        assert_eq!(server.poll(), None);
+        // The image window answers to flight: a partly acknowledged write
+        // frees its acknowledged bytes, though its allocation still counts
+        // against the connection's send window.
         server.received_ack_of(frame::StreamMeta {
             id: image,
             offsets: 60..100,
             fin: false,
         });
         assert_eq!(server.poll(), Some(StreamEvent::Writable { id: image }));
-        assert_eq!(send!(image).write(&[1; 200]), Ok(100));
+        assert_eq!(send!(image).write(&[1; 200]), Ok(40));
+        assert_eq!(server.unacked_images, 100);
+        assert_eq!(server.buffered_data, 340);
         // A stream moving into or out of the image class takes its
-        // retained bytes with it; a reset releases the image stream's.
+        // unacknowledged bytes with it; a reset releases the image stream's.
         send!(later).write(&[3; 10]).unwrap();
         send!(later).set_priority(EGRESS_IMAGE_PRIORITY).unwrap();
-        assert_eq!(server.buffered_images, 110);
+        assert_eq!(server.unacked_images, 110);
         send!(later).set_priority(0).unwrap();
         send!(image).reset(0u32.into()).unwrap();
-        assert_eq!(server.buffered_images, 0);
+        assert_eq!(server.unacked_images, 0);
         assert_eq!(server.buffered_data, 210);
     }
 
@@ -2660,7 +2658,7 @@ mod tests {
         send!(leaving).set_priority(0).unwrap();
         assert_eq!(server.poll(), Some(StreamEvent::Writable { id: leaving }));
         assert_eq!(send!(leaving).write(&[2; 10]), Ok(10));
-        assert_eq!(server.buffered_images, 100);
+        assert_eq!(server.unacked_images, 100);
     }
 
     #[test]

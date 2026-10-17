@@ -324,7 +324,7 @@ impl<'a> SendStream<'a> {
         self.state.data_sent += written.bytes as u64;
         self.state.buffered_data += written.bytes as u64;
         if image {
-            self.state.buffered_images += written.bytes as u64;
+            self.state.unacked_images += written.bytes as u64;
         }
         trace!(stream = %self.id, "wrote {} bytes", written.bytes);
         if !was_pending {
@@ -386,10 +386,9 @@ impl<'a> SendStream<'a> {
         // Restore the portion of the send window consumed by the data that we aren't about to
         // send. We leave flow control alone because the peer's responsible for issuing additional
         // credit based on the final offset communicated in the RESET_STREAM frame we send.
-        let buffered = stream.pending.buffered();
-        self.state.buffered_data -= buffered;
+        self.state.buffered_data -= stream.pending.buffered();
         if stream.priority == EGRESS_IMAGE_PRIORITY {
-            self.state.buffered_images -= buffered;
+            self.state.unacked_images -= stream.pending.unacked();
         }
         stream.reset();
         self.pending.reset_stream.push((self.id, error_code));
@@ -411,16 +410,16 @@ impl<'a> SendStream<'a> {
             .map(get_or_insert_send(max_send_data))
             .ok_or(ClosedStream { _private: () })?;
 
-        // Retained bytes move with the stream between the image send window
-        // and the rest, so each is released exactly once.
+        // Unacknowledged bytes move with the stream between the image send
+        // window and the rest, so each is released exactly once.
         let was_image = stream.priority == EGRESS_IMAGE_PRIORITY;
         let image = priority == EGRESS_IMAGE_PRIORITY;
         if was_image != image && !stream.is_reset() {
-            let buffered = stream.pending.buffered();
+            let unacked = stream.pending.unacked();
             if image {
-                self.state.buffered_images += buffered;
+                self.state.unacked_images += unacked;
             } else {
-                self.state.buffered_images -= buffered;
+                self.state.unacked_images -= unacked;
             }
         }
         stream.priority = priority;
