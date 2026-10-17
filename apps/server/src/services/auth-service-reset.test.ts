@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, setDefaultTimeout, test } from 'bun:test';
 import {
   AuthResetCodeResponse,
   AuthResetStartResponse,
@@ -35,6 +35,10 @@ import {
   useEmailIdentity,
 } from './auth-service-fixture';
 import { createDeviceService, DeviceServiceTag } from './device-service';
+
+// Each test runs real OPAQUE registrations and logins, whose password stretching is
+// seconds of CPU, as `auth-service-password.test.ts` budgets them.
+setDefaultTimeout(30_000);
 
 useAuthServiceFixture();
 

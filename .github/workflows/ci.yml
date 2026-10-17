@@ -37,10 +37,17 @@ jobs:
           rust-cache: 'false'
           bazel: 'true'
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
-      # The Chromium the browser tests launch is Bazel's; Linux supplies its shared libraries.
+      # The Chromium the browser tests launch is Bazel's. On Linux the runner supplies its shared
+      # libraries, Mesa's Vulkan drivers and a virtual display, and the WebGPU tests run headed
+      # on it. The display's number is fixed: it is part of every test's cache key.
       - if: runner.os == 'Linux'
-        run: pnpm exec playwright install-deps chromium
-      - run: bazel test //...
+        run: |
+          pnpm exec playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers xvfb
+          Xvfb :99 -screen 0 1920x1080x24 &
+          bazel test //... --test_env=DISPLAY=:99 --test_env=BENCH_HEADED=1
+      - if: runner.os == 'macOS'
+        run: bazel test //...
       - run: bun run rust:lint
   workflow:
     runs-on: ubuntu-26.04
