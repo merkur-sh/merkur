@@ -23,6 +23,9 @@ server's `RYBBIT_HOST`.
 Secrets are written on the host and never leave it; nothing in this repository or the release
 carries them.
 
+- Every host keeps logs for 30 days, the period the privacy policy states: `host/journald.conf`
+  as `/etc/systemd/journald.conf.d/merkur.conf`, and `host/docker-daemon.json` as
+  `/etc/docker/daemon.json`, which sends every container's log to the journal.
 - Every host has the `merkur-release-deploy` key in root's `authorized_keys`, its private half
   being the `production` environment's `SERVICE_HOSTS_SSH_KEY`. Its host key goes into
   `service-hosts.json` from the Hetzner console, never from a first connection.

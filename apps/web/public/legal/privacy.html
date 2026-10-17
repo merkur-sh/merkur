@@ -28,8 +28,8 @@
   <h2>1. Who we are</h2>
   <p>Merkur is a personal project of <strong>Dmytro Pletenskyi</strong>, a private individual who controls your personal data. Contact: <a href="mailto:dmitriy.pletenskoy@gmail.com">dmitriy.pletenskoy@gmail.com</a>. Postal address: see our <a href="https://merkur.sh/contact">Contact / Impressum</a> page. No data protection officer is required or appointed.</p>
 
-  <h2>2. What we never see</h2>
-  <p>Your <strong>password</strong> (sign-in uses OPAQUE, so it never leaves your browser), the <strong>contents of your terminal</strong> (encrypted end to end between your browser and your machine) and your <strong>private keys</strong>. Our relay sees only which account and machine a connection belongs to, and the size and timing of encrypted traffic.</p>
+  <h2>2. What we are built not to see</h2>
+  <p>Merkur is designed so that your <strong>password</strong> (sign-in uses OPAQUE, so it is not sent to us), the <strong>contents of your terminal</strong> (encrypted end to end between your browser and your machine) and your <strong>private keys</strong> stay with you. Our relay passes encrypted traffic along; it can see connection details such as IP addresses, which account and machine a connection belongs to, and the size and timing of that traffic.</p>
 
   <h2>3. What we collect and why</h2>
   <div class="table-wrap">
@@ -47,45 +47,45 @@
   <p>To create an account you must give a username or email and a password; everything else is optional. At registration, an email address is refused automatically if it belongs to a disposable email service or a suspended account; you may ask for a human review.</p>
 
   <h2>4. Cookies</h2>
-  <p>We use <strong>one strictly necessary cookie</strong> to keep you signed in. The app stores your settings and keys in your browser because it needs them to work. Nothing is used for tracking or advertising.</p>
+  <p>We use only a <strong>strictly necessary cookie</strong> to keep you signed in. The app stores your settings and keys in your browser because it needs them to work. We do not use cookies or browser storage for tracking or advertising.</p>
 
   <h2>5. Where your data is stored</h2>
-  <p>Our providers are Hetzner and Axiom (Germany), Resend (Ireland), and Cloudflare and GitHub (United States). Hetzner runs our servers in Germany: the app, its database, the relay and the website. Cloudflare carries the website's traffic and protects it from attacks; it carries neither the app nor your terminal sessions. Cloudflare also stores our encrypted backups in its EU data region; they are encrypted before they leave our servers, with a key only we hold, so Cloudflare cannot read them. Website analytics run on our own installation at Hetzner and are not shared with an analytics company. Providers that process data on our behalf are bound by data processing agreements; GitHub receives download requests from the daemon under its own privacy terms. If you turn on notifications, they are delivered through your browser vendor's push service (for example Apple, Google or Mozilla), and their content is encrypted. Transfers outside the EEA, including to the US, and access from outside the EEA are protected by the EU Standard Contractual Clauses or the EU–US Data Privacy Framework, which are published by the <a href="https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/standard-contractual-clauses-scc_en">European Commission</a> and the <a href="https://www.dataprivacyframework.gov/list">US Department of Commerce</a>.</p>
+  <p>Our providers are Hetzner and Axiom (Germany), Resend (Ireland), and Cloudflare and GitHub (United States). Hetzner runs our servers in Germany: the app, its database, the relay and the website. Cloudflare carries the website's traffic and protects it from attacks; it carries neither the app nor your terminal sessions. Cloudflare also stores our backups in its EU data region; they are encrypted on our servers before they leave them. Website analytics run on our own installation at Hetzner and are not shared with an analytics company. Providers that process data on our behalf do so under data processing terms; GitHub receives download requests from the daemon under its own privacy terms. If you turn on notifications, they are delivered through your browser vendor's push service (for example Apple, Google or Mozilla), and their content is encrypted. Transfers outside the EEA, including to the US, and access from outside the EEA are protected by the EU Standard Contractual Clauses or the EU–US Data Privacy Framework, which are published by the <a href="https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/standard-contractual-clauses-scc_en">European Commission</a> and the <a href="https://www.dataprivacyframework.gov/list">US Department of Commerce</a>.</p>
 
   <h2>6. Sharing</h2>
   <p>We do not sell your data, use it for advertising or send marketing emails. We disclose data to authorities only when the law requires it.</p>
 
   <h2>7. How long we keep data</h2>
   <ul>
-    <li>Account data and linked machines: while your account exists; erased 7 days after you delete it.</li>
+    <li>Account data and linked machines: while your account exists; erased shortly after you delete it, normally within 7 days.</li>
     <li>Inactive accounts with email sign-in: deleted after 12 months without sign-in and 30 days' email notice. Signing in cancels deletion. Username-only accounts are not deleted for inactivity because they have no verified email address.</li>
     <li>Browser sessions: up to 30 days, or until you sign out or revoke them.</li>
-    <li>Verification codes: 10 minutes. Sign-in attempt counters: 1 hour.</li>
+    <li>Verification codes and sign-in attempt counters: briefly, from minutes to about an hour.</li>
     <li>Push endpoint: until you turn off notifications or delete your account.</li>
-    <li>Logs, relay connection data and performance reports: 30 days.</li>
+    <li>Logs, relay connection data and performance reports: up to about 30 days.</li>
     <li>Website analytics: visits cannot be linked to you after the day they occur; aggregated statistics are kept only while useful for understanding website use.</li>
-    <li>Waitlist email: until we send that one email, you withdraw consent, or 12 months pass. A daily database job removes expired addresses.</li>
-    <li>Abuse reports: 12 months; suspended accounts, including their emails: deleted 24 months after suspension. Database retention runs daily; hosted box deletion is retried until the host confirms removal.</li>
-    <li>Backups: the database and website analytics are backed up every night, encrypted, and each backup is kept for 35 days. Data you delete leaves the backups within 35 days. If we ever restore a backup after an outage, anything you deleted after it was taken is deleted again.</li>
-    <li>If the service shuts down: all personal data is deleted within 30 days of shutdown, unless the law requires otherwise.</li>
+    <li>Waitlist email: until we send that one email, you withdraw consent, or 12 months pass.</li>
+    <li>Abuse reports: 12 months; suspended accounts, including their emails: deleted 24 months after suspension.</li>
+    <li>Backups: the database and website analytics are backed up regularly, encrypted, and kept for about five weeks, so deleted data can remain in a backup for that long. If we restore a backup, we apply again the deletions made since it was taken.</li>
+    <li>If the service shuts down: personal data is deleted within a reasonable time, normally 30 days, unless the law requires otherwise.</li>
   </ul>
-  <p>Waitlist expiry, suspended-account retention and account inactivity are checked daily. Deletion is processed in the next daily cleanup after the applicable period ends.</p>
+  <p>These periods are enforced by regular automated cleanup, so deletion can happen shortly after a period ends rather than at its exact end.</p>
   <p>We keep data longer only where the law requires it or to deal with a security incident or legal claim.</p>
 
   <h2>8. Your rights</h2>
-  <p>You may access, correct, delete, restrict or export your data, and withdraw consent at any time. Delete your account under Settings, Account; for anything else, email us. We reply within one month, free of charge. You may complain to a data protection authority in the EU country where you live, work or where the issue occurred, or in Ukraine to the Parliament Commissioner for Human Rights.</p>
+  <p>You may access, correct, delete, restrict or export your data, and withdraw consent at any time. Delete your account under Settings, Account; for anything else, email us. We reply within the time the law sets, normally one month, free of charge. You may complain to a data protection authority in the EU country where you live, work or where the issue occurred, or in Ukraine to the Parliament Commissioner for Human Rights.</p>
 
   <h2>9. Your right to object</h2>
   <p><strong>You may object at any time to processing based on our legitimate interests.</strong> We will stop unless we have compelling grounds or need the data for legal claims.</p>
 
   <h2>10. Security</h2>
-  <p>We use end-to-end encryption, OPAQUE sign-in and signed releases (<a href="https://merkur.sh/security">details</a>). No system is fully secure. We will report any data breach to the authorities and, where the risk to you is high, to you.</p>
+  <p>We protect data with measures such as end-to-end encryption, OPAQUE sign-in and signed releases (<a href="https://merkur.sh/security">details</a>). No system is fully secure. If a breach affects your data, we will notify the authorities and you where the law requires.</p>
 
   <h2>11. Children</h2>
   <p>The service is not for anyone under 18. If we learn we hold a child's data, we delete it.</p>
 
   <h2>12. Transfer of the service</h2>
-  <p>If the service passes to a new operator, we will tell you who it is at least 30 days in advance, and you may delete your account first. The new operator will become responsible for your data.</p>
+  <p>If the service passes to a new operator, we will tell you who it is in advance, and you may delete your account first. The new operator will become responsible for your data.</p>
 
   <h2>13. Changes</h2>
   <p>We will post changes here with a new date and notify you of material changes in advance. Questions: <a href="mailto:dmitriy.pletenskoy@gmail.com">dmitriy.pletenskoy@gmail.com</a>.</p>
