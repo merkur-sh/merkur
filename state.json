@@ -610,6 +610,14 @@
             "verify-linux-arm64": "e4cf0667cf3f0df6fede96e9d37d83ca58acde02c76eab23a5a57fe2ebc9a34e94f3b4966a1f761a41e5ce7638484293b498d9dbbe074b4fb4591a3df47edca8",
             "verify-linux-x64": "4b04ee3eaff26cc3b10862bab13c0ac8e76b9c43c3bd93aff98d2078e85e6527500ce46fb4f6b58e1eeb3049931785c2396e847b25feab3fd6307d82b8ed75fe"
           }
+        },
+        {
+          "phase": "retained",
+          "targetIdentities": {
+            "merkur-edge": "4473f67aed1151101feddbf7685a043a9bfb92df3e3db6c93cc9504cc89e2a3e037b649f87bfd72f5d0dde2a98a9ce76aacb7c5154604bb17f114781af1f4991",
+            "merkur-stun": "5c1f8fa4b02fdd7355b7ef9f106bdc1bde286d0e4fd6735dab199431a64a52981f3aac4b8628b7fb1672cd8aea30ca84c2382a50f57b40b80b685bfde99e4e2a",
+            "railway": "ab90f8a6-da5b-418d-a4c2-4391051eea46"
+          }
         }
       ],
       "configuration": {
