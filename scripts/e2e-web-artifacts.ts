@@ -90,13 +90,6 @@ export async function prepareE2EWebArtifact(
 ): Promise<string> {
   mkdirSync(artifactRoot, { recursive: true });
   const staging = mkdtempSync(path.join(artifactRoot, '.build-'));
-  const sync = await runVerificationCommand(
-    ['bun', 'run', 'build:wasm'],
-    path.join(staging, 'sync-wasm.log'),
-    process.env,
-    signal,
-  );
-  if (sync.exitCode !== 0) throw new Error('WASM synchronization failed');
   const input = webArtifactInput(root, forceEdge);
   const directory = path.join(artifactRoot, input);
   if (existsSync(directory)) {
