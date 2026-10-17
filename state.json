@@ -481,6 +481,12 @@
           "targetIdentities": {
             "railway": "23f3a4db-a00f-436e-a782-58e918aa6068"
           }
+        },
+        {
+          "phase": "retained",
+          "targetIdentities": {
+            "railway": "02b9692c-9deb-4a5b-a293-c83b81a31215"
+          }
         }
       ],
       "configuration": {
