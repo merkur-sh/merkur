@@ -2,6 +2,7 @@ import { Effect, Redacted } from 'effect';
 
 import type { EmailDeliveryConfig } from '../config';
 import { type InfrastructureError, infrastructureError } from './errors';
+import { MAIL_LOCKUP, type MailContent, renderMail } from './mail-message';
 
 /**
  * Resend answers in well under a second; a sign-up waiting on it is a person
@@ -53,12 +54,9 @@ export function createResendMailSender(
   publicOrigin: string,
 ): MailSender {
   const host = new URL(publicOrigin).host;
-  const send = (
-    operation: string,
-    idempotencyKey: string,
-    message: { readonly to: string; readonly subject: string; readonly text: string },
-  ) =>
-    Effect.tryPromise({
+  const send = (operation: string, idempotencyKey: string, to: string, content: MailContent) => {
+    const mail = renderMail(content, publicOrigin);
+    return Effect.tryPromise({
       try: async (signal) => {
         const response = await fetch(`${config.resendApiUrl}/emails`, {
           method: 'POST',
@@ -69,9 +67,18 @@ export function createResendMailSender(
           },
           body: JSON.stringify({
             from: config.from,
-            to: [message.to],
-            subject: message.subject,
-            text: message.text,
+            to: [to],
+            subject: mail.subject,
+            html: mail.html,
+            text: mail.text,
+            attachments: [
+              {
+                content: MAIL_LOCKUP.content,
+                filename: MAIL_LOCKUP.filename,
+                content_type: 'image/png',
+                content_id: MAIL_LOCKUP.contentId,
+              },
+            ],
           }),
           signal,
         });
@@ -89,91 +96,97 @@ export function createResendMailSender(
           : infrastructureError('mail', operation)(error),
       ),
     );
+  };
+  // Every mail sent to an address somebody typed into the form says so; the
+  // two sent to an account's own address say that instead.
+  const typedHere = `You got this because this address was entered on ${host}.`;
+  const accountAddress = `You got this because this is the address of a Merkur account on ${host}.`;
 
   return {
     sendInactivityNotice: ({ to, idempotencyKey }) =>
-      send('send-inactivity-notice', idempotencyKey, {
-        to,
+      send('send-inactivity-notice', idempotencyKey, to, {
         subject: 'Your inactive Merkur account will be deleted',
-        text: [
-          `You have not signed in to your Merkur account on ${host} for 12 months.`,
-          'Your account, linked machines and hosted boxes with everything on them',
-          'will be deleted in 30 days. Files on your own machines are unaffected.',
-          '',
-          `To keep your account, sign in at ${publicOrigin} within 30 days.`,
-        ].join('\n'),
+        preview: 'Sign in within 30 days to keep it.',
+        title: 'Your account will be deleted in 30 days.',
+        deck: 'Nobody has signed in to it for 12 months.',
+        paragraphs: [
+          `You have not signed in to your Merkur account on ${host} for 12 months. Your account, linked machines and hosted boxes with everything on them will be deleted in 30 days. Files on your own machines are unaffected.`,
+          'To keep your account, sign in within 30 days.',
+        ],
+        action: { label: 'Sign in to keep it', href: publicOrigin },
+        reason: accountAddress,
       }),
     sendSignUpCode: ({ to, code, idempotencyKey }) =>
-      send('send-sign-up-code', idempotencyKey, {
-        to,
+      send('send-sign-up-code', idempotencyKey, to, {
         subject: `${code} is your Merkur code`,
-        text: [
-          `Enter this code to finish creating your Merkur account on ${host}:`,
-          '',
-          code,
-          '',
-          'It expires in 10 minutes. If you did not try to sign up, ignore this email;',
-          'no account is created without the code.',
-        ].join('\n'),
+        preview: `Enter it on ${host} to finish creating your account.`,
+        title: 'Finish creating your account.',
+        deck: `Enter this code on ${host}.`,
+        code: { label: 'Sign-up code', value: code, expiry: 'It expires in 10 minutes.' },
+        paragraphs: [],
+        footnote:
+          'If you did not try to sign up, ignore this email; no account is created without the code.',
+        reason: typedHere,
       }),
     sendAlreadyRegistered: ({ to, idempotencyKey }) =>
-      send('send-already-registered', idempotencyKey, {
-        to,
+      send('send-already-registered', idempotencyKey, to, {
         subject: 'Your Merkur sign-in did not match',
-        text: [
+        preview: 'This address already has an account, so no code was sent.',
+        title: 'This address already has an account.',
+        deck: 'So no code was sent.',
+        paragraphs: [
           `Someone just tried to sign in or sign up on ${host} with this address.`,
-          '',
-          'This address already has an account, so no code was sent. If it was you,',
-          'the password you entered was wrong: go back and sign in with the',
-          'password you chose when you created the account.',
-          '',
-          'If it was not you, nothing has changed and no one has access.',
-        ].join('\n'),
+          'If it was you, the password you entered was wrong: go back and sign in with the password you chose when you created the account.',
+        ],
+        action: { label: 'Sign in', href: publicOrigin },
+        footnote: 'If it was not you, nothing has changed and no one has access.',
+        reason: typedHere,
       }),
     sendPasswordResetCode: ({ to, code, idempotencyKey }) =>
-      send('send-password-reset-code', idempotencyKey, {
-        to,
+      send('send-password-reset-code', idempotencyKey, to, {
         subject: `${code} is your Merkur password reset code`,
-        text: [
-          `Enter this code on ${host} to reset the password of your Merkur account:`,
-          '',
-          code,
-          '',
-          'It expires in 10 minutes. Resetting the password signs out every browser,',
-          'unlinks every machine and deletes every hosted box with everything on it.',
-          '',
-          'Nobody from Merkur will ask you for this code. If you did not ask for a',
-          'reset, ignore this email: nothing changes without the code.',
-        ].join('\n'),
+        preview: `Enter it on ${host} to reset your password.`,
+        title: 'Reset your password.',
+        deck: `Enter this code on ${host}.`,
+        code: { label: 'Reset code', value: code, expiry: 'It expires in 10 minutes.' },
+        paragraphs: [],
+        notice: {
+          tone: 'warn',
+          text: 'Resetting the password signs out every browser, unlinks every machine and deletes every hosted box with everything on it.',
+        },
+        footnote:
+          'Nobody from Merkur will ask you for this code. If you did not ask for a reset, ignore this email: nothing changes without the code.',
+        reason: typedHere,
       }),
     sendPasswordResetNoAccount: ({ to, idempotencyKey }) =>
-      send('send-password-reset-no-account', idempotencyKey, {
-        to,
+      send('send-password-reset-no-account', idempotencyKey, to, {
         subject: 'Your Merkur password reset',
-        text: [
+        preview: 'No account uses this address, so there is nothing to reset.',
+        title: 'No account uses this address.',
+        deck: 'There is nothing to reset.',
+        paragraphs: [
           `Someone just asked to reset a Merkur password on ${host} with this address.`,
-          '',
-          'No account uses this address, so there is nothing to reset. If it was you,',
-          'your account is under a different address, or you have not created one yet.',
-          '',
-          'If it was not you, ignore this email.',
-        ].join('\n'),
+          'If it was you, your account is under a different address, or you have not created one yet.',
+        ],
+        footnote: 'If it was not you, ignore this email.',
+        reason: typedHere,
       }),
     sendPasswordWasReset: ({ to, idempotencyKey }) =>
-      send('send-password-was-reset', idempotencyKey, {
-        to,
+      send('send-password-was-reset', idempotencyKey, to, {
         subject: 'Your Merkur password was reset',
-        text: [
-          `The password of your Merkur account on ${host} was just reset with a code`,
-          'mailed to this address. Every browser was signed out, every machine was',
-          'unlinked and every hosted box was deleted.',
-          '',
+        preview: 'Every browser was signed out and every machine was unlinked.',
+        title: 'Your password was reset.',
+        deck: 'With a code mailed to this address.',
+        paragraphs: [
+          `The password of your Merkur account on ${host} was just reset. Every browser was signed out, every machine was unlinked and every hosted box was deleted.`,
           'If it was you, link your machines again from the machine list.',
-          '',
-          'If it was not you, someone can read this mailbox. Secure it first, then',
-          `reset the password again on ${host}. Your machines were not reached:`,
-          'a reset cannot open a terminal.',
-        ].join('\n'),
+        ],
+        action: { label: 'Open Merkur', href: publicOrigin },
+        notice: {
+          tone: 'bad',
+          text: `If it was not you, someone can read this mailbox. Secure it first, then reset the password again on ${host}. Your machines were not reached: a reset cannot open a terminal.`,
+        },
+        reason: accountAddress,
       }),
   };
 }

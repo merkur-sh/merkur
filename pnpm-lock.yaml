@@ -116,6 +116,9 @@ importers:
       '@merkur/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@merkur/quicksilver':
+        specifier: workspace:*
+        version: link:../../packages/quicksilver
       '@merkur/shared':
         specifier: workspace:*
         version: link:../../packages/shared

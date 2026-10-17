@@ -27,10 +27,10 @@
  * them the old `FIELD_LIT` made the field brighter than a panel.
  */
 export const FIELD_DOT_PITCH = '12px';
-const FIELD_DOTS = 'radial-gradient(circle, rgba(255,255,255,0.08) 1px, transparent 1.6px)';
+export const FIELD_DOTS = 'radial-gradient(circle, rgba(255,255,255,0.08) 1px, transparent 1.6px)';
 
 /** `amount` of `over` mixed into `base`, in sRGB — Zen's `blendColors`. */
-function mixHex(base: string, over: string, amount: number): string {
+export function mixHex(base: string, over: string, amount: number): string {
   const channel = (offset: number): string => {
     const b = Number.parseInt(base.slice(offset, offset + 2), 16);
     const o = Number.parseInt(over.slice(offset, offset + 2), 16);
@@ -44,9 +44,10 @@ function mixHex(base: string, over: string, amount: number): string {
 /**
  * The accent as tuned, in sRGB hex. `COLORS.accent` is the same hue and
  * lightness declared in OKLCH with more chroma (see the note on the accent
- * steps); this is the form `mixHex` can read when it derives the desk field.
+ * steps); this is the form `mixHex` can read when it derives the desk field,
+ * and the one the server's mail is painted in, since no mail client reads OKLCH.
  */
-const ACCENT_SRGB = '#7f5af0';
+export const ACCENT_SRGB = '#7f5af0';
 
 /**
  * Quicksilver's three faces, self-hosted.
@@ -222,7 +223,7 @@ export const CSS_VARIABLES = Object.entries(COLORS)
  * the product, and the accent's job is to be the only saturated thing. Derived
  * rather than picked so the desk follows the tokens if they ever move.
  */
-const FIELD_DARK = mixHex(mixHex(COLORS.ground, COLORS.raised, 0.25), ACCENT_SRGB, 0.04); // #13111c
+export const FIELD_DARK = mixHex(mixHex(COLORS.ground, COLORS.raised, 0.25), ACCENT_SRGB, 0.04); // #13111c
 const FIELD_LIT = mixHex(mixHex(COLORS.ground, COLORS.raised, 0.45), ACCENT_SRGB, 0.07); // #1a1827
 export const DESK_FIELD = `${FIELD_DOTS}, linear-gradient(-45deg, ${FIELD_DARK} 0%, ${FIELD_LIT} 100%)`;
 

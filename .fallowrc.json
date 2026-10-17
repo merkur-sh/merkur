@@ -57,6 +57,10 @@
       "exports": ["default"]
     },
     {
+      "file": "apps/server/src/file-imports.d.ts",
+      "exports": ["default"]
+    },
+    {
       "file": "apps/server/migrations/*.ts",
       "exports": ["up", "down"]
     },

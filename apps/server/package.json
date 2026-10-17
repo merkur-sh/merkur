@@ -11,6 +11,7 @@
     "@merkur/config": "workspace:*",
     "@merkur/daemon-control-protocol": "workspace:*",
     "@merkur/logger": "workspace:*",
+    "@merkur/quicksilver": "workspace:*",
     "@merkur/shared": "workspace:*",
     "@merkur/user-agent": "workspace:*",
     "disposable-email-domains-js": "^1.26.0",
