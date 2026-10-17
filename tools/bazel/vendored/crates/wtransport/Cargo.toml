@@ -1,0 +1,120 @@
+# Generated from packages/wtransport-patch/Cargo.toml by scripts/vendored-workspace.ts: edit that
+# manifest and rerun the script.
+[dependencies.bytes]
+version = "1.4.0"
+
+[dependencies.pem]
+version = "3.0.4"
+
+[dependencies.quinn]
+path = "../quinn"
+version = "0.11.6"
+features = ["runtime-tokio"]
+default-features = false
+
+[dependencies.quinn-proto]
+version = "0.11.19"
+path = "../quinn-proto"
+default-features = false
+
+[dependencies.rcgen]
+version = "0.14.5"
+optional = true
+default-features = false
+
+[dependencies.rustls]
+version = "0.23.23"
+default-features = false
+
+[dependencies.rustls-native-certs]
+version = "0.8.0"
+
+[dependencies.rustls-pki-types]
+version = "1.13.2"
+
+[dependencies.sha2]
+version = "0.11.0"
+
+[dependencies.socket2]
+version = "0.6.3"
+
+[dependencies.thiserror]
+version = "2.0.3"
+
+[dependencies.time]
+version = "0.3.21"
+
+[dependencies.tokio]
+version = "1.28.1"
+features = ["macros", "fs", "io-util"]
+default-features = false
+
+[dependencies.tracing]
+version = "0.1.37"
+
+[dependencies.url]
+version = "2.4.0"
+
+[dependencies.wtransport-proto]
+version = "0.7.2"
+features = ["async"]
+
+[dependencies.x509-parser]
+version = "0.18.1"
+
+[package]
+name = "wtransport"
+version = "0.7.2"
+edition = "2021"
+build = false
+rust-version = "1.88"
+authors = ["Biagio Festa"]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Implementation of the WebTransport (over HTTP3) protocol"
+readme = "README.md"
+keywords = ["webtransport"]
+categories = ["network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/BiagioFesta/wtransport"
+publish = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.cargo_check_external_types]
+allowed_external_types = ["bytes::bytes::Bytes", "quinn", "quinn::connection::Connecting", "quinn::connection::Connection", "quinn::incoming::Incoming", "quinn::recv_stream::ReadError", "quinn::recv_stream::RecvStream", "quinn::send_stream::SendStream", "quinn::send_stream::WriteError", "quinn_proto::config::ClientConfig", "quinn_proto::config::EndpointConfig", "quinn_proto::config::ServerConfig", "quinn_proto::config::transport::TransportConfig", "quinn_proto::connection::ConnectionError", "rustls", "rustls::client::client_conn::ClientConfig", "rustls::server::server_conn::ServerConfig", "rustls::verify::ServerCertVerifier", "rustls::webpki::anchors::RootCertStore", "time", "time::Duration", "time::offset_date_time::OffsetDateTime", "tokio::io::async_read::AsyncRead", "tokio::io::async_write::AsyncWrite", "wtransport_proto", "wtransport_proto::WEBTRANSPORT_ALPN", "wtransport_proto::ids::SessionId", "wtransport_proto::ids::StreamId", "wtransport_proto::varint::VarInt"]
+
+[lib]
+name = "wtransport"
+path = "../../../../../packages/wtransport-patch/src/lib.rs"
+
+[features]
+aws-lc-rs = ["quinn/aws-lc-rs", "quinn/rustls-aws-lc-rs", "rustls/aws-lc-rs", "rcgen?/aws_lc_rs"]
+aws-lc-rs-fips = ["quinn/aws-lc-rs-fips", "quinn/rustls-aws-lc-rs-fips", "rustls/fips", "rcgen?/fips"]
+dangerous-configuration = []
+default = ["self-signed", "ring"]
+fips = ["aws-lc-rs-fips"]
+quinn = []
+quinn-log = ["quinn/log"]
+ring = ["quinn/ring", "quinn/rustls", "rustls/ring", "rcgen?/ring"]
+self-signed = ["dep:rcgen"]
+
+[lints.clippy]
+manual_is_variant_and = "warn"
+manual_let_else = "warn"
+unnecessary_cast = "deny"
+
+[lints.rust]
+unfulfilled_lint_expectations = "deny"
+unit_bindings = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(merkur_sim)"]

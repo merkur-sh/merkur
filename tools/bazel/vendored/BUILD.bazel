@@ -1,0 +1,28 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+load("@vendored_crates//:defs.bzl", "all_crate_deps")
+load(":crates.bzl", "FEATURES", "PACKAGES", "vendored_crates")
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+# The vendored transport crates, from their own crate hub (`scripts/vendored-workspace.ts`).
+vendored_crates()
+
+# Each vendored crate's own tests, with the dev-dependencies the release workspace leaves out.
+[rust_test(
+    name = library + "_unit",
+    crate = ":" + library,
+    # A test compiles its crate again, which takes the crate's features only from here.
+    crate_features = FEATURES[library],
+    proc_macro_deps = all_crate_deps(
+        package_name = PACKAGES[library],
+        proc_macro_dev = True,
+    ),
+    tags = ["noclippy"],
+    deps = all_crate_deps(
+        normal_dev = True,
+        package_name = PACKAGES[library],
+    ),
+) for library in sorted(PACKAGES)]

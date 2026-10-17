@@ -24,6 +24,7 @@
     "build:native": "bazel run --config=release //tools/bazel/native:sync",
     "build:wasm": "bazel run //tools/bazel/wasm:sync",
     "build:wasm-workspaces": "bun run scripts/wasm-artifact-manifests.ts",
+    "build:vendored-workspace": "bun run scripts/vendored-workspace.ts",
     "build:sim-workspace": "bun run scripts/sim-workspace.ts",
     "bench:graphics-codec:browser": "bun run scripts/bench-graphics-codec-browser.ts",
     "release:public-key": "bun run scripts/derive-release-public-key.ts",

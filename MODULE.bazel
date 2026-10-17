@@ -110,6 +110,10 @@ include("//tools/bazel/wasm:hubs.MODULE.bazel")
 # so it resolves from a workspace of its own too (`scripts/sim-workspace.ts`).
 include("//tools/bazel/sim:hub.MODULE.bazel")
 
+# The vendored transport crates' own tests, with the dev-dependencies the release workspace leaves
+# out, resolve from a workspace of their own (`scripts/vendored-workspace.ts`).
+include("//tools/bazel/vendored:hub.MODULE.bazel")
+
 # minicov compiles LLVM's profile runtime for the training build with whatever `clang` its PATH
 # holds; this has it take the C toolchain cc-rs is given, like every other build script.
 crate.annotation(
@@ -252,8 +256,9 @@ use_repo(
     "wasm_bindgen_linux_x64",
 )
 
-# The vendored transport crates, which Bazel never loads as packages (`REPO.bazel`), as files for
-# the checkouts the static gates and the scripts' tests read.
+# The vendored transport crates, which Bazel never loads as packages (`REPO.bazel`): their files
+# for the checkouts the static gates and the scripts' tests read, and their sources for their own
+# tests (`//tools/bazel/vendored`).
 new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
 
 [new_local_repository(
@@ -263,6 +268,14 @@ new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.
     srcs = glob(["**"], exclude = ["BUILD.bazel", "target/**"]),
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(glob(["build.rs", "src/lib.rs"], allow_empty = True))
 """,
     path = "packages/" + crate,
 ) for crate in [

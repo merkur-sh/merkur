@@ -96,27 +96,46 @@ export function requireSameResolution(
   );
 }
 
+/** A dependency on a member: its label, and the name the dependent imports it under. */
+export interface MemberEdge {
+  readonly label: string;
+  readonly name: string;
+}
+
 /**
- * The members a resolved node depends on, as labels: normal edges, and dev ones too when `dev`.
- * Undefined when Cargo resolved no such node.
+ * The members a resolved node depends on: normal edges, and dev ones too when `dev`. Undefined
+ * when Cargo resolved no such node.
  */
+export function memberEdges(
+  metadata: Metadata,
+  members: ReadonlyMap<string, { readonly library: string }>,
+  id: string | undefined,
+  dev: boolean,
+): MemberEdge[] | undefined {
+  const node = metadata.resolve.nodes.find((candidate) => candidate.id === id);
+  if (node === undefined) return undefined;
+  const edges: MemberEdge[] = [];
+  for (const dep of node.deps) {
+    const member = members.get(dep.pkg);
+    if (member === undefined) continue;
+    if (!dep.dep_kinds.some(({ kind }) => kind === null || (dev && kind === 'dev'))) continue;
+    edges.push({ label: `:${member.library}`, name: dep.name });
+  }
+  return edges.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** `memberEdges` as labels, for workspaces whose members are never renamed. */
 export function memberLabels(
   metadata: Metadata,
   members: ReadonlyMap<string, { readonly library: string }>,
   id: string | undefined,
   dev: boolean,
 ): string[] | undefined {
-  const node = metadata.resolve.nodes.find((candidate) => candidate.id === id);
-  if (node === undefined) return undefined;
-  const labels: string[] = [];
-  for (const dep of node.deps) {
-    const member = members.get(dep.pkg);
-    if (member === undefined) continue;
-    if (!dep.dep_kinds.some(({ kind }) => kind === null || (dev && kind === 'dev'))) continue;
-    if (dep.name !== member.library) throw new Error(`${dep.pkg} is renamed to ${dep.name}`);
-    labels.push(`:${member.library}`);
-  }
-  return labels.sort();
+  return memberEdges(metadata, members, id, dev)?.map((edge) => {
+    if (edge.name !== edge.label.slice(1))
+      throw new Error(`${edge.label} is renamed to ${edge.name}`);
+    return edge.label;
+  });
 }
 
 /** Writes a workspace's root manifest and, replacing any earlier ones, its members'. */
@@ -154,4 +173,36 @@ export function fromCargo(
     '    ],',
     ')',
   ];
+}
+
+/** The native platforms a crate hub resolves for, by Rust triple, with the setting naming each. */
+export const NATIVE_TRIPLES = [
+  'aarch64-apple-darwin',
+  'x86_64-apple-darwin',
+  'aarch64-unknown-linux-gnu',
+  'x86_64-unknown-linux-gnu',
+] as const;
+export type NativeTriple = (typeof NATIVE_TRIPLES)[number];
+export const NATIVE_PLATFORMS: Readonly<Record<NativeTriple, string>> = {
+  'aarch64-apple-darwin': '//tools/bazel/bun:darwin_aarch64',
+  'x86_64-apple-darwin': '//tools/bazel/bun:darwin_x64',
+  'aarch64-unknown-linux-gnu': '//tools/bazel/bun:linux_aarch64',
+  'x86_64-unknown-linux-gnu': '//tools/bazel/bun:linux_x64',
+};
+
+/** A list, or a `select` over the native platforms when they differ. */
+export function perPlatform(
+  values: ReadonlyMap<NativeTriple, readonly string[]>,
+  indent: string,
+): string {
+  const lists = [...values.values()].map((list) => JSON.stringify([...list].sort()));
+  if (new Set(lists).size === 1) return (lists[0] ?? '[]').replaceAll(',', ', ');
+  return [
+    'select({',
+    ...NATIVE_TRIPLES.map(
+      (triple) =>
+        `${indent}    "${NATIVE_PLATFORMS[triple]}": ${JSON.stringify([...(values.get(triple) ?? [])].sort()).replaceAll(',', ', ')},`,
+    ),
+    `${indent}})`,
+  ].join('\n');
 }

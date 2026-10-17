@@ -28,6 +28,9 @@ import {
   MEMBERS,
   Metadata,
   memberLabels,
+  NATIVE_TRIPLES,
+  type NativeTriple,
+  perPlatform,
   requireSameResolution,
   runCargo,
   TREE_FORMAT,
@@ -63,19 +66,8 @@ const VENDORED_PATCHES = new Set([
   'packages/wtransport-patch',
 ]);
 
-const TRIPLES = [
-  'aarch64-apple-darwin',
-  'x86_64-apple-darwin',
-  'aarch64-unknown-linux-gnu',
-  'x86_64-unknown-linux-gnu',
-] as const;
-type Triple = (typeof TRIPLES)[number];
-const PLATFORMS: Readonly<Record<Triple, string>> = {
-  'aarch64-apple-darwin': '//tools/bazel/bun:darwin_aarch64',
-  'x86_64-apple-darwin': '//tools/bazel/bun:darwin_x64',
-  'aarch64-unknown-linux-gnu': '//tools/bazel/bun:linux_aarch64',
-  'x86_64-unknown-linux-gnu': '//tools/bazel/bun:linux_x64',
-};
+const TRIPLES = NATIVE_TRIPLES;
+type Triple = NativeTriple;
 
 const Dependency = Schema.Union([
   Schema.String,
@@ -496,20 +488,6 @@ async function resolve(): Promise<Resolution> {
     rmSync(pathScratch, { recursive: true, force: true });
     rmSync(TARGET, { recursive: true, force: true });
   }
-}
-
-/** A list, or a `select` over the platforms when they differ. */
-function perPlatform(values: ReadonlyMap<Triple, readonly string[]>, indent: string): string {
-  const lists = [...values.values()].map((list) => toml([...list].sort()));
-  if (new Set(lists).size === 1) return (lists[0] ?? '[]').replaceAll(',', ', ');
-  return [
-    'select({',
-    ...TRIPLES.map(
-      (triple) =>
-        `${indent}    "${PLATFORMS[triple]}": ${toml([...(values.get(triple) ?? [])].sort()).replaceAll(',', ', ')},`,
-    ),
-    `${indent}})`,
-  ].join('\n');
 }
 
 function cratesBzl(resolution: Resolution): string {

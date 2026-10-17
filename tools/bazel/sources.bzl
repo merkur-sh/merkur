@@ -50,6 +50,7 @@ PACKAGES = [
     "//tools/bazel/release",
     "//tools/bazel/rust",
     "//tools/bazel/sim",
+    "//tools/bazel/vendored",
     "//tools/bazel/wasm",
     "//tools/bazel/wasm/e2e-wasm",
     "//tools/bazel/wasm/graphics-codec-probe",
