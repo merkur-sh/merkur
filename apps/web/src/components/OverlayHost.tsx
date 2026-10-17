@@ -10,6 +10,7 @@ import {
   For,
   onCleanup,
   onSettled,
+  untrack,
 } from 'solid-js';
 
 import type { BoxAccess } from '../api';
@@ -52,6 +53,12 @@ interface PanelShape {
    * so it takes the padding off rather than fighting it from the inside.
    */
   readonly padClass: string;
+  /**
+   * Where the panel sits. Dialogs are centred. The palette hangs from a fixed
+   * line near the top: centred, it moved the field being typed in by half of
+   * whatever the results gained or lost on every keystroke.
+   */
+  readonly anchor: 'center' | 'top';
 }
 
 function panelShape(overlay: Overlay): PanelShape {
@@ -62,20 +69,28 @@ function panelShape(overlay: Overlay): PanelShape {
         describedBy: 'device-action-description',
         widthClass: 'max-w-[390px]',
         padClass: 'p-5',
+        anchor: 'center',
       };
     case 'create-box':
-      return { labelledBy: 'create-box-title', widthClass: 'max-w-[420px]', padClass: 'p-5' };
+      return {
+        labelledBy: 'create-box-title',
+        widthClass: 'max-w-[420px]',
+        padClass: 'p-5',
+        anchor: 'center',
+      };
     case 'link-approval':
       return {
         labelledBy: 'daemon-link-approval-title',
         widthClass: 'max-w-[420px]',
         padClass: 'p-5',
+        anchor: 'center',
       };
     case 'command-palette':
       return {
         labelledBy: 'command-palette-title',
         widthClass: 'max-w-[560px]',
         padClass: 'p-0',
+        anchor: 'top',
       };
     case 'session-ended':
       // A notice, not a form: narrower than the dialogs that carry fields, and
@@ -85,6 +100,7 @@ function panelShape(overlay: Overlay): PanelShape {
         describedBy: 'session-ended-description',
         widthClass: 'max-w-[340px]',
         padClass: 'px-6 pt-7 pb-6',
+        anchor: 'center',
       };
     case 'keyboard-help':
       return {
@@ -92,6 +108,7 @@ function panelShape(overlay: Overlay): PanelShape {
         describedBy: 'keyboard-help-description',
         widthClass: 'max-w-[440px]',
         padClass: 'p-5',
+        anchor: 'center',
       };
   }
 }
@@ -256,8 +273,12 @@ const OverlayHost: Component<Props> = (props) => {
       case 'device-action': {
         // Snapshotted at open, like the dialog used to receive it: a device
         // that leaves the list mid-dialog must not blank the panel out from
-        // under its own exit animation.
-        const device = props.devices.find((candidate) => candidate.id === overlay.deviceId);
+        // under its own exit animation. Read untracked, or the removal the
+        // dialog itself just made re-runs this, unmounts the focused button and
+        // drops focus to the body before the dialog can hand it back.
+        const device = untrack(() =>
+          props.devices.find((candidate) => candidate.id === overlay.deviceId),
+        );
         if (device === undefined) return null;
         return (
           <DeviceActionDialog
@@ -449,7 +470,12 @@ const OverlayLayer: Component<LayerProps> = (props) => {
   return (
     <div
       ref={backdropEl}
-      class="fixed inset-0 grid place-items-center bg-black/62 p-5 backdrop-blur-[3px]"
+      class={[
+        'fixed inset-0 grid bg-black/62 p-5 backdrop-blur-[3px]',
+        props.shape.anchor === 'top'
+          ? 'items-start justify-items-center pt-[min(14vh,120px)]'
+          : 'place-items-center',
+      ]}
       style={{ 'z-index': 100 + props.depth }}
       onPointerDown={(event) => {
         const onBackdrop = event.target === event.currentTarget;

@@ -3,6 +3,7 @@ import { animate } from 'motion';
 import { type Component, createEffect, onSettled, Show } from 'solid-js';
 
 import { warmAccountOpaque } from '../auth/account-opaque';
+import BusyLabel from '../components/BusyLabel';
 import MailedCodeForm from '../components/MailedCodeForm';
 import MerkurOrb from '../components/MerkurOrb';
 import { ariaBool } from '../lib/aria';
@@ -32,8 +33,8 @@ interface Props {
  * line of prose explaining what signing in leads to. The wordmark is the one
  * place the serif appears, and the button is the one control in the app that
  * glows at rest: this is the front door, and the front door gets the light.
- * Enter submits because this is a real form; the submit button disables itself
- * and re-enables only on failure.
+ * Enter submits because this is a real form; the submit button turns busy and
+ * answers no second press until the first has been answered.
  *
  * The orb and the wordmark carry `vt-orb` and `vt-wordmark`, the shared
  * elements of the sign-in entrance and the sign-out exit: once the session
@@ -96,7 +97,15 @@ const AuthScreen: Component<Props> = (props) => {
           <form
             id="auth-form"
             class="mt-[6px] flex w-full flex-col gap-[14px] text-left"
-            onSubmit={props.onSubmit}
+            onSubmit={(event) => {
+              // Busy is not `disabled`, so Enter still submits: the press that
+              // started the request is the only one it answers.
+              if (props.pending) {
+                event.preventDefault();
+                return;
+              }
+              props.onSubmit(event);
+            }}
           >
             {/* Nothing to fill in until the server has said what an account is
             named by; the button alone asks it again after a failed read. */}
@@ -116,7 +125,8 @@ const AuthScreen: Component<Props> = (props) => {
                       autocorrect="off"
                       spellcheck={false}
                       required
-                      disabled={props.pending}
+                      readonly={props.pending}
+                      aria-disabled={ariaBool(props.pending)}
                       class="field"
                     />
                   </label>
@@ -131,7 +141,8 @@ const AuthScreen: Component<Props> = (props) => {
                       autocomplete="current-password"
                       minlength={12}
                       required
-                      disabled={props.pending}
+                      readonly={props.pending}
+                      aria-disabled={ariaBool(props.pending)}
                       class={['field', { 'field-bad': props.error.length > 0 }]}
                     />
                   </label>
@@ -151,21 +162,26 @@ const AuthScreen: Component<Props> = (props) => {
               )}
             </Show>
 
-            {/* Disabled while the request is in flight, and deliberately drawn at
-            its own pressed colour rather than dimmed: the button has not become
-            unavailable, it is busy doing the thing it was pressed for. */}
+            {/* Busy while the request is in flight, and deliberately drawn at its
+            own pressed colour rather than dimmed: the button has not become
+            unavailable, it is busy doing the thing it was pressed for. It keeps
+            focus, so a keyboard user is still on it when the answer lands. */}
             <button
               type="submit"
-              disabled={props.pending}
+              aria-busy={ariaBool(props.pending)}
+              aria-disabled={ariaBool(props.pending)}
               class={[
-                'btn-primary btn-lg mt-1 w-full shadow-glow disabled:cursor-wait',
-                { 'bg-accentdn disabled:opacity-100': props.pending },
+                'btn-primary btn-lg mt-1 w-full shadow-glow',
+                { 'bg-accentdn': props.pending },
               ]}
             >
-              <Show when={props.pending}>
-                <span class="spinner spinner--on-fill h-3.5 w-3.5" />
-              </Show>
-              {props.pending ? 'Continuing…' : 'Continue'}
+              <BusyLabel
+                busy={props.pending}
+                idle="Continue"
+                pending="Continuing…"
+                spinnerClass="h-3.5 w-3.5"
+                onFill
+              />
             </button>
             {/* Continue creates the account when the name is new, so the
             agreement sits under it rather than behind a checkbox. The

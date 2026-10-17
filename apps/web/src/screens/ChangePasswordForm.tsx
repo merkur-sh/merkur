@@ -2,6 +2,7 @@ import { type Component, createSignal, onCleanup, onSettled, Show } from 'solid-
 
 import { warmAccountOpaque } from '../auth/account-opaque';
 import { accountPasswordPolicyError } from '../auth/password-policy';
+import BusyLabel from '../components/BusyLabel';
 import { isApiError } from '../lib/api-error';
 import { ariaBool } from '../lib/aria';
 import { revealDisclosure } from '../lib/motion';
@@ -171,7 +172,8 @@ const PasswordFields: Component<FieldsProps> = (props) => {
           type="password"
           autocomplete="current-password"
           required
-          disabled={props.pending}
+          readonly={props.pending}
+          aria-disabled={ariaBool(props.pending)}
         />
       </label>
       <label class="field-label" for="new-password">
@@ -188,7 +190,8 @@ const PasswordFields: Component<FieldsProps> = (props) => {
           type="password"
           autocomplete="new-password"
           required
-          disabled={props.pending}
+          readonly={props.pending}
+          aria-disabled={ariaBool(props.pending)}
         />
       </label>
       <label class="field-label" for="confirm-password">
@@ -200,18 +203,33 @@ const PasswordFields: Component<FieldsProps> = (props) => {
           type="password"
           autocomplete="new-password"
           required
-          disabled={props.pending}
+          readonly={props.pending}
+          aria-disabled={ariaBool(props.pending)}
         />
       </label>
-      <Show when={props.error}>
-        <p role="alert" class="text-[12.5px] text-badink frame:text-[14px]">
+      {/* The error stands beside the button rather than above it, so a refusal
+          grows the row downward and the button stays where the pointer left it. */}
+      <div class="flex items-start gap-3 pt-1">
+        <button
+          type="submit"
+          class="btn-primary shrink-0"
+          aria-busy={ariaBool(props.pending)}
+          aria-disabled={ariaBool(props.pending)}
+        >
+          <BusyLabel
+            busy={props.pending}
+            idle="Save password"
+            pending="Changing password…"
+            spinnerClass="h-3 w-3"
+            onFill
+          />
+        </button>
+        <p
+          role="alert"
+          class="min-w-0 flex-1 pt-[6px] text-[12.5px] leading-[1.5] text-badink frame:text-[14px]"
+        >
           {props.error}
         </p>
-      </Show>
-      <div class="flex pt-1">
-        <button type="submit" class="btn-primary" disabled={props.pending}>
-          {props.pending ? 'Changing password…' : 'Save password'}
-        </button>
       </div>
     </form>
   );

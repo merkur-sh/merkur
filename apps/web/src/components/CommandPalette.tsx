@@ -1,4 +1,12 @@
-import { type Component, createEffect, createMemo, createSignal, For, Show } from 'solid-js';
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onSettled,
+  Show,
+} from 'solid-js';
 
 import { ariaBool } from '../lib/aria';
 import { fuzzyScore } from '../lib/fuzzy';
@@ -107,6 +115,14 @@ const CommandPalette: Component<Props> = (props) => {
     event.preventDefault();
     move(key === 'j' ? 1 : -1);
   }
+
+  // The list keeps the height it opened at, which is the height of every
+  // command: typing only removes rows, and a list that shrank with them moved
+  // the panel's lower edge on every keystroke. Fewer results leave room below
+  // them instead; more than fit still scroll inside the cap.
+  onSettled(() => {
+    listEl.style.height = `${listEl.offsetHeight}px`;
+  });
 
   // Keep the cursor in view without stealing focus from the query field: the
   // field owns focus for the whole interaction, so the list is scrolled to the

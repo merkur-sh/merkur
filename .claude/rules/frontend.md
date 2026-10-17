@@ -24,5 +24,10 @@ everything latency-sensitive. Browser hot-path modules (the list in
   security and UX implications; exercise them with browser flows when changed.
 - Preserve current UnoCSS/Vite/Solid conventions unless the task is explicitly a larger UI
   change.
+- A control busy with the work it was pressed for is `aria-busy` + `aria-disabled` with a
+  guard in its handler, never `disabled` (that drops focus to the body); its labels share
+  one cell (`BusyLabel`, `.swap-inline`), and a dialog's error takes its description's
+  cell (`MessageSlot`), so nothing moves. Tooltips go through `components/tooltip.ts`, not
+  `title`; the machine row's and `LinkStatus`'s `title`s stay, as e2e reads them.
 - Gate: `bun test apps/web`; worker, prediction, display, or render-path changes also
   need `test:e2e:latency`.

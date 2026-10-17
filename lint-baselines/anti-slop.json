@@ -1223,7 +1223,7 @@
     "no-runtime-typeof": 1
   },
   "apps/web/src/screens/DeviceList.tsx": {
-    "prefer-effect-match": 3,
+    "prefer-effect-match": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/screens/KeyboardMacrosEditor.tsx": {

@@ -468,6 +468,142 @@ export default defineConfig({
         }
 
         /*
+         * Every state a control or a message slot can show, stacked in one grid
+         * cell. The cell is as large as the largest state from the first paint,
+         * so a label turning into a longer one, or an error replacing the line
+         * it stands in for, moves nothing around it. Only the state marked
+         * data-on is seen; the others are hidden from the accessibility tree
+         * as well as the eye, so a control is named by the label it shows.
+         * Visibility trails the fade on the way out, so the leaving state is
+         * still painted while it dissolves.
+         */
+        .swap {
+          display: grid;
+        }
+
+        .swap-inline {
+          display: inline-grid;
+          justify-items: center;
+        }
+
+        .swap > *,
+        .swap-inline > * {
+          grid-area: 1 / 1;
+          transition:
+            opacity 120ms cubic-bezier(0.23, 1, 0.32, 1),
+            transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
+            visibility 0s linear 120ms;
+        }
+
+        .swap-inline > * {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+        }
+
+        .swap > [data-on],
+        .swap-inline > [data-on] {
+          transition:
+            opacity 120ms cubic-bezier(0.23, 1, 0.32, 1),
+            transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
+            visibility 0s;
+        }
+
+        .swap > :not([data-on]),
+        .swap-inline > :not([data-on]) {
+          opacity: 0;
+          visibility: hidden;
+        }
+
+        /* A message rises into its slot by three pixels; a label only fades. */
+        .swap > :not([data-on]) {
+          transform: translateY(3px);
+        }
+
+        /* The tick is drawn along its own stroke each time its state comes on. */
+        .swap-inline > [data-on] .tick-draw path {
+          stroke-dasharray: 1;
+          animation: tick-draw 240ms cubic-bezier(0.23, 1, 0.32, 1) both;
+        }
+
+        @keyframes tick-draw {
+          from {
+            stroke-dashoffset: 1;
+          }
+          to {
+            stroke-dashoffset: 0;
+          }
+        }
+
+        /*
+         * The one tooltip. Fixed and outside the flow, so showing it moves
+         * nothing; placed by script against its trigger.
+         */
+        .tooltip {
+          position: fixed;
+          left: 0;
+          top: 0;
+          z-index: 10000;
+          max-width: min(280px, calc(100vw - 16px));
+          padding: 4px 8px;
+          border: 1px solid ${COLORS.line2};
+          border-radius: 6px;
+          background: ${COLORS.raised};
+          color: ${COLORS.ink};
+          font-size: 11.5px;
+          line-height: 1.4;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 100ms cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+        .tooltip[data-open] {
+          opacity: 1;
+        }
+
+        /* Opened on contact inside a warm group: there, not faded in. */
+        .tooltip[data-instant] {
+          transition: none;
+        }
+
+        /*
+         * The selected tab's underline: one element carried between tabs, so a
+         * switch is a single travel rather than one bar vanishing as another
+         * appears. One pixel wide and scaled to the tab, so it moves on
+         * transform alone.
+         */
+        .tab-ink {
+          position: absolute;
+          left: 0;
+          bottom: -1px;
+          width: 1px;
+          height: 2px;
+          background: ${COLORS.ink};
+          transform-origin: 0 50%;
+          pointer-events: none;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .swap > *,
+          .swap-inline > *,
+          .swap > [data-on],
+          .swap-inline > [data-on],
+          .tooltip {
+            transition: none;
+          }
+
+          .swap > :not([data-on]) {
+            transform: none;
+          }
+
+          .swap-inline > [data-on] .tick-draw path {
+            animation: none;
+          }
+        }
+
+        /*
          * The one entrance and its reverse. Signing in carries the orb and
          * the wordmark from the middle of the sign-in card to their slots in
          * the machine list header as shared elements, through the View
@@ -623,10 +759,9 @@ export default defineConfig({
     // moves, because a tab that grows or fills reads as a button. Ink, not the
     // accent: selection is white on black everywhere in the app, and the
     // accent is kept for the one action on a screen and the live dot.
-    tabbar: 'flex shrink-0 gap-[2px] px-2 border-b border-solid border-line1',
+    tabbar: 'relative flex shrink-0 gap-[2px] px-2 border-b border-solid border-line1',
     tab: 'relative px-[10px] pt-[11px] pb-[10px] bg-transparent border-none text-[13px] frame:text-[15px] font-medium tracking-[-0.008em] text-meta cursor-pointer select-none tap-transparent transition-[color] duration-tint hover:text-body motion-reduce:transition-none focusable',
-    'tab-on':
-      'text-ink after:(content-empty absolute left-2 right-2 -bottom-px h-[2px] rounded-[1px] bg-ink)',
+    'tab-on': 'text-ink',
   },
   rules: [
     // The shared elements of the sign-in entrance and the sign-out exit; see

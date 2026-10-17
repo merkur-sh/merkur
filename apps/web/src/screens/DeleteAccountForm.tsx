@@ -1,6 +1,7 @@
 import { type Component, createSignal, onCleanup, onSettled, Show } from 'solid-js';
 
 import { warmAccountOpaque } from '../auth/account-opaque';
+import BusyLabel from '../components/BusyLabel';
 import { isApiError } from '../lib/api-error';
 import { ariaBool } from '../lib/aria';
 import { revealDisclosure } from '../lib/motion';
@@ -193,18 +194,32 @@ const DeleteFields: Component<FieldsProps> = (props) => {
           type="password"
           autocomplete="current-password"
           required
-          disabled={props.pending}
+          readonly={props.pending}
+          aria-disabled={ariaBool(props.pending)}
         />
       </label>
-      <Show when={props.error}>
-        <p role="alert" class="text-[12.5px] text-badink frame:text-[14px]">
+      {/* Beside the button, as on the password form: a refusal never moves it. */}
+      <div class="flex items-start gap-3 pt-1">
+        <button
+          type="submit"
+          class="btn-primary shrink-0 bg-badink"
+          aria-busy={ariaBool(props.pending)}
+          aria-disabled={ariaBool(props.pending)}
+        >
+          <BusyLabel
+            busy={props.pending}
+            idle="Delete this account"
+            pending="Scheduling…"
+            spinnerClass="h-3 w-3"
+            onFill
+          />
+        </button>
+        <p
+          role="alert"
+          class="min-w-0 flex-1 pt-[6px] text-[12.5px] leading-[1.5] text-badink frame:text-[14px]"
+        >
           {props.error}
         </p>
-      </Show>
-      <div class="flex pt-1">
-        <button type="submit" class="btn-primary bg-badink" disabled={props.pending}>
-          {props.pending ? 'Scheduling…' : 'Delete this account'}
-        </button>
       </div>
     </form>
   );

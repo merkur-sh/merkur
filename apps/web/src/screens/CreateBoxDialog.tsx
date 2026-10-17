@@ -1,7 +1,10 @@
-import { type Component, createSignal, Match, onSettled, Show, Switch } from 'solid-js';
+import { type Component, createSignal, Match, onSettled, Switch } from 'solid-js';
 
 import type { BoxAccess } from '../api';
+import BusyLabel from '../components/BusyLabel';
+import MessageSlot from '../components/MessageSlot';
 import { OVERLAY_AUTOFOCUS_ATTRIBUTE, type OverlayControls } from '../components/overlay-controls';
+import { ariaBool } from '../lib/aria';
 
 /**
  * Creates a box, which becomes its own machine in the device list.
@@ -25,6 +28,12 @@ interface Props {
 
 /** Matches the server route and Incus instance naming. */
 const BOX_NAME_PATTERN = /^[a-z][a-z0-9-]{0,62}$/;
+
+const BOX_NAME_ERROR = 'Use 1-63 characters of a-z, 0-9 or -, starting with a letter.';
+const PASSWORD_REQUIRED_ERROR = 'Enter your Merkur password.';
+const CREATE_FAILED_ERROR =
+  'Could not create the box. The name may be taken, the host at capacity, or the password wrong.';
+const WAITLIST_FAILED_ERROR = 'Could not join the waitlist. Try again.';
 
 const ADJECTIVES = [
   'amber',
@@ -145,7 +154,7 @@ const JoinWaitlist: Component<{
     props.controls.setBusy(false);
     // On success the account's standing changes and the dialog becomes the
     // waitlist notice by itself; only a failure needs saying here.
-    if (!joined) setError('Could not join the waitlist. Try again.');
+    if (!joined) setError(WAITLIST_FAILED_ERROR);
   }
 
   return (
@@ -157,17 +166,15 @@ const JoinWaitlist: Component<{
         >
           New box
         </h2>
-        <p class="text-[12.5px] leading-[1.55] text-meta">
+        <MessageSlot
+          error={error()}
+          reserve={[WAITLIST_FAILED_ERROR]}
+          class="text-[12.5px] leading-[1.55] text-meta"
+        >
           Boxes are sandboxes hosted for you, and they open account by account. Join the waitlist
           and an operator approves this account; nothing beyond the account is recorded.
-        </p>
+        </MessageSlot>
       </div>
-
-      <Show when={error().length > 0}>
-        <p class="alert-bad" role="alert">
-          {error()}
-        </p>
-      </Show>
 
       <div class="flex justify-end gap-2">
         <button
@@ -180,12 +187,19 @@ const JoinWaitlist: Component<{
         </button>
         <button
           type="button"
-          disabled={pending()}
+          aria-busy={ariaBool(pending())}
+          aria-disabled={ariaBool(pending())}
           onClick={() => void join()}
-          class="btn-primary disabled:cursor-wait"
+          class="btn-primary"
           {...{ [OVERLAY_AUTOFOCUS_ATTRIBUTE]: '' }}
         >
-          {pending() ? 'Joining…' : 'Join the waitlist'}
+          <BusyLabel
+            busy={pending()}
+            idle="Join the waitlist"
+            pending="Joining…"
+            spinnerClass="h-3 w-3"
+            onFill
+          />
         </button>
       </div>
     </div>
@@ -221,11 +235,11 @@ const CreateBoxForm: Component<{
     const boxId = nameInputEl.value.trim();
     const password = passwordInputEl.value;
     if (!BOX_NAME_PATTERN.test(boxId)) {
-      setError('Use 1-63 characters of a-z, 0-9 or -, starting with a letter.');
+      setError(BOX_NAME_ERROR);
       return;
     }
     if (password.length === 0) {
-      setError('Enter your Merkur password.');
+      setError(PASSWORD_REQUIRED_ERROR);
       return;
     }
     // Clear the password from the DOM before the await; the approval workflow
@@ -239,9 +253,7 @@ const CreateBoxForm: Component<{
       props.controls.dismiss();
       return;
     }
-    setError(
-      'Could not create the box. The name may be taken, the host at capacity, or the password wrong.',
-    );
+    setError(CREATE_FAILED_ERROR);
     passwordInputEl.focus();
   }
 
@@ -254,21 +266,26 @@ const CreateBoxForm: Component<{
         >
           New box
         </h2>
-        <p class="text-[12.5px] leading-[1.55] text-meta">
+        <MessageSlot
+          error={error()}
+          reserve={[BOX_NAME_ERROR, PASSWORD_REQUIRED_ERROR, CREATE_FAILED_ERROR]}
+          class="text-[12.5px] leading-[1.55] text-meta"
+        >
           A sandbox that joins your machines. It runs its own Merkur, so linking it needs your
           password.
-        </p>
+        </MessageSlot>
       </div>
 
       <label class="field-label">
         <span class="field-cap">Name</span>
         <input
           ref={nameInputEl}
-          disabled={pending()}
+          readonly={pending()}
+          aria-disabled={ariaBool(pending())}
           autocomplete="off"
           autocapitalize="off"
           spellcheck={false}
-          class="field font-mono"
+          class={['field font-mono', { 'field-bad': error() === BOX_NAME_ERROR }]}
           placeholder="quiet-harbor"
         />
       </label>
@@ -277,18 +294,13 @@ const CreateBoxForm: Component<{
         <input
           ref={passwordInputEl}
           type="password"
-          disabled={pending()}
+          readonly={pending()}
+          aria-disabled={ariaBool(pending())}
           autocomplete="current-password"
-          class="field"
+          class={['field', { 'field-bad': error() === PASSWORD_REQUIRED_ERROR }]}
           {...{ [OVERLAY_AUTOFOCUS_ATTRIBUTE]: '' }}
         />
       </label>
-
-      <Show when={error().length > 0}>
-        <p class="alert-bad" role="alert">
-          {error()}
-        </p>
-      </Show>
 
       <div class="flex justify-end gap-2">
         <button
@@ -299,8 +311,19 @@ const CreateBoxForm: Component<{
         >
           Cancel
         </button>
-        <button type="submit" disabled={pending()} class="btn-primary disabled:cursor-wait">
-          {pending() ? 'Creating…' : 'Create box'}
+        <button
+          type="submit"
+          aria-busy={ariaBool(pending())}
+          aria-disabled={ariaBool(pending())}
+          class="btn-primary"
+        >
+          <BusyLabel
+            busy={pending()}
+            idle="Create box"
+            pending="Creating…"
+            spinnerClass="h-3 w-3"
+            onFill
+          />
         </button>
       </div>
     </form>

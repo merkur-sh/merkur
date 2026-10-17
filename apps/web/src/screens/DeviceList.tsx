@@ -8,6 +8,7 @@ import {
   createMemo,
   createSignal,
   For,
+  flush,
   Match,
   onCleanup,
   onSettled,
@@ -22,10 +23,17 @@ import type {
 } from '../app/createDeviceListController';
 import MerkurOrb from '../components/MerkurOrb';
 import StatusGlyph, { type MachineStatus } from '../components/StatusGlyph';
+import { tooltip } from '../components/tooltip';
 import { createKeybinds } from '../hooks/createKeybinds';
 import { ariaBool } from '../lib/aria';
 import { stepIndex } from '../lib/keybinds';
-import { hintMotion, motionDuration, revealDisclosure } from '../lib/motion';
+import {
+  hintMotion,
+  motionDuration,
+  NAV_SPRING,
+  revealDisclosure,
+  springTransition,
+} from '../lib/motion';
 import { createOwnedTimeout } from '../lib/owned-scheduled-callback';
 import { formatExactTime, formatLastSeenCompact } from '../lib/relative-time';
 import { isReleaseVersionBehind } from '../lib/release-version';
@@ -195,6 +203,21 @@ const DeviceList: Component<Props> = (props) => {
     props.operation?.deviceId === device.id ? props.operation.kind : null;
 
   /**
+   * Whether this browser already has something in flight for the row. A busy
+   * row keeps the cursor — its button is `aria-disabled`, never `disabled`,
+   * which would drop focus to the body and the highlight with it, so `j` would
+   * start again from the top — and answers no second press until it is done.
+   */
+  const rowBusy = (device: Device): boolean =>
+    isConnecting(device) || operationFor(device) !== null || startingDeviceId() === device.id;
+
+  function activateRow(device: Device): void {
+    if (rowBusy(device)) return;
+    if (device.status === 'offline') void startDevice(device.id);
+    else props.onSelect(device);
+  }
+
+  /**
    * Which glyph the row's status column carries.
    *
    * Anything this browser has in flight — a connect, a start, a rename, a
@@ -342,11 +365,13 @@ const DeviceList: Component<Props> = (props) => {
   }
 
   // The row cursor *is* DOM focus. Each row contributes its first enabled
-  // control, so an online row hands over its connect button and an offline or
-  // mid-operation row hands over its actions button — `j`/`k` never land on
-  // something that cannot be activated, and `Enter`/`Space` stay native.
+  // control: the row's own button, which connects or starts the machine and is
+  // only ever busy, never disabled, so a row mid-operation keeps its place in
+  // the walk and `Enter`/`Space` stay native. A row on its way out is skipped.
   function rowFocusTargets(): HTMLButtonElement[] {
-    const rows = Array.from(sectionEl.querySelectorAll<HTMLElement>('[data-device-row]'));
+    const rows = Array.from(
+      sectionEl.querySelectorAll<HTMLElement>('[data-device-row]:not([data-departing])'),
+    );
     const targets: HTMLButtonElement[] = [];
     for (const row of rows) {
       const target = row.querySelector<HTMLButtonElement>('button:not(:disabled)');
@@ -400,12 +425,19 @@ const DeviceList: Component<Props> = (props) => {
   // inside one — including an open actions menu, which is still that row.
   const [cursorRowId, setCursorRowId] = createSignal<string | null>(null);
 
+  // The row focus was last in, kept after focus leaves for a dialog: the dialog
+  // hands focus back to that row's actions button when it closes, so a row
+  // that departs meanwhile has to wait for that hand-back to pass it on.
+  let lastFocusRowId: string | null = null;
+
   onSettled(() => {
     const onFocusIn = (event: FocusEvent): void => {
       const target = event.target;
       const row =
         target instanceof Element ? target.closest<HTMLElement>('[data-device-row]') : null;
-      setCursorRowId(row?.dataset.deviceRow ?? null);
+      const id = row?.dataset.deviceRow ?? null;
+      if (id !== null) lastFocusRowId = id;
+      setCursorRowId(id);
     };
     const onFocusOut = (event: FocusEvent): void => {
       // A move within the list is answered by the `focusin` that follows.
@@ -443,7 +475,9 @@ const DeviceList: Component<Props> = (props) => {
   // that grew the list, before `For` has put the rows in the document — the
   // same reason `toggleMenu` defers reaching for its first menu item. And only
   // taken when nothing inside the list already holds focus, so it cannot yank
-  // focus back from a header button the user just tabbed to.
+  // focus back from a header button the user just tabbed to — nor out of a
+  // dialog open over the list, which the list changing under it (the machine
+  // that dialog just removed) used to do, parking the cursor on the first row.
   createEffect(
     () => props.keysActive && props.devices.length > 0,
     (ready) => {
@@ -451,6 +485,7 @@ const DeviceList: Component<Props> = (props) => {
       queueMicrotask(() => {
         const active = document.activeElement;
         if (active instanceof Element && sectionEl.contains(active)) return;
+        if (active?.closest('[aria-modal="true"]') != null) return;
         // Prefer the machine this browser is connected to. Returning from a
         // terminal, that is the row the highlight belongs on and the one
         // `Enter` should reconnect; parking the cursor on the first row would
@@ -482,16 +517,15 @@ const DeviceList: Component<Props> = (props) => {
         keys: 'o',
         label: 'Connect to machine',
         keyOnly: true,
-        run: withCursorDevice((device) => {
-          if (device.status === 'offline') void startDevice(device.id);
-          else props.onSelect(device);
-        }),
+        run: withCursorDevice(activateRow),
       },
       {
         keys: 's',
         label: 'Start machine',
         keyOnly: true,
-        run: withCursorDevice((device) => void startDevice(device.id)),
+        run: withCursorDevice((device) => {
+          if (!rowBusy(device)) void startDevice(device.id);
+        }),
       },
       {
         keys: 'r',
@@ -658,6 +692,152 @@ const DeviceList: Component<Props> = (props) => {
     },
   );
 
+  /**
+   * Machines that have left the list but are still leaving the screen, each
+   * with the slot it held. A removed row used to vanish in one frame and every
+   * row under it jumped up into the hole; now it stays where it was while it
+   * fades, and the rows below slide into its place once it has gone. The list
+   * of record never waits on this: `props.devices` is already without it.
+   */
+  const departing = new Map<string, { readonly device: Device; readonly index: number }>();
+  /** Ids whose exit is under way, so each row leaves once. */
+  const leaving = new Set<string>();
+  const departureMotions = new Set<ReturnType<typeof animate>>();
+  const dialogWatches = new Set<MutationObserver>();
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+    for (const motion of departureMotions) motion.stop();
+    for (const watch of dialogWatches) watch.disconnect();
+  });
+  const [departuresSettled, setDeparturesSettled] = createSignal(0);
+  let shownRows: readonly Device[] = props.devices;
+
+  const rows = createMemo((): readonly Device[] => {
+    departuresSettled();
+    const devices = props.devices;
+    const live = new Set(devices.map((device) => device.id));
+    for (const id of departing.keys()) {
+      if (live.has(id)) departing.delete(id);
+    }
+    // Only a list on screen, past its first cascade, plays a departure; one
+    // that is not showing simply drops the row.
+    if (rowsAnimated && props.keysActive) {
+      shownRows.forEach((device, index) => {
+        if (!live.has(device.id) && !departing.has(device.id)) {
+          departing.set(device.id, { device, index });
+        }
+      });
+    } else {
+      departing.clear();
+    }
+    const merged = [...devices];
+    for (const entry of [...departing.values()].sort((a, b) => a.index - b.index)) {
+      merged.splice(Math.min(entry.index, merged.length), 0, entry.device);
+    }
+    shownRows = merged;
+    return merged;
+  });
+
+  createEffect(rows, () => {
+    for (const id of departing.keys()) {
+      if (leaving.has(id)) continue;
+      const row = sectionEl.querySelector(`[data-device-row="${CSS.escape(id)}"]`);
+      if (!(row instanceof HTMLElement)) continue;
+      leaving.add(id);
+      depart(id, row);
+    }
+  });
+
+  /** Hands the cursor to the nearest row that is staying: below first, else above. */
+  function focusNeighbour(row: HTMLElement): void {
+    const all = Array.from(sectionEl.querySelectorAll<HTMLElement>('[data-device-row]'));
+    const at = all.indexOf(row);
+    const order = [...all.slice(at + 1), ...all.slice(0, Math.max(0, at)).reverse()];
+    for (const candidate of order) {
+      if (candidate.hasAttribute('data-departing')) continue;
+      const target = candidate.querySelector<HTMLButtonElement>('button:not(:disabled)');
+      if (target === null) continue;
+      target.focus({ preventScroll: true });
+      return;
+    }
+  }
+
+  function depart(id: string, row: HTMLElement): void {
+    // Out of the walk and out of reach of the pointer, but not inert: a dialog
+    // that closes hands focus back into this row, and that hand-back has to
+    // land for the cursor to be passed on from here.
+    row.dataset.departing = '';
+    row.style.pointerEvents = 'none';
+    if (row.contains(document.activeElement)) focusNeighbour(row);
+    const exit = animate(
+      row,
+      { opacity: 0, transform: 'translateX(-8px)' },
+      { duration: motionDuration(0.14), ease: OUT_EASE },
+    );
+    hintMotion([row], exit);
+    departureMotions.add(exit);
+    const finished = (): void => {
+      departureMotions.delete(exit);
+      settleDeparture(id, row);
+    };
+    exit.finished.then(finished, finished);
+  }
+
+  /** Calls `then` once no modal surface is left in the document. */
+  function afterDialogs(then: () => void): void {
+    const watch = new MutationObserver(() => {
+      if (document.querySelector('[aria-modal="true"]') !== null) return;
+      watch.disconnect();
+      dialogWatches.delete(watch);
+      then();
+    });
+    dialogWatches.add(watch);
+    watch.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function settleDeparture(id: string, row: HTMLElement): void {
+    if (disposed) return;
+    // The cursor was on this row when a dialog took focus — the remove dialog
+    // itself, usually. It returns focus here as it closes, so the row waits
+    // for that and then passes the cursor on, rather than leaving it nowhere.
+    if (lastFocusRowId === id && document.querySelector('[aria-modal="true"]') !== null) {
+      afterDialogs(() => settleDeparture(id, row));
+      return;
+    }
+    if (
+      row.contains(document.activeElement) ||
+      (lastFocusRowId === id && document.activeElement === document.body)
+    ) {
+      focusNeighbour(row);
+    }
+    leaving.delete(id);
+    if (!departing.delete(id)) return;
+    shownDeviceIds.delete(id);
+    shownRows = shownRows.filter((device) => device.id !== id);
+
+    const survivors = Array.from(
+      sectionEl.querySelectorAll<HTMLElement>('[data-device-row]:not([data-departing])'),
+    );
+    const before = survivors.map((survivor) => survivor.getBoundingClientRect().top);
+    setDeparturesSettled((count) => count + 1);
+    // Apply the removal now, so the rows below can be measured in their new
+    // places and started from their old ones before the frame is painted.
+    flush();
+    survivors.forEach((survivor, index) => {
+      if (!survivor.isConnected) return;
+      const delta = (before[index] ?? 0) - survivor.getBoundingClientRect().top;
+      if (Math.abs(delta) < 0.5) return;
+      const slide = animate(survivor, { y: [delta, 0] }, springTransition(NAV_SPRING));
+      hintMotion([survivor], slide, 'transform');
+      departureMotions.add(slide);
+      const settle = (): void => {
+        departureMotions.delete(slide);
+      };
+      slide.finished.then(settle, settle);
+    });
+  }
+
   return (
     <section ref={sectionEl} id="device-list" class="app-frame">
       <header
@@ -695,10 +875,10 @@ const DeviceList: Component<Props> = (props) => {
             into a settings tab: it is the only action here that ends the
             session. */}
         <button
+          ref={tooltip(() => 'Log out')}
           type="button"
           onClick={props.onLogout}
           aria-label="Log out"
-          title="Log out"
           class="btn-icon h-[30px] w-[30px]"
         >
           <svg
@@ -737,10 +917,10 @@ const DeviceList: Component<Props> = (props) => {
         <div class="flex items-center justify-between pb-1 pl-4 pr-3 pt-[14px]">
           <p class="eyebrow">Machines</p>
           <button
+            ref={tooltip(() => 'New box')}
             type="button"
             onClick={props.onOpenCreateBox}
             aria-label="New box"
-            title="New box"
             class="btn-icon h-[26px] w-[26px] border-transparent"
           >
             <svg
@@ -762,11 +942,13 @@ const DeviceList: Component<Props> = (props) => {
         </Show>
 
         <Switch>
-          <Match when={props.devices.length > 0}>
+          {/* The rows on screen, not the list of record, so the last machine
+              to go still fades before the empty state takes its place. */}
+          <Match when={rows().length > 0}>
             {/* 3px of padding so a row's 2px focus ring is not sheared by the
                 scroller's own edge. */}
             <div class="flex flex-col px-[5px] py-[3px]">
-              <For each={props.devices}>
+              <For each={rows()}>
                 {(device) => (
                   <div
                     data-device-row={device.id}
@@ -791,12 +973,9 @@ const DeviceList: Component<Props> = (props) => {
                       // No focus ring: the row's own highlight is this button's
                       // focus indicator, and drawing both put a rectangle
                       // inside a bar that already says the same thing.
-                      class="grid min-w-0 flex-1 cursor-pointer grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-x-3 border-none bg-transparent px-3 py-[9px] text-left outline-none transition-opacity duration-fast active:opacity-75 motion-reduce:transition-none"
-                      disabled={
-                        isConnecting(device) ||
-                        operationFor(device) !== null ||
-                        startingDeviceId() === device.id
-                      }
+                      class="grid min-w-0 flex-1 cursor-pointer grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-x-3 border-none bg-transparent px-3 py-[9px] text-left outline-none transition-opacity duration-fast active:opacity-75 aria-busy:cursor-wait aria-busy:active:opacity-100 motion-reduce:transition-none"
+                      aria-busy={ariaBool(rowBusy(device))}
+                      aria-disabled={ariaBool(rowBusy(device))}
                       title={
                         device.status === 'offline'
                           ? `Start ${device.name}`
@@ -812,11 +991,7 @@ const DeviceList: Component<Props> = (props) => {
                       // would POST against a box that is already up. Connecting
                       // while the carrier is away still fails with a 503 until it
                       // reattaches — the command is refused, not parked.
-                      onClick={() =>
-                        device.status === 'offline'
-                          ? void startDevice(device.id)
-                          : props.onSelect(device)
-                      }
+                      onClick={() => activateRow(device)}
                     >
                       <StatusGlyph
                         status={rowStatus(device)}
@@ -833,8 +1008,12 @@ const DeviceList: Component<Props> = (props) => {
                           </Show>
                           <Show when={hasUpdateAvailable(device)}>
                             <span
+                              ref={tooltip(
+                                () =>
+                                  `Daemon ${device.version} · server ${props.serverVersion}. Run "merkur update" on the machine.`,
+                                { describe: true },
+                              )}
                               class="chip-accent h-[17px] shrink-0 px-[6px] text-[10px]"
-                              title={`Daemon ${device.version} · server ${props.serverVersion}. Run "merkur update" on the machine.`}
                             >
                               ↑ {props.serverVersion}
                             </span>
@@ -843,12 +1022,14 @@ const DeviceList: Component<Props> = (props) => {
                         <span class="row-meta">{rowSubtitle(device)}</span>
                       </span>
                       <span
+                        ref={tooltip(
+                          () =>
+                            device.lastSeen === null
+                              ? ''
+                              : `Last seen ${formatExactTime(device.lastSeen)}`,
+                          { describe: true },
+                        )}
                         class="row-num"
-                        title={
-                          device.lastSeen === null
-                            ? undefined
-                            : `Last seen ${formatExactTime(device.lastSeen)}`
-                        }
                       >
                         {rowAge(device)}
                       </span>
@@ -1075,18 +1256,34 @@ const AddMachineFooter: Component<{
           {/* Disabled rather than absent until there is something to copy.
             Mounting them on arrival reflowed the whole row a second after the
             screen appeared, which moved the Refresh button out from under a
-            pointer already travelling towards it. */}
+            pointer already travelling towards it. Every outcome shares the
+            label's cell and none is wider than the label, so the tick arriving
+            cannot widen the button and wrap Refresh off a 360px row. */}
           <button
             type="button"
             onClick={props.onCopyCommand}
             disabled={props.linkCommand.length === 0}
-            class="btn-primary btn-sm min-w-[108px]"
+            class="btn-primary btn-sm"
           >
-            {props.copyState === 'command'
-              ? 'Command copied'
-              : props.copyState === 'error'
-                ? 'Selected'
-                : 'Copy command'}
+            <span class="swap-inline">
+              <span data-on={props.copyState === 'idle'}>Copy command</span>
+              <span data-on={props.copyState === 'command'}>
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 16 16"
+                  class="tick-draw h-3 w-3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.9"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path pathLength="1" d="m3 8.5 3 3 7-7" />
+                </svg>
+                Copied
+              </span>
+              <span data-on={props.copyState === 'error'}>Selected</span>
+            </span>
           </button>
           {/* An icon, because four text labels do not fit a phone and this is
             the label worth losing: it is the least-used control here, it has a
@@ -1101,9 +1298,9 @@ const AddMachineFooter: Component<{
             disabled={
               props.linkCommandStatus === 'loading' || props.linkCommandStatus === 'refreshing'
             }
+            ref={tooltip(() => 'Refresh the link command')}
             aria-label="Refresh"
             aria-busy={ariaBool(props.linkCommandStatus === 'refreshing')}
-            title="Refresh the link command"
             class="btn-icon btn-chrome ml-auto h-[26px] w-[26px] shrink-0 disabled:cursor-wait"
           >
             <Show
@@ -1165,9 +1362,7 @@ const AddMachineFooter: Component<{
             >
               <Show
                 when={props.linkCommand.length > 0}
-                fallback={
-                  <span class="block h-3 w-[78%] animate-pulse rounded bg-white/7 motion-reduce:animate-none" />
-                }
+                fallback={<span class="block h-3 w-[78%] rounded bg-white/7" />}
               >
                 {props.linkCommand}
               </Show>
@@ -1209,6 +1404,9 @@ const AddMachineFooter: Component<{
  * the first snapshot moved everything below it. Measuring the bars from the
  * type rather than from constants is what keeps them equal after someone
  * changes the type.
+ *
+ * The bars hold still. A pulse is an idle loop running while nothing is
+ * happening, and it reads as progress the network is not making.
  */
 const DeviceListSkeleton: Component = () => (
   <div role="status" aria-label="Loading machines" class="flex flex-col px-[5px] py-[3px]">
@@ -1220,16 +1418,16 @@ const DeviceListSkeleton: Component = () => (
           aria-hidden="true"
         >
           <span class="grid min-w-0 flex-1 grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-[9px]">
-            <span class="h-[9px] w-[9px] animate-pulse justify-self-center rounded-full bg-white/10 motion-reduce:animate-none" />
+            <span class="h-[9px] w-[9px] justify-self-center rounded-full bg-white/10" />
             <span class="flex min-w-0 flex-col gap-[2px]">
               <span class="relative block h-[1lh] text-[14px] font-medium">
-                <span class="absolute inset-y-[3px] left-0 w-[42%] animate-pulse rounded bg-white/9 motion-reduce:animate-none" />
+                <span class="absolute inset-y-[3px] left-0 w-[42%] rounded bg-white/9" />
               </span>
               <span class="relative block h-[1lh] font-mono text-[11px]">
-                <span class="absolute inset-y-[2px] left-0 w-[64%] animate-pulse rounded bg-white/5 motion-reduce:animate-none" />
+                <span class="absolute inset-y-[2px] left-0 w-[64%] rounded bg-white/5" />
               </span>
             </span>
-            <span class="h-[9px] w-8 animate-pulse rounded bg-white/5 motion-reduce:animate-none" />
+            <span class="h-[9px] w-8 rounded bg-white/5" />
           </span>
           {/* The actions button's footprint, so the bars end where a real row's
               text does rather than running under it. */}

@@ -149,13 +149,13 @@ const SessionSettingsSkeleton: Component = () => (
 
 const SkeletonRow: Component<{ readonly dim?: boolean }> = (props) => (
   <div class="session-row pref-row" style={{ opacity: props.dim === true ? '0.55' : '1' }}>
-    <span class="h-3.5 w-3.5 shrink-0 animate-pulse rounded-full bg-white/10 motion-reduce:animate-none" />
+    <span class="h-3.5 w-3.5 shrink-0 rounded-full bg-white/10" />
     <span class="min-w-0 flex-1">
       <span class="relative block h-[1lh] text-[14px] font-medium">
-        <span class="absolute inset-y-[3px] left-0 w-[46%] animate-pulse rounded bg-white/9 motion-reduce:animate-none" />
+        <span class="absolute inset-y-[3px] left-0 w-[46%] rounded bg-white/9" />
       </span>
       <span class="relative mt-px block h-[1lh] text-[12px]">
-        <span class="absolute inset-y-[2px] left-0 w-[68%] animate-pulse rounded bg-white/5 motion-reduce:animate-none" />
+        <span class="absolute inset-y-[2px] left-0 w-[68%] rounded bg-white/5" />
       </span>
     </span>
   </div>

@@ -159,6 +159,12 @@ ${CSS_VARIABLES}
        * out on release — a button that eases INTO its pressed state feels like it
        * lags the finger. Hover DEEPENS a filled control, so the label's contrast
        * rises as the pointer arrives.
+       *
+       * A control doing the work it was pressed for is `aria-busy` and
+       * `aria-disabled`, never `disabled`: disabling the focused button drops
+       * keyboard focus to the body the moment Enter lands. Busy shows the wait
+       * cursor and takes no press; it does not dim, because the control has not
+       * become unavailable.
        */
       /**
        * The chrome every button wears, and deliberately NOT its box: no display
@@ -178,7 +184,7 @@ ${CSS_VARIABLES}
        * shortcut string cannot tell you which utility won.
        */
       'btn-chrome':
-        'relative shrink-0 rounded-sm border border-solid border-transparent text-[13px] frame:text-[14px] font-medium tracking-[-0.008em] whitespace-nowrap select-none cursor-pointer tap-transparent transition-[background-color,border-color,color,transform] duration-tint active:duration-0 active:scale-[0.97] disabled:(cursor-not-allowed opacity-45) motion-reduce:transition-none focusable',
+        'relative shrink-0 rounded-sm border border-solid border-transparent text-[13px] frame:text-[14px] font-medium tracking-[-0.008em] whitespace-nowrap select-none cursor-pointer tap-transparent transition-[background-color,border-color,color,transform] duration-tint active:duration-0 active:scale-[0.97] disabled:(cursor-not-allowed opacity-45) aria-busy:cursor-wait aria-busy:active:scale-100 motion-reduce:transition-none focusable',
       // `after:` carries 44px of hit area whatever the control renders at. The
       // pseudo-element is inert to layout, so a row of buttons keeps its gaps.
       btn: 'btn-chrome inline-flex items-center justify-center gap-[7px] h-8 px-[13px] after:(content-empty absolute inset-x-0 top-1/2 h-11 -translate-y-1/2)',

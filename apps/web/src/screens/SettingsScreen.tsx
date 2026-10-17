@@ -18,7 +18,7 @@ import { createKeybinds } from '../hooks/createKeybinds';
 import { ariaBool } from '../lib/aria';
 import { focusableWithin } from '../lib/focus-trap';
 import { stepIndex } from '../lib/keybinds';
-import { motionDuration } from '../lib/motion';
+import { motionDuration, NAV_SPRING, springTransition } from '../lib/motion';
 import type { TelemetryWorkerStats } from '../telemetry-worker-protocol';
 import type { TerminalAppearance } from '../terminal/appearance';
 import type { TerminalFontFamilyId } from '../terminal/fonts';
@@ -221,6 +221,42 @@ const SettingsScreen: Component<Props> = (props) => {
     releasePanelTransform();
   });
 
+  /**
+   * The ink line is one element carried from tab to tab, so a switch is a
+   * single travel that can be turned back mid-way, never one line vanishing as
+   * another appears. It runs under the label, 8px in from each edge of the
+   * tab, and follows the tabs when their widths change (a webfont landing, the
+   * frame breakpoint) without animating that.
+   */
+  let tabbarEl!: HTMLDivElement;
+  let inkEl!: HTMLSpanElement;
+  let inkMotion: ReturnType<typeof animate> | null = null;
+  let inkPlaced = false;
+  function placeInk(travel: boolean): void {
+    const tab = tabbarEl.querySelector<HTMLElement>(`[data-settings-tab="${props.tab}"]`);
+    if (tab === null) return;
+    const target = { x: tab.offsetLeft + 8, scaleX: Math.max(0, tab.offsetWidth - 16) };
+    inkMotion?.stop();
+    inkMotion = animate(
+      inkEl,
+      target,
+      travel && inkPlaced ? springTransition(NAV_SPRING) : { duration: 0 },
+    );
+    inkPlaced = true;
+  }
+  createEffect(
+    () => props.tab,
+    () => placeInk(true),
+  );
+  onSettled(() => {
+    const observer = new ResizeObserver(() => placeInk(false));
+    for (const tab of tabbarEl.querySelectorAll('[data-settings-tab]')) observer.observe(tab);
+    return () => {
+      observer.disconnect();
+      inkMotion?.stop();
+    };
+  });
+
   return (
     <section ref={sectionEl} id="settings" class="app-frame lg:max-w-[560px]">
       <header class="flex h-14 shrink-0 items-center gap-2 border-b border-solid border-line1 px-3">
@@ -251,7 +287,7 @@ const SettingsScreen: Component<Props> = (props) => {
         <span class="w-[30px] shrink-0" />
       </header>
 
-      <div class="tabbar" role="tablist" aria-label="Settings sections">
+      <div ref={tabbarEl} class="tabbar" role="tablist" aria-label="Settings sections">
         <For each={props.tabs}>
           {(tab) => (
             <button
@@ -268,6 +304,7 @@ const SettingsScreen: Component<Props> = (props) => {
             </button>
           )}
         </For>
+        <span ref={inkEl} class="tab-ink" aria-hidden="true" />
       </div>
 
       <div

@@ -3,6 +3,7 @@ import { animate } from 'motion';
 import { type Component, createEffect, onSettled, Show } from 'solid-js';
 
 import type { PasswordResetDevice } from '../auth/account-api';
+import BusyLabel from '../components/BusyLabel';
 import MailedCodeForm from '../components/MailedCodeForm';
 import MerkurOrb from '../components/MerkurOrb';
 import { ariaBool } from '../lib/aria';
@@ -171,6 +172,7 @@ const ResetAddressForm: Component<ResetAddressProps> = (props) => {
       class="mt-[6px] flex w-full flex-col gap-[14px] text-left"
       onSubmit={(event) => {
         event.preventDefault();
+        if (props.pending) return;
         props.onSubmit(addressEl.value.trim());
       }}
     >
@@ -189,23 +191,25 @@ const ResetAddressForm: Component<ResetAddressProps> = (props) => {
           autocomplete="username"
           spellcheck={false}
           required
-          disabled={props.pending}
+          readonly={props.pending}
+          aria-disabled={ariaBool(props.pending)}
           value={props.address}
           class={['field', { 'field-bad': props.error.length > 0 }]}
         />
       </label>
       <button
         type="submit"
-        disabled={props.pending}
-        class={[
-          'btn-primary btn-lg mt-1 w-full shadow-glow disabled:cursor-wait',
-          { 'bg-accentdn disabled:opacity-100': props.pending },
-        ]}
+        aria-busy={ariaBool(props.pending)}
+        aria-disabled={ariaBool(props.pending)}
+        class={['btn-primary btn-lg mt-1 w-full shadow-glow', { 'bg-accentdn': props.pending }]}
       >
-        <Show when={props.pending}>
-          <span class="spinner spinner--on-fill h-3.5 w-3.5" />
-        </Show>
-        {props.pending ? 'Sending…' : 'Send code'}
+        <BusyLabel
+          busy={props.pending}
+          idle="Send code"
+          pending="Sending…"
+          spinnerClass="h-3.5 w-3.5"
+          onFill
+        />
       </button>
       <button
         type="button"
@@ -256,7 +260,13 @@ const ResetConfirmForm: Component<ResetConfirmProps> = (props) => {
     <form
       id="auth-reset-confirm-form"
       class="mt-[6px] flex w-full flex-col gap-[14px] text-left"
-      onSubmit={props.onSubmit}
+      onSubmit={(event) => {
+        if (props.pending) {
+          event.preventDefault();
+          return;
+        }
+        props.onSubmit(event);
+      }}
     >
       <p class="text-[13px] leading-[1.55] text-body">
         Set a new password for <span class="text-ink">{props.address}</span>. This cannot be undone:
@@ -298,19 +308,23 @@ const ResetConfirmForm: Component<ResetConfirmProps> = (props) => {
           autocomplete="new-password"
           minlength={12}
           required
-          disabled={props.pending}
+          readonly={props.pending}
+          aria-disabled={ariaBool(props.pending)}
           class={['field', { 'field-bad': props.error.length > 0 }]}
         />
       </label>
       <button
         type="submit"
-        disabled={props.pending}
-        class="btn-danger btn-lg mt-1 w-full disabled:cursor-wait"
+        aria-busy={ariaBool(props.pending)}
+        aria-disabled={ariaBool(props.pending)}
+        class="btn-danger btn-lg mt-1 w-full"
       >
-        <Show when={props.pending}>
-          <span class="spinner h-3.5 w-3.5" />
-        </Show>
-        {props.pending ? 'Resetting…' : 'Reset password'}
+        <BusyLabel
+          busy={props.pending}
+          idle="Reset password"
+          pending="Resetting…"
+          spinnerClass="h-3.5 w-3.5"
+        />
       </button>
       <button
         type="button"

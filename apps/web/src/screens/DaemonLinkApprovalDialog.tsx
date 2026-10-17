@@ -1,7 +1,16 @@
 import { type Component, createSignal, Show } from 'solid-js';
 
 import type { DaemonLinkApprovalOutcome } from '../auth/daemon-link-workflow';
+import BusyLabel from '../components/BusyLabel';
+import MessageSlot from '../components/MessageSlot';
 import { OVERLAY_AUTOFOCUS_ATTRIBUTE, type OverlayControls } from '../components/overlay-controls';
+import { ariaBool } from '../lib/aria';
+
+const CODE_AND_PASSWORD_REQUIRED_ERROR = 'Enter the daemon code and your Merkur password.';
+const PASSWORD_REQUIRED_ERROR = 'Enter your Merkur password.';
+const MACHINE_LIMIT_ERROR = 'You can link up to 3 machines. Remove one to link this machine.';
+const APPROVAL_FAILED_ERROR =
+  'The code or password was invalid, expired, or could not be verified.';
 
 interface Props {
   /**
@@ -52,11 +61,7 @@ const DaemonLinkApprovalDialog: Component<Props> = (props) => {
     const code = linkedCode ?? codeInputEl?.value.trim() ?? '';
     const password = passwordInputEl.value;
     if (code.length === 0 || password.length === 0) {
-      setError(
-        linkedCode === null
-          ? 'Enter the daemon code and your Merkur password.'
-          : 'Enter your Merkur password.',
-      );
+      setError(linkedCode === null ? CODE_AND_PASSWORD_REQUIRED_ERROR : PASSWORD_REQUIRED_ERROR);
       return;
     }
     // Remove secrets from the DOM immediately. The workflow decodes the link
@@ -72,67 +77,72 @@ const DaemonLinkApprovalDialog: Component<Props> = (props) => {
       props.controls.dismiss();
       return;
     }
-    setError(
-      outcome === 'machine_limit_reached'
-        ? 'You can link up to 3 machines. Remove one to link this machine.'
-        : 'The code or password was invalid, expired, or could not be verified.',
-    );
+    setError(outcome === 'machine_limit_reached' ? MACHINE_LIMIT_ERROR : APPROVAL_FAILED_ERROR);
     (codeInputEl ?? passwordInputEl).focus();
   }
 
   return (
     <form class="dialog" onSubmit={(event) => void submit(event)}>
-      <h2
-        id="daemon-link-approval-title"
-        class="text-[16px] font-semibold leading-[1.35] tracking-[-0.018em] text-ink"
-      >
-        Approve a machine
-      </h2>
+      <div class="flex flex-col gap-[5px]">
+        <h2
+          id="daemon-link-approval-title"
+          class="text-[16px] font-semibold leading-[1.35] tracking-[-0.018em] text-ink"
+        >
+          Approve a machine
+        </h2>
+        <MessageSlot
+          error={error()}
+          reserve={[
+            props.code === null ? CODE_AND_PASSWORD_REQUIRED_ERROR : PASSWORD_REQUIRED_ERROR,
+            MACHINE_LIMIT_ERROR,
+            APPROVAL_FAILED_ERROR,
+          ]}
+          class="text-[13px] leading-[1.5] text-body"
+        >
+          <Show
+            when={props.code !== null}
+            fallback="Paste the code the machine printed, then your Merkur password."
+          >
+            <span data-link-machine>
+              {(() => {
+                const current = preview();
+                if (current.k === 'loading') return 'Checking the machine…';
+                if (current.k === 'invalid') return 'This link is invalid or has expired.';
+                return `Link ${current.name} (${current.platform}) to your account? Approve only a machine you just ran the link command on.`;
+              })()}
+            </span>
+          </Show>
+        </MessageSlot>
+      </div>
 
-      <Show
-        when={props.code !== null}
-        fallback={
-          <label class="field-label">
-            <span class="field-cap">Daemon code</span>
-            <input
-              ref={codeInputEl}
-              disabled={pending()}
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck={false}
-              class="field font-mono"
-              placeholder="claim-id.secret"
-              {...{ [OVERLAY_AUTOFOCUS_ATTRIBUTE]: '' }}
-            />
-          </label>
-        }
-      >
-        <p class="text-[13px] leading-[1.5] text-body" data-link-machine>
-          {(() => {
-            const current = preview();
-            if (current.k === 'loading') return 'Checking the machine…';
-            if (current.k === 'invalid') return 'This link is invalid or has expired.';
-            return `Link ${current.name} (${current.platform}) to your account? Approve only a machine you just ran the link command on.`;
-          })()}
-        </p>
+      <Show when={props.code === null}>
+        <label class="field-label">
+          <span class="field-cap">Daemon code</span>
+          <input
+            ref={codeInputEl}
+            readonly={pending()}
+            aria-disabled={ariaBool(pending())}
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck={false}
+            class="field font-mono"
+            placeholder="claim-id.secret"
+            {...{ [OVERLAY_AUTOFOCUS_ATTRIBUTE]: '' }}
+          />
+        </label>
       </Show>
       <label class="field-label">
         <span class="field-cap">Merkur password</span>
         <input
           ref={passwordInputEl}
           type="password"
-          disabled={pending()}
+          readonly={pending()}
+          aria-disabled={ariaBool(pending())}
           autocomplete="current-password"
           class="field"
           {...(props.code === null ? {} : { [OVERLAY_AUTOFOCUS_ATTRIBUTE]: '' })}
         />
       </label>
-
-      <Show when={error().length > 0}>
-        <p class="alert-bad" role="alert">
-          {error()}
-        </p>
-      </Show>
 
       <div class="flex justify-end gap-2">
         <button
@@ -145,10 +155,17 @@ const DaemonLinkApprovalDialog: Component<Props> = (props) => {
         </button>
         <button
           type="submit"
-          disabled={pending()}
-          class="btn-primary min-w-[132px] disabled:cursor-wait"
+          aria-busy={ariaBool(pending())}
+          aria-disabled={ariaBool(pending())}
+          class="btn-primary"
         >
-          {pending() ? 'Verifying…' : 'Approve machine'}
+          <BusyLabel
+            busy={pending()}
+            idle="Approve machine"
+            pending="Verifying…"
+            spinnerClass="h-3 w-3"
+            onFill
+          />
         </button>
       </div>
     </form>

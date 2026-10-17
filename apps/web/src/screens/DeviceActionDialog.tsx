@@ -1,9 +1,16 @@
 import type { Device } from '@merkur/shared';
 import { type Component, createMemo, createSignal, Show } from 'solid-js';
 
+import BusyLabel from '../components/BusyLabel';
+import MessageSlot from '../components/MessageSlot';
 import { OVERLAY_AUTOFOCUS_ATTRIBUTE, type OverlayControls } from '../components/overlay-controls';
+import { ariaBool } from '../lib/aria';
 
 export type DeviceActionKind = 'rename' | 'remove';
+
+const NAME_REQUIRED_ERROR = 'Enter a machine name.';
+const CHANGE_FAILED_ERROR =
+  'That change could not be completed. Check your connection and try again.';
 
 interface Props {
   action: DeviceActionKind;
@@ -47,7 +54,7 @@ const DeviceActionDialog: Component<Props> = (props) => {
 
     const nextName = name().trim();
     if (props.action === 'rename' && nextName.length === 0) {
-      setError('Enter a machine name.');
+      setError(NAME_REQUIRED_ERROR);
       renameInputEl?.focus();
       return;
     }
@@ -61,21 +68,12 @@ const DeviceActionDialog: Component<Props> = (props) => {
     setPending(false);
 
     if (!succeeded) {
-      setError('That change could not be completed. Check your connection and try again.');
+      setError(CHANGE_FAILED_ERROR);
       primaryEl.focus();
       return;
     }
     props.controls.dismiss();
   }
-
-  const primaryLabel = (): string => {
-    if (submitting()) {
-      if (props.action === 'rename') return 'Saving…';
-      return 'Removing…';
-    }
-    if (props.action === 'rename') return 'Save name';
-    return 'Remove machine';
-  };
 
   return (
     <form class="dialog" onSubmit={(event) => void submit(event)}>
@@ -86,9 +84,14 @@ const DeviceActionDialog: Component<Props> = (props) => {
         >
           {title()}
         </h2>
-        <p id="device-action-description" class="text-[12.5px] leading-[1.55] text-meta">
+        <MessageSlot
+          id="device-action-description"
+          error={error()}
+          reserve={[NAME_REQUIRED_ERROR, CHANGE_FAILED_ERROR]}
+          class="text-[12.5px] leading-[1.55] text-meta"
+        >
           {description()}
-        </p>
+        </MessageSlot>
       </div>
 
       <Show when={props.action === 'rename'}>
@@ -98,18 +101,13 @@ const DeviceActionDialog: Component<Props> = (props) => {
             ref={renameInputEl}
             value={name()}
             onInput={(event) => setName(event.currentTarget.value)}
-            disabled={submitting()}
+            readonly={submitting()}
+            aria-disabled={ariaBool(submitting())}
             autocomplete="off"
-            class="field"
+            class={['field', { 'field-bad': error() === NAME_REQUIRED_ERROR }]}
             {...{ [OVERLAY_AUTOFOCUS_ATTRIBUTE]: '' }}
           />
         </label>
-      </Show>
-
-      <Show when={error().length > 0}>
-        <p class="alert-bad" role="alert">
-          {error()}
-        </p>
       </Show>
 
       <div class="flex justify-end gap-2">
@@ -124,20 +122,18 @@ const DeviceActionDialog: Component<Props> = (props) => {
         <button
           ref={primaryEl}
           type="submit"
-          disabled={submitting()}
-          class={[
-            'min-w-[112px] disabled:cursor-wait',
-            {
-              'btn-danger': props.action === 'remove',
-              'btn-primary': props.action !== 'remove',
-            },
-          ]}
+          aria-busy={ariaBool(submitting())}
+          aria-disabled={ariaBool(submitting())}
+          class={props.action === 'remove' ? 'btn-danger' : 'btn-primary'}
           {...(props.action === 'remove' ? { [OVERLAY_AUTOFOCUS_ATTRIBUTE]: '' } : {})}
         >
-          <Show when={submitting()}>
-            <span class="spinner spinner--on-fill h-3 w-3" aria-hidden="true" />
-          </Show>
-          {primaryLabel()}
+          <BusyLabel
+            busy={submitting()}
+            idle={props.action === 'rename' ? 'Save name' : 'Remove machine'}
+            pending={props.action === 'rename' ? 'Saving…' : 'Removing…'}
+            spinnerClass="h-3 w-3"
+            onFill
+          />
         </button>
       </div>
     </form>

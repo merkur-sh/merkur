@@ -29,12 +29,10 @@ const CODE_STEP = {
   signUp: {
     subject: /^(\d{6}) is your Merkur code$/,
     form: '#auth-code-form',
-    submit: 'Create account',
   },
   reset: {
     subject: /^(\d{6}) is your Merkur password reset code$/,
     form: '#auth-reset-code-form',
-    submit: 'Continue',
   },
 } as const;
 type CodeStep = keyof typeof CODE_STEP;
@@ -70,10 +68,9 @@ async function submitCredentials(page: Page, address: string, password: string):
   await form.getByRole('button', { name: 'Continue', exact: true }).click();
 }
 
+/** The sixth digit submits the form, so filling the field is the whole of it. */
 async function submitCode(page: Page, code: string, step: CodeStep = 'signUp'): Promise<void> {
-  const form = page.locator(CODE_STEP[step].form);
-  await form.getByLabel('Code').fill(code);
-  await form.getByRole('button', { name: CODE_STEP[step].submit, exact: true }).click();
+  await page.locator(CODE_STEP[step].form).getByLabel('Code').fill(code);
 }
 
 test.beforeEach(async ({ page }) => {

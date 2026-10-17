@@ -12,6 +12,7 @@ import {
 } from 'solid-js';
 import { ariaBool } from '../lib/aria';
 import { loadE2eWasmModule } from '../lib/e2e-wasm-module';
+import { tooltip } from './tooltip';
 
 const PUBLIC_KEY = process.env.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY ?? '';
 const BUILD_ID = process.env.MERKUR_BUILD_ID ?? '';
@@ -206,12 +207,15 @@ const BuildVerification: Component = () => {
             <button
               type="button"
               class={['btn-icon', { 'text-okink hover:text-okink': copied() }]}
+              ref={tooltip(() =>
+                copied() ? 'Copied' : copyFailed() ? 'Copy failed' : 'Copy verification ID',
+              )}
               onClick={copy}
               onMouseLeave={settleCopy}
               onBlur={settleCopy}
-              disabled={copying()}
+              aria-busy={ariaBool(copying())}
+              aria-disabled={ariaBool(copying())}
               aria-label="Copy build verification ID"
-              title={copied() ? 'Copied' : copyFailed() ? 'Copy failed' : 'Copy verification ID'}
             >
               <Show
                 when={copied()}
@@ -273,15 +277,15 @@ const BuildVerificationSkeleton: Component = () => (
   <div class="pref-row" aria-hidden="true">
     <span class="min-w-0 flex-1">
       <span class="relative block h-[1lh] text-[10px] frame:text-[12px]">
-        <span class="absolute inset-y-[3px] left-0 w-[92px] animate-pulse rounded bg-white/5 motion-reduce:animate-none" />
+        <span class="absolute inset-y-[3px] left-0 w-[92px] rounded bg-white/5" />
       </span>
       <span class="relative mt-[3px] block h-[1lh] text-[12.5px] frame:text-[14px]">
-        <span class="absolute inset-y-[3px] left-0 w-[78%] animate-pulse rounded bg-white/9 motion-reduce:animate-none" />
+        <span class="absolute inset-y-[3px] left-0 w-[78%] rounded bg-white/9" />
       </span>
       <span class="relative mt-px block h-[1lh] text-[11px] frame:text-[12px]">
-        <span class="absolute inset-y-[3px] left-0 w-[112px] animate-pulse rounded bg-white/5 motion-reduce:animate-none" />
+        <span class="absolute inset-y-[3px] left-0 w-[112px] rounded bg-white/5" />
       </span>
     </span>
-    <span class="h-8 w-8 shrink-0 animate-pulse rounded-sm bg-white/5 motion-reduce:animate-none" />
+    <span class="h-8 w-8 shrink-0 rounded-sm bg-white/5" />
   </div>
 );
