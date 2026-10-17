@@ -17,6 +17,6 @@ base64 = "0.23"
 anyhow = "1"
 
 # Standalone: this empty [workspace] table detaches the crate from the parent
-# Merkur cargo workspace so `cargo check` here is isolated and
-# `bun run rust:check` at the repo root never sees this device harness crate.
+# Merkur cargo workspace so `cargo check` here is isolated; it has no BUILD.bazel,
+# so the repository's Bazel build never sees this device harness crate.
 [workspace]

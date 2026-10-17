@@ -13,6 +13,7 @@ targets. Cargo's manifests and lockfile stay the source of the Rust dependency g
 | `bazel test //apps/web:test` | One package's Bun tests. Every package with tests has a `test` target; the Rust crates add `unit`, integration and `doc` targets. |
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | One filtered libtest run. |
 | `bazel test //:static_gates` | The nine static gates, each also a `package.json` script (`bun run check:types`). |
+| `bun run rust:lint` | Clippy as a Bazel aspect over every first-party Rust target, held to its baseline. It reads the build's diagnostics rather than being a test, so CI runs it beside `bazel test //...`. |
 | `bun run gates` | What the working tree's changes earn: `bazel test //...` plus the gates and suites outside Bazel (`scripts/gate-policy.ts`). |
 | `bun run build:wasm` | `bazel run //tools/bazel/wasm:sync`: the WebAssembly packages into the `pkg/` directories Vite and Bun import. |
 | `bun run build:native` | `bazel run --config=release //tools/bazel/native:sync`: the dataplane, image worker and terminal client into apps/daemon/dist, the edge and the harnesses' network peers into apps/edge/dist. |
