@@ -1,0 +1,20 @@
+load("//tools/bazel/bun:bun.bzl", "bun_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+# Trains the profile-guided terminal (`//tools/bazel/wasm/term-wasm:profile`).
+bun_binary(
+    name = "term_wasm_pgo",
+    data = [
+        "term-wasm-ingress-fixture.ts",
+        "//packages/shared:src/binary.ts",
+        "//packages/shared:src/display-stream.ts",
+    ],
+    entry = "term-wasm-pgo.ts",
+)
+
+# Rewrites wasm-bindgen's terminal glue to the current initializer contract.
+bun_binary(
+    name = "term_wasm_current_glue",
+    entry = "term-wasm-current-glue.ts",
+)

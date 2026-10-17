@@ -118,9 +118,9 @@ at the identical digest. An unavailable selected image fails the build.
 Bun is installed from its versioned GitHub release archives, checked against pinned SHA-256
 digests for Linux x64 baseline and arm64.
 The Rust builders use the official pinned Debian 12 Rust image, without executing a downloaded
-installer; `wasm-pack` is pinned to 0.15.0 and the wasm-bindgen CLI to the version `Cargo.lock`
-resolves, both built from source with locked dependencies. Review and refresh these
-pins when publishing security updates. Digest pinning does not automatically update old images,
+installer. The WebAssembly packages the images embed arrive built: the release job builds them
+with Bazel, whose wasm-bindgen CLI is the version `Cargo.lock` resolves and whose binaryen is
+pinned by checksum. Review and refresh these pins when publishing security updates. Digest pinning does not automatically update old images,
 and APT packages still come from Debian's authenticated repositories at build time. Rebuild and
 scan the final images when OS advisories require updates; application signatures do not cover
 the base OS, shared libraries, or entrypoint.

@@ -1,6 +1,6 @@
 #![deny(clippy::debug_assert_with_mut_call)]
 // The instrumented training build's profile runtime: an instrumented cdylib
-// cannot link without it (see `packages/term-wasm-pgo`).
+// cannot link without it (`//tools/bazel/wasm/term-wasm:profile`).
 #[cfg(all(feature = "pgo-train", target_arch = "wasm32"))]
 extern crate minicov as _;
 pub mod client_grid;

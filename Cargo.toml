@@ -8,6 +8,7 @@ members = [
   "packages/merkur-stun-protocol",
   "packages/merkur-wire",
   "packages/alacritty-terminal-patch",
+  "packages/fontdue-patch",
   "packages/e2e-wasm",
   "packages/graphics-wasm",
   "packages/graphics-codec-probe",
@@ -23,11 +24,9 @@ members = [
   "packages/merkur-image-worker",
   "packages/merkur-identity-seal",
   "packages/term-wasm",
-  "packages/term-wasm-pgo",
   "packages/vte-patch"
 ]
 exclude = [
-  "packages/fontdue-patch",
   "packages/quinn-patch",
   "packages/quinn-proto-patch",
   "packages/wtransport-patch"

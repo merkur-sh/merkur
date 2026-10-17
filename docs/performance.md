@@ -1557,9 +1557,8 @@ the Criterion reports produced by `profile:full`. For long-lived regressions, co
 and tail metrics across `profile:soak`, then run a sustained real transport session because
 repeated process launches cannot detect every in-process leak.
 
-Rust and terminal WASM builds are pinned by `rust-toolchain.toml`. The WASM build ignores an
-ambient `RUSTUP_TOOLCHAIN` and uses that exact release unless
-`MERKUR_RUST_TOOLCHAIN` is deliberately set for a migration experiment.
+Rust and terminal WASM builds use the release `rust-toolchain.toml` names, which Bazel downloads
+by checksum (`MODULE.bazel`); no ambient toolchain reaches them.
 
 ### Adaptive scalar display recovery
 

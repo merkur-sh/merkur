@@ -1,0 +1,160 @@
+diff -ru a/cargo/private/cargo_build_script.bzl b/cargo/private/cargo_build_script.bzl
+--- a/cargo/private/cargo_build_script.bzl
++++ b/cargo/private/cargo_build_script.bzl
+@@ -11,6 +11,7 @@
+ # buildifier: disable=bzl-visibility
+ load(
+     "//rust/private:rustc.bzl",
++    "ExtraRustcFlagsInfo",
+     "get_compilation_mode_opts",
+     "get_linker_and_args",
+ )
+@@ -23,6 +24,7 @@
+     "expand_dict_value_locations",
+     "find_cc_toolchain",
+     "find_toolchain",
++    "is_exec_configuration",
+     _name_to_crate_name = "name_to_crate_name",
+ )
+ 
+@@ -563,12 +565,20 @@
+ 
+     # Inform build scripts of rustc flags
+     # https://github.com/rust-lang/cargo/issues/9600
++    # As Cargo does, the flags every crate of this configuration compiles with reach its build
++    # scripts too: cc-rs turns `-Cprofile-generate` and `-Cprofile-use` into clang's, so C a
++    # build script compiles is instrumented and optimized with the Rust it links into.
++    configuration_rustc_flags = []
++    profile_files = []
++    if not is_exec_configuration(ctx):
++        configuration_rustc_flags = ctx.attr._extra_rustc_flags[ExtraRustcFlagsInfo].extra_rustc_flags
++        profile_files = ctx.files._profile_use
+     env["CARGO_ENCODED_RUSTFLAGS"] = "\\x1f".join([
+         # Allow build scripts to locate the generated sysroot
+         "--sysroot=${{pwd}}/{}".format(toolchain.sysroot),
+         # Keep build scripts from baking the exec root into their output
+         "--remap-path-prefix=${pwd}=.",
+-    ] + ctx.attr.rustc_flags)
++    ] + configuration_rustc_flags + ["-Cprofile-use=${pwd}/" + f.path for f in profile_files] + ctx.attr.rustc_flags)
+ 
+     for f in ctx.attr.crate_features:
+         env["CARGO_FEATURE_" + f.upper().replace("-", "_")] = "1"
+@@ -652,7 +662,7 @@
+         extra_output.append(debug_stderr)
+         output_groups["streams"] = depset([debug_stdout, debug_stderr])
+ 
+-    build_script_inputs = []
++    build_script_inputs = list(profile_files)
+ 
+     build_script_inputs.extend(ctx.files.build_script_env_files)
+     args.add_all(ctx.files.build_script_env_files, format_each = "--input_dep_env_path=%s")
+@@ -909,6 +919,9 @@
+         "_experimental_symlink_execroot": attr.label(
+             default = Label("//cargo/settings:experimental_symlink_execroot"),
+         ),
++        "_extra_rustc_flags": attr.label(
++            default = Label("//rust/settings:extra_rustc_flags"),
++        ),
+         "_fallback_ar": attr.label(
+             cfg = "exec",
+             executable = True,
+@@ -929,6 +942,10 @@
+         ),
+         "_out_dir_volatile_file_basenames": attr.label(
+             default = Label("//cargo/settings:out_dir_volatile_file_basenames"),
++        ),
++        "_profile_use": attr.label(
++            default = Label("//rust/settings:profile_use"),
++            allow_files = True,
+         ),
+     },
+     fragments = ["cpp"],
+diff -ru a/rust/private/rust.bzl b/rust/private/rust.bzl
+--- a/rust/private/rust.bzl
++++ b/rust/private/rust.bzl
+@@ -714,6 +714,10 @@
+     "_per_crate_rustc_flag": attr.label(
+         default = Label("//rust/settings:per_crate_rustc_flag"),
+     ),
++    "_profile_use": attr.label(
++        default = Label("//rust/settings:profile_use"),
++        allow_files = True,
++    ),
+     "_process_wrapper": attr.label(
+         doc = "A process wrapper for running rustc on all platforms.",
+         default = Label("//util/process_wrapper"),
+diff -ru a/rust/private/rustc.bzl b/rust/private/rustc.bzl
+--- a/rust/private/rustc.bzl
++++ b/rust/private/rustc.bzl
+@@ -862,9 +862,15 @@
+     if build_env_file:
+         build_env_files = list(build_env_files)
+         build_env_files.append(build_env_file)
+-    compile_inputs = depset(build_env_files + lint_files, transitive = [build_script_compile_inputs, compile_inputs])
++    compile_inputs = depset(build_env_files + lint_files + _profile_use_files(ctx), transitive = [build_script_compile_inputs, compile_inputs])
+     return compile_inputs, out_dir, build_env_files, build_flags_files, linkstamp_outs, ambiguous_libs
+ 
++def _profile_use_files(ctx):
++    """The profile `//rust/settings:profile_use` names, for a non-exec compilation."""
++    if not hasattr(ctx.attr, "_profile_use") or is_exec_configuration(ctx):
++        return []
++    return ctx.files._profile_use
++
+ def _will_emit_object_file(emit):
+     for e in emit:
+         if type(e) in ["tuple", "list"] and len(e) == 2:
+@@ -1621,6 +1627,8 @@
+     if hasattr(ctx.attr, "_per_crate_rustc_flag") and not is_exec:
+         per_crate_rustc_flags = ctx.attr._per_crate_rustc_flag[PerCrateRustcFlagsInfo].per_crate_rustc_flags
+         flags.extend(_collect_per_crate_rustc_flags(ctx, crate_root, per_crate_rustc_flags))
++
++    flags.extend(["-Cprofile-use=" + profile.path for profile in _profile_use_files(ctx)])
+ 
+     if hasattr(ctx.attr, "_extra_exec_rustc_flags") and is_exec:
+         flags.extend(ctx.attr._extra_exec_rustc_flags[ExtraExecRustcFlagsInfo].extra_exec_rustc_flags)
+diff -ru a/rust/settings/BUILD.bazel b/rust/settings/BUILD.bazel
+--- a/rust/settings/BUILD.bazel
++++ b/rust/settings/BUILD.bazel
+@@ -31,6 +31,7 @@
+     "lto",
+     "no_std",
+     "per_crate_rustc_flag",
++    "profile_use",
+     "pipelined_compilation",
+     "rename_first_party_crates",
+     "require_explicit_unstable_features",
+@@ -121,6 +122,8 @@
+ no_std()
+ 
+ per_crate_rustc_flag()
++
++profile_use()
+ 
+ pipelined_compilation()
+ 
+diff -ru a/rust/settings/settings.bzl b/rust/settings/settings.bzl
+--- a/rust/settings/settings.bzl
++++ b/rust/settings/settings.bzl
+@@ -520,6 +520,22 @@
+     )
+ 
+ # buildifier: disable=unnamed-macro
++def profile_use():
++    """The LLVM profile every non-exec rustc compilation optimizes with: `-Cprofile-use`.
++
++    A label flag that names the merged `.profdata`; its default names no file, and no flag is
++    passed. Set it through a transition to build a whole graph profile-guided, as Cargo does
++    with `-Cprofile-use` in its rustflags.
++    """
++    native.filegroup(
++        name = "no_profile",
++        visibility = ["//visibility:public"],
++    )
++    native.label_flag(
++        name = "profile_use",
++        build_setting_default = ":no_profile",
++    )
++
+ def per_crate_rustc_flag():
+     """Add additional rustc_flag to matching crates from the command line with `--@rules_rust//rust/settings:per_crate_rustc_flag`.
+ 

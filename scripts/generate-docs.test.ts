@@ -251,7 +251,7 @@ const GATE_RULES: readonly Rule[] = [
     name: 'term-wasm',
     globs: ['packages/term-wasm/**'],
     effects: {
-      builds: ['build:wasm', 'sync:wasm'],
+      builds: ['build:wasm'],
       rustLint: true,
       crates: ['term-wasm'],
       bunTestDir: 'apps/web',
@@ -300,7 +300,7 @@ test('the Also run cell follows the plan phases: builds, Rust lane, bun lane, de
   expect(cells).toEqual([
     '`check:docs` only',
     'by hand: `test:e2e:latency`',
-    'first `build:wasm`, then `sync:wasm`; `rust:lint`; `bazel test //packages/term-wasm/...`; isolated source tests under `apps/web`',
+    'first `build:wasm`; `rust:lint`; `bazel test //packages/term-wasm/...`; isolated source tests under `apps/web`',
     '`rust:lint`; `bazel test //apps/daemon/dataplane/...` filtered to the changed modules',
     '`rust:lint`; `bazel test //apps/stun/...`; isolated `apps/server/src/services/stun-ticket-service.test.ts`; then, by hand: `test:natlab`',
     '`bazel test //apps/daemon/dataplane:unit` filtered to `real_helper::`; then, by hand: `test:graphics:long`',

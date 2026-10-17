@@ -8,6 +8,9 @@ on:
       scope:
         type: string
         required: true
+    secrets:
+      BUILDBUDDY_API_KEY:
+        required: false
 permissions:
   contents: read
 jobs:
@@ -24,16 +27,18 @@ jobs:
         run: test "$KIND" = wasm || test "$KIND" = native
       - uses: ./.github/actions/setup-merkur
         with:
-          wasm-toolchain: ${{ inputs.kind == 'wasm' }}
+          rust: ${{ inputs.kind == 'native' }}
           cache-key: ci-${{ inputs.kind }}
-      - name: Build and attest WASM
+          bazel: ${{ inputs.kind == 'wasm' }}
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - name: Build WASM
         if: inputs.kind == 'wasm'
         run: |
           bun run build:wasm
-          bun run sync:wasm
-          bun run build:graphics-codec-probe
-          bun run scripts/check-wasm-artifacts.ts
-          # PGO already built zstd-fixture; retain it for source tests too.
+          # The source tests' zstd fixture, which they find at Cargo's release path.
+          bazel build --config=release //packages/zstd-fixture
+          mkdir -p target/rust/release
+          cp "$(bazel info --config=release execution_root)/$(bazel cquery --config=release --output=files //packages/zstd-fixture)" target/rust/release/zstd-fixture
           python3 scripts/ci/wasm_artifacts.py pack "$RUNNER_TEMP/wasm.tar"
       - name: Build and attest browser executables
         if: inputs.kind == 'native'

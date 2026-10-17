@@ -22,8 +22,6 @@ export function webArtifactInput(root: string, forceEdge: boolean): string {
     'bunfig.toml',
     'tsconfig.base.json',
     'scripts/e2e-web-artifacts.ts',
-    'scripts/sync-term-wasm.ts',
-    'scripts/term-wasm-provenance.ts',
     ...treeFiles(root, 'apps/web', true),
     ...treeFiles(root, 'packages', true),
     ...readdirSync(path.join(root, 'apps/server'))
@@ -93,7 +91,7 @@ export async function prepareE2EWebArtifact(
   mkdirSync(artifactRoot, { recursive: true });
   const staging = mkdtempSync(path.join(artifactRoot, '.build-'));
   const sync = await runVerificationCommand(
-    ['bun', 'run', 'sync:wasm'],
+    ['bun', 'run', 'build:wasm'],
     path.join(staging, 'sync-wasm.log'),
     process.env,
     signal,

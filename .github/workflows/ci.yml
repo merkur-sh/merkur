@@ -45,6 +45,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.source == 'true'
     uses: ./.github/workflows/ci-artifacts.yml
+    secrets: inherit
     with:
       kind: wasm
       scope: required

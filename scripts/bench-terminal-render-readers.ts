@@ -9,7 +9,7 @@ const SAMPLES = perfEnvInteger('BENCH_SAMPLES', 40);
 const WARMUPS = readNonNegativeInteger('BENCH_WARMUPS', 5);
 const ITERATIONS = perfEnvInteger('BENCH_ITERATIONS', 100_000);
 
-await runOrThrow(['bun', 'run', 'sync:wasm']);
+await runOrThrow(['bun', 'run', 'build:wasm']);
 const { createWasmTerminalHandle } = await import('../apps/web/src/wasm-loader');
 const fontUrl = new URL(DEFAULT_TERMINAL_FONT.regular, 'https://merkur.local');
 const fontBytes = await readFile(path.join(ROOT, 'apps', 'web', 'public', fontUrl.pathname));

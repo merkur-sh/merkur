@@ -1,0 +1,68 @@
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load("@term_wasm_crates//:defs.bzl", "aliases", "all_crate_deps")
+load(":crates.bzl", "MODULE_DEPS", "module_crates")
+load("//tools/bazel/wasm:defs.bzl", "wasm_module", "wasm_package", "wasm_profile")
+
+package(default_visibility = ["//visibility:public"])
+
+# The module's own workspace (`scripts/wasm-artifact-manifests.ts`), which its hub resolves.
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+] + glob(["crates/*/Cargo.toml"]))
+
+module_crates()
+
+# The terminal the browser runs, its crates resolved for it alone. The training build compiles its training entry points
+# and links minicov's profile runtime.
+rust_shared_library(
+    name = "term_wasm",
+    srcs = ["//packages/term-wasm:srcs"],
+    aliases = aliases(),
+    compile_data = ["//apps/web:fonts"],
+    crate_features = select({
+        "//tools/bazel/wasm:instrumented_build": ["pgo-train"],
+        "//conditions:default": [],
+    }),
+    crate_root = "//packages/term-wasm:src/lib.rs",
+    edition = "2024",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    target_compatible_with = ["@platforms//cpu:wasm32"],
+    version = "0.1.0",
+    deps = MODULE_DEPS + all_crate_deps(normal = True),
+)
+
+wasm_module(
+    name = "instrumented",
+    crate = ":term_wasm",
+    instrumented = True,
+    simd128 = True,
+)
+
+# Measured against the plain build, alternated on an idle machine: compressed staging of
+# terminal text -7.7% to -15.0% and of random content -3.3% to -7.6%, and the apply path -4% to
+# -9%.
+wasm_profile(
+    name = "profile",
+    font = "//apps/web:public/fonts/JetBrainsMonoNF-Regular.ttf",
+    instrumented = ":instrumented",
+    trainer = "//scripts:term_wasm_pgo",
+    zstd_fixture = "//packages/zstd-fixture",
+)
+
+wasm_module(
+    name = "module",
+    crate = ":term_wasm",
+    profile = ":profile",
+    simd128 = True,
+)
+
+wasm_package(
+    name = "pkg",
+    glue = "//scripts:term_wasm_current_glue",
+    license = "AGPL-3.0-only",
+    module = ":module",
+    out_name = "term_wasm",
+    package_name = "term-wasm",
+    version = "0.1.0",
+)

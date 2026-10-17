@@ -28,7 +28,6 @@
   not the release.
 - Another session can commit or unstage in the shared checkout mid-release. Re-read
   `git log` and `git status` immediately before tagging, not the opening snapshot.
-- A local `check:types` error naming a `term-wasm` export, or a WASM provenance failure, is the
-  gitignored `pkg/` from an earlier build, never a deployment signal: `bun run build:wasm &&
-  bun run sync:wasm`.
+- A local `check:types` error naming a `term-wasm` export is the gitignored `pkg/` from an
+  earlier build, never a deployment signal: `bun run build:wasm`.
 - Review [CI operations](../../../../docs/ci.md) for setup, recovery and the retained journal.

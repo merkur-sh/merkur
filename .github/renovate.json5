@@ -52,16 +52,27 @@
   cargo: {
     // The vendored crates keep upstream's manifests; their dependencies resolve in the
     // workspace lock, which the lock refresh updates.
-    ignorePaths: ['**/node_modules/**', 'spikes/**', 'packages/*-patch/**'],
+    ignorePaths: ['**/node_modules/**', 'spikes/**', 'packages/*-patch/**', 'tools/bazel/wasm/**'],
     // The simulator's lock is seeded from the production lock and the fuzz workspace resolves
     // the same manifests, so both follow every change to either. The workspace lock is listed
     // because `packages/term-wasm` has a lock beside its manifest, which Renovate takes for
     // that member's lock while Cargo writes the workspace's. The tasks run once per update
     // rather than once per branch: only an update carries the `constraints` above to the
-    // tools they install, and a branch-level run would take the newest Bun and Rust.
+    // tools they install, and a branch-level run would take the newest Bun and Rust. The
+    // WebAssembly modules' workspaces, generated from the manifests and pruned from the workspace
+    // lock, follow too.
     postUpgradeTasks: {
-      commands: ['bun run test:sim:update-lock', 'bun run test:fuzz:update-lock'],
-      fileFilters: ['Cargo.lock', 'tools/sim/Cargo.lock', 'tools/bolero/Cargo.lock'],
+      commands: [
+        'bun run test:sim:update-lock',
+        'bun run test:fuzz:update-lock',
+        'bun run build:wasm-workspaces',
+      ],
+      fileFilters: [
+        'Cargo.lock',
+        'tools/sim/Cargo.lock',
+        'tools/bolero/Cargo.lock',
+        'tools/bazel/wasm/**',
+      ],
       installTools: { bun: {}, rust: {} },
     },
   },
@@ -108,17 +119,6 @@
       managerFilePatterns: ['/^\\.github/workflows/dependency-audit\\.yml$/'],
       matchStrings: ['-vet-(?<currentValue>\\d+\\.\\d+\\.\\d+)-'],
       depNameTemplate: 'cargo-vet',
-      datasourceTemplate: 'crate',
-    },
-    {
-      customType: 'regex',
-      description: 'wasm-pack and its cache key',
-      managerFilePatterns: ['/^\\.github/actions/setup-merkur/action\\.yml$/'],
-      matchStrings: [
-        'cargo install wasm-pack --version (?<currentValue>\\d+\\.\\d+\\.\\d+)',
-        'key: wasm-pack-(?<currentValue>\\d+\\.\\d+\\.\\d+)-',
-      ],
-      depNameTemplate: 'wasm-pack',
       datasourceTemplate: 'crate',
     },
     {

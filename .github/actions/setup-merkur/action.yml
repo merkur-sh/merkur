@@ -13,9 +13,6 @@ inputs:
   browser:
     description: Install Chromium, Redis and the Linux virtual display
     default: 'false'
-  wasm-toolchain:
-    description: Install the pinned WASM build tools and matching LLVM
-    default: 'false'
   bazel:
     description: Install Bazel at `.bazelversion` and connect it to the shared remote cache
     default: 'false'
@@ -75,19 +72,6 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev
-    - if: runner.os == 'Linux' && inputs.wasm-toolchain == 'true'
-      shell: bash
-      # The profile-guided term-wasm build needs the clang of the pinned Rust's
-      # LLVM (23); Ubuntu's own is older. apt.llvm.org only under its pinned key.
-      run: |
-        curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o "$RUNNER_TEMP/llvm.key"
-        gpg --show-keys --with-colons "$RUNNER_TEMP/llvm.key" | grep -qx 'fpr:::::::::6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:'
-        sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg "$RUNNER_TEMP/llvm.key"
-        codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
-        echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-23 main" | sudo tee /etc/apt/sources.list.d/llvm-23.list
-        sudo apt-get update
-        sudo apt-get install -y clang-23 lld-23 llvm-23
-        echo /usr/lib/llvm-23/bin >> "$GITHUB_PATH"
     - shell: bash
       run: pnpm install --frozen-lockfile
     - if: inputs.browser == 'true'
@@ -96,24 +80,3 @@ runs:
     - if: runner.os == 'Linux' && inputs.browser == 'true'
       shell: bash
       run: sudo apt-get install -y --no-install-recommends redis-server libvulkan1 mesa-vulkan-drivers xvfb xauth
-    - name: Cache pinned wasm-pack executable
-      if: inputs.wasm-toolchain == 'true'
-      id: wasm-pack
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/.cargo/bin/wasm-pack
-        key: wasm-pack-0.15.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml') }}
-    - if: inputs.wasm-toolchain == 'true' && steps.wasm-pack.outputs.cache-hit != 'true'
-      shell: bash
-      run: cargo install wasm-pack --version 0.15.0 --locked
-    # scripts/wasm-toolchain.ts compiles every wasm32 crate with Homebrew LLVM on
-    # macOS (Apple clang has no WebAssembly backend).
-    - if: inputs.wasm-toolchain == 'true' && runner.os == 'macOS'
-      shell: bash
-      run: brew install llvm
-    - name: Cache lockfile-pinned wasm-bindgen tools
-      if: inputs.wasm-toolchain == 'true'
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: .tools/wasm-bindgen
-        key: wasm-bindgen-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}

@@ -27,10 +27,9 @@
     "vite": "^8.2.2"
   },
   "scripts": {
-    "sync:term-wasm": "bun run ../../scripts/sync-term-wasm.ts",
-    "predev": "bun run sync:term-wasm",
+    "predev": "bazel run //tools/bazel/wasm:sync",
     "dev": "vite --host 0.0.0.0 --strictPort",
-    "prebuild": "bun run sync:term-wasm",
+    "prebuild": "bazel run //tools/bazel/wasm:sync",
     "build": "vite build",
     "build:watch": "vite build --watch"
   }

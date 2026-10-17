@@ -1,5 +1,5 @@
-# Trees Bazel never loads as packages: installed dependencies, other build systems' outputs and
-# Bazel's own convenience links.
+# Trees Bazel never loads as packages: installed dependencies, other build systems' outputs,
+# Bazel's own convenience links and the vendored crates crate_universe builds.
 ignore_directories([
     "**/node_modules",
     "**/target",
@@ -7,4 +7,8 @@ ignore_directories([
     "test-results",
     ".claude/worktrees",
     "bazel-*",
+    # The vendored crates crate_universe builds from a copy, which it renders a BUILD file into.
+    "packages/quinn-patch",
+    "packages/quinn-proto-patch",
+    "packages/wtransport-patch",
 ])

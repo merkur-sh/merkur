@@ -29,6 +29,10 @@ packages/term-wasm/target/
 packages/alacritty-terminal-patch/target/
 packages/quinn-patch/Cargo.lock
 packages/quinn-proto-patch/Cargo.lock
+# crate_universe renders the vendored crates it builds from a copy into their own directories.
+packages/quinn-patch/BUILD.bazel
+packages/quinn-proto-patch/BUILD.bazel
+packages/wtransport-patch/BUILD.bazel
 apps/daemon/dataplane/target/
 target/
 

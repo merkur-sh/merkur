@@ -198,7 +198,7 @@ these grow by an order of magnitude, which is the whole reason selection matters
 | `check:ratchet` | dead code, clones and hotspots the diff introduces; hotspot ceilings; its three fallow analyses run concurrently | ~1 s (2026-10-03) |
 | `check:slop` | anti-slop findings per file and rule against `lint-baselines/anti-slop.json`; Biome with the GritQL rule plugins, over the script files whose bytes are new, and the comment rules over script and Rust files | <1 s; ~16 s when every file is linted (2026-10-05) |
 | `check:docs` | prose paths, links, pinned facts, config/e2e/workspace parity, harness shape | <1 s |
-| `check:protocol` | wire/IPC/route suites, WASM provenance, Rust suites | no wall-clock retention wait |
+| `check:protocol` | wire/IPC/route suites, Rust suites | no wall-clock retention wait |
 | `check` | the nine static gates plus `check:protocol` | no wall-clock retention wait |
 | `test:unit` | complete source inventory, up to eight isolated workers | ~10 s uncached (2026-10-03) |
 | `check:audit` | pnpm and Cargo dependency advisories and yanked Rust releases; install cargo-audit with `setup:audit`; needs network, so it sits in `verify` | network |
@@ -334,11 +334,11 @@ session, network and crate-root code as well as the graphics owner.
 | `packages/wtransport-patch/**`, `packages/quinn-patch/**`, `packages/quinn-proto-patch/**` | `rust:lint`; `bazel test //apps/edge/... //apps/daemon/dataplane/...` | Patch targets, not workspace members: they resolve through their dependents, so their dependents' suites are the test surface. |
 | `tools/sim/**`, `scripts/sim-tests.ts`, `scripts/generated-cargo-workspace.ts`, `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/edge/src/**`, `apps/edge/Cargo.toml`, `packages/merkur-client/**`, `packages/merkur-client-native/**`, `packages/wtransport-patch/**`, `packages/quinn-patch/**`, `packages/quinn-proto-patch/**` (except `**/*.md`) | `test:sim` | The real client, edge and dataplane run whole sessions in one deterministic simulation (`tools/sim`); a change to any of them, or to the simulator, replays every scenario and its seeds. |
 | `tools/bolero/**`, `scripts/fuzz-tests.ts`, `packages/merkur-wire/**`, `packages/merkur-codec/**`, `packages/merkur-client/**`, `packages/merkur-e2e/**` (except `**/*.md`) | by hand: `test:fuzz:kani` | The crates the Kani proofs compile, and their runner. The rebind keeper proof stubs `merkur-e2e` functions by signature, so a change anywhere in that crate can break it. |
-| `packages/term-wasm/**`, `packages/term-wasm-pgo/**`, `packages/fontdue-patch/**`, `scripts/term-wasm-pgo.ts` | first `build:wasm`, then `sync:wasm`; `rust:lint`; `bazel test //packages/term-wasm/...`; isolated source tests under `apps/web` | WASM artifacts are hash-pinned; the build precedes any test, and `check:protocol` is what rejects stale provenance. |
-| `packages/merkur-e2e/**`, `packages/e2e-wasm/.cargo/**` | `test:wasm-cipher` | The browser transport cipher compiles only for wasm32, so a native test never reaches it; its vectors and differential run inside wasm32 under Node. |
-| `packages/e2e-wasm/**` | first `build:e2e-wasm`; `rust:lint`; isolated `packages/e2e-wasm/conformance.test.ts` |  |
-| `packages/graphics-wasm/**`, `packages/merkur-graphics/src/tile.rs` | first `build:graphics-wasm`; `rust:lint`; `bazel test //packages/graphics-wasm/...`; isolated `packages/graphics-wasm/conformance.test.ts` |  |
-| `packages/graphics-codec-probe/**` | first `build:graphics-codec-probe`; `rust:lint`; `bazel test //packages/graphics-codec-probe/...` |  |
+| `packages/term-wasm/**`, `packages/fontdue-patch/**`, `scripts/term-wasm-pgo.ts`, `scripts/term-wasm-ingress-fixture.ts`, `scripts/term-wasm-current-glue.ts`, `tools/bazel/wasm/**` | first `build:wasm`; `rust:lint`; `bazel test //packages/term-wasm/...`; isolated source tests under `apps/web` | Bazel builds the WASM packages the web app and Bun tests import; the build precedes any test. |
+| `packages/merkur-e2e/**`, `tools/bazel/wasm/merkur-e2e-cipher/**` | `test:wasm-cipher` | The browser transport cipher compiles only for wasm32, so a native test never reaches it; its vectors and differential run inside wasm32 under Node. |
+| `packages/e2e-wasm/**` | first `build:wasm`; `rust:lint`; isolated `packages/e2e-wasm/conformance.test.ts` |  |
+| `packages/graphics-wasm/**`, `packages/merkur-graphics/src/tile.rs` | first `build:wasm`; `rust:lint`; `bazel test //packages/graphics-wasm/...`; isolated `packages/graphics-wasm/conformance.test.ts` |  |
+| `packages/graphics-codec-probe/**` | first `build:wasm`; `rust:lint`; `bazel test //packages/graphics-codec-probe/...` |  |
 | `packages/merkur-image-worker/**`, `packages/merkur-graphics/**`, `packages/merkur-codec/**`, `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/daemon/dataplane/build.rs`, `Cargo.lock` | `bazel test //apps/daemon/dataplane:unit` filtered to `real_helper::`; then, by hand: `test:graphics:long` | Decoded images exist only in the sandboxed helper, which the dataplane test target builds and hands over: the `real_helper` modules run against it. Those modules drive the display simulator through the connection, session, network and crate-root code as well as the graphics owner, so every dataplane change selects them. The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers. |
 | `scripts/**` (except `scripts/natlab/**`) | isolated source tests under `scripts` | Selected tests whose import closure includes `scripts/perf/client-session-fixture.ts` prepare the source-and-binary SHA-256-pinned native session oracle once with `bun run scripts/prepare-client-session-oracle.ts` before the parallel Rust and Bun lanes; benchmark tests never invoke Cargo. |
 | `biome.slop.json`, `tools/biome/slop/**` | isolated `scripts/check-slop.test.ts` | A rule is GritQL only Biome can judge: `tools/biome/slop/cases.json` holds what each rule reports, and the test runs every case through the invocation the gate uses. |
@@ -364,7 +364,7 @@ and browser harnesses use the table's explicit coverage rules. Deleted files and
 of renames participate in selection.
 
 Protocol tests are merged with the selected unit inventory; each runs once. The hard-cut scan
-and WASM provenance check precede the test lanes. Rust crates and filters are merged, and full
+precedes the test lanes. Rust crates and filters are merged, and full
 transport coverage subsumes the identical latency command while calibrated rebind and reorder
 remain separate. Auth specs select their actual Playwright configuration. Edge specs omitted
 from the default harness phases receive an explicit spec filter. Output streams immediately

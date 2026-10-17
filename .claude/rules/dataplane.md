@@ -37,7 +37,7 @@ the daemon's deadlines and is outside the rule.
 Crates are on edition 2024, toolchain pinned by `rust-toolchain.toml`; new crates start on
 2024. Vendored `[patch.crates-io]` crates keep whatever upstream ships (see
 `vendored-crates.md`). Generated artifacts must be rebuilt before they are tested or run:
-WASM is hash-pinned and `check:protocol` rejects stale provenance, and the dev CLI executes
+the gitignored WASM packages come from `bun run build:wasm`, and the dev CLI executes
 the built dataplane binary, where staleness surfaces as unknown IPC frames or auth
 timeouts. `build:dataplane` is not a gate; run it only when something will execute the
 binary. Gate: `rust:lint`, then one filtered `cargo test -p merkur-dataplane`. Read

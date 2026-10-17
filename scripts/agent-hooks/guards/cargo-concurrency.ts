@@ -16,8 +16,6 @@ import type { SimpleCommand } from '../shell-command';
 /** Root `package.json` scripts whose body is (or runs) Cargo. */
 const CARGO_BACKED_SCRIPTS: ReadonlySet<string> = new Set([
   'build:dataplane',
-  'build:wasm',
-  'build:e2e-wasm',
   'check:protocol',
   'check',
   'verify',

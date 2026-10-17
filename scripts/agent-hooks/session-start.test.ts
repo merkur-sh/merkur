@@ -57,9 +57,8 @@ test('missing artifacts are listed with their build command', () => {
     missing: GENERATED_ARTIFACTS,
   });
   expect(context).toContain('packages/term-wasm/pkg  →  bun run build:wasm');
-  expect(context).toContain('apps/web/src/term-wasm/pkg  →  bun run sync:wasm');
-  expect(context).toContain('packages/e2e-wasm/pkg  →  bun run build:e2e-wasm');
-  expect(context).toContain('setup never builds it');
+  expect(context).toContain('apps/web/src/term-wasm/pkg  →  bun run build:wasm');
+  expect(context).toContain('packages/e2e-wasm/pkg  →  bun run build:wasm');
   expect(context).toContain('apps/server/.env  →  bun run setup');
   expect(context.endsWith('apps/server/.env  →  bun run setup')).toBe(true);
 });

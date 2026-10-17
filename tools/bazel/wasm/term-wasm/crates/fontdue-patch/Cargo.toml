@@ -1,0 +1,20 @@
+# Generated from packages/fontdue-patch/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "fontdue"
+version = "0.9.4"
+edition = "2018"
+publish = false
+
+[lib]
+path = "../../../../../../packages/fontdue-patch/src/lib.rs"
+
+[dependencies]
+ttf-parser = { version = "0.25", default-features = false, features = ["opentype-layout", "no-std-float"] }
+hashbrown = { version = "0.15", optional = true }
+once_cell = { version = "1.21", default-features = false, features = ["alloc", "race"] }
+
+[features]
+default = []
+std = []
+simd = []

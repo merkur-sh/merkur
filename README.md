@@ -215,8 +215,8 @@ Report vulnerabilities privately through the [security policy](SECURITY.md).
 ## Development
 
 Use Bazelisk (it runs the Bazel release in [`.bazelversion`](.bazelversion)), pnpm, the Bun
-release in [`.bun-version`](.bun-version), the pinned [Rust toolchain](rust-toolchain.toml),
-Docker with Compose, `wasm-pack`, and LLVM (Homebrew `llvm` on macOS).
+release in [`.bun-version`](.bun-version), the pinned [Rust toolchain](rust-toolchain.toml), and
+Docker with Compose.
 Run these commands from the repository root:
 
 ```sh
@@ -286,7 +286,6 @@ Bun and TypeScript handle the application and orchestration; Rust owns the termi
 | `packages/quicksilver`              | Quicksilver design system: tokens, UnoCSS preset, UI faces, Vite plugins.    |
 | `packages/user-agent`               | Bounded browser and OS identification.                                       |
 | `packages/term-wasm`                | Browser terminal state, display decoding, fonts, and rendering data.         |
-| `packages/term-wasm-pgo`            | Training driver for the profile-guided `term-wasm` build; nothing ships it.  |
 | `packages/merkur-authorization`     | Delegations, daemon bindings, revocations, link approval, root envelope.     |
 | `packages/merkur-client`            | Sans-IO client core: issuance, authentication, lanes, input.                 |
 | `packages/merkur-identity-seal`     | Native identity custody: Secure Enclave, TPM, explicit software storage.     |

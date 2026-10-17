@@ -1,11 +1,12 @@
 /**
  * The display-delta frames term-wasm is profiled on and benchmarked against.
  *
- * Its own module, with no WebAssembly import, because `term-wasm-pgo.ts` builds
- * its training set from it before any term-wasm package exists: a clean
- * container (the release image) has no `apps/web/src/term-wasm/pkg` until the
- * profile-guided build it is training produces one.
+ * Its own module, importing no WebAssembly and nothing beyond the display
+ * constants, because `term-wasm-pgo.ts` builds its training set from it inside
+ * Bazel's training action, before any term-wasm package exists.
  */
+
+import { writeU32BE } from '../packages/shared/src/binary';
 import {
   DISPLAY_CHUNK_COUNT_OFFSET,
   DISPLAY_COLUMNS_OFFSET,
@@ -19,8 +20,7 @@ import {
   DISPLAY_VERSION_OFFSET,
   MAX_DISPLAY_FRAME_BYTES,
   MESSAGE_TYPE_DISPLAY_PATCH,
-  writeU32BE,
-} from '../packages/shared/src';
+} from '../packages/shared/src/display-stream';
 
 const CURSOR_VISIBLE_BLOCK = 0x10;
 const BRACKETED_PASTE_MODE = 1 << 7;

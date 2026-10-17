@@ -1,0 +1,41 @@
+load("@graphics_wasm_crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+load(":crates.bzl", "MODULE_DEPS", "module_crates")
+load("//tools/bazel/wasm:defs.bzl", "wasm_module", "wasm_package")
+
+package(default_visibility = ["//visibility:public"])
+
+# The module's own workspace (`scripts/wasm-artifact-manifests.ts`), which its hub resolves.
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+] + glob(["crates/*/Cargo.toml"]))
+
+module_crates()
+
+# The page-lifetime asset worker's image decoding, its crates resolved for it alone.
+rust_shared_library(
+    name = "graphics_wasm",
+    srcs = ["//packages/graphics-wasm:srcs"],
+    aliases = aliases(),
+    crate_root = "//packages/graphics-wasm:src/lib.rs",
+    edition = "2024",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    target_compatible_with = ["@platforms//cpu:wasm32"],
+    version = "0.1.0",
+    deps = MODULE_DEPS + all_crate_deps(normal = True),
+)
+
+wasm_module(
+    name = "module",
+    crate = ":graphics_wasm",
+)
+
+wasm_package(
+    name = "pkg",
+    license = "AGPL-3.0-only",
+    module = ":module",
+    out_name = "graphics_wasm",
+    package_name = "graphics-wasm",
+    version = "0.1.0",
+)

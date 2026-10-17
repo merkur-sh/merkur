@@ -1,0 +1,17 @@
+# Generated from packages/merkur-edge-protocol/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "merkur-edge-protocol"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../../packages/merkur-edge-protocol/src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+
+[lints]
+workspace = true

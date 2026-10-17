@@ -20,11 +20,8 @@ export interface GeneratedArtifact {
 
 export const GENERATED_ARTIFACTS: readonly GeneratedArtifact[] = [
   { path: 'packages/term-wasm/pkg', command: 'bun run build:wasm' },
-  { path: 'apps/web/src/term-wasm/pkg', command: 'bun run sync:wasm' },
-  {
-    path: 'packages/e2e-wasm/pkg',
-    command: 'bun run build:e2e-wasm   (bun run setup never builds it)',
-  },
+  { path: 'apps/web/src/term-wasm/pkg', command: 'bun run build:wasm' },
+  { path: 'packages/e2e-wasm/pkg', command: 'bun run build:wasm' },
   { path: 'apps/server/.env', command: 'bun run setup' },
 ];
 

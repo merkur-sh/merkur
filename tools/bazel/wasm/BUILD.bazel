@@ -1,0 +1,58 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load(":defs.bzl", "wasm_sync")
+
+package(default_visibility = ["//visibility:public"])
+
+# Set by `wasm_module` for the profile-generating training build of the terminal, whose crate
+# then compiles its training entry points and links minicov's profile runtime.
+bool_flag(
+    name = "instrumented",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "instrumented_build",
+    flag_values = {":instrumented": "true"},
+)
+
+# The packaging tools for the platform a build runs on.
+alias(
+    name = "wasm-bindgen",
+    actual = select({
+        "//tools/bazel/bun:darwin_aarch64": "@wasm_bindgen_darwin_aarch64//:wasm-bindgen",
+        "//tools/bazel/bun:darwin_x64": "@wasm_bindgen_darwin_x64//:wasm-bindgen",
+        "//tools/bazel/bun:linux_aarch64": "@wasm_bindgen_linux_aarch64//:wasm-bindgen",
+        "//tools/bazel/bun:linux_x64": "@wasm_bindgen_linux_x64//:wasm-bindgen",
+    }),
+)
+
+alias(
+    name = "wasm-bindgen-test-runner",
+    actual = select({
+        "//tools/bazel/bun:darwin_aarch64": "@wasm_bindgen_darwin_aarch64//:wasm-bindgen-test-runner",
+        "//tools/bazel/bun:darwin_x64": "@wasm_bindgen_darwin_x64//:wasm-bindgen-test-runner",
+        "//tools/bazel/bun:linux_aarch64": "@wasm_bindgen_linux_aarch64//:wasm-bindgen-test-runner",
+        "//tools/bazel/bun:linux_x64": "@wasm_bindgen_linux_x64//:wasm-bindgen-test-runner",
+    }),
+)
+
+alias(
+    name = "wasm-opt",
+    actual = select({
+        "//tools/bazel/bun:darwin_aarch64": "@binaryen_darwin_aarch64//:wasm-opt",
+        "//tools/bazel/bun:darwin_x64": "@binaryen_darwin_x64//:wasm-opt",
+        "//tools/bazel/bun:linux_aarch64": "@binaryen_linux_aarch64//:wasm-opt",
+        "//tools/bazel/bun:linux_x64": "@binaryen_linux_x64//:wasm-opt",
+    }),
+)
+
+# `bazel run //tools/bazel/wasm:sync` puts every package where the checkout imports it.
+wasm_sync(
+    name = "sync",
+    packages = {
+        "//tools/bazel/wasm/e2e-wasm:pkg": "packages/e2e-wasm/pkg",
+        "//tools/bazel/wasm/graphics-codec-probe:pkg": "packages/graphics-codec-probe/pkg",
+        "//tools/bazel/wasm/graphics-wasm:pkg": "packages/graphics-wasm/pkg",
+        "//tools/bazel/wasm/term-wasm:pkg": "packages/term-wasm/pkg apps/web/src/term-wasm/pkg",
+    },
+)

@@ -52,18 +52,7 @@ RUN apt-get update \
     llvm \
     pkg-config \
     libssl-dev \
-  && rustup target add wasm32-unknown-unknown \
-  && cargo install wasm-pack --version 0.15.0 --locked \
   && rm -rf /var/lib/apt/lists/*
-
-# The CLI embeds the e2e WebAssembly module (ML-DSA-87 for release and link
-# verification), which `scripts/build-daemon-dist.ts` builds with wasm-pack and
-# the wasm-bindgen CLI pinned in Cargo.lock. Installed against just those two
-# files so the layer survives source changes; see the main Dockerfile.
-COPY Cargo.lock rust-toolchain.toml ./
-RUN version="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = "|"/, ""); print; exit }' Cargo.lock)" \
-  && test -n "$version" \
-  && cargo install wasm-bindgen-cli --version "$version" --locked --root .tools/wasm-bindgen
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/daemon/package.json apps/daemon/package.json
@@ -85,6 +74,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked \
 COPY Cargo.toml Cargo.lock rust-toolchain.toml tsconfig.base.json LICENSE ./
 COPY .cargo/ .cargo/
 COPY apps/ apps/
+# The CLI embeds the e2e WebAssembly module (ML-DSA-87 for release and link verification),
+# which arrives built in `packages/e2e-wasm/pkg`: Bazel builds it before the image does.
 COPY packages/ packages/
 COPY scripts/ scripts/
 # The profile-guided training build compiles the dataplane tests, which read it.

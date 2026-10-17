@@ -490,7 +490,6 @@ async function run(directory: string, profile: string, seed: number, label: stri
   // current node_modules into a historical source tree.
   await command(directory, ['bun', 'install', '--frozen-lockfile'], buildEnvironment);
   await command(directory, ['bun', 'run', 'build:wasm'], buildEnvironment);
-  await command(directory, ['bun', 'run', 'sync:wasm'], buildEnvironment);
   verify(directory);
   const testPackage = manifest.playwright.find((entry) => entry.name === '@playwright/test');
   if (testPackage === undefined) throw new Error('reference test tool is missing');

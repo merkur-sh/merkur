@@ -17,7 +17,6 @@ runs:
     - shell: bash
       run: |
         python3 scripts/ci/wasm_artifacts.py restore "$RUNNER_TEMP/wasm.tar"
-        bun run scripts/check-wasm-artifacts.ts
     - if: inputs.native == 'true'
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
       with:

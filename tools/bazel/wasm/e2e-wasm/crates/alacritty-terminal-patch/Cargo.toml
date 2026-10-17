@@ -1,0 +1,26 @@
+# Generated from packages/alacritty-terminal-patch/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "alacritty_terminal"
+version = "0.26.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "alacritty_terminal"
+path = "../../../../../../packages/alacritty-terminal-patch/src/lib.rs"
+
+[dependencies]
+base64 = { version = "0.23.1" }
+bitflags = { version = "2.13.1" }
+libc = { version = "0.2" }
+log = { version = "0.4" }
+parking_lot = { version = "0.12.5" }
+regex-automata = { version = "0.4.18" }
+serde = { version = "1", features = ["derive", "rc"], optional = true }
+unicode-width = { version = "0.2.2" }
+vte = { version = "0.15.0", default-features = false, features = ["std", "ansi"] }
+
+[features]
+default = []
+serde = ["dep:serde","bitflags/serde","vte/serde"]

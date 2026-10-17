@@ -2,7 +2,7 @@
 export const PROTOCOL_SCAN = 'scripts/current-protocol-hard-cut.test.ts';
 export const PROTOCOL_TESTS = [
   'scripts/term-wasm-current-glue.test.ts',
-  'scripts/term-wasm-provenance.test.ts',
+  'scripts/wasm-artifact-manifests.test.ts',
   'packages/protocol/src/wire-conformance.test.ts',
   'packages/auth/src/session-authorization.test.ts',
   'packages/daemon-control-protocol/src/index.test.ts',

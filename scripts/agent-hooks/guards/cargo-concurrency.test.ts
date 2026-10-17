@@ -59,7 +59,6 @@ test('cargo-backed scripts are recognised', () => {
   expect(isCargoCommand(commandOf('bun run rust:lint'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run rust:test'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run build:dataplane'))).toBe(true);
-  expect(isCargoCommand(commandOf('bun run build:wasm'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run check:protocol'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run check'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run verify'))).toBe(true);

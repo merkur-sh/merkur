@@ -1,0 +1,40 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# The crate's sources, which the browser build in `//tools/bazel/wasm` compiles too.
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+)
+
+exports_files(["src/lib.rs"])
+
+# The vendored rasterizer with the default features the terminal asks for. Cargo lints only the
+# workspace's own crates, and this one keeps upstream's code as it is, so Clippy skips it.
+rust_library(
+    name = "fontdue",
+    srcs = [":srcs"],
+    aliases = aliases(),
+    crate_features = [
+        "default",
+        "hashbrown",
+        "simd",
+    ],
+    edition = "2018",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    tags = ["noclippy"],
+    version = "0.9.4",
+    deps = all_crate_deps(normal = True),
+)
+
+# The patch's own tests pin upstream metrics and raster hashes for the bundled fonts.
+rust_test(
+    name = "unit",
+    compile_data = ["//apps/web:fonts"],
+    crate = ":fontdue",
+    proc_macro_deps = all_crate_deps(proc_macro_dev = True),
+    tags = ["noclippy"],
+    deps = all_crate_deps(normal_dev = True),
+)

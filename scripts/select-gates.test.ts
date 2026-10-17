@@ -251,15 +251,9 @@ test('full transport subsumes identical latency work, but not calibrated rebind'
   ]);
 });
 
-test('WASM prerequisites are ordered and composite builds subsume their members', () => {
+test('every WASM package change builds the packages once', () => {
   const plan = selectGates(['packages/term-wasm/src/lib.rs', 'packages/e2e-wasm/src/lib.rs'], deps);
-  expect(plan.builds).toEqual([
-    ['bun', 'run', 'build:wasm'],
-    ['bun', 'run', 'sync:wasm'],
-  ]);
-  expect(
-    plan.preflight.some((command) => command.includes('scripts/check-wasm-artifacts.ts')),
-  ).toBe(true);
+  expect(plan.builds).toEqual([['bun', 'run', 'build:wasm']]);
 });
 
 test('diff discovery includes deleted files and both rename endpoints with spaces', () => {

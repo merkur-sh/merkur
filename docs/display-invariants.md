@@ -447,7 +447,7 @@ and noncritical domains.
 Display bodies are compressed with zstd, and both ends link the C library. The daemon
 encodes with `zstd`, plus `zstd-sys` directly for `ZDICT_finalizeDictionary`, which the safe
 wrapper does not expose. `term-wasm` decodes through `zstd-safe` with libzstd compiled to
-wasm32, so the WASM build needs a clang with the wasm32 target (`scripts/wasm-toolchain.ts`).
+wasm32, so the WASM build compiles C for wasm32 with Bazel's LLVM (`//tools/bazel/wasm`).
 
 A compressed payload holds the rows in their stream-split layout
 (`merkur_codec::RowSplitter`), not the row layout: like fields of every row travel together

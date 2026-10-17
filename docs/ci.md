@@ -25,7 +25,7 @@ skips fail the check. The workflow itself is never omitted by path filtering.
 
 | Lane | What it proves |
 | --- | --- |
-| `wasm` | Builds and verifies WASM once, retaining the generated packages, hidden provenance files and the PGO build's native zstd fixture for consumers. |
+| `wasm` | Builds the WASM packages once through Bazel, retaining them and the native zstd fixture for consumers. |
 | `browser-native` | Builds edge, proxy, dataplane and image worker in one Cargo invocation and retains the native artifact manifest. |
 | `source` | Consumes verified WASM, runs the nine static gates (`check:types`, `check:lint`, `check:latency-boundaries`, `check:span-lifetimes`, `check:span-attributes`, `check:dead`, `check:ratchet` against the pushed or pull-request range, `check:slop` over the whole tree, `check:docs`), the complete Bun test inventory, the Python CI tests, ShellCheck over `scripts/ci/*.sh`, and Actionlint over the workflows. Prose-only plans run `check:docs`. |
 | `native` | `bazel test` over every Rust target, then `rust:lint`, on Linux and Apple Silicon macOS, each against the shared BuildBuddy remote cache that only CI writes. The dataplane's real-helper tests take the image helper their test target builds. |
@@ -59,9 +59,10 @@ source closure, compiler bytes, build overrides and executable hashes before ins
 All native producers and consumers use the same Ubuntu runner layout and absolute temporary
 artifact directory; a path or toolchain mismatch fails rather than rebuilding silently.
 
-Setup installs LLVM and wasm-pack only for WASM compilation, Chromium and Redis only for browser
-consumers, and restores Rust compilation caches only where Cargo runs. Pinned wasm-pack,
-lockfile-pinned wasm-bindgen, actionlint and downloaded Bun packages have tool/dependency caches.
+Setup installs Bazel only where Bazel builds (the WASM packages and the Rust tests), Chromium and
+Redis only for browser consumers, and restores Rust compilation caches only where Cargo runs.
+Bazel reads and, in CI, writes the BuildBuddy remote cache; actionlint and downloaded Bun
+packages have tool/dependency caches.
 Only `main` writes the Rust dependency cache, one per runner and native task. Assurance keys its
 caches by toolchain and lockfile, never by commit, and the deployment build keeps its layer cache
 in the GitHub container registry, so neither evicts the Rust caches from the Actions cache. Accounts, databases, Redis and daemon state are

@@ -1,0 +1,13 @@
+# Generated from packages/merkur-fec/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "merkur-fec"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../../packages/merkur-fec/src/lib.rs"
+
+[lints]
+workspace = true

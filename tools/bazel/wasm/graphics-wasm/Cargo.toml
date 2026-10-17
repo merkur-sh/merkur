@@ -1,0 +1,43 @@
+# Generated from packages/graphics-wasm/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "graphics-wasm-artifact"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../packages/graphics-wasm/src/lib.rs"
+
+[dependencies]
+merkur-graphics = { path = "crates/merkur-graphics", default-features = false }
+wasm-bindgen = { version = "=0.2.127" }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
+[lints]
+workspace = true
+
+[workspace]
+resolver = "3"
+members = ["crates/merkur-graphics"]
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)", "cfg(merkur_sim)"] }
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+debug_assert_with_mut_call = "warn"
+too_many_arguments = "allow"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+unnecessary_wraps = "warn"
+unused_async = "warn"
+panic_in_result_fn = "warn"
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+mem_forget = "warn"
+infinite_loop = "warn"
+redundant_clone = "warn"
+disallowed_methods = "allow"

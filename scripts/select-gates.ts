@@ -191,8 +191,6 @@ export function selectGates(changed: readonly string[], deps: GateDeps): GatePla
   }
   if (deferred.has(JSON.stringify(['bun', 'run', 'test:e2e:transport'])))
     deferred.delete(JSON.stringify(['bun', 'run', 'test:e2e:latency']));
-  // build:wasm already builds e2e-wasm.
-  if (builds.has('build:wasm')) builds.delete('build:e2e-wasm');
   return assemblePlan({
     files,
     builds: [...builds],
@@ -275,7 +273,6 @@ function assemblePlan(selection: PlanSelection): GatePlan {
     }
     tests.add(PROTOCOL_SCAN);
     for (const crate of PROTOCOL_CRATES) wholeCrates.add(crate);
-    preflight.push(['bun', 'run', 'scripts/check-wasm-artifacts.ts']);
   }
   if (tests.delete(PROTOCOL_SCAN)) preflight.unshift(testCommand([PROTOCOL_SCAN]));
   // Protocol expansion always includes the authenticated session fixture,

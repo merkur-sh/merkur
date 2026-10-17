@@ -1,0 +1,51 @@
+load("@merkur_e2e_cipher_crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load(":crates.bzl", "MODULE_DEPS", "module_crates")
+load("//tools/bazel/wasm:defs.bzl", "wasm_bindgen_test")
+
+package(default_visibility = ["//visibility:public"])
+
+# merkur-e2e's own workspace with its tests' dependencies (`scripts/wasm-artifact-manifests.ts`),
+# which its hub resolves.
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+])
+
+module_crates()
+
+# The browser transport cipher (`packages/merkur-e2e/src/wasm_chacha.rs`) compiles only for wasm32
+# with SIMD, so its tests, differential against the RustCrypto AEAD it replaces, run there: the
+# crate's library tests with `wasm`, as e2e-wasm builds it. Bazel only builds the harness (a test
+# rule would have to run on wasm32), so it is a binary compiled with `--test`.
+rust_binary(
+    name = "cipher",
+    srcs = ["//packages/merkur-e2e:srcs"],
+    aliases = aliases(),
+    compile_data = [
+        "//packages/merkur-e2e:test_vectors",
+        "//packages/shared:test_vectors",
+    ],
+    crate_features = ["wasm"],
+    crate_name = "merkur_e2e",
+    crate_root = "//packages/merkur-e2e:src/lib.rs",
+    edition = "2024",
+    proc_macro_deps = all_crate_deps(
+        proc_macro = True,
+        proc_macro_dev = True,
+    ),
+    rustc_env = {"CARGO_MANIFEST_DIR": "$${pwd}/packages/merkur-e2e"},
+    rustc_flags = ["--test"],
+    tags = ["manual"],
+    target_compatible_with = ["@platforms//cpu:wasm32"],
+    deps = MODULE_DEPS + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+wasm_bindgen_test(
+    name = "test",
+    simd128 = True,
+    test = ":cipher",
+)

@@ -2081,7 +2081,7 @@
   },
   "scripts/dev-doctor.ts": {
     "no-manual-tag-comparison": 5,
-    "no-runtime-typeof": 4
+    "no-runtime-typeof": 3
   },
   "scripts/dev-environment.ts": {
     "no-known-value-widening": 1,
@@ -2423,12 +2423,6 @@
     "no-known-value-widening": 1,
     "require-safety-comment-for-type-assertion": 2
   },
-  "scripts/term-wasm-provenance.ts": {
-    "no-runtime-typeof": 12,
-    "no-unknown-parameters": 1,
-    "no-unsafe-dictionary-type": 2,
-    "require-safety-comment-for-type-assertion": 2
-  },
   "scripts/test-executables.test.ts": {
     "no-runtime-typeof": 2
   },
@@ -2457,11 +2451,6 @@
   "scripts/verification-junit.ts": {
     "no-runtime-typeof": 3,
     "no-unsafe-dictionary-type": 2
-  },
-  "scripts/wasm-toolchain.ts": {
-    "no-conditional-empty-object-spread": 2,
-    "no-known-value-widening": 1,
-    "no-swallowed-error": 1
   },
   "scripts/web-build-signature.ts": {
     "no-runtime-typeof": 2

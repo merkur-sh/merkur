@@ -23,7 +23,7 @@ class WasmArtifactsTest(unittest.TestCase):
         for directory in artifacts.ROOTS:
             output = self.producer / directory
             output.mkdir(parents=True)
-            for name in ['module.wasm', 'module.js', 'module.d.ts', 'package.json', '.merkur-build.json']:
+            for name in ['module.wasm', 'module.js', 'module.d.ts', 'package.json']:
                 (output / name).write_bytes(b'fixture bytes')
         fixture = self.producer / artifacts.FIXTURE
         fixture.parent.mkdir(parents=True)

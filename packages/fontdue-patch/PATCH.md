@@ -13,7 +13,7 @@ The eager parallel-loading feature is removed with the eager implementation.
 `src/lib.rs` suppresses a newer compiler's unnecessary-transmute warning in the
 unchanged upstream SIMD code. `src/lazy_tests.rs` pins upstream metrics and raster
 hashes for all five bundled Merkur fonts at three sizes and checks lazy cache
-and concurrent ownership. Run `cargo test -p fontdue --lib` from the repo root.
+and concurrent ownership. Run `bazel test //packages/fontdue-patch:unit`.
 
-This directory is a Cargo patch, not a workspace member. Terminal WASM provenance
-includes it through the existing dependency-closure hash.
+This directory is a Cargo patch and a workspace member, built from its own `BUILD.bazel`;
+Clippy skips it, as it does upstream's code everywhere.

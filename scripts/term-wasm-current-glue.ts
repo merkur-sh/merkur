@@ -1,5 +1,4 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const LEGACY_SYNC_INIT = `    if (module !== undefined) {
         if (Object.getPrototypeOf(module) === Object.prototype) {
@@ -146,19 +145,6 @@ export function assertCurrentTermWasmGlue(glue: TermWasmGlue): void {
   }
 }
 
-export async function hardCutGeneratedTermWasmGlue(artifactDirectory: string): Promise<void> {
-  const javascriptPath = path.join(artifactDirectory, 'term_wasm.js');
-  const declarationsPath = path.join(artifactDirectory, 'term_wasm.d.ts');
-  const current = hardCutLegacyTermWasmGlue({
-    javascript: await fs.readFile(javascriptPath, 'utf8'),
-    declarations: await fs.readFile(declarationsPath, 'utf8'),
-  });
-  await Promise.all([
-    fs.writeFile(javascriptPath, current.javascript),
-    fs.writeFile(declarationsPath, current.declarations),
-  ]);
-}
-
 function replaceIfPresent(source: string, retired: string, current: string, label: string): string {
   const first = source.indexOf(retired);
   if (first < 0) return source;
@@ -166,4 +152,23 @@ function replaceIfPresent(source: string, retired: string, current: string, labe
     throw new Error(`terminal WASM glue contains multiple retired ${label} blocks`);
   }
   return source.replace(retired, current);
+}
+
+// `//tools/bazel/wasm/term-wasm:pkg` rewrites wasm-bindgen's glue:
+//   term-wasm-current-glue.ts <glue.js> <glue.d.ts> <current.js> <current.d.ts>
+if (import.meta.main) {
+  const [javascript, declarations, currentJavascript, currentDeclarations] = process.argv.slice(2);
+  if (
+    javascript === undefined ||
+    declarations === undefined ||
+    currentJavascript === undefined ||
+    currentDeclarations === undefined
+  )
+    throw new Error('usage: term-wasm-current-glue.ts <js> <d.ts> <current js> <current d.ts>');
+  const current = hardCutLegacyTermWasmGlue({
+    javascript: readFileSync(javascript, 'utf8'),
+    declarations: readFileSync(declarations, 'utf8'),
+  });
+  writeFileSync(currentJavascript, current.javascript);
+  writeFileSync(currentDeclarations, current.declarations);
 }

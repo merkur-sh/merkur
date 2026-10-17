@@ -5,6 +5,20 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_doc_test", "rust_library
 
 package(default_visibility = ["//visibility:public"])
 
+# The crate's sources, which the browser build in `//tools/bazel/wasm` compiles too.
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+)
+
+exports_files(["src/lib.rs"])
+
+# The crate's own vectors, which its tests embed.
+filegroup(
+    name = "test_vectors",
+    srcs = glob(["test-vectors/**"]),
+)
+
 # The `testing` feature: vector helpers for other crates' tests, which build with it through
 # `rust_test_e2e_testing` (`//tools/bazel/rust:defs.bzl`). No shipped binary sees it.
 bool_flag(
@@ -41,13 +55,19 @@ rust_library(
 
 rust_test(
     name = "unit",
-    compile_data = ["//packages/shared:test_vectors"] + glob(["test-vectors/**"]),
+    compile_data = [
+        ":test_vectors",
+        "//packages/shared:test_vectors",
+    ],
     crate = ":merkur_e2e",
     crate_features = [
         "default",
         "std",
     ],
-    data = ["//packages/shared:test_vectors"] + glob(["test-vectors/**"]),
+    data = [
+        ":test_vectors",
+        "//packages/shared:test_vectors",
+    ],
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro_dev = True),
     deps = all_crate_deps(normal_dev = True),

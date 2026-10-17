@@ -1,0 +1,10 @@
+--- a/build.rs
++++ b/build.rs
+@@ -3,7 +3,6 @@
+ 
+ fn main() {
+     let mut cfg = Build::new();
+-    cfg.compiler("clang");
+     cfg.flag("-nostdlibinc");
+     cfg.flag("-fno-stack-protector");
+     cfg.flag("-fno-profile-generate");

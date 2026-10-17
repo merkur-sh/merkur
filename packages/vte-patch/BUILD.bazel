@@ -3,6 +3,14 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_doc_test", "rust_library
 
 package(default_visibility = ["//visibility:public"])
 
+# The crate's sources, which the browser build in `//tools/bazel/wasm` compiles too.
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+)
+
+exports_files(["src/lib.rs"])
+
 # Clippy holds the crate to the minimum Rust release its manifest declares, as Cargo tells it.
 _RUST_VERSION = {"CARGO_PKG_RUST_VERSION": "1.62.1"}
 

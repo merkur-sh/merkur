@@ -1,24 +1,18 @@
-// Profile for the profile-guided term-wasm build.
+// The training run of the profile-guided terminal (`//tools/bazel/wasm/term-wasm:profile`).
 //
-// Trains `packages/term-wasm-pgo` (term-wasm linked as a library, instrumented)
-// on the production staging and apply paths and returns a merged `.profdata`
-// for `-Cprofile-use`. Measured against the plain build, alternated on an idle
-// machine: compressed staging of terminal text -7.7% to -15.0% and of random
-// content -3.3% to -7.6% (faster in 10-12 of 12 rounds at every size), and the
-// apply path -4% to -9% (6 of 6).
+// Bazel builds the terminal instrumented, with its in-crate training entry points and minicov's
+// profile runtime, and runs this over it:
 //
-// The instrumented build needs `-Zno-profiler-runtime`, because wasm32 has no
-// profiler runtime and minicov supplies one. `RUSTC_BOOTSTRAP=1` allows that
-// flag on the pinned stable compiler for this throwaway build only, so the
-// function hashes match the shipped stable build. Value profiling is off:
-// minicov's bare-metal runtime cannot allocate its value-profile nodes.
+//   term-wasm-pgo.ts <instrumented module> <zstd-fixture> <font> <raw profile out>
 //
-// Cargo runs from `packages/term-wasm`, so the driver sees exactly the cargo
-// config the shipped crate builds with (its `+simd128` among it); the flags join
-// that config through `--config`.
+// It replays the ingress benchmark's frames through the production staging and apply paths and
+// writes the raw profile the module captures; Bazel merges it for `-Cprofile-use`. Measured
+// against the plain build, alternated on an idle machine: compressed staging of terminal text
+// -7.7% to -15.0% and of random content -3.3% to -7.6% (faster in 10-12 of 12 rounds at every
+// size), and the apply path -4% to -9% (6 of 6).
 
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { writeFileSync } from 'node:fs';
+import { writeU32BE } from '../packages/shared/src/binary';
 import {
   DISPLAY_COMPRESSED_LENGTH_OFFSET,
   DISPLAY_COMPRESSED_PAYLOAD_OFFSET,
@@ -28,73 +22,24 @@ import {
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
   DISPLAY_STREAM_HEADER_BYTES,
-  writeU32BE,
-} from '../packages/shared/src';
+} from '../packages/shared/src/display-stream';
 import { ingressFixture } from './term-wasm-ingress-fixture';
-import { REPO_ROOT, resolvePinnedRustToolchain, runOrThrow } from './wasm-toolchain';
 
-const PGO_DIRECTORY = path.join(REPO_ROOT, 'target/rust/term-wasm-pgo');
-const FONT = path.join(REPO_ROOT, 'apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf');
-const ZSTD_FIXTURE = path.join(REPO_ROOT, 'target/rust/release/zstd-fixture');
 const COLS = 120;
 const TRAINING_ROUNDS = 30;
 
-/** Builds, trains and merges; returns the `.profdata` path for `-Cprofile-use`. */
-export async function trainTermWasmProfile(): Promise<string> {
-  const toolchain = await resolvePinnedRustToolchain();
-  const rawProfiles = path.join(PGO_DIRECTORY, 'profiles');
-  await fs.rm(rawProfiles, { recursive: true, force: true });
-  await fs.mkdir(rawProfiles, { recursive: true });
+const [driver, zstdFixture, font, output] = process.argv.slice(2);
+if (driver === undefined || zstdFixture === undefined || font === undefined || output === undefined)
+  throw new Error('usage: term-wasm-pgo.ts <module> <zstd-fixture> <font> <raw profile>');
+const { stream, frames } = trainingFixtures(zstdFixture);
+writeFileSync(output, await train(driver, font, stream, frames));
 
-  await runOrThrow(
-    ['cargo', 'build', '--release', '--locked', '-p', 'zstd-fixture'],
-    REPO_ROOT,
-    toolchain,
-  );
-  const { stream, frames } = trainingFixtures();
-
-  const generateDirectory = path.join(PGO_DIRECTORY, 'generate');
-  await runOrThrow(
-    [
-      'cargo',
-      'build',
-      '--release',
-      '--locked',
-      '-p',
-      'term-wasm-pgo',
-      '--target',
-      'wasm32-unknown-unknown',
-      '--target-dir',
-      generateDirectory,
-      '--config',
-      `target.wasm32-unknown-unknown.rustflags=${JSON.stringify([
-        `-Cprofile-generate=${path.join(rawProfiles, 'unused.profraw')}`,
-        '-Zno-profiler-runtime',
-        '-Cllvm-args=-disable-vp=true',
-      ])}`,
-    ],
-    path.join(REPO_ROOT, 'packages/term-wasm'),
-    toolchain,
-    { RUSTC_BOOTSTRAP: '1' },
-  );
-  const profile = await train(
-    path.join(generateDirectory, 'wasm32-unknown-unknown/release/term_wasm_pgo.wasm'),
-    stream,
-    frames,
-  );
-  const raw = path.join(rawProfiles, 'term-wasm.profraw');
-  await Bun.write(raw, profile);
-
-  const merged = path.join(PGO_DIRECTORY, 'term-wasm.profdata');
-  await runOrThrow(
-    [await llvmProfdata(toolchain), 'merge', '-o', merged, raw],
-    REPO_ROOT,
-    toolchain,
-  );
-  return merged;
-}
-
-async function train(driver: string, stream: Uint8Array, frames: number): Promise<Uint8Array> {
+async function train(
+  driver: string,
+  fontPath: string,
+  stream: Uint8Array,
+  frames: number,
+): Promise<Uint8Array> {
   const module = new WebAssembly.Module(await Bun.file(driver).bytes());
   // term-wasm's wasm-bindgen imports are never called on the paths trained here.
   const imports: Record<string, Record<string, () => never>> = {};
@@ -110,20 +55,26 @@ async function train(driver: string, stream: Uint8Array, frames: number): Promis
   const instance = new WebAssembly.Instance(module, imports);
   const exports = instance.exports as unknown as {
     memory: WebAssembly.Memory;
-    alloc(len: number): number;
-    train(font: number, fontLen: number, frames: number, framesLen: number, rounds: number): number;
-    capture_profile(): number;
-    profile_ptr(): number;
+    merkur_pgo_alloc(len: number): number;
+    merkur_pgo_train(
+      font: number,
+      fontLen: number,
+      frames: number,
+      framesLen: number,
+      rounds: number,
+    ): number;
+    merkur_pgo_capture_profile(): number;
+    merkur_pgo_profile_ptr(): number;
   };
   const place = (bytes: Uint8Array): number => {
-    const pointer = exports.alloc(bytes.byteLength);
+    const pointer = exports.merkur_pgo_alloc(bytes.byteLength);
     new Uint8Array(exports.memory.buffer, pointer, bytes.byteLength).set(bytes);
     return pointer;
   };
-  const font = await Bun.file(FONT).bytes();
+  const font = await Bun.file(fontPath).bytes();
   const fontPointer = place(font);
   const streamPointer = place(stream);
-  const applied = exports.train(
+  const applied = exports.merkur_pgo_train(
     fontPointer,
     font.byteLength,
     streamPointer,
@@ -135,8 +86,8 @@ async function train(driver: string, stream: Uint8Array, frames: number): Promis
       `term-wasm PGO training applied ${applied} of ${frames * TRAINING_ROUNDS} frames`,
     );
   }
-  const length = exports.capture_profile();
-  return new Uint8Array(exports.memory.buffer, exports.profile_ptr(), length).slice();
+  const length = exports.merkur_pgo_capture_profile();
+  return new Uint8Array(exports.memory.buffer, exports.merkur_pgo_profile_ptr(), length).slice();
 }
 
 /**
@@ -144,7 +95,7 @@ async function train(driver: string, stream: Uint8Array, frames: number): Promis
  * content phases), each followed by its `zstd-fixture`-compressed twin, behind one
  * snapshot per grid height. This is the set the PGO measurement trained on.
  */
-function trainingFixtures(): { stream: Uint8Array; frames: number } {
+function trainingFixtures(zstdFixture: string): { stream: Uint8Array; frames: number } {
   const parts: Uint8Array[] = [];
   const push = (frame: Uint8Array, rows: number, snapshot: boolean) => {
     const record = new Uint8Array(9);
@@ -165,7 +116,7 @@ function trainingFixtures(): { stream: Uint8Array; frames: number } {
           const frame = ingressFixture(COLS, rows, dirty, phase, styled, 0, phase);
           writeU32BE(frame, DISPLAY_SEQUENCE_OFFSET, 1);
           push(frame, rows, false);
-          push(compressed(frame), rows, false);
+          push(compressed(zstdFixture, frame), rows, false);
         }
       }
     }
@@ -180,9 +131,9 @@ function trainingFixtures(): { stream: Uint8Array; frames: number } {
 }
 
 /** The same frame with its row region zstd-compressed, as the daemon sends it. */
-function compressed(frame: Uint8Array): Uint8Array {
+function compressed(zstdFixture: string, frame: Uint8Array): Uint8Array {
   const rows = frame.subarray(DISPLAY_ROWS_OFFSET);
-  const result = Bun.spawnSync([ZSTD_FIXTURE], { stdin: rows, stdout: 'pipe', stderr: 'inherit' });
+  const result = Bun.spawnSync([zstdFixture], { stdin: rows, stdout: 'pipe', stderr: 'inherit' });
   if (result.exitCode !== 0) throw new Error('zstd-fixture failed');
   const payload = new Uint8Array(result.stdout);
   const wire = new Uint8Array(DISPLAY_COMPRESSED_PAYLOAD_OFFSET + payload.byteLength);
@@ -196,22 +147,4 @@ function compressed(frame: Uint8Array): Uint8Array {
   writeU32BE(wire, DISPLAY_COMPRESSED_LENGTH_OFFSET, rows.byteLength);
   wire.set(payload, DISPLAY_COMPRESSED_PAYLOAD_OFFSET);
   return wire;
-}
-
-/** rustup's `llvm-tools` copy, which matches rustc's LLVM exactly. */
-async function llvmProfdata(toolchain: string): Promise<string> {
-  const run = (args: string[]) =>
-    Bun.spawnSync(['rustc', ...args], {
-      env: { ...process.env, RUSTUP_TOOLCHAIN: toolchain },
-      stdout: 'pipe',
-    });
-  const sysroot = new TextDecoder().decode(run(['--print', 'sysroot']).stdout).trim();
-  const host = new TextDecoder().decode(run(['-vV']).stdout).match(/^host: (\S+)$/m)?.[1];
-  if (sysroot.length === 0 || host === undefined)
-    throw new Error('rustc reported no sysroot or host');
-  const tool = path.join(sysroot, 'lib/rustlib', host, 'bin/llvm-profdata');
-  if (!(await Bun.file(tool).exists())) {
-    throw new Error(`${tool} is missing; rust-toolchain.toml lists llvm-tools for it`);
-  }
-  return tool;
 }

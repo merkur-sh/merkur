@@ -19,8 +19,6 @@
 !apps/**/Cargo.toml
 !packages/*/Cargo.toml
 !packages/*/.cargo/config.toml
-# The terminal WASM build manifest hashes its pipeline inputs:
-# `TERM_WASM_PIPELINE_INPUTS` in `scripts/term-wasm-provenance.ts`.
 !tsconfig.json
 
 # Compiler inputs. Local databases, credentials, tooling state and arbitrary
@@ -68,6 +66,11 @@
 **/target
 **/dist
 **/pkg
+# The WebAssembly packages the images embed, which Bazel builds before them
+# (`bun run build:wasm`).
+!packages/e2e-wasm/pkg/**
+!packages/graphics-wasm/pkg/**
+!apps/web/src/term-wasm/pkg/**
 **/*.test.ts
 **/*.test.tsx
 **/.env

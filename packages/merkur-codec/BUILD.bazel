@@ -4,6 +4,14 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_doc_test", "rust_library
 
 package(default_visibility = ["//visibility:public"])
 
+# The crate's sources, which the browser build in `//tools/bazel/wasm` compiles too.
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+)
+
+exports_files(["src/lib.rs"])
+
 extract_cargo_lints(
     name = "lints",
     manifest = "Cargo.toml",

@@ -9,6 +9,7 @@ permissions:
 jobs:
   wasm:
     uses: ./.github/workflows/ci-artifacts.yml
+    secrets: inherit
     with:
       kind: wasm
       scope: extended

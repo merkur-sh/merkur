@@ -9,7 +9,7 @@ describe('CI selection', () => {
       ['Cargo.lock'],
       ['pnpm-lock.yaml'],
       ['.github/workflows/ci.yml'],
-      ['scripts/build-term-wasm.ts'],
+      ['scripts/term-wasm-pgo.ts'],
       ['new-package/source.ts'],
       ['.claude/hooks/run.sh'],
       ['apps/daemon/dataplane/src/display/wire.rs'],

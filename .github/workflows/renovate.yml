@@ -55,7 +55,7 @@ jobs:
           RENOVATE_REQUIRE_CONFIG: required
           RENOVATE_REPOSITORY_CACHE: enabled
           # Every command a post-upgrade task may run, whole; .github/renovate.json5 names them.
-          RENOVATE_ALLOWED_COMMANDS: '["^bun run test:(sim|fuzz):update-lock$", "^pnpm install --lockfile-only --ignore-scripts$"]'
+          RENOVATE_ALLOWED_COMMANDS: '["^bun run test:(sim|fuzz):update-lock$", "^bun run build:wasm-workspaces$", "^pnpm install --lockfile-only --ignore-scripts$"]'
           LOG_LEVEL: debug
           DRY_RUN: ${{ inputs.dry-run && 'full' || '' }}
         run: |

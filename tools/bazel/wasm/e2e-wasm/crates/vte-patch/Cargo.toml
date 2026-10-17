@@ -1,0 +1,25 @@
+# Generated from packages/vte-patch/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "vte"
+version = "0.15.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "vte"
+path = "../../../../../../packages/vte-patch/src/lib.rs"
+
+[dependencies]
+arrayvec = { version = "0.7.2", default-features = false }
+bitflags = { version = "2.3.3", default-features = false, optional = true }
+cursor-icon = { version = "1.0.0", default-features = false, optional = true }
+log = { version = "0.4.17", optional = true }
+memchr = { version = "2.7.4", default-features = false }
+serde = { version = "1.0.160", features = ["derive"], optional = true }
+
+[features]
+default = []
+ansi = ["log","cursor-icon","bitflags"]
+serde = ["dep:serde"]
+std = ["memchr/std"]

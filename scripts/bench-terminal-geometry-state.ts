@@ -18,7 +18,7 @@ const DIRTY_ITERATIONS = perfEnvInteger('BENCH_DIRTY_ITERATIONS', 100);
 const VIEWPORT_WIDTH = 1_280;
 const VIEWPORT_HEIGHT = 720;
 
-await runOrThrow(['bun', 'run', 'sync:wasm']);
+await runOrThrow(['bun', 'run', 'build:wasm']);
 const fontUrl = new URL(DEFAULT_TERMINAL_FONT.regular, 'https://merkur.local');
 const font = new Uint8Array(
   await readFile(path.join(ROOT, 'apps', 'web', 'public', fontUrl.pathname)),

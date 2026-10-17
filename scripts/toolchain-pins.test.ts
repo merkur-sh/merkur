@@ -42,3 +42,10 @@ test('the images install the pnpm release packageManager names', () => {
       expect(version).toBe(pinned ?? '');
   }
 });
+
+test('the wasm-bindgen CLI is the release of the crate Cargo.lock pins', () => {
+  const locked = captures('Cargo.lock', /^name = "wasm-bindgen"\nversion = "([^"]+)"$/gm);
+  expect(
+    captures('tools/bazel/wasm/extensions.bzl', /^WASM_BINDGEN_VERSION = "([^"]+)"$/gm),
+  ).toEqual(locked);
+});

@@ -3,7 +3,6 @@
 await run('bun', ['run', 'rust:lint']);
 await run('bun', ['run', 'build:dataplane']);
 await run('bun', ['run', 'build:wasm']);
-await run('bun', ['run', 'sync:wasm']);
 
 export {};
 

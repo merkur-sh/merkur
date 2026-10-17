@@ -1,0 +1,67 @@
+# Generated from packages/merkur-e2e/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "merkur-e2e-artifact"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../packages/merkur-e2e/src/lib.rs"
+
+[dependencies]
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
+hkdf = { version = "=0.12.4", default-features = false }
+hmac = { version = "=0.12.1", default-features = false }
+libcrux-ml-dsa = { version = "=0.0.11", default-features = false, features = ["mldsa87"] }
+libcrux-ml-kem = { version = "=0.0.11", default-features = false, features = ["mlkem1024"] }
+sha2 = { version = "=0.10.9", default-features = false }
+subtle = { version = "=2.6.1", default-features = false }
+snow = { version = "0.10", default-features = false, features = ["risky-raw-split"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+base64 = { version = "0.23" }
+serde_json = { version = "1" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+poly1305 = { version = "=0.8.0", default-features = false }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+chacha20poly1305 = { version = "=0.10.1", default-features = false }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+wasm-bindgen-test = { version = "=0.3.77" }
+
+[features]
+default = ["wasm"]
+std = ["snow/default-resolver-crypto","snow/ring-accelerated"]
+wasm = ["snow/default-resolver","snow/default-resolver-crypto"]
+testing = []
+
+[lints]
+workspace = true
+
+[workspace]
+resolver = "3"
+members = []
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(merkur_fuzz)", "cfg(merkur_libfuzzer)", "cfg(fuzzing_libfuzzer)", "cfg(kani)", "cfg(merkur_sim)"] }
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+debug_assert_with_mut_call = "warn"
+too_many_arguments = "allow"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+unnecessary_wraps = "warn"
+unused_async = "warn"
+panic_in_result_fn = "warn"
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+mem_forget = "warn"
+infinite_loop = "warn"
+redundant_clone = "warn"
+disallowed_methods = "allow"

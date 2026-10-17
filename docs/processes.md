@@ -591,13 +591,12 @@ omit that feature.
 
 | Command | Process boundary |
 | --- | --- |
-| `bun run build:web` | Resolve the local public pin, sync terminal WASM, then run Vite with public inputs only. |
+| `bun run build:web` | Resolve the local public pin, build the WASM packages, then run Vite with public inputs only. |
 | `bun run build:server` | Compile the Bun server executable. |
 | `bun run build:daemon` | Compile the daemon CLI and Rust dataplane distribution. |
 | `bun run build:dataplane` | Build and copy the Rust dataplane and isolated image worker. |
-| `bun run build:wasm` | Build terminal, browser E2E and graphics asset WASM packages. |
-| `bun run sync:wasm` | Copy terminal WASM artifacts into the web source tree. |
-| `bun run rust:all` | Check Rust, build dataplane/WASM, and sync web artifacts. |
+| `bun run build:wasm` | Build the terminal, browser E2E and graphics asset WASM packages through Bazel and copy them into the source tree. |
+| `bun run rust:all` | Lint Rust, then build the dataplane and the WASM packages. |
 
 The tag-triggered CI release workflow builds daemon tarballs for macOS arm64, macOS x64,
 Linux x64, and Linux arm64, smoke-tests each compiled CLI and dataplane, signs in the

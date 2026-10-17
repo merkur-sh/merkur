@@ -62,9 +62,11 @@ await runOrThrow(
 // before it is compiled in, so a dependency change can never ship unattributed.
 await runOrThrow(['bun', 'run', path.join(CURRENT_DIRECTORY, 'generate-third-party-notices.ts')]);
 
-// The CLI signs and verifies ML-DSA-87 through the e2e WebAssembly module,
-// which `bun build --compile` embeds; build it from this checkout's source.
-await runOrThrow(['bun', 'run', path.join(CURRENT_DIRECTORY, 'build-e2e-wasm.ts')]);
+// The CLI signs and verifies ML-DSA-87 through the e2e WebAssembly module, which
+// `bun build --compile` embeds; Bazel builds it from this checkout (`bun run build:wasm`).
+const e2eWasm = path.join(CURRENT_DIRECTORY, '../packages/e2e-wasm/pkg/e2e_wasm_bg.wasm');
+if (!(await Bun.file(e2eWasm).exists()))
+  throw new Error(`${e2eWasm} is missing; build it first with: bun run build:wasm`);
 
 // Daemon CLI → single compiled executable with the version stamped in.
 await runOrThrow([

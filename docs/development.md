@@ -12,12 +12,10 @@ pinned in the repository, so install the tools and let the pins pick the version
 
 | Tool | Where the version is pinned | Why |
 | --- | --- | --- |
-| Bazel, through Bazelisk (`brew install bazelisk`) | `.bazelversion` | Builds and tests the Rust crates with the Rust, LLVM and Bun releases `MODULE.bazel` pins by checksum. |
+| Bazel, through Bazelisk (`brew install bazelisk`) | `.bazelversion` | Builds and tests the Rust crates and the WASM packages with the Rust, LLVM, wasm-bindgen, binaryen and Bun releases `MODULE.bazel` pins by checksum. |
 | pnpm | `packageManager` in `package.json` | Installs the workspace from `pnpm-lock.yaml`, which Bazel reads too. |
 | Bun | `.bun-version` | Script runner, test runner, server runtime, and the daemon CLI's compile target. |
-| Rust | `rust-toolchain.toml` (includes the `wasm32-unknown-unknown` target) | The dataplane, the edge, the STUN responder, the display codec, and the terminal WASM. |
-| `wasm-pack` | Installed by `bun run setup` | Builds the WASM packages. The server and the daemon CLI embed `e2e-wasm`, their ML-DSA-87 and SHA-2 implementation. |
-| LLVM (`clang` with the wasm32 target, `llvm-ar`) | Homebrew `llvm` on macOS; on Linux the release matching the pinned Rust's LLVM (23 today; `apt.llvm.org` on Debian, as the `Dockerfile` does) | `term-wasm` compiles libzstd for wasm32, and Apple clang has no WebAssembly backend. Its profile-guided build instruments that C, so an older clang (Debian bookworm's 14) leaves profiler symbols the Rust runtime does not define. |
+| Rust | `rust-toolchain.toml` | Cargo's own builds outside Bazel: the daemon release, the edge harness and the assurance campaigns. |
 | Docker with Compose | Any current release | Runs the local Redis and the container-based test labs. |
 | Xcode Command Line Tools | macOS only | `swiftc` and a CryptoKit SDK for the Secure Enclave identity backend. |
 
@@ -132,21 +130,24 @@ Build commands produce the same artifacts CI ships:
 
 | Command | What it builds |
 | --- | --- |
-| `bun run build:web` | Resolves the local public OPAQUE pin, syncs terminal WASM, and runs Vite with public build inputs only. |
+| `bun run build:web` | Resolves the local public OPAQUE pin, builds the WASM packages, and runs Vite with public build inputs only. |
 | `bun run build:server` | Compiles `apps/server/src/index.ts` to a Bun executable. |
 | `bun run build:daemon` | The daemon JS entry plus the Rust dataplane artifact. |
 | `bun run build:dataplane` | `merkur-dataplane` and `merkur-image-worker` in release mode, copied into the daemon's distribution directory. |
-| `bun run build:wasm` | The terminal, end-to-end crypto, and graphics WASM with a lockfile-matched `wasm-bindgen`. |
-| `bun run sync:wasm` | Copies terminal WASM output into the web app source tree. |
+| `bun run build:wasm` | The terminal, end-to-end crypto, graphics and codec-probe WASM packages, through Bazel (`bazel run //tools/bazel/wasm:sync`), copied where the web app, the server and Bun import them. |
+| `bun run build:wasm-workspaces` | Regenerates each WASM package's own Cargo workspace and lock (`tools/bazel/wasm/<package>`) after a manifest or `Cargo.lock` change. |
 
-The terminal WASM is profile-guided. `scripts/build-term-wasm.ts` first trains
-`packages/term-wasm-pgo`, an instrumented plain-export module that links `term-wasm` as a
-library, on the ingress benchmark's frames and their `zstd-fixture`-compressed twins
-(`scripts/term-wasm-pgo.ts`). It then builds the shipped crate with `-Cprofile-use`. The training
-build sets `RUSTC_BOOTSTRAP=1` for `-Zno-profiler-runtime`, because `minicov` supplies wasm32's
-profile runtime, on the same pinned compiler, so the profile's function hashes match the stable
-build. Training is deterministic, so two builds from one tree are byte-identical and the
-provenance pin holds; the driver and fixture sources are provenance inputs.
+Bazel builds each WASM package in Cargo's release profile from a crate hub of its own: a
+workspace `scripts/wasm-artifact-manifests.ts` generates, holding that package's crates with
+exactly the features Cargo resolves for it, so a feature another crate needs elsewhere (a test
+helper, a native backend) never reaches the browser. wasm-bindgen and `wasm-opt -O` then write
+the package wasm-pack wrote. The terminal WASM is profile-guided: Bazel builds it instrumented
+(its `pgo-train` training entry points, with `minicov` as wasm32's profile runtime, and
+`RUSTC_BOOTSTRAP=1` for `-Zno-profiler-runtime` on the pinned release compiler), trains it on the
+ingress benchmark's frames and their `zstd-fixture`-compressed twins (`scripts/term-wasm-pgo.ts`),
+merges the profile with the toolchain's `llvm-profdata`, and builds the shipped module, libzstd's
+C included, with `-Cprofile-use`. Both builds compile the same targets, so every function keeps
+its name and its profile.
 
 Signing and deployment packaging commands are in [`docs/releases.md`](../docs/releases.md).
 
@@ -156,7 +157,7 @@ Signing and deployment packaging commands are in [`docs/releases.md`](../docs/re
 | --- | --- | --- |
 | TypeScript unit tests | `*.test.ts` next to the module under test, in every app and package | Bun test, through `bun run test:unit` |
 | Rust unit, integration and doc tests | Inside each crate, declared in its `BUILD.bazel` | `bazel test`, through `bun run rust:test` or `bazel test //<crate directory>/...` |
-| Browser transport cipher | `packages/merkur-e2e/src/wasm_chacha.rs`, compiled only for wasm32 with simd128 | `wasm-bindgen-test` under Node, through `bun run test:wasm-cipher` |
+| Browser transport cipher | `packages/merkur-e2e/src/wasm_chacha.rs`, compiled only for wasm32 with simd128 | `wasm-bindgen-test` under Node, through `bun run test:wasm-cipher` (`bazel test //tools/bazel/wasm/merkur-e2e-cipher:test`) |
 | Browser end-to-end specs | `tests/e2e/*.e2e.ts`, with shared fixtures in `tests/fixtures` and helpers in `tests/helpers` | Playwright, through the `test:e2e*` commands |
 | Container labs | `scripts/natlab` | Docker, through `bun run test:natlab` |
 
@@ -210,8 +211,8 @@ never in the terminal hot path. This is what a deployment needs.
 | Component | Requirement |
 | --- | --- |
 | Bun | Server runtime and the runtime the daemon CLI is compiled with. |
-| Rust | Builds the daemon dataplane, the edge relay, the STUN responder, the display codec, and the terminal WASM. |
-| `wasm32-unknown-unknown`, `wasm-pack`, and a wasm32-capable `clang` | Build the WASM packages, including `packages/term-wasm`, which links libzstd, and `packages/e2e-wasm`, which the server and daemon executables embed. |
+| Rust | Builds the daemon dataplane, the edge relay, the STUN responder and the display codec. |
+| Bazel | Builds the WASM packages, including `packages/term-wasm`, which links libzstd, and `packages/e2e-wasm`, which the server and daemon executables embed. |
 | libSQL | The server's durable database, reached through `DB_URL`. A `file:` URL opens a local database in-process, defaulting to `file:./data/merkur.db`; `http(s)://` or `libsql://` reach a libSQL server, which is what production runs so more than one process can share one database. |
 | Redis or Dragonfly | The realtime coordination backend, reached through `REDIS_URL`. |
 | Merkur edge | A registered blind WebTransport relay. Every replica publishes its exact URL and current certificate pins to the server. |

@@ -20,8 +20,6 @@ function fixture(): string {
     'bunfig.toml',
     'tsconfig.base.json',
     'scripts/e2e-web-artifacts.ts',
-    'scripts/sync-term-wasm.ts',
-    'scripts/term-wasm-provenance.ts',
   ])
     writeFileSync(path.join(root, file), '');
   return root;

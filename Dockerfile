@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
-# Build tooling runs on the build platform; see the toolchain stage.
+# Build tooling runs on the build platform; see the builder stage.
 FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS bun
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl unzip \
@@ -51,76 +51,18 @@ COPY packages/user-agent/package.json packages/user-agent/package.json
 # Use Docker layer caching: Railway cache mounts require a literal service ID.
 RUN pnpm install --frozen-lockfile
 
-# Everything the builder produces is platform-neutral (WebAssembly, web assets,
-# bundled migrations) except the server executable, which `bun build --compile`
-# cross-targets. So the toolchain runs on the build platform: the term-wasm
-# profile trainer executes SIMD WebAssembly, which an emulated x86-64 JavaScript
-# engine refuses. It stays on bookworm, the runner's glibc floor, for the
-# native helpers the WebAssembly builds run.
-FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS toolchain
-
-WORKDIR /app
-
-COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-
-# The profile-guided term-wasm build instruments libzstd's C with clang and
-# links it against the Rust-side profile runtime, so clang must be the LLVM the
-# pinned Rust uses (23). Bookworm's clang 14 emits registration calls that
-# runtime does not define. apt.llvm.org is admitted only under its pinned key.
+# Everything the builder produces is platform-neutral (web assets, bundled migrations) except
+# the server executable, which `bun build --compile` cross-targets, so it runs on the build
+# platform. The WebAssembly packages arrive built: Bazel builds them before the image does
+# (`bun run build:wasm`).
+FROM dependencies AS builder
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    build-essential \
-    brotli \
-    ca-certificates \
-    curl \
-    gnupg \
-    pkg-config \
-    libssl-dev \
-  && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm.key \
-  && gpg --show-keys --with-colons /tmp/llvm.key | grep -qx 'fpr:::::::::6084F3CF814B57C1CF12EFD515CF4D18AF4F7421:' \
-  && gpg --dearmor -o /usr/share/keyrings/llvm.gpg /tmp/llvm.key \
-  && echo 'deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-23 main' \
-    > /etc/apt/sources.list.d/llvm-23.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends clang-23 lld-23 llvm-23 \
-  && rustup target add wasm32-unknown-unknown \
-  && cargo install wasm-pack --version 0.15.0 --locked \
-  && rm -rf /var/lib/apt/lists/* /tmp/llvm.key
-ENV PATH="/usr/lib/llvm-23/bin:${PATH}"
-
-# `scripts/wasm-toolchain.ts` installs the wasm-bindgen CLI matching Cargo.lock
-# the first time a crate is built. Compiling that CLI from source costs ~170s,
-# and its only inputs are the version pinned in the lockfile and the toolchain
-# channel -- not repository source. Install it against just those two files, so
-# the layer is reused until one of them changes; the script then finds the
-# pinned version already present and skips the install entirely.
-COPY Cargo.lock rust-toolchain.toml ./
-RUN version="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = "|"/, ""); print; exit }' Cargo.lock)" \
-  && test -n "$version" \
-  && cargo install wasm-bindgen-cli --version "$version" --locked --root .tools/wasm-bindgen
-
-# The one ML-DSA-87/SHA-2 implementation, built from this source. The builder
-# embeds it in the server; `verified` checks the signed deployment with it, so
-# the verifier's cryptography never comes from the bundle it verifies.
-FROM toolchain AS e2e-wasm
-COPY package.json ./
-COPY Cargo.toml ./
-COPY .cargo/ .cargo/
+  && apt-get install -y --no-install-recommends brotli \
+  && rm -rf /var/lib/apt/lists/*
+COPY tsconfig.base.json tsconfig.json ./
 COPY apps/ apps/
 COPY packages/ packages/
 COPY scripts/ scripts/
-RUN bun run scripts/build-e2e-wasm.ts
-
-FROM toolchain AS builder
-COPY --from=dependencies /app/ /app/
-COPY Cargo.toml tsconfig.base.json ./
-# The terminal WASM build manifest hashes its pipeline inputs (`TERM_WASM_PIPELINE_INPUTS`).
-COPY tsconfig.json ./
-COPY .cargo/ .cargo/
-COPY apps/ apps/
-COPY packages/ packages/
-COPY scripts/ scripts/
-COPY --from=e2e-wasm /app/packages/e2e-wasm/pkg/ packages/e2e-wasm/pkg/
 
 ARG VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY
 ARG MERKUR_RELEASE_MLDSA87_PUBLIC_KEY
@@ -130,8 +72,7 @@ ENV MERKUR_VERSION=${MERKUR_BUILD_COMMIT}
 
 RUN bun -e 'import { decodeReleasePublicKey } from "./packages/shared/src/release-signature"; decodeReleasePublicKey(process.env.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY ?? ""); if (!/^[0-9a-f]{40}$/.test(process.env.MERKUR_BUILD_COMMIT ?? "")) throw new Error("MERKUR_BUILD_COMMIT is required")' \
   && bun -e 'const value = process.env.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY ?? ""; const decoded = Buffer.from(value, "base64url"); if (decoded.byteLength !== 32 || decoded.toString("base64url") !== value) throw new Error("VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY must be canonical base64url for 32 bytes")' \
-  && bun run build:graphics-wasm \
-  && bun --no-env-file run --cwd apps/web build
+  && bun --no-env-file run --cwd apps/web vite build
 RUN find apps/web/dist -type f ! -name '*.br' -print0 \
   | xargs -0 -r -n 1 -P "$(nproc)" brotli --force --quality=11
 # `bun build` inlines `process.env.NODE_ENV` while bundling — as "development"
@@ -172,7 +113,7 @@ FROM dependencies AS verified
 ARG MERKUR_RELEASE_MLDSA87_PUBLIC_KEY
 ARG MERKUR_BUILD_COMMIT
 COPY packages/shared/src/ packages/shared/src/
-COPY --from=e2e-wasm /app/packages/e2e-wasm/pkg/ packages/e2e-wasm/pkg/
+COPY packages/e2e-wasm/pkg/ packages/e2e-wasm/pkg/
 COPY scripts/web-build-signature.ts scripts/web-build-signature.ts
 COPY deployment/ deployment/
 RUN bun run deployment:verify -- --directory deployment --commit "$MERKUR_BUILD_COMMIT"

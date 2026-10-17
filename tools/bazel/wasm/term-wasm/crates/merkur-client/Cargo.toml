@@ -1,0 +1,32 @@
+# Generated from packages/merkur-client/Cargo.toml by scripts/wasm-artifact-manifests.ts:
+# edit that manifest and rerun the script.
+[package]
+name = "merkur-client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../../packages/merkur-client/src/lib.rs"
+
+[dependencies]
+merkur-authorization = { path = "../merkur-authorization", default-features = false }
+merkur-codec = { path = "../merkur-codec", default-features = false }
+merkur-e2e = { path = "../merkur-e2e", default-features = false }
+merkur-edge-protocol = { path = "../merkur-edge-protocol", default-features = false }
+merkur-fec = { path = "../merkur-fec", default-features = false }
+merkur-graphics = { path = "../merkur-graphics", default-features = false }
+merkur-wire = { path = "../merkur-wire", default-features = false }
+base64 = { version = "0.23", default-features = false, features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+unicode-width = { version = "0.2" }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
+[features]
+default = []
+std = ["merkur-e2e/std","merkur-authorization/std","merkur-wire/std"]
+wasm = ["merkur-e2e/wasm","merkur-authorization/wasm","merkur-wire/wasm"]
+
+[lints]
+workspace = true

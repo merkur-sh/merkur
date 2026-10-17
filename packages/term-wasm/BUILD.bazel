@@ -5,6 +5,14 @@ load("//tools/bazel/rust:defs.bzl", "rust_release_test")
 
 package(default_visibility = ["//visibility:public"])
 
+# The crate's sources, which the browser build in `//tools/bazel/wasm` compiles too.
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+)
+
+exports_files(["src/lib.rs"])
+
 extract_cargo_lints(
     name = "lints",
     manifest = "Cargo.toml",
@@ -15,13 +23,14 @@ extract_cargo_lints(
 # drive, and what its own tests run.
 rust_library(
     name = "term_wasm",
-    srcs = glob(["src/**/*.rs"]),
+    srcs = [":srcs"],
     aliases = aliases(),
     compile_data = ["//apps/web:fonts"],
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro = True),
     deps = [
         "//packages/alacritty-terminal-patch:alacritty_terminal",
+        "//packages/fontdue-patch:fontdue",
         "//packages/merkur-client:merkur_client",
         "//packages/merkur-codec:merkur_codec",
         "//packages/merkur-graphics:merkur_graphics",
