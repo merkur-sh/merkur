@@ -588,7 +588,7 @@
       "run": "39061944109",
       "attempt": 1,
       "sequence": 112,
-      "phase": "retained",
+      "phase": "services",
       "events": [
         {
           "phase": "signing",
@@ -614,6 +614,14 @@
         {
           "phase": "retained",
           "targetIdentities": {
+            "merkur-edge": "4473f67aed1151101feddbf7685a043a9bfb92df3e3db6c93cc9504cc89e2a3e037b649f87bfd72f5d0dde2a98a9ce76aacb7c5154604bb17f114781af1f4991",
+            "merkur-stun": "5c1f8fa4b02fdd7355b7ef9f106bdc1bde286d0e4fd6735dab199431a64a52981f3aac4b8628b7fb1672cd8aea30ca84c2382a50f57b40b80b685bfde99e4e2a",
+            "railway": "ab90f8a6-da5b-418d-a4c2-4391051eea46"
+          }
+        },
+        {
+          "phase": "services",
+          "evidence": {
             "merkur-edge": "4473f67aed1151101feddbf7685a043a9bfb92df3e3db6c93cc9504cc89e2a3e037b649f87bfd72f5d0dde2a98a9ce76aacb7c5154604bb17f114781af1f4991",
             "merkur-stun": "5c1f8fa4b02fdd7355b7ef9f106bdc1bde286d0e4fd6735dab199431a64a52981f3aac4b8628b7fb1672cd8aea30ca84c2382a50f57b40b80b685bfde99e4e2a",
             "railway": "ab90f8a6-da5b-418d-a4c2-4391051eea46"
