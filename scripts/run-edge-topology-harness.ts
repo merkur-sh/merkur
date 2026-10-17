@@ -31,12 +31,13 @@ const APP_REGISTER_URL = `http://127.0.0.1:${APP_PORT}/api/edge/register`;
 const CONTROL_PORT = Number(process.env.EDGE_TOPOLOGY_CONTROL_PORT ?? 24_351);
 const CONTROL_REGISTER_URL = `http://127.0.0.1:${CONTROL_PORT}/api/edge/register`;
 const EDGE_PORTS = [
-  Number(process.env.EDGE_TOPOLOGY_IAD_PORT ?? 24_352),
-  Number(process.env.EDGE_TOPOLOGY_FRA_PORT ?? 24_353),
+  Number(process.env.EDGE_TOPOLOGY_ASH_PORT ?? 24_352),
+  Number(process.env.EDGE_TOPOLOGY_NBG_PORT ?? 24_353),
 ] as const;
+// Edge ids in lexical order: the server accepts only the canonical JSON.
 const EDGE_REGISTRATION_KEYS = new Map([
-  ['nbg-1', Buffer.alloc(64, 0x61).toString('base64url')],
   ['ash-1', Buffer.alloc(64, 0x62).toString('base64url')],
+  ['nbg-1', Buffer.alloc(64, 0x61).toString('base64url')],
 ]);
 const EDGE_REGISTRATION_KEYS_JSON = JSON.stringify(Object.fromEntries(EDGE_REGISTRATION_KEYS));
 // `EDGE_ATTACH_TICKET_KEY` in tests/e2e/start-server.ts, which mints the real session's.
