@@ -20,7 +20,6 @@ struct Pty {
     child: Child,
     input: Option<ChildStdin>,
     state_directory: std::path::PathBuf,
-    bridge: std::path::PathBuf,
     binary: String,
     events: mpsc::Receiver<Value>,
     term: Term<VoidListener>,
@@ -33,14 +32,15 @@ struct Pty {
 impl Pty {
     fn open() -> Self {
         let binary = std::env::var("MERKUR_TUI_TEST_BIN").expect("harness-built binary");
-        let run = merkur_client::uuid_v4(&mut merkur_client_native::driver::OsEntropy);
-        let state_directory = std::env::temp_dir().join(format!("merkur-live-account-{run}"));
+        let state_directory = std::env::temp_dir().join(format!(
+            "merkur-live-account-{}",
+            merkur_client::uuid_v4(&mut merkur_client_native::driver::OsEntropy)
+        ));
         // The bridge travels inside this executable, which the harness runs from wherever its
         // build left it.
-        let bridge = std::env::temp_dir().join(format!("merkur-pty-bridge-{run}.py"));
-        std::fs::write(&bridge, include_str!("pty_bridge.py")).expect("PTY bridge written");
         let mut command = Command::new("python3");
-        command.arg(&bridge).arg(&binary).arg("connect").args([
+        command.args(["-c", include_str!("pty_bridge.py")]);
+        command.arg(&binary).arg("connect").args([
             "--state-dir",
             state_directory.to_str().expect("test path"),
             "--identity-seal",
@@ -84,7 +84,6 @@ impl Pty {
             child,
             input: Some(input),
             state_directory,
-            bridge,
             binary,
             events,
             term: Term::new(Config::default(), &TermSize::new(80, 24), VoidListener),
@@ -191,7 +190,6 @@ impl Drop for Pty {
         if self.state_directory.exists() {
             let _ = std::fs::remove_dir_all(&self.state_directory);
         }
-        let _ = std::fs::remove_file(&self.bridge);
     }
 }
 
