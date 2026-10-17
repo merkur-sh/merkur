@@ -55,6 +55,9 @@ features = ["tracing"]
 default-features = false
 package = "quinn-udp"
 
+[build-dependencies.cfg_aliases]
+version = "0.2"
+
 [dev-dependencies.anyhow]
 version = "1.0.22"
 
@@ -93,9 +96,6 @@ default-features = false
 
 [dev-dependencies.url]
 version = "2"
-
-[build-dependencies.cfg_aliases]
-version = "0.2"
 
 [package]
 name = "quinn"

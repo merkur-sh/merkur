@@ -27,6 +27,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Schema } from 'effect';
 import {
+  type Dependencies,
+  DependencyTables,
   fromCargo,
   MEMBERS,
   type MemberEdge,
@@ -51,28 +53,10 @@ const Workspace = Schema.Struct({
   workspace: Schema.Struct({ exclude: Schema.Array(Schema.String) }),
 });
 
-/** A dependency: its version alone, or its detailed table. */
-const Dependency = Schema.Union([
-  Schema.String,
-  Schema.Record(
-    Schema.String,
-    Schema.Union([Schema.String, Schema.Boolean, Schema.Array(Schema.String)]),
-  ),
-]);
-const Dependencies = Schema.Record(Schema.String, Dependency);
-type Dependencies = typeof Dependencies.Type;
-
-const Tables = Schema.Struct({
-  dependencies: Schema.optionalKey(Dependencies),
-  'dev-dependencies': Schema.optionalKey(Dependencies),
-  'build-dependencies': Schema.optionalKey(Dependencies),
-});
-type Tables = typeof Tables.Type;
-
 /** The manifest tables this script reads or rewrites; every other table is carried over as is. */
 const Manifest = Schema.StructWithRest(
   Schema.Struct({
-    ...Tables.fields,
+    ...DependencyTables.fields,
     package: Schema.StructWithRest(
       Schema.Struct({
         name: Schema.String,
@@ -83,7 +67,7 @@ const Manifest = Schema.StructWithRest(
       [Schema.Record(Schema.String, Schema.Unknown)],
     ),
     lib: Schema.Struct({ name: Schema.String, path: Schema.String }),
-    target: Schema.optionalKey(Schema.Record(Schema.String, Tables)),
+    target: Schema.optionalKey(Schema.Record(Schema.String, DependencyTables)),
   }),
   [Schema.Record(Schema.String, Schema.Unknown)],
 );
@@ -163,7 +147,11 @@ function memberDependencies(
 }
 
 /** A member's dependency tables, each through `memberDependencies`. */
-function memberTables(tables: Tables, crate: Vendored, members: ReadonlyMap<string, Vendored>) {
+function memberTables(
+  tables: DependencyTables,
+  crate: Vendored,
+  members: ReadonlyMap<string, Vendored>,
+) {
   return Object.fromEntries(
     (['dependencies', 'dev-dependencies', 'build-dependencies'] as const).flatMap((kind) => {
       const dependencies = tables[kind];

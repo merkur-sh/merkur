@@ -11,6 +11,25 @@ import { Schema } from 'effect';
 /** The directory under a hub's workspace holding its members' manifests. */
 export const MEMBERS = 'crates';
 
+/** A manifest dependency: its version alone, or its detailed table. */
+export const Dependency = Schema.Union([
+  Schema.String,
+  Schema.Record(
+    Schema.String,
+    Schema.Union([Schema.String, Schema.Boolean, Schema.Array(Schema.String)]),
+  ),
+]);
+export const Dependencies = Schema.Record(Schema.String, Dependency);
+export type Dependencies = typeof Dependencies.Type;
+
+/** A manifest's dependency tables, at its root or under one `[target]` key. */
+export const DependencyTables = Schema.Struct({
+  dependencies: Schema.optionalKey(Dependencies),
+  'build-dependencies': Schema.optionalKey(Dependencies),
+  'dev-dependencies': Schema.optionalKey(Dependencies),
+});
+export type DependencyTables = typeof DependencyTables.Type;
+
 export const Metadata = Schema.Struct({
   packages: Schema.Array(
     Schema.Struct({

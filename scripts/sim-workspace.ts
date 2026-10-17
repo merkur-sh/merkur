@@ -24,6 +24,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Schema } from 'effect';
 import {
+  type Dependencies,
+  DependencyTables,
   fromCargo,
   MEMBERS,
   Metadata,
@@ -69,24 +71,8 @@ const VENDORED_PATCHES = new Set([
 const TRIPLES = NATIVE_TRIPLES;
 type Triple = NativeTriple;
 
-const Dependency = Schema.Union([
-  Schema.String,
-  Schema.Record(
-    Schema.String,
-    Schema.Union([Schema.String, Schema.Boolean, Schema.Array(Schema.String)]),
-  ),
-]);
-const Dependencies = Schema.Record(Schema.String, Dependency);
-type Dependencies = typeof Dependencies.Type;
-
-const Table = Schema.Struct({
-  dependencies: Schema.optionalKey(Dependencies),
-  'build-dependencies': Schema.optionalKey(Dependencies),
-  'dev-dependencies': Schema.optionalKey(Dependencies),
-});
-
 const Manifest = Schema.Struct({
-  ...Table.fields,
+  ...DependencyTables.fields,
   package: Schema.Struct({
     name: Schema.String,
     version: Schema.String,
@@ -99,7 +85,7 @@ const Manifest = Schema.Struct({
       path: Schema.optionalKey(Schema.String),
     }),
   ),
-  target: Schema.optionalKey(Schema.Record(Schema.String, Table)),
+  target: Schema.optionalKey(Schema.Record(Schema.String, DependencyTables)),
   features: Schema.optionalKey(Schema.Record(Schema.String, Schema.Array(Schema.String))),
   lints: Schema.optionalKey(Schema.Struct({ workspace: Schema.optionalKey(Schema.Boolean) })),
 });
