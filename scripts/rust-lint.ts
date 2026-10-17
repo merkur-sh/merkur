@@ -2,16 +2,18 @@
  * `rust:lint`: Clippy over every first-party Rust target, each finding sorted into exactly one of
  * three classes by its lint and its file (`classify`).
  *
- *   bun run rust:lint                   the workspace against the baseline (gates, CI)
- *   bun run rust:lint --tighten         lower or drop entries to today's counts; never raises or adds one
- *   bun run rust:lint --write-baseline  write the whole baseline from this tree; for adoption only,
- *                                       refused while a baseline exists
+ *   bazel test //:rust_lint                          the workspace against the baseline (CI)
+ *   bazel run //:rust_lint -- --tighten              lower or drop entries to today's counts; never
+ *                                                    raises or adds one
+ *   bazel run //:rust_lint -- --write-baseline       write the whole baseline from this tree; for
+ *                                                    adoption only, refused while a baseline exists
  *
  * Bazel runs Clippy as an aspect on every first-party target, a test's included, through
  * `//tools/bazel/rust:clippy.bzl`: per crate, cached like any other action, and in the
  * configuration the target builds in. A test that builds with merkur-e2e's `testing` feature is
- * linted with it. Each target leaves rustc's JSON diagnostics in the `clippy_diagnostics` output
- * group, which the build's event file names; this script reads exactly those files.
+ * linted with it. Each package's `:clippy_diagnostics` holds its targets' rustc JSON diagnostics,
+ * and `//:clippy_diagnostics` names every package's in one manifest, with the flags Clippy ran
+ * with; this script reads exactly those files.
  *
  * Zero: a finding nothing allows. Every warning or error that is not a ratcheted lint is one,
  * in every first-party crate, the vendored members included: the compiler's own warnings,
@@ -25,8 +27,8 @@
  * Bazel lints the first-party targets and nothing else, so a `[patch]` crate that crate_universe
  * builds is never read.
  *
- * Baseline: the ratcheted lints, which no manifest enables and this script hands to Clippy as
- * warnings. `lint-baselines/clippy.json` pins their findings per file and per lint under the
+ * Baseline: the ratcheted lints, which no Cargo manifest enables and `.bazelrc` hands to Clippy
+ * as warnings, exactly `RATCHETED_LINTS`, which the manifest's flags must equal. `lint-baselines/clippy.json` pins their findings per file and per lint under the
  * rules of `scripts/lint-ratchet.ts`: a file or lint it does not name is allowed nothing, a count
  * above its entry fails with each finding, and a count below it fails until `--tighten`. The
  * `WHOLE_TREE` lints count in every first-party file, the panic lints in the crates of
@@ -37,7 +39,8 @@
  * panic-free and the panic-ratcheted crates.
  *
  * Clippy runs with `--cap-lints warn`, so no lint stops a crate and one run reports the whole
- * workspace; this script, not the compiler, is what fails. A finding is counted once however
+ * workspace; this script, not the compiler, is what fails. A crate that does not compile fails
+ * the build before this script runs. A finding is counted once however
  * many targets report it, at its primary span, or, when that span lies in a macro of another
  * crate, at the nearest place in this repository that expanded it.
  *
@@ -46,13 +49,12 @@
  * host. On any other host a run enforces the zero class, says in one line that the baseline was
  * not compared, and `--tighten` is refused.
  *
- * A build that did not finish, a diagnostics file that is not rustc's JSON, and a diagnostic with
- * no lint code or no place in this repository fail as unverified, never as a pass, after what the
+ * A manifest line it does not define, a diagnostics file that is not rustc's JSON, and a
+ * diagnostic with no lint code or no place in this repository fail as unverified, never as a pass, after what the
  * compiler did report is printed. rustc closes each file with a count of its warnings, which is
  * read as that count and nothing else.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Option, Schema } from 'effect';
 
@@ -139,10 +141,6 @@ const VENDORED_CRATE = /^packages\/[^/]+-patch\//;
 /** The lint that reports a call `clippy.toml` lists: the timer calls. */
 const TIMER_LINT = 'clippy::disallowed_methods';
 
-/** The aspect that lints every first-party target, and the output group that holds its JSON. */
-const CLIPPY_ASPECT = '//tools/bazel/rust:clippy.bzl%clippy_diagnostics';
-const CLIPPY_OUTPUT = 'clippy_diagnostics';
-
 /** Each ratcheted lint once, in the order Clippy is handed them. */
 export const RATCHETED_LINTS: readonly string[] = [
   ...new Set([...WHOLE_TREE, ...PANIC_LINTS]),
@@ -216,46 +214,6 @@ const RustcRecord = Schema.fromJsonString(
   }),
 );
 
-/** One line of Bazel's `--build_event_json_file`: only the two kinds this script reads. */
-const BuildEvent = Schema.fromJsonString(
-  Schema.Struct({
-    id: Schema.Struct({
-      namedSet: Schema.optionalKey(Schema.Struct({ id: Schema.String })),
-      targetCompleted: Schema.optionalKey(
-        Schema.Struct({ label: Schema.String, aspect: Schema.optionalKey(Schema.String) }),
-      ),
-    }),
-    // A file is named by its output root (`pathPrefix`) and its path under it, from the
-    // execution root; its `uri` is a remote cache's when one holds it.
-    namedSetOfFiles: Schema.optionalKey(
-      Schema.Struct({
-        files: Schema.optionalKey(
-          Schema.Array(
-            Schema.Struct({
-              name: Schema.String,
-              pathPrefix: Schema.optionalKey(Schema.Array(Schema.String)),
-            }),
-          ),
-        ),
-        fileSets: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Schema.String }))),
-      }),
-    ),
-    completed: Schema.optionalKey(
-      Schema.Struct({
-        success: Schema.optionalKey(Schema.Boolean),
-        outputGroup: Schema.optionalKey(
-          Schema.Array(
-            Schema.Struct({
-              name: Schema.String,
-              fileSets: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Schema.String }))),
-            }),
-          ),
-        ),
-      }),
-    ),
-  }),
-);
-
 const BaselineJson = Schema.fromJsonString(
   Schema.Struct({ host: Schema.String, files: BaselineEntries }),
 );
@@ -297,85 +255,50 @@ export function sortFindings(findings: readonly ClippyFinding[]): Classes {
   return { zero, baselined };
 }
 
-/**
- * The Bazel invocation: the Clippy aspect on every target, each ratcheted lint as a warning, and
- * the event file that names what it wrote. `--keep_going` reports every crate that fails; Bazel
- * does not echo each crate's warnings, which this script prints classified.
- */
-export function clippyCommand(eventFile: string): string[] {
-  return [
-    'bazel',
-    'build',
-    '--keep_going',
-    '--output_filter=^$',
-    `--aspects=${CLIPPY_ASPECT}`,
-    `--output_groups=${CLIPPY_OUTPUT}`,
-    `--build_event_json_file=${eventFile}`,
-    ...RATCHETED_LINTS.map((lint) => `--@rules_rust//rust/settings:clippy_flag=-W${lint}`),
-    '--',
-    '//...',
-  ];
+/** What Clippy must run with: each ratcheted lint as a warning, and nothing else. */
+export const CLIPPY_FLAGS: readonly string[] = RATCHETED_LINTS.map((lint) => `-W${lint}`);
+
+/** What `//:clippy_diagnostics` writes: the flags Clippy ran with and every diagnostics file. */
+export interface ClippyManifest {
+  readonly flags: readonly string[];
+  readonly files: readonly string[];
 }
 
-/**
- * The diagnostics files of the event file, as paths under Bazel's execution root: each file of
- * the `clippy_diagnostics` group of every target the aspect completed, through the nested sets
- * that hold them. An aspect that did not complete makes the run no answer.
- */
-export function diagnosticFiles(events: string): string[] {
-  const sets = new Map<string, { files: readonly string[]; nested: readonly string[] }>();
-  const roots: string[] = [];
+const MANIFEST_LINE = /^(flag|file) (.+)$/;
 
-  for (const line of events.split('\n')) {
+/**
+ * The manifest's `flag` and `file` lines, its files by their path in the checkout. A line of
+ * another kind makes the run no answer, and so does any flag set but `CLIPPY_FLAGS`: `.bazelrc`
+ * hands Clippy the ratcheted lints, and one missing there would read as every file fixed.
+ */
+export function readManifest(text: string): ClippyManifest {
+  const flags: string[] = [];
+  const files: string[] = [];
+
+  for (const line of text.split('\n')) {
     if (line === '') continue;
 
-    const event = Option.getOrNull(Schema.decodeOption(BuildEvent)(line));
+    const match = line.match(MANIFEST_LINE);
 
-    if (event === null) throw new UnverifiedError(`Bazel wrote an event that is not JSON: ${line}`);
-
-    const named = event.id.namedSet?.id;
-
-    if (named !== undefined && event.namedSetOfFiles !== undefined) {
-      sets.set(named, {
-        files: (event.namedSetOfFiles.files ?? []).map((file) =>
-          [...(file.pathPrefix ?? []), file.name].join('/'),
-        ),
-        nested: (event.namedSetOfFiles.fileSets ?? []).map((set) => set.id),
-      });
+    if (match?.[1] === undefined || match[2] === undefined) {
+      throw new UnverifiedError(`the Clippy manifest holds a line it does not define: ${line}`);
     }
 
-    const completed = event.id.targetCompleted;
-
-    if (completed?.aspect !== CLIPPY_ASPECT) continue;
-
-    if (event.completed?.success !== true) {
-      throw new UnverifiedError(`Clippy did not complete for ${completed.label}`);
-    }
-
-    for (const group of event.completed.outputGroup ?? []) {
-      if (group.name === CLIPPY_OUTPUT) roots.push(...(group.fileSets ?? []).map((set) => set.id));
-    }
+    (match[1] === 'flag' ? flags : files).push(match[2]);
   }
 
-  const files = new Set<string>();
-  const visited = new Set<string>();
-  const pending = [...roots];
+  const missing = CLIPPY_FLAGS.filter((flag) => !flags.includes(flag));
+  const extra = flags.filter((flag) => !CLIPPY_FLAGS.includes(flag));
 
-  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
-    if (visited.has(id)) continue;
-
-    visited.add(id);
-
-    const set = sets.get(id);
-
-    if (set === undefined) throw new UnverifiedError(`Bazel's events name no file set ${id}`);
-
-    for (const file of set.files) files.add(file);
-
-    pending.push(...set.nested);
+  if (missing.length > 0 || extra.length > 0) {
+    throw new UnverifiedError(
+      `Clippy ran with flags other than the ratchet's (missing: ${missing.join(' ') || 'none'}; extra: ${extra.join(' ') || 'none'}); .bazelrc passes exactly RATCHETED_LINTS`,
+    );
   }
 
-  return [...files].sort(order);
+  if (files.length === 0) throw new UnverifiedError('the Clippy manifest names no diagnostics');
+
+  return { flags, files: [...files].sort(order) };
 }
 
 /**
@@ -465,9 +388,7 @@ export function readClippy(texts: readonly string[], root: string): ClippyRun {
 }
 
 /** Why a run is no answer, or null when the build finished and every diagnostic was read. */
-export function unverifiedReason(run: ClippyRun, exitCode: number): string | null {
-  if (exitCode !== 0) return `bazel build exited ${exitCode}`;
-
+export function unverifiedReason(run: ClippyRun): string | null {
   if (run.unplaced.length === 0) return null;
 
   return `${run.unplaced.length} compiler messages carry no lint code or no place in this repository`;
@@ -570,62 +491,45 @@ function onDisk(file: string): boolean {
   return existsSync(path.join(ROOT, file));
 }
 
-/** One `bazel info` value for this checkout. */
-async function bazelInfo(key: string): Promise<string> {
-  const child = Bun.spawn(['bazel', 'info', key], {
-    cwd: ROOT,
-    stdin: 'ignore',
-    stdout: 'pipe',
-    stderr: 'inherit',
-  });
-  const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+/**
+ * Where a rewritten baseline goes: the working tree `bazel run` names. The test reads a copy of
+ * the tree, which a write would not reach.
+ */
+function workingTree(): string {
+  const tree = process.env.BUILD_WORKSPACE_DIRECTORY;
 
-  if (exitCode !== 0) throw new UnverifiedError(`bazel info ${key} exited ${exitCode}`);
+  if (tree === undefined) {
+    throw new UnverifiedError('a baseline is rewritten through `bazel run //:rust_lint -- <mode>`');
+  }
 
-  return stdout.trim();
+  return tree;
 }
 
 /**
- * One Clippy run: the baseline class as its findings, the zero class as what fails it outright.
- * Bazel's progress goes straight to the terminal; the diagnostics are read from the files the
- * event file names. What an unverified run did report is printed before the run is given up, so
- * a compile error is seen and not only counted.
+ * One Clippy run, as the manifest names its diagnostics: the baseline class as its findings, the
+ * zero class as what fails it outright. What an unverified run did report is printed before the
+ * run is given up, so a stray message is seen and not only counted.
  */
-async function measure(): Promise<Measurement> {
-  const scratch = mkdtempSync(path.join(tmpdir(), 'rust-lint-'));
+function measure(manifestFile: string): Measurement {
+  const manifest = readManifest(readFileSync(path.join(ROOT, manifestFile), 'utf8'));
+  const run = readClippy(
+    manifest.files.map((file) => readFileSync(path.join(ROOT, file), 'utf8')),
+    ROOT,
+  );
+  const classes = sortFindings(run.findings);
+  const failures = zeroFailures(classes.zero);
+  const reason = unverifiedReason(run);
 
-  try {
-    const eventFile = path.join(scratch, 'events.json');
-    const child = Bun.spawn(clippyCommand(eventFile), {
-      cwd: ROOT,
-      stdin: 'ignore',
-      stdout: 'inherit',
-      stderr: 'inherit',
-    });
-    const exitCode = await child.exited;
-    const files = exitCode === 0 ? diagnosticFiles(readFileSync(eventFile, 'utf8')) : [];
-    const executionRoot = files.length === 0 ? '' : await bazelInfo('execution_root');
-    const run = readClippy(
-      files.map((file) => readFileSync(path.join(executionRoot, file), 'utf8')),
-      ROOT,
-    );
-    const classes = sortFindings(run.findings);
-    const failures = zeroFailures(classes.zero);
-    const reason = unverifiedReason(run, exitCode);
+  if (reason !== null) {
+    process.stdout.write(`${failures.sections}${renderUnplaced(run.unplaced)}`);
 
-    if (reason !== null) {
-      process.stdout.write(`${failures.sections}${renderUnplaced(run.unplaced)}`);
-
-      throw new UnverifiedError(reason);
-    }
-
-    return { findings: classes.baselined, failures };
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
+    throw new UnverifiedError(reason);
   }
+
+  return { findings: classes.baselined, failures };
 }
 
-async function run(mode: TreeMode): Promise<number> {
+function run(mode: TreeMode, manifestFile: string): number {
   const here = hostTriple(process.platform, process.arch);
 
   if (mode === 'write-baseline') {
@@ -633,8 +537,8 @@ async function run(mode: TreeMode): Promise<number> {
 
     if (refusal !== null) return conclude({ output: refusal, code: 1 });
 
-    const adopted = adopt(GATE, await measure());
-    writeBaselineFile(ROOT, GATE, formatClippyBaseline(here, adopted.counts));
+    const adopted = adopt(GATE, measure(manifestFile));
+    writeBaselineFile(workingTree(), GATE, formatClippyBaseline(here, adopted.counts));
 
     return conclude(adopted);
   }
@@ -645,14 +549,14 @@ async function run(mode: TreeMode): Promise<number> {
 
   if (refusal !== null) return conclude({ output: refusal, code: 1 });
 
-  const measured = await measure();
+  const measured = measure(manifestFile);
 
   if (baseline.host !== here)
     return conclude(judgeElsewhere(baseline.host, here, measured.failures));
 
   if (mode === 'tighten') {
     const tightened = tighten(GATE, measured, baseline.counts, onDisk);
-    writeBaselineFile(ROOT, GATE, formatClippyBaseline(here, tightened.counts));
+    writeBaselineFile(workingTree(), GATE, formatClippyBaseline(here, tightened.counts));
 
     return conclude(tightened);
   }
@@ -667,6 +571,20 @@ const MODES = new Map<string, TreeMode>([
   ['--write-baseline', 'write-baseline'],
 ]);
 
+const MANIFEST_ARGUMENT = '--diagnostics=';
+
 if (import.meta.main) {
-  await main(GATE, () => run(selectMode(process.argv.slice(2), MODES, 'check')));
+  const argv = process.argv.slice(2);
+  const manifestFile = argv.find((argument) => argument.startsWith(MANIFEST_ARGUMENT));
+  const modes = argv.filter((argument) => argument !== manifestFile);
+
+  await main(GATE, async () => {
+    if (manifestFile === undefined) {
+      throw new UnverifiedError(
+        'rust:lint runs as `bazel test //:rust_lint`, which names its manifest',
+      );
+    }
+
+    return run(selectMode(modes, MODES, 'check'), manifestFile.slice(MANIFEST_ARGUMENT.length));
+  });
 }

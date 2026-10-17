@@ -264,20 +264,21 @@ def bun_tests(name = "test", tests = [], parallel = 4, browsers = False, **kwarg
         **kwargs
     )
 
-def repo_check(name, script, **kwargs):
+def repo_check(name, script, data = [], **kwargs):
     """`bun run <script>`, a `package.json` gate, over a checkout of the whole repository.
 
     The checkout is a Git repository, so the gates see what Git ignores as a working tree does.
 
     Args:
       name: the test's name.
-      script: the `package.json` script that is the gate.
+      script: the `package.json` script that is the gate, or the script file it runs.
+      data: what the gate reads beyond the checkout, which joins it.
       **kwargs: the common test attributes.
     """
     bun_test(
         name = name,
         args_ = ["run", script],
-        data = _TEST_DATA,
+        data = _TEST_DATA + data,
         git = True,
         links = SYMLINKS,
         mounts = _VENDORED,

@@ -278,7 +278,6 @@ export function gateRuleAlsoRunCell(rule: Rule): string {
   const effects = rule.effects;
   if (effects.noGate) return `${code('bazel test //:check_docs')} only`;
   const parts: string[] = [];
-  if (effects.rustLint) parts.push(code('rust:lint'));
   if (effects.audit) parts.push(code('check:audit'), code('check:js-dependency-policy'));
   if (effects.e2e) parts.push('owning Playwright suite(s)');
   if (effects.deferred !== undefined) {

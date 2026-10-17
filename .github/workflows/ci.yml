@@ -48,7 +48,6 @@ jobs:
           bazel test //... --test_env=DISPLAY=:99 --test_env=BENCH_HEADED=1
       - if: runner.os == 'macOS'
         run: bazel test //...
-      - run: bun run rust:lint
   workflow:
     runs-on: ubuntu-26.04
     timeout-minutes: 15

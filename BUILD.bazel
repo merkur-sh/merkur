@@ -2,6 +2,7 @@ load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED")
 load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "WORKSPACE_PACKAGES")
 load("//tools/bazel/bun:bun.bzl", "repo_check")
+load("//tools/bazel/rust:clippy.bzl", "clippy_manifest")
 
 npm_link_all_packages(name = "node_modules")
 
@@ -83,6 +84,21 @@ _GATE_SIZES = {"check-slop": "large"}
     "check-span-lifetimes",
     "check-types",
 ]]
+
+# `rust:lint`: Clippy over every first-party Rust target, each package's report cached per crate,
+# held to `lint-baselines/clippy.json` by `scripts/rust-lint.ts`.
+clippy_manifest(
+    name = "clippy_diagnostics",
+    reports = [package + ":clippy_diagnostics" for package in PACKAGES],
+    testonly = True,
+)
+
+repo_check(
+    name = "rust_lint",
+    args = ["--diagnostics=clippy_diagnostics.txt"],
+    data = [":clippy_diagnostics"],
+    script = "scripts/rust-lint.ts",
+)
 
 test_suite(
     name = "static_gates",

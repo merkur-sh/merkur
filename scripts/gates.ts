@@ -3,8 +3,8 @@
  *
  * `bazel test //...` is every unit test and static gate, and Bazel runs only the ones whose
  * inputs changed: the rest it answers from its cache. What it cannot run comes from `RULES`
- * (`gate-policy.ts`): `rust:lint`, the dependency audit, and the browser, container and proof
- * suites that take minutes, which a run names and `--all` runs.
+ * (`gate-policy.ts`): the dependency audit, and the browser, container and proof suites that
+ * take minutes, which a run names and `--all` runs.
  *
  *   bun run gates                 print the gates for the working tree's changes
  *   bun run gates --run           run them
@@ -53,7 +53,6 @@ export function selectGates(changed: readonly string[], e2eOwners: E2eOwners): G
   const deferred = new Map<string, Command>();
   const addDeferred = (command: Command) => deferred.set(key(command), command);
   const reasons: string[] = [];
-  let rustLint = false;
   let audit = false;
   let gated = false;
   for (const file of files) {
@@ -66,7 +65,6 @@ export function selectGates(changed: readonly string[], e2eOwners: E2eOwners): G
         continue;
       }
       reasons.push(`${file} → ${rule.name}`);
-      rustLint ||= effects.rustLint === true;
       audit ||= effects.audit === true;
       for (const script of effects.deferred ?? []) addDeferred(['bun', 'run', script]);
       if (effects.e2e) {
@@ -85,7 +83,6 @@ export function selectGates(changed: readonly string[], e2eOwners: E2eOwners): G
   const commands: Command[] = [];
   if (gated) {
     commands.push(['bazel', 'test', '//...']);
-    if (rustLint) commands.push(['bun', 'run', 'rust:lint']);
     if (audit)
       commands.push(['bun', 'run', 'check:audit'], ['bun', 'run', 'check:js-dependency-policy']);
   } else if (files.length > 0) {

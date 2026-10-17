@@ -28,16 +28,13 @@ test('any other change is the whole cached test graph', () => {
   expect(plan.commands).toEqual([['bazel', 'test', '//...']]);
 });
 
-test('Rust, manifests and the build graph earn rust:lint; dependencies earn the audit', () => {
-  expect(selectGates(['apps/edge/src/lib.rs'], owners).commands).toContainEqual([
-    'bun',
-    'run',
-    'rust:lint',
+test('Rust and the build graph earn the cached test graph alone; dependencies earn the audit', () => {
+  // `//:rust_lint` is a Bazel test, so Clippy's ratchet is inside `bazel test //...`.
+  expect(selectGates(['apps/edge/src/lib.rs'], owners).commands).toEqual([
+    ['bazel', 'test', '//...'],
   ]);
-  expect(selectGates(['tools/bazel/bun/bun.bzl'], owners).commands).toContainEqual([
-    'bun',
-    'run',
-    'rust:lint',
+  expect(selectGates(['tools/bazel/bun/bun.bzl'], owners).commands).toEqual([
+    ['bazel', 'test', '//...'],
   ]);
   const dependencies = selectGates(['pnpm-lock.yaml'], owners).commands;
   expect(dependencies).toContainEqual(['bun', 'run', 'check:audit']);

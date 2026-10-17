@@ -1,17 +1,19 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
+  CLIPPY_FLAGS,
   type ClippyFinding,
   type ClippyRun,
   classify,
-  clippyCommand,
-  diagnosticFiles,
   formatClippyBaseline,
   hostTriple,
   judgeElsewhere,
   parseClippyBaseline,
   RATCHETED_LINTS,
   readClippy,
+  readManifest,
   renderUnplaced,
   sortFindings,
   tightenRefusal,
@@ -157,7 +159,7 @@ test('a diagnostic every target reports is one finding at its primary span', () 
     ],
     unplaced: [],
   });
-  expect(unverifiedReason(run, 0)).toBeNull();
+  expect(unverifiedReason(run)).toBeNull();
 });
 
 test('a diagnostic inside a macro of another crate is placed where this repository expands it', () => {
@@ -208,78 +210,31 @@ test('a span in an external repository or a Bazel output is outside this reposit
   expect(run.unplaced).toEqual(['warning: unused\n', 'warning: unused\n']);
 });
 
-test('the diagnostics files are those of the aspect output group, through nested sets', () => {
-  const aspect = '//tools/bazel/rust:clippy.bzl%clippy_diagnostics';
-  const events = file(
-    JSON.stringify({
-      id: { namedSet: { id: '0' } },
-      namedSetOfFiles: {
-        files: [
-          {
-            name: 'a.clippy.diagnostics',
-            pathPrefix: ['bazel-out', 'k8', 'bin'],
-            uri: 'bytestream://c/a',
-          },
-        ],
-      },
-    }),
-    JSON.stringify({
-      id: { namedSet: { id: '1' } },
-      namedSetOfFiles: {
-        files: [{ name: 'b.clippy.diagnostics', pathPrefix: ['bazel-out', 'k8-ST-1', 'bin'] }],
-        fileSets: [{ id: '0' }],
-      },
-    }),
-    JSON.stringify({
-      id: { namedSet: { id: '2' } },
-      namedSetOfFiles: { files: [{ name: 'c.rlib', pathPrefix: ['bazel-out', 'k8', 'bin'] }] },
-    }),
-    JSON.stringify({
-      id: { targetCompleted: { label: '//apps/edge:unit', aspect } },
-      completed: {
-        success: true,
-        outputGroup: [{ name: 'clippy_diagnostics', fileSets: [{ id: '1' }] }],
-      },
-    }),
-    // The target itself, and any other output group, are not Clippy's.
-    JSON.stringify({
-      id: { targetCompleted: { label: '//apps/edge:unit' } },
-      completed: { success: true, outputGroup: [{ name: 'default', fileSets: [{ id: '2' }] }] },
-    }),
-    JSON.stringify({
-      id: { targetCompleted: { label: '//apps/edge:lints', aspect } },
-      completed: { success: true },
-    }),
+test('the manifest names the diagnostics and the flags Clippy ran with, exactly the ratchet', () => {
+  const flags = CLIPPY_FLAGS.map((flag) => `flag ${flag}`);
+  const manifest = readManifest(
+    [
+      ...flags,
+      'file apps/edge/unit.clippy.diagnostics',
+      'file apps/edge/merkur_edge.clippy.diagnostics',
+      '',
+    ].join('\n'),
   );
 
-  // Under the execution root, whatever cache the event's URI names.
-  expect(diagnosticFiles(events)).toEqual([
-    'bazel-out/k8-ST-1/bin/b.clippy.diagnostics',
-    'bazel-out/k8/bin/a.clippy.diagnostics',
+  expect(manifest.files).toEqual([
+    'apps/edge/merkur_edge.clippy.diagnostics',
+    'apps/edge/unit.clippy.diagnostics',
   ]);
-
-  const failed = file(
-    JSON.stringify({
-      id: { targetCompleted: { label: '//apps/edge:unit', aspect } },
-      completed: { success: false },
-    }),
+  expect(() => readManifest([...flags.slice(1), 'file a'].join('\n'))).toThrow(
+    `missing: ${CLIPPY_FLAGS[0]}; extra: none`,
   );
-
-  expect(() => diagnosticFiles(failed)).toThrow('Clippy did not complete for //apps/edge:unit');
-  expect(() =>
-    diagnosticFiles(
-      file(
-        JSON.stringify({
-          id: { targetCompleted: { label: '//apps/edge:unit', aspect } },
-          completed: {
-            success: true,
-            outputGroup: [{ name: 'clippy_diagnostics', fileSets: [{ id: '9' }] }],
-          },
-        }),
-      ),
-    ),
-  ).toThrow("Bazel's events name no file set 9");
-  expect(() => diagnosticFiles('not json\n')).toThrow('Bazel wrote an event that is not JSON');
+  expect(() => readManifest([...flags, 'flag -Dwarnings', 'file a'].join('\n'))).toThrow(
+    'missing: none; extra: -Dwarnings',
+  );
+  expect(() => readManifest(flags.join('\n'))).toThrow('the Clippy manifest names no diagnostics');
+  expect(() => readManifest('path a\n')).toThrow(
+    'the Clippy manifest holds a line it does not define: path a',
+  );
 });
 
 test('a message without a lint code or a place leaves the run unverified', () => {
@@ -296,7 +251,7 @@ test('a message without a lint code or a place leaves the run unverified', () =>
     'error: expected one of `!` or `::`\n',
     'warning: unused import: `std::fmt`\n',
   ]);
-  expect(unverifiedReason(run, 0)).toBe(
+  expect(unverifiedReason(run)).toBe(
     '2 compiler messages carry no lint code or no place in this repository',
   );
   // What could not be counted is still shown, as the compiler rendered it.
@@ -322,7 +277,7 @@ test("rustc's count of a file's warnings is read only as that count", () => {
   expect(read(file(cast), file(summary(1))).unplaced).toEqual(['warning: 1 warning emitted\n']);
 });
 
-test('a file that is not rustc JSON is no answer, and neither is a failed build', () => {
+test('a file that is not rustc JSON is no answer, and a compile error is a zero finding', () => {
   expect(() => read('warning: unused manifest key\n')).toThrow(
     'rustc wrote a line that is not a diagnostic: warning: unused manifest key',
   );
@@ -344,8 +299,6 @@ test('a file that is not rustc JSON is no answer, and neither is a failed build'
       rendered: 'error: mismatched types\n',
     },
   ]);
-  expect(unverifiedReason(run, 1)).toBe('bazel build exited 1');
-  expect(unverifiedReason(read(), 1)).toBe('bazel build exited 1');
 });
 
 test('every finding has exactly one class, from its lint and its file', () => {
@@ -536,21 +489,15 @@ test('the host is the Rust triple of the platform Bazel builds for', () => {
 });
 
 test('Clippy is handed every ratcheted lint as a warning, with nothing denied', () => {
-  const command = clippyCommand('/tmp/events.json');
+  const bazelrc = readFileSync(path.join(import.meta.dir, '..', '.bazelrc'), 'utf8');
 
   expect(RATCHETED_LINTS).toHaveLength(16);
-  expect(command).toEqual([
-    'bazel',
-    'build',
-    '--keep_going',
-    '--output_filter=^$',
-    '--aspects=//tools/bazel/rust:clippy.bzl%clippy_diagnostics',
-    '--output_groups=clippy_diagnostics',
-    '--build_event_json_file=/tmp/events.json',
-    ...RATCHETED_LINTS.map((lint) => `--@rules_rust//rust/settings:clippy_flag=-W${lint}`),
-    '--',
-    '//...',
-  ]);
+  expect(CLIPPY_FLAGS).toEqual(RATCHETED_LINTS.map((lint) => `-W${lint}`));
+  expect(
+    [...bazelrc.matchAll(/^build --@rules_rust\/\/rust\/settings:clippy_flag=(\S+)$/gm)].map(
+      (match) => match[1],
+    ),
+  ).toEqual([...CLIPPY_FLAGS]);
   // Every ratcheted lint has a class other than zero somewhere, and zero in no vendored crate.
   expect(RATCHETED_LINTS.map((lint) => classify(lint, 'apps/edge/src/relay.rs'))).toEqual(
     RATCHETED_LINTS.map(() => 'baseline'),

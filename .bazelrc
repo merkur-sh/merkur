@@ -15,11 +15,29 @@ build --@rules_rust//rust/settings:per_crate_rustc_flag=external/@-Cdebuginfo=0
 build:release --compilation_mode=opt
 build:release --@rules_rust//rust/settings:extra_rustc_flags=
 
-# Clippy, which `bun run rust:lint` runs over every first-party target: the repository's
-# `clippy.toml` and JSON diagnostics for the ratchet to read. The script hands Clippy the
-# ratcheted lints itself.
+# Clippy, which `//:rust_lint` runs over every first-party target: the repository's
+# `clippy.toml`, JSON diagnostics for the ratchet to read, and each lint `scripts/rust-lint.ts`
+# ratchets as a warning. The test fails unless these are exactly the script's `RATCHETED_LINTS`.
 build --@rules_rust//rust/settings:clippy.toml=//:clippy.toml
 build --@rules_rust//rust/settings:clippy_output_diagnostics=true
+# Clippy's rendered findings go to a file beside the diagnostics, not the build's output.
+build --@rules_rust//rust/settings:capture_clippy_output=true
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::cast_possible_truncation
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::cast_possible_wrap
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::cast_sign_loss
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::expect_used
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::get_unwrap
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::indexing_slicing
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::let_underscore_must_use
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::map_err_ignore
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::panic
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::string_slice
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::too_many_lines
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::unreachable
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::unused_result_ok
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::unwrap_in_result
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::unwrap_used
+build --@rules_rust//rust/settings:clippy_flag=-Wclippy::wildcard_enum_match_arm
 
 # Target platforms. The host is the default; these name another one to build for.
 build:linux_x86_64 --platforms=//tools/bazel/platforms:linux_x86_64

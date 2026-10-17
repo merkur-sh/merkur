@@ -21,8 +21,8 @@ earn?" is `bun run gates`, which runs nothing.
 Start with `bun run gates`: it reads the working tree (or `--base <ref>`, or `--files a,b`),
 matches every changed path against `RULES` in `scripts/gate-policy.ts`, and prints the
 commands with the selection reason for each path. Any change but prose earns
-`bazel test //...`; a row adds what Bazel does not run: `rust:lint`, the dependency audit,
-and the deferred browser, container and proof suites. `--run` executes the
+`bazel test //...`; a row adds what Bazel does not run: the dependency audit, and the
+deferred browser, container and proof suites. `--run` executes the
 commands in order and stops at the first failure; `--all` also runs the deferred suites.
 Rows printed "by hand" are the browser and Docker harnesses and the long graphics
 convergence runs. The rules are rendered as a table below; edit the rules, never the table.
@@ -174,7 +174,7 @@ Cold, or after a broad Rust change, the builds grow by an order of magnitude.
 | `test:unit` | `bazel test //...` | seconds when nothing changed |
 | `check:audit` | pnpm and Cargo dependency advisories and yanked Rust releases; install cargo-audit with `setup:audit`; needs network | network |
 | `check:js-dependency-policy` | `pnpm-lock.yaml` sources, specs, licenses and install-script trust, read from a script-free install for every platform any locked package names, in `target/js-dependency-policy`; runs beside `check:audit` | seconds on a warm pnpm store |
-| `rust:lint` | Clippy over every first-party target as a Bazel aspect, cached per crate, sorted by `scripts/rust-lint.ts`. No warning is allowed outside the ratcheted lints, which are held per file and lint to `lint-baselines/clippy.json`. A suppression is `#[expect(lint, reason = "…")]`, and one the lint no longer meets fails | seconds when no crate changed; minutes cold |
+| `rust:lint` | `bazel test //:rust_lint`: Clippy over every first-party target as a Bazel aspect, cached per crate, sorted by `scripts/rust-lint.ts`. No warning is allowed outside the ratcheted lints, which are held per file and lint to `lint-baselines/clippy.json`. A suppression is `#[expect(lint, reason = "…")]`, and one the lint no longer meets fails | seconds when no crate changed; minutes cold |
 | `rust:deps` | `cargo shear`: unused or misplaced crate dependencies; install it with `setup:shear` | ~1 s |
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | one filtered dataplane run, the `real_helper` modules included when the filter selects them: the test target builds the sandboxed image helper and hands its path over | seconds warm |
 | `rust:test` | `bazel test` over every Rust target: each crate's unit, integration and doc tests, the dataplane's `real_helper` modules, and `term-wasm` again in the release profile | seconds when nothing changed |
@@ -186,8 +186,9 @@ Cold, or after a broad Rust change, the builds grow by an order of magnitude.
 | `test:dragonfly` | `*.dragonfly.test.ts` against a real container; starts it and injects `DRAGONFLY_TEST_URL` | — |
 | `test:e2e:*`, `test:natlab`, `bench:*`, `profile:*` | see below | minutes |
 
-`rust:lint` builds every first-party target with Clippy as a Bazel aspect (`--cap-lints warn`,
-JSON out, cached per crate) and `scripts/rust-lint.ts` sorts every finding into one class. Nothing allows a compiler
+`rust:lint` (`//:rust_lint`, inside `bazel test //...`) lints every first-party target with Clippy
+as a Bazel aspect (`--cap-lints warn`, JSON out, cached per crate) and `scripts/rust-lint.ts`
+sorts every finding into one class. Nothing allows a compiler
 warning, a default Clippy lint, a lint of `[workspace.lints]`, an `#[expect]` its lint no
 longer meets, a panic lint in `merkur-wire`, `merkur-stun-protocol` and
 `merkur-edge-protocol`, tests included, or a timer call in a module on a latency path
@@ -197,7 +198,7 @@ Each is printed as the compiler rendered it. Clippy lints first-party targets on
 warning in a `[patch]` crate crate_universe builds is not a finding. The ratcheted lints
 are counted per file and lint against `lint-baselines/clippy.json` on the terms of
 `check:slop`: a file or lint the baseline does not name is allowed nothing, the baseline is
-never raised, and a count that dropped fails until `bun run rust:lint --tighten`. They are
+never raised, and a count that dropped fails until `bazel run //:rust_lint -- --tighten`. They are
 `cast_possible_truncation`, `cast_sign_loss`, `cast_possible_wrap`, `map_err_ignore`,
 `let_underscore_must_use`, `unused_result_ok`, `wildcard_enum_match_arm`, `unwrap_in_result`,
 `panic` and `too_many_lines` in every
@@ -262,7 +263,6 @@ long graphics convergence runs; use `--run --all` to execute them too.
 | Changed | Also run | Why |
 | --- | --- | --- |
 | `**/*.md`, `**/*.mdx`, `docs/**`, `.claude/**`, `.codex/**`, `.agents/**`, `LICENSE`, `.gitignore`, `.worktreeinclude` | `bazel test //:check_docs` only |  |
-| `**/*.rs`, `**/Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `clippy.toml`, `lint-baselines/clippy.json`, `scripts/rust-lint.ts`, `scripts/lint-ratchet.ts`, `MODULE.bazel`, `MODULE.bazel.lock`, `.bazelrc`, `**/BUILD.bazel`, `**/*.bzl` | `rust:lint` | Clippy runs as a Bazel aspect, cached per crate; `rust:lint` sorts its findings into classes and holds them to the baseline, so a Rust source, manifest, build-graph or lint-configuration change earns it. |
 | the `check:latency-boundaries` hot-path list, `apps/web/src/terminal/**`, `apps/web/src/transport/**`, `apps/web/src/perf/**`, `apps/web/src/*-worker.ts`, `apps/web/src/*-worker-client.ts`, `apps/web/src/*-worker-protocol.ts`, `apps/web/src/renderer-webgpu.ts`, `apps/web/src/terminal-renderer.ts`, `apps/web/src/wasm-loader.ts` (except `**/*.test.ts`, `**/*.test.tsx`) | by hand: `test:e2e:latency` | The browser hot path: the enforced latency-boundary list plus the directories the worker, prediction, display and render code lives in. A test file under those directories is not the render path; it does not earn the edge harness. |
 | `apps/server/src/**/*.dragonfly.test.ts`, `apps/server/src/http/daemon-request-auth.ts`, `apps/server/src/services/auth-flow-store.ts`, `apps/server/src/services/browser-session-presence.ts`, `apps/server/src/services/daemon-control-service.ts`, `apps/server/src/services/edge-registry-service.ts`, `apps/server/src/services/rate-limit-service.ts`, `apps/server/src/services/realtime-coordination-service.ts`, `apps/server/src/services/session-issuance-service.ts`, `apps/server/src/services/redis-*.ts` | by hand: `test:dragonfly` | Each source has a `*.dragonfly.test.ts` twin and the pair is updated together, so a change to either side implicates the container run. |
 | `apps/daemon/dataplane/src/network/**`, `apps/stun/src/**`, `apps/stun/Cargo.toml`, `apps/server/src/services/stun-ticket-service.ts`, `apps/server/src/services/stun-ticket-service.test.ts` | by hand: `test:natlab` | The ticket format has two implementations pinned to one vector, and NAT traversal is proven only across the lab's real NATs. |

@@ -50,11 +50,10 @@ runs:
       if: inputs.rust == 'true' && inputs.rust-cache == 'true'
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
-        # `rust:lint` keeps Clippy's metadata in its own directory so it can run beside a
-        # test build; both directories hold dependency artifacts worth restoring.
+        # The Cargo subcommands that analyze the workspace (Kani, bolero, the dependency audits)
+        # build into `.cargo/config.toml`'s target directory.
         workspaces: |
           . -> target/rust
-          . -> target/clippy
         shared-key: ${{ inputs.cache-key }}
         # Keep compiler profiles separate by job; never cache test verdicts.
         cache-bin: 'false'

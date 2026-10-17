@@ -10,8 +10,6 @@ import { DEFAULT_HOT_PATH_FILES } from './check-latency-boundaries';
 export interface RuleEffects {
   /** Rows carrying no gate beyond `check:docs`: prose and agent-harness files. */
   readonly noGate?: true;
-  /** `rust:lint`: Clippy's findings held to their baseline. */
-  readonly rustLint?: true;
   /** `check:audit` and `check:js-dependency-policy`. */
   readonly audit?: true;
   /** The changed spec's owning Playwright suite. */
@@ -72,26 +70,6 @@ export const RULES: readonly Rule[] = [
       '.worktreeinclude',
     ],
     effects: { noGate: true },
-  },
-  {
-    name: 'rust',
-    globs: [
-      '**/*.rs',
-      '**/Cargo.toml',
-      'Cargo.lock',
-      'rust-toolchain.toml',
-      'clippy.toml',
-      'lint-baselines/clippy.json',
-      'scripts/rust-lint.ts',
-      'scripts/lint-ratchet.ts',
-      'MODULE.bazel',
-      'MODULE.bazel.lock',
-      '.bazelrc',
-      '**/BUILD.bazel',
-      '**/*.bzl',
-    ],
-    effects: { rustLint: true },
-    note: 'Clippy runs as a Bazel aspect, cached per crate; `rust:lint` sorts its findings into classes and holds them to the baseline, so a Rust source, manifest, build-graph or lint-configuration change earns it.',
   },
   {
     name: 'web-hot-path',
