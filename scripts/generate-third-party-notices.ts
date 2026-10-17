@@ -217,10 +217,10 @@ function render(components: readonly Component[], bunVersion: string, ownLicense
   lines.push('exercise the LGPL right to run a modified version of those libraries, rebuild');
   lines.push('the executable from Merkur source against your own Bun build:');
   lines.push('');
-  lines.push('    bun run scripts/build-daemon-dist.ts');
+  lines.push('    bazel build --config=release //tools/bazel/release:merkur');
   lines.push('');
-  lines.push('The Bun version is pinned in the repository package.json, and the Rust');
-  lines.push('executables beside it are built by scripts/build-daemon-artifacts.ts.');
+  lines.push('The Bun version is pinned in the repository .bun-version, and the Rust');
+  lines.push('executables beside it are built by //tools/bazel/release:daemon.');
   lines.push('');
   lines.push('COMPONENTS');
   lines.push('');

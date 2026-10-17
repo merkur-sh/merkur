@@ -35,7 +35,7 @@ source /tmp/merkur-discovery-env
 # CHANGE-PORT answer from a port it never probes is what keeps the contact
 # ledger exact and the `masquerade` case honest.
 export MERKUR_STUN_BIND=198.51.100.10,198.51.100.11 MERKUR_STUN_PORTS=3478,3479 MERKUR_STUN_CHANGE_PORTS=3480
-ip netns exec observer /target/debug/merkur-stun > /tmp/merkur-discovery-observer.log 2>&1 &
+ip netns exec observer "${MERKUR_DISCOVERY_STUN_BIN:?}" > /tmp/merkur-discovery-observer.log 2>&1 &
 observer_pid=$!
 # portmap.sh runs next in the same container and creates its own `daemon` and `cpe`.
 teardown() {

@@ -21,11 +21,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # NAT builds inside its own Linux container; the TPM and graphics suites are Bazel tests.
+      # Bazel builds what each suite runs: the TPM and graphics suites are Bazel tests, and the
+      # NAT lab's endpoints run in its Linux containers.
       - uses: ./.github/actions/setup-merkur
         with:
           rust: 'false'
-          bazel: ${{ matrix.suite != 'test:natlab' }}
+          bazel: 'true'
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
       - name: Run native suite
         env:

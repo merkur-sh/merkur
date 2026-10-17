@@ -1,0 +1,37 @@
+# Generated from packages/term-wasm/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "term-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/term-wasm/src/lib.rs"
+
+[dependencies]
+alacritty_terminal = { version = "0.26.0", "default-features" = false, path = "../packages-alacritty-terminal-patch", features = [] }
+wasm-bindgen = { version = "=0.2.127" }
+merkur-codec = { path = "../packages-merkur-codec", "default-features" = false, features = [] }
+merkur-graphics = { path = "../packages-merkur-graphics", "default-features" = false, features = [] }
+merkur-wire = { path = "../packages-merkur-wire", "default-features" = false, features = [] }
+zeroize = { version = "=1.9.1", "default-features" = false, features = ["alloc"] }
+fontdue = { version = "0.9", path = "../packages-fontdue-patch", "default-features" = false, features = ["simd","hashbrown"] }
+hashbrown = { version = "0.17" }
+unicode-width = { version = "0.2" }
+zstd-safe = { version = "8.0", "default-features" = false, features = ["std","experimental"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+merkur-client = { path = "../packages-merkur-client", "default-features" = false, features = ["std"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+merkur-client = { path = "../packages-merkur-client", "default-features" = false, features = ["wasm"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+minicov = { version = "=0.3.9", "default-features" = false, features = ["alloc"], optional = true }
+
+[features]
+default = []
+pgo-train = ["dep:minicov"]
+
+[lints]
+workspace = true

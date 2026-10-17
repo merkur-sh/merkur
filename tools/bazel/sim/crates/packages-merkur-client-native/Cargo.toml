@@ -1,0 +1,37 @@
+# Generated from packages/merkur-client-native/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-client-native"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/merkur-client-native/src/lib.rs"
+
+[dependencies]
+merkur-authorization = { path = "../packages-merkur-authorization", "default-features" = false, features = ["std"] }
+merkur-client = { path = "../packages-merkur-client", "default-features" = false, features = ["std"] }
+merkur-edge-protocol = { path = "../packages-merkur-edge-protocol", "default-features" = false, features = [] }
+merkur-wire = { path = "../packages-merkur-wire", "default-features" = false, features = ["std"] }
+term-wasm = { path = "../packages-term-wasm", "default-features" = false, features = [] }
+wtransport = { version = "0.7" }
+bytes = { version = "1" }
+tokio = { version = "1", features = ["io-util","macros","rt","sync","time"] }
+reqwest = { version = "0.13", "default-features" = false, features = ["rustls-no-provider","json"] }
+rustls = { version = "0.23.46", "default-features" = false, features = ["ring"] }
+opaque-ke = { version = "4.0", features = ["argon2"] }
+argon2 = { version = "0.5", features = ["zeroize"] }
+generic-array = { version = "0.14" }
+rand_core = { version = "0.6", features = ["getrandom"] }
+sha2 = { version = "=0.10.9", "default-features" = false }
+subtle = { version = "2.6" }
+base64 = { version = "0.23" }
+if-watch = { version = "=3.2.2", features = ["tokio"] }
+futures = { version = "0.3" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+zeroize = { version = "1.9" }
+
+[lints]
+workspace = true

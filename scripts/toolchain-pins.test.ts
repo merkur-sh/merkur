@@ -15,7 +15,7 @@ function captures(file: string, pattern: RegExp): string[] {
   return found;
 }
 
-const DOCKERFILES = ['Dockerfile', 'Dockerfile.daemon-release', 'apps/site/Dockerfile'];
+const DOCKERFILES = ['Dockerfile'];
 
 test('Bazel builds with the Rust release rust-toolchain.toml names', () => {
   const [channel] = captures('rust-toolchain.toml', /^channel = "([^"]+)"$/gm);

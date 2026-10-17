@@ -1,0 +1,65 @@
+load("@ownership_proofs_crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script", "extract_cargo_lints")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+extract_cargo_lints(
+    name = "lints",
+    manifest = "Cargo.toml",
+)
+
+# The proofs compile production source the build script extracts, which Clippy already holds to
+# the ratchet in its own crate (`rust:lint`): these targets carry `noclippy`.
+_NOCLIPPY = ["noclippy"]
+
+# Extracts the proofs' inputs from the production source it reads at the repository root.
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    data = [
+        "//apps/edge:files",
+        "//packages/merkur-client:files",
+        "//packages/merkur-e2e:files",
+    ],
+    edition = "2024",
+    deps = all_crate_deps(build = True),
+)
+
+rust_library(
+    name = "merkur_ownership_proofs",
+    srcs = ["src/lib.rs"],
+    aliases = aliases(),
+    edition = "2024",
+    lint_config = ":lints",
+    tags = _NOCLIPPY,
+    deps = [":build_script"] + all_crate_deps(normal = True),
+)
+
+rust_test(
+    name = "unit",
+    crate = ":merkur_ownership_proofs",
+    lint_config = ":lints",
+    tags = _NOCLIPPY,
+    deps = all_crate_deps(normal_dev = True),
+)
+
+# The Loom models of the edge's routing and membership.
+rust_test(
+    name = "edge_routing",
+    srcs = ["tests/edge_routing.rs"],
+    edition = "2024",
+    lint_config = ":lints",
+    tags = _NOCLIPPY,
+    deps = [
+        ":build_script",
+        ":merkur_ownership_proofs",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

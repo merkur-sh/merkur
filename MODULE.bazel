@@ -106,6 +106,10 @@ crate.from_cargo(
 # native backends into crates the module shares with the daemon.
 include("//tools/bazel/wasm:hubs.MODULE.bazel")
 
+# The network simulator links the production crates against turmoil and tokio's `test-util`,
+# so it resolves from a workspace of its own too (`scripts/sim-workspace.ts`).
+include("//tools/bazel/sim:hub.MODULE.bazel")
+
 # minicov compiles LLVM's profile runtime for the training build with whatever `clang` its PATH
 # holds; this has it take the C toolchain cc-rs is given, like every other build script.
 crate.annotation(
@@ -115,7 +119,24 @@ crate.annotation(
     repositories = ["term_wasm_crates"],
 )
 
-use_repo(crate, "crates")
+# The diagnostic and proof tools are workspaces of their own, which never join the release lock:
+# the ownership proofs' Loom models and the edge's kernel profiler.
+[crate.from_cargo(
+    name = name,
+    cargo_lockfile = "//tools/%s:Cargo.lock" % directory,
+    manifests = ["//tools/%s:Cargo.toml" % directory],
+    supported_platform_triples = [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+    ],
+) for name, directory in [
+    ("edge_kernel_profile_crates", "edge-kernel-profile"),
+    ("ownership_proofs_crates", "ownership-proofs"),
+]]
+
+use_repo(crate, "crates", "edge_kernel_profile_crates", "ownership_proofs_crates")
 
 # C and C++: one LLVM for every target, the major rustc 1.99.0 is built on. Linux links against
 # a Debian bullseye sysroot (glibc 2.31), so a binary built on any host runs on any supported

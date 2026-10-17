@@ -39,6 +39,7 @@ rust_library(
     aliases = aliases(),
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro = True),
+    rustc_env_files = ["//tools/bazel/release:client_identity"],
     deps = [":build_script"] + _DEPS + all_crate_deps(normal = True),
 )
 
@@ -49,6 +50,7 @@ rust_binary(
     crate_root = "src/main.rs",
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro = True),
+    rustc_env_files = ["//tools/bazel/release:client_identity"],
     deps = [
         ":build_script",
         ":merkur_tui",

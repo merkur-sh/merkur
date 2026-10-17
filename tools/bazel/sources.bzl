@@ -47,7 +47,9 @@ PACKAGES = [
     "//tools/bazel/platforms",
     "//tools/bazel/playwright",
     "//tools/bazel/redis",
+    "//tools/bazel/release",
     "//tools/bazel/rust",
+    "//tools/bazel/sim",
     "//tools/bazel/wasm",
     "//tools/bazel/wasm/e2e-wasm",
     "//tools/bazel/wasm/graphics-codec-probe",
@@ -55,11 +57,17 @@ PACKAGES = [
     "//tools/bazel/wasm/merkur-e2e-cipher",
     "//tools/bazel/wasm/sysroot",
     "//tools/bazel/wasm/term-wasm",
+    "//tools/edge-kernel-profile",
+    "//tools/ownership-proofs",
+    "//tools/sim",
 ]
 
 # The checkout's symlinks, which a checkout of `//:sources` recreates.
 SYMLINKS = {
     ".agents/skills": "../.claude/skills",
+    "tools/bazel/sim/vendored/quinn-patch": "../../../../packages/quinn-patch",
+    "tools/bazel/sim/vendored/quinn-proto-patch": "../../../../packages/quinn-proto-patch",
+    "tools/bazel/sim/vendored/wtransport-patch": "../../../../packages/wtransport-patch",
 }
 
 # The pnpm workspace's packages.

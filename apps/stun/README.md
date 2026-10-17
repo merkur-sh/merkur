@@ -60,11 +60,11 @@ source NAT; on Linux, host networking does that when the host owns them.
 | `MERKUR_STUN_CHANGE_PORTS` | unset | Change-only ports, bound on every address. A port present in both lists is refused at startup. |
 | `MERKUR_STUN_BIND` | unset (wildcard) | Comma-separated explicit IP addresses to bind. Set it for any multi-address responder. |
 
-Build from the repository root so the lockfile and the vendored QUIC and WebTransport patches
-apply:
+Bazel builds the release binary from the workspace's lockfile and the vendored QUIC and
+WebTransport patches, on Linux x86_64, and the image copies it in from the repository root:
 
 ```sh
-cargo build --release --locked -p merkur-stun
+bazel run --config=release //tools/bazel/release:image_binaries
 docker build -f apps/stun/Dockerfile -t merkur-stun .
 ```
 

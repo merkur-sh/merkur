@@ -4,14 +4,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  baselineFindings,
   CEILINGS_FILE,
   ceilingScope,
+  cloneCounts,
   compareCeilings,
+  compareCloneCounts,
+  deadCodeFindings,
   formatCeilings,
+  formatCloneCounts,
   hotspotsOf,
   introducedFindings,
   parseCeilings,
+  parseCloneCounts,
   partiallyStaged,
   readFallowReport,
   renamedCloneNotes,
@@ -385,7 +389,7 @@ test('declared analysis reads unchanged ceilings and fails new, grown, loose and
   });
 });
 
-test('the whole-tree run fails what the baselines do not hold and counts loose entries', () => {
+test('dead code the baseline does not hold fails, and entries the tree lost are loose', () => {
   const deadCode = {
     total_issues: 1,
     summary: { unused_files: 1 },
@@ -395,27 +399,52 @@ test('the whole-tree run fails what the baselines do not hold and counts loose e
     workspace_diagnostics: [{ message: 'not a finding' }],
     baseline: { entries: 23, matched: 21 },
   };
-  const dupes = {
-    clone_groups: [
-      {
-        line_count: 12,
-        instances: [
-          { file: 'scripts/a.ts', start_line: 1, end_line: 12 },
-          { file: 'scripts/b.ts', start_line: 4, end_line: 15 },
-        ],
-      },
-    ],
-  };
-  expect(baselineFindings(deadCode, dupes)).toEqual({
-    added: [
-      'unused_files: apps/web/src/stray.ts',
-      'clone (12 lines): scripts/a.ts:1-12, scripts/b.ts:4-15',
-    ],
+  expect(deadCodeFindings(deadCode)).toEqual({
+    added: ['unused_files: apps/web/src/stray.ts'],
     loose: 2,
   });
-  expect(baselineFindings({ baseline: { entries: 3, matched: 3 } }, { clone_groups: [] })).toEqual({
+  expect(deadCodeFindings({ baseline: { entries: 3, matched: 3 } })).toEqual({
     added: [],
     loose: 0,
   });
-  expect(() => baselineFindings({}, { clone_groups: [] })).toThrow('no baseline match');
+  expect(() => deadCodeFindings({})).toThrow('no baseline match');
+});
+
+test('clones are held per file by instance count, whatever moves inside or around them', () => {
+  const group = (spans: readonly [string, number, number][]) => ({
+    line_count: 10,
+    instances: spans.map(([file, start, end]) => ({ file, start_line: start, end_line: end })),
+  });
+  const dupes = {
+    clone_groups: [
+      group([
+        ['scripts/a.ts', 40, 49],
+        ['scripts/b.ts', 1, 10],
+      ]),
+      group([
+        ['scripts/a.ts', 90, 99],
+        ['scripts/c.ts', 5, 14],
+      ]),
+    ],
+  };
+  const counts = cloneCounts(dupes);
+  expect(Object.fromEntries(counts)).toEqual({
+    'scripts/a.ts': 2,
+    'scripts/b.ts': 1,
+    'scripts/c.ts': 1,
+  });
+  expect(parseCloneCounts(formatCloneCounts(counts))).toEqual(counts);
+  // Same counts at other lines: nothing changed.
+  expect(compareCloneCounts(counts, counts, dupes)).toEqual({ added: [], loose: [] });
+  // A file that gained a clone names every group it is in; one that lost one is loose.
+  const baseline = new Map([
+    ['scripts/a.ts', 1],
+    ['scripts/b.ts', 1],
+    ['scripts/c.ts', 1],
+    ['scripts/gone.ts', 2],
+  ]);
+  const { added, loose } = compareCloneCounts(counts, baseline, dupes);
+  expect(added).toHaveLength(2);
+  expect(loose).toEqual(['scripts/gone.ts: allowed 2, found 0']);
+  expect(() => parseCloneCounts('{"a.ts": 0}')).toThrow('positive clone count');
 });

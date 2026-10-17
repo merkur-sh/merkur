@@ -1,0 +1,38 @@
+# Generated from apps/edge/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-edge"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../apps/edge/src/lib.rs"
+
+[dependencies]
+wtransport = { version = "0.7", features = ["quinn"] }
+merkur-edge-protocol = { path = "../packages-merkur-edge-protocol", "default-features" = false, features = [] }
+tokio = { version = "1", features = ["full"] }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+base64 = { version = "0.23" }
+bytes = { version = "1" }
+parking_lot = { version = "0.12" }
+libc = { version = "0.2" }
+ring = { version = "0.17" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+reqwest = { version = "0.13", "default-features" = false, features = ["rustls-no-provider","json"] }
+rustls = { version = "0.23.46", "default-features" = false, features = ["ring"] }
+opentelemetry = { version = "=0.33.0", "default-features" = false, features = ["trace","metrics","logs","internal-logs"] }
+opentelemetry_sdk = { version = "=0.33.0", "default-features" = false, features = ["trace","metrics","logs","internal-logs"] }
+opentelemetry-otlp = { version = "=0.33.0", "default-features" = false, features = ["http-proto","reqwest-blocking-client","trace","metrics","logs","internal-logs"] }
+opentelemetry-appender-tracing = { version = "=0.33.0", "default-features" = false }
+tracing-opentelemetry = { version = "=0.34.0", "default-features" = false }
+
+[features]
+default = []
+profiling = []
+
+[lints]
+workspace = true

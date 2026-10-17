@@ -2024,17 +2024,6 @@
     "no-runtime-typeof": 9,
     "no-unsafe-dictionary-type": 1
   },
-  "scripts/build-daemon-artifacts.ts": {
-    "no-known-value-widening": 1,
-    "no-runtime-typeof": 5,
-    "no-swallowed-error": 1
-  },
-  "scripts/build-daemon-dist.test.ts": {
-    "no-known-value-widening": 1
-  },
-  "scripts/build-daemon-dist.ts": {
-    "no-known-value-widening": 3
-  },
   "scripts/build-keyboard-bigram.ts": {
     "no-known-value-widening": 2,
     "no-runtime-typeof": 1,

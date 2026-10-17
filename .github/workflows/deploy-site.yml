@@ -86,28 +86,19 @@ jobs:
           conclusion=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$DEPLOY_SHA" \
             --event push --json conclusion --jq '.[0].conclusion')
           test "$conclusion" = success
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: ./.github/actions/setup-bazel
         with:
-          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
-      # The dependency stage is the root Dockerfile's, so the app build's cache
-      # (the default scope) supplies it; the site writes its own scope so
-      # neither build evicts the other's index.
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: apps/site/Dockerfile
-          target: artifacts
-          platforms: linux/amd64
-          outputs: type=local,dest=site-deployment
-          build-args: |
-            BUILDKIT_SYNTAX=mirror.gcr.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
-            MERKUR_SITE_ORIGIN=${{ vars.MERKUR_SITE_ORIGIN }}
-            MERKUR_SITE_API_ORIGIN=${{ vars.MERKUR_SERVER_ORIGIN }}
-            MERKUR_SITE_RYBBIT_SITE_ID=${{ vars.MERKUR_SITE_RYBBIT_SITE_ID }}
-          cache-from: |
-            type=gha,scope=site
-            type=gha
-          cache-to: type=gha,mode=max,scope=site
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - name: Build the site
+        run: |
+          identity=(
+            "--//tools/bazel/release:site_origin=$SITE_ORIGIN"
+            "--//tools/bazel/release:site_api_origin=$SITE_API_ORIGIN"
+            "--//tools/bazel/release:site_rybbit_site_id=$SITE_RYBBIT_SITE_ID"
+          )
+          bazel build --config=release "${identity[@]}" //tools/bazel/release:site
+          mkdir site-deployment
+          tar -xzf "$(bazel info --config=release "${identity[@]}" execution_root)/$(bazel cquery --config=release "${identity[@]}" --output=files //tools/bazel/release:site)" -C site-deployment
       - name: Serve the built bytes locally and record what production must present
         run: |
           # A header's value; names compare without case (HTTP/1.1 here, HTTP/2 live).

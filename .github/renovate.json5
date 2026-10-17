@@ -59,8 +59,8 @@
     // that member's lock while Cargo writes the workspace's. The tasks run once per update
     // rather than once per branch: only an update carries the `constraints` above to the
     // tools they install, and a branch-level run would take the newest Bun and Rust. The
-    // WebAssembly modules' workspaces, generated from the manifests and pruned from the workspace
-    // lock, follow too.
+    // WebAssembly modules' and the simulator's crate hub workspaces, generated from the manifests
+    // and their locks, follow too.
     postUpgradeTasks: {
       commands: [
         'bun run test:sim:update-lock',
@@ -72,6 +72,7 @@
         'tools/sim/Cargo.lock',
         'tools/bolero/Cargo.lock',
         'tools/bazel/wasm/**',
+        'tools/bazel/sim/**',
       ],
       installTools: { bun: {}, rust: {} },
     },

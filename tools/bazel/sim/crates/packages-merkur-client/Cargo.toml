@@ -1,0 +1,32 @@
+# Generated from packages/merkur-client/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-client"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/merkur-client/src/lib.rs"
+
+[dependencies]
+merkur-authorization = { path = "../packages-merkur-authorization", "default-features" = false, features = [] }
+merkur-codec = { path = "../packages-merkur-codec", "default-features" = false, features = [] }
+merkur-e2e = { path = "../packages-merkur-e2e", "default-features" = false, features = [] }
+merkur-edge-protocol = { path = "../packages-merkur-edge-protocol", "default-features" = false, features = [] }
+merkur-fec = { path = "../packages-merkur-fec", "default-features" = false, features = [] }
+merkur-graphics = { path = "../packages-merkur-graphics", "default-features" = false, features = [] }
+merkur-wire = { path = "../packages-merkur-wire", "default-features" = false, features = [] }
+base64 = { version = "0.23", "default-features" = false, features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+unicode-width = { version = "0.2" }
+zeroize = { version = "=1.9.1", "default-features" = false, features = ["alloc"] }
+
+[features]
+default = []
+std = ["merkur-e2e/std","merkur-authorization/std","merkur-wire/std"]
+wasm = ["merkur-e2e/wasm","merkur-authorization/wasm","merkur-wire/wasm"]
+
+[lints]
+workspace = true

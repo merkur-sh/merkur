@@ -1,22 +1,33 @@
 #!/usr/bin/env bash
-# Compile and run the real Rust endpoints in isolated routed namespaces: live
-# discovery against the STUN responder, then the port-mapping lease against a
-# real miniupnpd (Debian trixie ships 2.3.9).
+# Run the real Rust endpoints in isolated routed namespaces: live discovery against the STUN
+# responder, then the port-mapping lease against a real miniupnpd (Debian trixie ships 2.3.9).
+# Bazel builds both for the Linux the container runs: natively on a Linux host, and through the
+# Linux platform configurations on a Mac.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec docker run --rm --privileged \
-  -v "$REPO_ROOT:/repo:ro" -v merkur-discovery-cargo:/usr/local/cargo \
-  -v merkur-discovery-target:/target -w /repo \
-  -e CARGO_TARGET_DIR=/target mirror.gcr.io/library/rust:1-trixie@sha256:6ff07edce8775d0f64be7aba9197229407301bddf2054d62c27b541a6238a181 bash -c '
+cd "$REPO_ROOT"
+case "$(docker info --format '{{.Architecture}}')" in
+  x86_64) platform=--config=linux_x86_64 ;;
+  aarch64) platform=--config=linux_aarch64 ;;
+  *) echo "natlab: unsupported Docker architecture" >&2; exit 1 ;;
+esac
+# The lab tests live in the dataplane library's unit suite.
+targets=(//apps/stun:merkur-stun //apps/daemon/dataplane:unit)
+bazel build "$platform" "${targets[@]}"
+root="$(bazel info "$platform" execution_root)"
+binaries="$(mktemp -d)"
+trap 'rm -rf "$binaries"' EXIT
+for target in "${targets[@]}"; do
+  cp "$root/$(bazel cquery "$platform" --output=files "$target")" "$binaries/"
+done
+docker run --rm --privileged \
+  -v "$REPO_ROOT:/repo:ro" -v "$binaries:/natlab:ro" -w /repo \
+  -e MERKUR_DISCOVERY_STUN_BIN=/natlab/merkur-stun -e MERKUR_DISCOVERY_TEST_BIN=/natlab/unit \
+  mirror.gcr.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f bash -c '
     set -euo pipefail
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y -qq nftables iproute2 conntrack python3 libclang-dev miniupnpd-nftables procps >/dev/null
-    cargo build --locked -p merkur-stun
-    cargo test --locked -p merkur-dataplane --no-run --message-format=json > /tmp/discovery-build.json
-    # The lab tests live in the library; the binary target builds a test
-    # executable too, and it holds none of them.
-    export MERKUR_DISCOVERY_TEST_BIN=$(python3 -c '\''import json; print(next(x["executable"] for x in map(json.loads, open("/tmp/discovery-build.json")) if x.get("executable") and x.get("profile", {}).get("test") and x.get("target", {}).get("kind") == ["lib"]))'\'')
+    apt-get install -y -qq nftables iproute2 conntrack python3 miniupnpd-nftables procps >/dev/null
     bash /repo/scripts/natlab/discovery.sh
     bash /repo/scripts/natlab/portmap.sh
   '

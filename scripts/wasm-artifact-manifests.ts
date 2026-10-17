@@ -27,7 +27,6 @@
 import {
   copyFileSync,
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -37,6 +36,18 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Schema } from 'effect';
+import {
+  fromCargo,
+  MEMBERS,
+  Metadata,
+  memberLabels,
+  requireSameResolution,
+  runCargo,
+  TREE_FORMAT,
+  type TreeCrate,
+  treeCrates,
+  writeWorkspace,
+} from './cargo-graph';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -67,9 +78,6 @@ export const WASM_WORKSPACES: readonly WasmWorkspace[] = [
 export function wasmArtifactDirectory(name: string): string {
   return `tools/bazel/wasm/${name}`;
 }
-
-/** The members' directory in a workspace. */
-export const MEMBERS = 'crates';
 
 /** The hub declarations `MODULE.bazel` includes. */
 export const WASM_HUBS = 'tools/bazel/wasm/hubs.MODULE.bazel';
@@ -145,27 +153,6 @@ const Lock = Schema.Struct({
   ),
 });
 type Locked = (typeof Lock.Type)['package'][number];
-
-const Metadata = Schema.Struct({
-  packages: Schema.Array(
-    Schema.Struct({ id: Schema.String, name: Schema.String, manifest_path: Schema.String }),
-  ),
-  resolve: Schema.Struct({
-    nodes: Schema.Array(
-      Schema.Struct({
-        id: Schema.String,
-        deps: Schema.Array(
-          Schema.Struct({
-            name: Schema.String,
-            pkg: Schema.String,
-            dep_kinds: Schema.Array(Schema.Struct({ kind: Schema.NullOr(Schema.String) })),
-          }),
-        ),
-      }),
-    ),
-  }),
-});
-type Metadata = typeof Metadata.Type;
 
 const isVersion = Schema.is(Schema.String);
 
@@ -341,24 +328,7 @@ function cargo(cwd: string, root: string, args: readonly string[]): string {
     /^channel = "([^"]+)"$/m,
   )?.[1];
   if (channel === undefined) throw new Error('rust-toolchain.toml names no channel');
-  const result = Bun.spawnSync(['cargo', ...args], {
-    cwd,
-    env: { ...process.env, RUSTUP_TOOLCHAIN: channel },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  if (result.exitCode !== 0)
-    throw new Error(`cargo ${args.join(' ')} failed:\n${result.stderr.toString()}`);
-  return result.stdout.toString();
-}
-
-const TREE_LINE = /^(\S+) v(\S+)(?: \(([^)]+)\))?\|(.*?)(?: \(\*\))?$/;
-
-interface Resolved {
-  readonly name: string;
-  readonly version: string;
-  readonly location: string | undefined;
-  readonly features: readonly string[];
+  return runCargo(cwd, args, { ...process.env, RUSTUP_TOOLCHAIN: channel });
 }
 
 /** `cargo tree` over the browser graph, proc-macro subtrees aside: each crate's features. */
@@ -368,40 +338,25 @@ function browserFeatures(
   packageName: string,
   dev: boolean,
   extra: readonly string[],
-): Map<string, Resolved> {
-  const resolved = new Map<string, Resolved>();
-  const output = cargo(cwd, root, [
-    'tree',
-    '--locked',
-    '-p',
-    packageName,
-    '--target',
-    BROWSER,
-    '-e',
-    dev ? 'normal,dev,no-proc-macro' : 'normal,no-proc-macro',
-    '--prefix',
-    'none',
-    '-f',
-    '{p}|{f}',
-    ...extra,
-  ]);
-  for (const line of output.split('\n')) {
-    if (line === '') continue;
-    const match = line.match(TREE_LINE);
-    if (match?.[1] === undefined || match[2] === undefined || match[4] === undefined)
-      throw new Error(`unreadable cargo tree line: ${line}`);
-    resolved.set(`${match[1]} ${match[2]}`, {
-      name: match[1],
-      version: match[2],
-      location: match[3],
-      features: match[4] === '' ? [] : match[4].split(',').sort(),
-    });
-  }
-  return resolved;
+): Map<string, TreeCrate> {
+  return treeCrates(
+    cargo(cwd, root, [
+      'tree',
+      '--locked',
+      '-p',
+      packageName,
+      '--target',
+      BROWSER,
+      '-e',
+      dev ? 'normal,dev,no-proc-macro' : 'normal,no-proc-macro',
+      ...TREE_FORMAT,
+      ...extra,
+    ]),
+  );
 }
 
 /** How the checkout's own workspace builds the spec's crate for wasm32. */
-function checkoutFeatures(spec: WasmWorkspace, root: string): Map<string, Resolved> {
+function checkoutFeatures(spec: WasmWorkspace, root: string): Map<string, TreeCrate> {
   return browserFeatures(
     root,
     root,
@@ -675,7 +630,7 @@ export function wasmArtifactMembersClosed(spec: WasmWorkspace, root = ROOT): str
 }
 
 /** Crates and their features, as the feature check compares them. */
-function describe(map: Map<string, Resolved>, excluded: readonly string[]): string[] {
+function describe(map: Map<string, TreeCrate>, excluded: readonly string[]): string[] {
   const lines: string[] = [];
   for (const entry of map.values()) {
     if (excluded.includes(entry.name)) continue;
@@ -695,7 +650,7 @@ interface Resolution {
   readonly workspace: Workspace;
   readonly lock: string;
   readonly metadata: Metadata;
-  readonly features: Map<string, Resolved>;
+  readonly features: Map<string, TreeCrate>;
 }
 
 /** Writes the workspace into a scratch directory and has Cargo resolve it there. */
@@ -710,11 +665,7 @@ function resolveWorkspace(
   const builds = spec.features === 'all' ? ['--no-default-features'] : [];
   const scratch = mkdtempSync(path.join(tmpdir(), `merkur-${spec.name}-`));
   try {
-    writeFileSync(path.join(scratch, 'Cargo.toml'), workspace.root);
-    for (const [directory, text] of workspace.members) {
-      mkdirSync(path.join(scratch, MEMBERS, directory), { recursive: true });
-      writeFileSync(path.join(scratch, MEMBERS, directory, 'Cargo.toml'), text);
-    }
+    writeWorkspace(scratch, workspace.root, workspace.members);
     copyFileSync(path.join(root, 'Cargo.lock'), path.join(scratch, 'Cargo.lock'));
     const metadata = Schema.decodeUnknownSync(Metadata)(
       JSON.parse(
@@ -733,42 +684,27 @@ function resolveWorkspace(
     const excluded = [plan.module.name, own];
     const got = describe(browserFeatures(scratch, root, own, spec.dev, builds), excluded);
     const want = describe(expected, excluded);
-    if (JSON.stringify(got) !== JSON.stringify(want)) {
-      const only = (from: string[], other: string[]) => {
-        const missing: string[] = [];
-        for (const entry of from) if (!other.includes(entry)) missing.push(entry);
-        return missing;
-      };
-      throw new Error(
-        `${spec.name}'s workspace resolves differently from the checkout's:\n` +
-          `  only here: ${only(got, want).join('\n             ')}\n` +
-          `  only there: ${only(want, got).join('\n              ')}`,
-      );
-    }
+    requireSameResolution(
+      got,
+      want,
+      `${spec.name}'s workspace resolves differently from the checkout's`,
+    );
     return { plan, workspace, lock, metadata, features: expected };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
 
-/** The members a resolved node depends on, as labels: normal, and dev for a test's root. */
-function memberLabels(
+/** The members a resolved node depends on, as quoted labels: normal, and dev for a test's root. */
+function quotedLabels(
   metadata: Metadata,
   memberIds: ReadonlyMap<string, Crate>,
   id: string | undefined,
   dev: boolean,
 ): string[] {
-  const node = metadata.resolve.nodes.find((candidate) => candidate.id === id);
-  if (node === undefined) throw new Error(`cargo resolved no node ${id}`);
-  const labels: string[] = [];
-  for (const dep of node.deps) {
-    const member = memberIds.get(dep.pkg);
-    if (member === undefined) continue;
-    if (!dep.dep_kinds.some(({ kind }) => kind === null || (dev && kind === 'dev'))) continue;
-    if (dep.name !== member.library) throw new Error(`${member.name} is renamed to ${dep.name}`);
-    labels.push(`":${member.library}"`);
-  }
-  return labels.sort();
+  const labels = memberLabels(metadata, memberIds, id, dev);
+  if (labels === undefined) throw new Error(`cargo resolved no node ${id}`);
+  return labels.map((label) => JSON.stringify(label));
 }
 
 /** `crates.bzl`: each member's library, compiled for the browser with Cargo's features. */
@@ -791,7 +727,7 @@ function cratesBzl(spec: WasmWorkspace, resolution: Resolution): string {
     'load("@rules_rust//rust:defs.bzl", "rust_library")',
     '',
     `# The checkout's crates ${plan.module.name} itself depends on.`,
-    `MODULE_DEPS = [${memberLabels(metadata, memberIds, rootId, spec.dev).join(', ')}]`,
+    `MODULE_DEPS = [${quotedLabels(metadata, memberIds, rootId, spec.dev).join(', ')}]`,
     '',
     'def module_crates():',
     `    """Declares each crate ${spec.name} reaches in the checkout."""`,
@@ -801,7 +737,7 @@ function cratesBzl(spec: WasmWorkspace, resolution: Resolution): string {
     const resolved = features.get(`${member.name} ${member.version}`);
     if (resolved === undefined) throw new Error(`cargo resolved no features for ${member.name}`);
     const packageName = `${wasmArtifactDirectory(spec.name)}/${MEMBERS}/${member.directory}`;
-    const deps = memberLabels(metadata, memberIds, id, false);
+    const deps = quotedLabels(metadata, memberIds, id, false);
     output.push(
       '    rust_library(',
       `        name = "${member.library}",`,
@@ -834,19 +770,7 @@ export function wasmArtifactHubs(root = ROOT): string {
     const directory = wasmArtifactDirectory(spec.name);
     output.push(
       '',
-      'crate.from_cargo(',
-      `    name = "${wasmArtifactHub(spec.name)}",`,
-      `    cargo_lockfile = "//${directory}:Cargo.lock",`,
-      '    manifests = [',
-      `        "//${directory}:Cargo.toml",`,
-      ...writtenMembers(spec, root).map(
-        (member) => `        "//${directory}:${MEMBERS}/${member}/Cargo.toml",`,
-      ),
-      '    ],',
-      '    supported_platform_triples = [',
-      ...TRIPLES.map((triple) => `        "${triple}",`),
-      '    ],',
-      ')',
+      ...fromCargo(wasmArtifactHub(spec.name), directory, writtenMembers(spec, root), TRIPLES),
     );
   }
   output.push(
@@ -879,13 +803,7 @@ if (import.meta.main) {
   for (const spec of WASM_WORKSPACES) {
     const resolution = resolveWorkspace(spec, members(spec, ROOT), ROOT);
     const directory = path.join(ROOT, wasmArtifactDirectory(spec.name));
-    rmSync(path.join(directory, MEMBERS), { recursive: true, force: true });
-    mkdirSync(directory, { recursive: true });
-    for (const [member, text] of resolution.workspace.members) {
-      mkdirSync(path.join(directory, MEMBERS, member), { recursive: true });
-      writeFileSync(path.join(directory, MEMBERS, member, 'Cargo.toml'), text);
-    }
-    writeFileSync(path.join(directory, 'Cargo.toml'), resolution.workspace.root);
+    writeWorkspace(directory, resolution.workspace.root, resolution.workspace.members);
     writeFileSync(path.join(directory, 'Cargo.lock'), resolution.lock);
     writeFileSync(path.join(directory, 'crates.bzl'), cratesBzl(spec, resolution));
   }

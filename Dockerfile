@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 
-# Build tooling runs on the build platform; see the builder stage.
+# The verifier runs on the build platform.
 FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS bun
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl libatomic1 unzip \
@@ -29,7 +29,7 @@ RUN apt-get update \
   && rm -rf /tmp/bun.zip /tmp/pnpm.tgz /var/lib/apt/lists/*
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin
 
-# Shared dependency installation for artifact export and signature verification.
+# The dependencies signature verification imports.
 FROM bun AS dependencies
 WORKDIR /app
 
@@ -51,64 +51,8 @@ COPY packages/user-agent/package.json packages/user-agent/package.json
 # Use Docker layer caching: Railway cache mounts require a literal service ID.
 RUN pnpm install --frozen-lockfile
 
-# Everything the builder produces is platform-neutral (web assets, bundled migrations) except
-# the server executable, which `bun build --compile` cross-targets, so it runs on the build
-# platform. The WebAssembly packages arrive built: Bazel builds them before the image does
-# (`bun run build:wasm`).
-FROM dependencies AS builder
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends brotli \
-  && rm -rf /var/lib/apt/lists/*
-COPY tsconfig.base.json tsconfig.json ./
-COPY apps/ apps/
-COPY packages/ packages/
-COPY scripts/ scripts/
-
-ARG VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY
-ARG MERKUR_RELEASE_MLDSA87_PUBLIC_KEY
-ARG MERKUR_BUILD_COMMIT
-# The signed deployment's source commit is also its server/browser version.
-ENV MERKUR_VERSION=${MERKUR_BUILD_COMMIT}
-
-RUN bun -e 'import { decodeReleasePublicKey } from "./packages/shared/src/release-signature"; decodeReleasePublicKey(process.env.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY ?? ""); if (!/^[0-9a-f]{40}$/.test(process.env.MERKUR_BUILD_COMMIT ?? "")) throw new Error("MERKUR_BUILD_COMMIT is required")' \
-  && bun -e 'const value = process.env.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY ?? ""; const decoded = Buffer.from(value, "base64url"); if (decoded.byteLength !== 32 || decoded.toString("base64url") !== value) throw new Error("VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY must be canonical base64url for 32 bytes")' \
-  && bun --no-env-file run --cwd apps/web vite build
-RUN find apps/web/dist -type f ! -name '*.br' -print0 \
-  | xargs -0 -r -n 1 -P "$(nproc)" brotli --force --quality=11
-# `bun build` inlines `process.env.NODE_ENV` while bundling — as "development"
-# unless the build itself says otherwise — so the executable never reads the
-# deployment's runtime variable. Production HSTS, `upgrade-insecure-requests`
-# and the loopback-origin cookie relaxation all key on this constant.
-# `--conditions=workerd` resolves `@libsql/client` to its pure-JavaScript build.
-# The default Node build reaches for a native `.node` addon, which `--compile`
-# cannot embed and the signed runtime has no `node_modules` to hold; selecting
-# the network client here is what makes a standalone binary possible at all, and
-# it is why a `file:` database URL is refused in production rather than quietly
-# opening a file on the container's disk.
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-      amd64) bun_target=bun-linux-x64 ;; \
-      arm64) bun_target=bun-linux-arm64 ;; \
-      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-  && mkdir -p apps/server/dist \
-  && bun build apps/server/src/index.ts --target "${bun_target}" --compile --conditions=workerd --outfile apps/server/dist/server \
-    --define "process.env.NODE_ENV=\"production\"" \
-    --define "process.env.MERKUR_BUILD_ID=$(bun -e 'process.stdout.write(JSON.stringify(JSON.parse(await Bun.file("apps/web/dist/merkur-build.json").text()).buildId))')" \
-    --define "process.env.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=\"${MERKUR_RELEASE_MLDSA87_PUBLIC_KEY}\"" \
-    --define "process.env.MERKUR_VERSION=\"${MERKUR_VERSION}\"" \
-    --define "process.env.MERKUR_OPAQUE_WEB_BUILD_PUBLIC_KEY=\"${VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY}\""
-
-# Migrations are loaded after the compiled server starts. Bundle their runtime
-# imports too: the signed runtime intentionally has no node_modules directory.
-RUN bun build apps/server/migrations/*.ts --target bun --root apps/server/migrations --outdir /app/migrations-built
-
-# Export exact bytes, sign offline, then package using the default target.
-FROM scratch AS artifacts
-COPY --from=builder /app/apps/server/dist/ /server/
-COPY --from=builder /app/migrations-built/ /migrations/
-COPY --from=builder /app/apps/web/dist/ /web/
-
+# The deployment arrives built and signed (`//tools/bazel/release:deployment`, then the release's
+# signing); this stage only verifies it before the runtime copies it in.
 FROM dependencies AS verified
 ARG MERKUR_RELEASE_MLDSA87_PUBLIC_KEY
 ARG MERKUR_BUILD_COMMIT

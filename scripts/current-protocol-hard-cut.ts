@@ -114,7 +114,6 @@ const FORBIDDEN_SOURCE_RULES: readonly ForbiddenSourceRule[] = [
       'Cargo.lock',
       'Cargo.toml',
       'Dockerfile',
-      'Dockerfile.daemon-release',
       'apps',
       'docker-compose.dev.yaml',
       'package.json',

@@ -130,7 +130,7 @@ Build commands produce the same artifacts CI ships:
 | --- | --- |
 | `bun run build:web` | Resolves the local public OPAQUE pin, builds the WASM packages, and runs Vite with public build inputs only. |
 | `bun run build:server` | Compiles `apps/server/src/index.ts` to a Bun executable. |
-| `bun run build:daemon` | The daemon JS entry plus the Rust dataplane artifact. |
+| `bun run build:daemon` | This platform's release archive (`bazel build --config=release //tools/bazel/release:daemon`): the compiled CLI, the profile-guided dataplane, the image worker and the terminal client. |
 | `bun run build:native` | `merkur-dataplane`, `merkur-image-worker` and `merkur-tui` into apps/daemon/dist, and `merkur-edge`, `delay_proxy` and `bulk_competitor` into apps/edge/dist, through Bazel in the release profile (`bazel run --config=release //tools/bazel/native:sync`). |
 | `bun run build:wasm` | The terminal, end-to-end crypto, graphics and codec-probe WASM packages, through Bazel (`bazel run //tools/bazel/wasm:sync`), copied where the web app, the server and Bun import them. |
 | `bun run build:wasm-workspaces` | Regenerates each WASM package's own Cargo workspace and lock (`tools/bazel/wasm/<package>`) after a manifest or `Cargo.lock` change. |

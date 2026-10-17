@@ -1,0 +1,72 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@sim_crates//:defs.bzl", "aliases", "all_crate_deps")
+load(":crates.bzl", "SIM_DEPS", "sim_crates")
+load(":defs.bzl", "SIMULATING", "sim_test")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+# Set by `sim_test`, whose configuration is the only one the simulator's libraries build in.
+bool_flag(
+    name = "simulating",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "simulating_build",
+    flag_values = {":simulating": "true"},
+)
+
+# The checkout crates the simulator reaches, from its own crate hub (`scripts/sim-workspace.ts`).
+sim_crates()
+
+rust_library(
+    name = "merkur_sim",
+    srcs = ["//tools/sim:srcs"],
+    aliases = aliases(),
+    crate_name = "merkur_sim",
+    crate_root = "//tools/sim:src/lib.rs",
+    edition = "2024",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    tags = ["noclippy"],
+    target_compatible_with = SIMULATING,
+    deps = SIM_DEPS + ["//tools/sim:build_script"] + all_crate_deps(normal = True),
+)
+
+# One test per `tools/sim/tests` file, one simulation at a time: they share process-wide clock
+# and entropy hooks.
+[sim_test(
+    name = test,
+    srcs = ["//tools/sim:tests/%s.rs" % test],
+    args = ["--test-threads=1"],
+    compile_data = [
+        "//packages/shared:test_vectors",
+        "//tools/sim:regressions.json",
+    ],
+    crate_root = "//tools/sim:tests/%s.rs" % test,
+    edition = "2024",
+    proc_macro_deps = all_crate_deps(
+        proc_macro = True,
+        proc_macro_dev = True,
+    ),
+    tags = ["noclippy"],
+    deps = [":merkur_sim"] + SIM_DEPS + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+) for test in [
+    "bounces",
+    "expiry",
+    "faults",
+    "issuer",
+    "network",
+    "recovery",
+    "regressions",
+    "rotation",
+    "session",
+    "spike",
+    "sweep",
+]]

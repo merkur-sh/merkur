@@ -7,6 +7,16 @@ package(default_visibility = ["//visibility:public"])
 
 package_files()
 
+# The crate's sources and root, which the simulator's crate hub compiles too
+# (`//tools/bazel/sim`).
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["src/lib.rs"])
+
 extract_cargo_lints(
     name = "lints",
     manifest = "Cargo.toml",

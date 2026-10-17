@@ -12,8 +12,6 @@ export interface RuleEffects {
   readonly noGate?: true;
   /** `rust:lint`: Clippy's findings held to their baseline. */
   readonly rustLint?: true;
-  /** Scripts that run with the gates. */
-  readonly scripts?: readonly string[];
   /** `check:audit` and `check:js-dependency-policy`. */
   readonly audit?: true;
   /** The changed spec's owning Playwright suite. */
@@ -142,26 +140,6 @@ export const RULES: readonly Rule[] = [
     globs: ['apps/tui/**'],
     effects: { deferred: ['test:e2e:transport'] },
     note: 'The terminal client is proven only against a real splice: `tui-headless` drives the built binary in the transport phase.',
-  },
-  {
-    name: 'simulator',
-    globs: [
-      'tools/sim/**',
-      'scripts/sim-tests.ts',
-      'scripts/generated-cargo-workspace.ts',
-      `${DATAPLANE}/src/**`,
-      `${DATAPLANE}/Cargo.toml`,
-      'apps/edge/src/**',
-      'apps/edge/Cargo.toml',
-      'packages/merkur-client/**',
-      'packages/merkur-client-native/**',
-      'packages/wtransport-patch/**',
-      'packages/quinn-patch/**',
-      'packages/quinn-proto-patch/**',
-    ],
-    exclude: ['**/*.md'],
-    effects: { scripts: ['test:sim'] },
-    note: 'The real client, edge and dataplane run whole sessions in one deterministic simulation (`tools/sim`); a change to any of them, or to the simulator, replays every scenario and its seeds.',
   },
   {
     name: 'bounded-proofs',

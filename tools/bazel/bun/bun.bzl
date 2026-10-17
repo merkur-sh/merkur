@@ -86,6 +86,7 @@ def _bun_test_impl(ctx):
 set -euo pipefail
 runfiles="$(cd "${{RUNFILES_DIR:-$0.runfiles}}" && pwd)"
 main="$runfiles/_main"
+# A test's scratch; a build action running this as a tool names one with `TEST_TMPDIR` too.
 tree="$TEST_TMPDIR/checkout"
 mkdir -p "$tree"
 tar -C "$main" --exclude=node_modules -chf - . | tar -C "$tree" -xf -
@@ -126,7 +127,7 @@ if [ -n "${{TEST_TOTAL_SHARDS:-}}" ]; then
 else
   for file in ${{files[@]+"${{files[@]}}"}}; do selected+=("./$file"); done
 fi
-exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}}
+exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}} "$@"
 """.format(
             args = " ".join(ctx.attr.args_),
             browsers = browsers,
@@ -153,6 +154,31 @@ exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}}
         runfiles = runfiles.merge(ctx.runfiles(transitive_files = target.files))
     return [DefaultInfo(executable = launcher, runfiles = runfiles)]
 
+_CHECKOUT_ATTRS = {
+    "args_": attr.string_list(doc = "Bun's arguments, before the test files."),
+    "browsers": attr.label_keyed_string_dict(
+        doc = "Playwright browsers, by the directory Playwright reads each from.",
+    ),
+    "data": attr.label_list(allow_files = True),
+    "git": attr.bool(),
+    "links": attr.string_dict(doc = "Symlinks to recreate, by path, with their targets."),
+    "mounts": attr.label_keyed_string_dict(
+        doc = "Other repositories' files, by the checkout directory they sit in.",
+    ),
+    "tests": attr.label_list(allow_files = True),
+    "tools": attr.label_keyed_string_dict(
+        doc = "Executables the tests spawn, by the name they run them under.",
+    ),
+    "_bun": attr.label(
+        default = "//tools/bazel/bun",
+        allow_single_file = True,
+    ),
+    "_link_bins": attr.label(
+        default = "//tools/bazel/bun:link-bins.ts",
+        allow_single_file = True,
+    ),
+}
+
 bun_test = rule(
     implementation = _bun_test_impl,
     doc = """Bun over a checkout of the declared files: `bun <args_> <tests>`.
@@ -161,31 +187,18 @@ bun_test = rule(
 reads and the `node_modules` it resolves through; `links` recreates the checkout's symlinks and
 `git` makes the checkout a repository whose one commit holds every file. `browsers` installs
 Playwright's browsers where the tests' Playwright launches them.""",
-    attrs = {
-        "args_": attr.string_list(doc = "Bun's arguments, before the test files."),
-        "browsers": attr.label_keyed_string_dict(
-            doc = "Playwright browsers, by the directory Playwright reads each from.",
-        ),
-        "data": attr.label_list(allow_files = True),
-        "git": attr.bool(),
-        "links": attr.string_dict(doc = "Symlinks to recreate, by path, with their targets."),
-        "mounts": attr.label_keyed_string_dict(
-            doc = "Other repositories' files, by the checkout directory they sit in.",
-        ),
-        "tests": attr.label_list(allow_files = True),
-        "tools": attr.label_keyed_string_dict(
-            doc = "Executables the tests spawn, by the name they run them under.",
-        ),
-        "_bun": attr.label(
-            default = "//tools/bazel/bun",
-            allow_single_file = True,
-        ),
-        "_link_bins": attr.label(
-            default = "//tools/bazel/bun:link-bins.ts",
-            allow_single_file = True,
-        ),
-    },
+    attrs = _CHECKOUT_ATTRS,
     test = True,
+    toolchains = ["@rules_nodejs//nodejs:toolchain_type"],
+)
+
+bun_checkout = rule(
+    implementation = _bun_test_impl,
+    doc = """`bun <args_> <arguments>` over a checkout of the declared files, as `bun_test` makes it.
+
+A build action runs it as a tool, naming a scratch directory in `TEST_TMPDIR`.""",
+    attrs = _CHECKOUT_ATTRS,
+    executable = True,
     toolchains = ["@rules_nodejs//nodejs:toolchain_type"],
 )
 
@@ -244,6 +257,21 @@ def repo_check(name, script, **kwargs):
         args_ = ["run", script],
         data = _TEST_DATA,
         git = True,
+        links = SYMLINKS,
+        mounts = _VENDORED,
+        **kwargs
+    )
+
+def repo_checkout(name, **kwargs):
+    """`bun <arguments>` over a checkout of the whole repository, for build actions.
+
+    Args:
+      name: the executable's name.
+      **kwargs: the common attributes.
+    """
+    bun_checkout(
+        name = name,
+        data = _TEST_DATA,
         links = SYMLINKS,
         mounts = _VENDORED,
         **kwargs

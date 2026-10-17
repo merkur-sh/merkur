@@ -1,0 +1,26 @@
+# Generated from packages/merkur-image-worker/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-image-worker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/merkur-image-worker/src/lib.rs"
+
+[dependencies]
+merkur-graphics = { path = "../packages-merkur-graphics", "default-features" = false, features = [] }
+simdutf = { version = "0.7" }
+png = { version = "=0.18.1" }
+blake3 = { version = "1.8" }
+libc = { version = "0.2" }
+crossbeam-channel = { version = "0.5" }
+tokio = { version = "1", features = ["io-util","process","sync","rt","macros","time"] }
+dlmalloc = { version = "=0.2.14", "default-features" = false }
+libdeflate-sys = { version = "=1.26.1" }
+crc32fast = { version = "1" }
+zeroize = { version = "1.9" }
+
+[lints]
+workspace = true

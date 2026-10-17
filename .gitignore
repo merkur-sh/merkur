@@ -66,8 +66,8 @@ test-results/
 merkur-release.json
 merkur-release.sig
 
-# Daemon release tarballs built by Dockerfile.daemon-release into its `artifacts`
-# stage. Each is tens of megabytes of compressed binaries; they are published
+# Daemon release tarballs (`//tools/bazel/release:daemon`), copied out of Bazel by the
+# release jobs. Each is tens of megabytes of compressed binaries; they are published
 # from the build, never from the tree.
 merkur-daemon-*.tar.gz
 

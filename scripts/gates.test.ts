@@ -44,16 +44,6 @@ test('Rust, manifests and the build graph earn rust:lint; dependencies earn the 
   expect(dependencies).toContainEqual(['bun', 'run', 'check:js-dependency-policy']);
 });
 
-test('the client, edge, dataplane and transport patches replay the simulation', () => {
-  for (const file of [
-    'packages/merkur-client/src/session.rs',
-    'apps/edge/src/relay.rs',
-    'apps/daemon/dataplane/src/display/send.rs',
-    'packages/quinn-proto-patch/src/connection/mod.rs',
-  ])
-    expect(selectGates([file], owners).commands).toContainEqual(['bun', 'run', 'test:sim']);
-});
-
 test('E2E specs select their owning suites; an unowned spec is an error', () => {
   expect(suites(selectGates(['tests/e2e/auth-cross-tab.e2e.ts'], owners))).toEqual(['test:e2e']);
   expect(suites(selectGates(['tests/e2e/carrier-rebind.e2e.ts'], owners))).toEqual([

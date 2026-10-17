@@ -22,6 +22,6 @@
     "dev": "bun run src/index.ts daemon",
     "dev:watch": "bazel run --config=release //tools/bazel/native:sync && bun --watch run src/index.ts daemon",
     "link": "bun run src/index.ts link",
-    "build": "bun run ../../scripts/build-daemon-dist.ts"
+    "build": "bazel build --config=release //tools/bazel/release:daemon"
   }
 }

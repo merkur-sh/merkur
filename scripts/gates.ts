@@ -3,8 +3,8 @@
  *
  * `bazel test //...` is every unit test and static gate, and Bazel runs only the ones whose
  * inputs changed: the rest it answers from its cache. What it cannot run comes from `RULES`
- * (`gate-policy.ts`): `rust:lint`, the dependency audit, the scripts outside Bazel, and the
- * browser, container and proof suites that take minutes, which a run names and `--all` runs.
+ * (`gate-policy.ts`): `rust:lint`, the dependency audit, and the browser, container and proof
+ * suites that take minutes, which a run names and `--all` runs.
  *
  *   bun run gates                 print the gates for the working tree's changes
  *   bun run gates --run           run them
@@ -50,7 +50,6 @@ function key(command: Command): string {
 /** Select the gates for a set of changed files. Pure: the E2E owners come in as an argument. */
 export function selectGates(changed: readonly string[], e2eOwners: E2eOwners): GatePlan {
   const files = [...new Set(changed.map(normalize))].sort();
-  const scripts = new Set<string>();
   const deferred = new Map<string, Command>();
   const addDeferred = (command: Command) => deferred.set(key(command), command);
   const reasons: string[] = [];
@@ -69,7 +68,6 @@ export function selectGates(changed: readonly string[], e2eOwners: E2eOwners): G
       reasons.push(`${file} → ${rule.name}`);
       rustLint ||= effects.rustLint === true;
       audit ||= effects.audit === true;
-      for (const script of effects.scripts ?? []) scripts.add(script);
       for (const script of effects.deferred ?? []) addDeferred(['bun', 'run', script]);
       if (effects.e2e) {
         const owners = [...e2eOwners].flatMap(([pattern, commands]) =>
@@ -90,7 +88,6 @@ export function selectGates(changed: readonly string[], e2eOwners: E2eOwners): G
     if (rustLint) commands.push(['bun', 'run', 'rust:lint']);
     if (audit)
       commands.push(['bun', 'run', 'check:audit'], ['bun', 'run', 'check:js-dependency-policy']);
-    for (const script of [...scripts].sort()) commands.push(['bun', 'run', script]);
   } else if (files.length > 0) {
     commands.push(['bazel', 'test', '//:check_docs']);
   }

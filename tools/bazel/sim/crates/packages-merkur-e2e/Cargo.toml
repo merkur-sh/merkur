@@ -1,0 +1,33 @@
+# Generated from packages/merkur-e2e/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-e2e"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/merkur-e2e/src/lib.rs"
+
+[dependencies]
+p256 = { version = "=0.13.2", "default-features" = false, features = ["ecdsa","arithmetic"] }
+hkdf = { version = "=0.12.4", "default-features" = false }
+hmac = { version = "=0.12.1", "default-features" = false }
+libcrux-ml-dsa = { version = "=0.0.11", "default-features" = false, features = ["mldsa87"] }
+libcrux-ml-kem = { version = "=0.0.11", "default-features" = false, features = ["mlkem1024"] }
+sha2 = { version = "=0.10.9", "default-features" = false }
+subtle = { version = "=2.6.1", "default-features" = false }
+snow = { version = "0.10", "default-features" = false, features = ["risky-raw-split"] }
+zeroize = { version = "=1.9.1", "default-features" = false, features = ["alloc"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+poly1305 = { version = "=0.8.0", "default-features" = false }
+
+[features]
+default = []
+std = ["snow/default-resolver-crypto","snow/ring-accelerated"]
+wasm = ["snow/default-resolver","snow/default-resolver-crypto"]
+testing = []
+
+[lints]
+workspace = true

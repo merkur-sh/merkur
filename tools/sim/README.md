@@ -7,7 +7,7 @@ carrier lost mid-rebind) becomes a test that fails the same way every time.
 
 ```sh
 bun run test:sim                    # every scenario and every recorded regression
-bun run test:sim --test spike       # one file
+bazel test //tools/bazel/sim:spike  # one file
 bun run test:sim:sweep 200          # 200 random seeds from a random start
 bun run test:sim:sweep 50 7000      # seeds 7000..7050
 bun run test:sim:update-lock        # after a production dependency change
@@ -15,12 +15,15 @@ bun run test:sim:update-lock        # after a production dependency change
 
 ## How production code ends up simulated
 
-- **Isolation.** `scripts/sim-tests.ts` writes `manifest.toml` into the generated workspace
-  `test-results/sim/workspace` with absolute paths and the production `[patch.crates-io]`
-  table and lints, and builds it with `--cfg merkur_sim --cfg tokio_unstable` against the
-  retained `tools/sim/Cargo.lock`. `update-lock` seeds that lock from production's, so
-  every crate production links keeps its version. turmoil and tokio's `test-util` never
-  reach the production workspace or its lockfile.
+- **Isolation.** Bazel builds the simulator from a crate hub of its own, `@sim_crates`, over
+  the workspace `scripts/sim-workspace.ts` writes into `tools/bazel/sim`: `manifest.toml` as
+  the root package, the production crates it reaches as members, the production
+  `[patch.crates-io]` table and lints, resolved against the retained `tools/sim/Cargo.lock`.
+  Every crate compiles with `--cfg merkur_sim --cfg tokio_unstable` in Cargo's release
+  profile (`tools/bazel/sim/defs.bzl`), and the libraries build in no other configuration.
+  `update-lock` seeds that lock from production's, so every crate production links keeps its
+  version, then regenerates the hub. turmoil and tokio's `test-util` never reach the
+  production workspace or its lockfile.
 - **Sockets.** Under `cfg(merkur_sim)`, `wtransport::Endpoint::client` and `::server`
   take their socket, runtime and packet-number seed from `wtransport::endpoint::sim`,
   which this crate installs (`bind` in `src/lib.rs`). The socket is a turmoil UDP socket

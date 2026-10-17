@@ -349,12 +349,12 @@ MERKUR_EDGE_IDENTITY_DIR=.local/edge-identity \
 MERKUR_EDGE_EGRESS_INTERFACE=lo0 \
 MERKUR_EDGE_DATA_BUDGET_GB=1000000 \
 MERKUR_EDGE_SIGNALING_RESERVE_GB=100000 \
-cargo run -p merkur-edge
+bazel run //apps/edge:merkur-edge
 ```
 
 Use `lo` instead of `lo0` on Linux.
 
-`cargo test -p merkur-edge` runs the in-memory and real-QUIC regressions. `probe` exercises a
+`bazel test //apps/edge/...` runs the in-memory and real-QUIC regressions. `probe` exercises a
 running edge with one reliable echo lane plus datagrams; `hol_probe` floods a display lane
 while pinging a control lane and fails on head-of-line inflation. The real-browser topology
 test runs two replicas in Chromium through a coordinated certificate rotation:
@@ -362,7 +362,7 @@ test runs two replicas in Chromium through a coordinated certificate rotation:
 ```bash
 MERKUR_EDGE_URL=https://localhost:4433 MERKUR_EDGE_CERT_HASH=<base64-sha256> \
 MERKUR_EDGE_ATTACH_TICKET_KEY=<the edge's attach ticket key> \
-cargo run -p merkur-edge --bin probe
+bazel run //apps/edge:probe
 bun run test:e2e:edge-topology
 ```
 
@@ -374,8 +374,8 @@ opaque datagram and reliable body. Run it alone, with no builds or other workloa
 
 ```bash
 EDGE_PROFILE_WORKLOAD=typing EDGE_PROFILE_WORKERS=default \
-cargo test --locked --release -p merkur-edge --bin merkur-edge \
-  authenticated_forwarding_profile -- --ignored --nocapture --test-threads=1
+bazel run --config=release //apps/edge:bin_unit -- \
+  authenticated_forwarding_profile --ignored --nocapture --test-threads=1
 ```
 
 `EDGE_PROFILE_WORKLOAD` selects `typing` (57-byte closed-loop datagrams), `burst` (32-datagram
@@ -399,9 +399,9 @@ and the browser transport harness for server issuance, Noise authentication, PTY
 presentation. Retain exact native artifacts and compare equal completed work, latency tails,
 CPU and RSS as described in [the performance guide](../../docs/performance.md).
 
-The image is `apps/edge/Dockerfile`, built from the repository root so one lockfile describes
-the edge whether cargo or the image builds it; it drops to an unprivileged user before the
-binary starts. Replicas are listed in `apps/edge/replicas.json` (id, app, region, public
+The image is `apps/edge/Dockerfile`: the runtime around the release binary Bazel builds from the
+workspace's one lockfile (`bazel run --config=release //tools/bazel/release:image_binaries`),
+on Linux x86_64; it drops to an unprivileged user before the binary starts. Replicas are listed in `apps/edge/replicas.json` (id, app, region, public
 URL, rate cap, data budget, and signaling reserve). `scripts/edge-fly-config.ts` renders everything else into a per-replica `<edge-id>.toml`
 under an ignored `fly/` directory inside `apps/edge`, so no deployment manifest is tracked,
 and it refuses a duplicate id, app, or URL, a non-canonical public URL, and a region missing

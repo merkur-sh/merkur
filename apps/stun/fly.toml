@@ -9,8 +9,8 @@
 # Full discovery needs two independently routed addresses on the observer host;
 # see docs/transport.md and apps/stun/README.md.
 #
-# Deploy from the repository root:
-#   fly deploy --config apps/stun/fly.toml --dockerfile apps/stun/Dockerfile
+# The release workflow deploys the image it built around Bazel's release binary
+# (`flyctl deploy --config apps/stun/fly.toml --image <digest>`); see apps/stun/Dockerfile.
 app = "mercury-stun-tntcl"
 primary_region = "fra"
 

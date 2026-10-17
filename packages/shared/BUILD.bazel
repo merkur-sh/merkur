@@ -27,7 +27,7 @@ js_library(
     name = "pkg",
     srcs = glob(
         ["**"],
-        exclude = ["BUILD.bazel"],
+        exclude = IGNORED + ["BUILD.bazel"],
     ),
     visibility = ["//visibility:public"],
     deps = [":node_modules"],

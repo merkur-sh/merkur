@@ -1,0 +1,32 @@
+load("@edge_kernel_profile_crates//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//cargo:defs.bzl", "extract_cargo_lints")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+extract_cargo_lints(
+    name = "lints",
+    manifest = "Cargo.toml",
+)
+
+# The edge's eBPF kernel profiler, which loads its probes through Linux's BPF interface.
+rust_binary(
+    name = "merkur-edge-kernel-profile",
+    srcs = ["src/main.rs"],
+    aliases = aliases(),
+    edition = "2024",
+    lint_config = ":lints",
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = all_crate_deps(normal = True),
+)
+
+rust_test(
+    name = "unit",
+    crate = ":merkur-edge-kernel-profile",
+    lint_config = ":lints",
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = all_crate_deps(normal_dev = True),
+)

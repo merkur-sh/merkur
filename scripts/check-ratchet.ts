@@ -7,9 +7,10 @@
  *   bun run check:ratchet --tighten     lower the baselines to today's tree; never adds or raises
  *   bun run check:ratchet --init        write the baselines when there are none
  *
- * The whole-tree run needs no history, so it is a cached Bazel test: dead code and exact clones
- * are held to `fallow-baselines/{dead-code,dupes}.json`, which fallow matches without line
- * numbers, and a dead-code entry the tree no longer has fails as loose. Complexity is held to
+ * The whole-tree run needs no history, so it is a cached Bazel test: dead code is held to
+ * `fallow-baselines/dead-code.json`, which fallow matches by name, and exact clones to
+ * `fallow-baselines/dupes.json`, each file's count of clone instances, which holds whatever
+ * moves inside or around a clone. An entry the tree no longer needs fails as loose. Complexity is held to
  * `fallow-baselines/complexity-ceilings.json`, which pins every hotspot's exact values: a
  * hotspot that grows from 617 to 700 fails, and so does a ceiling looser than the code, so the
  * file never drifts above it. The staged run is `fallow audit`, which attributes each finding to
@@ -452,13 +453,13 @@ function reportRatchetAnalysis(options: {
 }
 
 /** Dead code and exact clones the baselines do not hold, and dead-code entries the tree lost. */
-export function baselineFindings(deadCode: Report, dupes: Report) {
+/** Dead code the dead-code baseline does not hold, and the entries the tree no longer has. */
+export function deadCodeFindings(deadCode: Report) {
   const added: string[] = [];
   for (const [category, items] of Object.entries(deadCode)) {
     if (category === 'next_steps' || category === 'workspace_diagnostics') continue;
     for (const item of records(items)) added.push(`${category}: ${describeFinding(item)}`);
   }
-  for (const group of records(dupes.clone_groups)) added.push(describeClone(group));
   const baseline = isRecord(deadCode.baseline) ? deadCode.baseline : {};
   const entries = numberField(baseline, 'entries');
   const matched = numberField(baseline, 'matched');
@@ -467,27 +468,97 @@ export function baselineFindings(deadCode: Report, dupes: Report) {
   return { added, loose: entries - matched };
 }
 
+/**
+ * Exact-clone instances by file. A count holds whatever moves inside or around a clone; a file
+ * gains one only by gaining a clone.
+ */
+export function cloneCounts(dupes: Report): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const group of records(dupes.clone_groups))
+    for (const span of cloneSpans(group)) counts.set(span.file, (counts.get(span.file) ?? 0) + 1);
+  return counts;
+}
+
+export function parseCloneCounts(text: string): Map<string, number> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new RatchetError(`${DUPES_BASELINE} is not JSON`);
+  }
+  if (!isRecord(parsed)) throw new RatchetError(`${DUPES_BASELINE} is not a JSON object`);
+  const counts = new Map<string, number>();
+  for (const file of Object.keys(parsed)) {
+    const count = numberField(parsed, file);
+    if (count === null || !Number.isSafeInteger(count) || count <= 0)
+      throw new RatchetError(`${DUPES_BASELINE}: "${file}" is not a positive clone count`);
+    counts.set(file, count);
+  }
+  return counts;
+}
+
+export function formatCloneCounts(counts: ReadonlyMap<string, number>): string {
+  return `${JSON.stringify(Object.fromEntries([...counts].sort(([a], [b]) => a.localeCompare(b))), null, 2)}\n`;
+}
+
+/** Files holding more clone instances than the baseline allows, and fewer. */
+export function compareCloneCounts(
+  current: ReadonlyMap<string, number>,
+  baseline: ReadonlyMap<string, number>,
+  dupes: Report,
+) {
+  const grown = new Set<string>();
+  for (const [file, count] of current) if (count > (baseline.get(file) ?? 0)) grown.add(file);
+  const added: string[] = [];
+  for (const group of records(dupes.clone_groups))
+    if (cloneSpans(group).some((span) => grown.has(span.file))) added.push(describeClone(group));
+  const loose: string[] = [];
+  for (const [file, count] of baseline) {
+    const found = current.get(file) ?? 0;
+    if (found < count) loose.push(`${file}: allowed ${count}, found ${found}`);
+  }
+  return { added, loose };
+}
+
+function readCloneCounts(): Map<string, number> {
+  const file = path.join(ROOT, DUPES_BASELINE);
+  if (!existsSync(file)) throw new RatchetError(`${DUPES_BASELINE} is missing; run --init`);
+  return parseCloneCounts(readFileSync(file, 'utf8'));
+}
+
 async function checkTree(): Promise<number> {
   const [deadCode, dupes, health] = await Promise.all([
     fallow('fallow dead-code', ['dead-code', '--baseline', DEAD_CODE_BASELINE]),
-    fallow('fallow dupes', ['dupes', '--baseline', DUPES_BASELINE]),
+    fallow('fallow dupes', ['dupes']),
     fallow('fallow health', ['health']),
   ]);
-  const { added, loose } = baselineFindings(deadCode, dupes);
+  const dead = deadCodeFindings(deadCode);
+  const clones = compareCloneCounts(cloneCounts(dupes), readCloneCounts(), dupes);
   const current = hotspotsOf(health);
   const violations = compareCeilings(current, readCeilingsFile(), () => true);
   write('check:ratchet: the tree against fallow-baselines/\n');
-  if (added.length > 0) section('FAIL  not in the baselines:', added);
-  if (loose > 0)
-    write(
-      `FAIL  ${loose} ${DEAD_CODE_BASELINE} entries the tree no longer has; run \`bun run check:ratchet --tighten\`\n`,
+  if (dead.added.length > 0) section(`FAIL  dead code not in ${DEAD_CODE_BASELINE}:`, dead.added);
+  if (clones.added.length > 0)
+    section(`FAIL  exact clones beyond ${DUPES_BASELINE}:`, clones.added);
+  const tighten = 'run `bun run check:ratchet --tighten`';
+  if (dead.loose > 0)
+    write(`FAIL  ${dead.loose} ${DEAD_CODE_BASELINE} entries the tree no longer has; ${tighten}\n`);
+  if (clones.loose.length > 0)
+    section(
+      `FAIL  ${DUPES_BASELINE} allows more clones than the tree has; ${tighten}:`,
+      clones.loose,
     );
   if (violations.length > 0)
     section(
-      `FAIL  complexity ceilings (${CEILINGS_FILE}); simplify, or run \`bun run check:ratchet --tighten\` for loose/gone:`,
+      `FAIL  complexity ceilings (${CEILINGS_FILE}); simplify, or ${tighten} for loose/gone:`,
       violations.map((violation) => `${violation.kind}  ${violation.key}  ${violation.detail}`),
     );
-  const failed = added.length > 0 || loose > 0 || violations.length > 0;
+  const failed =
+    dead.added.length > 0 ||
+    clones.added.length > 0 ||
+    dead.loose > 0 ||
+    clones.loose.length > 0 ||
+    violations.length > 0;
   write(`check:ratchet: ${failed ? 'FAIL' : 'pass'} (${current.size} hotspots checked)\n`);
   return failed ? 1 : 0;
 }
@@ -497,7 +568,11 @@ async function checkTree(): Promise<number> {
  * a finding the baselines do not hold, so a rewrite drops entries and never adds one.
  */
 async function writeBaselines(mode: 'tighten' | 'init'): Promise<number> {
-  const health = hotspotsOf(await fallow('fallow health', ['health']));
+  const [health, dupes] = await Promise.all([
+    fallow('fallow health', ['health']).then(hotspotsOf),
+    fallow('fallow dupes', ['dupes']),
+  ]);
+  const counts = cloneCounts(dupes);
   if (mode === 'init') {
     for (const file of [CEILINGS_FILE, DEAD_CODE_BASELINE, DUPES_BASELINE]) {
       if (existsSync(path.join(ROOT, file)))
@@ -505,11 +580,11 @@ async function writeBaselines(mode: 'tighten' | 'init'): Promise<number> {
     }
     writeCeilingsFile(Object.fromEntries(health));
   } else {
-    const [deadCode, dupes] = await Promise.all([
-      fallow('fallow dead-code', ['dead-code', '--baseline', DEAD_CODE_BASELINE]),
-      fallow('fallow dupes', ['dupes', '--baseline', DUPES_BASELINE]),
-    ]);
-    const { added } = baselineFindings(deadCode, dupes);
+    const dead = deadCodeFindings(
+      await fallow('fallow dead-code', ['dead-code', '--baseline', DEAD_CODE_BASELINE]),
+    );
+    const clones = compareCloneCounts(counts, readCloneCounts(), dupes);
+    const added = [...dead.added, ...clones.added];
     if (added.length > 0) {
       section('FAIL  not in the baselines, so they stay as they are:', added);
       return 1;
@@ -517,10 +592,8 @@ async function writeBaselines(mode: 'tighten' | 'init'): Promise<number> {
     writeCeilingsFile(tightenCeilings(health, readCeilingsFile()));
   }
   mkdirSync(path.join(ROOT, 'fallow-baselines'), { recursive: true });
-  await Promise.all([
-    fallow('fallow dead-code', ['dead-code', '--save-baseline', DEAD_CODE_BASELINE]),
-    fallow('fallow dupes', ['dupes', '--save-baseline', DUPES_BASELINE]),
-  ]);
+  writeFileSync(path.join(ROOT, DUPES_BASELINE), formatCloneCounts(counts));
+  await fallow('fallow dead-code', ['dead-code', '--save-baseline', DEAD_CODE_BASELINE]);
   write(`check:ratchet: wrote ${CEILINGS_FILE}, ${DEAD_CODE_BASELINE} and ${DUPES_BASELINE}\n`);
   return 0;
 }

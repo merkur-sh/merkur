@@ -2,107 +2,12 @@
 
 # merkur.sh: the static site and the server that serves it.
 #
-# The file has two halves, used from two places:
-#
-#   artifacts  CI builds the site from source and exports exactly two things, the
-#              server executable and `dist`:
-#                docker buildx build -f apps/site/Dockerfile --target artifacts \
-#                  --build-arg MERKUR_SITE_ORIGIN=... --build-arg MERKUR_SITE_API_ORIGIN=... \
-#                  --build-arg MERKUR_SITE_RYBBIT_SITE_ID=... \
-#                  --output type=local,dest=site-deployment .
-#   runner     (the default target) packages an exported `site-deployment/` from the
-#              build context. The hosting service builds only this stage, from an
-#              upload of this file and that directory, so it compiles nothing and
-#              serves the bytes CI built and checked.
-#
-# `apps/site/Dockerfile.dockerignore` replaces the root `.dockerignore` for this
-# file: it admits the site's own inputs and the exported directory.
-
-# The build runs on the build platform: the pages are platform-neutral, and
-# `apps/site/server/build.ts` cross-targets the server executable from TARGETARCH.
-FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS bun
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl libatomic1 unzip \
-  && case "$(dpkg --print-architecture)" in \
-    amd64) build=x64-baseline; digest=1fc2edac843102909e3a1be1d8d9802cc6071cf074e67e88231f4ffe0f8b397b ;; \
-    arm64) build=aarch64; digest=efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21 ;; \
-    *) echo "unsupported Bun architecture" >&2; exit 1 ;; \
-  esac \
-  && curl --fail --silent --show-error --location "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-$build.zip" -o /tmp/bun.zip \
-  && printf '%s  /tmp/bun.zip\n' "$digest" | sha256sum --check \
-  && unzip -p /tmp/bun.zip "bun-linux-$build/bun" > /usr/local/bin/bun \
-  && chmod 0755 /usr/local/bin/bun \
-  && ln -s bun /usr/local/bin/bunx \
-  && ln -s bun /usr/local/bin/node \
-  && test "$(bun --version)" = 1.4.3 \
-  && case "$(dpkg --print-architecture)" in \
-    amd64) pnpm=linux-x64; pnpm_digest=b0c9673be13d4b914b8045a56986418c55c446bb8d113b65ec65bf7cb7bec35f ;; \
-    arm64) pnpm=linux-arm64; pnpm_digest=f41d5272bdc1d07139daa31412d24bd5394476a4b8b6eb72c269d3bd52e95d4a ;; \
-  esac \
-  && curl --fail --silent --show-error --location "https://github.com/pnpm/pnpm/releases/download/v11.28.3/pnpm-$pnpm.tar.gz" -o /tmp/pnpm.tgz \
-  && printf '%s  /tmp/pnpm.tgz\n' "$pnpm_digest" | sha256sum --check \
-  && mkdir -p /opt/pnpm \
-  && tar -xzf /tmp/pnpm.tgz -C /opt/pnpm \
-  && ln -s /opt/pnpm/pnpm /usr/local/bin/pnpm \
-  && test "$(pnpm --version)" = 11.28.3 \
-  && rm -rf /tmp/bun.zip /tmp/pnpm.tgz /var/lib/apt/lists/*
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin
-
-FROM bun AS dependencies
-WORKDIR /app
-
-# Every workspace manifest, or `--frozen-lockfile` refuses the lockfile.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY apps/daemon/package.json apps/daemon/package.json
-COPY apps/server/package.json apps/server/package.json
-COPY apps/site/package.json apps/site/package.json
-COPY apps/web/package.json apps/web/package.json
-COPY packages/auth/package.json packages/auth/package.json
-COPY packages/config/package.json packages/config/package.json
-COPY packages/daemon-control-protocol/package.json packages/daemon-control-protocol/package.json
-COPY packages/keyboard/package.json packages/keyboard/package.json
-COPY packages/logger/package.json packages/logger/package.json
-COPY packages/protocol/package.json packages/protocol/package.json
-COPY packages/quicksilver/package.json packages/quicksilver/package.json
-COPY packages/shared/package.json packages/shared/package.json
-COPY packages/user-agent/package.json packages/user-agent/package.json
-
-RUN pnpm install --frozen-lockfile
-
-FROM dependencies AS builder
-# SECURITY.md carries the release-key fingerprint the security page prints.
-COPY tsconfig.base.json SECURITY.md ./
-COPY apps/site/ apps/site/
-COPY packages/quicksilver/ packages/quicksilver/
-COPY packages/logger/ packages/logger/
-# Facts the pages state and do not own: the legal text is the app's, and the
-# machine limit is the server's.
-COPY apps/web/public/legal/ apps/web/public/legal/
-COPY apps/server/src/services/machine-usage.ts apps/server/src/services/machine-usage.ts
-# The face the terminal marks were cut from; the build checks the cut against it.
-COPY apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf
-COPY scripts/compress-site.ts scripts/compress-site.ts
-
-# The page and the server are built against the same three facts. None has a
-# default here: a build that does not name its origins or its analytics site
-# fails in this stage, not in a visitor's browser.
-ARG MERKUR_SITE_ORIGIN
-ARG MERKUR_SITE_API_ORIGIN
-ARG MERKUR_SITE_RYBBIT_SITE_ID
-# Read by `apps/site/server/build.ts` to pick the Linux executable.
-ARG TARGETARCH
-# `--bun`: the image has no Node, and Vite's own entry asks for one.
-RUN test -n "$MERKUR_SITE_ORIGIN" \
-  && test -n "$MERKUR_SITE_API_ORIGIN" \
-  && test -n "$MERKUR_SITE_RYBBIT_SITE_ID" \
-  && test -n "$TARGETARCH" \
-  && bun --bun run build:site
-
-FROM scratch AS artifacts
-COPY --from=builder /app/apps/site/server/dist/site-server /site-server
-COPY --from=builder /app/apps/site/dist/ /dist/
-
-FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runner
+# The image packages an exported `site-deployment/` from the build context: the server
+# executable and `dist`, which Bazel builds on Linux x64 (`//tools/bazel/release:site`). The
+# hosting service builds this file from an upload of it and that directory, so it compiles
+# nothing and serves the bytes CI built and checked. `apps/site/Dockerfile.dockerignore`
+# replaces the root `.dockerignore` for this file and admits only that directory.
+FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 WORKDIR /site
 

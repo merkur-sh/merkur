@@ -48,9 +48,8 @@ Setup installs Bazel where Bazel builds, Chromium and Redis only for the browser
 restores Rust compilation caches only where Cargo runs. Bazel reads and, in CI, writes the
 BuildBuddy remote cache; actionlint and downloaded Bun packages have tool/dependency caches.
 Only `main` writes the Rust dependency cache, one per runner and native task. Assurance keys its
-caches by toolchain and lockfile, never by commit, and the deployment build keeps its layer cache
-in the GitHub container registry, so neither evicts the Rust caches from the Actions cache. Accounts, databases, Redis and daemon state are
-always fresh. The interactive TUI test compiles its PTY driver in a separate preparation
+caches by toolchain and lockfile, never by commit, so it never evicts the Rust caches from the
+Actions cache. Accounts, databases, Redis and daemon state are always fresh. The interactive TUI test compiles its PTY driver in a separate preparation
 fixture (`bazel build //apps/tui:interactive_live`), then runs it against the live daemon. Its
 build has its own deadline and does not consume the authenticated-session test budget.
 
@@ -58,13 +57,13 @@ Additional workflows run beside CI:
 
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
-| [Build deployment](../.github/workflows/build-deployment.yml) | Push to `main`, manual dispatch | Builds the unsigned server, migrations, and web bundle through the Dockerfile's `artifacts` target with the public build pins. It does not deploy. |
+| [Build deployment](../.github/workflows/build-deployment.yml) | Push to `main`, manual dispatch | Builds the unsigned server, migrations, and web bundle with Bazel (`//tools/bazel/release:deployment`) and the public build pins. It does not deploy. |
 | [Dependency audit](../.github/workflows/dependency-audit.yml) | Pull requests, pushes to `main`, a daily schedule, manual dispatch | `pnpm audit`, `cargo audit --deny yanked`, cargo-deny source/license/backend policies, the `pnpm-lock.yaml` source/spec/license/install-script policy, cargo-vet exact-version review coverage and ten offline policy controls. Diagnostic workspaces receive source/license/backend checks. |
-| [Assurance](../.github/workflows/assurance.yml) | Pull requests, each completed `main` CI run (at that run's commit), a daily schedule, manual dispatch | Parser replay, Kani custody proofs, Loom schedules and negative controls, real-session network simulation, and unprivileged profiling-tool checks. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
+| [Assurance](../.github/workflows/assurance.yml) | Pull requests, each completed `main` CI run (at that run's commit), a daily schedule, manual dispatch | Parser replay, Kani custody proofs and their negative controls, real-session network simulation, and the profile reader's accounting check; the Loom models and the kernel profiler's tests run in CI's `bazel test //...`. Scheduled/manual runs add five bounded coverage-guided parser campaigns with retained corpus and crashes, plus 200 random simulation seeds. |
 | [Secret scanning](../.github/workflows/secret-scanning.yml) | Every push, pull requests, manual dispatch | TruffleHog, complementing the local pre-commit hook. |
 | [CodeQL](../.github/workflows/codeql.yml) | Pull requests, each completed `main` CI run (at that run's commit), a weekly schedule, manual dispatch | Code scanning of TypeScript, Rust, the workflows and the Python tooling, with Merkur's models and queries; `Query tests` checks every query against its fixtures. See [static analysis](security.md#static-analysis). |
 | [Dependency updates](../.github/workflows/renovate.yml) | A nightly schedule, a box ticked on the Dependency Dashboard issue, manual dispatch | Renovate proposes dependency, action, image and tool updates as pull requests, which the workflows above then test. See [Dependency updates](#dependency-updates). |
-| [Deploy site](../.github/workflows/deploy-site.yml) | A green CI run of a push to `main`, manual dispatch on `main` | Builds the website through `apps/site/Dockerfile`, serves the result locally, deploys it to its own Railway service, purges the CDN's HTML and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
+| [Deploy site](../.github/workflows/deploy-site.yml) | A green CI run of a push to `main`, manual dispatch on `main` | Builds the website with Bazel (`//tools/bazel/release:site`) and packages it through `apps/site/Dockerfile`, serves the result locally, deploys it to its own Railway service, purges the CDN's HTML and proves production serves those bytes. See [releases](releases.md#website-merkursh). |
 
 The assurance aggregate requires successful parser, ownership, bounded-proof, simulation
 and diagnostic-tool jobs. On `main`, Assurance and CodeQL start when CI finishes, so they

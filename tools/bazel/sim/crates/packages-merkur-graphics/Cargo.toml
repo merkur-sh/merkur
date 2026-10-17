@@ -1,0 +1,17 @@
+# Generated from packages/merkur-graphics/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-graphics"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/merkur-graphics/src/lib.rs"
+
+[dependencies]
+blake3 = { version = "1.8", features = ["wasm32_simd"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[lints]
+workspace = true

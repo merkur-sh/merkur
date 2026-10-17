@@ -1,0 +1,40 @@
+# Generated from packages/alacritty-terminal-patch/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "alacritty_terminal"
+version = "0.26.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "alacritty_terminal"
+path = "../../../../../packages/alacritty-terminal-patch/src/lib.rs"
+
+[dependencies]
+base64 = { version = "0.23.1" }
+bitflags = { version = "2.13.1" }
+libc = { version = "0.2" }
+log = { version = "0.4" }
+parking_lot = { version = "0.12.5" }
+regex-automata = { version = "0.4.18" }
+serde = { version = "1", features = ["derive","rc"], optional = true }
+unicode-width = { version = "0.2.2" }
+vte = { version = "0.15.0", features = ["std","ansi"], "default-features" = false, path = "../packages-vte-patch" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+home = { version = "0.5.11" }
+polling = { version = "3.11.0" }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["std"], "default-features" = false }
+rustix-openpty = { version = "0.2.0" }
+signal-hook = { version = "0.4.4" }
+
+[target.'cfg(windows)'.dependencies]
+miow = { version = "0.6.1" }
+piper = { version = "0.2.5" }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console","Win32_Foundation","Win32_Security","Win32_System_LibraryLoader","Win32_System_Threading","Win32_System_WindowsProgramming"] }
+
+[features]
+default = []
+serde = ["dep:serde","bitflags/serde","vte/serde"]

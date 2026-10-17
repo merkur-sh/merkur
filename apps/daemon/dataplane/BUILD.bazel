@@ -1,12 +1,22 @@
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script", "extract_cargo_lints")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
-load("//tools/bazel/rust:defs.bzl", "rust_e2e_testing_test")
+load("//tools/bazel/rust:defs.bzl", "rust_e2e_testing_binary", "rust_e2e_testing_test")
 load("//tools/bazel:files.bzl", "package_files")
 
 package(default_visibility = ["//visibility:public"])
 
 package_files()
+
+# The crate's sources and root, which the simulator's crate hub compiles too
+# (`//tools/bazel/sim`).
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["src/lib.rs"])
 
 extract_cargo_lints(
     name = "lints",
@@ -89,6 +99,31 @@ rust_e2e_testing_test(
     rustc_env = {"MERKUR_IMAGE_WORKER": "$(rootpath //packages/merkur-image-worker:merkur-image-worker)"},
     tags = ["no-sandbox"],
     deps = _DEV_DEPS + all_crate_deps(normal_dev = True),
+)
+
+# The unit suite's harness as a binary, for the profile-guided release build to train on
+# (`//tools/bazel/release:dataplane_profile`): a test target cannot feed a shipped one.
+rust_e2e_testing_binary(
+    name = "training",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    compile_data = _COMPILE_DATA + glob(
+        ["src/**"],
+        exclude = ["src/**/*.rs"],
+    ),
+    crate_root = "src/lib.rs",
+    data = ["//packages/merkur-image-worker:merkur-image-worker"],
+    proc_macro_deps = all_crate_deps(
+        proc_macro = True,
+        proc_macro_dev = True,
+    ),
+    rustc_env = {"MERKUR_IMAGE_WORKER": "$(rootpath //packages/merkur-image-worker:merkur-image-worker)"},
+    rustc_flags = ["--test"],
+    tags = ["noclippy"],
+    deps = _DEPS + _DEV_DEPS + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
 )
 
 rust_e2e_testing_test(

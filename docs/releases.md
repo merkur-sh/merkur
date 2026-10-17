@@ -69,10 +69,11 @@ the separate deployment verification step below. Keep the seed off build hosts a
 
 ## Signed Docker Deployment
 
-The default Docker target packages a finished signed directory named `deployment` at the
-repository root. It never rebuilds signed files. The `artifacts` target exports the Linux
-server executable, migrations, and finished web assets (including Brotli copies) for CI
-signing. Select the production platform explicitly (`linux/amd64` for the hosted server).
+Bazel builds the unsigned deployment on Linux x64, the server's platform
+(`//tools/bazel/release:deployment`, `scripts/build-deployment.ts`): the server executable,
+migrations, and finished web assets (including Brotli copies), as `deployment.tar.gz`. The
+default Docker target packages a finished signed directory named `deployment` at the
+repository root. It never rebuilds signed files.
 
 ```sh
 DEPLOYMENT_COMMIT=$(git rev-parse HEAD)
@@ -80,12 +81,14 @@ DEPLOYMENT_COMMIT=$(git rev-parse HEAD)
 : "${OPAQUE_SERVER_PUBLIC_KEY:?set the deployed OPAQUE public-key pin}"
 export MERKUR_RELEASE_MLDSA87_PUBLIC_KEY
 
-# Export into a fresh directory. No signing seed enters the Docker context.
-docker buildx build --platform linux/amd64 --target artifacts \
-  --build-arg "MERKUR_BUILD_COMMIT=$DEPLOYMENT_COMMIT" \
-  --build-arg "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
-  --build-arg "VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY=$OPAQUE_SERVER_PUBLIC_KEY" \
-  --output type=local,dest=deployment .
+# Build on Linux x64 and extract into a fresh directory. No signing seed enters the build.
+bazel build --config=release //tools/bazel/release:deployment \
+  "--//tools/bazel/release:commit=$DEPLOYMENT_COMMIT" \
+  "--//tools/bazel/release:release_public_key=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
+  "--//tools/bazel/release:opaque_pin=$OPAQUE_SERVER_PUBLIC_KEY"
+mkdir deployment
+tar -xzf "$(bazel info --config=release execution_root)/$(bazel cquery --config=release \
+  --output=files //tools/bazel/release:deployment)" -C deployment
 
 # In the isolated signing job, sign the web files first, then the
 # complete deployment, which also binds the web manifest and detached signature.
@@ -117,22 +120,18 @@ Dockerfiles use the canonical `docker/dockerfile` syntax reference required by R
 at the identical digest. An unavailable selected image fails the build.
 Bun is installed from its versioned GitHub release archives, checked against pinned SHA-256
 digests for Linux x64 baseline and arm64.
-The Rust builders use the official pinned Debian 12 Rust image, without executing a downloaded
-installer. The WebAssembly packages the images embed arrive built: the release job builds them
-with Bazel, whose wasm-bindgen CLI is the version `Cargo.lock` resolves and whose binaryen is
-pinned by checksum. Review and refresh these pins when publishing security updates. Digest pinning does not automatically update old images,
+No image compiles Rust: the edge and STUN images copy in the release binaries Bazel builds
+(`//tools/bazel/release:image_binaries`), and the server image the signed deployment. The
+WebAssembly packages the verifier embeds arrive built by Bazel, whose wasm-bindgen CLI is the
+version `Cargo.lock` resolves and whose binaryen is pinned by checksum. Review and refresh these pins when publishing security updates. Digest pinning does not automatically update old images,
 and APT packages still come from Debian's authenticated repositories at build time. Rebuild and
 scan the final images when OS advisories require updates; application signatures do not cover
 the base OS, shared libraries, or entrypoint.
 
-The root `.dockerignore` admits only the declared source/configuration inputs and the complete
-signed deployment directory. Artifact builders copy source directories explicitly, so a previous
-deployment is never incorporated into a new build. Keep signing keys outside the checkout.
+The root `.dockerignore` admits only what the three runtime images read: the verifier's
+manifests and sources, the complete signed deployment directory, the service entrypoints and
+the service binaries. Keep signing keys outside the checkout.
 Do not filter extra files inside the signed directory: the verifier must see and reject them.
-
-The server Dockerfile uses ordinary Docker layer caching without cache mounts, which keeps the
-recipe portable across services and builders. Unchanged layers remain reusable;
-changes that invalidate a build layer rebuild it without a separate persistent compiler cache.
 
 The edge entrypoint starts as root only to repair ownership of its mounted `/data` directory,
 without following symlinks, then executes the service as UID/GID 10001. The server has no
@@ -300,64 +299,42 @@ trust-root cutover.
 
 ## Profile-guided dataplane
 
-A release build (a `vX.Y.Z` version) ships a profile-guided `merkur-dataplane`;
-`build-daemon-dist.ts` passes `--pgo` to `build-daemon-artifacts.ts`, which builds an
-instrumented dataplane test binary, trains it on the unit suite (for breadth) and the display
-pipeline and scroll benchmarks (for weights), merges the profile with the `llvm-profdata` from
-rustup's `llvm-tools` component (listed in `rust-toolchain.toml`, so it matches rustc's LLVM),
-and rebuilds the dataplane with it. Training executes the target's own binary on the build
-machine: CI builds every platform natively, a `darwin-x64` build on Apple Silicon trains under
-Rosetta, and the Linux container trains as root. Development builds skip it.
+A release's `merkur-dataplane` is profile-guided (`//tools/bazel/release:merkur-dataplane`).
+Bazel builds the dataplane's unit-suite harness instrumented (`:dataplane_instrumented`),
+trains it on the suite for breadth and on the display pipeline and scroll benchmarks for
+weights (`:dataplane_profile`), merges the profile with the `llvm-profdata` of the pinned
+Rust toolchain's `llvm-tools`, so it matches rustc's LLVM, and rebuilds every crate of the
+dataplane with it. Training runs the target's own executable on the build machine: Linux
+builds natively on each architecture, and `darwin-x64` builds on Apple Silicon and trains
+under Rosetta. Bazel caches the profile by its inputs, so an unchanged dataplane is not
+trained again.
 
-## Build macOS
+## Build the daemon
 
-CI builds `darwin-arm64` on Apple Silicon and `darwin-x64` on native Intel runners.
-The native runners smoke-test all four executables, including helper confinement. `SEQUENCE` is a positive monotonic security counter and must never be reused, even when a
-release is withdrawn.
+`scripts/ci/build-daemon.sh` builds one platform's archive with Bazel and smoke-tests all four
+executables where they ship, including helper confinement: Linux in a clean Debian 12 container,
+the ABI floor (the toolchain links against a glibc 2.31 sysroot), and macOS on the runner. The
+release identity reaches the build as settings, and a release refuses a missing or
+noncanonical one. `SEQUENCE` is a positive monotonic security counter and must never be
+reused, even when a release is withdrawn. The image worker must emit its READY marker under an
+empty environment, after entering confinement and before reading image data.
 
 ```sh
 : "${VERSION:?set VERSION to the exact vMAJOR.MINOR.PATCH tag}"
 : "${SEQUENCE:?set SEQUENCE to the new monotonic release sequence}"
 : "${MERKUR_RELEASE_MLDSA87_PUBLIC_KEY:?set the trusted release public-key pin}"
-: "${MERKUR_PUBLIC_ORIGIN:?set the canonical HTTPS account origin}"
-: "${MERKUR_OPAQUE_SERVER_PUBLIC_KEY:?set the trusted account OPAQUE pin}"
-export MERKUR_PUBLIC_ORIGIN MERKUR_OPAQUE_SERVER_PUBLIC_KEY
+: "${SERVER_ORIGIN:?set the canonical HTTPS account origin}"
+: "${OPAQUE_PIN:?set the trusted account OPAQUE pin}"
 
-pnpm install --frozen-lockfile
-bun run scripts/build-daemon-dist.ts --version "$VERSION" --sequence "$SEQUENCE" --platform darwin-arm64
-test "$(apps/daemon/dist/merkur version)" = "$VERSION"
-COPYFILE_DISABLE=1 tar --format=ustar --no-xattrs \
-  -czf merkur-daemon-darwin-arm64.tar.gz \
-  -C apps/daemon/dist merkur merkur-dataplane merkur-image-worker merkur-tui
-
-bun run scripts/build-daemon-dist.ts --version "$VERSION" --sequence "$SEQUENCE" --platform darwin-x64
-test "$(apps/daemon/dist/merkur version)" = "$VERSION"
-COPYFILE_DISABLE=1 tar --format=ustar --no-xattrs \
-  -czf merkur-daemon-darwin-x64.tar.gz \
-  -C apps/daemon/dist merkur merkur-dataplane merkur-image-worker merkur-tui
+PLATFORM=darwin-arm64 bash scripts/ci/build-daemon.sh
 ```
 
-## Build Linux
-
-Linux releases retain the Debian 12 (glibc 2.36) ABI floor. The container build must receive the
-same version, sequence, and public pin used by the macOS build; the release build should fail if any
-is absent. Build both architectures with the checked-in container recipe, then smoke-run all four
-executables on clean matching Debian 12 containers before signing. The image worker must emit its
-READY marker under an empty environment, after entering confinement and before reading image data.
-
-```sh
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  --file Dockerfile.daemon-release \
-  --target artifacts \
-  --build-arg "MERKUR_VERSION=$VERSION" \
-  --build-arg "MERKUR_PUBLIC_ORIGIN=$MERKUR_PUBLIC_ORIGIN" \
-  --build-arg "MERKUR_OPAQUE_SERVER_PUBLIC_KEY=$MERKUR_OPAQUE_SERVER_PUBLIC_KEY" \
-  --build-arg "MERKUR_RELEASE_SEQUENCE=$SEQUENCE" \
-  --build-arg "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
-  --output type=local,dest=dist/release-linux,platform-split=false \
-  .
-```
+The archive is `//tools/bazel/release:daemon`: `merkur`, compiled by
+`scripts/compile-daemon-cli.ts` with the version, sequence and release key stamped in, the
+profile-guided dataplane, the image worker and the terminal client, which compiles in the
+account origin and OPAQUE pin. Each entry is mode 0755, owned by root, with no dates. A Linux
+build also writes the release verifier, `verify-<platform>`, which the signing and deployment
+jobs run.
 
 ## Sign And Publish
 
@@ -420,18 +397,18 @@ So the site ships the bytes CI built and checked, unsigned, and its CSP
 
 ### What ships
 
-`apps/site/Dockerfile` has two halves. Its `artifacts` target builds from source (the Vite
-build, `scripts/compress-site.ts` writing quality-11 Brotli siblings and flagging them in
-`site-manifest.json`, then `apps/site/server/build.ts` compiling `apps/site/server/index.ts`
-into one executable) and exports exactly the executable and the page build. The builder
-refuses to start without `MERKUR_SITE_ORIGIN`, `MERKUR_SITE_API_ORIGIN` and
-`MERKUR_SITE_RYBBIT_SITE_ID`; the API origin is compiled into the server too, because the CSP
-must name the origin the page posts to. The build needs no Rust toolchain and no WebAssembly:
+Bazel builds the site on Linux x64 (`//tools/bazel/release:site`,
+`scripts/build-site-deployment.ts`): the Vite build, `scripts/compress-site.ts` writing
+quality-11 Brotli siblings and flagging them in `site-manifest.json`, then
+`apps/site/server/build.ts` compiling `apps/site/server/index.ts` into one executable, and it
+exports exactly the executable and the page build. The build refuses to start without
+`MERKUR_SITE_ORIGIN`, `MERKUR_SITE_API_ORIGIN` and `MERKUR_SITE_RYBBIT_SITE_ID`; the API origin
+is compiled into the server too, because the CSP must name the origin the page posts to. The build needs no Rust toolchain and no WebAssembly:
 the pages are static markup, and what moves on them is one script and one render worker.
 
-The default `runner` target packages an exported `site-deployment/` directory from its build
+`apps/site/Dockerfile` packages an exported `site-deployment/` directory from its build
 context, root-owned and read-only, and starts the server as UID/GID 10001 through the same
-`setpriv` entrypoint as the app. Railway builds only that stage, from an upload of the
+`setpriv` entrypoint as the app. Railway builds it from an upload of the
 Dockerfile, its `apps/site/Dockerfile.dockerignore` and the exported bytes, so it compiles
 nothing and serves exactly what the workflow tested.
 
@@ -535,8 +512,7 @@ later commit passes. To deploy the newest commit again by hand:
 gh workflow run deploy-site.yml --ref main
 ```
 
-The workflow requires a green CI run of the commit, builds the `artifacts` target with a
-GitHub Actions cache, serves the result locally and records its CSP and the home page's
+The workflow requires a green CI run of the commit, builds the site with Bazel, serves the result locally and records its CSP and the home page's
 Brotli entity tag, checks that `/install` answers with the app's installer address, uploads,
 waits for Railway to report `SUCCESS`, purges the CDN's HTML, then polls production until it
 presents that entity tag and the same CSP with `content-encoding: br`. A request without
@@ -547,11 +523,14 @@ the `www.` host must answer with the bare host's address. The workflow pins Rail
 To build or package by hand:
 
 ```sh
-docker buildx build -f apps/site/Dockerfile --target artifacts --platform linux/amd64 \
-  --build-arg MERKUR_SITE_ORIGIN=https://merkur.sh \
-  --build-arg MERKUR_SITE_API_ORIGIN=https://app.merkur.sh \
-  --build-arg MERKUR_SITE_RYBBIT_SITE_ID="$SITE_ID" \
-  --output type=local,dest=site-deployment .
+# On Linux x64:
+bazel build --config=release //tools/bazel/release:site \
+  --//tools/bazel/release:site_origin=https://merkur.sh \
+  --//tools/bazel/release:site_api_origin=https://app.merkur.sh \
+  "--//tools/bazel/release:site_rybbit_site_id=$SITE_ID"
+mkdir site-deployment
+tar -xzf "$(bazel info --config=release execution_root)/$(bazel cquery --config=release \
+  --output=files //tools/bazel/release:site)" -C site-deployment
 docker buildx build -f apps/site/Dockerfile --platform linux/amd64 --load -t merkur-site .
 ```
 

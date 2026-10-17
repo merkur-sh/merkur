@@ -1,0 +1,197 @@
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+load(":defs.bzl", "bun_compile", "daemon_archive", "directory_archive", "identity_env", "native_profile", "release_binary")
+load("//tools/bazel:files.bzl", "package_files")
+load("//tools/bazel:sync.bzl", "checkout_sync")
+load("//tools/bazel/bun:bun.bzl", "repo_checkout")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+# The release identity, which a release build sets and a development build leaves at its
+# defaults: `--//tools/bazel/release:version=v1.2.3 --//tools/bazel/release:sequence=7 ...`.
+[string_flag(
+    name = name,
+    build_setting_default = default,
+) for name, default in [
+    ("version", "dev"),
+    ("sequence", "0"),
+    ("commit", ""),
+    ("site_origin", ""),
+    ("site_api_origin", ""),
+    ("site_rybbit_site_id", ""),
+    ("release_public_key", ""),
+    ("public_origin", ""),
+    ("opaque_pin", ""),
+]]
+
+_IDENTITY = {
+    ":opaque_pin": "MERKUR_OPAQUE_SERVER_PUBLIC_KEY",
+    ":public_origin": "MERKUR_PUBLIC_ORIGIN",
+    ":release_public_key": "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY",
+    ":sequence": "MERKUR_RELEASE_SEQUENCE",
+    ":version": "MERKUR_VERSION",
+}
+
+# What the terminal client compiles in: its version and the account server it signs in to.
+identity_env(
+    name = "client_identity",
+    settings = {
+        ":opaque_pin": "MERKUR_OPAQUE_SERVER_PUBLIC_KEY",
+        ":public_origin": "MERKUR_PUBLIC_ORIGIN",
+        ":version": "MERKUR_VERSION",
+    },
+)
+
+# Bun over a checkout of the repository, for the compile actions below.
+repo_checkout(name = "checkout")
+
+# The profile-guided dataplane: its test executable instrumented, trained on the suite for
+# breadth (LLVM treats code training never entered as cold) and then on the weight sources,
+# the production display pipeline and the scroll literal replay.
+release_binary(
+    name = "dataplane_instrumented",
+    binary = "//apps/daemon/dataplane:training",
+    instrumented = True,
+)
+
+native_profile(
+    name = "dataplane_profile",
+    breadth = ["suite"],
+    instrumented = ":dataplane_instrumented",
+    workloads = {
+        "suite": [],
+        "display-pipeline": [
+            "display::send::tests::production_display_pipeline_benchmark",
+            "--exact",
+            "--ignored",
+        ],
+        "scroll": [
+            "production_scroll_literal_benchmark",
+            "--test-threads=1",
+            "--ignored",
+        ],
+    },
+)
+
+release_binary(
+    name = "merkur-dataplane",
+    binary = "//apps/daemon/dataplane:merkur-dataplane",
+    profile = ":dataplane_profile",
+)
+
+release_binary(
+    name = "merkur-image-worker",
+    binary = "//packages/merkur-image-worker:merkur-image-worker",
+)
+
+release_binary(
+    name = "merkur-tui",
+    binary = "//apps/tui:merkur-tui",
+)
+
+bun_compile(
+    name = "merkur",
+    entry = "//scripts:compile-daemon-cli.ts",
+    out = "merkur",
+    settings = _IDENTITY,
+)
+
+# The release verifier the Linux signing and deployment jobs run.
+bun_compile(
+    name = "verify",
+    arguments = [
+        "build",
+        "scripts/ci-release-verify.ts",
+        "--compile",
+        "--outfile",
+    ],
+    out = "verify",
+)
+
+daemon_archive(
+    name = "daemon",
+    executables = {
+        ":merkur": "merkur",
+        ":merkur-dataplane": "merkur-dataplane",
+        ":merkur-image-worker": "merkur-image-worker",
+        ":merkur-tui": "merkur-tui",
+    },
+    platform = select({
+        "//tools/bazel/bun:darwin_aarch64": "darwin-arm64",
+        "//tools/bazel/bun:darwin_x64": "darwin-x64",
+        "//tools/bazel/bun:linux_aarch64": "linux-arm64",
+        "//tools/bazel/bun:linux_x64": "linux-x64",
+    }),
+)
+
+# The unsigned deployment the release signs and the server image runs, for Linux x64, the
+# server's platform: `server/server`, `migrations/` and the precompressed `web/`.
+bun_compile(
+    name = "deployment_files",
+    entry = "//scripts:build-deployment.ts",
+    directory = True,
+    out = "deployment",
+    settings = {
+        ":commit": "MERKUR_BUILD_COMMIT",
+        ":opaque_pin": "VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY",
+        ":release_public_key": "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY",
+    },
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+directory_archive(
+    name = "deployment",
+    directory = ":deployment_files",
+    executables = ["server/server"],
+    out = "deployment.tar.gz",
+)
+
+# The service binaries the edge and STUN images copy in (`apps/edge/Dockerfile`,
+# `apps/stun/Dockerfile`): `bazel run --config=release //tools/bazel/release:image_binaries`.
+release_binary(
+    name = "merkur-edge",
+    binary = "//apps/edge:merkur-edge",
+)
+
+release_binary(
+    name = "merkur-stun",
+    binary = "//apps/stun:merkur-stun",
+)
+
+checkout_sync(
+    name = "image_binaries",
+    executable = True,
+    sources = {
+        ":merkur-edge": "dist/images",
+        ":merkur-stun": "dist/images",
+    },
+)
+
+# The website's deployment, for Linux x64: `site-server` and the precompressed `dist/`, which
+# `apps/site/Dockerfile` serves.
+bun_compile(
+    name = "site_files",
+    entry = "//scripts:build-site-deployment.ts",
+    directory = True,
+    out = "site-deployment",
+    settings = {
+        ":site_api_origin": "MERKUR_SITE_API_ORIGIN",
+        ":site_origin": "MERKUR_SITE_ORIGIN",
+        ":site_rybbit_site_id": "MERKUR_SITE_RYBBIT_SITE_ID",
+    },
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
+
+directory_archive(
+    name = "site",
+    directory = ":site_files",
+    executables = ["site-server"],
+    out = "site-deployment.tar.gz",
+)

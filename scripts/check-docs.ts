@@ -64,7 +64,7 @@ export interface ProseFile {
 
 /** Path segments that never hold prose worth checking. */
 export /** Vendored upstream trees carry their own READMEs; their links and paths are not ours. */
-const VENDORED_PROSE = /^packages\/[^/]+-patch\//;
+const VENDORED_PROSE = /^(?:packages\/[^/]+-patch|tools\/bazel\/sim\/vendored\/[^/]+)\//;
 
 const EXCLUDED_SEGMENTS: ReadonlySet<string> = new Set([
   'node_modules',

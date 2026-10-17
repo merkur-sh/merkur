@@ -6,6 +6,13 @@ package(default_visibility = ["//visibility:public"])
 
 package_files()
 
+# The release builds' scripts (`//tools/bazel/release`).
+exports_files([
+    "build-deployment.ts",
+    "build-site-deployment.ts",
+    "compile-daemon-cli.ts",
+])
+
 # Trains the profile-guided terminal (`//tools/bazel/wasm/term-wasm:profile`).
 bun_binary(
     name = "term_wasm_pgo",

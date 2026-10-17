@@ -593,7 +593,7 @@ feature. Ordinary release builds omit that feature.
 | --- | --- |
 | `bun run build:web` | Resolve the local public pin, build the WASM packages, then run Vite with public inputs only. |
 | `bun run build:server` | Compile the Bun server executable. |
-| `bun run build:daemon` | Compile the daemon CLI and Rust dataplane distribution. |
+| `bun run build:daemon` | Build this platform's release archive through Bazel: the CLI, the profile-guided dataplane, the image worker and the terminal client. |
 | `bun run build:native` | Build, in the release profile, and install the dataplane, isolated image worker and terminal client into apps/daemon/dist, and the edge and the harnesses' network peers into apps/edge/dist. |
 | `bun run build:wasm` | Build the terminal, browser E2E and graphics asset WASM packages through Bazel and copy them into the source tree. |
 

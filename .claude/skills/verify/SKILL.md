@@ -22,7 +22,7 @@ Start with `bun run gates`: it reads the working tree (or `--base <ref>`, or `--
 matches every changed path against `RULES` in `scripts/gate-policy.ts`, and prints the
 commands with the selection reason for each path. Any change but prose earns
 `bazel test //...`; a row adds what Bazel does not run: `rust:lint`, the dependency audit,
-`test:sim`, and the deferred browser, container and proof suites. `--run` executes the
+and the deferred browser, container and proof suites. `--run` executes the
 commands in order and stops at the first failure; `--all` also runs the deferred suites.
 Rows printed "by hand" are the browser and Docker harnesses and the long graphics
 convergence runs. The rules are rendered as a table below; edit the rules, never the table.
@@ -64,11 +64,12 @@ as a working tree does. `//:static_gates` is all nine; `bun run check` is them p
 bazel test //:static_gates
 ```
 
-`check:ratchet` holds the whole tree to `fallow-baselines/`: dead code to `dead-code.json`
-and exact clones to `dupes.json`, which fallow matches without line numbers, and every
-function over the complexity thresholds to its exact values in `complexity-ceilings.json`.
-Anything the baselines do not hold fails, and so does a hotspot that grew. A dead-code entry
-the tree no longer has, or a hotspot that shrank, fails as loose until
+`check:ratchet` holds the whole tree to `fallow-baselines/`: dead code to `dead-code.json`,
+which fallow matches by name, exact clones to `dupes.json`, each file's count of clone
+instances, which holds whatever moves inside or around a clone, and every function over the
+complexity thresholds to its exact values in `complexity-ceilings.json`. Anything the
+baselines do not hold fails, and so does a hotspot that grew. A dead-code entry the tree no
+longer has, a file with fewer clones, or a hotspot that shrank fails as loose until
 `bun run check:ratchet --tighten` lowers the baselines; `--tighten` refuses while the tree
 has a finding they do not hold, so it never adds one. The pre-commit hook runs it with
 `--staged`: `fallow audit` against HEAD for what the staged diff introduces, plus the
@@ -267,7 +268,6 @@ long graphics convergence runs; use `--run --all` to execute them too.
 | `apps/daemon/dataplane/src/network/**`, `apps/stun/src/**`, `apps/stun/Cargo.toml`, `apps/server/src/services/stun-ticket-service.ts`, `apps/server/src/services/stun-ticket-service.test.ts` | by hand: `test:natlab` | The ticket format has two implementations pinned to one vector, and NAT traversal is proven only across the lab's real NATs. |
 | `apps/site/**` | by hand: `test:e2e:site` | The pages are proven only as served: `test:e2e:site` builds them and the static server, then reads the headers, the markup without script, the waitlist and the analytics proxy in a browser. |
 | `apps/tui/**` | by hand: `test:e2e:transport` | The terminal client is proven only against a real splice: `tui-headless` drives the built binary in the transport phase. |
-| `tools/sim/**`, `scripts/sim-tests.ts`, `scripts/generated-cargo-workspace.ts`, `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/edge/src/**`, `apps/edge/Cargo.toml`, `packages/merkur-client/**`, `packages/merkur-client-native/**`, `packages/wtransport-patch/**`, `packages/quinn-patch/**`, `packages/quinn-proto-patch/**` (except `**/*.md`) | `test:sim` | The real client, edge and dataplane run whole sessions in one deterministic simulation (`tools/sim`); a change to any of them, or to the simulator, replays every scenario and its seeds. |
 | `tools/bolero/**`, `scripts/fuzz-tests.ts`, `packages/merkur-wire/**`, `packages/merkur-codec/**`, `packages/merkur-client/**`, `packages/merkur-e2e/**` (except `**/*.md`) | by hand: `test:fuzz:kani` | The crates the Kani proofs compile, and their runner. The rebind keeper proof stubs `merkur-e2e` functions by signature, so a change anywhere in that crate can break it. |
 | `packages/merkur-image-worker/**`, `packages/merkur-graphics/**`, `packages/merkur-codec/**`, `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/daemon/dataplane/build.rs`, `Cargo.lock` | by hand: `test:graphics:long` | The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers. |
 | `tests/e2e/**/*.e2e.ts`, `playwright*.config.mjs` | owning Playwright suite(s) | Select the spec’s owning Playwright configuration, including calibrated rebind/reorder runs. |

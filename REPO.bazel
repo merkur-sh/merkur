@@ -11,4 +11,6 @@ ignore_directories([
     "packages/quinn-patch",
     "packages/quinn-proto-patch",
     "packages/wtransport-patch",
+    # The simulator workspace's links to them (`scripts/sim-workspace.ts`).
+    "tools/bazel/sim/vendored",
 ])

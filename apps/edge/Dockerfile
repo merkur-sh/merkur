@@ -1,49 +1,14 @@
 # syntax=mirror.gcr.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
-# Built from the REPO ROOT, not from apps/edge.
+# The edge's runtime image, built from the REPO ROOT around the release binary Bazel builds from
+# the one workspace lockfile the gates test:
 #
-# The edge used to compile standalone from its own committed Cargo.lock, with a
-# build context of apps/edge alone. That was pleasant but unsound: two lockfiles
-# described the same binary, nothing compared them, and the workspace gates
-# therefore tested a dependency graph that production need not have shared. It
-# became untenable with `[patch.crates-io]`, which lives in the workspace root
-# and is invisible to a standalone build -- the gates would have exercised a
-# patched wtransport while Fly ran the registry one, silently.
+#   bazel run --config=release //tools/bazel/release:image_binaries
+#   docker buildx build --platform linux/amd64 -f apps/edge/Dockerfile .
 #
-# One lockfile now describes the edge whether cargo or Fly builds it. The cost
-# is that every Rust change in the workspace invalidates this image's cache,
-# which is the honest price of the binary and the gates agreeing.
-#
-# Deploy from the repo root, NOT from this directory:
-#   bun run edge:fly-config render <edge-id> <version>
-#   fly deploy --config apps/edge/fly/<edge-id>.toml --dockerfile apps/edge/Dockerfile
-FROM mirror.gcr.io/library/rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
-WORKDIR /build
-
-# The pinned toolchain and cargo config, so the image compiles with the same
-# rustc AND the same resolver settings the gates do. `.cargo/config.toml` also
-# redirects the target directory to `target/rust`, which is why the artifact is
-# copied from there below rather than from cargo's default `target/`.
-COPY rust-toolchain.toml ./
-COPY .cargo/ .cargo/
-
-# `--locked` is what makes an unreviewed dependency bump a build failure instead
-# of a silent update: without the lock, cargo re-resolves at image build time and
-# the binary running in production is not the one any gate ever compiled.
-COPY Cargo.toml Cargo.lock ./
-
-# Every workspace member, because cargo parses all of them to resolve any one.
-# `packages/alacritty-terminal-patch/tests` is 46MB of upstream ref fixtures and
-# is excluded by .dockerignore; cargo does not need it to build another member.
-COPY packages/ packages/
-COPY apps/daemon/dataplane/ apps/daemon/dataplane/
-COPY apps/stun/ apps/stun/
-COPY apps/tui/ apps/tui/
-COPY apps/edge/ apps/edge/
-
-RUN cargo build --release --locked -p merkur-edge --bin merkur-edge
-
-FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
+# The binary is Linux x86_64, so the release workflow builds it, and the image, on a Linux x86_64
+# runner; `bun run edge:fly-config render <edge-id> <version>` writes the Fly config it deploys with.
+FROM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates util-linux iproute2 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 merkur \
@@ -59,6 +24,4 @@ EXPOSE 4433/udp
 COPY apps/edge/entrypoint.sh /usr/local/bin/merkur-edge-entrypoint
 ENTRYPOINT ["/usr/local/bin/merkur-edge-entrypoint"]
 CMD ["/usr/local/bin/merkur-edge"]
-
-FROM runtime AS runner
-COPY --from=build /build/target/rust/release/merkur-edge /usr/local/bin/merkur-edge
+COPY --chmod=755 dist/images/merkur-edge /usr/local/bin/merkur-edge

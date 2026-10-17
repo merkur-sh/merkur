@@ -247,11 +247,6 @@ const GATE_RULES: readonly Rule[] = [
     note: 'A test file is not the render path.',
   },
   { name: 'rust', globs: ['**/*.rs'], effects: { rustLint: true } },
-  {
-    name: 'simulator',
-    globs: ['tools/sim/**'],
-    effects: { scripts: ['test:sim'] },
-  },
   { name: 'dependencies', globs: ['package.json'], effects: { audit: true } },
   { name: 'e2e-specs', globs: ['tests/e2e/**/*.e2e.ts'], effects: { e2e: true } },
   {
@@ -274,7 +269,6 @@ test('the Also run cell follows the run order: gates outside Bazel, then deferre
     '`bazel test //:check_docs` only',
     'by hand: `test:e2e:latency`',
     '`rust:lint`',
-    '`test:sim`',
     '`check:audit`; `check:js-dependency-policy`',
     'owning Playwright suite(s)',
     '`rust:lint`; then, by hand: `test:natlab`',

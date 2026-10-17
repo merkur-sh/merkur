@@ -75,13 +75,6 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: rustup show active-toolchain
-      - name: Cache Loom build dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            target/assurance/ownership/debug
-          key: assurance-loom-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/ownership-proofs/Cargo.lock') }}
       - name: Cache pinned Kani compiler and executables
         id: kani
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -99,17 +92,13 @@ jobs:
         run: bun run setup:kani
       - name: Prepare the verifier's separate pinned toolchain
         run: cargo kani setup
-      - name: Run Loom models and check the proof adapters
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/target/assurance/ownership
-        run: |
-          mkdir -p test-results/assurance/ownership
-          bun run test:ownership 2>&1 | tee test-results/assurance/ownership/loom.log
-          cargo clippy --locked --all-targets --manifest-path tools/ownership-proofs/Cargo.toml -- -D warnings 2>&1 | tee test-results/assurance/ownership/clippy.log
+      # CI's `bazel test //...` runs the Loom models and `rust:lint` holds the adapters to Clippy.
       - name: Verify bounded counter custody
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target/assurance/kani
-        run: bun run test:ownership:kani 2>&1 | tee test-results/assurance/ownership/kani.log
+        run: |
+          mkdir -p test-results/assurance/ownership
+          bun run test:ownership:kani 2>&1 | tee test-results/assurance/ownership/kani.log
       - name: Verify all five removed-safeguard controls
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target/assurance/negative-controls
@@ -176,14 +165,10 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
-      - run: rustup show active-toolchain
-      - name: Cache simulator build dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Bazel builds the simulator from its own crate hub; CI's run fills the cache this reads.
+      - uses: ./.github/actions/setup-bazel
         with:
-          path: |
-            ~/.cargo/registry
-            test-results/sim/workspace/target
-          key: assurance-simulation-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/sim/Cargo.lock') }}
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
       - name: Replay every scenario seed and recorded regression
         run: |
           mkdir -p test-results/assurance/simulation
@@ -207,30 +192,19 @@ jobs:
     if: github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-26.04
     timeout-minutes: 30
-    env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target/assurance/kernel-tool
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - run: rustup show active-toolchain
-      - name: Cache Linux diagnostic build dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            target/assurance/kernel-tool/debug
-          key: assurance-kernel-tool-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'tools/edge-kernel-profile/Cargo.lock') }}
-      # These checks require no BPF, perf-event, tracefs or network privileges.
-      # Kernel/CPU measurements run separately on a representative Linux host.
-      - name: Compile diagnostic tool and verify tracepoint layouts
+      # These checks require no BPF, perf-event, tracefs or network privileges; the profiler's
+      # own tests run in CI's `bazel test //...`. Kernel/CPU measurements run separately on a
+      # representative Linux host.
+      - name: Verify the profile reader's completed-work accounting
         env:
           PYTHONPYCACHEPREFIX: ${{ runner.temp }}/assurance-python-cache
         run: |
           mkdir -p test-results/assurance/kernel-tool
-          cargo clippy --locked --all-targets --manifest-path tools/edge-kernel-profile/Cargo.toml -- -D warnings 2>&1 | tee test-results/assurance/kernel-tool/clippy.log
-          cargo test --locked --all-targets --manifest-path tools/edge-kernel-profile/Cargo.toml 2>&1 | tee test-results/assurance/kernel-tool/layout.log
           python3 scripts/profile-edge-linux_test.py 2>&1 | tee test-results/assurance/kernel-tool/completed-work.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

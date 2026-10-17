@@ -219,11 +219,9 @@ export function renderEdgeFlyConfig(replica: EdgeReplica, version: string): stri
 # UDP services MUST bind \`fly-global-services\` inside the VM — the binary does this
 # automatically when FLY_APP_NAME is set (see src/main.rs::resolve_bind_addr).
 #
-# Deploy from the REPO ROOT, not from apps/edge. The image is built from the
-# Cargo workspace so that the binary Fly runs and the binary the gates compile
-# come from one lockfile and one \`[patch.crates-io]\`; a build scoped to
-# apps/edge would silently resolve the registry wtransport instead of the
-# vendored one. See apps/edge/Dockerfile and apps/edge/README.md.
+# The release workflow deploys the image it built around Bazel's release binary,
+# which the gates test from the workspace's one lockfile and \`[patch.crates-io]\`
+# (\`flyctl deploy --image <digest>\`). See apps/edge/Dockerfile and apps/edge/README.md.
 app = "${replica.app}"
 primary_region = "${replica.region}"
 

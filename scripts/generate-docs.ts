@@ -280,7 +280,6 @@ export function gateRuleAlsoRunCell(rule: Rule): string {
   const parts: string[] = [];
   if (effects.rustLint) parts.push(code('rust:lint'));
   if (effects.audit) parts.push(code('check:audit'), code('check:js-dependency-policy'));
-  for (const script of effects.scripts ?? []) parts.push(code(script));
   if (effects.e2e) parts.push('owning Playwright suite(s)');
   if (effects.deferred !== undefined) {
     const deferred = effects.deferred.map(code).join(', ');

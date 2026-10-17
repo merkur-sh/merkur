@@ -71,6 +71,27 @@ ignores.
 - A WebAssembly package's crate graph is its own Cargo workspace under
   `tools/bazel/wasm/<package>`, which `bun run build:wasm-workspaces` regenerates after a
   manifest or `Cargo.lock` change.
+- The network simulator's crate graph is its own workspace under `tools/bazel/sim`, the
+  production crates it reaches as members, which `bun run build:sim-workspace` regenerates
+  and `bun run test:sim:update-lock` re-locks; its libraries build only in the configuration
+  its tests set, with `--cfg merkur_sim`. The ownership proofs and the edge's kernel profiler
+  are workspaces of their own with crate hubs of their own.
+
+## Release builds
+
+`//tools/bazel/release` builds what a release ships, in Cargo's release profile whatever the
+command line's configuration. The release identity arrives as settings
+(`--//tools/bazel/release:version=...`, `sequence`, `release_public_key`, `public_origin`,
+`opaque_pin`, `commit`), which a development build leaves at their defaults.
+
+| Target | What it is |
+| --- | --- |
+| `:daemon` | This platform's `merkur-daemon-<platform>.tar.gz`: the compiled CLI, the profile-guided dataplane, the image worker and the terminal client. `--config=macos_x86_64` builds `darwin-x64` on Apple Silicon. |
+| `:dataplane_profile` | The dataplane's merged LLVM profile, trained on its suite and benchmarks. |
+| `:verify` | The release verifier the signing and deployment jobs run. |
+| `:deployment` | The unsigned server deployment, on Linux x64: `server/server`, `migrations/`, the precompressed `web/`. |
+| `:site` | The website's `site-server` and `dist/`, on Linux x64. |
+| `:image_binaries` | `bazel run` installs the edge and STUN release binaries into `dist/images`, which their Dockerfiles copy in. |
 
 ## Baselines
 

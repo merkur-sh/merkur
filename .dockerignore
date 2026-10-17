@@ -1,84 +1,26 @@
 # Deny by default. New build inputs must be deliberately admitted here.
 **
 
-# Workspace manifests and build configuration.
+# The server image (`Dockerfile`): the manifests its verifier's dependencies install from, the
+# verifier, and the signed deployment. Preserve the COMPLETE signed directory, including
+# unexpected files, so deployment:verify rejects additions instead of filtering them away.
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !.npmrc
-!bunfig.toml
-!tsconfig.base.json
-!Cargo.toml
-!Cargo.lock
-!rust-toolchain.toml
-!.cargo/config.toml
 !apps/*/package.json
-!apps/*/tsconfig.json
 !packages/*/package.json
-!packages/*/tsconfig.json
-!apps/**/Cargo.toml
-!packages/*/Cargo.toml
-!packages/*/.cargo/config.toml
-!tsconfig.json
+!packages/shared/src/**/*.ts
+!packages/shared/src/**/*.json
+!packages/e2e-wasm/pkg/**
+!scripts/web-build-signature.ts
+!deployment/**
 
-# Compiler inputs. Local databases, credentials, tooling state and arbitrary
-# files beside the source are not build inputs.
-!apps/**/src/**/*.ts
-!apps/**/src/**/*.tsx
-!apps/**/src/**/*.rs
-!apps/**/src/**/*.swift
-!apps/**/build.rs
-!apps/**/benches/**/*.rs
-!packages/*/src/**/*.ts
-!packages/*/src/**/*.tsx
-!packages/*/src/**/*.rs
-!packages/*/src/**/*.json
-!packages/*/src/**/*.css
-!packages/*/build.rs
-!packages/*/benches/**/*.rs
-!packages/*/examples/**/*.rs
-!packages/*/tests/**/*.rs
-# Release daemons are profile-guided, and the training build compiles the
-# dataplane and merkur-e2e tests, which `include_str!` these vectors.
-!packages/shared/test-vectors/*.json
-!tests/fixtures/kitty/reference.json
-!apps/daemon/dataplane/src/webtransport/portmap/fixtures/*.xml
-!packages/*/README.md
-!packages/*/LICENSE*
-!packages/*/licenses/**
-# The notices generator reads the project's own licence to render its header.
-!LICENSE
-!scripts/*.ts
-!apps/server/migrations/*.ts
-!apps/web/index.html
-!apps/web/vite.config.ts
-!apps/web/uno.config.ts
-!apps/web/public/**
-# The UI faces, their licences and the orb still the web build inlines.
-!packages/quicksilver/fonts/**
-!packages/quicksilver/assets/**
-# Image entrypoints install egress caps, then drop privileges.
+# The edge and STUN images: their entrypoints, which install egress caps and then drop
+# privileges, and the release binaries Bazel built (`//tools/bazel/release:image_binaries`).
 !apps/edge/entrypoint.sh
 !apps/stun/entrypoint.sh
+!dist/images/merkur-edge
+!dist/images/merkur-stun
 
-# Do not admit generated copies or development credentials through source rules.
-**/node_modules
-**/target
-**/dist
-**/pkg
-# The WebAssembly packages the images embed, which Bazel builds before them
-# (`bun run build:wasm`).
-!packages/e2e-wasm/pkg/**
-!packages/graphics-wasm/pkg/**
-!apps/web/src/term-wasm/pkg/**
 **/*.test.ts
-**/*.test.tsx
-**/.env
-**/.env.*
-**/*.key
-**/*.pem
-**/*.seed
-
-# Packaging input: preserve the COMPLETE signed directory, including unexpected
-# files, so deployment:verify rejects additions instead of filtering them away.
-!deployment/**

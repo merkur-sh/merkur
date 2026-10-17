@@ -1,0 +1,24 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+# The simulator's sources, which `//tools/bazel/sim` compiles against its own crate hub.
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**/*.rs"]),
+)
+
+exports_files(
+    ["regressions.json"] + glob(["tests/*.rs"]),
+)
+
+# Exports the simulator's `getrandom` for glibc's dynamic lookups (`build.rs`).
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2024",
+)
