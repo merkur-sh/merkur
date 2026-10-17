@@ -83,7 +83,8 @@ ignores.
 `//tools/bazel/release` builds what a release ships, in Cargo's release profile whatever the
 command line's configuration. The release identity arrives as settings
 (`--//tools/bazel/release:version=...`, `sequence`, `release_public_key`, `public_origin`,
-`opaque_pin`, `commit`), which a development build leaves at their defaults.
+`opaque_pin`, `commit`), which a development build leaves at their defaults. Its targets are
+`manual`: `bazel test //...` skips them, and the release jobs build them by name.
 
 | Target | What it is |
 | --- | --- |

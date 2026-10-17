@@ -33,6 +33,10 @@ _IDENTITY = {
     ":version": "MERKUR_VERSION",
 }
 
+# What a release ships: `bazel test //...` and other wildcards leave it to the release jobs,
+# which build it by name with the release identity.
+_RELEASE = ["manual"]
+
 # What the terminal client compiles in: its version and the account server it signs in to.
 identity_env(
     name = "client_identity",
@@ -53,6 +57,7 @@ release_binary(
     name = "dataplane_instrumented",
     binary = "//apps/daemon/dataplane:training",
     instrumented = True,
+    tags = _RELEASE,
 )
 
 native_profile(
@@ -72,22 +77,26 @@ native_profile(
             "--ignored",
         ],
     },
+    tags = _RELEASE,
 )
 
 release_binary(
     name = "merkur-dataplane",
     binary = "//apps/daemon/dataplane:merkur-dataplane",
     profile = ":dataplane_profile",
+    tags = _RELEASE,
 )
 
 release_binary(
     name = "merkur-image-worker",
     binary = "//packages/merkur-image-worker:merkur-image-worker",
+    tags = _RELEASE,
 )
 
 release_binary(
     name = "merkur-tui",
     binary = "//apps/tui:merkur-tui",
+    tags = _RELEASE,
 )
 
 bun_compile(
@@ -95,6 +104,7 @@ bun_compile(
     entry = "//scripts:compile-daemon-cli.ts",
     out = "merkur",
     settings = _IDENTITY,
+    tags = _RELEASE,
 )
 
 # The release verifier the Linux signing and deployment jobs run.
@@ -107,6 +117,7 @@ bun_compile(
         "--outfile",
     ],
     out = "verify",
+    tags = _RELEASE,
 )
 
 daemon_archive(
@@ -123,6 +134,7 @@ daemon_archive(
         "//tools/bazel/bun:linux_aarch64": "linux-arm64",
         "//tools/bazel/bun:linux_x64": "linux-x64",
     }),
+    tags = _RELEASE,
 )
 
 # The unsigned deployment the release signs and the server image runs, for Linux x64, the
@@ -137,6 +149,7 @@ bun_compile(
         ":opaque_pin": "VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY",
         ":release_public_key": "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY",
     },
+    tags = _RELEASE,
     target_compatible_with = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
@@ -148,6 +161,7 @@ directory_archive(
     directory = ":deployment_files",
     executables = ["server/server"],
     out = "deployment.tar.gz",
+    tags = _RELEASE,
 )
 
 # The service binaries the edge and STUN images copy in (`apps/edge/Dockerfile`,
@@ -155,11 +169,13 @@ directory_archive(
 release_binary(
     name = "merkur-edge",
     binary = "//apps/edge:merkur-edge",
+    tags = _RELEASE,
 )
 
 release_binary(
     name = "merkur-stun",
     binary = "//apps/stun:merkur-stun",
+    tags = _RELEASE,
 )
 
 checkout_sync(
@@ -169,6 +185,7 @@ checkout_sync(
         ":merkur-edge": "dist/images",
         ":merkur-stun": "dist/images",
     },
+    tags = _RELEASE,
 )
 
 # The website's deployment, for Linux x64: `site-server` and the precompressed `dist/`, which
@@ -183,6 +200,7 @@ bun_compile(
         ":site_origin": "MERKUR_SITE_ORIGIN",
         ":site_rybbit_site_id": "MERKUR_SITE_RYBBIT_SITE_ID",
     },
+    tags = _RELEASE,
     target_compatible_with = [
         "@platforms//os:linux",
         "@platforms//cpu:x86_64",
@@ -194,4 +212,5 @@ directory_archive(
     directory = ":site_files",
     executables = ["site-server"],
     out = "site-deployment.tar.gz",
+    tags = _RELEASE,
 )
