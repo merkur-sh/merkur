@@ -8,9 +8,7 @@ bun run deployment:verify -- --directory deployment --commit "$COMMIT"
 railway variable set "MERKUR_BUILD_COMMIT=$COMMIT" "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY" \
   --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT_ID" --service "$RAILWAY_SERVICE_ID" --skip-deploys >/dev/null
 upload_dir="$RUNNER_TEMP/railway-upload"
-mkdir "$upload_dir"
-git archive "$COMMIT" | tar -x -C "$upload_dir"
-cp -R deployment "$upload_dir/deployment"
+bash scripts/ci/railway-context.sh "$upload_dir"
 railway up "$upload_dir" --path-as-root --no-gitignore --detach --json --project "$RAILWAY_PROJECT_ID" \
   --environment "$RAILWAY_ENVIRONMENT_ID" --service "$RAILWAY_SERVICE_ID" --message "$VERSION ($COMMIT)" > "$RUNNER_TEMP/railway-up.json"
 deployment_id=$(jq -er '.deploymentId' "$RUNNER_TEMP/railway-up.json")
