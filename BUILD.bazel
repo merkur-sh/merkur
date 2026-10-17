@@ -62,10 +62,15 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
+# The anti-slop gate lints every file of a fresh checkout, about 115 CPU-seconds, which CI's
+# runners spread over 85 to more than 300 seconds beside the other tests.
+_GATE_SIZES = {"check-slop": "large"}
+
 # The static gates, each the `package.json` script of its name over the whole checkout.
 [repo_check(
     name = gate.replace("-", "_"),
     script = gate.replace("check-", "check:"),
+    size = _GATE_SIZES.get(gate, "medium"),
 ) for gate in [
     "check-bazel-sources",
     "check-dead",
