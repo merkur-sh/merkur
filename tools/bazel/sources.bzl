@@ -86,3 +86,20 @@ WORKSPACE_PACKAGES = [
     "//packages/shared",
     "//packages/user-agent",
 ]
+
+# Each workspace package's directory, by the name a checkout's `node_modules` links it under.
+WORKSPACE_LINKS = {
+    "@merkur/auth": "packages/auth",
+    "@merkur/config": "packages/config",
+    "@merkur/daemon": "apps/daemon",
+    "@merkur/daemon-control-protocol": "packages/daemon-control-protocol",
+    "@merkur/keyboard": "packages/keyboard",
+    "@merkur/logger": "packages/logger",
+    "@merkur/protocol": "packages/protocol",
+    "@merkur/quicksilver": "packages/quicksilver",
+    "@merkur/server": "apps/server",
+    "@merkur/shared": "packages/shared",
+    "@merkur/site": "apps/site",
+    "@merkur/user-agent": "packages/user-agent",
+    "@merkur/web": "apps/web",
+}

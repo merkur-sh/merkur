@@ -12,6 +12,7 @@
 
 import { readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { Schema } from 'effect';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 export const SOURCES = 'tools/bazel/sources.bzl';
@@ -40,6 +41,20 @@ function workspacePackages(packages: readonly string[], root: string): string[] 
   );
 }
 
+const Manifest = Schema.Struct({ name: Schema.String });
+
+/** Each workspace package's npm name, with its directory. */
+function workspaceNames(directories: readonly string[], root: string): [string, string][] {
+  return directories
+    .map((directory): [string, string] => [
+      Schema.decodeUnknownSync(Manifest)(
+        JSON.parse(readFileSync(path.join(root, directory, 'package.json'), 'utf8')),
+      ).name,
+      directory,
+    ])
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
 /** The checkout's tracked symlinks, by path, with their targets. */
 function trackedSymlinks(root: string): [string, string][] {
   const listing = Bun.spawnSync(['git', 'ls-files', '-s'], {
@@ -58,6 +73,7 @@ function trackedSymlinks(root: string): [string, string][] {
 
 export function bazelSources(root = ROOT): string {
   const packages = bazelPackages(root);
+  const workspace = workspacePackages(packages, root);
   const list = (directories: readonly string[]) =>
     directories.map((directory) => `    "//${directory}",`);
   return [
@@ -75,8 +91,13 @@ export function bazelSources(root = ROOT): string {
     '',
     "# The pnpm workspace's packages.",
     'WORKSPACE_PACKAGES = [',
-    ...list(workspacePackages(packages, root)),
+    ...list(workspace),
     ']',
+    '',
+    "# Each workspace package's directory, by the name a checkout's `node_modules` links it under.",
+    'WORKSPACE_LINKS = {',
+    ...workspaceNames(workspace, root).map(([name, directory]) => `    "${name}": "${directory}",`),
+    '}',
     '',
   ].join('\n');
 }

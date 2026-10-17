@@ -54,8 +54,10 @@ The macOS Secure Enclave bridge compiles with the selected Xcode's Swift.
 where a package is large. It copies its declared files into a checkout of its own in the
 test's scratch directory: `//:sources`, which gathers every package's `package_files()`, the
 WebAssembly packages, and the installed dependencies, which stay links into `rules_js`'s store
-with the `.bin` commands pnpm would write. A walk sees a working tree, and a test reads only
-what it declared. Bun, Node, Redis, OpenSSL and Chromium are hermetic and on the test's `PATH`,
+with the `.bin` commands pnpm would write. A workspace package links to the checkout's own
+directory (`WORKSPACE_LINKS` in `tools/bazel/sources.bzl`), so its relative paths, such as a
+`tsconfig.json` extending the root's, resolve as in a working tree. A walk sees a working tree,
+and a test reads only what it declared. Bun, Node, Redis, OpenSSL and Chromium are hermetic and on the test's `PATH`,
 as is each native helper a test spawns. A static gate is a `repo_check`: the gate's
 `package.json` script over the same checkout, made a Git repository so the gate sees what Git
 ignores.

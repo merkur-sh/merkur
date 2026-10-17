@@ -1,7 +1,7 @@
 """Bun programs, run from the repository root in their runfiles."""
 
 load("@aspect_rules_js//js:libs.bzl", "js_lib_helpers")
-load("//tools/bazel:sources.bzl", "SYMLINKS")
+load("//tools/bazel:sources.bzl", "SYMLINKS", "WORKSPACE_LINKS")
 load("//tools/bazel/playwright:extensions.bzl", "CHROMIUM_REVISION")
 
 def _bun_binary_impl(ctx):
@@ -94,10 +94,21 @@ modules_dirs=()
 while read -r modules; do
   mkdir -p "$tree/$modules"
   for entry in "$main/$modules"/* "$main/$modules"/.[!.]*; do
-    if [ -e "$entry" ] || [ -L "$entry" ]; then ln -s "$entry" "$tree/$modules/"; fi
+    if [ -d "$entry" ] && [[ "${{entry##*/}}" == @* ]]; then
+      # A scope holds its packages one link each, so a workspace package's can be its own.
+      mkdir -p "$tree/$modules/${{entry##*/}}"
+      for package in "$entry"/*; do ln -s "$package" "$tree/$modules/${{entry##*/}}/"; done
+    elif [ -e "$entry" ] || [ -L "$entry" ]; then
+      ln -s "$entry" "$tree/$modules/"
+    fi
   done
   modules_dirs+=("$tree/$modules")
 done < <(cd "$main" && find . -name node_modules -prune -type d)
+# A workspace package resolves to the checkout's own copy, as in a working tree, so its relative
+# paths (a `tsconfig.json` that extends the root's) stay inside the checkout.
+for modules in ${{modules_dirs[@]+"${{modules_dirs[@]}}"}}; do
+{workspace}
+done
 {mounts}
 {links}
 {git}
@@ -139,6 +150,13 @@ exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}} "$@"
             node = node.node.short_path,
             tools = tools,
             tests = " ".join(tests),
+            workspace = "\n".join([
+                '  if [ -L "$modules/{name}" ]; then ln -sfn "$tree/{directory}" "$modules/{name}"; fi'.format(
+                    name = name,
+                    directory = directory,
+                )
+                for name, directory in sorted(ctx.attr.workspace.items())
+            ]) or "  :",
         ),
         is_executable = True,
     )
@@ -168,6 +186,9 @@ _CHECKOUT_ATTRS = {
     "tests": attr.label_list(allow_files = True),
     "tools": attr.label_keyed_string_dict(
         doc = "Executables the tests spawn, by the name they run them under.",
+    ),
+    "workspace": attr.string_dict(
+        doc = "Workspace packages' checkout directories, by the name `node_modules` links each under.",
     ),
     "_bun": attr.label(
         default = "//tools/bazel/bun",
@@ -237,6 +258,7 @@ def bun_tests(name = "test", tests = [], parallel = 4, browsers = False, **kwarg
         data = _TEST_DATA,
         links = SYMLINKS,
         mounts = _VENDORED,
+        workspace = WORKSPACE_LINKS,
         tags = kwargs.pop("tags", []) + ["cpu:%d" % parallel],
         tests = tests,
         **kwargs
@@ -259,6 +281,7 @@ def repo_check(name, script, **kwargs):
         git = True,
         links = SYMLINKS,
         mounts = _VENDORED,
+        workspace = WORKSPACE_LINKS,
         **kwargs
     )
 
@@ -274,5 +297,6 @@ def repo_checkout(name, **kwargs):
         data = _TEST_DATA,
         links = SYMLINKS,
         mounts = _VENDORED,
+        workspace = WORKSPACE_LINKS,
         **kwargs
     )
