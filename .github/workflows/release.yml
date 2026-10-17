@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
       - name: Validate deployment inventory and public configuration
         env:
-                  ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
+          ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
           OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
         run: python3 scripts/ci/release_inventory.py
       - id: reserve
@@ -164,7 +164,7 @@ jobs:
       RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
       RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
       SERVER_ORIGIN: ${{ vars.MERKUR_SERVER_ORIGIN }}
-        steps:
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
