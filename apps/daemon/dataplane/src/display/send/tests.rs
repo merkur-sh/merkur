@@ -12436,16 +12436,27 @@ async fn whole_span_candidate_reliable_refusal_credits_only_actual_records() {
     }
 }
 
+/// The sender cost the storage-reuse assertions plan against, so a round the runner preempts
+/// teaches the planner nothing and every round packs the representation warm-up sized for.
+const PINNED_SENDER_SERVICE_US: Option<f64> = Some(20.0);
+
 #[test]
 fn maximum_dense_prepare_reuses_frame_storage() {
-    assert_eq!(prepare_allocation_case::<false>(384, 256, true, 2), 0);
-    assert_eq!(prepare_allocation_case::<false>(512, 192, true, 2), 0);
+    assert_eq!(
+        prepare_allocation_case::<false>(384, 256, true, 2, PINNED_SENDER_SERVICE_US),
+        0
+    );
+    assert_eq!(
+        prepare_allocation_case::<false>(512, 192, true, 2, PINNED_SENDER_SERVICE_US),
+        0
+    );
 }
 
 #[test]
 fn maximum_dense_prepare_reuses_compressed_storage_when_sender_cost_switches_to_raw() {
-    assert_eq!(prepare_allocation_case::<true>(384, 256, true, 2), 0);
-    assert_eq!(prepare_allocation_case::<true>(512, 192, true, 2), 0);
+    // This case sets the planner's sender cost itself, round by round.
+    assert_eq!(prepare_allocation_case::<true>(384, 256, true, 2, None), 0);
+    assert_eq!(prepare_allocation_case::<true>(512, 192, true, 2, None), 0);
 }
 
 #[test]
@@ -12461,16 +12472,18 @@ fn production_prepare_allocation_profile() {
         (120, 2, false),
         (120, 1, false),
     ] {
-        prepare_allocation_case::<false>(cols, rows, entropy, 100);
+        prepare_allocation_case::<false>(cols, rows, entropy, 100, None);
     }
 }
 
-/// Capture, output validation, logging and pool accounting are outside timing.
+/// Capture, output validation, logging and pool accounting are outside timing. With
+/// `sender_service_us`, the planner plans against that cost instead of what it measures.
 fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
     cols: u16,
     rows: u16,
     entropy: bool,
     samples: usize,
+    sender_service_us: Option<f64>,
 ) -> usize {
     use std::hash::Hasher;
 
@@ -12503,6 +12516,9 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
     let mut compressor = Compressor::new();
     let mut fec = crate::display::fec::FecEncoder::new();
     let mut scratch = PrepareScratch::default();
+    if let Some(service_us) = sender_service_us {
+        scratch.pin_sender_service(service_us);
+    }
     let mut observations = Vec::with_capacity(samples);
     // Prepared frames by the compression flag the receiver decodes them by,
     // as `[warm-up, measured]`. The switching case exists only if the cost
@@ -12599,8 +12615,8 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
             prepared_primary_traffic(&buffers.datagrams),
         );
         // Warm-up admits reusable storage; it does not freeze the planner's
-        // sender-service observations. Even warm rounds can choose different
-        // wire bytes under load. The receiver row hashes above are the exact
+        // sender-service observations. Unless the sender cost is pinned, even
+        // warm rounds can choose different wire bytes under load. The receiver row hashes above are the exact
         // output oracle; retain wire fingerprints as benchmark observations.
         if round >= 10 {
             observations.push((completion.cpu_time, timing.allocations, result));
