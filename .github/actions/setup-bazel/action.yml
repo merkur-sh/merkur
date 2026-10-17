@@ -1,0 +1,20 @@
+name: Set up Bazel
+description: Install Bazel at `.bazelversion` and connect it to the shared remote cache
+inputs:
+  buildbuddy-api-key:
+    description: The remote cache's API key; empty on a fork's pull request, which then builds locally
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+      with:
+        bazelisk-cache: true
+        repository-cache: true
+    # CI is the remote cache's only writer (`--config=ci`).
+    - if: inputs.buildbuddy-api-key != ''
+      shell: bash
+      env:
+        BUILDBUDDY_API_KEY: ${{ inputs.buildbuddy-api-key }}
+      run: |
+        printf 'common --config=ci\ncommon --remote_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY" > .bazelrc.local

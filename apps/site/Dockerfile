@@ -22,7 +22,7 @@
 # `apps/site/server/build.ts` cross-targets the server executable from TARGETARCH.
 FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS bun
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+  && apt-get install -y --no-install-recommends ca-certificates curl libatomic1 unzip \
   && case "$(dpkg --print-architecture)" in \
     amd64) build=x64-baseline; digest=1fc2edac843102909e3a1be1d8d9802cc6071cf074e67e88231f4ffe0f8b397b ;; \
     arm64) build=aarch64; digest=efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21 ;; \

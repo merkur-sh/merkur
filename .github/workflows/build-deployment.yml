@@ -34,6 +34,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The image's web build imports the WebAssembly packages, which Bazel builds.
+      - uses: ./.github/actions/setup-bazel
+        with:
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - run: bazel run //tools/bazel/wasm:sync
       - name: Require public build pins
         env:
           RELEASE_PIN: ${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
