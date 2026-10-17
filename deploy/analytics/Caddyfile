@@ -1,0 +1,21 @@
+# The Rybbit dashboard behind Cloudflare. Cloudflare reaches the host only on
+# 443 (the firewall admits nothing else), with the zone's Origin CA certificate.
+analytics.merkur.sh {
+	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+	encode zstd gzip
+	request_body {
+		max_size 10MB
+	}
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle /.well-known/oauth-* {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle /.well-known/openid-configuration* {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3002
+	}
+}

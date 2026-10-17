@@ -66,3 +66,32 @@ resource "cloudflare_dns_record" "dmarc" {
   content = "\"v=DMARC1; p=none;\""
   ttl     = 1
 }
+
+# The proxy serves the bytes the origins send. The app's web bundle is signed and its
+# pages carry a strict CSP, so nothing may rewrite a response on the way (email
+# obfuscation, HTTPS rewrites, Rocket Loader, server-side excludes), and the daemon,
+# the edges and the installer are programs, which a browser challenge would lock
+# out. Cloudflare's DDoS mitigation applies whatever the security level.
+locals {
+  zone_settings = {
+    ssl                      = "strict"
+    min_tls_version          = "1.2"
+    tls_1_3                  = "on"
+    always_use_https         = "on"
+    automatic_https_rewrites = "off"
+    email_obfuscation        = "off"
+    rocket_loader            = "off"
+    server_side_exclude      = "off"
+    browser_check            = "off"
+    security_level           = "essentially_off"
+    always_online            = "off"
+    "0rtt"                   = "off"
+  }
+}
+
+resource "cloudflare_zone_setting" "merkur" {
+  for_each   = local.zone_settings
+  zone_id    = local.zone_id
+  setting_id = each.key
+  value      = each.value
+}

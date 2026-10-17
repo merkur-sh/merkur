@@ -36,7 +36,7 @@ locals {
   web_host_user_data = <<-CLOUD
     #cloud-config
     package_update: true
-    packages: [docker.io, docker-compose, caddy, unattended-upgrades, apparmor]
+    packages: [docker.io, docker-cli, docker-compose, caddy, unattended-upgrades, apparmor]
     ssh_pwauth: false
     runcmd:
       - systemctl enable --now docker

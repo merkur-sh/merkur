@@ -1,0 +1,80 @@
+# Rybbit, the website's analytics, on analytics-1. `install.sh` installs this
+# file at /srv/analytics and runs it. Secrets come from
+# /etc/merkur-analytics/secrets.env, which never leaves the host.
+#
+# Only the backend is reachable from outside the host: on loopback for Caddy
+# (analytics.merkur.sh, the dashboard) and on the private network for the
+# website, which proxies tracking through its own origin.
+name: analytics
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3.17.4
+    restart: unless-stopped
+    env_file: /etc/merkur-analytics/secrets.env
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+    volumes:
+      - /var/lib/merkur-analytics/clickhouse:/var/lib/clickhouse
+      - ./clickhouse/server.xml:/etc/clickhouse-server/config.d/merkur.xml:ro
+      - ./clickhouse/users.xml:/etc/clickhouse-server/users.d/merkur.xml:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+
+  postgres:
+    image: postgres:17.4
+    restart: unless-stopped
+    env_file: /etc/merkur-analytics/secrets.env
+    environment:
+      POSTGRES_DB: analytics
+      POSTGRES_USER: rybbit
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - /var/lib/merkur-analytics/postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:8.6.4-alpine
+    restart: unless-stopped
+    env_file: /etc/merkur-analytics/secrets.env
+    command: >-
+      sh -c 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes
+      --appendfsync everysec --maxmemory-policy noeviction --dir /data'
+    volumes:
+      - /var/lib/merkur-analytics/redis:/data
+
+  backend:
+    image: ghcr.io/rybbit-io/rybbit-backend:v2.9.0
+    restart: unless-stopped
+    depends_on: [clickhouse, postgres, redis]
+    env_file: /etc/merkur-analytics/secrets.env
+    environment:
+      BASE_URL: https://analytics.merkur.sh
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_HOST: http://clickhouse:8123
+      CLUSTER_WORKERS: '1'
+      DISABLE_SIGNUP: 'true'
+      DISABLE_TELEMETRY: 'true'
+      NODE_ENV: production
+      PORT: '3001'
+      POSTGRES_DB: analytics
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: rybbit
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+    ports:
+      - 127.0.0.1:3001:3001
+      - 10.10.0.3:3001:3001
+
+  client:
+    image: ghcr.io/rybbit-io/rybbit-client:v2.9.0
+    restart: unless-stopped
+    depends_on: [backend]
+    environment:
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+      PORT: '3002'
+    ports:
+      - 127.0.0.1:3002:3002
