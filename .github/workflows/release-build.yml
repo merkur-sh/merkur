@@ -1,6 +1,6 @@
 name: Release build
-# Every artifact a release signs, built by Bazel with a release identity and smoke-tested where it
-# ships, then checked as the exact unsigned inventory signing accepts. `release.yml` runs it for a
+# Every artifact a release signs, built by Bazel with a release identity, each daemon smoke-tested
+# on the platform it ships to, then checked as the exact unsigned inventory signing accepts. `release.yml` runs it for a
 # tag; nightly and on dispatch it builds `v0.0.0` (sequence 1) from main, so the release path is
 # proven before a tag needs it. Nothing here signs, publishes or deploys.
 on:
@@ -58,7 +58,7 @@ jobs:
           rust-cache: 'false'
           bazel: 'true'
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
-      - name: Build native release and smoke all executables
+      - name: Build the native release
         run: bash scripts/ci/build-daemon.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -67,6 +67,37 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
+  # darwin-x64 builds on Apple Silicon, where its image worker cannot start its sandbox under
+  # Rosetta: every archive runs where it ships.
+  smoke:
+    needs: daemon
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-26.04
+            platform: linux-x64
+          - os: ubuntu-26.04-arm
+            platform: linux-arm64
+          - os: macos-15
+            platform: darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ env.COMMIT }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/ci-release
+      - name: Smoke-test every executable
+        run: bash scripts/ci/smoke-daemon.sh
   services:
     runs-on: ubuntu-26.04
     timeout-minutes: 90
@@ -108,7 +139,7 @@ jobs:
           compression-level: 0
           retention-days: 7
   inventory:
-    needs: [daemon, services]
+    needs: [smoke, services]
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:

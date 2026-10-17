@@ -306,14 +306,16 @@ weights (`:dataplane_profile`), merges the profile with the `llvm-profdata` of t
 Rust toolchain's `llvm-tools`, so it matches rustc's LLVM, and rebuilds every crate of the
 dataplane with it. Training runs the target's own executable on the build machine: Linux
 builds natively on each architecture, and `darwin-x64` builds on Apple Silicon and trains
-under Rosetta. Bazel caches the profile by its inputs, so an unchanged dataplane is not
-trained again.
+under Rosetta, where the image worker cannot start its sandbox, so the suite's real-helper
+tests fail there and its profile carries no weight for those paths. Bazel caches the profile by
+its inputs, so an unchanged dataplane is not trained again.
 
 ## Build the daemon
 
-`scripts/ci/build-daemon.sh` builds one platform's archive with Bazel and smoke-tests all four
-executables where they ship, including helper confinement: Linux in a clean Debian 12 container,
-the ABI floor (the toolchain links against a glibc 2.31 sysroot), and macOS on the runner. The
+`scripts/ci/build-daemon.sh` builds one platform's archive with Bazel, and
+`scripts/ci/smoke-daemon.sh` smoke-tests its four executables where they ship, including helper
+confinement: Linux in a clean Debian 12 container, the ABI floor (the toolchain links against a
+glibc 2.31 sysroot), and each macOS archive on a runner of its own architecture. The
 release identity reaches the build as settings, and a release refuses a missing or
 noncanonical one. `SEQUENCE` is a positive monotonic security counter and must never be
 reused, even when a release is withdrawn. The image worker must emit its READY marker under an
@@ -327,6 +329,7 @@ empty environment, after entering confinement and before reading image data.
 : "${OPAQUE_PIN:?set the trusted account OPAQUE pin}"
 
 PLATFORM=darwin-arm64 bash scripts/ci/build-daemon.sh
+PLATFORM=darwin-arm64 bash scripts/ci/smoke-daemon.sh
 ```
 
 The archive is `//tools/bazel/release:daemon`: `merkur`, compiled by
