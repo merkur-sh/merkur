@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { COLORS } from '@merkur/quicksilver/tokens';
 import { createGenerator } from 'unocss';
 
 import config from './uno.config';
@@ -138,10 +139,10 @@ describe('the type layer', () => {
 describe('the accent', () => {
   test('selection is ink, so the accent keeps one job', async () => {
     const uno = await createGenerator(config);
-    const { css } = await uno.generate('tab-on', { preflights: false });
-    const underline = /\.tab-on::after\{([^}]*)\}/.exec(css)?.[1];
-    if (underline === undefined) throw new Error('tab-on has no underline rule');
-    expect(underline).toContain('248 248 252');
+    const { css } = await uno.generate('', { preflights: true });
+    const underline = /\.tab-ink \{([^}]*)\}/.exec(css)?.[1];
+    if (underline === undefined) throw new Error('no tab underline rule in the preflight');
+    expect(underline).toContain(`background: ${COLORS.ink}`);
     expect(underline).not.toContain('oklch(');
   });
 });

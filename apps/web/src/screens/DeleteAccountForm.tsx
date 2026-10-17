@@ -214,12 +214,14 @@ const DeleteFields: Component<FieldsProps> = (props) => {
             onFill
           />
         </button>
-        <p
-          role="alert"
-          class="min-w-0 flex-1 pt-[6px] text-[12.5px] leading-[1.5] text-badink frame:text-[14px]"
-        >
-          {props.error}
-        </p>
+        <Show when={props.error}>
+          <p
+            role="alert"
+            class="min-w-0 flex-1 pt-[6px] text-[12.5px] leading-[1.5] text-badink frame:text-[14px]"
+          >
+            {props.error}
+          </p>
+        </Show>
       </div>
     </form>
   );
