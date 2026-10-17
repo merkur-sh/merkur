@@ -14,10 +14,7 @@ import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { type DaemonConfig, validateDaemonConfig } from '@merkur/config';
 import type { BrowserContext, BrowserContextOptions, Page, TestInfo } from '@playwright/test';
-import {
-  EDGE_HARNESS_NATIVE_MANIFEST_ENV,
-  resolveVerifiedPrebuiltDataplanePath,
-} from '../../../scripts/edge-harness-native-artifacts';
+import { nativeProgram } from '../../../scripts/native-artifacts';
 
 import { createAccount, expectLoggedIn } from './account';
 import {
@@ -173,35 +170,20 @@ async function spawnMerkur(
   };
   if (linkToken === null) delete env.MERKUR_LINK_TOKEN;
   else env.MERKUR_LINK_TOKEN = linkToken;
-  // Drop an ambient installed-build override. In strict benchmark-manifest
-  // mode, replace it with the just-reverified candidate-local dist path so an
-  // executable beside Bun can never win the normal sidecar candidate search.
+  // The dataplane under test is the one the suite's global setup synced, named explicitly.
   //
   // `MERKUR_DATAPLANE_BIN` is how an *installed* Merkur points its daemon at
   // its own sidecar, so a developer machine with Merkur installed exports it.
   // Inheriting it silently swaps the system under test for whichever binary was
-  // installed, whenever it was installed, and no amount of `build:dataplane`
-  // can affect the run. Deleting it rather than pinning a path hands the choice
-  // back to the daemon's own repo-relative resolution, which finds
-  // `apps/daemon/dist` or `target/rust/release` — so this is correct whether or
-  // not a given suite builds the dataplane itself. The explicit benchmark path
-  // is accepted only after its source/toolchain/manifest bytes and every local
-  // installed copy are checked again immediately before this daemon spawn.
+  // installed, whenever it was installed, and the daemon's own search would
+  // also take an executable beside Bun before `apps/daemon/dist`.
   //
   // The failure it produces is not subtle but reads as anything but this: the
   // dataplane IPC contract is an exact key set on both sides, so the first
   // periodic telemetry event from a drifted binary is rejected, `invalid_event`
   // is fatal, and the daemon dies a few seconds into every session while the
   // server answers "failed to deliver session to daemon" forever after.
-  const nativeManifestPath = process.env[EDGE_HARNESS_NATIVE_MANIFEST_ENV];
-  if (nativeManifestPath === undefined) {
-    delete env.MERKUR_DATAPLANE_BIN;
-  } else {
-    env.MERKUR_DATAPLANE_BIN = await resolveVerifiedPrebuiltDataplanePath(
-      PROJECT_ROOT,
-      nativeManifestPath,
-    );
-  }
+  env.MERKUR_DATAPLANE_BIN = nativeProgram(PROJECT_ROOT, 'merkur-dataplane');
 
   const proc = spawn('bun', ['run', DAEMON_ENTRY, ...args], {
     cwd: PROJECT_ROOT,

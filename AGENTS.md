@@ -52,6 +52,7 @@ is that same daemon inside a container on a box host, which the server reaches a
 | Where prose lives: `docs/` is undated reference; this tree holds no dated records, open-item lists or proposals | `docs/` | `check:docs` |
 | Health, signals, metrics, exporters | `docs/observability.md` | `no-otel-sdk` |
 | Releases, signing, rollout | `docs/releases.md` | skill `release` |
+| Bazel build and test, cache, toolchain pins, baselines | `docs/build.md` | skill `verify` |
 
 Read the area's doc before non-trivial work, and the recorded outcomes of earlier
 experiments before a performance change, so one is not re-run.
@@ -144,8 +145,8 @@ never bypass it. Then commit, push, and follow the CI run (`gh run watch`) to it
 red run your change caused is fixed in the next commit. Do not chase failures provably
 outside the change.
 
-- `bun run gates` (print-only, seconds) names the suites a diff implicates and which are
-  already green; the `verify` skill explains its table and what each suite proves.
+- `bun run gates` (print-only) names what a diff earns: `bazel test //...`, which reruns
+  only what changed, plus the suites outside Bazel; the `verify` skill explains them.
 - A protocol, channel-ID, IPC, framing or crypto change also runs `check:protocol`
   locally; CI's `test:e2e:transport` shards prove the sessions, which `check` and
   `test:unit` cannot.

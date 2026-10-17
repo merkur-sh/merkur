@@ -20,6 +20,8 @@
       "!**/packages/merkur-e2e/test-vectors/wycheproof/*.json",
       "!**/tools/codeql/*/test",
       "!**/merkur-release.json",
+      "!**/fallow-baselines/dead-code.json",
+      "!**/fallow-baselines/dupes.json",
       "!**/merkur-release.sig"
     ]
   },

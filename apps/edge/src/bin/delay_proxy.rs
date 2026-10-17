@@ -5767,7 +5767,7 @@ mod tests {
         // a single coarse sleep lands late on every packet, so the median moves
         // with it and this keeps full sensitivity to the thing being asserted.
         // One sample, by contrast, is a noisy estimator of a microsecond-scale
-        // property — `bun run verify` runs `test:unit` concurrently with this,
+        // property — `bazel test //...` runs other suites concurrently with this,
         // and a starved wake pushed exactly one of five to 3.07ms against a 3ms
         // bound, which says nothing about whether the spin phase engaged.
         let mut sorted = overshoots.clone();

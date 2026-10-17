@@ -1,7 +1,10 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
-load(":defs.bzl", "wasm_sync")
+load("//tools/bazel:files.bzl", "package_files")
+load("//tools/bazel:sync.bzl", "checkout_sync")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 # Set by `wasm_module` for the profile-generating training build of the terminal, whose crate
 # then compiles its training entry points and links minicov's profile runtime.
@@ -47,9 +50,9 @@ alias(
 )
 
 # `bazel run //tools/bazel/wasm:sync` puts every package where the checkout imports it.
-wasm_sync(
+checkout_sync(
     name = "sync",
-    packages = {
+    sources = {
         "//tools/bazel/wasm/e2e-wasm:pkg": "packages/e2e-wasm/pkg",
         "//tools/bazel/wasm/graphics-codec-probe:pkg": "packages/graphics-codec-probe/pkg",
         "//tools/bazel/wasm/graphics-wasm:pkg": "packages/graphics-wasm/pkg",

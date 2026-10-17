@@ -13,6 +13,7 @@ import {
   edgeNetworkLinkSpec,
 } from '../../../scripts/edge-network-profile';
 import type { ProxyImpairmentStats } from '../../../scripts/edge-network-stats';
+import { nativeProgram } from '../../../scripts/native-artifacts';
 import {
   redirectTransportWorker,
   type TransportWorkerRedirect,
@@ -20,7 +21,7 @@ import {
   transportWorkerPrelude,
 } from './transport-worker-prelude';
 
-const PROXY_BINARY = path.resolve(__dirname, '../../../target/rust/release/delay_proxy');
+const PROXY_BINARY = nativeProgram(path.resolve(__dirname, '../../..'), 'delay_proxy');
 export const DIRECT_PROXY_DIAL_MARKER = '[merkur-direct-proxy-dial]';
 
 function directRedirect(backendPort: number, proxyPort: number): TransportWorkerRedirect {

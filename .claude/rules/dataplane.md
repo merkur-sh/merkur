@@ -38,8 +38,9 @@ Crates are on edition 2024, toolchain pinned by `rust-toolchain.toml`; new crate
 2024. Vendored `[patch.crates-io]` crates keep whatever upstream ships (see
 `vendored-crates.md`). Generated artifacts must be rebuilt before they are tested or run:
 the gitignored WASM packages come from `bun run build:wasm`, and the dev CLI executes
-the built dataplane binary, where staleness surfaces as unknown IPC frames or auth
-timeouts. `build:dataplane` is not a gate; run it only when something will execute the
-binary. Gate: `rust:lint`, then one filtered `cargo test -p merkur-dataplane`. Read
+the dataplane `bun run build:native` installs, where staleness surfaces as unknown IPC
+frames or auth timeouts. `build:native` is not a gate; run it only when something will
+execute the binary. Gate: `rust:lint`, then one filtered
+`bazel test //apps/daemon/dataplane:unit --test_arg=<filter>`. Read
 the recorded outcomes for the area before proposing a performance change, so an
 experiment is not re-run; an outcome is never written into this tree.

@@ -136,13 +136,10 @@ function overlayPlan(): ReferenceOverlay[] {
     source: readFileSync(path.join(ROOT, file), 'utf8'),
   }));
   for (const [file, declaration] of [
-    [
-      'scripts/run-edge-harness.ts',
-      "const PROXY_BIN = path.join(ROOT, 'target', 'rust', 'release', 'delay_proxy');",
-    ],
+    ['scripts/run-edge-harness.ts', "const PROXY_BIN = nativeProgram(ROOT, 'delay_proxy');"],
     [
       'tests/e2e/fixtures/direct-network-proxy.ts',
-      "const PROXY_BINARY = path.resolve(__dirname, '../../../target/rust/release/delay_proxy');",
+      "const PROXY_BINARY = nativeProgram(path.resolve(__dirname, '../../..'), 'delay_proxy');",
     ],
   ] as const) {
     overlays.push({
@@ -617,7 +614,7 @@ function collectBinaryHashes(directory: string): { path: string; sha256: string 
     'apps/daemon/dist',
     'packages/term-wasm/pkg',
     'apps/web/public/wasm',
-    'target/rust/release',
+    'apps/edge/dist',
   ];
   const result: { path: string; sha256: string }[] = [];
   for (const root of roots) {

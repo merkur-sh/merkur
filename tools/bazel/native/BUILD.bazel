@@ -1,0 +1,22 @@
+load("//tools/bazel:files.bzl", "package_files")
+load("//tools/bazel:sync.bzl", "checkout_sync")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+# The native programs a checkout runs: the daemon's sidecars beside each other where the daemon
+# looks for them, and the edge with the harnesses' network peers. `bun run build:native` runs it
+# in the release profile; the browser e2e suites and the harnesses run it before they start.
+checkout_sync(
+    name = "sync",
+    executable = True,
+    sources = {
+        "//apps/daemon/dataplane:merkur-dataplane": "apps/daemon/dist",
+        "//apps/edge:bulk_competitor": "apps/edge/dist",
+        "//apps/edge:delay_proxy": "apps/edge/dist",
+        "//apps/edge:merkur-edge": "apps/edge/dist",
+        "//apps/tui:merkur-tui": "apps/daemon/dist",
+        "//packages/merkur-image-worker:merkur-image-worker": "apps/daemon/dist",
+    },
+)

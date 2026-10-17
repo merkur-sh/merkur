@@ -119,7 +119,7 @@ export function preparePackingDeliveryTrees(revision: string): string {
         productionAccepted: false,
         nativeVerdict: 'inconclusive-three-preregistered-capture-p99-failures',
         launch:
-          'Each tree uses its own normal apps/daemon/dist/merkur-dataplane; MERKUR_DATAPLANE_BIN is deliberately removed by the common E2E fixture',
+          'Each tree runs its own apps/daemon/dist/merkur-dataplane, which the common E2E fixture names in MERKUR_DATAPLANE_BIN',
         arms,
       },
       null,

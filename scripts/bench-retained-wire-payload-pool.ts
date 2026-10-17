@@ -1,7 +1,6 @@
 import path from 'node:path';
 
 import { chromium } from '@playwright/test';
-import { declaredBrowserExecutable } from './perf/browser-runtime';
 import { emitPerfMetric, summarizeSamples } from './perf/harness';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -54,7 +53,6 @@ interface BrowserResult {
 
 const browser = await chromium.launch({
   headless: true,
-  executablePath: declaredBrowserExecutable('headless-shell'),
 });
 let result: BrowserResult;
 try {

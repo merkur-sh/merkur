@@ -6,8 +6,8 @@ import path from 'node:path';
 
 export const PACKING_RUNTIME_FILES = [
   'apps/daemon/dist/merkur-dataplane',
-  'target/rust/release/merkur-edge',
-  'target/rust/release/delay_proxy',
+  'apps/edge/dist/merkur-edge',
+  'apps/edge/dist/delay_proxy',
   'apps/web/src/term-wasm/pkg/term_wasm.js',
   'apps/web/src/term-wasm/pkg/term_wasm_bg.wasm',
   'packages/e2e-wasm/pkg/e2e_wasm.js',

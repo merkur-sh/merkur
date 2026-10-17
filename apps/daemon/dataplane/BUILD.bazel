@@ -2,8 +2,11 @@ load("@crates//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script", "extract_cargo_lints")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("//tools/bazel/rust:defs.bzl", "rust_e2e_testing_test")
+load("//tools/bazel:files.bzl", "package_files")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 extract_cargo_lints(
     name = "lints",

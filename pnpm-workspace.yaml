@@ -16,7 +16,8 @@ autoInstallPeers: true
 strictPeerDependencies: false
 onlyBuiltDependencies: []
 
+# `@solidjs/web`'s JSX types import `csstype` without declaring it.
 packageExtensions:
-  '@solidjs/web@2.0.0-rc.1':
+  '@solidjs/web':
     dependencies:
       csstype: 3.2.3

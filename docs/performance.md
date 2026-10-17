@@ -165,27 +165,12 @@ names the gate that reproduces it, and measurements are recorded outside the ref
 
 ## Profiling Commands
 
-The WASM session benchmarks and their fixture tests consume a prepared native signed-session
-oracle. Before running `bench:input-send-path`, `bench:input-ack` or `bench:reconnect`
-directly, run this once from the repository root:
-
-```sh
-bun run scripts/prepare-client-session-oracle.ts
-```
-
-The preparer records the exact Cargo command, executable path, executable SHA-256 and a
-SHA-256 digest of the checkout's Rust crate inputs, workspace manifests, lockfile, toolchain
-pin and Cargo configuration in `target/rust/client-session-oracle.json`. Untracked crate
-inputs are included. The executable is copied into an independent file beneath
-`target/rust/client-session-oracle`, in a directory named by its binary SHA-256, with mode
-0555. The manifest names that retained file, so a parallel Cargo profile build cannot
-replace the fixture's executable. A matching source and binary receipt permits reuse;
-changed bytes require preparation again. Fixture consumers verify that receipt before starting the
-oracle and refuse missing or mismatched evidence. These session benchmarks and fixture tests
-never invoke Cargo.
-`gates --run` prepares the oracle once in preflight when a selected test's import closure
-includes `scripts/perf/client-session-fixture.ts`, before the parallel Rust and Bun lanes.
-Oracle build and validation costs remain outside benchmark timing.
+The WASM session benchmarks and their fixture tests drive the native signed-session oracle
+(`merkur-client`'s `browser_session_oracle`). Under `bazel test` it is a declared tool on the
+test's `PATH`; run from the checkout, `bench:input-send-path`, `bench:input-ack` and
+`bench:reconnect` build it with `bazel build --config=release` before they start
+(`scripts/bazel-tool.ts`), outside benchmark timing. Bazel's action cache makes an unchanged
+oracle free, and the action graph names exactly what it was built from.
 
 | Command | Coverage | Intended use |
 | --- | --- | --- |
@@ -1257,43 +1242,12 @@ accepting registration with the harness edge's exact identity, URL and certifica
 server alone is not readiness to issue terminal sessions. The setup deadline fails missing
 registration; it never substitutes a fixed settle delay or retries a failed browser case.
 
-A paired source-tree benchmark must not rebuild byte-different native executables in its two
-arms. Build the shared edge, delay proxy, and dataplane once from a clean native source closure
-into a new absolute directory:
-
-```sh
-bun run prepare:e2e-native-artifacts -- \
-  --output=/tmp/merkur-native-preflight-<checkpoint>
-```
-
-The preparer records every tracked file in the Cargo manifests/lockfile, dataplane, edge, local
-Rust dependencies and crate patches; it refuses dirty or untracked files in that closure. Its
-manifest also pins the resolved Cargo and rustc executables, their hashes and verbose versions,
-the exact `--release --locked` build commands, compiler/profile/target environment overrides,
-and the three staged executable hashes. The output directory must not already exist.
-This is an exact cross-arm artifact control: it records the clean source/toolchain/build inputs
-and the resulting bytes, but does not claim a cryptographic proof that those bytes were derived
-from the source. The preparer rejects aliased or multiply linked build outputs before staging.
-
-Supply the same resolved manifest path to every fresh benchmark process:
-
-```sh
-MERKUR_EDGE_HARNESS_NATIVE_ARTIFACT_MANIFEST=\
-/private/tmp/merkur-native-preflight-<checkpoint>/native-artifact-manifest.json \
-bun run scripts/run-edge-harness.ts <spec> --workers=1
-```
-
-Use the preparer's emitted `manifestPath` verbatim. It is canonical; on macOS that means a
-directory requested below `/tmp` is reported below `/private/tmp`. A symlinked spelling is
-rejected so every arm records and verifies the same manifest identity.
-
-Manifest mode is a benchmark setup control, not a product behavior flag. The runner recomputes
-the current worktree source closure and host toolchain, reads and hashes the staged executables,
-then installs those retained exact bytes at the normal edge/proxy/dataplane paths before any
-server, daemon, or browser starts. A missing, malformed, stale, non-canonical, or byte-mismatched
-manifest aborts; it never falls back to rebuilding. The ordinary no-manifest harness invocation
-continues to build its local native artifacts as before. Retain the runner's
-`nativeArtifactProvenance` result and `[harness-native-artifacts]` line with every run artifact.
+A paired source-tree benchmark must not run byte-different native executables in its two
+arms. Each arm's harness syncs its programs with Bazel (`bun run build:native`), and arms whose
+native sources are the same get the same bytes from Bazel's cache. The harness records each
+program's SHA-256 in its result (`nativePrograms`, and the `[harness-native-programs]` line),
+holds every phase of the run to those bytes, and fails the run if one changed before it ended.
+Compare the recorded digests across arms, and retain them with every run artifact.
 
 For a separate full-application Chrome trace, run the Direct latency E2E with
 `DIRECT_GPU_TRACE=1 DIRECT_DIAGNOSTIC_WORKLOAD=typing` (or `tmux` / `neovim`) and the normal Direct network-emulation

@@ -12,6 +12,7 @@ import {
   serverProcessEnvironment,
   toolEnvironment,
 } from './dev-environment';
+import { nativeProgram } from './native-artifacts';
 
 export interface DevelopmentStackRuntime {
   readonly root: string;
@@ -490,6 +491,7 @@ export async function runDevelopmentStack(
 if (import.meta.main) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const environment = toolEnvironment(process.env);
+  const NATIVE_SYNC = ['bazel', 'run', '--config=release', '//tools/bazel/native:sync'];
   async function prerequisite(
     command: string[],
     signal: AbortSignal,
@@ -534,22 +536,13 @@ if (import.meta.main) {
         signal,
         env,
       ),
+    // One sync installs the edge and the daemon's sidecars; the second step's is Bazel's no-op.
     buildEdge: async (signal) => {
-      await prerequisite(
-        ['cargo', 'build', '--manifest-path', 'Cargo.toml', '--locked', '-p', 'merkur-edge'],
-        signal,
-      );
-      return path.join(
-        root,
-        'target/rust/debug',
-        process.platform === 'win32' ? 'merkur-edge.exe' : 'merkur-edge',
-      );
+      await prerequisite(NATIVE_SYNC, signal);
+      return nativeProgram(root, 'merkur-edge');
     },
     buildDaemon: async (signal) => {
-      await prerequisite(
-        [process.execPath, '--bun', '--no-env-file', 'run', 'scripts/build-daemon-artifacts.ts'],
-        signal,
-      );
+      await prerequisite(NATIVE_SYNC, signal);
       return {};
     },
   });

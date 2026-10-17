@@ -31,8 +31,7 @@ describe('owned historical Direct test overlay', () => {
     expect(() => buildReferencePlaywrightConfig(base + base)).toThrow('config drift');
   });
   test('only the exact fixture binary declaration changes', () => {
-    const declaration =
-      "const PROXY_BIN = path.join(ROOT, 'target', 'rust', 'release', 'delay_proxy');";
+    const declaration = "const PROXY_BIN = nativeProgram(ROOT, 'delay_proxy');";
     const source = `const x = 1;\n${declaration}\nconst y = 2;\n`;
     const patched = replaceReferenceProxyPath(source, declaration);
     expect(patched).toStartWith('const x = 1;\n');

@@ -1,7 +1,12 @@
 load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@npm//:defs.bzl", "npm_link_all_packages")
+load("//tools/bazel:files.bzl", "IGNORED", "package_files")
+load("//tools/bazel/wasm:defs.bzl", "wasm_package_files")
+load("//tools/bazel/bun:bun.bzl", "bun_tests")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 # The terminal fonts, which the terminal crate embeds in its tests and atlas profile.
 filegroup(
@@ -24,4 +29,19 @@ js_library(
     ),
     visibility = ["//visibility:public"],
     deps = [":node_modules"],
+)
+
+# The terminal module where the app imports it from.
+wasm_package_files(
+    name = "term_wasm_files",
+    directory = "src/term-wasm/pkg",
+    package = "//tools/bazel/wasm/term-wasm:pkg",
+)
+
+bun_tests(
+    shard_count = 4,
+    tests = glob(
+        ["**/*.test.ts"],
+        exclude = IGNORED,
+    ),
 )

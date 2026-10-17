@@ -1,28 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
-import { selectDataplaneGlobalSetupMode, waitForHarnessEdgeRegistration } from './global-setup';
-
-describe('E2E dataplane global setup', () => {
-  test('a supplied prebuilt manifest never enters the rebuild path', () => {
-    expect(selectDataplaneGlobalSetupMode('/absolute/manifest.json', true)).toBe('verify-prebuilt');
-    expect(selectDataplaneGlobalSetupMode('/absolute/manifest.json', false)).toBe(
-      'verify-prebuilt',
-    );
-  });
-
-  test('retains ordinary existing-or-build behavior without a manifest', () => {
-    expect(selectDataplaneGlobalSetupMode(undefined, true)).toBe('use-existing');
-    expect(selectDataplaneGlobalSetupMode(undefined, false)).toBe('build');
-  });
-
-  test('an explicit simulator cannot reuse a production binary', () => {
-    expect(selectDataplaneGlobalSetupMode(undefined, true, true)).toBe('build');
-    expect(selectDataplaneGlobalSetupMode(undefined, false, true)).toBe('build');
-    expect(selectDataplaneGlobalSetupMode('/absolute/manifest.json', true, true)).toBe(
-      'verify-prebuilt',
-    );
-  });
-});
+import { waitForHarnessEdgeRegistration } from './global-setup';
 
 test('edge readiness waits for the indexed registration serving this certificate', async () => {
   const expected = {

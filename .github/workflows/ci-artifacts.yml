@@ -1,13 +1,9 @@
 name: Build CI artifacts
+# The WebAssembly packages and the native programs the browser suites run, built once into the
+# remote cache with the commands every consumer runs (`bun run build:wasm`, the harnesses'
+# `bun run build:native`), so each consuming job's own build is a cache hit.
 on:
   workflow_call:
-    inputs:
-      kind:
-        type: string
-        required: true
-      scope:
-        type: string
-        required: true
     secrets:
       BUILDBUDDY_API_KEY:
         required: false
@@ -21,35 +17,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Validate artifact kind
-        env:
-          KIND: ${{ inputs.kind }}
-        run: test "$KIND" = wasm || test "$KIND" = native
-      - uses: ./.github/actions/setup-merkur
+      - uses: ./.github/actions/setup-bazel
         with:
-          rust: ${{ inputs.kind == 'native' }}
-          cache-key: ci-${{ inputs.kind }}
-          bazel: ${{ inputs.kind == 'wasm' }}
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
-      - name: Build WASM
-        if: inputs.kind == 'wasm'
-        run: |
-          bun run build:wasm
-          # The source tests' zstd fixture, which they find at Cargo's release path.
-          bazel build --config=release //packages/zstd-fixture
-          mkdir -p target/rust/release
-          cp "$(bazel info --config=release execution_root)/$(bazel cquery --config=release --output=files //packages/zstd-fixture)" target/rust/release/zstd-fixture
-          python3 scripts/ci/wasm_artifacts.py pack "$RUNNER_TEMP/wasm.tar"
-      - name: Build and attest browser executables
-        if: inputs.kind == 'native'
-        run: |
-          bun run prepare:e2e-native-artifacts --output="$RUNNER_TEMP/merkur-native"
-          tar -cf "$RUNNER_TEMP/native.tar" -C "$RUNNER_TEMP" merkur-native
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ci-${{ inputs.scope }}-${{ inputs.kind }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/${{ inputs.kind }}.tar
-          if-no-files-found: error
-          # Full reruns replace the same-run bundle; failed-job reruns consume it.
-          overwrite: true
-          retention-days: 1
+      - run: bazel build //tools/bazel/wasm:sync
+      - run: bazel build --config=release //tools/bazel/native:sync

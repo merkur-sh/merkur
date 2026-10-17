@@ -33,7 +33,7 @@ import {
 } from '../packages/shared/src';
 import { loadBenchmarkTerminal } from './perf/declared-terminal';
 import { emitPerfMetric, summarizeSamples } from './perf/harness';
-import { builtZstdFixtureExecutable } from './perf/zstd-fixture';
+import { zstdFixtureExecutable } from './perf/zstd-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SAMPLES = positiveInteger('BENCH_SAMPLES', 500);
@@ -44,7 +44,7 @@ if (!Number.isInteger(LINKS) || LINKS < 0) throw new Error('BENCH_LINKS must be 
 // Row prefix `left` flag and span shape, as merkur-codec writes them.
 const ROW_FLAG_LINKS = 0x8000;
 const LINK_SPAN_BYTES = 8;
-const FIXTURE_BINARY = await builtZstdFixtureExecutable();
+const FIXTURE_BINARY = zstdFixtureExecutable();
 
 const { runtime: wasmRuntime, terminal } = await loadBenchmarkTerminal(1280, 720);
 const cols = terminal.cols();

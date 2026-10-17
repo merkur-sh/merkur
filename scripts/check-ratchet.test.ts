@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseSync } from 'oxc-parser';
 
 import {
+  baselineFindings,
   CEILINGS_FILE,
   ceilingScope,
   compareCeilings,
@@ -385,89 +385,37 @@ test('declared analysis reads unchanged ceilings and fails new, grown, loose and
   });
 });
 
-test('ordinary analysis launches all three reports before awaiting and keeps declared policy', async () => {
-  const source = readFileSync(new URL('./check-ratchet.ts', import.meta.url), 'utf8');
-  const parsed = parseSync('check-ratchet.ts', source);
-  expect(parsed.errors).toEqual([]);
-  const ordinary = parsed.program.body.find(
-    (node) => node.type === 'FunctionDeclaration' && node.id?.name === 'run',
-  );
-  if (ordinary?.type !== 'FunctionDeclaration' || !ordinary.async)
-    throw new Error('The ordinary ratchet must retain its asynchronous run function');
-  const semantic = parsed.program.body.find(
-    (node) =>
-      node.type === 'VariableDeclaration' &&
-      node.declarations.some(
-        (declaration) =>
-          declaration.id.type === 'Identifier' && declaration.id.name === 'SEMANTIC_CONFIG',
-      ),
-  );
-  if (semantic === undefined)
-    throw new Error('The ordinary semantic configuration must be present');
-  const body = new Bun.Transpiler({ loader: 'ts' }).transformSync(
-    `${source.slice(semantic.start, semantic.end)}\n${source.slice(ordinary.start, ordinary.end)}`,
-  );
-  // Execute the existing ordinary function's exact source with controlled report
-  // operations. No executable or shipped entrypoint is replaced by this control.
-  const execute = new Function(
-    'ROOT',
-    'git',
-    'gitFiles',
-    'fallow',
-    'reportRatchetAnalysis',
-    `${body}\nreturn run({ mode: 'check', base: 'HEAD' });`,
-  );
-  const root = mkdtempSync(path.join(tmpdir(), 'ratchet-concurrent-'));
-  try {
-    mkdirSync(path.join(root, 'fallow-baselines'));
-    writeFileSync(path.join(root, CEILINGS_FILE), '{}\n');
-    for (const [verdict, expected] of [
-      ['pass', 0],
-      ['fail', 1],
-    ] as const) {
-      const started: string[] = [];
-      const pending: ((report: Readonly<Record<string, unknown>>) => void)[] = [];
-      let reported = false;
-      const result: unknown = execute(
-        root,
-        () => 'abc123',
-        (args: readonly string[]) => (args[0] === 'ls-files' ? [] : ['a.ts']),
-        (label: string) => {
-          started.push(label);
-          return new Promise<Readonly<Record<string, unknown>>>((resolve) => pending.push(resolve));
-        },
-        (
-          options: Parameters<typeof runRatchetAnalysis>[0] & {
-            exact: Readonly<Record<string, unknown>>;
-            semantic: Readonly<Record<string, unknown>>;
-            health: Readonly<Record<string, unknown>>;
-          },
-        ) => {
-          reported = true;
-          return analyse({
-            ...options,
-            diffArgs: [],
-            fallow: (label) =>
-              label === 'fallow health'
-                ? options.health
-                : label === 'fallow audit'
-                  ? options.exact
-                  : options.semantic,
-          });
-        },
-      );
-      if (!(result instanceof Promise)) throw new Error('Ordinary analysis must return a Promise');
-      expect(started).toEqual(['fallow audit', 'fallow audit (semantic)', 'fallow health']);
-      expect(pending).toHaveLength(3);
-      expect(reported).toBe(false);
-      pending[0]?.({ verdict });
-      pending[1]?.({ verdict: 'fail' });
-      expect(reported).toBe(false);
-      pending[2]?.(health([]));
-      expect(await result).toBe(expected);
-      expect(reported).toBe(true);
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+test('the whole-tree run fails what the baselines do not hold and counts loose entries', () => {
+  const deadCode = {
+    total_issues: 1,
+    summary: { unused_files: 1 },
+    unused_files: [{ path: 'apps/web/src/stray.ts' }],
+    unused_exports: [],
+    next_steps: [{ command: 'fallow fix' }],
+    workspace_diagnostics: [{ message: 'not a finding' }],
+    baseline: { entries: 23, matched: 21 },
+  };
+  const dupes = {
+    clone_groups: [
+      {
+        line_count: 12,
+        instances: [
+          { file: 'scripts/a.ts', start_line: 1, end_line: 12 },
+          { file: 'scripts/b.ts', start_line: 4, end_line: 15 },
+        ],
+      },
+    ],
+  };
+  expect(baselineFindings(deadCode, dupes)).toEqual({
+    added: [
+      'unused_files: apps/web/src/stray.ts',
+      'clone (12 lines): scripts/a.ts:1-12, scripts/b.ts:4-15',
+    ],
+    loose: 2,
+  });
+  expect(baselineFindings({ baseline: { entries: 3, matched: 3 } }, { clone_groups: [] })).toEqual({
+    added: [],
+    loose: 0,
+  });
+  expect(() => baselineFindings({}, { clone_groups: [] })).toThrow('no baseline match');
 });

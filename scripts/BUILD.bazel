@@ -1,6 +1,10 @@
 load("//tools/bazel/bun:bun.bzl", "bun_binary")
+load("//tools/bazel:files.bzl", "IGNORED", "package_files")
+load("//tools/bazel/bun:bun.bzl", "bun_tests")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 # Trains the profile-guided terminal (`//tools/bazel/wasm/term-wasm:profile`).
 bun_binary(
@@ -17,4 +21,19 @@ bun_binary(
 bun_binary(
     name = "term_wasm_current_glue",
     entry = "term-wasm-current-glue.ts",
+)
+
+bun_tests(
+    browsers = True,
+    shard_count = 3,
+    tools = {
+        "@openssl//:openssl": "openssl",
+        "@redis//:redis-server": "redis-server",
+        "//packages/merkur-client:browser_session_oracle": "browser_session_oracle",
+        "//packages/zstd-fixture": "zstd-fixture",
+    },
+    tests = glob(
+        ["**/*.test.ts"],
+        exclude = IGNORED,
+    ),
 )

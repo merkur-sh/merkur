@@ -34,11 +34,6 @@
  *   FORCE_EDGE         defaults to 1 so tests cannot silently upgrade around
  *                      the impairment proxy; set to 0 only for direct-upgrade
  *                      tests
- *   MERKUR_EDGE_HARNESS_NATIVE_ARTIFACT_MANIFEST
- *                      absolute resolved path to the strict benchmark preflight
- *                      manifest. When supplied, its source closure, toolchain,
- *                      build flags and artifact bytes must all match; failure
- *                      aborts without falling back to a local rebuild.
  *   E2E_TRANSPORT_WORKERS  worker count for the default (no-filter) run's
  *                      parallel functional phase; defaults to one per three
  *                      cores (a worker runs Chromium + daemon + dataplane)
@@ -67,17 +62,10 @@
  * fully-parallelizing its ~40 independent tests is the actual win.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
-import { accessSync, constants, copyFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, mkdtempSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  EDGE_HARNESS_NATIVE_BUILD_COMMANDS,
-  EDGE_HARNESS_NATIVE_MANIFEST_ENV,
-  type EdgeHarnessNativeArtifactProvenance,
-  provisionEdgeHarnessNativeArtifacts,
-  verifyProvisionedNativeArtifacts,
-} from './edge-harness-native-artifacts';
 import { requestProxyImpairmentStats } from './edge-network-control';
 import {
   edgeNetworkLinkEnvironment,
@@ -86,11 +74,19 @@ import {
 } from './edge-network-profile';
 import { type ProxyImpairmentStats, proxyLinkReleaseErrors } from './edge-network-stats';
 import { acquireHostHarnessLock } from './host-harness-lock';
+import {
+  NATIVE_PROGRAMS_SYNCED_ENV,
+  type NativeProgramDigests,
+  nativeProgram,
+  nativeProgramDigests,
+  syncNativeArtifacts,
+  verifyNativePrograms,
+} from './native-artifacts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const EDGE_BIN = path.join(ROOT, 'target', 'rust', 'release', 'merkur-edge');
-const PROXY_BIN = path.join(ROOT, 'target', 'rust', 'release', 'delay_proxy');
-const COMPETITOR_BIN = path.join(ROOT, 'target', 'rust', 'release', 'bulk_competitor');
+const EDGE_BIN = nativeProgram(ROOT, 'merkur-edge');
+const PROXY_BIN = nativeProgram(ROOT, 'delay_proxy');
+const COMPETITOR_BIN = nativeProgram(ROOT, 'bulk_competitor');
 
 const EDGE_PORT = Number(process.env.EDGE_PORT ?? 4433);
 const NETWORK = resolveEdgeNetworkConfig(process.env);
@@ -190,7 +186,7 @@ let cleanupPromise: Promise<readonly string[]> | null = null;
 const shutdownRequestErrors: string[] = [];
 let infrastructureFailure: Error | null = null;
 let activePlaywright: ChildProcess | null = null;
-let activeNativeArtifactProvenance: EdgeHarnessNativeArtifactProvenance | null = null;
+let activeNativePrograms: NativeProgramDigests | null = null;
 let edgeHandshakeTimeouts = 0;
 let proxySplitObserved = false;
 /** Every attachment the edge logged: which lane and role each proxy upstream port carried. */
@@ -677,10 +673,10 @@ function requireExecutable(binaryPath: string, buildCommand: string): void {
  */
 async function runPlaywright(
   extraArgs: readonly string[],
-  nativeArtifactProvenance: EdgeHarnessNativeArtifactProvenance,
+  nativePrograms: NativeProgramDigests,
   certHash: string,
 ): Promise<number> {
-  verifyProvisionedNativeArtifacts(nativeArtifactProvenance);
+  verifyNativePrograms(ROOT, nativePrograms);
   const outputRoot = process.env.PW_E2E_OUTPUT_DIR ?? path.join(ROOT, 'test-results', 'e2e-edge');
   mkdirSync(outputRoot, { recursive: true });
   const outputDirectory = mkdtempSync(path.join(outputRoot, 'phase-'));
@@ -693,6 +689,7 @@ async function runPlaywright(
         PW_E2E_EDGE_ID: EDGE_ID,
         PW_E2E_EDGE_URL: new URL(EDGE_PUBLIC_URL).href,
         PW_E2E_EDGE_CERT_HASH: certHash,
+        [NATIVE_PROGRAMS_SYNCED_ENV]: '1',
         PW_E2E_OUTPUT_DIR: outputDirectory,
         FORCE_EDGE: process.env.FORCE_EDGE ?? '1',
         ...edgeNetworkPlaywrightEnvironment(NETWORK),
@@ -732,19 +729,15 @@ async function main(
   await acquireHostHarnessLock(
     `run-edge-harness on port ${EDGE_PORT} [${process.argv.slice(2).join(' ')}]`,
   );
-  const nativeArtifactProvenance = await provisionEdgeHarnessNativeArtifacts(
-    ROOT,
-    process.env[EDGE_HARNESS_NATIVE_MANIFEST_ENV],
-    buildEdgeArtifacts,
-  );
-  activeNativeArtifactProvenance = nativeArtifactProvenance;
+  await syncNativeArtifacts(ROOT);
+  const nativePrograms = nativeProgramDigests(ROOT);
+  activeNativePrograms = nativePrograms;
   if (infrastructureFailure !== null) throw infrastructureFailure;
-  process.stderr.write(`[harness-native-artifacts] ${JSON.stringify(nativeArtifactProvenance)}\n`);
-  verifyProvisionedNativeArtifacts(nativeArtifactProvenance);
+  process.stderr.write(`[harness-native-programs] ${JSON.stringify(nativePrograms)}\n`);
   const certHash = await startEdge();
   const dialPort = PROXY_ACTIVE ? PROXY_PORT : EDGE_PORT;
   if (PROXY_ACTIVE) {
-    verifyProvisionedNativeArtifacts(nativeArtifactProvenance);
+    verifyNativePrograms(ROOT, nativePrograms);
     await startProxy();
     await startCompetitor();
   }
@@ -789,7 +782,7 @@ async function main(
   // Every phase runs, even after a failure, and no later success hides a failure.
   let code = 0;
   for (const args of edgeHarnessPhases(explicitArgs)) {
-    const phaseCode = await runPlaywright(args, nativeArtifactProvenance, certHash);
+    const phaseCode = await runPlaywright(args, nativePrograms, certHash);
     if (phaseCode !== 0) code = phaseCode;
   }
   const proxyStats = await requestProxyStats();
@@ -878,9 +871,9 @@ async function main(
     validationErrors.push(`harness infrastructure failed: ${supervisionError.message}`);
   }
   try {
-    verifyProvisionedNativeArtifacts(nativeArtifactProvenance);
+    verifyNativePrograms(ROOT, nativePrograms);
   } catch (error) {
-    validationErrors.push(`native artifacts changed during the run: ${String(error)}`);
+    validationErrors.push(`native programs changed during the run: ${String(error)}`);
   }
   const harnessExitCode = code === 0 && validationErrors.length > 0 ? 1 : code;
   const result = {
@@ -890,7 +883,7 @@ async function main(
     playwrightExitCode: code,
     harnessExitCode,
     network: NETWORK,
-    nativeArtifactProvenance,
+    nativePrograms,
     proxyStats,
     edgeAttachments,
     proxyRelays,
@@ -907,31 +900,6 @@ async function main(
     for (const error of validationErrors) process.stderr.write(`[harness-invalid] ${error}\n`);
   }
   process.exitCode = harnessExitCode;
-}
-
-async function buildEdgeArtifacts(): Promise<void> {
-  for (const command of EDGE_HARNESS_NATIVE_BUILD_COMMANDS) {
-    await runBuild('edge, daemon dataplane, image worker and terminal client', [...command]);
-  }
-  for (const name of ['merkur-dataplane', 'merkur-image-worker']) {
-    const source = path.join(ROOT, 'target', 'rust', 'release', name);
-    const destination = path.join(ROOT, 'apps', 'daemon', 'dist', name);
-    mkdirSync(path.dirname(destination), { recursive: true });
-    copyFileSync(source, destination);
-  }
-}
-
-async function runBuild(name: string, command: string[]): Promise<void> {
-  const [executable, ...args] = command;
-  if (executable === undefined) throw new Error(`empty build command for ${name}`);
-  const build = track(spawn(executable, args, { cwd: ROOT, stdio: 'inherit' }));
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    build.once('error', reject);
-    build.once('exit', (code) => resolve(code ?? 1));
-  });
-  if (exitCode !== 0) {
-    throw new Error(`${name} build failed with exit code ${exitCode}`);
-  }
 }
 
 function optionalNonNegativeInteger(name: string): number | undefined {
@@ -964,11 +932,11 @@ if (import.meta.main) {
     .catch(async (error) => {
       const errors = [`harness execution failed: ${String(error)}`, ...(await cleanup())];
       stopAcceptingSignals();
-      if (activeNativeArtifactProvenance !== null) {
+      if (activeNativePrograms !== null) {
         try {
-          verifyProvisionedNativeArtifacts(activeNativeArtifactProvenance);
+          verifyNativePrograms(ROOT, activeNativePrograms);
         } catch (verificationError) {
-          errors.push(`native artifacts changed during failed run: ${String(verificationError)}`);
+          errors.push(`native programs changed during failed run: ${String(verificationError)}`);
         }
       }
       const resultPath = process.env.MERKUR_EDGE_HARNESS_RESULT_PATH;
@@ -984,7 +952,7 @@ if (import.meta.main) {
                 playwrightExitCode: 1,
                 harnessExitCode: 1,
                 network: NETWORK,
-                nativeArtifactProvenance: activeNativeArtifactProvenance,
+                nativePrograms: activeNativePrograms,
                 proxyStats: null,
                 impairmentValidation: { complete: false, errors },
               },

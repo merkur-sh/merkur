@@ -27,13 +27,6 @@ test('check next to one of its members is denied', () => {
   expect(staticDecision('bun run check && bun run check:audit')).toBeNull();
 });
 
-test('verify next to what it already runs is denied', () => {
-  expect(staticDecision('bun run verify && bun run check')?.kind).toBe('deny');
-  expect(staticDecision('bun run test:unit && bun run verify')?.kind).toBe('deny');
-  expect(staticDecision('bun run verify && bun run check:audit')?.kind).toBe('deny');
-  expect(staticDecision('bun run verify')).toBeNull();
-});
-
 test('two cargo commands with one backgrounded are denied; chained ones are not', () => {
   const decision = staticDecision('cargo test -p a & cargo test -p b');
   expect(decision?.kind).toBe('deny');
@@ -58,12 +51,9 @@ test('cargo-backed scripts are recognised', () => {
   expect(isCargoCommand(commandOf('cargo test -p x'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run rust:lint'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run rust:test'))).toBe(true);
-  expect(isCargoCommand(commandOf('bun run build:dataplane'))).toBe(true);
-  expect(isCargoCommand(commandOf('bun run check:protocol'))).toBe(true);
-  expect(isCargoCommand(commandOf('bun run check'))).toBe(true);
-  expect(isCargoCommand(commandOf('bun run verify'))).toBe(true);
   expect(isCargoCommand(commandOf('bun run spike:ios:server'))).toBe(true);
-  expect(isCargoCommand(commandOf('bun run --silent check'))).toBe(true);
+  expect(isCargoCommand(commandOf('bun run --silent spike:ios:server'))).toBe(true);
+  expect(isCargoCommand(commandOf('bun run check'))).toBe(false);
   expect(isCargoCommand(commandOf('bun test apps/web'))).toBe(false);
   expect(isCargoCommand(commandOf('bun run check:types'))).toBe(false);
   expect(isCargoCommand(commandOf('bun run bench:sse'))).toBe(false);

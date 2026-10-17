@@ -4,8 +4,8 @@ A `wasm_module` compiles a `rust_shared_library` for the browser in Cargo's rele
 with the flags the crate's own `.cargo/config.toml` gave Cargo (`simd128`). A profile-guided
 module trains an instrumented build of the same targets (`wasm_profile`), so every crate keeps
 its symbol names between the two builds and the whole profile applies. A `wasm_package` runs
-wasm-bindgen and `wasm-opt -O` over it and writes the package wasm-pack wrote; `wasm_sync`
-copies packages into the checkout, where Vite and Bun import them. A `wasm_bindgen_test` runs a
+wasm-bindgen and `wasm-opt -O` over it and writes the package wasm-pack wrote, which
+`//tools/bazel/wasm:sync` copies into the checkout. A `wasm_bindgen_test` runs a
 test harness compiled the same way under wasm-bindgen's test runner.
 """
 
@@ -223,55 +223,6 @@ wasm_package = rule(
     },
 )
 
-def _wasm_sync_impl(ctx):
-    lines = []
-    files = []
-    for target, destinations in ctx.attr.packages.items():
-        sources = target[DefaultInfo].files.to_list()
-        files.extend(sources)
-        for destination in destinations.split(" "):
-            lines.append("sync {} {}".format(destination, " ".join([source.short_path for source in sources])))
-    launcher = ctx.actions.declare_file(ctx.label.name)
-    ctx.actions.write(
-        output = launcher,
-        content = """#!/usr/bin/env bash
-# Each destination becomes exactly its package; one already equal is left untouched, so a dev
-# server watching it does not reload.
-set -euo pipefail
-runfiles="$(cd "${{RUNFILES_DIR:-$0.runfiles}}" && pwd)/_main"
-cd "$BUILD_WORKSPACE_DIRECTORY"
-sync() {{
-  local destination="$1"
-  shift
-  local staged
-  staged="$(mktemp -d)"
-  for file in "$@"; do
-    cp "$runfiles/$file" "$staged/"
-  done
-  chmod 0644 "$staged"/*
-  if ! diff -r "$staged" "$destination" >/dev/null 2>&1; then
-    rm -rf "$destination"
-    mkdir -p "$destination"
-    cp "$staged"/* "$destination/"
-    echo "synced $destination"
-  fi
-  rm -rf "$staged"
-}}
-{lines}
-""".format(lines = "\n".join(lines)),
-        is_executable = True,
-    )
-    return [DefaultInfo(executable = launcher, runfiles = ctx.runfiles(files = files))]
-
-wasm_sync = rule(
-    implementation = _wasm_sync_impl,
-    doc = "`bazel run` copies each package into its space-separated checkout destinations.",
-    attrs = {
-        "packages": attr.label_keyed_string_dict(mandatory = True),
-    },
-    executable = True,
-)
-
 def _wasm_bindgen_test_impl(ctx):
     module = ctx.files.test[0]
     node = ctx.toolchains["@rules_nodejs//nodejs:toolchain_type"].nodeinfo
@@ -306,4 +257,21 @@ wasm_bindgen_test = rule(
     },
     test = True,
     toolchains = ["@rules_nodejs//nodejs:toolchain_type"],
+)
+
+def _wasm_package_files_impl(ctx):
+    outputs = []
+    for source in ctx.files.package:
+        output = ctx.actions.declare_file(ctx.attr.directory + "/" + source.basename)
+        ctx.actions.symlink(output = output, target_file = source)
+        outputs.append(output)
+    return [DefaultInfo(files = depset(outputs))]
+
+wasm_package_files = rule(
+    implementation = _wasm_package_files_impl,
+    doc = "A `wasm_package` in this package's `directory`, where TypeScript imports it from.",
+    attrs = {
+        "directory": attr.string(default = "pkg"),
+        "package": attr.label(mandatory = True),
+    },
 )

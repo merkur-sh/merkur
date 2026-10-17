@@ -2061,17 +2061,13 @@
     "no-swallowed-error": 2
   },
   "scripts/check-ratchet.test.ts": {
-    "no-unsafe-dictionary-type": 7,
-    "prefer-effect-match": 1
+    "no-unsafe-dictionary-type": 2
   },
   "scripts/check-ratchet.ts": {
     "no-known-value-widening": 2,
     "no-runtime-typeof": 4,
     "no-unknown-parameters": 1,
     "no-unsafe-dictionary-type": 9
-  },
-  "scripts/ci-plan.test.ts": {
-    "require-safety-comment-for-type-assertion": 1
   },
   "scripts/current-protocol-hard-cut.ts": {
     "no-compat-names": 2
@@ -2081,7 +2077,7 @@
   },
   "scripts/dev-doctor.ts": {
     "no-manual-tag-comparison": 5,
-    "no-runtime-typeof": 3
+    "no-runtime-typeof": 1
   },
   "scripts/dev-environment.ts": {
     "no-known-value-widening": 1,
@@ -2117,19 +2113,6 @@
     "comment-provenance": 1,
     "no-runtime-typeof": 5,
     "no-unsafe-dictionary-type": 2,
-    "require-safety-comment-for-type-assertion": 11
-  },
-  "scripts/edge-harness-native-artifacts.test.ts": {
-    "no-runtime-typeof": 1,
-    "no-unknown-parameters": 1,
-    "no-unsafe-dictionary-type": 3,
-    "require-safety-comment-for-type-assertion": 2
-  },
-  "scripts/edge-harness-native-artifacts.ts": {
-    "no-runtime-typeof": 12,
-    "no-swallowed-error": 1,
-    "no-unknown-parameters": 6,
-    "no-unsafe-dictionary-type": 3,
     "require-safety-comment-for-type-assertion": 11
   },
   "scripts/edge-network-control.test.ts": {
@@ -2205,9 +2188,6 @@
     "no-known-value-widening": 1,
     "no-object-parameters": 1,
     "no-unsafe-dictionary-type": 1,
-    "require-safety-comment-for-type-assertion": 1
-  },
-  "scripts/perf/client-session-oracle.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
   "scripts/perf/completion-observer-worker.ts": {
@@ -2286,10 +2266,6 @@
     "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 1
-  },
-  "scripts/prepare-client-session-oracle.ts": {
-    "no-swallowed-error": 1,
-    "require-safety-comment-for-type-assertion": 1
   },
   "scripts/profile-project.test.ts": {
     "require-safety-comment-for-type-assertion": 1
@@ -2397,11 +2373,6 @@
   "scripts/secret-scanning.ts": {
     "no-unknown-parameters": 1
   },
-  "scripts/select-gates.ts": {
-    "no-known-value-widening": 2,
-    "no-runtime-typeof": 3,
-    "prefer-effect-match": 1
-  },
   "scripts/sign-release-manifest.ts": {
     "no-runtime-typeof": 1,
     "no-unknown-parameters": 1
@@ -2430,27 +2401,8 @@
     "no-chained-type-assertions": 1,
     "require-safety-comment-for-type-assertion": 2
   },
-  "scripts/test-inventory.test.ts": {
-    "require-safety-comment-for-type-assertion": 1
-  },
   "scripts/test-tpm-sim.ts": {
     "no-literal-timer-delay": 2
-  },
-  "scripts/verification-cache.test.ts": {
-    "no-known-value-widening": 1
-  },
-  "scripts/verification-cache.ts": {
-    "no-known-value-widening": 1,
-    "no-runtime-typeof": 5
-  },
-  "scripts/verification-executor.ts": {
-    "no-runtime-typeof": 3,
-    "no-swallowed-error": 1,
-    "no-unknown-parameters": 1
-  },
-  "scripts/verification-junit.ts": {
-    "no-runtime-typeof": 3,
-    "no-unsafe-dictionary-type": 2
   },
   "scripts/web-build-signature.ts": {
     "no-runtime-typeof": 2
@@ -2815,8 +2767,8 @@
     "require-safety-comment-for-type-assertion": 3
   },
   "tests/e2e/tui-headless.e2e.ts": {
-    "no-runtime-typeof": 3,
-    "require-safety-comment-for-type-assertion": 2
+    "no-runtime-typeof": 2,
+    "require-safety-comment-for-type-assertion": 1
   },
   "tests/e2e/wait-edge-registration.ts": {
     "no-runtime-typeof": 1

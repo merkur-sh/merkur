@@ -5,15 +5,16 @@
  * control plane mints, and requests SIGHUP rotations.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
-import { accessSync, constants } from 'node:fs';
 import path from 'node:path';
 import { createEdgeAttachTicketIssuer } from '../apps/server/src/services/edge-attach-ticket';
-import {
-  EDGE_HARNESS_NATIVE_MANIFEST_ENV,
-  provisionEdgeHarnessNativeArtifacts,
-  verifyProvisionedNativeArtifacts,
-} from './edge-harness-native-artifacts';
 import { acquireHostHarnessLock } from './host-harness-lock';
+import {
+  NATIVE_PROGRAMS_SYNCED_ENV,
+  nativeProgram,
+  nativeProgramDigests,
+  syncNativeArtifacts,
+  verifyNativePrograms,
+} from './native-artifacts';
 
 interface Registration {
   readonly edgeId: string;
@@ -24,7 +25,7 @@ interface Registration {
 }
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const EDGE_BIN = path.join(ROOT, 'target', 'rust', 'release', 'merkur-edge');
+const EDGE_BIN = nativeProgram(ROOT, 'merkur-edge');
 const APP_PORT = Number(process.env.PW_E2E_PORT ?? 24_341);
 const APP_REGISTER_URL = `http://127.0.0.1:${APP_PORT}/api/edge/register`;
 const CONTROL_PORT = Number(process.env.EDGE_TOPOLOGY_CONTROL_PORT ?? 24_351);
@@ -159,29 +160,6 @@ function cleanup(): void {
   }
 }
 
-async function buildEdge(): Promise<void> {
-  const build = track(
-    spawn('cargo', ['build', '--release', '--locked', '-p', 'merkur-edge'], {
-      cwd: ROOT,
-      stdio: 'inherit',
-    }),
-  );
-  const code = await waitForExit(build);
-  if (code !== 0) throw new Error(`merkur-edge build failed with exit code ${code}`);
-  accessSync(EDGE_BIN, constants.X_OK);
-
-  const dataplaneBuild = track(
-    spawn('bun', ['run', 'build:dataplane'], {
-      cwd: ROOT,
-      stdio: 'inherit',
-    }),
-  );
-  const dataplaneCode = await waitForExit(dataplaneBuild);
-  if (dataplaneCode !== 0) {
-    throw new Error(`daemon dataplane build failed with exit code ${dataplaneCode}`);
-  }
-}
-
 async function startEdge(
   edgeId: string,
   edgeRegion: string,
@@ -272,11 +250,8 @@ async function main(): Promise<void> {
   process.on('SIGTERM', onSignal);
 
   await acquireHostHarnessLock('run-edge-topology-harness');
-  const nativeArtifacts = await provisionEdgeHarnessNativeArtifacts(
-    ROOT,
-    process.env[EDGE_HARNESS_NATIVE_MANIFEST_ENV],
-    buildEdge,
-  );
+  await syncNativeArtifacts(ROOT);
+  const nativePrograms = nativeProgramDigests(ROOT);
   await startEdge('iad-1', 'iad', EDGE_PORTS[0]);
   await startEdge('fra-1', 'fra', EDGE_PORTS[1]);
 
@@ -287,12 +262,13 @@ async function main(): Promise<void> {
         ...process.env,
         EDGE_TOPOLOGY_CONTROL_URL: `http://127.0.0.1:${CONTROL_PORT}`,
         EDGE_REGISTRATION_KEYS_JSON,
+        [NATIVE_PROGRAMS_SYNCED_ENV]: '1',
       },
       stdio: 'inherit',
     }),
   );
   const code = await waitForExit(playwright);
-  verifyProvisionedNativeArtifacts(nativeArtifacts);
+  verifyNativePrograms(ROOT, nativePrograms);
   cleanup();
   process.exit(code);
 }

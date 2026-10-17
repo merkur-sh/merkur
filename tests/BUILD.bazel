@@ -1,6 +1,18 @@
+load("//tools/bazel:files.bzl", "IGNORED", "package_files")
+load("//tools/bazel/bun:bun.bzl", "bun_tests")
+
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 filegroup(
     name = "kitty_fixtures",
     srcs = glob(["fixtures/kitty/**"]),
+)
+
+bun_tests(
+    tests = glob(
+        ["**/*.test.ts"],
+        exclude = IGNORED,
+    ),
 )

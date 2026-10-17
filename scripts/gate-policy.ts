@@ -2,38 +2,23 @@ import { Glob } from 'bun';
 
 import { DEFAULT_HOT_PATH_FILES } from './check-latency-boundaries';
 
-export const STATIC_GATES: readonly string[] = [
-  'check:types',
-  'check:lint',
-  'check:latency-boundaries',
-  'check:span-lifetimes',
-  'check:span-attributes',
-  'check:dead',
-  'check:ratchet',
-  'check:slop',
-  'check:docs',
-];
-
+/**
+ * What a change earns beyond `bazel test //...`, which runs every unit test and static gate and
+ * skips the ones whose inputs it already proved: the gates that are not Bazel tests, and the
+ * browser, container and proof suites that take minutes.
+ */
 export interface RuleEffects {
   /** Rows carrying no gate beyond `check:docs`: prose and agent-harness files. */
   readonly noGate?: true;
-  /** Directory handed to `bun test`. */
-  readonly bunTestDir?: string;
-  /** Individual test files handed to `bun test`. */
-  readonly bunTestFiles?: readonly string[];
-  /** Crates, by package name, for one `bazel test` of their packages; every Rust row also runs `rust:lint`. */
-  readonly crates?: readonly string[];
-  /** The dataplane tests that run the image helper its test target builds: `REAL_HELPER_FILTER`. */
-  readonly realHelper?: true;
-  /** Scripts that compile Rust themselves, run in the Rust lane after its `bazel test` runs. */
-  readonly cargoScripts?: readonly string[];
+  /** `rust:lint`: Clippy's findings held to their baseline. */
   readonly rustLint?: true;
-  /** Scripts run before everything else, in this order. */
-  readonly builds?: readonly string[];
-  readonly protocol?: true;
+  /** Scripts that run with the gates. */
+  readonly scripts?: readonly string[];
+  /** `check:audit` and `check:js-dependency-policy`. */
   readonly audit?: true;
+  /** The changed spec's owning Playwright suite. */
   readonly e2e?: true;
-  readonly allUnit?: true;
+  /** Scripts that take minutes; printed for the operator, run only with `--all`. */
   readonly deferred?: readonly string[];
 }
 
@@ -58,36 +43,6 @@ export interface Rule {
 
 const TEST_FILE_GLOBS = ['**/*.test.ts', '**/*.test.tsx'] as const;
 
-const TS_PACKAGES = [
-  'auth',
-  'config',
-  'daemon-control-protocol',
-  'keyboard',
-  'logger',
-  'protocol',
-  'quicksilver',
-  'shared',
-  'user-agent',
-] as const;
-
-const RUST_PACKAGES: readonly (readonly [directory: string, crate: string])[] = [
-  ['merkur-authorization', 'merkur-authorization'],
-  ['merkur-client', 'merkur-client'],
-  ['merkur-client-native', 'merkur-client-native'],
-  ['merkur-codec', 'merkur-codec'],
-  ['merkur-fec', 'merkur-fec'],
-  ['merkur-graphics', 'merkur-graphics'],
-  ['merkur-image-worker', 'merkur-image-worker'],
-  ['merkur-identity-seal', 'merkur-identity-seal'],
-  ['merkur-e2e', 'merkur-e2e'],
-  ['merkur-edge-protocol', 'merkur-edge-protocol'],
-  ['merkur-stun-protocol', 'merkur-stun-protocol'],
-  ['merkur-wire', 'merkur-wire'],
-  ['zstd-fixture', 'zstd-fixture'],
-  ['alacritty-terminal-patch', 'alacritty_terminal'],
-  ['vte-patch', 'vte'],
-];
-
 /** Server services with a `*.dragonfly.test.ts` twin. */
 const REDIS_BACKED_SERVER_SOURCES = [
   'apps/server/src/http/daemon-request-auth.ts',
@@ -102,9 +57,6 @@ const REDIS_BACKED_SERVER_SOURCES = [
 ] as const;
 
 const DATAPLANE = 'apps/daemon/dataplane';
-
-/** The browser transport cipher's wasm32 test run (`packages/merkur-e2e/src/wasm_chacha.rs`). */
-const WASM_CIPHER_TESTS = 'test:wasm-cipher';
 
 /** The verification table, one entry per prose row, matched against repo-relative paths. */
 export const RULES: readonly Rule[] = [
@@ -124,9 +76,24 @@ export const RULES: readonly Rule[] = [
     effects: { noGate: true },
   },
   {
-    name: 'web',
-    globs: ['apps/web/**'],
-    effects: { bunTestDir: 'apps/web' },
+    name: 'rust',
+    globs: [
+      '**/*.rs',
+      '**/Cargo.toml',
+      'Cargo.lock',
+      'rust-toolchain.toml',
+      'clippy.toml',
+      'lint-baselines/clippy.json',
+      'scripts/rust-lint.ts',
+      'scripts/lint-ratchet.ts',
+      'MODULE.bazel',
+      'MODULE.bazel.lock',
+      '.bazelrc',
+      '**/BUILD.bazel',
+      '**/*.bzl',
+    ],
+    effects: { rustLint: true },
+    note: 'Clippy runs as a Bazel aspect, cached per crate; `rust:lint` sorts its findings into classes and holds them to the baseline, so a Rust source, manifest, build-graph or lint-configuration change earns it.',
   },
   {
     name: 'web-hot-path',
@@ -147,88 +114,34 @@ export const RULES: readonly Rule[] = [
     note: 'The browser hot path: the enforced latency-boundary list plus the directories the worker, prediction, display and render code lives in. A test file under those directories is not the render path; it does not earn the edge harness.',
   },
   {
-    name: 'server',
-    globs: ['apps/server/**'],
-    effects: { bunTestDir: 'apps/server' },
-  },
-  {
     name: 'server-redis',
     globs: ['apps/server/src/**/*.dragonfly.test.ts', ...REDIS_BACKED_SERVER_SOURCES],
     effects: { deferred: ['test:dragonfly'] },
     note: 'Each source has a `*.dragonfly.test.ts` twin and the pair is updated together, so a change to either side implicates the container run.',
   },
   {
-    name: 'daemon',
-    globs: ['apps/daemon/src/**', 'apps/daemon/*.ts'],
-    effects: { bunTestDir: 'apps/daemon' },
-  },
-  {
-    name: 'dataplane',
-    globs: [`${DATAPLANE}/src/**`, `${DATAPLANE}/Cargo.toml`, `${DATAPLANE}/build.rs`],
-    effects: { rustLint: true, crates: ['merkur-dataplane'] },
-    note: 'The dataplane test run is filtered to the changed modules: a directory module selects its subtree, a root-level file selects by name, and `main.rs`, the manifest or the build script select the whole crate.',
-  },
-  {
-    name: 'edge',
-    globs: ['apps/edge/src/**', 'apps/edge/Cargo.toml'],
-    effects: { rustLint: true, crates: ['merkur-edge'] },
-  },
-  {
-    name: 'stun',
+    name: 'nat-traversal',
     globs: [
+      `${DATAPLANE}/src/network/**`,
       'apps/stun/src/**',
       'apps/stun/Cargo.toml',
       'apps/server/src/services/stun-ticket-service.ts',
       'apps/server/src/services/stun-ticket-service.test.ts',
     ],
-    effects: {
-      rustLint: true,
-      crates: ['merkur-stun'],
-      bunTestFiles: ['apps/server/src/services/stun-ticket-service.test.ts'],
-      deferred: ['test:natlab'],
-    },
-    note: 'The ticket format has two implementations pinned to one vector; nothing at runtime detects drift, so both suites run for a change on either side.',
-  },
-  {
-    name: 'nat-traversal',
-    globs: [`${DATAPLANE}/src/network/**`],
     effects: { deferred: ['test:natlab'] },
+    note: "The ticket format has two implementations pinned to one vector, and NAT traversal is proven only across the lab's real NATs.",
   },
   {
     name: 'site',
     globs: ['apps/site/**'],
-    effects: { bunTestDir: 'apps/site', deferred: ['test:e2e:site'] },
+    effects: { deferred: ['test:e2e:site'] },
     note: 'The pages are proven only as served: `test:e2e:site` builds them and the static server, then reads the headers, the markup without script, the waitlist and the analytics proxy in a browser.',
   },
   {
     name: 'tui',
     globs: ['apps/tui/**'],
-    effects: { rustLint: true, crates: ['merkur-tui'], deferred: ['test:e2e:transport'] },
+    effects: { deferred: ['test:e2e:transport'] },
     note: 'The terminal client is proven only against a real splice: `tui-headless` drives the built binary in the transport phase.',
-  },
-  ...TS_PACKAGES.map(
-    (name): Rule => ({
-      name: `package-${name}`,
-      globs: [`packages/${name}/**`],
-      effects: { bunTestDir: `packages/${name}` },
-    }),
-  ),
-  ...RUST_PACKAGES.map(
-    ([directory, crate]): Rule => ({
-      name: `crate-${directory}`,
-      globs: [`packages/${directory}/**`],
-      effects: { rustLint: true, crates: [crate] },
-    }),
-  ),
-  {
-    name: 'transport-patch-crates',
-    globs: [
-      'packages/wtransport-patch/**',
-      'packages/quinn-patch/**',
-      'packages/quinn-proto-patch/**',
-    ],
-    effects: { rustLint: true, crates: ['merkur-edge', 'merkur-dataplane'] },
-    note: "Patch targets, not workspace members: they resolve through their dependents, so their dependents' suites are the test surface.",
   },
   {
     name: 'simulator',
@@ -247,7 +160,7 @@ export const RULES: readonly Rule[] = [
       'packages/quinn-proto-patch/**',
     ],
     exclude: ['**/*.md'],
-    effects: { cargoScripts: ['test:sim'] },
+    effects: { scripts: ['test:sim'] },
     note: 'The real client, edge and dataplane run whole sessions in one deterministic simulation (`tools/sim`); a change to any of them, or to the simulator, replays every scenario and its seeds.',
   },
   {
@@ -265,58 +178,6 @@ export const RULES: readonly Rule[] = [
     note: 'The crates the Kani proofs compile, and their runner. The rebind keeper proof stubs `merkur-e2e` functions by signature, so a change anywhere in that crate can break it.',
   },
   {
-    name: 'term-wasm',
-    globs: [
-      'packages/term-wasm/**',
-      'packages/fontdue-patch/**',
-      'scripts/term-wasm-pgo.ts',
-      'scripts/term-wasm-ingress-fixture.ts',
-      'scripts/term-wasm-current-glue.ts',
-      'tools/bazel/wasm/**',
-    ],
-    effects: {
-      builds: ['build:wasm'],
-      rustLint: true,
-      crates: ['term-wasm'],
-      bunTestDir: 'apps/web',
-    },
-    note: 'Bazel builds the WASM packages the web app and Bun tests import; the build precedes any test.',
-  },
-  {
-    name: 'e2e-wasm-cipher',
-    globs: ['packages/merkur-e2e/**', 'tools/bazel/wasm/merkur-e2e-cipher/**'],
-    effects: { cargoScripts: [WASM_CIPHER_TESTS] },
-    note: 'The browser transport cipher compiles only for wasm32, so a native test never reaches it; its vectors and differential run inside wasm32 under Node.',
-  },
-  {
-    name: 'e2e-wasm',
-    globs: ['packages/e2e-wasm/**'],
-    effects: {
-      builds: ['build:wasm'],
-      rustLint: true,
-      bunTestFiles: ['packages/e2e-wasm/conformance.test.ts'],
-    },
-  },
-  {
-    name: 'graphics-wasm',
-    globs: ['packages/graphics-wasm/**', 'packages/merkur-graphics/src/tile.rs'],
-    effects: {
-      builds: ['build:wasm'],
-      rustLint: true,
-      crates: ['graphics-wasm'],
-      bunTestFiles: ['packages/graphics-wasm/conformance.test.ts'],
-    },
-  },
-  {
-    name: 'graphics-codec-probe',
-    globs: ['packages/graphics-codec-probe/**'],
-    effects: {
-      builds: ['build:wasm'],
-      rustLint: true,
-      crates: ['graphics-codec-probe'],
-    },
-  },
-  {
     name: 'real-helper',
     globs: [
       'packages/merkur-image-worker/**',
@@ -327,44 +188,8 @@ export const RULES: readonly Rule[] = [
       `${DATAPLANE}/build.rs`,
       'Cargo.lock',
     ],
-    effects: {
-      realHelper: true,
-      deferred: ['test:graphics:long'],
-    },
-    note: 'Decoded images exist only in the sandboxed helper, which the dataplane test target builds and hands over: the `real_helper` modules run against it. Those modules drive the display simulator through the connection, session, network and crate-root code as well as the graphics owner, so every dataplane change selects them. The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers.',
-  },
-  {
-    name: 'scripts',
-    globs: ['scripts/**'],
-    exclude: ['scripts/natlab/**'],
-    effects: { bunTestDir: 'scripts' },
-    note: 'Selected tests whose import closure includes `scripts/perf/client-session-fixture.ts` prepare the source-and-binary SHA-256-pinned native session oracle once with `bun run scripts/prepare-client-session-oracle.ts` before the parallel Rust and Bun lanes; benchmark tests never invoke Cargo.',
-  },
-  {
-    name: 'anti-slop-rules',
-    globs: ['biome.slop.json', 'tools/biome/slop/**'],
-    effects: { bunTestFiles: ['scripts/check-slop.test.ts'] },
-    note: 'A rule is GritQL only Biome can judge: `tools/biome/slop/cases.json` holds what each rule reports, and the test runs every case through the invocation the gate uses.',
-  },
-  {
-    name: 'rust-lint-ratchet',
-    globs: [
-      'scripts/rust-lint.ts',
-      'scripts/lint-ratchet.ts',
-      'lint-baselines/clippy.json',
-      'clippy.toml',
-    ],
-    effects: {
-      rustLint: true,
-      bunTestFiles: ['scripts/rust-lint.test.ts', 'scripts/lint-ratchet.test.ts'],
-    },
-    note: "What `rust:lint` answers with besides the Rust sources: the script that sorts Clippy's findings into classes, the ratchet it holds them to, the baseline, and Clippy's configuration. The tests cover the sorting and the comparison; only a Clippy run proves the workspace still meets them.",
-  },
-  {
-    name: 'tests',
-    globs: ['tests/**'],
-    exclude: ['tests/e2e/**/*.e2e.ts'],
-    effects: { bunTestDir: 'tests' },
+    effects: { deferred: ['test:graphics:long'] },
+    note: 'The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers.',
   },
   {
     name: 'e2e-specs',
@@ -374,7 +199,7 @@ export const RULES: readonly Rule[] = [
   },
   {
     name: 'e2e-fixtures',
-    globs: ['tests/e2e/**/*.ts'],
+    globs: ['tests/e2e/**/*.ts', 'scripts/native-artifacts.ts'],
     exclude: ['tests/e2e/**/*.e2e.ts', '**/*.test.ts'],
     effects: {
       deferred: ['test:e2e', 'test:e2e:transport', 'test:e2e:rebind', 'test:e2e:transport:reorder'],
@@ -382,53 +207,9 @@ export const RULES: readonly Rule[] = [
     note: 'Shared fixture changes require their real browser consumers, as well as fixture unit tests.',
   },
   {
-    name: 'verification-infrastructure',
-    globs: [
-      'bunfig.toml',
-      'scripts/test-preload.ts',
-      'scripts/test-inventory*.ts',
-      'scripts/select-gates*.ts',
-      'scripts/gate-policy*.ts',
-      'scripts/verification-executor*.ts',
-      'scripts/verification-junit*.ts',
-      'scripts/verification-cache*.ts',
-      'scripts/run-unit-tests.ts',
-      'scripts/run-verify.ts',
-      'scripts/check-current-protocol.ts',
-      'scripts/protocol-gates.ts',
-    ],
-    effects: { allUnit: true },
-    note: 'Runner, inventory and isolation changes must prove the complete source inventory.',
-  },
-  {
-    name: 'bazel-infrastructure',
-    globs: [
-      '.bazelrc',
-      '.bazelversion',
-      '.bazelignore',
-      'MODULE.bazel',
-      'MODULE.bazel.lock',
-      'REPO.bazel',
-      '**/BUILD.bazel',
-      'BUILD.bazel',
-      '**/*.bzl',
-      'tools/bazel/**',
-      'pnpm-lock.yaml',
-      'pnpm-workspace.yaml',
-    ],
-    effects: { allUnit: true, rustLint: true },
-    note: 'Build graph, toolchain, package resolution and verification changes prove every source test and the complete Rust compilation scope.',
-  },
-  {
     name: 'dependencies',
     globs: ['package.json', '**/package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'],
     effects: { audit: true },
-  },
-  {
-    name: 'cargo-workspace',
-    globs: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'],
-    effects: { rustLint: true },
-    note: 'A workspace manifest or lockfile change recompiles every crate; `rust:lint` is the gate that proves the workspace still builds with no warning outside its baseline.',
   },
   {
     name: 'protocol',
@@ -474,8 +255,8 @@ export const RULES: readonly Rule[] = [
       'apps/web/src/transport/**',
       'apps/web/src/lib/webtransport*.ts',
     ],
-    effects: { protocol: true, deferred: ['test:e2e:transport'] },
-    note: "Wire format, channel ids, IPC frames, crypto bootstrap and daemon config: every side of a contract, plus the daemon's IPC surface and config, which are protocol changes even when nothing under `packages/protocol` moved.",
+    effects: { deferred: ['test:e2e:transport'] },
+    note: "Wire format, channel ids, IPC frames, crypto bootstrap and daemon config: every side of a contract, plus the daemon's IPC surface and config, which are protocol changes even when nothing under `packages/protocol` moved. `bazel test //...` holds every contract test; only the edge harness proves a live session.",
   },
   {
     name: 'transport-e2e',

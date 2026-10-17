@@ -9,26 +9,18 @@ in `scripts/ci`.
 
 [CI](../.github/workflows/ci.yml) is the branch-protection gate. It runs on every pull
 request at its merge commit and on every push to `main` at the exact commit. It holds no
-deployment secrets. Main, manual and release runs select every lane. PRs compare the checked-out
-merge tree with the commit it was merged onto, the merge commit's first parent, including
-deletions and both sides of renames.
+deployment secrets. Every run starts every job: Bazel decides what work a commit needs,
+running the tests whose inputs changed and answering the rest from the BuildBuddy remote
+cache, which only CI writes.
 
-The planner uses the local gate rules to omit native tests only for known TypeScript and CSS
-paths with no native or protocol requirement. Product edits still select browser coverage;
-ordinary unit-test-only edits do not. Prose-only PRs run documentation validation. Build scripts,
-manifests, executable agent hooks, workflow changes and unknown paths select every lane. Every
-selected lane runs its complete inventory; CI never reuses a cached test verdict.
+`CI required` fails unless every job succeeded. The workflow itself is never omitted by path
+filtering.
 
-`CI required` checks the exact job inventory against the plan. A selected job must succeed;
-an omitted job must be skipped. Failed planning, missing outputs, cancellations and unexpected
-skips fail the check. The workflow itself is never omitted by path filtering.
-
-| Lane | What it proves |
+| Job | What it proves |
 | --- | --- |
-| `wasm` | Builds the WASM packages once through Bazel, retaining them and the native zstd fixture for consumers. |
-| `browser-native` | Builds edge, proxy, dataplane and image worker in one Cargo invocation and retains the native artifact manifest. |
-| `source` | Consumes verified WASM, runs the nine static gates (`check:types`, `check:lint`, `check:latency-boundaries`, `check:span-lifetimes`, `check:span-attributes`, `check:dead`, `check:ratchet` against the pushed or pull-request range, `check:slop` over the whole tree, `check:docs`), the complete Bun test inventory, the Python CI tests, ShellCheck over `scripts/ci/*.sh`, and Actionlint over the workflows. Prose-only plans run `check:docs`. |
-| `native` | `bazel test` over every Rust target, then `rust:lint`, on Linux and Apple Silicon macOS, each against the shared BuildBuddy remote cache that only CI writes. The dataplane's real-helper tests take the image helper their test target builds. |
+| `artifacts` | Builds the WebAssembly packages (`//tools/bazel/wasm:sync`) and the native programs the browser suites run (`//tools/bazel/native:sync`, release profile) into the remote cache, with the commands every consumer runs, so each consumer's build is a cache hit. |
+| `test` | `bazel test //...` then `rust:lint`, on Linux and Apple Silicon macOS: every Rust, WebAssembly and Bun test, and the static gates (`//:static_gates`: `check:types`, `check:lint`, `check:latency-boundaries`, `check:span-lifetimes`, `check:span-attributes`, `check:dead`, `check:ratchet` against `fallow-baselines/`, `check:slop` against its baseline, `check:docs`, and `check:bazel-sources`). The dataplane's real-helper tests take the image helper their test target builds; the browser tests launch Bazel's pinned Chromium. |
+| `workflow` | The Python CI tests, ShellCheck over `scripts/ci/*.sh`, and Actionlint over the workflows. |
 | `integration` | Three runners: Dragonfly compatibility with the hermetic account flows, calibrated carrier rebind, and handshake reorder, each against a real edge and daemon. |
 | `transport` | Six isolated runners partition the complete functional transport inventory at test level, each using one browser worker. |
 
@@ -48,27 +40,19 @@ reports on success for per-test and per-shard timings. `--fully-parallel` partit
 tests within large files, so the input matrix does not stay on one shard. Calibrated rebind and
 reorder remain separate, unsharded invocations.
 
-The two producers build independently; source waits only for WASM, and browser jobs wait for both.
-Artifacts are scoped to the current workflow run, not used as cross-run build caches. WASM
-consumers verify the exact clean commit/tree, platform, complete archive inventory and every
-output digest before installing. The terminal's existing source-provenance check then runs again.
-Display-encoding samples consume the retained zstd fixture directly; source tests never
-compile that native helper.
-Native consumers use `install:e2e-native-artifacts`: the existing manifest verifier checks the
-source closure, compiler bytes, build overrides and executable hashes before installation.
-All native producers and consumers use the same Ubuntu runner layout and absolute temporary
-artifact directory; a path or toolchain mismatch fails rather than rebuilding silently.
+Browser jobs wait for `artifacts`, then sync the WebAssembly packages and the native programs
+from the remote cache (`bun run build:wasm && bun run build:native`); the harnesses sync again
+themselves, as Bazel's no-op. A fork's pull request has no cache key and builds locally.
 
-Setup installs Bazel only where Bazel builds (the WASM packages and the Rust tests), Chromium and
-Redis only for browser consumers, and restores Rust compilation caches only where Cargo runs.
-Bazel reads and, in CI, writes the BuildBuddy remote cache; actionlint and downloaded Bun
-packages have tool/dependency caches.
+Setup installs Bazel where Bazel builds, Chromium and Redis only for the browser jobs, and
+restores Rust compilation caches only where Cargo runs. Bazel reads and, in CI, writes the
+BuildBuddy remote cache; actionlint and downloaded Bun packages have tool/dependency caches.
 Only `main` writes the Rust dependency cache, one per runner and native task. Assurance keys its
 caches by toolchain and lockfile, never by commit, and the deployment build keeps its layer cache
 in the GitHub container registry, so neither evicts the Rust caches from the Actions cache. Accounts, databases, Redis and daemon state are
 always fresh. The interactive TUI test compiles its PTY driver in a separate preparation
-fixture, then runs the compiler-reported executable against the live daemon. Cold test-profile
-compilation has its own deadline and does not consume the authenticated-session test budget.
+fixture (`bazel build //apps/tui:interactive_live`), then runs it against the live daemon. Its
+build has its own deadline and does not consume the authenticated-session test budget.
 
 Additional workflows run beside CI:
 
@@ -96,9 +80,8 @@ take effect independently; applying remote protection remains a repository opera
 [Extended CI](../.github/workflows/extended-ci.yml) runs the suites that are too slow or
 too environment-specific for every PR. It runs nightly, on manual dispatch, and as part of
 every release, one matrix job per suite. The three native/container suites start independently
-without WASM or Chromium setup. The two browser suites share one WASM producer and one native
-producer within Extended CI. Required CI and Extended CI use separate artifact namespaces when
-called by the same release workflow.
+without WASM or Chromium setup; the TPM simulator and graphics suites are Bazel tests. The two
+browser suites wait for Extended CI's own `artifacts` job and sync from the remote cache.
 
 | Suite | What it covers |
 | --- | --- |
@@ -134,8 +117,7 @@ by [`.github/renovate.json5`](../.github/renovate.json5). It reads the Cargo and
 manifests, the actions the workflows pin, the image digests in the Dockerfiles and the compose
 file, the Rust and Node pins, and the tool versions the setup scripts and workflows install.
 Each change is a pull request from a `renovate/` branch, so CI, the dependency audit,
-assurance and secret scanning run on it like on any other, on the Rust and TypeScript lanes
-its files select. Nothing merges on its own.
+assurance and secret scanning run on it like on any other. Nothing merges on its own.
 
 - Ordinary updates open early on Monday, five pull requests at most at a time. The rest wait
   on the Dependency Dashboard issue, where ticking one opens it on the run that edit starts.

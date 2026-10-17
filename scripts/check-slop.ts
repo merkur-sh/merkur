@@ -68,7 +68,6 @@ import {
   UnverifiedError,
 } from './lint-ratchet';
 import { runTestProcess } from './test-process';
-import { cacheEnabled } from './verification-cache';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -533,6 +532,11 @@ export function readFiles(root: string, files: readonly string[]): Reading {
   }
 
   return { digests, suppressions, comments };
+}
+
+/** `MERKUR_GATE_CACHE=0` measures every file, whatever the cache holds. */
+function cacheEnabled(): boolean {
+  return process.env.MERKUR_GATE_CACHE !== '0';
 }
 
 function readCacheFile(rules: string): SlopCache {

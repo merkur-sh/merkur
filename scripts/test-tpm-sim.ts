@@ -41,20 +41,19 @@ if (import.meta.main) {
     ]);
     const address = await docker(['port', name, '2321/tcp']);
     await waitForTpm(address, lifetime.signal);
+    // The suite reaches the container's published port, so it runs outside Bazel's sandbox.
     const test = Bun.spawn(
       [
-        'cargo',
+        'bazel',
         'test',
-        '-p',
-        'merkur-identity-seal',
-        '--locked',
-        '--features',
-        'tpm-sim',
-        '--',
-        'tpm_sim',
+        '--//packages/merkur-identity-seal:tpm_sim',
+        `--test_env=MERKUR_TPM_SIM_ADDR=${address}`,
+        '--test_arg=tpm_sim',
+        '--strategy=TestRunner=local',
+        '--nocache_test_results',
+        '//packages/merkur-identity-seal:unit',
       ],
       {
-        env: { ...process.env, MERKUR_TPM_SIM_ADDR: address },
         signal: lifetime.signal,
         stdout: 'inherit',
         stderr: 'inherit',
@@ -72,7 +71,7 @@ if (import.meta.main) {
 }
 
 // Docker's port proxy accepts TCP before swtpm has started. Require an actual
-// TPM2_GetRandom(1) response so a warm Cargo cache cannot outrun provisioning.
+// TPM2_GetRandom(1) response so a warm build cache cannot outrun provisioning.
 export async function probeTpm(port: number): Promise<void> {
   const result = Promise.withResolvers<void>();
   const response = Buffer.alloc(13);

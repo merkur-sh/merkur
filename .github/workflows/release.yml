@@ -171,9 +171,11 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/restore-ci-artifacts
+      # The WebAssembly packages the signing and deployment scripts import, from the cache.
+      - uses: ./.github/actions/setup-bazel
         with:
-          scope: required
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - run: bazel run //tools/bazel/wasm:sync
       - id: state
         run: python3 scripts/ci/release_state.py inspect
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -253,9 +255,11 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - uses: ./.github/actions/restore-ci-artifacts
+      # The WebAssembly packages the signing and deployment scripts import, from the cache.
+      - uses: ./.github/actions/setup-bazel
         with:
-          scope: required
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - run: bazel run //tools/bazel/wasm:sync
       - run: python3 scripts/ci/release_assets.py restore dist/ci-release
       - run: npm install --global @railway/cli@5.12.1
       - name: Install verified Fly CLI

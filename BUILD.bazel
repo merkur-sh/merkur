@@ -1,4 +1,7 @@
 load("@npm//:defs.bzl", "npm_link_all_packages")
+load("//tools/bazel:files.bzl", "IGNORED")
+load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "WORKSPACE_PACKAGES")
+load("//tools/bazel/bun:bun.bzl", "repo_check")
 
 npm_link_all_packages(name = "node_modules")
 
@@ -20,4 +23,126 @@ filegroup(
         "tsconfig.json",
     ],
     visibility = ["//visibility:public"],
+)
+
+# The root package's own files: everything outside the other packages.
+filegroup(
+    name = "root_files",
+    srcs = glob(
+        ["**"],
+        exclude = IGNORED + [link + suffix for link in SYMLINKS for suffix in ["", "/**"]],
+        allow_empty = True,
+    ),
+)
+
+# The checkout's source files, which the static gates and the scripts' tests read as a whole.
+filegroup(
+    name = "sources",
+    srcs = [":root_files"] + [package + ":files" for package in PACKAGES],
+    visibility = ["//visibility:public"],
+)
+
+# Every workspace package's installed dependencies, as pnpm links them.
+filegroup(
+    name = "workspace_node_modules",
+    srcs = [":node_modules"] + [package + ":node_modules" for package in WORKSPACE_PACKAGES],
+    visibility = ["//visibility:public"],
+)
+
+# The WebAssembly packages, where the TypeScript that loads them imports them from.
+filegroup(
+    name = "wasm_packages",
+    srcs = [
+        "//apps/web:term_wasm_files",
+        "//packages/e2e-wasm:pkg_files",
+        "//packages/graphics-codec-probe:pkg_files",
+        "//packages/graphics-wasm:pkg_files",
+        "//packages/term-wasm:pkg_files",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# The static gates, each the `package.json` script of its name over the whole checkout.
+[repo_check(
+    name = gate.replace("-", "_"),
+    script = gate.replace("check-", "check:"),
+) for gate in [
+    "check-bazel-sources",
+    "check-dead",
+    "check-docs",
+    "check-latency-boundaries",
+    "check-lint",
+    "check-ratchet",
+    "check-slop",
+    "check-span-attributes",
+    "check-span-lifetimes",
+    "check-types",
+]]
+
+test_suite(
+    name = "static_gates",
+    tests = [
+        ":check_bazel_sources",
+        ":check_dead",
+        ":check_docs",
+        ":check_latency_boundaries",
+        ":check_lint",
+        ":check_ratchet",
+        ":check_slop",
+        ":check_span_attributes",
+        ":check_span_lifetimes",
+        ":check_types",
+    ],
+)
+
+# `check:protocol`: every suite that holds a side of a wire, IPC, crypto or configuration
+# contract, in the browser, the server, the daemon and the WebAssembly builds.
+test_suite(
+    name = "protocol",
+    tests = [
+        "//apps/daemon/dataplane:bin_unit",
+        "//apps/daemon/dataplane:unit",
+        "//apps/edge:bin_unit",
+        "//apps/edge:bulk_competitor_unit",
+        "//apps/edge:delay_proxy_unit",
+        "//apps/edge:doc",
+        "//apps/edge:hol_probe_unit",
+        "//apps/edge:migration_probe_unit",
+        "//apps/edge:probe_unit",
+        "//apps/edge:relay_profile_unit",
+        "//apps/edge:unit",
+        "//apps/server:test",
+        "//apps/web:test",
+        "//packages/auth:test",
+        "//packages/config:test",
+        "//packages/daemon-control-protocol:test",
+        "//packages/e2e-wasm:doc",
+        "//packages/e2e-wasm:test",
+        "//packages/e2e-wasm:unit",
+        "//packages/merkur-authorization:doc",
+        "//packages/merkur-authorization:unit",
+        "//packages/merkur-authorization:vectors",
+        "//packages/merkur-client:doc",
+        "//packages/merkur-client:unit",
+        "//packages/merkur-client-native:doc",
+        "//packages/merkur-client-native:unit",
+        "//packages/merkur-codec:cell_repr_equivalence",
+        "//packages/merkur-codec:doc",
+        "//packages/merkur-codec:kernel_profile",
+        "//packages/merkur-codec:unit",
+        "//packages/merkur-e2e:content_allocations",
+        "//packages/merkur-e2e:doc",
+        "//packages/merkur-e2e:unit",
+        "//packages/merkur-edge-protocol:doc",
+        "//packages/merkur-edge-protocol:unit",
+        "//packages/merkur-identity-seal:doc",
+        "//packages/merkur-identity-seal:unit",
+        "//packages/merkur-stun-protocol:unit",
+        "//packages/merkur-wire:doc",
+        "//packages/merkur-wire:unit",
+        "//packages/protocol:test",
+        "//packages/shared:test",
+        "//scripts:test",
+        "//tools/bazel/wasm/merkur-e2e-cipher:test",
+    ],
 )

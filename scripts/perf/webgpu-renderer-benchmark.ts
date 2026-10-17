@@ -1,5 +1,4 @@
 import { type Browser, chromium } from '@playwright/test';
-import { declaredBrowserExecutable } from './browser-runtime';
 import { emitPerfMetric, summarizeSamples } from './harness';
 
 export function rendererBenchmarkCount(name: string, fallback: number, minimum = 1): number {
@@ -47,7 +46,6 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
   try {
     browser = await chromium.launch({
       channel: 'chromium',
-      executablePath: declaredBrowserExecutable('chromium'),
       headless: process.env.BENCH_HEADED !== '1',
       args: softwareGpu
         ? [

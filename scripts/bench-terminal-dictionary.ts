@@ -30,7 +30,7 @@ import {
 import { loadBenchmarkTerminal } from './perf/declared-terminal';
 import { createSeededTextRows, trainFixtureDictionary } from './perf/display-text-rows';
 import { emitPerfMetric, summarizeSamples } from './perf/harness';
-import { builtZstdFixtureExecutable, zstdFixtureExecutable } from './perf/zstd-fixture';
+import { zstdFixtureExecutable } from './perf/zstd-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const FIXTURE_BINARY = zstdFixtureExecutable();
@@ -131,8 +131,6 @@ async function main(): Promise<void> {
   const expectation = parsePreviousDictionaryExpectation(
     process.env.BENCH_EXPECT_PREVIOUS_DICTIONARY,
   );
-
-  await builtZstdFixtureExecutable();
 
   const previousDictionary = createDictionary(dictionaryBytes, 0x1357_9bdf);
   const currentDictionary = createDictionary(dictionaryBytes, 0x2468_ace0);

@@ -1,4 +1,8 @@
+load("//tools/bazel:files.bzl", "package_files")
+
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 # The browser's WebAssembly, where the shared crates build their `wasm` feature in place of `std`.
 config_setting(

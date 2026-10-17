@@ -1,0 +1,5 @@
+load("//tools/bazel:files.bzl", "package_files")
+
+package_files()
+
+exports_files(["redis-tls.patch"])

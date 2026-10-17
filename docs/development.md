@@ -117,14 +117,12 @@ resolves against that package alone and can silently upgrade its dependencies.
 
 | Command | What it does |
 | --- | --- |
-| `bun run check` | The static gates: types, lint, latency boundaries, span lifetimes and attributes, dead code, the ratchet, the anti-slop baseline, protocol, docs. |
-| `bun run test:unit` | Every Bun unit test in the workspace. |
+| `bun run check` | The static gates (types, lint, latency boundaries, span lifetimes and attributes, dead code, the ratchet, the anti-slop baseline, docs, the Bazel package list) and the protocol suites, as cached Bazel tests. |
+| `bun run test:unit` | `bazel test //...`: every unit test and static gate, each run only when its inputs changed. |
 | `bun run test:e2e` | The hermetic Playwright suite (below). |
 | `bun run rust:lint`, `bun run rust:test` | Clippy over every first-party Rust target with no warning allowed outside the ratcheted lints of `lint-baselines/clippy.json`, and `bazel test` over every Rust test target. |
-| `bun run rust:all` | `rust:lint`, then the dataplane and WASM builds. |
 | `bun run rust:deps` | Unused and misplaced crate dependencies (`cargo shear`; install it once with `bun run setup:shear`). |
-| `bun run gates` | Prints the tests a diff implicates and why; `--run` executes the cheap ones and `--run --all` adds the browser and container suites. |
-| `bun run verify` | The pre-push gate. |
+| `bun run gates` | Prints what a diff earns and why: `bazel test //...` plus the gates outside Bazel; `--run` executes them and `--run --all` adds the browser and container suites. |
 
 Build commands produce the same artifacts CI ships:
 
@@ -133,7 +131,7 @@ Build commands produce the same artifacts CI ships:
 | `bun run build:web` | Resolves the local public OPAQUE pin, builds the WASM packages, and runs Vite with public build inputs only. |
 | `bun run build:server` | Compiles `apps/server/src/index.ts` to a Bun executable. |
 | `bun run build:daemon` | The daemon JS entry plus the Rust dataplane artifact. |
-| `bun run build:dataplane` | `merkur-dataplane` and `merkur-image-worker` in release mode, copied into the daemon's distribution directory. |
+| `bun run build:native` | `merkur-dataplane`, `merkur-image-worker` and `merkur-tui` into apps/daemon/dist, and `merkur-edge`, `delay_proxy` and `bulk_competitor` into apps/edge/dist, through Bazel in the release profile (`bazel run --config=release //tools/bazel/native:sync`). |
 | `bun run build:wasm` | The terminal, end-to-end crypto, graphics and codec-probe WASM packages, through Bazel (`bazel run //tools/bazel/wasm:sync`), copied where the web app, the server and Bun import them. |
 | `bun run build:wasm-workspaces` | Regenerates each WASM package's own Cargo workspace and lock (`tools/bazel/wasm/<package>`) after a manifest or `Cargo.lock` change. |
 
@@ -155,7 +153,7 @@ Signing and deployment packaging commands are in [`docs/releases.md`](../docs/re
 
 | Kind | Where | Runner |
 | --- | --- | --- |
-| TypeScript unit tests | `*.test.ts` next to the module under test, in every app and package | Bun test, through `bun run test:unit` |
+| TypeScript unit tests | `*.test.ts` next to the module under test, in every app and package | Bun test, one `bun_tests` Bazel target per package (`bazel test //apps/web:test`), all through `bun run test:unit` |
 | Rust unit, integration and doc tests | Inside each crate, declared in its `BUILD.bazel` | `bazel test`, through `bun run rust:test` or `bazel test //<crate directory>/...` |
 | Browser transport cipher | `packages/merkur-e2e/src/wasm_chacha.rs`, compiled only for wasm32 with simd128 | `wasm-bindgen-test` under Node, through `bun run test:wasm-cipher` (`bazel test //tools/bazel/wasm/merkur-e2e-cipher:test`) |
 | Browser end-to-end specs | `tests/e2e/*.e2e.ts`, with shared fixtures in `tests/fixtures` and helpers in `tests/helpers` | Playwright, through the `test:e2e*` commands |

@@ -5,7 +5,7 @@ import { Glob } from 'bun';
 import { type Config, ConfigProvider, Effect } from 'effect';
 import { serverEnvironment } from '../packages/config/src/server-environment';
 
-import { crateDirectories, REAL_HELPER_FILTER, RULES, type Rule, ruleGlobs } from './select-gates';
+import { RULES, type Rule, ruleGlobs } from './gate-policy';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -18,7 +18,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
  * literals the other driver scripts name — so it is rendered from them and spliced between
  * `<!-- generated:e2e-specs -->` markers. A hand-written copy drifted twice in one year.
  *
- * The verify skill's gate-selection table is rendered from `RULES` in `select-gates.ts`
+ * The verify skill's gate-selection table is rendered from `RULES` in `gate-policy.ts`
  * between `<!-- generated:gate-rules -->` markers, so the table an agent reads and the data
  * `bun run gates` matches against are one thing.
  *
@@ -270,38 +270,18 @@ export function gateRuleChangedCell(rule: Rule): string {
 }
 
 /**
- * The `Also run` cell, in the order `bun run gates` phases the plan: builds first, the
- * Rust lane, the bun lane, then the minutes-long gates it prints for the operator. The
- * static gates are implied by every row and stated once above the table.
+ * The `Also run` cell, in the order `bun run gates` runs it: the gates outside Bazel, then the
+ * minutes-long suites it prints for the operator. `bazel test //...` is implied by every row and
+ * stated once above the table.
  */
 export function gateRuleAlsoRunCell(rule: Rule): string {
   const effects = rule.effects;
-  if (effects.noGate) return `${code('check:docs')} only`;
+  if (effects.noGate) return `${code('bazel test //:check_docs')} only`;
   const parts: string[] = [];
-  if (effects.builds !== undefined) {
-    parts.push(`first ${effects.builds.map(code).join(', then ')}`);
-  }
   if (effects.rustLint) parts.push(code('rust:lint'));
-  if (effects.crates !== undefined) {
-    const directories = crateDirectories();
-    const packages = effects.crates.map((crate) => `//${directories.get(crate) ?? crate}/...`);
-    const command = `bazel test ${packages.join(' ')}`;
-    const filtered = effects.crates.length === 1 && effects.crates[0] === 'merkur-dataplane';
-    parts.push(filtered ? `${code(command)} filtered to the changed modules` : code(command));
-  }
-  if (effects.realHelper) {
-    parts.push(
-      `${code('bazel test //apps/daemon/dataplane:unit')} filtered to ${code(REAL_HELPER_FILTER)}`,
-    );
-  }
-  for (const script of effects.cargoScripts ?? []) parts.push(code(script));
-  if (effects.protocol) parts.push(code('check:protocol'));
-  if (effects.bunTestDir !== undefined)
-    parts.push(`isolated source tests under ${code(effects.bunTestDir)}`);
-  for (const file of effects.bunTestFiles ?? []) parts.push(`isolated ${code(file)}`);
-  if (effects.allUnit) parts.push('complete isolated source inventory');
-  if (effects.e2e) parts.push('owning Playwright suite(s)');
   if (effects.audit) parts.push(code('check:audit'), code('check:js-dependency-policy'));
+  for (const script of effects.scripts ?? []) parts.push(code(script));
+  if (effects.e2e) parts.push('owning Playwright suite(s)');
   if (effects.deferred !== undefined) {
     const deferred = effects.deferred.map(code).join(', ');
     parts.push(parts.length === 0 ? `by hand: ${deferred}` : `then, by hand: ${deferred}`);

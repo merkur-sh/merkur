@@ -1,19 +1,22 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import path from 'node:path';
 import { digestFiles, treeFiles } from './content-digest';
 import { E2E_OPAQUE_PUBLIC_KEY } from './e2e-opaque-pin';
-import { runVerificationCommand } from './verification-executor';
 
 export function webArtifactInput(root: string, forceEdge: boolean): string {
   const files = [
@@ -104,13 +107,14 @@ export async function prepareE2EWebArtifact(
     environment[key] = process.env[key];
   environment.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY = E2E_OPAQUE_PUBLIC_KEY;
   environment.VITE_FORCE_EDGE = forceEdge ? '1' : '0';
-  const build = await runVerificationCommand(
+  const code = await runLoggedCommand(
+    root,
     ['bun', 'run', '--cwd', 'apps/web', 'build', '--outDir', dist],
     path.join(staging, 'build.log'),
     environment,
     signal,
   );
-  if (build.exitCode !== 0) throw new Error(`E2E web build failed: ${staging}`);
+  if (code !== 0) throw new Error(`E2E web build failed: ${staging}`);
   if (webArtifactInput(root, forceEdge) !== input)
     throw new Error('Web build inputs changed during compilation');
   const files = treeFiles(dist, '.');
@@ -123,4 +127,61 @@ export async function prepareE2EWebArtifact(
   const published = publishWebArtifact(staging, directory, input);
   process.stdout.write(`[artifact built] ${directory}/web\n`);
   return published;
+}
+
+/**
+ * Runs `command` in `root`, its output to `logPath` and the console. No child inherits a consumed
+ * stdin pipe; an abort or a signal to this process ends the child's whole process group.
+ */
+async function runLoggedCommand(
+  root: string,
+  command: readonly string[],
+  logPath: string,
+  environment: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
+): Promise<number> {
+  signal?.throwIfAborted();
+  const [executable, ...args] = command;
+  if (executable === undefined) throw new Error('empty command');
+  process.stdout.write(`[start] ${command.join(' ')}\n`);
+  const log = openSync(logPath, 'w');
+  const child = spawn(executable === 'bun' ? process.execPath : executable, args, {
+    cwd: root,
+    env: environment,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  });
+  const interrupt = () => {
+    if (child.pid === undefined) return;
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
+    }
+  };
+  signal?.addEventListener('abort', interrupt, { once: true });
+  process.once('SIGINT', interrupt);
+  process.once('SIGTERM', interrupt);
+  child.stdout.on('data', (data: Buffer) => {
+    writeSync(log, data);
+    process.stdout.write(data);
+  });
+  child.stderr.on('data', (data: Buffer) => {
+    writeSync(log, data);
+    process.stderr.write(data);
+  });
+  let spawnError: Error | undefined;
+  child.once('error', (error) => {
+    spawnError = error;
+  });
+  const code = await new Promise<number>((resolve) =>
+    child.once('close', (exitCode) => resolve(exitCode ?? 1)),
+  );
+  signal?.removeEventListener('abort', interrupt);
+  process.removeListener('SIGINT', interrupt);
+  process.removeListener('SIGTERM', interrupt);
+  if (spawnError !== undefined) writeSync(log, `${spawnError.message}\n`);
+  closeSync(log);
+  process.stdout.write(`[${code === 0 ? 'pass' : 'FAIL'}] ${command.join(' ')} — ${logPath}\n`);
+  return code;
 }

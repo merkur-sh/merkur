@@ -1,5 +1,5 @@
 /**
- * The harness-built `merkur-tui headless`, driven as a child process: it signs
+ * The synced `merkur-tui headless`, driven as a child process: it signs
  * in with the password the browser registered and prints its session as JSON
  * lines.
  */
@@ -9,10 +9,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { E2E_OPAQUE_PUBLIC_KEY } from '../../../scripts/e2e-opaque-pin';
+import { nativeProgram } from '../../../scripts/native-artifacts';
 import { expect, test } from './daemon-process';
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
-const TUI_BIN = path.join(PROJECT_ROOT, 'target', 'rust', 'release', 'merkur-tui');
+const TUI_BIN = nativeProgram(PROJECT_ROOT, 'merkur-tui');
 
 export type HeadlessProcess = ChildProcessByStdio<Writable, Readable, Readable>;
 

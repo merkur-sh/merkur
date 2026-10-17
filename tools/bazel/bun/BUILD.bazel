@@ -1,6 +1,13 @@
+load("//tools/bazel:files.bzl", "package_files")
+
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["bun.bzl"])
+package_files()
+
+exports_files([
+    "bun.bzl",
+    "link-bins.ts",
+])
 
 # The Bun release for the platform a target runs on.
 alias(

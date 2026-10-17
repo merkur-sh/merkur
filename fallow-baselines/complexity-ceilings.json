@@ -235,10 +235,6 @@
     "cyclomatic": 36,
     "cognitive": 21
   },
-  "scripts/select-gates.ts::selectGates": {
-    "cyclomatic": 39,
-    "cognitive": 75
-  },
   "scripts/web-build-signature.ts::runWebBuildSignature": {
     "cyclomatic": 43,
     "cognitive": 46

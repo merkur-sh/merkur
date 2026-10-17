@@ -1,6 +1,9 @@
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rust//cargo:defs.bzl", "extract_cargo_lints")
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("//tools/bazel:files.bzl", "package_files")
+
+package_files()
 
 extract_cargo_lints(
     name = "lints",

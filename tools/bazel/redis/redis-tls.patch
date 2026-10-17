@@ -1,0 +1,48 @@
+diff -ru a/BUILD.bazel b/BUILD.bazel
+--- a/BUILD.bazel
++++ b/BUILD.bazel
+@@ -35,12 +35,12 @@
+         exclude = [
+             "deps/hiredis/dict.c",
+             "deps/hiredis/test.c",
+-            "deps/hiredis/ssl.*",
+         ],
+     ),
+     hdrs = glob(["deps/hiredis/*.h"]),
+     strip_include_prefix = "deps/hiredis",
+     textual_hdrs = ["deps/hiredis/dict.c"],
++    deps = ["@openssl//:ssl"],
+ )
+ 
+ cc_library(
+@@ -210,6 +210,10 @@
+     }) + [
+         "src/commands.def",
+     ],
++    local_defines = [
++        "BUILD_TLS_MODULE=0",
++        "USE_OPENSSL=1",
++    ],
+     deps = [
+         ":fast_float",
+         ":fpconv",
+@@ -217,6 +221,8 @@
+         ":hiredis",
+         ":lua",
+         ":xxhash",
++        "@openssl//:crypto",
++        "@openssl//:ssl",
+     ],
+ )
+ 
+diff -ru a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -4,6 +4,7 @@
+     bazel_compatibility = [">=7.2.1"],
+ )
+ 
++bazel_dep(name = "openssl", version = "3.5.8.bcr.0")
+ bazel_dep(name = "platforms", version = "1.1.0")
+ bazel_dep(name = "rules_cc", version = "0.2.18")
+ bazel_dep(name = "rules_shell", version = "0.8.0")

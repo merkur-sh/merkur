@@ -7,17 +7,9 @@ on:
 permissions:
   contents: read
 jobs:
-  wasm:
+  artifacts:
     uses: ./.github/workflows/ci-artifacts.yml
     secrets: inherit
-    with:
-      kind: wasm
-      scope: extended
-  browser-native:
-    uses: ./.github/workflows/ci-artifacts.yml
-    with:
-      kind: native
-      scope: extended
   native:
     strategy:
       fail-fast: false
@@ -29,11 +21,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # NAT builds inside its own Linux container; the TPM and graphics suites are Bazel tests.
       - uses: ./.github/actions/setup-merkur
         with:
-          # NAT builds inside its own Linux container.
-          rust: ${{ matrix.suite != 'test:natlab' }}
-          cache-key: extended-${{ matrix.suite }}
+          rust: 'false'
+          bazel: ${{ matrix.suite != 'test:natlab' }}
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
       - name: Run native suite
         env:
           SUITE: ${{ matrix.suite }}
@@ -46,7 +39,7 @@ jobs:
           path: test-results/
           retention-days: 7
   browser:
-    needs: [wasm, browser-native]
+    needs: artifacts
     strategy:
       fail-fast: false
       matrix:
@@ -62,12 +55,12 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-merkur
         with:
-          rust-cache: 'false'
+          rust: 'false'
+          bazel: 'true'
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
           browser: 'true'
-      - uses: ./.github/actions/restore-ci-artifacts
-        with:
-          scope: extended
-          native: 'true'
+      # Cache hits: the artifacts job built both.
+      - run: bun run build:wasm && bun run build:native
       - name: Run suite
         env:
           SUITE: ${{ matrix.suite }}

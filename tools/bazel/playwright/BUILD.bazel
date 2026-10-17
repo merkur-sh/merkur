@@ -1,0 +1,21 @@
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+exports_files(["extensions.bzl"])
+
+# The Playwright browsers for the platform a test runs on.
+[alias(
+    name = browser,
+    actual = select({
+        "//tools/bazel/bun:darwin_aarch64": "@%s_darwin_aarch64//:browser" % browser,
+        "//tools/bazel/bun:darwin_x64": "@%s_darwin_x64//:browser" % browser,
+        "//tools/bazel/bun:linux_aarch64": "@%s_linux_aarch64//:browser" % browser,
+        "//tools/bazel/bun:linux_x64": "@%s_linux_x64//:browser" % browser,
+    }),
+) for browser in [
+    "chromium",
+    "chromium_headless_shell",
+]]

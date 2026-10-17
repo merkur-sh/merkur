@@ -1,4 +1,8 @@
+load("//tools/bazel:files.bzl", "package_files")
+
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 platform(
     name = "linux_x86_64",

@@ -2,7 +2,9 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { validateDaemonConfig } from '@merkur/config';
+import { bazelTool } from '../../scripts/bazel-tool';
 import { E2E_OPAQUE_PUBLIC_KEY } from '../../scripts/e2e-opaque-pin';
+import { nativeProgram } from '../../scripts/native-artifacts';
 import { test as daemonTest, expect } from './fixtures/daemon-process';
 import {
   finishClientFixture,
@@ -13,63 +15,19 @@ import {
   withHeadlessClient,
 } from './fixtures/headless-client';
 
-// Compile the PTY driver outside the live-session deadline. Browser CI restores
-// release executables, so the driver's separate test profile may be entirely cold.
+// Build the PTY driver (`merkur-tui`'s `interactive_live` test) outside the live-session
+// deadline; Bazel's cache makes an unchanged one free.
 const test = daemonTest.extend<{ interactiveClientBinary: string }>({
   interactiveClientBinary: [
     // biome-ignore lint/correctness/noEmptyPattern: Playwright requires destructured fixture dependencies.
     async ({}, use) => {
-      const root = path.resolve(__dirname, '..', '..');
-      const child = spawn(
-        'cargo',
-        [
-          'test',
-          '--locked',
-          '-p',
-          'merkur-tui',
-          '--test',
+      await use(
+        bazelTool(
           'interactive_live',
-          '--no-run',
-          '--message-format=json',
-        ],
-        {
-          cwd: root,
-          env: { ...process.env, RUSTUP_TOOLCHAIN: undefined },
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
+          '//apps/tui:interactive_live',
+          path.resolve(__dirname, '../..'),
+        ),
       );
-      const output: string[] = [],
-        logs: string[] = [];
-      child.stdout.on('data', (chunk: Buffer) => output.push(chunk.toString()));
-      child.stderr.on('data', (chunk: Buffer) => logs.push(chunk.toString()));
-      try {
-        const code = await new Promise<number | null>((resolve, reject) => {
-          child.once('error', reject);
-          child.once('close', resolve);
-        });
-        expect(code, logs.join('')).toBe(0);
-        let executable: string | undefined;
-        for (const line of output.join('').split('\n').filter(Boolean)) {
-          const artifact = JSON.parse(line) as {
-            reason?: string;
-            target?: { name?: string; kind?: string[] };
-            executable?: string;
-          };
-          if (
-            artifact.reason === 'compiler-artifact' &&
-            artifact.target?.name === 'interactive_live' &&
-            artifact.target.kind?.includes('test') &&
-            typeof artifact.executable === 'string'
-          ) {
-            executable = artifact.executable;
-          }
-        }
-        if (executable === undefined)
-          throw new Error('Cargo produced no interactive PTY test executable');
-        await use(executable);
-      } finally {
-        await finishClientFixture(child, 'interactive-client-build.log', logs.join(''));
-      }
     },
     { timeout: 600_000 },
   ],
@@ -309,7 +267,7 @@ test('the interactive client signs in, follows output and resizes its machine', 
 }) => {
   test.setTimeout(120_000);
   const root = path.resolve(__dirname, '..', '..');
-  const current = path.join(root, 'target', 'rust', 'release', 'merkur-tui');
+  const current = nativeProgram(root, 'merkur-tui');
   const baseline = process.env.MERKUR_TUI_BENCHMARK_BASELINE;
   // Optional paired measurement uses the same authenticated fixture and driver.
   const binaries =
@@ -322,7 +280,6 @@ test('the interactive client signs in, follows output and resizes its machine', 
         cwd: root,
         env: {
           ...process.env,
-          RUSTUP_TOOLCHAIN: undefined,
           MERKUR_TUI_TEST_BIN: binary,
           MERKUR_TUI_TEST_ORIGIN: new URL(baseURL ?? '').origin,
           MERKUR_TUI_TEST_PIN: E2E_OPAQUE_PUBLIC_KEY,

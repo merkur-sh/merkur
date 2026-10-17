@@ -19,9 +19,8 @@ const IMPORT_SPECIFIER_PATTERN =
   /(?:import|export)\s+(?:type\s+)?(?:[^'"()]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 const COMMAND_SOURCE_PATH_PATTERN = /(?:scripts|spikes)\/[A-Za-z0-9_./-]+\.ts/g;
 const LOCAL_SOURCE_PATH_PATTERN = /['"`](\.{1,2}\/[A-Za-z0-9_./-]+\.tsx?)['"`]/g;
-// A `bun_binary` launches its `entry_point`; no package script names that file.
-const BAZEL_ENTRY_POINT_PATTERN =
-  /\bentry_point = "(?:\/\/([A-Za-z0-9_./-]*):)?([A-Za-z0-9_./-]+\.ts)"/g;
+// A `bun_binary` launches its `entry`; no package script names that file.
+const BAZEL_ENTRY_POINT_PATTERN = /\bentry = "(?:\/\/([A-Za-z0-9_./-]*):)?([A-Za-z0-9_./-]+\.ts)"/g;
 
 const sourceFiles = await discoverSourceFiles();
 const sourceFileSet = new Set(sourceFiles);

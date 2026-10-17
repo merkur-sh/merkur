@@ -12,71 +12,38 @@ suites, e2e) happen locally only when the owner asks for one. This skill is the 
 for what each plan and gate proves, how to read `bun run gates`, and how to batch a run the
 owner asked for.
 
-Verification is **batched and selected**, and re-running it is cheap by construction: the
-bun lane skips every test file already green for the exact bytes it reads, so
-`bun run gates --run` twice with no edit between costs seconds the second time. Do not guess
-at an answer the print-only plan gives: "is this verified?" is `bun run gates`, which runs
-nothing.
+Verification is **one cached graph**: every unit test and static gate is a Bazel test, and
+`bazel test //...` runs only the ones whose declared inputs changed, answering the rest from
+the local cache or the BuildBuddy remote cache CI fills. Re-running it with no edit between
+costs seconds. Do not guess at an answer the print-only plan gives: "what does this change
+earn?" is `bun run gates`, which runs nothing.
 
-Start with `bun run gates`: it reads the working tree (or `--base <ref>`, or
-`--files a,b`), matches every changed path against `RULES` in `scripts/gate-policy.ts`,
-and prints the batched commands with the selection reason for each path. `--run` executes
-them (artifact builds and shared preflight first, static gates concurrently, then the Rust
-lane in parallel with the bun lane);
-`--all` also runs the deferred minutes-long suites after the preceding checks pass. Rows
-printed "by hand" are the browser and Docker harnesses and the long graphics convergence
-runs: `--run` alone leaves them pending; `--run --all` executes them. The rules are
-rendered as a table below; edit the rules, never the table.
+Start with `bun run gates`: it reads the working tree (or `--base <ref>`, or `--files a,b`),
+matches every changed path against `RULES` in `scripts/gate-policy.ts`, and prints the
+commands with the selection reason for each path. Any change but prose earns
+`bazel test //...`; a row adds what Bazel does not run: `rust:lint`, the dependency audit,
+`test:sim`, and the deferred browser, container and proof suites. `--run` executes the
+commands in order and stops at the first failure; `--all` also runs the deferred suites.
+Rows printed "by hand" are the browser and Docker harnesses and the long graphics
+convergence runs. The rules are rendered as a table below; edit the rules, never the table.
 
-Each run saves logs and a JSON report under `test-results/verification`. Deferred required
-checks remain pending there until executed, so cheap-check success is not full verification.
+## How a Bun test runs under Bazel
 
-Protocol plans always prepare the authenticated session oracle because protocol expansion adds
-its fixture tests after owning-suite selection. Selected tests whose compiler-parsed import closure includes
-`scripts/perf/client-session-fixture.ts` run
-`bun run scripts/prepare-client-session-oracle.ts` once in preflight. It builds the signed
-native session oracle only when its source-and-binary SHA-256 manifest is absent or stale,
-then validates the receipt before the Rust and Bun lanes start in parallel. The manifest
-includes exact Rust crate inputs (including untracked inputs), workspace and Cargo
-configuration, the pinned toolchain, the Cargo command and the executable hash. The manifest
-names one independent, content-addressed executable copy with mode 0555, so parallel Cargo
-profile builds cannot replace it. Benchmarks
-and fixture tests only verify and consume that artifact; they never invoke Cargo. Direct
-session benchmark runs need the same explicit preparation command before execution. Complete
-`test:unit` and `verify` plans also include this shared preflight.
+`bun_tests` (`tools/bazel/bun/bun.bzl`) is one test target per package: `bun test` over the
+package's test files, sharded where a package is large. The test copies its declared files
+(`//:sources`, every package's `package_files()`, plus the WebAssembly packages and the
+installed dependencies) into a checkout of its own in the test's scratch directory, so a
+test reads only what it declared and a walk sees a working tree. `node_modules` stay links
+into rules_js's store, with the `.bin` commands pnpm would write; the vendored transport
+crates, which Bazel does not load as packages, are mounted at their paths. Bun, Node (the
+release `.node-version` names), Redis and OpenSSL, and the Playwright Chromium revision
+`playwright-core` names are hermetic and on the test's `PATH`. A native helper a script
+spawns (the zstd fixture, the session oracle) is a declared tool on `PATH`; run from the
+checkout, `scripts/bazel-tool.ts` builds it with `--config=release`.
 
-## The result cache
-
-`test-results/verification/cache.json` records which test files are green and for which
-inputs, so a plan only runs what it cannot already prove. It is per-checkout and gitignored.
-
-A test's key is the sha256 of its compiler-parsed import closure — every file
-`testDependents` reaches from it, assets included — plus `package.json`, `pnpm-lock.yaml`,
-`bunfig.toml`, `tsconfig.base.json`, `scripts/test-preload.ts`, the executor and JUnit reader,
-the Bun version, the platform and the arch. Edit one module and only its dependents lose their key; edit the
-lockfile and every test does. A printed plan (`bun run gates`, no `--run`) names the split,
-which is how you answer "is this diff verified?" without running anything.
-
-**Only the bun lane is cached.** The nine static gates always run: they cost about seven
-seconds together and they are the floor this rests on. The Rust lane is `bazel test`, which
-answers an unchanged test from Bazel's own cache, keyed by every input the test declares. The
-browser and
-Docker harnesses always run, because they depend on a live daemon, edge and container
-that no content key can see.
-
-Two limits worth knowing:
-
-- **Results are attributed per file.** A complete, validated Bun JUnit report records green
-  files even when another file fails. Assertions, teardown errors and worker crashes stay red.
-  Missing, truncated or inconsistent reports prove nothing; an interrupted run records nothing.
-  Starting a run revokes prior results for the attempted files, including forced runs.
-- **Only imports are visible.** A test that opens a fixture with `readFileSync` has an input
-  the closure cannot see. The selector covers this from the other side: a changed file the
-  bun lane owns that appears in no closure discards every cached result for that run. Nothing
-  guesses which test reads it.
-
-`bun run gates --force`, or `MERKUR_GATE_CACHE=0` for the other entry points, ignores the
-cache entirely.
+`scripts/bazel-sources.ts` generates `tools/bazel/sources.bzl`, the package list
+`//:sources` gathers, and `check:bazel-sources` (`//:check_bazel_sources`) fails when it is
+stale or a `BUILD.bazel` declares no `package_files()`.
 
 ## The static gates
 
@@ -87,20 +54,26 @@ It is not one of the nine static gates, and an empty index is not a repository a
 See `docs/security.md` for the failure policy and full-history audit command.
 
 Native tsc, Biome over the whole repo, five single-process source scans, the fallow
-ratchet (about a second, its three analyses concurrent), and the anti-slop baseline (Biome
-again, with the rule plugins, over the files whose bytes it has not seen). CI runs all of
-them on every push; a run the owner asks for takes them together, never a selection:
+ratchet, and the anti-slop baseline. Each is the `package.json` script of its name and a
+Bazel test of the same name with `-` for `:` (`//:check_types`), which runs the script over a
+checkout of the whole repository that is a Git repository, so the gates see what Git ignores
+as a working tree does. `//:static_gates` is all nine; `bun run check` is them plus
+`check:protocol`. CI runs them on every push inside `bazel test //...`:
 
 ```
-bun run check:types && bun run check:lint && bun run check:latency-boundaries && bun run check:span-lifetimes && bun run check:span-attributes && bun run check:dead && bun run check:ratchet && bun run check:slop && bun run check:docs
+bazel test //:static_gates
 ```
 
-`check:ratchet` fails what the uncommitted diff introduces (dead code, exact clones and
-functions over the complexity thresholds, from `fallow audit`) and any growth in an
-existing hotspot of a file it touches (`fallow-baselines/complexity-ceilings.json`). A
-hotspot that shrank fails too until `bun run check:ratchet --tighten` lowers its ceiling.
-Renamed-identifier clones print as notes and never fail. The pre-commit hook runs it with
-`--staged`, which refuses a staged non-prose file that also has unstaged edits.
+`check:ratchet` holds the whole tree to `fallow-baselines/`: dead code to `dead-code.json`
+and exact clones to `dupes.json`, which fallow matches without line numbers, and every
+function over the complexity thresholds to its exact values in `complexity-ceilings.json`.
+Anything the baselines do not hold fails, and so does a hotspot that grew. A dead-code entry
+the tree no longer has, or a hotspot that shrank, fails as loose until
+`bun run check:ratchet --tighten` lowers the baselines; `--tighten` refuses while the tree
+has a finding they do not hold, so it never adds one. The pre-commit hook runs it with
+`--staged`: `fallow audit` against HEAD for what the staged diff introduces, plus the
+ceilings of the files it touches, refusing a staged non-prose file that also has unstaged
+edits. Renamed-identifier clones print there as notes and never fail.
 
 `check:slop` runs the anti-slop rules over the tree and compares the findings, per file and
 per rule, with `lint-baselines/anti-slop.json`. There are two sets. The Biome rules are
@@ -145,28 +118,23 @@ runs every case through the same Biome invocation as the gate. Change a rule and
 together. A rule file that does not compile fails the gate as unverified, never as a pass.
 
 Changes confined to prose (`*.md`, `docs/**`) need only `check:docs`. A file no
-row matches (a `fly.toml`, a Dockerfile) still earns the static gates. `build:dataplane` is
-not a gate: run it only when something will *execute* the binary (dev CLI, edge harness),
-never to satisfy a Rust test: Bazel builds what each test declares.
+row matches (a `fly.toml`, a Dockerfile) still earns `bazel test //...`. `build:native` is
+not a gate: run it only when something will *execute* the programs (dev CLI, a harness run
+outside the harness scripts, which sync themselves), never to satisfy a test: Bazel builds
+what each test declares.
 
 ## Batch what you selected
 
 Process spawns dominate small runs.
 
-- Use the planner's one exact `bun test --parallel=N` inventory (up to eight available CPUs),
-  with isolated workers. Bun gives each file a fresh global/module registry inside a worker process,
-  including module-mocking tests. Do not reintroduce directory filters: they can match
-  generated copies elsewhere in the tree. The executor adds `--timings`: per-file durations
-  from earlier runs (`test-results/verification/test-timings.json`, each run's update
-  published by rename) make Bun start the slowest files first. They change only the order.
-- The Rust lane is one Bazel invocation: `bazel test` builds every selected crate's targets
-  once and runs their tests side by side, and a failing test's log is printed when it
-  finishes. libtest filters pass through `--test_arg`:
+- One `bazel test` invocation takes every target: Bazel builds what they share once, runs the
+  tests side by side within the CPUs each declares (`cpu:N` tags), and prints a failing test's
+  log when it finishes. libtest filters pass through `--test_arg`:
   `bazel test //apps/daemon/dataplane:unit --test_arg=session::rebind_flow::tests --test_arg=network::peer::tests`.
-  Several crates share an invocation too: `bazel test //packages/merkur-e2e/... //apps/edge/...`.
-- Never run `check` plus one of its members, or `verify` plus `check`.
+  Several packages share an invocation too: `bazel test //packages/merkur-e2e/... //apps/edge/...`.
+- Never run `check` plus one of its members.
 - Bazel serializes on its server, so a second `bazel` command in the same checkout waits for
-  the first. The Rust lane and `bun test` overlap.
+  the first.
 
 The hooks in `.claude/settings.json` / `.codex/hooks.json` refuse the redundant combinations
 and a backgrounded second Cargo command on one command line.
@@ -184,8 +152,9 @@ gone, which crashed the worker and aborted the run.
 
 ## Commands and their warm cost
 
-Warm on a 14-core machine, measured 2026-08-26. Cold, or after a broad Rust change,
-these grow by an order of magnitude, which is the whole reason selection matters.
+Warm on a 14-core machine, measured 2026-08-26 for the scripts run directly. As Bazel tests,
+each also copies its checkout first (about twenty seconds); an unchanged one is a cache hit.
+Cold, or after a broad Rust change, the builds grow by an order of magnitude.
 
 | Command | Covers | Warm |
 | --- | --- | --- |
@@ -195,22 +164,21 @@ these grow by an order of magnitude, which is the whole reason selection matters
 | `check:span-lifetimes` | `Effect.withSpan` composed with a non-returning effect | <1 s |
 | `check:span-attributes` | code bypassing the typed span attribute map, and edge field drift | <1 s |
 | `check:dead` | `check:files` reachability + `fallow` unused exports/types | <1 s |
-| `check:ratchet` | dead code, clones and hotspots the diff introduces; hotspot ceilings; its three fallow analyses run concurrently | ~1 s (2026-10-03) |
+| `check:ratchet` | the tree's dead code, exact clones and hotspots against `fallow-baselines/`; its three fallow analyses run concurrently | ~1 s (2026-10-03) |
 | `check:slop` | anti-slop findings per file and rule against `lint-baselines/anti-slop.json`; Biome with the GritQL rule plugins, over the script files whose bytes are new, and the comment rules over script and Rust files | <1 s; ~16 s when every file is linted (2026-10-05) |
 | `check:docs` | prose paths, links, pinned facts, config/e2e/workspace parity, harness shape | <1 s |
-| `check:protocol` | wire/IPC/route suites, Rust suites | no wall-clock retention wait |
-| `check` | the nine static gates plus `check:protocol` | no wall-clock retention wait |
-| `test:unit` | complete source inventory, up to eight isolated workers | ~10 s uncached (2026-10-03) |
-| `check:audit` | pnpm and Cargo dependency advisories and yanked Rust releases; install cargo-audit with `setup:audit`; needs network, so it sits in `verify` | network |
+| `check:bazel-sources` | `tools/bazel/sources.bzl` matches the packages, and each declares `package_files()` | <1 s |
+| `check:protocol` | `bazel test //:protocol`: every suite holding a side of a wire, IPC, crypto or config contract | seconds when nothing changed |
+| `check` | `bazel test //:static_gates //:protocol` | seconds when nothing changed |
+| `test:unit` | `bazel test //...` | seconds when nothing changed |
+| `check:audit` | pnpm and Cargo dependency advisories and yanked Rust releases; install cargo-audit with `setup:audit`; needs network | network |
 | `check:js-dependency-policy` | `pnpm-lock.yaml` sources, specs, licenses and install-script trust, read from a script-free install for every platform any locked package names, in `target/js-dependency-policy`; runs beside `check:audit` | seconds on a warm pnpm store |
-| `verify` | static gates, protocol prerequisites, merged unit/protocol tests, Rust lane, audit | see the dated DX audit |
 | `rust:lint` | Clippy over every first-party target as a Bazel aspect, cached per crate, sorted by `scripts/rust-lint.ts`. No warning is allowed outside the ratcheted lints, which are held per file and lint to `lint-baselines/clippy.json`. A suppression is `#[expect(lint, reason = "…")]`, and one the lint no longer meets fails | seconds when no crate changed; minutes cold |
-| `rust:deps` | `cargo shear`: unused or misplaced crate dependencies; the Rust lane runs it after `rust:lint`; install it with `setup:shear` | ~1 s |
+| `rust:deps` | `cargo shear`: unused or misplaced crate dependencies; install it with `setup:shear` | ~1 s |
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | one filtered dataplane run, the `real_helper` modules included when the filter selects them: the test target builds the sandboxed image helper and hands its path over | seconds warm |
 | `rust:test` | `bazel test` over every Rust target: each crate's unit, integration and doc tests, the dataplane's `real_helper` modules, and `term-wasm` again in the release profile | seconds when nothing changed |
 | `test:graphics:long` | 64-seed convergence, both drivers, seeds across cores | ~20 s (2026-09-29) |
-| `build:dataplane` | release dataplane binary the dev CLI runs | ~8 s |
-| `rust:all` | lint, then dataplane + WASM + sync builds; **no** Rust tests | — |
+| `build:native` | `bazel run --config=release //tools/bazel/native:sync`: the dataplane, image worker and terminal client into apps/daemon/dist, the edge, delay proxy and bulk competitor into apps/edge/dist | seconds when nothing changed |
 | `build:web` `build:server` `build:daemon` `build:wasm` | artifacts | — |
 | `bench:reconnect` | carrier-recovery latency per failure scenario, in process | ~3.5 min |
 | `--cwd apps/server telemetry:smoke` | server telemetry wire contract | — |
@@ -262,9 +230,9 @@ the edge harness and shipped binaries use, is Cargo's release profile.
   datagram loss and moderate reorder (the exact env is the script in `package.json`). No
   single command runs every spec; each belongs to one Playwright config, listed in the
   README's generated e2e table.
-- `test:e2e` owns disposable server/account state and requires `build:dataplane` first for
-  daemon identity link claims (CI prepares it explicitly); transport suites additionally start a live isolated daemon
-  and edge.
+- `test:e2e` owns disposable server/account state; the suites whose global setup links a
+  daemon sync the native programs first, and the transport suites additionally start a live
+  isolated daemon and edge.
 - `test:e2e:rebind` is the only end-to-end proof of carrier rebind: it partitions the
   path through the delay proxy, types across the outage, and asserts the session returns
   with its terminal and its input applied once. It was materially flaky through 2026-08;
@@ -272,9 +240,9 @@ the edge harness and shipped binaries use, is Cargo's release profile.
   now a real signal.
 - `test:natlab` (Docker, privileged Linux container) is the only place the side-channel
   punch and a v6 pinhole are proven rather than argued, because the lab owns the firewall.
-- Generated artifacts must be rebuilt before they are tested or run: WASM is hash-pinned
-  and `check:protocol` rejects stale provenance; the dev CLI executes the built dataplane
-  binary, where staleness surfaces as unknown IPC frames or auth timeouts.
+- Generated artifacts must be rebuilt before they are run outside Bazel: Vite and the dev CLI
+  read the synced `pkg/` directories and apps/daemon/dist, where staleness surfaces as
+  unknown IPC frames or auth timeouts. `bun run dev` and the harnesses sync first.
 
 Benchmarks live behind `bench:*` and `profile:*`; `docs/performance.md` says which one
 gates which claim; an outcome is a dated record and is not written into this tree.
@@ -282,110 +250,53 @@ gates which claim; an outcome is a dated record and is not written into this tre
 ## Gate selection rules
 
 `bun run gates` matches every changed path against `RULES` in `scripts/gate-policy.ts` and
-prints the batched commands with the selection reason for each path; `--run` executes them and
-`--all` adds the deferred minutes-long suites. A change spanning rows runs the union. The table
-is generated by `bun run generate:docs` from the same data and `check:docs` fails when it is
-stale, so edit the rules, never the table. Rows marked "by hand" are the browser and Docker
-harnesses and the long graphics convergence runs; use `--run --all` to execute them too. A
-decoded image exists only in the sandboxed helper, so a change it can observe runs the
-dataplane's `real_helper` modules against the helper their test target builds. That is
-every dataplane change: those modules drive the display simulator, which runs the connection,
-session, network and crate-root code as well as the graphics owner.
+prints the commands with the selection reason for each path; `--run` executes them and `--all`
+adds the deferred minutes-long suites. Every row but prose implies `bazel test //...`; the
+table names what a row adds, and a change spanning rows runs the union. The table is generated
+by `bun run generate:docs` from the same data and `check:docs` fails when it is stale, so edit
+the rules, never the table. Rows marked "by hand" are the browser and Docker harnesses and the
+long graphics convergence runs; use `--run --all` to execute them too.
 
 <!-- generated:gate-rules -->
 | Changed | Also run | Why |
 | --- | --- | --- |
-| `**/*.md`, `**/*.mdx`, `docs/**`, `.claude/**`, `.codex/**`, `.agents/**`, `LICENSE`, `.gitignore`, `.worktreeinclude` | `check:docs` only |  |
-| `apps/web/**` | isolated source tests under `apps/web` |  |
+| `**/*.md`, `**/*.mdx`, `docs/**`, `.claude/**`, `.codex/**`, `.agents/**`, `LICENSE`, `.gitignore`, `.worktreeinclude` | `bazel test //:check_docs` only |  |
+| `**/*.rs`, `**/Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `clippy.toml`, `lint-baselines/clippy.json`, `scripts/rust-lint.ts`, `scripts/lint-ratchet.ts`, `MODULE.bazel`, `MODULE.bazel.lock`, `.bazelrc`, `**/BUILD.bazel`, `**/*.bzl` | `rust:lint` | Clippy runs as a Bazel aspect, cached per crate; `rust:lint` sorts its findings into classes and holds them to the baseline, so a Rust source, manifest, build-graph or lint-configuration change earns it. |
 | the `check:latency-boundaries` hot-path list, `apps/web/src/terminal/**`, `apps/web/src/transport/**`, `apps/web/src/perf/**`, `apps/web/src/*-worker.ts`, `apps/web/src/*-worker-client.ts`, `apps/web/src/*-worker-protocol.ts`, `apps/web/src/renderer-webgpu.ts`, `apps/web/src/terminal-renderer.ts`, `apps/web/src/wasm-loader.ts` (except `**/*.test.ts`, `**/*.test.tsx`) | by hand: `test:e2e:latency` | The browser hot path: the enforced latency-boundary list plus the directories the worker, prediction, display and render code lives in. A test file under those directories is not the render path; it does not earn the edge harness. |
-| `apps/server/**` | isolated source tests under `apps/server` |  |
 | `apps/server/src/**/*.dragonfly.test.ts`, `apps/server/src/http/daemon-request-auth.ts`, `apps/server/src/services/auth-flow-store.ts`, `apps/server/src/services/browser-session-presence.ts`, `apps/server/src/services/daemon-control-service.ts`, `apps/server/src/services/edge-registry-service.ts`, `apps/server/src/services/rate-limit-service.ts`, `apps/server/src/services/realtime-coordination-service.ts`, `apps/server/src/services/session-issuance-service.ts`, `apps/server/src/services/redis-*.ts` | by hand: `test:dragonfly` | Each source has a `*.dragonfly.test.ts` twin and the pair is updated together, so a change to either side implicates the container run. |
-| `apps/daemon/src/**`, `apps/daemon/*.ts` | isolated source tests under `apps/daemon` |  |
-| `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/daemon/dataplane/build.rs` | `rust:lint`; `bazel test //apps/daemon/dataplane/...` filtered to the changed modules | The dataplane test run is filtered to the changed modules: a directory module selects its subtree, a root-level file selects by name, and `main.rs`, the manifest or the build script select the whole crate. |
-| `apps/edge/src/**`, `apps/edge/Cargo.toml` | `rust:lint`; `bazel test //apps/edge/...` |  |
-| `apps/stun/src/**`, `apps/stun/Cargo.toml`, `apps/server/src/services/stun-ticket-service.ts`, `apps/server/src/services/stun-ticket-service.test.ts` | `rust:lint`; `bazel test //apps/stun/...`; isolated `apps/server/src/services/stun-ticket-service.test.ts`; then, by hand: `test:natlab` | The ticket format has two implementations pinned to one vector; nothing at runtime detects drift, so both suites run for a change on either side. |
-| `apps/daemon/dataplane/src/network/**` | by hand: `test:natlab` |  |
-| `apps/site/**` | isolated source tests under `apps/site`; then, by hand: `test:e2e:site` | The pages are proven only as served: `test:e2e:site` builds them and the static server, then reads the headers, the markup without script, the waitlist and the analytics proxy in a browser. |
-| `apps/tui/**` | `rust:lint`; `bazel test //apps/tui/...`; then, by hand: `test:e2e:transport` | The terminal client is proven only against a real splice: `tui-headless` drives the built binary in the transport phase. |
-| `packages/auth/**` | isolated source tests under `packages/auth` |  |
-| `packages/config/**` | isolated source tests under `packages/config` |  |
-| `packages/daemon-control-protocol/**` | isolated source tests under `packages/daemon-control-protocol` |  |
-| `packages/keyboard/**` | isolated source tests under `packages/keyboard` |  |
-| `packages/logger/**` | isolated source tests under `packages/logger` |  |
-| `packages/protocol/**` | isolated source tests under `packages/protocol` |  |
-| `packages/quicksilver/**` | isolated source tests under `packages/quicksilver` |  |
-| `packages/shared/**` | isolated source tests under `packages/shared` |  |
-| `packages/user-agent/**` | isolated source tests under `packages/user-agent` |  |
-| `packages/merkur-authorization/**` | `rust:lint`; `bazel test //packages/merkur-authorization/...` |  |
-| `packages/merkur-client/**` | `rust:lint`; `bazel test //packages/merkur-client/...` |  |
-| `packages/merkur-client-native/**` | `rust:lint`; `bazel test //packages/merkur-client-native/...` |  |
-| `packages/merkur-codec/**` | `rust:lint`; `bazel test //packages/merkur-codec/...` |  |
-| `packages/merkur-fec/**` | `rust:lint`; `bazel test //packages/merkur-fec/...` |  |
-| `packages/merkur-graphics/**` | `rust:lint`; `bazel test //packages/merkur-graphics/...` |  |
-| `packages/merkur-image-worker/**` | `rust:lint`; `bazel test //packages/merkur-image-worker/...` |  |
-| `packages/merkur-identity-seal/**` | `rust:lint`; `bazel test //packages/merkur-identity-seal/...` |  |
-| `packages/merkur-e2e/**` | `rust:lint`; `bazel test //packages/merkur-e2e/...` |  |
-| `packages/merkur-edge-protocol/**` | `rust:lint`; `bazel test //packages/merkur-edge-protocol/...` |  |
-| `packages/merkur-stun-protocol/**` | `rust:lint`; `bazel test //packages/merkur-stun-protocol/...` |  |
-| `packages/merkur-wire/**` | `rust:lint`; `bazel test //packages/merkur-wire/...` |  |
-| `packages/zstd-fixture/**` | `rust:lint`; `bazel test //packages/zstd-fixture/...` |  |
-| `packages/alacritty-terminal-patch/**` | `rust:lint`; `bazel test //packages/alacritty-terminal-patch/...` |  |
-| `packages/vte-patch/**` | `rust:lint`; `bazel test //packages/vte-patch/...` |  |
-| `packages/wtransport-patch/**`, `packages/quinn-patch/**`, `packages/quinn-proto-patch/**` | `rust:lint`; `bazel test //apps/edge/... //apps/daemon/dataplane/...` | Patch targets, not workspace members: they resolve through their dependents, so their dependents' suites are the test surface. |
+| `apps/daemon/dataplane/src/network/**`, `apps/stun/src/**`, `apps/stun/Cargo.toml`, `apps/server/src/services/stun-ticket-service.ts`, `apps/server/src/services/stun-ticket-service.test.ts` | by hand: `test:natlab` | The ticket format has two implementations pinned to one vector, and NAT traversal is proven only across the lab's real NATs. |
+| `apps/site/**` | by hand: `test:e2e:site` | The pages are proven only as served: `test:e2e:site` builds them and the static server, then reads the headers, the markup without script, the waitlist and the analytics proxy in a browser. |
+| `apps/tui/**` | by hand: `test:e2e:transport` | The terminal client is proven only against a real splice: `tui-headless` drives the built binary in the transport phase. |
 | `tools/sim/**`, `scripts/sim-tests.ts`, `scripts/generated-cargo-workspace.ts`, `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/edge/src/**`, `apps/edge/Cargo.toml`, `packages/merkur-client/**`, `packages/merkur-client-native/**`, `packages/wtransport-patch/**`, `packages/quinn-patch/**`, `packages/quinn-proto-patch/**` (except `**/*.md`) | `test:sim` | The real client, edge and dataplane run whole sessions in one deterministic simulation (`tools/sim`); a change to any of them, or to the simulator, replays every scenario and its seeds. |
 | `tools/bolero/**`, `scripts/fuzz-tests.ts`, `packages/merkur-wire/**`, `packages/merkur-codec/**`, `packages/merkur-client/**`, `packages/merkur-e2e/**` (except `**/*.md`) | by hand: `test:fuzz:kani` | The crates the Kani proofs compile, and their runner. The rebind keeper proof stubs `merkur-e2e` functions by signature, so a change anywhere in that crate can break it. |
-| `packages/term-wasm/**`, `packages/fontdue-patch/**`, `scripts/term-wasm-pgo.ts`, `scripts/term-wasm-ingress-fixture.ts`, `scripts/term-wasm-current-glue.ts`, `tools/bazel/wasm/**` | first `build:wasm`; `rust:lint`; `bazel test //packages/term-wasm/...`; isolated source tests under `apps/web` | Bazel builds the WASM packages the web app and Bun tests import; the build precedes any test. |
-| `packages/merkur-e2e/**`, `tools/bazel/wasm/merkur-e2e-cipher/**` | `test:wasm-cipher` | The browser transport cipher compiles only for wasm32, so a native test never reaches it; its vectors and differential run inside wasm32 under Node. |
-| `packages/e2e-wasm/**` | first `build:wasm`; `rust:lint`; isolated `packages/e2e-wasm/conformance.test.ts` |  |
-| `packages/graphics-wasm/**`, `packages/merkur-graphics/src/tile.rs` | first `build:wasm`; `rust:lint`; `bazel test //packages/graphics-wasm/...`; isolated `packages/graphics-wasm/conformance.test.ts` |  |
-| `packages/graphics-codec-probe/**` | first `build:wasm`; `rust:lint`; `bazel test //packages/graphics-codec-probe/...` |  |
-| `packages/merkur-image-worker/**`, `packages/merkur-graphics/**`, `packages/merkur-codec/**`, `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/daemon/dataplane/build.rs`, `Cargo.lock` | `bazel test //apps/daemon/dataplane:unit` filtered to `real_helper::`; then, by hand: `test:graphics:long` | Decoded images exist only in the sandboxed helper, which the dataplane test target builds and hands over: the `real_helper` modules run against it. Those modules drive the display simulator through the connection, session, network and crate-root code as well as the graphics owner, so every dataplane change selects them. The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers. |
-| `scripts/**` (except `scripts/natlab/**`) | isolated source tests under `scripts` | Selected tests whose import closure includes `scripts/perf/client-session-fixture.ts` prepare the source-and-binary SHA-256-pinned native session oracle once with `bun run scripts/prepare-client-session-oracle.ts` before the parallel Rust and Bun lanes; benchmark tests never invoke Cargo. |
-| `biome.slop.json`, `tools/biome/slop/**` | isolated `scripts/check-slop.test.ts` | A rule is GritQL only Biome can judge: `tools/biome/slop/cases.json` holds what each rule reports, and the test runs every case through the invocation the gate uses. |
-| `scripts/rust-lint.ts`, `scripts/lint-ratchet.ts`, `lint-baselines/clippy.json`, `clippy.toml` | `rust:lint`; isolated `scripts/rust-lint.test.ts`; isolated `scripts/lint-ratchet.test.ts` | What `rust:lint` answers with besides the Rust sources: the script that sorts Clippy's findings into classes, the ratchet it holds them to, the baseline, and Clippy's configuration. The tests cover the sorting and the comparison; only a Clippy run proves the workspace still meets them. |
-| `tests/**` (except `tests/e2e/**/*.e2e.ts`) | isolated source tests under `tests` |  |
+| `packages/merkur-image-worker/**`, `packages/merkur-graphics/**`, `packages/merkur-codec/**`, `apps/daemon/dataplane/src/**`, `apps/daemon/dataplane/Cargo.toml`, `apps/daemon/dataplane/build.rs`, `Cargo.lock` | by hand: `test:graphics:long` | The 64-seed convergence runs spread their seeds across cores; the Kitty one is bound by the kernel launching sandboxed helpers. |
 | `tests/e2e/**/*.e2e.ts`, `playwright*.config.mjs` | owning Playwright suite(s) | Select the spec’s owning Playwright configuration, including calibrated rebind/reorder runs. |
-| `tests/e2e/**/*.ts` (except `tests/e2e/**/*.e2e.ts`, `**/*.test.ts`) | by hand: `test:e2e`, `test:e2e:transport`, `test:e2e:rebind`, `test:e2e:transport:reorder` | Shared fixture changes require their real browser consumers, as well as fixture unit tests. |
-| `bunfig.toml`, `scripts/test-preload.ts`, `scripts/test-inventory*.ts`, `scripts/select-gates*.ts`, `scripts/gate-policy*.ts`, `scripts/verification-executor*.ts`, `scripts/verification-junit*.ts`, `scripts/verification-cache*.ts`, `scripts/run-unit-tests.ts`, `scripts/run-verify.ts`, `scripts/check-current-protocol.ts`, `scripts/protocol-gates.ts` | complete isolated source inventory | Runner, inventory and isolation changes must prove the complete source inventory. |
-| `.bazelrc`, `.bazelversion`, `.bazelignore`, `MODULE.bazel`, `MODULE.bazel.lock`, `REPO.bazel`, `**/BUILD.bazel`, `BUILD.bazel`, `**/*.bzl`, `tools/bazel/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` | `rust:lint`; complete isolated source inventory | Build graph, toolchain, package resolution and verification changes prove every source test and the complete Rust compilation scope. |
+| `tests/e2e/**/*.ts`, `scripts/native-artifacts.ts` (except `tests/e2e/**/*.e2e.ts`, `**/*.test.ts`) | by hand: `test:e2e`, `test:e2e:transport`, `test:e2e:rebind`, `test:e2e:transport:reorder` | Shared fixture changes require their real browser consumers, as well as fixture unit tests. |
 | `package.json`, `**/package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` | `check:audit`; `check:js-dependency-policy` |  |
-| `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` | `rust:lint` | A workspace manifest or lockfile change recompiles every crate; `rust:lint` is the gate that proves the workspace still builds with no warning outside its baseline. |
-| `packages/protocol/**`, `packages/daemon-control-protocol/**`, `packages/merkur-codec/**`, `packages/merkur-e2e/**`, `packages/merkur-authorization/**`, `packages/merkur-identity-seal/**`, `packages/merkur-wire/**`, `packages/merkur-edge-protocol/**`, `packages/merkur-client/**`, `packages/merkur-client-native/**`, `packages/e2e-wasm/**`, `packages/term-wasm/**`, `packages/merkur-stun-protocol/**`, `packages/shared/src/transport*.ts`, `packages/shared/src/display-stream*.ts`, `packages/shared/src/ipc*.ts`, `packages/shared/src/edge-*.ts`, `packages/shared/src/signaling/**`, `packages/shared/src/terminal.ts`, `packages/auth/src/session-authorization*.ts`, `packages/config/src/reconnect-policy*.ts`, `apps/daemon/dataplane/src/ipc/**`, `apps/daemon/dataplane/src/session/**`, `apps/daemon/dataplane/src/network/**`, `apps/daemon/dataplane/src/webtransport/**`, `apps/daemon/dataplane/src/auth.rs`, `apps/daemon/dataplane/src/connection.rs`, `apps/daemon/dataplane/src/edge_tunnel.rs`, `apps/daemon/dataplane/src/transport.rs`, `apps/daemon/dataplane/src/wt_upgrade.rs`, `apps/daemon/dataplane/src/display/wire.rs`, `apps/daemon/src/config.ts`, `apps/daemon/src/services/dataplane-client*.ts`, `apps/edge/src/**`, `apps/server/src/http/routes/edge-routes*.ts`, `apps/server/src/http/routes/session-routes*.ts`, `apps/server/src/services/edge-registry-service*.ts`, `apps/web/src/session/**`, `apps/web/src/transport/**`, `apps/web/src/lib/webtransport*.ts` | `check:protocol`; then, by hand: `test:e2e:transport` | Wire format, channel ids, IPC frames, crypto bootstrap and daemon config: every side of a contract, plus the daemon's IPC surface and config, which are protocol changes even when nothing under `packages/protocol` moved. |
+| `packages/protocol/**`, `packages/daemon-control-protocol/**`, `packages/merkur-codec/**`, `packages/merkur-e2e/**`, `packages/merkur-authorization/**`, `packages/merkur-identity-seal/**`, `packages/merkur-wire/**`, `packages/merkur-edge-protocol/**`, `packages/merkur-client/**`, `packages/merkur-client-native/**`, `packages/e2e-wasm/**`, `packages/term-wasm/**`, `packages/merkur-stun-protocol/**`, `packages/shared/src/transport*.ts`, `packages/shared/src/display-stream*.ts`, `packages/shared/src/ipc*.ts`, `packages/shared/src/edge-*.ts`, `packages/shared/src/signaling/**`, `packages/shared/src/terminal.ts`, `packages/auth/src/session-authorization*.ts`, `packages/config/src/reconnect-policy*.ts`, `apps/daemon/dataplane/src/ipc/**`, `apps/daemon/dataplane/src/session/**`, `apps/daemon/dataplane/src/network/**`, `apps/daemon/dataplane/src/webtransport/**`, `apps/daemon/dataplane/src/auth.rs`, `apps/daemon/dataplane/src/connection.rs`, `apps/daemon/dataplane/src/edge_tunnel.rs`, `apps/daemon/dataplane/src/transport.rs`, `apps/daemon/dataplane/src/wt_upgrade.rs`, `apps/daemon/dataplane/src/display/wire.rs`, `apps/daemon/src/config.ts`, `apps/daemon/src/services/dataplane-client*.ts`, `apps/edge/src/**`, `apps/server/src/http/routes/edge-routes*.ts`, `apps/server/src/http/routes/session-routes*.ts`, `apps/server/src/services/edge-registry-service*.ts`, `apps/web/src/session/**`, `apps/web/src/transport/**`, `apps/web/src/lib/webtransport*.ts` | by hand: `test:e2e:transport` | Wire format, channel ids, IPC frames, crypto bootstrap and daemon config: every side of a contract, plus the daemon's IPC surface and config, which are protocol changes even when nothing under `packages/protocol` moved. `bazel test //...` holds every contract test; only the edge harness proves a live session. |
 | `apps/daemon/dataplane/src/display/**`, `apps/daemon/dataplane/src/input.rs`, `apps/daemon/dataplane/src/pty/**`, `apps/web/src/terminal/display-*.ts`, `apps/web/src/terminal-worker.ts`, `apps/web/src/transport-worker.ts`, `packages/shared/src/transport-policy.ts`, `scripts/run-edge-harness.ts` (except `**/*.test.ts`, `**/*.test.tsx`) | by hand: `test:e2e:transport` | Display scheduling, mirroring and transport policy are not wire changes, but the edge harness is the only gate that exercises them against a real splice. |
 | `apps/daemon/dataplane/src/session/rebind_flow.rs`, `apps/daemon/dataplane/src/session/policy.rs`, `apps/daemon/dataplane/src/session/resume.rs`, `apps/daemon/dataplane/src/edge_tunnel.rs`, `apps/edge/src/splice.rs`, `apps/edge/src/relay.rs`, `packages/merkur-e2e/src/rebind.rs`, `packages/config/src/reconnect-policy.ts`, `packages/merkur-client/src/session*.rs`, `apps/web/src/session/session-state.ts`, `apps/web/src/transport/browser-client-session.ts`, `apps/web/src/transport/client-carrier.ts`, `apps/web/src/session/wake-detector.ts`, `tests/e2e/carrier-rebind.e2e.ts`, `packages/merkur-client/**`, `packages/merkur-client-native/**`, `apps/tui/**`, `tests/e2e/tui-rebind.e2e.ts`, `tests/e2e/fixtures/headless-client.ts` | by hand: `test:e2e:rebind` |  |
 <!-- /generated:gate-rules -->
 
-`gates`, `verify`, `test:unit`, and `check:protocol` share the planner and executor. The
-source inventory includes `apps`, `packages`, `scripts`, and `tests`, excludes generated
-`dist`/`target` trees, and passes explicit paths to Bun with up to eight isolated workers, bounded by available CPUs. A changed
-test selects itself. A source module selects its owning suite, including tests that inspect
-source text, and adds consumers across workspaces from compiler-parsed imports. Builds, Rust,
-and browser harnesses use the table's explicit coverage rules. Deleted files and both endpoints
-of renames participate in selection.
+Full transport coverage subsumes the identical latency command, while calibrated rebind and
+reorder remain separate. Auth specs select their actual Playwright configuration. Edge specs
+omitted from the default harness phases receive an explicit spec filter. Deleted files and
+both endpoints of renames participate in selection.
 
-Protocol tests are merged with the selected unit inventory; each runs once. The hard-cut scan
-precedes the test lanes. Rust crates and filters are merged, and full
-transport coverage subsumes the identical latency command while calibrated rebind and reorder
-remain separate. Auth specs select their actual Playwright configuration. Edge specs omitted
-from the default harness phases receive an explicit spec filter. Output streams immediately
-with completion status, duration, and outstanding-check counts. Each run saves logs, per-task
-browser output directories, and a JSON report under `test-results/verification`; deferred
-required checks remain pending until executed, so cheap-check success is not full verification.
-
-E2E commands share `test-results/verification/web-artifacts` across plans and standalone
-runs. Each browser build configuration has a content-addressed directory; source inputs and
-output bytes are checked before reuse. Builds publish atomically from unique staging
-directories; concurrent publishers validate the winner before discarding their own copy.
-`PW_E2E_ARTIFACT_ROOT` can explicitly select a different store. Servers still get fresh
-databases, Redis processes, accounts, and daemon fixtures. Build reuse never means session-state reuse. Each transport phase also owns a
-separate result directory, so later phases cannot erase earlier failure traces.
-`PW_E2E_OUTPUT_DIR` and `PW_E2E_ARTIFACT_ROOT` are harness-owned paths, not server
+E2E commands share `test-results/verification/web-artifacts` across runs. Each browser build
+configuration has a content-addressed directory; source inputs and output bytes are checked
+before reuse. Builds publish atomically from unique staging directories; concurrent
+publishers validate the winner before discarding their own copy. `PW_E2E_ARTIFACT_ROOT` can
+explicitly select a different store. Servers still get fresh databases, Redis processes,
+accounts, and daemon fixtures. Build reuse never means session-state reuse. Each transport
+phase also owns a separate result directory, so later phases cannot erase earlier failure
+traces. `PW_E2E_OUTPUT_DIR` and `PW_E2E_ARTIFACT_ROOT` are harness-owned paths, not server
 configuration.
 
-The edge harness builds its edge binaries, dataplane and image worker in one Cargo command,
-so shared transport dependencies use the same feature union throughout native preparation.
-CI builds that set once per workflow and installs its verified manifest with
-`bun run install:e2e-native-artifacts`; browser consumers do not compile it again. Required
-functional transport coverage is partitioned across two runners at test level, with one worker
-per runner. Calibrated rebind and reorder remain separate. CI job selection and artifact checks
-are described in `docs/ci.md`; local test-result caches remain disabled in CI.
+The edge harness syncs the native programs once (`scripts/native-artifacts.ts`), records each
+one's SHA-256 in its result, gives its Playwright phases the same bytes, and fails the run if
+any changed before it ended; a suite Playwright starts itself syncs in its global setup, and
+`MERKUR_TPM_SIM_ADDR` builds the TPM simulator transport. CI builds the programs and the
+WebAssembly packages once into the remote cache, and each browser job's sync is a cache hit.
+Required functional transport coverage is partitioned across runners at test level, with one
+worker per runner. CI's jobs are described in `docs/ci.md`.

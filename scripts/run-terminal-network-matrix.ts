@@ -62,8 +62,8 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const PLAYWRIGHT_RESULTS = path.join(ROOT, 'test-results', 'e2e-edge');
 const DEFAULT_OUTPUT = path.join(ROOT, 'test-results', 'terminal-network-matrix.json');
 const MATRIX_RUNTIME_ARTIFACTS = [
-  'target/rust/release/merkur-edge',
-  'target/rust/release/delay_proxy',
+  'apps/edge/dist/merkur-edge',
+  'apps/edge/dist/delay_proxy',
   'apps/daemon/dist/merkur-dataplane',
   'apps/web/src/term-wasm/pkg/term_wasm.js',
   'apps/web/src/term-wasm/pkg/term_wasm_bg.wasm',
@@ -3277,8 +3277,7 @@ export async function writeMatrixArtifact(filename: string, value: unknown): Pro
 async function buildMatrixRuntimeArtifacts(): Promise<void> {
   for (const command of [
     ['bun', 'run', 'build:wasm'],
-    ['bun', 'run', 'build:dataplane'],
-    ['cargo', 'build', '--release', '--locked', '-p', 'merkur-edge', '--bins'],
+    ['bun', 'run', 'build:native'],
   ] as const) {
     process.stdout.write(`[network-matrix] build ${command.join(' ')}\n`);
     const child = Bun.spawn([...command], { cwd: ROOT, stdout: 'inherit', stderr: 'inherit' });

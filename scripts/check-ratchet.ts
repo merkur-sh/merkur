@@ -1,18 +1,19 @@
 /**
- * The ratchet: a change may not add dead code, an exact clone or a complexity hotspot, and no
+ * The ratchet: the tree may not gain dead code, an exact clone or a complexity hotspot, and no
  * existing hotspot may grow.
  *
- *   bun run check:ratchet               the working tree against HEAD (gates, Stop hook)
+ *   bun run check:ratchet               the whole tree against the baselines (`//:check_ratchet`)
  *   bun run check:ratchet --staged      the staged diff against HEAD (pre-commit)
- *   bun run check:ratchet --base <ref>  the checkout against an older commit (CI)
- *   bun run check:ratchet --tighten     lower the ceilings to today's values; never raises one
- *   bun run check:ratchet --init        write the ceilings file when there is none
+ *   bun run check:ratchet --tighten     lower the baselines to today's tree; never adds or raises
+ *   bun run check:ratchet --init        write the baselines when there are none
  *
- * `fallow audit` attributes each finding to the change or to its base. Its complexity identity
- * is path plus function name, so a hotspot that grows from 617 to 700 stays "inherited" there;
- * `fallow-baselines/complexity-ceilings.json` pins every hotspot's exact values instead, and a
- * ceiling that is looser than the code fails too, so the file never drifts above the code. The
- * file describes committed code, and each run holds the files it changed to it (`ceilingScope`).
+ * The whole-tree run needs no history, so it is a cached Bazel test: dead code and exact clones
+ * are held to `fallow-baselines/{dead-code,dupes}.json`, which fallow matches without line
+ * numbers, and a dead-code entry the tree no longer has fails as loose. Complexity is held to
+ * `fallow-baselines/complexity-ceilings.json`, which pins every hotspot's exact values: a
+ * hotspot that grows from 617 to 700 fails, and so does a ceiling looser than the code, so the
+ * file never drifts above it. The staged run is `fallow audit`, which attributes each finding to
+ * the change or to HEAD, and holds the files the change touched to their ceilings.
  *
  * Renamed-identifier clones (`.fallowrc.semantic.json`) print as review notes and never fail:
  * parallel code with one shape is sometimes the right design. Anything fallow cannot answer (a
@@ -25,6 +26,8 @@ import path from 'node:path';
 const ROOT = path.resolve(import.meta.dir, '..');
 const FALLOW = path.join(ROOT, 'node_modules', '.bin', 'fallow');
 export const CEILINGS_FILE = 'fallow-baselines/complexity-ceilings.json';
+export const DEAD_CODE_BASELINE = 'fallow-baselines/dead-code.json';
+export const DUPES_BASELINE = 'fallow-baselines/dupes.json';
 const FALLOW_CONFIG = '.fallowrc.json';
 const SEMANTIC_CONFIG = '.fallowrc.semantic.json';
 const FALLOW_TIMEOUT_MS = 60_000;
@@ -357,25 +360,20 @@ function writeCeilingsFile(ceilings: Ceilings): void {
   writeFileSync(file, formatCeilings(ceilings));
 }
 
-interface Options {
-  readonly mode: 'check' | 'staged' | 'tighten' | 'init';
-  readonly base: string;
-}
+type Mode = 'check' | 'staged' | 'tighten' | 'init';
 
-function parseOptions(argv: readonly string[]): Options {
-  let mode: Options['mode'] = 'check';
-  let base = 'HEAD';
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === '--staged') mode = 'staged';
-    else if (argument === '--tighten') mode = 'tighten';
-    else if (argument === '--init') mode = 'init';
-    else if (argument === '--base' && argv[index + 1] !== undefined) {
-      base = argv[index + 1] ?? base;
-      index += 1;
-    } else throw new RatchetError(`unknown argument ${argument}; see the header of this script`);
-  }
-  return { mode, base };
+function parseMode(argv: readonly string[]): Mode {
+  const modes = new Map<string, Mode>([
+    ['--staged', 'staged'],
+    ['--tighten', 'tighten'],
+    ['--init', 'init'],
+  ]);
+  const [argument, ...rest] = argv;
+  if (argument === undefined) return 'check';
+  const mode = modes.get(argument);
+  if (mode === undefined || rest.length > 0)
+    throw new RatchetError(`unknown arguments ${argv.join(' ')}; see the header of this script`);
+  return mode;
 }
 
 function write(text: string): void {
@@ -453,50 +451,99 @@ function reportRatchetAnalysis(options: {
   return failed ? 1 : 0;
 }
 
-async function run(options: Options): Promise<number> {
-  if (options.mode === 'init' || options.mode === 'tighten') {
-    const current = hotspotsOf(await fallow('fallow health', ['health']));
-    if (options.mode === 'init') {
-      if (existsSync(path.join(ROOT, CEILINGS_FILE))) {
-        throw new RatchetError(`${CEILINGS_FILE} exists; use --tighten`);
-      }
-      writeCeilingsFile(Object.fromEntries(current));
-    } else {
-      writeCeilingsFile(tightenCeilings(current, readCeilingsFile()));
-    }
-    write(`check:ratchet: wrote ${CEILINGS_FILE}\n`);
-    return 0;
+/** Dead code and exact clones the baselines do not hold, and dead-code entries the tree lost. */
+export function baselineFindings(deadCode: Report, dupes: Report) {
+  const added: string[] = [];
+  for (const [category, items] of Object.entries(deadCode)) {
+    if (category === 'next_steps' || category === 'workspace_diagnostics') continue;
+    for (const item of records(items)) added.push(`${category}: ${describeFinding(item)}`);
   }
+  for (const group of records(dupes.clone_groups)) added.push(describeClone(group));
+  const baseline = isRecord(deadCode.baseline) ? deadCode.baseline : {};
+  const entries = numberField(baseline, 'entries');
+  const matched = numberField(baseline, 'matched');
+  if (entries === null || matched === null)
+    throw new RatchetError('fallow dead-code reported no baseline match');
+  return { added, loose: entries - matched };
+}
 
-  const base = git(['rev-parse', '--verify', `${options.base}^{commit}`]).trim();
-  const staged = options.mode === 'staged';
-  const changed = staged
-    ? gitFiles(['diff', '--cached', '--name-only', '--no-renames', base])
-    : [
-        ...gitFiles(['diff', '--name-only', '--no-renames', base]),
-        ...gitFiles(['ls-files', '--others', '--exclude-standard']),
-      ];
-  if (changed.length === 0) {
-    write(`check:ratchet: nothing ${staged ? 'staged' : 'changed'} against ${base.slice(0, 10)}\n`);
-    return 0;
-  }
-  let diffArgs: string[] = [];
-  let scratch: string | null = null;
-  if (staged) {
-    const partial = partiallyStaged(changed, gitFiles(['diff', '--name-only', '--no-renames']));
-    if (partial.length > 0) {
-      section(
-        'FAIL  staged files with unstaged edits (stage the whole file, or stash the rest):',
-        partial,
-      );
+async function checkTree(): Promise<number> {
+  const [deadCode, dupes, health] = await Promise.all([
+    fallow('fallow dead-code', ['dead-code', '--baseline', DEAD_CODE_BASELINE]),
+    fallow('fallow dupes', ['dupes', '--baseline', DUPES_BASELINE]),
+    fallow('fallow health', ['health']),
+  ]);
+  const { added, loose } = baselineFindings(deadCode, dupes);
+  const current = hotspotsOf(health);
+  const violations = compareCeilings(current, readCeilingsFile(), () => true);
+  write('check:ratchet: the tree against fallow-baselines/\n');
+  if (added.length > 0) section('FAIL  not in the baselines:', added);
+  if (loose > 0)
+    write(
+      `FAIL  ${loose} ${DEAD_CODE_BASELINE} entries the tree no longer has; run \`bun run check:ratchet --tighten\`\n`,
+    );
+  if (violations.length > 0)
+    section(
+      `FAIL  complexity ceilings (${CEILINGS_FILE}); simplify, or run \`bun run check:ratchet --tighten\` for loose/gone:`,
+      violations.map((violation) => `${violation.kind}  ${violation.key}  ${violation.detail}`),
+    );
+  const failed = added.length > 0 || loose > 0 || violations.length > 0;
+  write(`check:ratchet: ${failed ? 'FAIL' : 'pass'} (${current.size} hotspots checked)\n`);
+  return failed ? 1 : 0;
+}
+
+/**
+ * Rewrite the baselines from today's tree. It only lowers them: it refuses while the tree has
+ * a finding the baselines do not hold, so a rewrite drops entries and never adds one.
+ */
+async function writeBaselines(mode: 'tighten' | 'init'): Promise<number> {
+  const health = hotspotsOf(await fallow('fallow health', ['health']));
+  if (mode === 'init') {
+    for (const file of [CEILINGS_FILE, DEAD_CODE_BASELINE, DUPES_BASELINE]) {
+      if (existsSync(path.join(ROOT, file)))
+        throw new RatchetError(`${file} exists; use --tighten`);
+    }
+    writeCeilingsFile(Object.fromEntries(health));
+  } else {
+    const [deadCode, dupes] = await Promise.all([
+      fallow('fallow dead-code', ['dead-code', '--baseline', DEAD_CODE_BASELINE]),
+      fallow('fallow dupes', ['dupes', '--baseline', DUPES_BASELINE]),
+    ]);
+    const { added } = baselineFindings(deadCode, dupes);
+    if (added.length > 0) {
+      section('FAIL  not in the baselines, so they stay as they are:', added);
       return 1;
     }
-    scratch = mkdtempSync(path.join(tmpdir(), 'check-ratchet-'));
-    const diffFile = path.join(scratch, 'staged.diff');
-    writeFileSync(diffFile, git(['diff', '--cached', '-U0', '--no-renames', base]));
-    diffArgs = ['--diff-file', diffFile];
+    writeCeilingsFile(tightenCeilings(health, readCeilingsFile()));
   }
+  mkdirSync(path.join(ROOT, 'fallow-baselines'), { recursive: true });
+  await Promise.all([
+    fallow('fallow dead-code', ['dead-code', '--save-baseline', DEAD_CODE_BASELINE]),
+    fallow('fallow dupes', ['dupes', '--save-baseline', DUPES_BASELINE]),
+  ]);
+  write(`check:ratchet: wrote ${CEILINGS_FILE}, ${DEAD_CODE_BASELINE} and ${DUPES_BASELINE}\n`);
+  return 0;
+}
 
+async function checkStaged(): Promise<number> {
+  const base = git(['rev-parse', '--verify', 'HEAD^{commit}']).trim();
+  const changed = gitFiles(['diff', '--cached', '--name-only', '--no-renames', base]);
+  if (changed.length === 0) {
+    write(`check:ratchet: nothing staged against ${base.slice(0, 10)}\n`);
+    return 0;
+  }
+  const partial = partiallyStaged(changed, gitFiles(['diff', '--name-only', '--no-renames']));
+  if (partial.length > 0) {
+    section(
+      'FAIL  staged files with unstaged edits (stage the whole file, or stash the rest):',
+      partial,
+    );
+    return 1;
+  }
+  const scratch = mkdtempSync(path.join(tmpdir(), 'check-ratchet-'));
+  const diffFile = path.join(scratch, 'staged.diff');
+  writeFileSync(diffFile, git(['diff', '--cached', '-U0', '--no-renames', base]));
+  const diffArgs = ['--diff-file', diffFile];
   try {
     const [exact, semantic, health] = await Promise.all([
       fallow('fallow audit', ['audit', '--base', base, ...diffArgs]),
@@ -510,16 +557,30 @@ async function run(options: Options): Promise<number> {
       ]),
       fallow('fallow health', ['health']),
     ]);
-    return reportRatchetAnalysis({ root: ROOT, base, changed, staged, exact, semantic, health });
+    return reportRatchetAnalysis({
+      root: ROOT,
+      base,
+      changed,
+      staged: true,
+      exact,
+      semantic,
+      health,
+    });
   } finally {
-    if (scratch !== null) rmSync(scratch, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+async function run(mode: Mode): Promise<number> {
+  if (mode === 'check') return await checkTree();
+  if (mode === 'staged') return await checkStaged();
+  return await writeBaselines(mode);
 }
 
 if (import.meta.main) {
   let code: number;
   try {
-    code = await run(parseOptions(process.argv.slice(2)));
+    code = await run(parseMode(process.argv.slice(2)));
   } catch (error) {
     if (!(error instanceof RatchetError)) throw error;
     write(`check:ratchet: unverified: ${error.message}\n`);

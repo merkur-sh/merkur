@@ -2,8 +2,11 @@ load("@merkur_e2e_cipher_crates//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 load(":crates.bzl", "MODULE_DEPS", "module_crates")
 load("//tools/bazel/wasm:defs.bzl", "wasm_bindgen_test")
+load("//tools/bazel:files.bzl", "package_files")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 # merkur-e2e's own workspace with its tests' dependencies (`scripts/wasm-artifact-manifests.ts`),
 # which its hub resolves.

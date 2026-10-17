@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-
+import { RULES, type Rule } from './gate-policy';
 import {
   type E2eSpecInputs,
   e2eScriptsOf,
@@ -13,7 +13,6 @@ import {
   renderGateRulesTable,
   replaceGenerated,
 } from './generate-docs';
-import { RULES, type Rule } from './select-gates';
 
 const HARNESS = 'scripts/run-edge-harness.ts';
 
@@ -247,44 +246,18 @@ const GATE_RULES: readonly Rule[] = [
     effects: { deferred: ['test:e2e:latency'] },
     note: 'A test file is not the render path.',
   },
+  { name: 'rust', globs: ['**/*.rs'], effects: { rustLint: true } },
   {
-    name: 'term-wasm',
-    globs: ['packages/term-wasm/**'],
-    effects: {
-      builds: ['build:wasm'],
-      rustLint: true,
-      crates: ['term-wasm'],
-      bunTestDir: 'apps/web',
-    },
-  },
-  {
-    name: 'dataplane',
-    globs: ['apps/daemon/dataplane/src/**'],
-    effects: { rustLint: true, crates: ['merkur-dataplane'] },
-  },
-  {
-    name: 'stun',
-    globs: ['apps/stun/src/**'],
-    effects: {
-      rustLint: true,
-      crates: ['merkur-stun'],
-      bunTestFiles: ['apps/server/src/services/stun-ticket-service.test.ts'],
-      deferred: ['test:natlab'],
-    },
-  },
-  {
-    name: 'real-helper',
-    globs: ['packages/merkur-image-worker/**'],
-    effects: {
-      realHelper: true,
-      deferred: ['test:graphics:long'],
-    },
+    name: 'simulator',
+    globs: ['tools/sim/**'],
+    effects: { scripts: ['test:sim'] },
   },
   { name: 'dependencies', globs: ['package.json'], effects: { audit: true } },
+  { name: 'e2e-specs', globs: ['tests/e2e/**/*.e2e.ts'], effects: { e2e: true } },
   {
-    name: 'protocol',
-    globs: ['packages/protocol/**'],
-    effects: { protocol: true, deferred: ['test:e2e:transport'] },
+    name: 'nat-traversal',
+    globs: ['apps/stun/src/**'],
+    effects: { rustLint: true, deferred: ['test:natlab'] },
   },
 ];
 
@@ -295,17 +268,16 @@ test('the Changed cell lists globs, prints a group by its label, and names the e
   );
 });
 
-test('the Also run cell follows the plan phases: builds, Rust lane, bun lane, deferred', () => {
+test('the Also run cell follows the run order: gates outside Bazel, then deferred', () => {
   const cells = GATE_RULES.map(gateRuleAlsoRunCell);
   expect(cells).toEqual([
-    '`check:docs` only',
+    '`bazel test //:check_docs` only',
     'by hand: `test:e2e:latency`',
-    'first `build:wasm`; `rust:lint`; `bazel test //packages/term-wasm/...`; isolated source tests under `apps/web`',
-    '`rust:lint`; `bazel test //apps/daemon/dataplane/...` filtered to the changed modules',
-    '`rust:lint`; `bazel test //apps/stun/...`; isolated `apps/server/src/services/stun-ticket-service.test.ts`; then, by hand: `test:natlab`',
-    '`bazel test //apps/daemon/dataplane:unit` filtered to `real_helper::`; then, by hand: `test:graphics:long`',
+    '`rust:lint`',
+    '`test:sim`',
     '`check:audit`; `check:js-dependency-policy`',
-    '`check:protocol`; then, by hand: `test:e2e:transport`',
+    'owning Playwright suite(s)',
+    '`rust:lint`; then, by hand: `test:natlab`',
   ]);
 });
 
@@ -314,7 +286,7 @@ test('the gate table has one row per rule in rule order, with the note in the la
   expect(lines[0]).toBe('| Changed | Also run | Why |');
   expect(lines[1]).toBe('| --- | --- | --- |');
   expect(lines).toHaveLength(GATE_RULES.length + 3);
-  expect(lines[2]).toBe('| `**/*.md`, `.claude/**` | `check:docs` only |  |');
+  expect(lines[2]).toBe('| `**/*.md`, `.claude/**` | `bazel test //:check_docs` only |  |');
   expect(lines[3]).toBe(
     '| the hot-path list, `apps/web/src/terminal/**` (except `**/*.test.ts`) | by hand: `test:e2e:latency` | A test file is not the render path. |',
   );

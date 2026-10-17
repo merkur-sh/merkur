@@ -2,8 +2,11 @@ load("@graphics_wasm_crates//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//rust:defs.bzl", "rust_shared_library")
 load(":crates.bzl", "MODULE_DEPS", "module_crates")
 load("//tools/bazel/wasm:defs.bzl", "wasm_module", "wasm_package")
+load("//tools/bazel:files.bzl", "package_files")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 # The module's own workspace (`scripts/wasm-artifact-manifests.ts`), which its hub resolves.
 exports_files([

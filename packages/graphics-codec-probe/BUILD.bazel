@@ -1,8 +1,12 @@
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//cargo:defs.bzl", "extract_cargo_lints")
 load("@rules_rust//rust:defs.bzl", "rust_doc_test", "rust_library", "rust_test")
+load("//tools/bazel:files.bzl", "package_files")
+load("//tools/bazel/wasm:defs.bzl", "wasm_package_files")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 # The crate's sources, which the browser build in `//tools/bazel/wasm` compiles too.
 filegroup(
@@ -38,4 +42,10 @@ rust_test(
 rust_doc_test(
     name = "doc",
     crate = ":graphics_codec_probe",
+)
+
+# The browser module where the TypeScript that loads it imports it from, `pkg/`.
+wasm_package_files(
+    name = "pkg_files",
+    package = "//tools/bazel/wasm/graphics-codec-probe:pkg",
 )

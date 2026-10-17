@@ -43,22 +43,14 @@ async function buildDevelopmentArtifacts(): Promise<void> {
   if (wasmExitCode !== 0) throw new Error(`WASM build failed with exit code ${wasmExitCode}`);
   steps.push('built and synchronized the WASM packages');
 
-  const script = 'scripts/build-daemon-artifacts.ts';
-  const exitCode = await run([process.execPath, '--bun', '--no-env-file', 'run', script]);
-  if (exitCode !== 0) throw new Error(`${script} failed with exit code ${exitCode}`);
-  steps.push(`completed ${script}`);
-
-  const edgeExitCode = await run([
-    'cargo',
-    'build',
-    '--manifest-path',
-    'Cargo.toml',
-    '--locked',
-    '-p',
-    'merkur-edge',
+  const nativeExitCode = await run([
+    'bazel',
+    'run',
+    '--config=release',
+    '//tools/bazel/native:sync',
   ]);
-  if (edgeExitCode !== 0) throw new Error(`merkur-edge build failed with exit ${edgeExitCode}`);
-  steps.push('built local merkur-edge');
+  if (nativeExitCode !== 0) throw new Error(`native build failed with exit code ${nativeExitCode}`);
+  steps.push('built and installed the edge, dataplane, image worker and terminal client');
 }
 
 async function run(command: string[]): Promise<number> {

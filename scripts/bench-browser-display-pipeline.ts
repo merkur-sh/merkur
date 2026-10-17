@@ -62,14 +62,14 @@ import { loadBenchmarkTerminal } from './perf/declared-terminal';
 import { createTextRowBody, trainFixtureDictionary } from './perf/display-text-rows';
 import { createGeometryCountReader } from './perf/geometry-counts';
 import { emitPerfMetric, summarizeSamples } from './perf/harness';
-import { builtZstdFixtureExecutable } from './perf/zstd-fixture';
+import { zstdFixtureExecutable } from './perf/zstd-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SAMPLES = positiveInteger('BENCH_SAMPLES', 1_000);
 const WARMUPS = positiveInteger('BENCH_WARMUPS', 100);
 const SKIP_GEOMETRY = process.env.BENCH_SKIP_GEOMETRY === '1';
 const SCENARIO = process.argv[2] ?? process.env.BENCH_BROWSER_SCENARIO ?? 'compressed-full';
-const FIXTURE_BINARY = await builtZstdFixtureExecutable();
+const FIXTURE_BINARY = zstdFixtureExecutable();
 
 const { wasm, runtime: wasmRuntime, terminal } = await loadBenchmarkTerminal(960, 640);
 let frameInputPtr = 0;

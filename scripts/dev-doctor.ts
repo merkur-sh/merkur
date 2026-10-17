@@ -7,17 +7,10 @@ import { Effect } from 'effect';
 import { environmentSources } from '../packages/config/src/environment';
 import { loadDevelopmentEnvironment, toolEnvironment } from './dev-environment';
 import { probeRedis, redisEndpoint } from './dev-redis';
+import { nativeProgram } from './native-artifacts';
 
 const CURRENT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(CURRENT_DIRECTORY, '..');
-const DATAPLANE_BINARY =
-  process.platform === 'win32'
-    ? 'target/rust/release/merkur-dataplane.exe'
-    : 'target/rust/release/merkur-dataplane';
-const EDGE_BINARY =
-  process.platform === 'win32'
-    ? 'target/rust/debug/merkur-edge.exe'
-    : 'target/rust/debug/merkur-edge';
 
 interface CheckResult {
   readonly label: string;
@@ -44,14 +37,19 @@ checks.push({
   details: `${process.versions.bun}; use the Bun .bun-version pins, ${pinnedBun}`,
 });
 
-checks.push(await checkCommand('cargo', true));
-checks.push(await checkRustToolchain());
-if (process.platform === 'darwin') checks.push(await checkCommand('swiftc', true));
-checks.push(await checkCommand('rustup', true));
+// Bazel brings Rust, Node and the WebAssembly tools; the Secure Enclave bridge compiles with the
+// selected Xcode's Swift.
 checks.push(await checkCommand('bazel', true));
+if (process.platform === 'darwin') checks.push(await checkCommand('swiftc', true));
 checks.push(await checkRedis());
 
-checks.push(await checkFile(DATAPLANE_BINARY, false, 'build with: bun run build:dataplane'));
+checks.push(
+  await checkFile(
+    path.relative(REPO_ROOT, nativeProgram(REPO_ROOT, 'merkur-dataplane')),
+    false,
+    'build with: bun run build:native',
+  ),
+);
 checks.push(
   await checkFile('packages/term-wasm/pkg/term_wasm.js', false, 'build with: bun run build:wasm'),
 );
@@ -62,7 +60,13 @@ checks.push(
     'build with: bun run build:wasm',
   ),
 );
-checks.push(await checkFile(EDGE_BINARY, false, 'built automatically by: bun run dev'));
+checks.push(
+  await checkFile(
+    path.relative(REPO_ROOT, nativeProgram(REPO_ROOT, 'merkur-edge')),
+    false,
+    'built automatically by: bun run dev',
+  ),
+);
 
 let hasCriticalFailure = false;
 for (const check of checks) {
@@ -128,37 +132,6 @@ async function checkRedis(): Promise<CheckResult> {
       outcome._tag === 'Success'
         ? `${redisEndpoint(url)} authenticated PING succeeded`
         : `${redisEndpoint(url)} authentication, TLS, or PING failed; verify this backend (local infrastructure: bun run infra:up)`,
-  };
-}
-
-async function checkRustToolchain(): Promise<CheckResult> {
-  const manifest = Bun.TOML.parse(
-    await Bun.file(path.join(REPO_ROOT, 'rust-toolchain.toml')).text(),
-  );
-  const toolchain = 'toolchain' in manifest ? manifest.toolchain : undefined;
-  const expected =
-    typeof toolchain === 'object' &&
-    toolchain !== null &&
-    'channel' in toolchain &&
-    typeof toolchain.channel === 'string'
-      ? toolchain.channel
-      : '';
-  const rustc = Bun.which('rustc', { PATH: toolEnvironment(process.env).PATH });
-  if (rustc === null)
-    return { label: 'Rust toolchain', ok: false, details: 'rustc missing', critical: true };
-  const child = Bun.spawn([rustc, '--version'], {
-    cwd: REPO_ROOT,
-    env: toolEnvironment(process.env),
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const output = (await new Response(child.stdout).text()).trim();
-  const exitCode = await child.exited;
-  return {
-    label: 'Rust toolchain',
-    ok: exitCode === 0 && output.split(' ')[1] === expected,
-    details: `${output || 'unavailable'}; required ${expected}; install with: rustup toolchain install ${expected}`,
-    critical: true,
   };
 }
 

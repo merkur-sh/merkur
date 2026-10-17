@@ -584,8 +584,8 @@ in an installed iPhone PWA with a connected terminal.
 `bun run test:tpm-sim` starts an isolated Docker `swtpm`, exercises the raw TPM command path and
 signing worker, and removes the container. To run browser transport tests against an already
 running simulator, set `MERKUR_TPM_SIM_ADDR=127.0.0.1:<port>` on `test:e2e:transport`; the harness
-builds the `tpm-sim` feature and records it in native artifact provenance. Ordinary release builds
-omit that feature.
+syncs the dataplane built with `--//packages/merkur-identity-seal:tpm_sim`, Cargo's `tpm-sim`
+feature. Ordinary release builds omit that feature.
 
 ## Build And Release
 
@@ -594,9 +594,8 @@ omit that feature.
 | `bun run build:web` | Resolve the local public pin, build the WASM packages, then run Vite with public inputs only. |
 | `bun run build:server` | Compile the Bun server executable. |
 | `bun run build:daemon` | Compile the daemon CLI and Rust dataplane distribution. |
-| `bun run build:dataplane` | Build and copy the Rust dataplane and isolated image worker. |
+| `bun run build:native` | Build, in the release profile, and install the dataplane, isolated image worker and terminal client into apps/daemon/dist, and the edge and the harnesses' network peers into apps/edge/dist. |
 | `bun run build:wasm` | Build the terminal, browser E2E and graphics asset WASM packages through Bazel and copy them into the source tree. |
-| `bun run rust:all` | Lint Rust, then build the dataplane and the WASM packages. |
 
 The tag-triggered CI release workflow builds daemon tarballs for macOS arm64, macOS x64,
 Linux x64, and Linux arm64, smoke-tests each compiled CLI and dataplane, signs in the

@@ -1,14 +1,43 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@crates//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script", "extract_cargo_lints")
 load("@rules_rust//rust:defs.bzl", "rust_doc_test", "rust_library", "rust_test")
+load("//tools/bazel:files.bzl", "package_files")
 
 package(default_visibility = ["//visibility:public"])
+
+package_files()
 
 extract_cargo_lints(
     name = "lints",
     manifest = "Cargo.toml",
     workspace = "//:Cargo.toml",
 )
+
+# Cargo's `tpm-sim` feature: the TPM backend also speaks to a software TPM over TCP, for the
+# simulator suites only (`bun run test:tpm-sim`, `MERKUR_TPM_SIM_ADDR` on the e2e suites).
+bool_flag(
+    name = "tpm_sim",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "tpm_sim_enabled",
+    flag_values = {":tpm_sim": "true"},
+)
+
+# Off Linux the TPM protocol crate is the feature's optional dependency; on Linux it is a
+# dependency already.
+config_setting(
+    name = "tpm_sim_optional_protocol",
+    constraint_values = ["@platforms//os:macos"],
+    flag_values = {":tpm_sim": "true"},
+)
+
+_FEATURES = select({
+    ":tpm_sim_enabled": ["tpm-sim"],
+    "//conditions:default": [],
+})
 
 # On macOS the Secure Enclave bridge is Swift, compiled with the selected Xcode's tools.
 cargo_build_script(
@@ -25,18 +54,23 @@ rust_library(
     name = "merkur_identity_seal",
     srcs = glob(["src/**/*.rs"]),
     aliases = aliases(),
+    crate_features = _FEATURES,
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro = True),
     deps = [
         ":build_script",
         "//packages/merkur-authorization:merkur_authorization",
         "//packages/merkur-e2e:merkur_e2e",
-    ] + all_crate_deps(normal = True),
+    ] + all_crate_deps(normal = True) + select({
+        ":tpm_sim_optional_protocol": ["@crates//:tpm2-protocol"],
+        "//conditions:default": [],
+    }),
 )
 
 rust_test(
     name = "unit",
     crate = ":merkur_identity_seal",
+    crate_features = _FEATURES,
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro_dev = True),
     deps = all_crate_deps(normal_dev = True),

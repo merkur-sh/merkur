@@ -7,20 +7,13 @@ import type { SimpleCommand } from '../shell-command';
  * "Batch what you selected", mechanised.
  *
  * Static rules over one command line: a line that pays for the same compile twice —
- * `cargo check` next to `cargo clippy`, `check` next to one of its members, `verify` next to
- * what it already runs, or two Cargo commands with one backgrounded — is refused with the
- * batched form. Whether a Cargo command from an earlier tool call is still running is not
+ * `cargo check` next to `cargo clippy`, `check` next to one of its members, or two Cargo
+ * commands with one backgrounded — is refused with the batched form. Whether a Cargo command from an earlier tool call is still running is not
  * this guard's question: Cargo's own target-dir lock serializes that, deterministically.
  */
 
 /** Root `package.json` scripts whose body is (or runs) Cargo. */
-const CARGO_BACKED_SCRIPTS: ReadonlySet<string> = new Set([
-  'build:dataplane',
-  'check:protocol',
-  'check',
-  'verify',
-  'spike:ios:server',
-]);
+const CARGO_BACKED_SCRIPTS: ReadonlySet<string> = new Set(['spike:ios:server']);
 
 const CHECK_MEMBERS: ReadonlySet<string> = new Set([
   'check:types',
@@ -34,8 +27,6 @@ const CHECK_MEMBERS: ReadonlySet<string> = new Set([
   'check:ratchet',
   'check:protocol',
 ]);
-
-const VERIFY_MEMBERS: ReadonlySet<string> = new Set(['check', 'check:audit', 'test:unit']);
 
 /** The root script a `bun run X` / `bun X` invokes, if any. */
 export function bunScriptOf(argv: readonly string[]): string | null {
@@ -101,16 +92,6 @@ export function evaluateCargoStatic(commands: readonly SimpleCommand[]): GuardDe
       return {
         kind: 'deny',
         reason: `Denied: \`bun run check\` already runs \`${member}\`; running both pays for it twice.\nRun only: bun run check`,
-      };
-    }
-  }
-
-  if (scripts.has('verify')) {
-    const member = [...scripts].find((script) => VERIFY_MEMBERS.has(script));
-    if (member !== undefined) {
-      return {
-        kind: 'deny',
-        reason: `Denied: \`bun run verify\` already runs \`${member}\` (verify = check ∥ check:audit ∥ test:unit).\nRun only: bun run verify`,
       };
     }
   }
