@@ -2095,9 +2095,6 @@
   "scripts/e2e-web-artifacts.ts": {
     "no-runtime-typeof": 1
   },
-  "scripts/edge-entrypoint.test.ts": {
-    "no-known-value-widening": 1
-  },
   "scripts/edge-network-control.test.ts": {
     "no-known-value-widening": 3,
     "no-literal-timer-delay": 1,
@@ -2362,9 +2359,6 @@
   },
   "scripts/sim-tests.ts": {
     "require-safety-comment-for-type-assertion": 2
-  },
-  "scripts/stun-entrypoint.test.ts": {
-    "no-known-value-widening": 1
   },
   "scripts/term-wasm-current-glue.test.ts": {
     "no-compat-names": 10
