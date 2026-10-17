@@ -86,6 +86,7 @@ async function sweep([countText = '100', startText]: string[]): Promise<void> {
   const scratch = await mkdtemp(path.join(tmpdir(), 'merkur-sim-sweep-'));
   const failuresFile = path.join(scratch, 'sweep-failures.json');
   process.stdout.write(`sweeping seeds ${start}..${start + count}\n`);
+  // The target's own arguments already run one simulation at a time.
   await exec(
     [
       'bazel',
@@ -95,7 +96,6 @@ async function sweep([countText = '100', startText]: string[]): Promise<void> {
       'sweep',
       '--ignored',
       '--exact',
-      '--test-threads=1',
       '--nocapture',
     ],
     { MERKUR_SIM_SWEEP: `${start},${count}`, MERKUR_SIM_SWEEP_FAILURES: failuresFile },
