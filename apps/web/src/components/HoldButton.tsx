@@ -147,12 +147,15 @@ const HoldButton: Component<Props> = (props) => {
       onContextMenu={(event) => event.preventDefault()}
     >
       {/* Under the label, over the control's own fill: the button is its own
-          stacking context, so a negative layer paints between the two. */}
+          stacking context, so a negative layer paints between the two. Empty
+          at rest by class, not by a `style` attribute: a literal style is
+          compiled into the template's markup, and the app's CSP has no
+          'unsafe-inline' for attributes, so Firefox drops it and draws the
+          fill full. */}
       <span
         ref={fillEl}
         aria-hidden="true"
-        class="pointer-events-none absolute inset-0 -z-1 origin-left rounded-[inherit] bg-[rgba(255,107,116,0.30)]"
-        style={{ transform: 'scaleX(0)' }}
+        class="pointer-events-none absolute inset-0 -z-1 origin-left scale-x-0 rounded-[inherit] bg-[rgba(255,107,116,0.30)]"
       />
       {props.children}
     </button>
