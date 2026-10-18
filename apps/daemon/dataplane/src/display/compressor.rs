@@ -25,6 +25,9 @@ pub const DISPLAY_DICTIONARY_MAX_BYTES: usize = 16 * 1024;
 /// Shorter trailing fragments skew the fitted entropy tables away from rows.
 const DISPLAY_DICTIONARY_SAMPLE_MIN_BYTES: usize = 64;
 
+#[cfg(test)]
+mod experiments;
+
 /// Buffers the dictionary thread keeps across builds, so a steady session
 /// finalizes without reallocating.
 #[derive(Default)]
@@ -404,8 +407,7 @@ impl Compressor {
         };
         out[DISPLAY_HEADER_FLAGS_OFFSET] =
             frame[DISPLAY_HEADER_FLAGS_OFFSET] | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD | dict_flag;
-        out[merkur_codec::DISPLAY_BODY_LENGTH_OFFSET
-            ..merkur_codec::DISPLAY_BODY_LENGTH_OFFSET + 4]
+        out[merkur_codec::DISPLAY_BODY_LENGTH_OFFSET..merkur_codec::DISPLAY_BODY_LENGTH_OFFSET + 4]
             .copy_from_slice(&(compressed_body_bytes as u32).to_be_bytes());
 
         debug_assert_eq!(out.len(), compressed_frame_bytes);

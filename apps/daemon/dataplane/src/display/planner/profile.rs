@@ -558,6 +558,12 @@ fn derive_work(
             usize::from(feasible.open_group_max),
         );
     let prune_above_us = upper_bound_us + (1.0 + upper_bound_us.abs()) * 1e-10;
+    let group_bound = count > 1
+        && planned_fec_group_size(context) > 1
+        && (context.fec_enabled || context.carrier.loss_upper > 0.0)
+        && HEADER_BYTES.saturating_add(rows.iter().map(|row| row.bytes).max().unwrap_or(0))
+            <= WIRE_CAP
+        && !workspace.disable_group_lower_bound;
     for end in 1..=count {
         for start in (0..end).rev() {
             if end > start + 1 && raw(start, end) > multirow_limit {
@@ -582,7 +588,14 @@ fn derive_work(
                             context,
                             &workspace.group_close_cost_us,
                         );
-                        if candidate.score_us + workspace.suffix_lower_bound_us[end]
+                        let open_close = if group_bound {
+                            workspace.group_close_lower_bound_us
+                                [usize::from(candidate.open_group_len)]
+                                [usize::from(candidate.open_group_max)]
+                        } else {
+                            0.0
+                        };
+                        if candidate.score_us + open_close + workspace.suffix_lower_bound_us[end]
                             <= prune_above_us
                         {
                             work.admitted += 1;
@@ -1234,4 +1247,202 @@ fn planner_posterior_read_profile() {
     eprintln!(
         "PLANNER_POSTERIOR observe_quote_ns={observe_quote_ns:.1} carrier_quote_ns={carrier_quote_ns:.1} flush_ns={flush_ns:.1} observe_sender_ns={observe_sender_ns:.1} sender_upper18_ns={sender_upper18_ns:.1} fingerprint={fingerprint:016x}"
     );
+}
+
+#[test]
+fn retained_close_prices_follow_every_quote_and_width_change() {
+    let captured = capture(120, 40, false);
+    let mut retained = Worker::new(false);
+    for round in 0..3 {
+        for loss in [0.0, 0.03, 0.09] {
+            for fec in [true, false] {
+                for size in [1, 8, 2, 40] {
+                    let peer = warm_peer_model(50.0 + round as f64);
+                    let mut context = planning_context(&peer);
+                    context.fec_enabled = fec;
+                    context.carrier.loss_upper = loss;
+                    context.carrier.pacing_rate_bps = 1_000_000 + round * 200_000;
+                    context.initial_fec_group_len = usize::try_from(round).unwrap() % 3;
+                    context.initial_fec_group_max_bytes = 500;
+                    let planned: Vec<_> = captured[..size].iter().map(|r| r.planned).collect();
+                    let mut fresh = Worker::new(false);
+                    let solve = |worker: &mut Worker| {
+                        plan_batch_partitions(
+                            &worker.global,
+                            &profiles(&peer),
+                            ExecutionLane::Bulk,
+                            DictionaryClass::Plain,
+                            context,
+                            &planned,
+                            HEADER_BYTES,
+                            WIRE_CAP,
+                            &mut worker.workspace,
+                            &mut worker.plan,
+                        );
+                    };
+                    solve(&mut retained);
+                    solve(&mut fresh);
+                    assert_eq!(
+                        retained.plan.score_us.to_bits(),
+                        fresh.plan.score_us.to_bits()
+                    );
+                    assert_eq!(
+                        retained.plan.iter().collect::<Vec<_>>(),
+                        fresh.plan.iter().collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "paired exact close-table reuse comparison"]
+fn planner_close_cache_profile() {
+    let captured = capture(120, 40, false);
+    let peer = warm_peer_model(50.0);
+    let context = planning_context(&peer);
+    let snapshot = profiles(&peer);
+    for size in [1, 2, 8, 40] {
+        let planned: Vec<_> = captured[..size].iter().map(|r| r.planned).collect();
+        let mut worker = Worker::new(false);
+        for round in 0..16 {
+            let mut signature = None;
+            for retained in if round % 2 == 0 {
+                [false, true]
+            } else {
+                [true, false]
+            } {
+                let solve = |worker: &mut Worker| {
+                    if !retained {
+                        worker.workspace.group_close_inputs = None;
+                    }
+                    plan_batch_partitions(
+                        &worker.global,
+                        &snapshot,
+                        ExecutionLane::Inline,
+                        DictionaryClass::Plain,
+                        context,
+                        &planned,
+                        HEADER_BYTES,
+                        WIRE_CAP,
+                        &mut worker.workspace,
+                        &mut worker.plan,
+                    );
+                };
+                for _ in 0..50 {
+                    solve(&mut worker);
+                }
+                test_allocations::begin();
+                let ns = nanos_per_op(500, || solve(&mut worker));
+                let allocations = test_allocations::end().allocations;
+                let result = (
+                    worker.plan.score_us.to_bits(),
+                    worker.plan.iter().collect::<Vec<_>>(),
+                );
+                if let Some(previous) = &signature {
+                    assert_eq!(previous, &result);
+                }
+                signature = Some(result);
+                assert_eq!(allocations, 0);
+                eprintln!(
+                    "PLANNER_CLOSE_CACHE rows={size} round={round} retained={retained} ns={ns:.3} allocations={allocations}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "paired cold-grid exact group-bound comparison"]
+fn planner_group_bound_profile() {
+    let captured = capture(384, 256, false);
+    let peer = peer_model(120.0);
+    let context = planning_context(&peer);
+    let snapshot = profiles(&peer);
+    let planned: Vec<_> = captured[..255].iter().map(|r| r.planned).collect();
+    let mut worker = Worker::new(false);
+    for round in 0..12 {
+        let mut signature = None;
+        for bound in if round % 2 == 0 {
+            [false, true]
+        } else {
+            [true, false]
+        } {
+            worker.workspace.disable_group_lower_bound = !bound;
+            let solve = |worker: &mut Worker| {
+                plan_batch_partitions(
+                    &worker.global,
+                    &snapshot,
+                    ExecutionLane::Bulk,
+                    DictionaryClass::Plain,
+                    context,
+                    &planned,
+                    HEADER_BYTES,
+                    WIRE_CAP,
+                    &mut worker.workspace,
+                    &mut worker.plan,
+                );
+            };
+            for _ in 0..4 {
+                solve(&mut worker);
+            }
+            test_allocations::begin();
+            let ns = nanos_per_op(20, || solve(&mut worker));
+            let allocations = test_allocations::end().allocations;
+            let result = (
+                worker.plan.score_us.to_bits(),
+                worker.plan.iter().collect::<Vec<_>>(),
+            );
+            if let Some(previous) = &signature {
+                assert_eq!(previous, &result);
+            }
+            signature = Some(result);
+            assert_eq!(allocations, 0);
+            eprintln!(
+                "PLANNER_GROUP_BOUND round={round} bound={bound} ns={ns:.3} allocations={allocations} states={}",
+                worker.workspace.states.len()
+            );
+        }
+    }
+}
+
+#[test]
+fn open_group_lower_bounds_match_every_possible_close() {
+    for loss_upper in [0.0, 0.03, 0.09] {
+        for fec_enabled in [false, true] {
+            let carrier = CarrierDeliveryQuote {
+                loss_upper,
+                ..CarrierDeliveryQuote::default()
+            };
+            let context = PlanningContext {
+                carrier,
+                fec_enabled,
+                ..PlanningContext::default()
+            };
+            let mut costs = [[0.0; SHARD_SIZES]; GROUP_LENGTHS];
+            fill_group_close_cost_cache(&mut costs, carrier, context, SHARD_SIZES - 1);
+            let mut lower = [[0.0; SHARD_SIZES]; GROUP_LENGTHS];
+            for group_size in 1..GROUP_LENGTHS {
+                for widest in [
+                    200,
+                    DisplayPolicy::FEC_TWO_SHARD_DATAGRAM_PAYLOAD_BYTES,
+                    DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
+                    SHARD_SIZES - 1,
+                ] {
+                    fill_group_close_lower_bounds(&costs, &mut lower, group_size, widest);
+                    for len in 1..=group_size {
+                        for width in [0, 1, 100, widest / 2, widest] {
+                            let exact = costs[len..=group_size]
+                                .iter()
+                                .flat_map(|row| row[width..=widest].iter().copied())
+                                .min_by(f64::total_cmp)
+                                .unwrap();
+                            assert_eq!(lower[len][width].to_bits(), exact.to_bits());
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

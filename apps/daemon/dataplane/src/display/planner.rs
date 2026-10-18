@@ -350,7 +350,7 @@ pub fn ratio_class(ratio: f64) -> usize {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CarrierDeliveryQuote {
     pub one_way_us: f64,
     pub jitter_upper_us: f64,
@@ -368,7 +368,7 @@ pub struct CarrierDeliveryQuote {
     pub(crate) serial_hops: Option<[CarrierHopQuote; 2]>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CarrierHopQuote {
     one_way_us: f64,
     jitter_upper_us: f64,
@@ -896,6 +896,16 @@ pub struct PlannerWorkspace {
     /// row even when the frontier had only a handful of reachable states.
     candidate_dirty: [u64; CANDIDATE_DIRTY_WORDS],
     group_close_cost_us: [[f64; SHARD_SIZES]; GROUP_LENGTHS],
+    /// A close price depends on the quote and FEC policy, not the row census,
+    /// compression posterior or inherited group. Suffix replans reuse it only
+    /// while every input is identical and the filled width covers the solve.
+    group_close_inputs: Option<(CarrierDeliveryQuote, bool, usize)>,
+    group_close_widest: usize,
+    group_close_lower_bound_us: Box<[[f64; SHARD_SIZES]; GROUP_LENGTHS]>,
+    group_lower_size: usize,
+    group_lower_widest: usize,
+    #[cfg(test)]
+    disable_group_lower_bound: bool,
     span_costs: Vec<Option<SpanCostEntry>>,
 }
 
@@ -916,6 +926,13 @@ impl Default for PlannerWorkspace {
                 .into_boxed_slice(),
             candidate_dirty: [0; CANDIDATE_DIRTY_WORDS],
             group_close_cost_us: [[0.0; SHARD_SIZES]; GROUP_LENGTHS],
+            group_close_inputs: None,
+            group_close_widest: 0,
+            group_close_lower_bound_us: Box::new([[0.0; SHARD_SIZES]; GROUP_LENGTHS]),
+            group_lower_size: 0,
+            group_lower_widest: 0,
+            #[cfg(test)]
+            disable_group_lower_bound: false,
             span_costs: vec![None; MAX_PLANNED_ROWS + 1],
         }
     }
@@ -1158,6 +1175,24 @@ fn fill_group_close_cost_cache(
     }
     for shard_size in dominance_breakpoints(context) {
         fill(shard_size.min(SHARD_SIZES - 1));
+    }
+}
+
+fn fill_group_close_lower_bounds(
+    costs: &[[f64; SHARD_SIZES]; GROUP_LENGTHS],
+    lower: &mut [[f64; SHARD_SIZES]; GROUP_LENGTHS],
+    group_size: usize,
+    widest: usize,
+) {
+    for len in (1..=group_size).rev() {
+        let mut cheapest = f64::INFINITY;
+        for width in (0..=widest).rev() {
+            cheapest = cheapest.min(costs[len][width]);
+            if len < group_size {
+                cheapest = cheapest.min(lower[len + 1][width]);
+            }
+            lower[len][width] = cheapest;
+        }
     }
 }
 
@@ -1687,11 +1722,57 @@ fn plan_for_carrier(
     let widest = context
         .initial_fec_group_max_bytes
         .max(widest_span.min(wire_cap.max(context.datagram_max_payload_bytes)));
-    #[cfg(debug_assertions)]
-    for costs in &mut workspace.group_close_cost_us {
-        costs.fill(UNFILLED_GROUP_CLOSE_COST_US);
+    let close_inputs = (
+        carrier,
+        context.fec_enabled,
+        context.datagram_max_payload_bytes,
+    );
+    if workspace.group_close_inputs != Some(close_inputs) || widest > workspace.group_close_widest {
+        if workspace.group_close_inputs != Some(close_inputs) {
+            workspace.group_lower_size = 0;
+        }
+        #[cfg(debug_assertions)]
+        for costs in &mut workspace.group_close_cost_us {
+            costs.fill(UNFILLED_GROUP_CLOSE_COST_US);
+        }
+        fill_group_close_cost_cache(&mut workspace.group_close_cost_us, carrier, context, widest);
+        workspace.group_close_inputs = Some(close_inputs);
+        workspace.group_close_widest = widest;
     }
-    fill_group_close_cost_cache(&mut workspace.group_close_cost_us, carrier, context, widest);
+    // When every singleton fits the protected cap, every future datagram
+    // does too: multirow candidates are bounded by `wire_cap`, and compressed
+    // singletons are smaller than raw. An open group must eventually close
+    // at some greater width/length, even if a reliable record closes it.
+    // Its cheapest possible close is an additional exact suffix lower bound.
+    // A single-row solve has no intermediate frontier to prune. A group of
+    // one closes inside its transition; without parity or loss, all closes
+    // are free. None of these cases needs an additional bound.
+    let group_bound = count > 1
+        && planned_fec_group_size(context) > 1
+        && (context.fec_enabled || carrier.loss_upper > 0.0)
+        && header_bytes.saturating_add(widest_row) <= wire_cap;
+    #[cfg(test)]
+    let group_bound = group_bound && !workspace.disable_group_lower_bound;
+    let group_size = planned_fec_group_size(context);
+    let group_widest = wire_cap
+        .min(header_bytes.saturating_add(workspace.prefix[count]))
+        .max(context.initial_fec_group_max_bytes)
+        .min(SHARD_SIZES - 1);
+    // A minimum over a wider set of future widths remains a lower bound for
+    // a shorter suffix. Keep it across replans until the quote, group size or
+    // a newly possible wider datagram requires a different table.
+    if group_bound
+        && (workspace.group_lower_size != group_size || workspace.group_lower_widest < group_widest)
+    {
+        fill_group_close_lower_bounds(
+            &workspace.group_close_cost_us,
+            &mut workspace.group_close_lower_bound_us,
+            group_size,
+            group_widest,
+        );
+        workspace.group_lower_size = group_size;
+        workspace.group_lower_widest = group_widest;
+    }
     let mut feasible = PlannerState {
         score_us: 0.0,
         open_group_len: context
@@ -1771,7 +1852,14 @@ fn plan_for_carrier(
                             context,
                             &workspace.group_close_cost_us,
                         );
-                        if candidate.score_us + workspace.suffix_lower_bound_us[end]
+                        let open_close = if group_bound {
+                            workspace.group_close_lower_bound_us
+                                [usize::from(candidate.open_group_len)]
+                                [usize::from(candidate.open_group_max)]
+                        } else {
+                            0.0
+                        };
+                        if candidate.score_us + open_close + workspace.suffix_lower_bound_us[end]
                             > prune_above_us
                         {
                             return;

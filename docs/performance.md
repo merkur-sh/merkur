@@ -449,6 +449,28 @@ counts Rust allocator requests, not C-zstd's internal allocations. `pty::buffer_
 requires the full requested capacity before a reused frame is filled. Paired measurements bound
 the speed claim; it is component evidence, not an end-to-end result.
 
+The ignored tests in `display::compressor::experiments` compare dictionary construction
+and immutable row references over generated PTY traces. Training precedes evaluation;
+dictionary transfer and checkpoint control records count toward bytes. Row references
+use acknowledged immutable screen checkpoints, the production capture hashes and exact
+cell comparisons. Every packet retains its literal row obligations. The harness uses
+shared raw-size packet boundaries and native decode, excluding adaptive packetization,
+QUIC/FEC delivery, browser presentation and checkpoint retirement. Its byte and CPU
+results establish component tradeoffs. Run the profiles serially:
+
+```sh
+bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::dictionary_net_profile
+bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::row_reuse_net_profile
+bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_close_cache_profile
+bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_group_bound_profile
+```
+
+The paired planner profiles compare exact close-price reuse and the unavoidable open-group
+close lower bound within one binary, requiring identical selected scores and partitions
+and zero warmed planner allocations. Quote or FEC-policy changes invalidate retained close
+prices. The group bound considers every remaining close length and width; it applies only
+when every singleton fits the protected cap, which bounds future datagram widths too.
+
 The display compression/row-encoding and daemon updater profiles have focused workload
 selectors. Run the two updater modes together: separate processes are required for meaningful
 maximum-RSS comparison. The zstd browser workloads execute the real `term-wasm` decoder, while the
