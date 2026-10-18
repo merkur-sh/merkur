@@ -3,7 +3,8 @@
 //! Sized for tiny batches (≤ 4 data shards, ≤ 2 recovery shards) where
 //! generic libraries pay a large fixed FFT overhead. No allocations, no
 //! dependencies, `no_std`. One fused SIMD pass per encode or decode: NEON on
-//! AArch64, SSSE3 on x86_64, `simd128` on WASM.
+//! AArch64, SSSE3 on x86_64, `simd128` on WASM. Every recoverable mask's decoding
+//! matrix and SIMD tables are solved at compile time.
 
 #![no_std]
 // A latency path: the code runs for every protected display batch and waits on nothing.
@@ -14,6 +15,7 @@
 extern crate alloc;
 
 mod codec;
+mod decode_plan;
 mod field;
 pub mod repair;
 mod simd;

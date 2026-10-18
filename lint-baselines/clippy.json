@@ -925,8 +925,7 @@
     },
     "packages/merkur-fec/src/codec.rs": {
       "clippy::cast_possible_truncation": 2,
-      "clippy::indexing_slicing": 33,
-      "clippy::too_many_lines": 1
+      "clippy::indexing_slicing": 17
     },
     "packages/merkur-fec/src/field.rs": {
       "clippy::cast_possible_truncation": 3,

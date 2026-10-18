@@ -1109,6 +1109,15 @@ payload, joins it into reusable row storage, and applies the rows without a norm
 JavaScript buffer. Rust owns bounded FEC storage, and render geometry scratch buffers retain
 capacity across frames.
 
+FEC recovery selects from the complete finite set of decoding plans for the wire's four-data,
+two-repair bound. Compile-time Cauchy inversion and coefficient expansion produce 30 plans;
+runtime recovery validates slices, selects the received sources, and runs the existing fused
+SIMD combination. It constructs no matrix or nibble tables per recovery and allocates nothing.
+The immutable plan storage occupies 9,376 bytes on 64-bit native targets and 8,656 bytes in
+wasm32. The `merkur-fec` exhaustive round-trip test covers every data/repair loss mask, and its
+ignored `fec_decode_profile` and `fec_decode_fixed_cost_profile` tests measure recovery CPU
+separately from transport, display application and presentation.
+
 ## Workload Fidelity
 
 The report labels every workload:
