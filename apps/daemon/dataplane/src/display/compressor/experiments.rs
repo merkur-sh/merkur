@@ -794,6 +794,7 @@ fn reuse_trial_with_dictionary(
         // reuse was observed. A checkpoint cannot be referenced before its
         // modeled application ACK; no timer/streak guesses content similarity.
         if reuse
+            && pending.is_empty()
             && moved_content(
                 &updates[step - 1],
                 &updates[step],
@@ -843,7 +844,7 @@ fn reuse_trial_with_dictionary(
             );
         }
         receiver.checkpoint(step, requested, acknowledged);
-        assert!(receiver.checkpoints.len() <= lag + 2);
+        assert!(receiver.checkpoints.len() <= 2);
         for (actual, expected) in receiver.grid.iter().zip(&updates[step].screen) {
             assert_eq!(actual.as_slice(), expected.as_ref());
         }

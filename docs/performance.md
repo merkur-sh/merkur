@@ -453,7 +453,9 @@ The ignored tests in `display::compressor::experiments` compare dictionary const
 and immutable row references over generated PTY traces. Training precedes evaluation;
 dictionary transfer and checkpoint control records count toward bytes. Row references
 use acknowledged immutable screen checkpoints, the production capture hashes and exact
-cell comparisons. Every packet retains its literal row obligations. The harness uses
+cell comparisons. Only one checkpoint request awaits acknowledgment at a time; the
+modeled receiver retains its active checkpoint and one pending checkpoint. Every packet
+retains its literal row obligations. The harness uses
 shared raw-size packet boundaries and native decode, excluding adaptive packetization,
 QUIC/FEC delivery, browser presentation and checkpoint retirement. Its byte and CPU
 results establish component tradeoffs. Run the profiles serially:
