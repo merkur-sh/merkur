@@ -79,6 +79,32 @@ export const TERMINAL_THEMES = {
       [249, 250, 251],
     ],
   },
+  // morta.nvim 2.0 defines no terminal colours; this maps its palette onto the
+  // ANSI slots, with `comment` as bright black so autosuggestions stay legible.
+  morta: {
+    name: 'Morta',
+    foreground: [217, 224, 255],
+    background: [30, 31, 45],
+    cursor: [216, 168, 255],
+    palette: [
+      [43, 45, 65],
+      [240, 121, 152],
+      [158, 206, 106],
+      [224, 175, 104],
+      [150, 180, 243],
+      [216, 168, 255],
+      [85, 210, 233],
+      [169, 177, 214],
+      [140, 151, 192],
+      [245, 129, 160],
+      [159, 216, 147],
+      [240, 192, 120],
+      [160, 189, 253],
+      [216, 168, 255],
+      [85, 210, 233],
+      [217, 224, 255],
+    ],
+  },
 } as const satisfies Record<string, TerminalTheme>;
 
 export type TerminalThemeId = keyof typeof TERMINAL_THEMES;

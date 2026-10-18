@@ -55,7 +55,7 @@ const TerminalSettings: Component<Props> = (props) => {
 
       <section class="flex flex-col gap-[10px]">
         <h2 class="eyebrow">Theme</h2>
-        <div class="grid grid-cols-3 gap-[10px]">
+        <div class="grid grid-cols-2 gap-[10px]">
           <For each={Object.entries(TERMINAL_THEMES)}>
             {([id, theme]) => (
               <ChoiceTile
