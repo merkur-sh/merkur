@@ -415,12 +415,16 @@ fn a_session_reaches_ready_and_delivers_input_the_daemon_opens() {
         ClientSignal::DataReceived(DataClaim { lane: DataLane::Interactive, nonce: ref proved }) if *proved == hex(&nonce)
     ));
     assert_eq!(actions[1], Action::Path(PathKind::Relay));
-    assert_eq!(actions[2], Action::Status(Status::Ready));
+    assert_eq!(
+        announced(&mut daemon, &actions[2], harness.interactive),
+        RELAY_UNMEASURED
+    );
+    assert_eq!(actions[3], Action::Status(Status::Ready));
     assert!(harness.session.is_ready());
     // The held keystroke leaves once on each lane, numbered from the daemon's
     // next expected sequence.
     assert_eq!(
-        received_input(&mut daemon, &actions[3..]),
+        received_input(&mut daemon, &actions[4..]),
         vec![
             (true, 1, vec![build::press('a')]),
             (false, 1, vec![build::press('a')])
@@ -885,6 +889,27 @@ fn a_resume_claim_waits_for_the_carrier_and_falls_back_to_a_snapshot_unanswered(
     );
 }
 
+/// The carrier announcement `action` carries, as the daemon opens it.
+pub(super) fn announced(
+    daemon: &mut NoiseTransport,
+    action: &Action,
+    conn: ConnId,
+) -> CarrierPrimary {
+    let frame = ctrl_frame(daemon, std::slice::from_ref(action), conn);
+    let Some((MSG_TYPE_CARRIER_PRIMARY, body)) = decode_proto_frame(&frame) else {
+        panic!("not a carrier announcement: {frame:?}");
+    };
+    CarrierPrimary::parse(body).expect("a well-formed carrier announcement")
+}
+
+/// The relay alone, announced before anything was measured.
+const RELAY_UNMEASURED: CarrierPrimary = CarrierPrimary {
+    announcement: 1,
+    direct: false,
+    direct_floor_us: 0,
+    relay_floor_us: 0,
+};
+
 /// The one CTRL frame in `actions`, as the daemon opens it.
 fn ctrl_frame(daemon: &mut NoiseTransport, actions: &[Action], conn: ConnId) -> Vec<u8> {
     let [
@@ -912,11 +937,15 @@ fn the_heartbeat_pings_from_ready_and_a_pong_ends_its_deadline() {
     );
     let (mut daemon, nonce, _) = deliver_ready(&mut harness, NOW + 20);
     let actions = ack_hello(&mut harness, &nonce);
-    // data_received, Ready, the geometry's acquire, then the first ping on
-    // the interactive lane.
-    let acquire = ctrl_frame(&mut daemon, &actions[3..4], harness.interactive);
+    // data_received, the relay chosen and announced, Ready, the geometry's
+    // acquire, then the first ping on the interactive lane.
+    assert_eq!(
+        announced(&mut daemon, &actions[2], harness.interactive),
+        RELAY_UNMEASURED
+    );
+    let acquire = ctrl_frame(&mut daemon, &actions[4..5], harness.interactive);
     assert_eq!(acquire[0], MSG_TYPE_GEOMETRY_CLAIM);
-    let ping = ctrl_frame(&mut daemon, &actions[4..], harness.interactive);
+    let ping = ctrl_frame(&mut daemon, &actions[5..], harness.interactive);
     let token = (NOW + 30) * 1_000;
     assert_eq!(
         decode_proto_frame(&ping),
@@ -944,8 +973,18 @@ fn the_heartbeat_pings_from_ready_and_a_pong_ends_its_deadline() {
         },
         &mut harness.entropy,
     );
+    // The relay's first floor is news to the daemon.
+    let actions = drain(&mut harness.session);
     assert_eq!(
-        drain(&mut harness.session),
+        announced(&mut daemon, &actions[0], harness.interactive),
+        CarrierPrimary {
+            announcement: 2,
+            relay_floor_us: 40_000,
+            ..RELAY_UNMEASURED
+        }
+    );
+    assert_eq!(
+        actions[1..],
         [Action::GraphicsClock {
             monotonic_us: 5,
             rtt_ms: 40
@@ -1005,7 +1044,11 @@ fn a_focused_host_acquires_the_geometry_with_its_viewport_at_ready() {
     acquire.extend_from_slice(&0u64.to_be_bytes());
     acquire.extend_from_slice(&viewport(80, 24, 1));
     let sent = ctrl_types(&mut daemon, &ack_hello(&mut harness, &nonce));
-    assert_eq!(sent[0], (MSG_TYPE_GEOMETRY_CLAIM, acquire));
+    assert_eq!(
+        sent[0],
+        (MSG_TYPE_CARRIER_PRIMARY, RELAY_UNMEASURED.encode().to_vec())
+    );
+    assert_eq!(sent[1], (MSG_TYPE_GEOMETRY_CLAIM, acquire));
 
     let lane = merkur_e2e::lane_for_channel(CHANNEL_CTRL).unwrap();
     let mut state = vec![1];

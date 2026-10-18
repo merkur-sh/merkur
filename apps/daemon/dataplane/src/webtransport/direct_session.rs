@@ -259,6 +259,12 @@ mod tests {
             edge_tx,
         )));
         peer.paths.edge = PathHealth::fresh_available(0.0);
+        peer.accept_carrier_announcement(merkur_wire::protocol::CarrierPrimary {
+            announcement: 1,
+            direct: true,
+            direct_floor_us: 1_000,
+            relay_floor_us: 20_000,
+        });
         let wire = bytes::Bytes::from_static(&[CHANNEL_DISPLAY_DATAGRAM, 0, 0, 0, 0, 0, 0, 0, 7]);
 
         let direct = peer.direct_session.as_ref();

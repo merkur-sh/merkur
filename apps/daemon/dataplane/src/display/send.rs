@@ -3932,18 +3932,13 @@ fn send_display_wire_budgeted(
     kind: PhysicalDatagramKind,
     budget: &mut DatagramPhysicalBudget,
 ) -> BudgetedSendResult {
-    let health_targets = pick_path(
+    let targets = pick_path(
         &peer.paths,
+        planned_display_transport(peer, now_ms, wire.len(), 0),
         intent,
         now_ms,
         SessionPolicy::PATH_STALE_THRESHOLD_MS,
     );
-    let targets = match health_targets {
-        PathTargets::Single(_) => {
-            PathTargets::Single(planned_display_transport(peer, now_ms, wire.len(), 0))
-        }
-        dual @ PathTargets::Dual(_, _) => dual,
-    };
     let edge = peer.edge_tunnel.clone();
     let mut result = BudgetedSendResult::default();
     for target in targets.iter() {
@@ -4256,6 +4251,23 @@ fn display_primary_is_edge(peer: &PeerDisplayState, now_ms: f64) -> bool {
     ) == PeerTransport::Edge
 }
 
+/// A carrier as selection ranks it: its exact queues, windows, pacers and
+/// loss, with the browser's announced floor as its delay once one arrived.
+/// That floor is measured end to end from probes no queue or sleeping radio
+/// can lower; the planner's own timing keeps its learned posterior.
+fn selection_quote(
+    peer: &PeerDisplayState,
+    transport: PeerTransport,
+    send_buffer_occupied_bytes: usize,
+) -> CarrierDeliveryQuote {
+    let quote = peer.display_planning.carrier_quote(
+        usize::from(transport == PeerTransport::Edge),
+        fallback_carrier_quote(peer, transport, send_buffer_occupied_bytes),
+    );
+    peer.announced_one_way_us(transport)
+        .map_or(quote, |one_way_us| quote.with_propagation_us(one_way_us))
+}
+
 fn fallback_carrier_quote(
     peer: &PeerDisplayState,
     transport: PeerTransport,
@@ -4315,13 +4327,9 @@ fn planned_display_transport(
     display_carriers(peer, now_ms)
         .into_iter()
         .min_by(|left, right| {
+            // Exact ties keep carrier order, direct first.
             let delivery = |transport: PeerTransport| {
-                let index = usize::from(transport == PeerTransport::Edge);
-                peer.display_planning
-                    .carrier_quote(
-                        index,
-                        fallback_carrier_quote(peer, transport, send_buffer_occupied_bytes),
-                    )
+                selection_quote(peer, transport, send_buffer_occupied_bytes)
                     .earliest_delivery_us(plan_bytes, packets)
             };
             delivery(*left).total_cmp(&delivery(*right))
@@ -4425,12 +4433,19 @@ fn display_compression_policy(
 /// beat. See `DisplayConfirmDelay`.
 #[inline]
 pub(crate) fn peer_row_resend_interval_ms(peer: &PeerDisplayState, now_ms: f64) -> f64 {
-    let path = peer.paths.get(peer.primary_path(now_ms));
+    let primary = peer.primary_path(now_ms);
+    let path = peer.paths.get(primary);
+    // The announced floor bounds a confirmation from below exactly; the
+    // daemon's own downlink heartbeat stands in only before it arrives.
+    let (network_rtt_ms, network_jitter_ms) = peer.announced_one_way_us(primary).map_or(
+        (path.network_rtt_ewma_ms, path.network_jitter_ewma_ms),
+        |one_way_us| (one_way_us / 500.0, 0.0),
+    );
     DisplayPolicy::row_resend_interval_ms(
         peer.display_confirm.ewma_ms,
         peer.display_confirm.jitter_ewma_ms,
-        path.network_rtt_ewma_ms,
-        path.network_jitter_ewma_ms,
+        network_rtt_ms,
+        network_jitter_ms,
     )
 }
 
@@ -4544,17 +4559,13 @@ fn display_path_targets(
     preferred: PeerTransport,
     now_ms: f64,
 ) -> PathTargets {
-    let targets = pick_path(
+    pick_path(
         paths,
+        preferred,
         intent,
         now_ms,
         SessionPolicy::PATH_STALE_THRESHOLD_MS,
-    );
-    match targets {
-        PathTargets::Dual(first, second) if second == preferred => PathTargets::Dual(second, first),
-        PathTargets::Dual(..) => targets,
-        PathTargets::Single(_) => PathTargets::Single(preferred),
-    }
+    )
 }
 
 /// `head` is the row predecessor the burst's admitted prefix is stamped with
@@ -4752,9 +4763,12 @@ fn plan_optional_physical_sends(
             // Do not turn a required same-path replay into a third copy. If a
             // cross-path copy fit when protection was planned, it is already
             // represented in data_paths instead of replica_path.
-            if datagram.physical_plan.replica_path.is_none() {
+            if datagram.physical_plan.replica_path.is_none()
+                && let Some(primary) = datagram.physical_plan.data_primary
+            {
                 let targets = pick_path(
                     &paths,
+                    primary,
                     datagram.utility.send_intent(),
                     now_ms,
                     SessionPolicy::PATH_STALE_THRESHOLD_MS,
@@ -4784,10 +4798,13 @@ fn plan_optional_physical_sends(
             }
         } else {
             let repair_paths = prepared[end - 1].physical_plan.repair_paths;
-            if repair_paths.any() {
+            if repair_paths.any()
+                && let Some(primary) = prepared[end - 1].physical_plan.data_primary
+            {
                 let repair_wire_len = prepared[end - 1].physical_plan.repair_reserved;
                 let targets = pick_path(
                     &paths,
+                    primary,
                     SendIntent::LatencySensitive,
                     now_ms,
                     SessionPolicy::PATH_STALE_THRESHOLD_MS,
@@ -4813,12 +4830,8 @@ fn prepared_carrier_delivery_us(
     prepared: &[PreparedDisplayDatagram],
     group_max: usize,
 ) -> f64 {
-    let quotes = [PeerTransport::WebTransport, PeerTransport::Edge].map(|carrier| {
-        peer.display_planning.carrier_quote(
-            usize::from(carrier == PeerTransport::Edge),
-            fallback_carrier_quote(peer, carrier, 0),
-        )
-    });
+    let quotes = [PeerTransport::WebTransport, PeerTransport::Edge]
+        .map(|carrier| selection_quote(peer, carrier, 0));
     let context = PlanningContext {
         datagram_max_payload_bytes: DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES,
         fec_group_size: group_max,

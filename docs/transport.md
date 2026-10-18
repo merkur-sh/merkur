@@ -282,18 +282,31 @@ delegation revocation remains a separate authorization operation.
 
 ### Path selection
 
-The shared session retains authenticated direct and relay providers. It ranks them by lowest
-RTT, with an unmeasured provider ranking after every measured one and registration order
-breaking ties. Selection uses a 0.3 EWMA and a **biased** figure: every relay
-sample has `DIRECT_PREFERENCE_GRACE_MS` (12 ms, `packages/merkur-client/src/session/path_selection.rs`)
-added before it is recorded, so a relay path must beat the direct path by more than 12 ms to
-win. The displayed RTT uses the raw sample.
+The shared session retains authenticated direct and relay providers, and one side chooses
+between them: the browser. Its heartbeat seals one probe on both providers at the same instant,
+the daemon answers each on the carrier it arrived on, and only the datagram copy of a pong is a
+sample. The samples cross the whole path, both relay legs and the edge included, and leave
+with the browser's radio awake; the daemon's own downlink pings, which a sleeping cellular radio
+answers seconds late, prove liveness and rank nothing. Display ACK round trips never feed the
+choice.
 
-The sample must measure the network, not a queue. The browser seals a heartbeat probe once per
-provider, the daemon answers on the carrier the probe arrived on, and only the datagram copy of
-the pong is a sample; display ACK round trips never feed the ranking. A typing emit's probe rides
-its own `input_run` and is answered on arrival; only the emit's synchronous seals carry it, so
-no sample includes the time a run waited for credit, a retry, or a deferred reliable copy. Direct admission adds a
+Each provider's figure is its propagation floor: the lowest sample within `FLOOR_WINDOW_MS`
+(10 s, five heartbeat rounds, `packages/merkur-client/src/session/path_selection.rs`), kept by
+a windowed minimum filter. A wake-up, a queue or a busy worker only raises a sample, so the
+floor ignores them; a route that really slowed rises once its old minimum leaves the window, and
+a move to another network restarts every floor. The lower floor carries the session, an exact
+tie goes to direct, a measured provider outranks an unmeasured one, and the relay, registered
+first, leads until anything is measured. The displayed RTT is the smoothed raw sample.
+
+The browser announces its choice and both floors to the daemon in a sealed CTRL record,
+`MSG_TYPE_CARRIER_PRIMARY` (`merkur_wire::protocol::CarrierPrimary`), whenever either changes;
+its counter restarts with each Noise session, and the daemon keeps the newest. Every daemon send
+that names one carrier takes the announced one while it is live, else the other live carrier,
+and the edge before the first announcement. Display placement ranks carriers by their exact
+QUIC queues, windows, pacers and loss with the announced floor as their delay, so the two ends
+never disagree about which path is faster. A send that fails on the selected carrier still falls
+through to the other, and redundancy is only for explicitly redundant frames or a primary whose
+sends are failing. Direct admission adds a
 path to the existing authenticated session and preserves the display generation, row baselines,
 and the acknowledged compression dictionary. The daemon's direct-WebTransport certificate is
 self-signed and short-lived; rotation swaps the TLS configuration on the live socket, and a

@@ -1,6 +1,6 @@
 {
   "apps/daemon/dataplane/src/connection.rs": {
-    "comment-defensive": 2,
+    "comment-defensive": 1,
     "comment-provenance": 3
   },
   "apps/daemon/dataplane/src/display/recv.rs": {

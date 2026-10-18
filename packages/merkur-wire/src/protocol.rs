@@ -395,6 +395,52 @@ pub fn parse_open_url(body: &[u8]) -> Option<(OpenUrlId, &str)> {
     ))
 }
 
+/// Browser -> daemon (CTRL lane, reliable), body = [`CarrierPrimary`]: the provider the
+/// browser chose to carry the session and each provider's propagation floor, the lowest
+/// datagram heartbeat round trip in its window. The daemon follows the newest announcement of
+/// the Noise session for every send that names one carrier.
+pub const MSG_TYPE_CARRIER_PRIMARY: u8 = 0x40;
+/// `announcement:u64 | primary:u8 | direct_floor_us:u32 | relay_floor_us:u32`. A wire fact.
+pub const CARRIER_PRIMARY_BODY_BYTES: usize = 17;
+
+/// One carrier announcement. `announcement` counts from 1 within a Noise session, so a record
+/// that crossed a newer one on the other carrier is recognisably older; a floor of 0 means
+/// that provider is unmeasured.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CarrierPrimary {
+    pub announcement: u64,
+    pub direct: bool,
+    pub direct_floor_us: u32,
+    pub relay_floor_us: u32,
+}
+
+impl CarrierPrimary {
+    pub fn encode(self) -> [u8; CARRIER_PRIMARY_BODY_BYTES] {
+        let mut body = [0; CARRIER_PRIMARY_BODY_BYTES];
+        body[..8].copy_from_slice(&self.announcement.to_be_bytes());
+        body[8] = u8::from(!self.direct);
+        body[9..13].copy_from_slice(&self.direct_floor_us.to_be_bytes());
+        body[13..].copy_from_slice(&self.relay_floor_us.to_be_bytes());
+        body
+    }
+
+    pub fn parse(body: &[u8]) -> Option<Self> {
+        let body: &[u8; CARRIER_PRIMARY_BODY_BYTES] = body.try_into().ok()?;
+        let announcement = u64::from_be_bytes(body[..8].try_into().ok()?);
+        let direct = match body[8] {
+            0 => true,
+            1 => false,
+            _ => return None,
+        };
+        (announcement != 0).then(|| Self {
+            announcement,
+            direct,
+            direct_floor_us: u32::from_be_bytes([body[9], body[10], body[11], body[12]]),
+            relay_floor_us: u32::from_be_bytes([body[13], body[14], body[15], body[16]]),
+        })
+    }
+}
+
 /// Largest body a length-prefixed protocol frame can carry (24-bit length).
 pub const PROTO_MAX_BODY_BYTES: usize = 0x00ff_ffff;
 /// Browser -> daemon, CTRL lane: `enabled:u8 | observation_epoch:u32`.
@@ -775,6 +821,37 @@ pub fn encode_probed_input_run_into<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_carrier_announcement_is_its_seventeen_bytes_and_nothing_else() {
+        let announcement = CarrierPrimary {
+            announcement: 3,
+            direct: false,
+            direct_floor_us: 201_000,
+            relay_floor_us: 172_000,
+        };
+        let body = announcement.encode();
+        assert_eq!(&body[..9], &[0, 0, 0, 0, 0, 0, 0, 3, 1]);
+        assert_eq!(CarrierPrimary::parse(&body), Some(announcement));
+        assert_eq!(CarrierPrimary::parse(&body[..16]), None);
+        let mut long = body.to_vec();
+        long.push(0);
+        assert_eq!(CarrierPrimary::parse(&long), None);
+        let mut unknown = body;
+        unknown[8] = 2;
+        assert_eq!(
+            CarrierPrimary::parse(&unknown),
+            None,
+            "a third carrier does not exist"
+        );
+        let mut zero = body;
+        zero[..8].fill(0);
+        assert_eq!(
+            CarrierPrimary::parse(&zero),
+            None,
+            "announcements count from 1"
+        );
+    }
 
     #[test]
     fn a_display_ack_is_eleven_big_endian_words_and_nothing_else() {

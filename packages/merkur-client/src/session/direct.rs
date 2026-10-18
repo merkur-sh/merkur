@@ -467,6 +467,9 @@ impl Session {
         if dialled_from != Some(address) {
             self.revoke_race();
             self.direct.spent.clear();
+            // Every provider now crosses a network no floor was measured on.
+            self.paths.restart_floors();
+            self.refresh_primary();
         }
         self.refresh_direct(now_ms);
     }

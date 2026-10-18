@@ -435,6 +435,28 @@ impl CarrierDeliveryQuote {
         }
     }
 
+    /// This quote with its network term replaced by a measured propagation
+    /// floor, for ranking carriers: exact queues, windows, pacers and loss
+    /// stay, while no smoothed or learned delay does. A relayed quote's hops
+    /// keep their shares of the replaced term.
+    pub(crate) fn with_propagation_us(mut self, one_way_us: f64) -> Self {
+        if let Some(hops) = self.serial_hops.as_mut() {
+            let total: f64 = hops.iter().map(|hop| hop.one_way_us).sum();
+            let count = hops.len() as f64;
+            for hop in hops.iter_mut() {
+                hop.one_way_us = if total > 0.0 {
+                    one_way_us * hop.one_way_us / total
+                } else {
+                    one_way_us / count
+                };
+                hop.jitter_upper_us = 0.0;
+            }
+        }
+        self.one_way_us = one_way_us;
+        self.jitter_upper_us = 0.0;
+        self
+    }
+
     fn hop_pacing_bytes_per_us(hop: CarrierHopQuote) -> f64 {
         let rtt_us = (hop.one_way_us * 2.0).max(1.0);
         let cwnd = hop.congestion_window_bytes.max(hop.mtu_bytes.max(1) as u64);
@@ -3186,6 +3208,36 @@ mod tests {
             predicted.earliest_delivery_us(2_400, 2) > fast.earliest_delivery_us(2_400, 2),
             "learned serial-carrier tails must affect the planner objective"
         );
+    }
+
+    #[test]
+    fn a_propagation_floor_replaces_learned_delay_and_keeps_every_hops_queue() {
+        let hop = |one_way_us: f64, bytes_in_flight: u64| CarrierDeliveryQuote {
+            one_way_us,
+            jitter_upper_us: 3_000.0,
+            congestion_window_bytes: 12_000,
+            bytes_in_flight,
+            send_buffer_occupied_bytes: 0,
+            mtu_bytes: 1_200,
+            pacing_rate_bps: 96_000_000,
+            loss_upper: 0.0,
+            serial_hops: None,
+        };
+        // A sleeping radio inflated what the hops measured; their queues are real.
+        let inflated = CarrierDeliveryQuote::serial(hop(300_000.0, 24_000), hop(100_000.0, 0));
+        let floored = inflated.with_propagation_us(86_000.0);
+        assert_eq!(floored.one_way_us, 86_000.0);
+        assert_eq!(floored.jitter_upper_us, 0.0);
+        let hops = floored.serial_hops.expect("still relayed");
+        assert_eq!(hops[0].one_way_us, 64_500.0, "each hop keeps its share");
+        assert_eq!(hops[1].one_way_us, 21_500.0);
+        let unqueued = CarrierDeliveryQuote::serial(hop(300_000.0, 0), hop(100_000.0, 0))
+            .with_propagation_us(86_000.0);
+        assert!(
+            floored.fixed_delivery_us() > unqueued.fixed_delivery_us(),
+            "a queue beyond the window still costs"
+        );
+        assert_eq!(unqueued.fixed_delivery_us(), 86_000.0);
     }
 
     #[test]

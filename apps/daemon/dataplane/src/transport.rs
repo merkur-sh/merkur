@@ -157,16 +157,17 @@ pub(crate) fn send_display_wire_with_intent(
     now_ms: f64,
     intent: SendIntent,
 ) -> SentPaths {
-    // Display datagram send. `pick_path` selects the lower-RTT live path
-    // and auto-promotes to dual-send for latency-sensitive intents when the
-    // primary shows degradation signals. Redundant always races both paths,
-    // while SinglePath/Bulk admit exactly one copy unless the selected carrier
+    // Display datagram send on the peer's selected carrier; `pick_path`
+    // auto-promotes to dual-send for latency-sensitive intents while the
+    // primary's sends fail. Redundant always races both paths, while
+    // SinglePath/Bulk admit exactly one copy unless the selected carrier
     // immediately rejects it.
     //
     // Returns the path(s) that actually carried the datagram so the ACK
     // handler can attribute the RTT sample to the outbound leg.
     let targets = crate::connection::pick_path(
         &peer.paths,
+        peer.primary_path(now_ms),
         intent,
         now_ms,
         SessionPolicy::PATH_STALE_THRESHOLD_MS,
@@ -358,9 +359,13 @@ mod tests {
         let edge = Arc::new(EdgeTunnel::new_capture(edge_tx));
         let (mut peer, mut browser) = established_display_peer(PeerTransport::WebTransport);
         peer.direct_session = Some(direct_capture("browser-test", rejected_tx));
-        peer.paths.webtransport.rtt_ewma_ms = 5.0;
         peer.paths.edge = crate::connection::PathHealth::fresh_available(0.0);
-        peer.paths.edge.rtt_ewma_ms = 20.0;
+        peer.accept_carrier_announcement(merkur_wire::protocol::CarrierPrimary {
+            announcement: 1,
+            direct: true,
+            direct_floor_us: 5_000,
+            relay_floor_us: 20_000,
+        });
         peer.edge_tunnel = Some(edge);
 
         let first = peer

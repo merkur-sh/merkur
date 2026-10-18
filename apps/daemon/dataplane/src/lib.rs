@@ -4929,6 +4929,8 @@ async fn handle_noise_final(
     peer.data_attachment_nonces = [None; 2];
     peer.data_rendezvous_pending = true;
     peer.paths.forget_input_probes();
+    // Announcements count within one Noise session; the browser starts over.
+    peer.carrier_announcement = None;
     // Data readiness follows its own same-flight rendezvous. Do not attempt a
     // snapshot before then: a synthetic send failure would arm refusal backoff
     // and make genesis pay a delay despite adding no handshake RTT.
@@ -6100,6 +6102,13 @@ async fn handle_ctrl_channel(
         handle_heartbeat_ping(msg, body, peers).await;
     } else if msg_type == MSG_TYPE_HEARTBEAT_PONG && body.len() == 16 {
         handle_heartbeat_pong(msg, body, peers, start_instant);
+    } else if msg_type == merkur_wire::protocol::MSG_TYPE_CARRIER_PRIMARY {
+        if msg.delivery == DeliveryMode::Stream
+            && let Some(announcement) = merkur_wire::protocol::CarrierPrimary::parse(body)
+            && let Some(peer) = peers.get_mut(&*msg.peer_node_id)
+        {
+            peer.accept_carrier_announcement(announcement);
+        }
     } else if msg_type == MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST && body.is_empty() {
         handle_display_snapshot_request(msg, peers);
     } else if msg_type == MSG_TYPE_DISPLAY_RESUME && body.len() >= 12 {

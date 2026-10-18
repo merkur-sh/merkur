@@ -7354,13 +7354,12 @@ async fn cross_carrier_k1_advances_once_and_records_protected_provenance() {
     peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
     peer.paths.webtransport.seed_rtt(5.0);
     peer.paths.edge.seed_rtt(20.0);
-    let owner = pick_path(
-        &peer.paths,
-        SendIntent::Redundant,
+    let owner = planned_display_transport(
+        &peer,
         100.0,
-        SessionPolicy::PATH_STALE_THRESHOLD_MS,
-    )
-    .primary();
+        DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
+        0,
+    );
     peer.display_cache.fec_evidence.get_mut(owner).observe(
         DisplayDatagramProtection::Unprotected,
         crate::connection::DisplayDatagramOutcome::Lost,
@@ -7474,13 +7473,12 @@ async fn cross_carrier_k1_probe_cadence_reaches_clean_disable_without_double_cou
     peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
     peer.paths.webtransport.seed_rtt(5.0);
     peer.paths.edge.seed_rtt(20.0);
-    let owner = pick_path(
-        &peer.paths,
-        SendIntent::Redundant,
+    let owner = planned_display_transport(
+        &peer,
         100.0,
-        SessionPolicy::PATH_STALE_THRESHOLD_MS,
-    )
-    .primary();
+        DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
+        0,
+    );
     peer.display_cache.fec_evidence.get_mut(owner).observe(
         DisplayDatagramProtection::Unprotected,
         crate::connection::DisplayDatagramOutcome::Lost,
@@ -7636,13 +7634,12 @@ async fn partial_cross_carrier_k1_copy_is_unprotected_and_does_not_advance() {
     peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
     peer.paths.webtransport.seed_rtt(5.0);
     peer.paths.edge.seed_rtt(20.0);
-    let owner = pick_path(
-        &peer.paths,
-        SendIntent::Redundant,
+    let owner = planned_display_transport(
+        &peer,
         100.0,
-        SessionPolicy::PATH_STALE_THRESHOLD_MS,
-    )
-    .primary();
+        DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES,
+        0,
+    );
     let evidence = peer.display_cache.fec_evidence.get_mut(owner);
     evidence.observe(
         DisplayDatagramProtection::Unprotected,
@@ -8989,11 +8986,45 @@ fn receiver_packet_budget_counts_parity_and_selects_the_exact_prefix() {
     assert!(!prepared[7].physical_plan.data_paths.any());
 }
 
+/// Display placement ranks carriers by the browser's announced floors, never
+/// by the daemon's own downlink heartbeats, and an exact tie goes direct.
+#[test]
+fn display_follows_the_announced_floors_over_the_daemons_heartbeats() {
+    let (mut peer, _browser) = benchmark_noise_pair();
+    peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
+    peer.paths.webtransport.seed_rtt(1_448.0);
+    peer.paths.edge.seed_rtt(172.0);
+    let plan = DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES;
+    for (announcement, direct_floor_us, relay_floor_us, expected) in [
+        (1, 201_000, 172_000, PeerTransport::Edge),
+        (2, 4_000, 40_000, PeerTransport::WebTransport),
+        (3, 30_000, 30_000, PeerTransport::WebTransport),
+    ] {
+        assert!(
+            peer.accept_carrier_announcement(merkur_wire::protocol::CarrierPrimary {
+                announcement,
+                direct: expected == PeerTransport::WebTransport,
+                direct_floor_us,
+                relay_floor_us,
+            })
+        );
+        assert_eq!(planned_display_transport(&peer, 100.0, plan, 0), expected);
+        assert_eq!(peer.primary_path(100.0), expected);
+    }
+}
+
 #[test]
 fn exact_dual_path_plan_charges_every_critical_copy_and_repair_copy() {
     let (mut peer, _browser) = benchmark_noise_pair();
     peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
     peer.paths.webtransport.consecutive_send_failures = 1;
+    // The plan leads with the browser's direct choice, whose sends are failing.
+    peer.accept_carrier_announcement(merkur_wire::protocol::CarrierPrimary {
+        announcement: 1,
+        direct: true,
+        direct_floor_us: 1_000,
+        relay_floor_us: 40_000,
+    });
     peer.display_cache.resize(8, 2);
     let mut prepared: Vec<_> = (1..=2)
         .map(|seq| {

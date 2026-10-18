@@ -33,15 +33,15 @@ use merkur_edge_protocol::{
 };
 use merkur_wire::protocol::{
     CHANNEL_CTRL, CHANNEL_DATA_HELLO, CHANNEL_DISPLAY_ACK, CHANNEL_DISPLAY_COMMIT,
-    CHANNEL_DISPLAY_DATAGRAM, CHANNEL_PTY, CHANNEL_SIGNALING, DATA_HANDSHAKE_NONCE_BYTES,
-    DataHandshakeKind, DisplayAckPayload, EdgeLane, MSG_TYPE_DISPLAY_ACK,
-    MSG_TYPE_DISPLAY_DICT_ACK, MSG_TYPE_DISPLAY_DICT_READY, MSG_TYPE_DISPLAY_HASH_DIGEST,
-    MSG_TYPE_DISPLAY_LINK_TABLE, MSG_TYPE_DISPLAY_REPAIR_END, MSG_TYPE_DISPLAY_RESUME,
-    MSG_TYPE_DISPLAY_RESYNC_ROWS, MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, MSG_TYPE_GEOMETRY_STATE,
-    MSG_TYPE_GRAPHICS_UNAVAILABLE, MSG_TYPE_HEARTBEAT_PING, MSG_TYPE_HEARTBEAT_PONG,
-    MSG_TYPE_INPUT_ACK, MSG_TYPE_OPEN_URL, MSG_TYPE_OPEN_URL_ACK, OpenUrlId,
-    decode_data_handshake_frame, decode_proto_frame, encode_data_handshake_frame,
-    encode_probed_input_run_into, encode_proto_frame, parse_open_url,
+    CHANNEL_DISPLAY_DATAGRAM, CHANNEL_PTY, CHANNEL_SIGNALING, CarrierPrimary,
+    DATA_HANDSHAKE_NONCE_BYTES, DataHandshakeKind, DisplayAckPayload, EdgeLane,
+    MSG_TYPE_CARRIER_PRIMARY, MSG_TYPE_DISPLAY_ACK, MSG_TYPE_DISPLAY_DICT_ACK,
+    MSG_TYPE_DISPLAY_DICT_READY, MSG_TYPE_DISPLAY_HASH_DIGEST, MSG_TYPE_DISPLAY_LINK_TABLE,
+    MSG_TYPE_DISPLAY_REPAIR_END, MSG_TYPE_DISPLAY_RESUME, MSG_TYPE_DISPLAY_RESYNC_ROWS,
+    MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, MSG_TYPE_GEOMETRY_STATE, MSG_TYPE_GRAPHICS_UNAVAILABLE,
+    MSG_TYPE_HEARTBEAT_PING, MSG_TYPE_HEARTBEAT_PONG, MSG_TYPE_INPUT_ACK, MSG_TYPE_OPEN_URL,
+    MSG_TYPE_OPEN_URL_ACK, OpenUrlId, decode_data_handshake_frame, decode_proto_frame,
+    encode_data_handshake_frame, encode_probed_input_run_into, encode_proto_frame, parse_open_url,
 };
 use merkur_wire::signaling::{ClientSignal, DaemonSignal, DataClaim, DataLane};
 use merkur_wire::{protocol::MSG_TYPE_TERMINAL_UI, terminal_ui::TerminalUi};
@@ -557,6 +557,8 @@ pub struct Session {
     paths: path_selection::Selection,
     primary_path: Option<PathKind>,
     primary_revision: u32,
+    /// The choice and floors last announced to the daemon in this Noise session.
+    carrier_announced: Option<CarrierPrimary>,
     reliable_blocked: Vec<(ConnId, u8)>,
     display_ack_owed: Option<(DisplayAckPayload, bool)>,
     pong_owed: Vec<(ConnId, [u8; 16])>,
@@ -722,6 +724,7 @@ impl Session {
             paths: path_selection::Selection::default(),
             primary_path: None,
             primary_revision: 0,
+            carrier_announced: None,
             reliable_blocked: Vec::new(),
             display_ack_owed: None,
             pong_owed: Vec::new(),
@@ -895,6 +898,7 @@ impl Session {
             self.flush_input(now_ms);
         }
         if channel == CHANNEL_CTRL && self.has_reliable_capacity(CHANNEL_CTRL) {
+            self.announce_carrier();
             for (owner, pong) in std::mem::take(&mut self.pong_owed) {
                 if let Phase::Established(established) = &mut self.phase {
                     seal_reliable(
@@ -1079,25 +1083,77 @@ impl Session {
 
     fn refresh_primary(&mut self) {
         let selected = self.paths.primary();
-        if self.primary_path == selected {
+        if self.primary_path != selected {
+            self.primary_path = selected;
+            self.primary_revision = self.primary_revision.wrapping_add(1);
+            if let Some(path) = selected {
+                self.quality.path(path);
+                // Provider choice is latest state within this authentication fence.
+                if let Some(action) = self
+                    .actions
+                    .iter_mut()
+                    .rev()
+                    .take_while(|action| !matches!(action, Action::DisplayFence(_)))
+                    .find(|action| matches!(action, Action::Path(_)))
+                {
+                    *action = Action::Path(path);
+                } else {
+                    self.actions.push_back(Action::Path(path));
+                }
+            }
+        }
+        self.announce_carrier();
+    }
+
+    /// Tell the daemon the choice and both floors whenever either changed, so the one
+    /// selection carries the daemon's sends too. A blocked CTRL writer owes it; its release
+    /// asks again.
+    fn announce_carrier(&mut self) {
+        let Some(primary) = self.primary_path else {
+            return;
+        };
+        // A sub-millisecond LAN floor reads 0 ms; 0 µs on the wire means unmeasured.
+        let floor_us = |path| {
+            self.paths.floor_ms(path).map_or(0, |ms| {
+                u32::try_from(ms.saturating_mul(1_000))
+                    .unwrap_or(u32::MAX)
+                    .max(1)
+            })
+        };
+        let next = CarrierPrimary {
+            announcement: self
+                .carrier_announced
+                .map_or(1, |sent| sent.announcement + 1),
+            direct: primary == PathKind::Direct,
+            direct_floor_us: floor_us(PathKind::Direct),
+            relay_floor_us: floor_us(PathKind::Relay),
+        };
+        if self.carrier_announced.is_some_and(|sent| {
+            CarrierPrimary {
+                announcement: next.announcement,
+                ..sent
+            } == next
+        }) {
             return;
         }
-        self.primary_path = selected;
-        self.primary_revision = self.primary_revision.wrapping_add(1);
-        if let Some(path) = selected {
-            self.quality.path(path);
-            // Provider choice is latest state within this authentication fence.
-            if let Some(action) = self
-                .actions
-                .iter_mut()
-                .rev()
-                .take_while(|action| !matches!(action, Action::DisplayFence(_)))
-                .find(|action| matches!(action, Action::Path(_)))
-            {
-                *action = Action::Path(path);
-            } else {
-                self.actions.push_back(Action::Path(path));
-            }
+        let Some(conn) = self.primary_conn() else {
+            return;
+        };
+        if writer_lane_blocked(&self.reliable_blocked, conn, CHANNEL_CTRL) {
+            return;
+        }
+        let Phase::Established(established) = &mut self.phase else {
+            return;
+        };
+        if seal_reliable(
+            established,
+            &mut self.buffers,
+            conn,
+            CHANNEL_CTRL,
+            &encode_proto_frame(MSG_TYPE_CARRIER_PRIMARY, &next.encode()),
+            &mut self.actions,
+        ) {
+            self.carrier_announced = Some(next);
         }
     }
 
@@ -2171,17 +2227,17 @@ impl Session {
                         // The daemon read its animation clock while answering,
                         // within this round trip.
                         if let Some(rtt_ms) = self.heartbeat.resolve_pong_rtt(token, path, now_ms) {
-                            self.paths.observe(path, rtt_ms);
+                            self.paths.observe(path, now_ms, rtt_ms);
                             self.refresh_primary();
                             if self.primary_path == Some(path) {
-                                self.quality.rtt(now_ms, path, rtt_ms);
+                                self.quality.rtt(now_ms, path, rtt_ms as f64);
                             }
                             let clock = &body[8..16];
                             let clock = Action::GraphicsClock {
                                 monotonic_us: u64::from_be_bytes(
                                     clock.try_into().expect("eight bytes"),
                                 ),
-                                rtt_ms: rtt_ms as u64,
+                                rtt_ms,
                             };
                             // A pulse has exact latest-state semantics. A fence
                             // prevents a predecessor sample replacing its successor.
@@ -2293,6 +2349,7 @@ impl Session {
                     self.display_ack_owed = None;
                     self.resync_rows_owed = None;
                     self.pong_owed.clear();
+                    self.carrier_announced = None;
                     self.host_observation_owed = std::array::from_fn(|_| None);
                     self.resume_watchdog_ms = None;
                     self.display_lineage = self.display_lineage.wrapping_add(1).max(1);
@@ -2477,6 +2534,7 @@ impl Session {
                         if promoted && let Some(successor) = uncertain {
                             established.transport = successor.transport;
                             established.direct_upgrade_secret = successor.direct_upgrade_secret;
+                            self.carrier_announced = None;
                         }
                         self.send_rebind(now_ms, entropy);
                     }
@@ -2586,6 +2644,7 @@ impl Session {
         established.transport = successor.transport;
         established.direct_upgrade_secret = successor.direct_upgrade_secret;
         established.uncertain = None;
+        self.carrier_announced = None;
         // The direct path was keyed to the lineage that just ended; the
         // network it was dialled from carries over.
         self.reset_direct(true);

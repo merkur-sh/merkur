@@ -405,9 +405,9 @@ pub(crate) fn handle_heartbeat_pong(
         path.record_authenticated_activity(now_ms_since(start_instant));
         // The client replies on the same path the PING arrived, so this is
         // a correctly-attributed per-path RTT sample. It keeps a path's
-        // EWMA honest even when it carries no display traffic (and hence
-        // gets no ACK-driven samples), so primary-path selection compares real numbers
-        // instead of a frozen baseline.
+        // EWMA current for liveness timing and the resend floor before the
+        // browser's announcement arrives; a sleeping radio answers it late,
+        // which is why it ranks no carrier.
         let echoed_unix_ms = u64::from_be_bytes([
             body[0], body[1], body[2], body[3], body[4], body[5], body[6], body[7],
         ]);

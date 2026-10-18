@@ -118,9 +118,10 @@ pub enum PeerTransport {
 }
 
 /// Per-path liveness + RTT/jitter state. A peer holds one of these per browser
-/// carrier (direct WebTransport and edge WebTransport). The display-layer path selector
-/// `DisplayPolicy::pick_path` reads these to choose the lower-RTT path
-/// for each flush and to fall through on send failure.
+/// carrier (direct WebTransport and edge WebTransport). Liveness gates which
+/// carriers a send may take and its failures fall a send through; which live
+/// carrier leads is the browser's announced choice
+/// (`PeerDisplayState::primary_path`), never these RTTs.
 #[derive(Debug, Clone, Copy)]
 pub struct PathHealth {
     /// True iff a recv-loop is bound to this path AND we haven't observed
@@ -350,40 +351,15 @@ impl PeerPaths {
 
     const ORDERED: [PeerTransport; 2] = [PeerTransport::WebTransport, PeerTransport::Edge];
 
-    /// Rank live carriers by `network_rtt_ewma_ms`, never by `rtt_ewma_ms`.
-    ///
-    /// Ranking is a comparison BETWEEN paths, so both sides must measure the
-    /// same quantity. `rtt_ewma_ms` folds in display-ACK round trips, and those
-    /// land only on the carrier currently doing single-path display — so the
-    /// incumbent is charged the browser's frame-apply time while the challenger
-    /// is measured by heartbeat alone. Worse, the browser returns display ACKs
-    /// on its own mux primary rather than on the carrier the datagram arrived
-    /// on, so `rtt_ewma_ms` is not attributable to one path at all. Heartbeat
-    /// PONGs echo on the carrier that carried the PING, which makes
-    /// `network_rtt_ewma_ms` the only apples-to-apples number available here.
-    fn best_two_live(
+    /// The live carriers in tie-break order: direct first.
+    pub fn live(
         &self,
         now_ms: f64,
         stale_threshold_ms: f64,
-    ) -> (Option<PeerTransport>, Option<PeerTransport>) {
-        let mut primary: Option<PeerTransport> = None;
-        let mut secondary: Option<PeerTransport> = None;
-        for transport in Self::ORDERED {
-            if !self.get(transport).is_live(now_ms, stale_threshold_ms) {
-                continue;
-            }
-            if primary.is_none_or(|current| {
-                self.get(transport).network_rtt_ewma_ms < self.get(current).network_rtt_ewma_ms
-            }) {
-                secondary = primary;
-                primary = Some(transport);
-            } else if secondary.is_none_or(|current| {
-                self.get(transport).network_rtt_ewma_ms < self.get(current).network_rtt_ewma_ms
-            }) {
-                secondary = Some(transport);
-            }
-        }
-        (primary, secondary)
+    ) -> impl Iterator<Item = PeerTransport> {
+        Self::ORDERED
+            .into_iter()
+            .filter(move |transport| self.get(*transport).is_live(now_ms, stale_threshold_ms))
     }
 
     #[inline]
@@ -402,39 +378,23 @@ impl PeerPaths {
         }
     }
 
-    /// Reports the path the daemon would currently pick as primary for a
-    /// latency-sensitive send. Used for logging and pre-auth send decisions.
-    /// Equal RTTs retain stable carrier order.
-    pub fn primary_for_latency(&self, now_ms: f64, stale_threshold_ms: f64) -> PeerTransport {
-        self.best_two_live(now_ms, stale_threshold_ms)
-            .0
-            .unwrap_or(PeerTransport::Edge)
-    }
-
-    /// Lowest-RTT live carrier other than `exclude`, used only after an
-    /// immediate queue/send failure. This preserves failover without paying the
-    /// steady-state cost of racing every frame.
+    /// The live carrier other than `exclude`, used only after an immediate
+    /// queue/send failure or for an explicitly redundant copy. This preserves
+    /// failover without paying the steady-state cost of racing every frame.
     pub fn fallback_for(
         &self,
         exclude: PeerTransport,
         now_ms: f64,
         stale_threshold_ms: f64,
     ) -> Option<PeerTransport> {
-        Self::ORDERED
-            .into_iter()
-            .filter(|transport| *transport != exclude)
-            .filter(|transport| self.get(*transport).is_live(now_ms, stale_threshold_ms))
-            .min_by(|left, right| {
-                self.get(*left)
-                    .network_rtt_ewma_ms
-                    .total_cmp(&self.get(*right).network_rtt_ewma_ms)
-            })
+        self.live(now_ms, stale_threshold_ms)
+            .find(|transport| *transport != exclude)
     }
 }
 
 /// Caller's hint to `pick_path` about what kind of send this is.
-///   * `LatencySensitive` — small interactive frame; prefer lowest RTT; auto-dual
-///     when the primary is showing degradation signals.
+///   * `LatencySensitive` — small interactive frame; the selected carrier; auto-dual
+///     while the primary's sends are failing.
 ///   * `SinglePath`       — utility-ranked noncritical frame; exactly one live
 ///     carrier unless that carrier immediately rejects admission.
 ///   * `Reliable`         — outbound over CHANNEL_DISPLAY_COMMIT / CTRL etc.;
@@ -497,41 +457,32 @@ impl Iterator for PathTargetsIter {
     }
 }
 
-/// Returns the ordered path target(s) to send on. For non-`Redundant` intents
-/// the caller stops at the first successful send. For `Redundant`/dual results
-/// the caller sends on both (partial failures are tolerated).
+/// The ordered path target(s) to send on, led by `primary`, the carrier the
+/// peer's selection chose (`PeerDisplayState::primary_path`, or a display
+/// plan's own winner). For non-`Redundant` intents the caller stops at the
+/// first successful send. For `Redundant`/dual results the caller sends on
+/// both (partial failures are tolerated).
 pub fn pick_path(
     paths: &PeerPaths,
+    primary: PeerTransport,
     intent: SendIntent,
     now_ms: f64,
     stale_threshold_ms: f64,
 ) -> PathTargets {
-    let (primary, secondary) = paths.best_two_live(now_ms, stale_threshold_ms);
-    match (primary, secondary) {
-        // Every issued session has an edge coordinate, so an unavailable path
-        // set still makes its best-effort enqueue against the edge owner.
-        (None, _) => PathTargets::Single(PeerTransport::Edge),
-        (Some(primary), None) => PathTargets::Single(primary),
-        (Some(primary), Some(secondary)) => {
-            let primary_health = paths.get(primary);
-            let secondary_health = paths.get(secondary);
-
-            let auto_redundant = match intent {
-                SendIntent::Redundant => true,
-                SendIntent::SinglePath => false,
-                SendIntent::LatencySensitive | SendIntent::Reliable => {
-                    primary_health.consecutive_send_failures > 0
-                        || primary_health.network_rtt_ewma_ms
-                            > 2.0 * secondary_health.network_rtt_ewma_ms.max(1.0)
-                }
-            };
-
-            if auto_redundant {
-                PathTargets::Dual(primary, secondary)
-            } else {
-                PathTargets::Single(primary)
-            }
+    let Some(secondary) = paths.fallback_for(primary, now_ms, stale_threshold_ms) else {
+        return PathTargets::Single(primary);
+    };
+    let redundant = match intent {
+        SendIntent::Redundant => true,
+        SendIntent::SinglePath => false,
+        SendIntent::LatencySensitive | SendIntent::Reliable => {
+            paths.get(primary).consecutive_send_failures > 0
         }
+    };
+    if redundant {
+        PathTargets::Dual(primary, secondary)
+    } else {
+        PathTargets::Single(primary)
     }
 }
 
@@ -569,7 +520,7 @@ impl Default for AdaptiveTransportState {
 /// Which path(s) successfully carried a display datagram, recorded at send
 /// time. The ACK handler attributes the round-trip RTT sample to the path
 /// that actually carried the datagram — NOT the path the ACK returned on.
-/// The client ACKs over its own lowest-RTT path, so the arrival path says
+/// The client ACKs over its own selected primary, so the arrival path says
 /// nothing about the outbound leg; charging the sample there let a slow
 /// primary poison the other path's EWMA and freeze itself as primary.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -3140,6 +3091,11 @@ pub struct PeerDisplayState {
     /// all carriers can stay armed simultaneously, with the rest as hot
     /// standbys.
     pub paths: PeerPaths,
+    /// The browser's newest carrier choice in this Noise session, and both
+    /// providers' propagation floors. The browser measures them from its own
+    /// paired probes, which leave with its radio awake and cross the whole
+    /// path; the daemon's downlink pings rank nothing.
+    pub carrier_announcement: Option<merkur_wire::protocol::CarrierPrimary>,
 
     /// Previous-interval readings for the periodic telemetry emitter.
     ///
@@ -3518,15 +3474,53 @@ impl PeerDisplayState {
         self.noise_handshake = None;
     }
 
-    /// Path the daemon would currently pick as primary for a latency-sensitive
-    /// send. Used by callers that need a single transport identity for logging
-    /// or framing decisions (heartbeats, snapshots, etc.) where the choice is
-    /// "best currently-live path".
+    /// The carrier every send that names one takes: the browser's announced
+    /// choice while it is live, otherwise the other live carrier. Before the
+    /// first announcement of a Noise session the edge leads, as it does in the
+    /// browser, where the relay registers first.
     pub fn primary_path(&self, now_ms: f64) -> PeerTransport {
-        self.paths.primary_for_latency(
-            now_ms,
-            crate::session::policy::SessionPolicy::PATH_STALE_THRESHOLD_MS,
-        )
+        let stale = crate::session::policy::SessionPolicy::PATH_STALE_THRESHOLD_MS;
+        let announced = self
+            .carrier_announcement
+            .map_or(PeerTransport::Edge, |announcement| {
+                if announcement.direct {
+                    PeerTransport::WebTransport
+                } else {
+                    PeerTransport::Edge
+                }
+            });
+        if self.paths.get(announced).is_live(now_ms, stale) {
+            return announced;
+        }
+        self.paths
+            .fallback_for(announced, now_ms, stale)
+            .unwrap_or(PeerTransport::Edge)
+    }
+
+    /// The announced propagation floor of `transport`, one way, in µs.
+    pub fn announced_one_way_us(&self, transport: PeerTransport) -> Option<f64> {
+        let announcement = self.carrier_announcement?;
+        let floor_us = match transport {
+            PeerTransport::WebTransport => announcement.direct_floor_us,
+            PeerTransport::Edge => announcement.relay_floor_us,
+        };
+        (floor_us != 0).then(|| f64::from(floor_us) / 2.0)
+    }
+
+    /// Adopt a browser carrier announcement unless a newer one already arrived
+    /// on the other carrier. Returns whether it was adopted.
+    pub fn accept_carrier_announcement(
+        &mut self,
+        announcement: merkur_wire::protocol::CarrierPrimary,
+    ) -> bool {
+        if self
+            .carrier_announcement
+            .is_some_and(|held| held.announcement >= announcement.announcement)
+        {
+            return false;
+        }
+        self.carrier_announcement = Some(announcement);
+        true
     }
 
     pub fn new(peer_id: Arc<str>, initial_transport: PeerTransport) -> Self {
@@ -3597,6 +3591,7 @@ impl PeerDisplayState {
             #[cfg(test)]
             sim_next_probe_ordinal: 0,
             paths,
+            carrier_announcement: None,
             display_prepare_in_flight: None,
             display_prepare_epoch: Arc::new(AtomicU64::new(1)),
             auth_timeout_at_ms: None,
@@ -4369,122 +4364,41 @@ mod tests {
     }
 
     #[test]
-    fn pick_path_picks_lower_rtt_when_both_alive() {
-        let paths = live_paths(20.0, 80.0);
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
-        assert_eq!(t, PathTargets::Single(PeerTransport::Edge));
-
-        let paths = live_paths(80.0, 20.0);
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
-        assert_eq!(t, PathTargets::Single(PeerTransport::WebTransport));
+    fn pick_path_sends_on_the_selected_carrier_whatever_the_daemons_own_rtts() {
+        // The daemon's downlink heartbeats rank nothing: a sleeping radio's
+        // 1.4 s answer on the selected carrier keeps it selected.
+        let paths = live_paths(172.0, 1_448.0);
+        for primary in [PeerTransport::WebTransport, PeerTransport::Edge] {
+            assert_eq!(
+                pick_path(
+                    &paths,
+                    primary,
+                    SendIntent::LatencySensitive,
+                    100.0,
+                    STALE_MS
+                ),
+                PathTargets::Single(primary)
+            );
+        }
     }
 
     #[test]
-    fn pick_path_returns_only_live_path_when_other_unavailable() {
+    fn pick_path_keeps_the_selected_carrier_alone_when_the_other_is_down() {
         let mut paths = live_paths(20.0, 20.0);
         paths.webtransport.available = false;
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
-        assert_eq!(t, PathTargets::Single(PeerTransport::Edge));
-
-        let mut paths = live_paths(20.0, 20.0);
-        paths.edge.available = false;
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
-        assert_eq!(t, PathTargets::Single(PeerTransport::WebTransport));
-    }
-
-    #[test]
-    fn edge_and_direct_webtransport_are_independent_selected_routes() {
-        let mut paths = PeerPaths::new(PeerTransport::Edge, 1.0);
-        paths.edge.rtt_ewma_ms = 35.0;
         assert_eq!(
-            pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS,),
-            PathTargets::Single(PeerTransport::Edge),
-            "an edge-only peer must not probe the direct-WT route",
-        );
-
-        paths.webtransport = PathHealth::fresh_available(1.0);
-        paths.webtransport.rtt_ewma_ms = 12.0;
-        assert_eq!(
-            pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS,),
-            PathTargets::Single(PeerTransport::WebTransport),
-            "two healthy carriers still use one selected latency route",
-        );
-        assert_eq!(
-            pick_path(&paths, SendIntent::Redundant, 100.0, STALE_MS),
-            PathTargets::Dual(PeerTransport::WebTransport, PeerTransport::Edge),
-            "loss-triggered redundancy is bounded to the two best live carriers",
-        );
-
-        paths.webtransport.available = false;
-        assert_eq!(
-            paths.fallback_for(PeerTransport::WebTransport, 100.0, STALE_MS),
-            Some(PeerTransport::Edge),
-        );
-    }
-
-    #[test]
-    fn pick_path_dual_sends_when_primary_has_send_failures() {
-        let mut paths = live_paths(20.0, 80.0);
-        paths.edge.consecutive_send_failures = 1;
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
-        assert_eq!(
-            t,
-            PathTargets::Dual(PeerTransport::Edge, PeerTransport::WebTransport)
-        );
-    }
-
-    #[test]
-    fn pick_path_dual_sends_when_primary_rtt_is_much_worse_than_secondary() {
-        // Wait — pick_path picks the LOWER RTT as primary. If primary RTT
-        // is much worse than secondary, that's contradictory by construction.
-        // The auto-dual rule is "primary RTT > 2× secondary RTT" — which can
-        // only happen if there's a measurement skew. Simulate it by forcing
-        // a primary whose own RTT exceeds 2× the other's. The tie-break
-        // picks Edge when equal; force Edge as primary with high RTT.
-        let mut paths = live_paths(30.0, 100.0);
-        // Edge = 30 ≤ WT = 100 → Edge is primary. Primary.rtt(30) > 2×secondary.rtt(100)?
-        // No, 30 > 200 is false. The condition isn't met. So single-send. Good.
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
-        assert_eq!(t, PathTargets::Single(PeerTransport::Edge));
-
-        // Now force the primary path's RTT to exceed 2× the other's. This is
-        // weird (we'd normally pick the OTHER) but defends the condition.
-        paths.edge.network_rtt_ewma_ms = 250.0;
-        paths.webtransport.network_rtt_ewma_ms = 100.0;
-        // WT becomes primary now (250 > 100). WT.rtt=100 > 2×Edge.rtt=500? No.
-        // So single-send WT.
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
-        assert_eq!(t, PathTargets::Single(PeerTransport::WebTransport));
-    }
-
-    #[test]
-    fn pick_path_single_path_never_dual_sends() {
-        let mut paths = live_paths(20.0, 80.0);
-        paths.edge.consecutive_send_failures = 5;
-        let t = pick_path(&paths, SendIntent::SinglePath, 100.0, STALE_MS);
-        assert_eq!(t, PathTargets::Single(PeerTransport::Edge));
-    }
-
-    /// Selection must not react to display-ACK inflation.
-    ///
-    /// `rtt_ewma_ms` folds in the browser's frame-apply time and is charged only
-    /// to whichever carrier is currently doing single-path display, so letting it
-    /// rank paths means the busy incumbent loses to an idle challenger purely for
-    /// being the one doing the work.
-    #[test]
-    fn selection_ignores_ack_inflated_rtt() {
-        let mut paths = live_paths(20.0, 80.0);
-        assert_eq!(
-            pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS),
+            pick_path(
+                &paths,
+                PeerTransport::Edge,
+                SendIntent::Redundant,
+                100.0,
+                STALE_MS
+            ),
             PathTargets::Single(PeerTransport::Edge)
         );
-
-        // The edge is carrying display, so its ACK round trips balloon while the
-        // network underneath is unchanged. Selection must not move.
-        paths.edge.rtt_ewma_ms = 400.0;
         assert_eq!(
-            pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS),
-            PathTargets::Single(PeerTransport::Edge)
+            paths.fallback_for(PeerTransport::Edge, 100.0, STALE_MS),
+            None
         );
         assert_eq!(
             paths.fallback_for(PeerTransport::WebTransport, 100.0, STALE_MS),
@@ -4492,33 +4406,109 @@ mod tests {
         );
     }
 
-    /// A freshly upgraded path is ranked on its measured round trip, not on the
-    /// blind baseline that used to lose it several heartbeats of selection.
     #[test]
-    fn a_seeded_path_outranks_a_slower_incumbent_immediately() {
-        let mut paths = PeerPaths::new(PeerTransport::Edge, 0.0);
-        paths.edge.available = true;
-        paths.edge.rtt_ewma_ms = 60.0;
-        paths.edge.network_rtt_ewma_ms = 60.0;
-        paths.edge.last_ack_at_ms = 1.0;
-
-        // Without a seed the new carrier carries RTT_BASELINE_MS.
-        paths.webtransport = PathHealth::fresh_available(1.0);
-        assert_eq!(paths.webtransport.network_rtt_ewma_ms, RTT_BASELINE_MS);
-
-        // The challenge->proof round trip is the real number and replaces it.
-        paths.webtransport.seed_rtt(4.0);
-        assert_eq!(paths.webtransport.network_rtt_ewma_ms, 4.0);
+    fn pick_path_dual_sends_only_on_redundancy_or_a_failing_primary() {
+        let mut paths = live_paths(20.0, 80.0);
         assert_eq!(
-            pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS),
-            PathTargets::Single(PeerTransport::WebTransport)
+            pick_path(
+                &paths,
+                PeerTransport::WebTransport,
+                SendIntent::Redundant,
+                100.0,
+                STALE_MS
+            ),
+            PathTargets::Dual(PeerTransport::WebTransport, PeerTransport::Edge),
         );
+        paths.edge.consecutive_send_failures = 1;
+        assert_eq!(
+            pick_path(
+                &paths,
+                PeerTransport::Edge,
+                SendIntent::LatencySensitive,
+                100.0,
+                STALE_MS
+            ),
+            PathTargets::Dual(PeerTransport::Edge, PeerTransport::WebTransport)
+        );
+        assert_eq!(
+            pick_path(
+                &paths,
+                PeerTransport::Edge,
+                SendIntent::SinglePath,
+                100.0,
+                STALE_MS
+            ),
+            PathTargets::Single(PeerTransport::Edge)
+        );
+        // A primary's own round trip is no degradation signal.
+        paths.edge.consecutive_send_failures = 0;
+        paths.edge.network_rtt_ewma_ms = 250.0;
+        paths.webtransport.network_rtt_ewma_ms = 10.0;
+        assert_eq!(
+            pick_path(
+                &paths,
+                PeerTransport::Edge,
+                SendIntent::LatencySensitive,
+                100.0,
+                STALE_MS
+            ),
+            PathTargets::Single(PeerTransport::Edge)
+        );
+    }
 
-        // A nonsensical measurement must not poison the path.
-        let before = paths.webtransport.network_rtt_ewma_ms;
-        paths.webtransport.seed_rtt(-1.0);
-        paths.webtransport.seed_rtt(f64::NAN);
-        assert_eq!(paths.webtransport.network_rtt_ewma_ms, before);
+    fn announced_peer(paths: PeerPaths) -> PeerDisplayState {
+        let mut peer = PeerDisplayState::new(Arc::from("peer"), PeerTransport::Edge);
+        peer.paths = paths;
+        peer
+    }
+
+    fn announcement(announcement: u64, direct: bool) -> merkur_wire::protocol::CarrierPrimary {
+        merkur_wire::protocol::CarrierPrimary {
+            announcement,
+            direct,
+            direct_floor_us: 201_000,
+            relay_floor_us: 172_000,
+        }
+    }
+
+    #[test]
+    fn the_primary_follows_the_browsers_newest_announcement() {
+        let mut peer = announced_peer(live_paths(1_448.0, 172.0));
+        // Before any announcement the edge leads, as the relay does in the browser.
+        assert_eq!(peer.primary_path(100.0), PeerTransport::Edge);
+        assert!(peer.accept_carrier_announcement(announcement(1, true)));
+        assert_eq!(peer.primary_path(100.0), PeerTransport::WebTransport);
+        assert!(peer.accept_carrier_announcement(announcement(3, false)));
+        assert_eq!(peer.primary_path(100.0), PeerTransport::Edge);
+        // An older record that crossed it on the other carrier changes nothing.
+        assert!(!peer.accept_carrier_announcement(announcement(2, true)));
+        assert!(!peer.accept_carrier_announcement(announcement(3, true)));
+        assert_eq!(peer.primary_path(100.0), PeerTransport::Edge);
+        assert_eq!(
+            peer.announced_one_way_us(PeerTransport::Edge),
+            Some(86_000.0)
+        );
+        assert_eq!(
+            peer.announced_one_way_us(PeerTransport::WebTransport),
+            Some(100_500.0)
+        );
+    }
+
+    #[test]
+    fn a_dead_announced_carrier_hands_the_session_to_the_live_one() {
+        let mut paths = live_paths(20.0, 20.0);
+        paths.webtransport.available = false;
+        let mut peer = announced_peer(paths);
+        peer.accept_carrier_announcement(announcement(1, true));
+        assert_eq!(peer.primary_path(100.0), PeerTransport::Edge);
+        peer.paths.edge.available = false;
+        assert_eq!(peer.primary_path(100.0), PeerTransport::Edge);
+        let unmeasured = merkur_wire::protocol::CarrierPrimary {
+            direct_floor_us: 0,
+            ..announcement(2, false)
+        };
+        peer.accept_carrier_announcement(unmeasured);
+        assert_eq!(peer.announced_one_way_us(PeerTransport::WebTransport), None);
     }
 
     #[test]
@@ -4551,20 +4541,23 @@ mod tests {
     }
 
     #[test]
-    fn pick_path_redundant_always_dual_sends_when_both_alive() {
-        let paths = live_paths(20.0, 20.0);
-        let t = pick_path(&paths, SendIntent::Redundant, 100.0, STALE_MS);
-        assert!(t.is_dual());
-    }
-
-    #[test]
-    fn pick_path_falls_back_to_edge_when_all_paths_down() {
+    fn with_every_path_down_the_edge_takes_the_best_effort_send() {
         let mut paths = live_paths(20.0, 20.0);
         paths.edge.available = false;
         paths.webtransport.available = false;
-        let t = pick_path(&paths, SendIntent::LatencySensitive, 100.0, STALE_MS);
         // Every issued session owns edge coordinates, so best-effort uses Edge.
-        assert_eq!(t, PathTargets::Single(PeerTransport::Edge));
+        let peer = announced_peer(paths);
+        assert_eq!(peer.primary_path(100.0), PeerTransport::Edge);
+        assert_eq!(
+            pick_path(
+                &peer.paths,
+                PeerTransport::Edge,
+                SendIntent::Redundant,
+                100.0,
+                STALE_MS
+            ),
+            PathTargets::Single(PeerTransport::Edge)
+        );
     }
 
     #[test]

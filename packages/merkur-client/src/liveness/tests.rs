@@ -111,7 +111,7 @@ impl Harness {
         assert_eq!(
             self.heartbeat
                 .resolve_pong_rtt(token, PathKind::Relay, self.now),
-            Some(rtt_ms as f64)
+            Some(rtt_ms)
         );
     }
 
@@ -201,12 +201,12 @@ fn each_path_gets_one_sample_per_ping() {
     assert_eq!(
         h.heartbeat
             .resolve_pong_rtt(token, PathKind::Relay, h.now + 10),
-        Some(10.0)
+        Some(10)
     );
     assert_eq!(
         h.heartbeat
             .resolve_pong_rtt(token, PathKind::Direct, h.now + 25),
-        Some(25.0)
+        Some(25)
     );
     assert_eq!(
         h.heartbeat

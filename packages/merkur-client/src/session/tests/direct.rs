@@ -783,8 +783,12 @@ fn a_rebind_retires_the_direct_path_and_upgrades_under_the_successors_key() {
 }
 
 #[test]
-fn authenticated_provider_rtts_choose_the_primary_without_retiring_the_alternate() {
-    for (relay_ms, direct_ms, expected) in [(10, 21, PathKind::Direct), (10, 23, PathKind::Relay)] {
+fn authenticated_provider_floors_choose_the_primary_without_retiring_the_alternate() {
+    for (relay_ms, direct_ms, expected) in [
+        (10, 21, PathKind::Relay),
+        (21, 10, PathKind::Direct),
+        (15, 15, PathKind::Direct),
+    ] {
         let (mut harness, mut daemon, _, local, raced) = raced();
         let actions = upgrade(&mut harness, NOW + 160, local, &raced);
         let lineage = harness.session.display_lineage();
@@ -837,7 +841,7 @@ fn stalled_reliable_counter_custody_survives_primary_switch_and_more_than_a_repl
         assert_eq!(conn, h.interactive);
         h.session
             .set_reliable_blocked(NOW + 161, conn, CHANNEL_CTRL, true);
-        measured_providers(&mut h, &mut daemon, &probes, 10, 21);
+        measured_providers(&mut h, &mut daemon, &probes, 21, 10);
         assert_eq!(h.session.primary_path(), Some(PathKind::Direct));
         let mut overtaking = 0;
         for seq in 0u16..2048 {
@@ -917,6 +921,14 @@ fn stalled_reliable_counter_custody_survives_primary_switch_and_more_than_a_repl
             "unfinished reliable ciphertext cannot be overtaken"
         );
         assert!(h.session.has_reliable_capacity(CHANNEL_CTRL));
+        // The switch the blocked writer owed the daemon leaves first, on the new primary.
+        let Some(owed) = h.session.poll_available_io_action() else {
+            panic!("owed carrier announcement");
+        };
+        let announcement = super::announced(&mut daemon, &owed, local);
+        assert!(announcement.direct, "{announcement:?}");
+        assert_eq!(announcement.direct_floor_us, 10_000);
+        assert_eq!(announcement.relay_floor_us, 21_000);
         let Some(Action::SendReliable {
             conn: next,
             channel: CHANNEL_CTRL,

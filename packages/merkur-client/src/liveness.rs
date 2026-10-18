@@ -224,7 +224,7 @@ impl Heartbeat {
     }
 
     /// The round trip of a pong on `path`, once per (token, path).
-    pub fn resolve_pong_rtt(&mut self, token: u64, path: PathKind, now_ms: u64) -> Option<f64> {
+    pub fn resolve_pong_rtt(&mut self, token: u64, path: PathKind, now_ms: u64) -> Option<u64> {
         let record = self
             .records
             .iter_mut()
@@ -234,8 +234,8 @@ impl Heartbeat {
             return None;
         }
         record.recorded_for |= bit;
-        let rtt_ms = now_ms.checked_sub(record.sent_at_ms)? as f64;
-        self.rtt.observe(rtt_ms);
+        let rtt_ms = now_ms.checked_sub(record.sent_at_ms)?;
+        self.rtt.observe(rtt_ms as f64);
         Some(rtt_ms)
     }
 

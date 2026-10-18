@@ -596,6 +596,13 @@ async fn a_first_authentication_offers_its_manifest_again_once_noise_completes()
     peer.noise = None;
     peer.rebind = None;
     peer.browser_address = Some("203.0.113.9".parse().expect("browser address"));
+    // A choice from an earlier Noise session; announcements count within one.
+    peer.carrier_announcement = Some(merkur_wire::protocol::CarrierPrimary {
+        announcement: 9,
+        direct: true,
+        direct_floor_us: 4_000,
+        relay_floor_us: 40_000,
+    });
     let generation = peer.manifest_generation;
     let mut peers = PeerMap::from([(peer_id.into(), peer)]);
     let (event_tx, _event_output) = crate::ipc::events::test_event_sink();
@@ -651,6 +658,10 @@ async fn a_first_authentication_offers_its_manifest_again_once_noise_completes()
     assert!(
         signaling_rx.try_recv().is_ok(),
         "the manifest leaves on the session's signaling lane"
+    );
+    assert_eq!(
+        peers[peer_id].carrier_announcement, None,
+        "the new Noise session's announcements start over"
     );
 }
 
