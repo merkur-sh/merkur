@@ -1002,7 +1002,7 @@ pub async fn run_mapping_cycle(inputs: MappingInputs) -> MappingCycle {
             Some(existing)
                 if !inputs.gateway_rebooted
                     && egress.as_ref().is_some_and(|path| {
-                        path.gateway == Some(existing.gateway)
+                        path.gateway.unwrap_or(Ipv4Addr::UNSPECIFIED) == existing.gateway
                             && path.interface_index == existing.interface_index
                             && path.local_ipv4 == existing.local_ipv4
                     }) =>
@@ -1046,7 +1046,7 @@ pub async fn run_mapping_cycle(inputs: MappingInputs) -> MappingCycle {
                 if !inputs.gateway_rebooted
                     && egress6.as_ref().is_some_and(|path| {
                         path.local == existing.address
-                            && path.gateway == Some(existing.gateway)
+                            && path.gateway.unwrap_or(Ipv6Addr::UNSPECIFIED) == existing.gateway
                             && path.interface_index == existing.interface_index
                     }) =>
             {

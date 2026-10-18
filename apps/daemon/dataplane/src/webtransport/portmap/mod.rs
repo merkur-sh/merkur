@@ -58,6 +58,12 @@
 //! kinds; the effect is the pinholed address ranking first among `host6`
 //! candidates.
 //!
+//! PCP discovery also addresses the RFC 7723 anycast service in each family,
+//! on the same egress interface. Non-mutating probes run concurrently; mapping
+//! stays serialized. Each datagram lease retains the selected server for renewal
+//! and deletion, separately from its route's first hop. First-hop announcements
+//! do not carry an upstream server's epoch.
+//!
 //! # Nothing here blocks startup
 //!
 //! `start_server` publishes its candidate set immediately and never waits on a
@@ -125,6 +131,8 @@ pub struct GatewayPorts {
     pub pxp: u16,
     pub ssdp: u16,
     pub ssdp_window: Duration,
+    pub pcp_anycast_v4: Option<Ipv4Addr>,
+    pub pcp_anycast_v6: Option<Ipv6Addr>,
 }
 
 impl GatewayPorts {
@@ -132,6 +140,9 @@ impl GatewayPorts {
         pxp: PXP_PORT,
         ssdp: upnp::SSDP_PORT,
         ssdp_window: upnp::SSDP_WINDOW,
+        // RFC 7723 §§4.1–4.2: the closest upstream PCP service in each family.
+        pcp_anycast_v4: Some(Ipv4Addr::new(192, 0, 0, 9)),
+        pcp_anycast_v6: Some(Ipv6Addr::new(0x2001, 1, 0, 0, 0, 0, 0, 1)),
     };
 }
 
@@ -202,9 +213,16 @@ impl SkipReason {
 #[derive(Clone, Debug)]
 enum LeaseHandle {
     /// A PCP MAP is named by its nonce across acquire, renew and delete.
-    Pcp { nonce: [u8; 12], internal_port: u16 },
+    Pcp {
+        server: pcp::Server,
+        nonce: [u8; 12],
+        internal_port: u16,
+    },
     /// NAT-PMP names a mapping by its internal port alone.
-    NatPmp { internal_port: u16 },
+    NatPmp {
+        server: pcp::Server,
+        internal_port: u16,
+    },
     /// A UPnP mapping is identified on the gateway by its external port; the
     /// control endpoint is what renewal and deletion address. `lease_secs` is
     /// what the gateway accepted: 0 when it grants only permanent leases.
@@ -233,9 +251,9 @@ pub struct Lease {
     /// announcement listener not at all, and by renewal re-asserting the
     /// mapping, which `AddPortMapping` does idempotently.
     pub epoch: u32,
-    /// The first hop this lease was taken from and the interface it left by.
-    /// A path edge that moves either one means the lease is on the wrong
-    /// gateway, whatever its renewal timer says.
+    /// The route's first hop at acquisition, or unspecified when none is named.
+    /// A change of first hop or interface retires the lease; its protocol handle
+    /// separately retains the server that granted it.
     pub gateway: Ipv4Addr,
     pub interface_index: u32,
     pub local_ipv4: Ipv4Addr,
@@ -292,22 +310,17 @@ impl Lease {
     /// epoch went backwards, or the external address it announces is not the
     /// one this lease was published under.
     pub fn lost_to(&self, announcement: &announce::Announcement) -> bool {
-        if matches!(self.inner, LeaseHandle::Upnp { .. }) {
-            // UPnP holds no epoch; an announcement is another protocol's.
+        if matches!(self.inner, LeaseHandle::Upnp { .. })
+            || matches!(self.inner, LeaseHandle::Pcp { server, .. }
+                if server.gateway != IpAddr::V4(self.gateway))
+        {
+            // A first-hop announcement says nothing about an upstream server's epoch.
             return false;
         }
         announcement.epoch < self.epoch
             || announcement
                 .external
                 .is_some_and(|external| IpAddr::V4(external) != self.external.ip())
-    }
-
-    fn server(&self) -> pcp::Server {
-        pcp::Server {
-            gateway: IpAddr::V4(self.gateway),
-            interface: self.interface_index,
-            port: PXP_PORT,
-        }
     }
 }
 
@@ -356,11 +369,14 @@ pub async fn acquire(
     .await
 }
 
-/// A first-hop datagram protocol that answered its non-mutating probe.
+/// A datagram protocol and server that answered its non-mutating probe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FirstHopProof {
-    Pcp,
-    NatPmp { external: Ipv4Addr },
+enum DatagramProof {
+    Pcp(pcp::Server),
+    NatPmp {
+        server: pcp::Server,
+        external: Ipv4Addr,
+    },
 }
 
 /// What one mapping attempt with a proven protocol produced.
@@ -388,14 +404,14 @@ pub(crate) async fn acquire_with(
         warn!("port mapping not attempted: no egress path resolved");
         return Outcome::NotAttempted(SkipReason::NoEgressPath);
     };
-    let Some(gateway) = egress.gateway else {
+    if egress.gateway.is_none() && ports.pcp_anycast_v4.is_none() {
         warn!(
             interface = %egress.interface_name,
             local = %egress.local_ipv4,
             "port mapping not attempted: no first hop on the egress interface or the default route"
         );
         return Outcome::NotAttempted(SkipReason::NoGateway);
-    };
+    }
     if internal_port == 0 {
         return Outcome::NotAttempted(SkipReason::NoEgressPath);
     }
@@ -405,20 +421,16 @@ pub(crate) async fn acquire_with(
     };
 
     info!(
-        gateway = %gateway,
+        gateway = ?egress.gateway,
         client = %egress.local_ipv4,
         interface = %egress.interface_name,
         %reflexive,
         "requesting a port-mapping lease"
     );
 
-    let server = pcp::Server {
-        gateway: IpAddr::V4(gateway),
-        interface: egress.interface_index,
-        port: ports.pxp,
-    };
-    let (proof_tx, mut proofs) = mpsc::channel(2);
-    let first_hop = probe_first_hop(egress.local_ipv4, server, schedule, proof_tx);
+    // Two first-hop protocols and one upstream PCP proof; no proof needs a consumer wake.
+    let (proof_tx, mut proofs) = mpsc::channel(3);
+    let first_hop = probe_mapping_servers(egress, schedule, ports, proof_tx);
     let igd = upnp::discover(egress, ports.ssdp, ports.ssdp_window, reflexive);
     tokio::pin!(first_hop);
     tokio::pin!(igd);
@@ -429,14 +441,14 @@ pub(crate) async fn acquire_with(
         let attempt = tokio::select! {
             biased;
             proof = proofs.recv(), if !proofs_closed => match proof {
-                Some(FirstHopProof::Pcp) => {
+                Some(DatagramProof::Pcp(server)) => {
                     map_pcp(egress, server, internal_port, reflexive, schedule).await
                 }
-                Some(FirstHopProof::NatPmp { external }) if external != reflexive => {
+                Some(DatagramProof::NatPmp { external, .. }) if external != reflexive => {
                     info!(%external, %reflexive, "natpmp: gateway is not the edge NAT; not mapping on it");
                     Attempt::InnerNat
                 }
-                Some(FirstHopProof::NatPmp { .. }) => {
+                Some(DatagramProof::NatPmp { server, .. }) => {
                     map_natpmp(egress, server, internal_port, reflexive, schedule).await
                 }
                 None => {
@@ -480,6 +492,44 @@ pub(crate) async fn acquire_with(
     }
 }
 
+async fn probe_mapping_servers(
+    egress: &EgressPath,
+    schedule: RetransmitSchedule,
+    ports: GatewayPorts,
+    proofs: mpsc::Sender<DatagramProof>,
+) {
+    let first_hop = async {
+        if let Some(gateway) = egress.gateway {
+            probe_first_hop(
+                egress.local_ipv4,
+                pcp::Server {
+                    gateway: IpAddr::V4(gateway),
+                    interface: egress.interface_index,
+                    port: ports.pxp,
+                },
+                schedule,
+                proofs.clone(),
+            )
+            .await;
+        }
+    };
+    let upstream = async {
+        if let Some(address) = ports.pcp_anycast_v4
+            && Some(address) != egress.gateway
+        {
+            let server = pcp::Server {
+                gateway: IpAddr::V4(address),
+                interface: egress.interface_index,
+                port: ports.pxp,
+            };
+            if pcp_announced(IpAddr::V4(egress.local_ipv4), server, schedule).await {
+                proofs.send(DatagramProof::Pcp(server)).await.unwrap_or(());
+            }
+        }
+    };
+    tokio::join!(first_hop, upstream);
+}
+
 /// Ask PCP and NAT-PMP whether they are there, from one socket bound to the
 /// egress address, each on its own retransmission schedule.
 ///
@@ -493,7 +543,7 @@ async fn probe_first_hop(
     client: Ipv4Addr,
     server: pcp::Server,
     schedule: RetransmitSchedule,
-    proofs: mpsc::Sender<FirstHopProof>,
+    proofs: mpsc::Sender<DatagramProof>,
 ) {
     let Ok(socket) = pcp::bind(IpAddr::V4(client), server).await else {
         return;
@@ -526,7 +576,7 @@ async fn probe_first_hop(
                     pcp::AnnounceAnswer::Present { .. } => {
                         if pcp_open {
                             pcp_open = false;
-                            let _ = proofs.send(FirstHopProof::Pcp).await;
+                            let _ = proofs.send(DatagramProof::Pcp(server)).await;
                         }
                     }
                     // A PCP server refusing our version-0 request: NAT-PMP is
@@ -547,7 +597,10 @@ async fn probe_first_hop(
                 Some(natpmp::Answer::External { address, .. }) if natpmp_open => {
                     natpmp_open = false;
                     let _ = proofs
-                        .send(FirstHopProof::NatPmp { external: address })
+                        .send(DatagramProof::NatPmp {
+                            server,
+                            external: address,
+                        })
                         .await;
                 }
                 Some(natpmp::Answer::External { .. }) => {}
@@ -665,6 +718,7 @@ async fn map_pcp(
         mapping.lifetime_secs,
         mapping.epoch,
         LeaseHandle::Pcp {
+            server,
             nonce,
             internal_port,
         },
@@ -694,7 +748,10 @@ async fn map_natpmp(
             Protocol::NatPmp,
             mapping.lifetime_secs,
             mapping.epoch,
-            LeaseHandle::NatPmp { internal_port },
+            LeaseHandle::NatPmp {
+                server,
+                internal_port,
+            },
         )),
         Ok(_) => {
             warn!("natpmp: gateway granted a zero-lifetime mapping; not usable");
@@ -756,13 +813,13 @@ fn upnp_cadence_secs(lease_secs: u32) -> u32 {
 
 /// Renew in place. `false` means the lease should be treated as lost.
 pub async fn renew(lease: &mut Lease) -> bool {
-    let server = lease.server();
     let reflexive = lease.external.ip();
     let client = lease.local_ipv4;
     // Cloned so the gateway exchange can update the lease it renews; this runs
     // once per half-lifetime.
     match lease.inner.clone() {
         LeaseHandle::Pcp {
+            server,
             nonce,
             internal_port,
         } => {
@@ -793,7 +850,10 @@ pub async fn renew(lease: &mut Lease) -> bool {
                 }
             }
         }
-        LeaseHandle::NatPmp { internal_port } => {
+        LeaseHandle::NatPmp {
+            server,
+            internal_port,
+        } => {
             match natpmp::map(
                 client,
                 server,
@@ -900,9 +960,9 @@ fn accept_epoch(lease: &mut Lease, epoch: u32, lifetime_secs: u32) -> bool {
 /// retirement explicit is what lets the caller order it against re-acquisition
 /// instead of hoping a detached destructor lands first.
 pub async fn release(lease: Lease) {
-    let server = lease.server();
     match lease.inner {
         LeaseHandle::Pcp {
+            server,
             nonce,
             internal_port,
         } => {
@@ -920,7 +980,10 @@ pub async fn release(lease: Lease) {
                 debug!("pcp lease delete failed, letting it expire: {error:?}");
             }
         }
-        LeaseHandle::NatPmp { internal_port } => {
+        LeaseHandle::NatPmp {
+            server,
+            internal_port,
+        } => {
             if let Err(error) = natpmp::map(
                 lease.local_ipv4,
                 server,
@@ -977,8 +1040,7 @@ impl PinholeProtocol {
 #[derive(Clone, Debug)]
 enum PinholeHandle {
     Pcp {
-        gateway: Ipv6Addr,
-        interface: u32,
+        server: pcp::Server,
         nonce: [u8; 12],
     },
     Upnp {
@@ -1006,6 +1068,12 @@ impl Pinhole {
         self.expires_at
             .saturating_duration_since(Instant::now())
             .saturating_sub(self.lifetime / 2)
+    }
+
+    pub fn lost_to(&self, announcement: &announce::Announcement) -> bool {
+        matches!(self.inner, PinholeHandle::Pcp { server, .. }
+            if server.gateway == IpAddr::V6(self.gateway))
+            && announcement.epoch < self.epoch
     }
 }
 
@@ -1058,40 +1126,42 @@ pub(crate) async fn acquire_pinhole_with(
     let Some(egress) = egress else {
         return PinholeOutcome::NotAttempted(PinholeSkip::NoV6Path);
     };
-    let Some(gateway) = egress.gateway else {
+    if egress.gateway.is_none() && ports.pcp_anycast_v6.is_none() {
         warn!(
             interface = %egress.interface_name,
             local = %egress.local,
             "v6 pinhole not attempted: no first hop"
         );
         return PinholeOutcome::NotAttempted(PinholeSkip::NoV6Gateway);
-    };
+    }
+    let gateway = egress.gateway.unwrap_or(Ipv6Addr::UNSPECIFIED);
     info!(
         gateway = %gateway,
         client = %egress.local,
         interface = %egress.interface_name,
         "requesting an IPv6 firewall pinhole"
     );
-    let server = pcp::Server {
-        gateway: IpAddr::V6(gateway),
-        interface: egress.interface_index,
-        port: ports.pxp,
-    };
-    let pcp_present = pcp_announced(IpAddr::V6(egress.local), server, schedule);
+    let (proof_tx, mut proofs) = mpsc::channel(2);
+    let pcp_present = probe_pinhole_servers(egress, schedule, ports, proof_tx);
     let igd = upnp::discover_v6(egress, ports.ssdp_window);
     tokio::pin!(pcp_present);
     tokio::pin!(igd);
-    let (mut pcp_done, mut igd_done) = (false, false);
-    while !(pcp_done && igd_done) {
+    let (mut pcp_done, mut proofs_closed, mut igd_done) = (false, false, false);
+    while !(proofs_closed && igd_done) {
         let opened = tokio::select! {
             biased;
-            present = &mut pcp_present, if !pcp_done => {
-                pcp_done = true;
-                if present {
-                    open_pcp_pinhole(egress, gateway, server, port, schedule).await
-                } else {
-                    None
+            server = proofs.recv(), if !proofs_closed => {
+                match server {
+                    Some(server) => open_pcp_pinhole(egress, gateway, server, port, schedule).await,
+                    None => {
+                        proofs_closed = true;
+                        None
+                    }
                 }
+            }
+            () = &mut pcp_present, if !pcp_done => {
+                pcp_done = true;
+                None
             }
             control = &mut igd, if !igd_done => {
                 igd_done = true;
@@ -1106,6 +1176,38 @@ pub(crate) async fn acquire_pinhole_with(
         }
     }
     PinholeOutcome::Unsupported
+}
+
+async fn probe_pinhole_servers(
+    egress: &EgressPath6,
+    schedule: RetransmitSchedule,
+    ports: GatewayPorts,
+    proofs: mpsc::Sender<pcp::Server>,
+) {
+    let mut probes = futures::stream::FuturesUnordered::new();
+    let addresses = egress.gateway.into_iter().chain(
+        ports
+            .pcp_anycast_v6
+            .filter(|address| Some(*address) != egress.gateway),
+    );
+    for address in addresses {
+        let server = pcp::Server {
+            gateway: IpAddr::V6(address),
+            interface: egress.interface_index,
+            port: ports.pxp,
+        };
+        probes.push(async move {
+            pcp_announced(IpAddr::V6(egress.local), server, schedule)
+                .await
+                .then_some(server)
+        });
+    }
+    use futures::StreamExt;
+    while let Some(result) = probes.next().await {
+        if let Some(server) = result {
+            proofs.send(server).await.unwrap_or(());
+        }
+    }
 }
 
 /// Whether a PCP server answers `ANNOUNCE` with success, on the schedule.
@@ -1170,7 +1272,11 @@ async fn open_pcp_pinhole(
     )
     .await
     {
-        Ok(mapping) if mapping.lifetime_secs > 0 && mapping.assigned_external_port == port => {
+        Ok(mapping)
+            if mapping.lifetime_secs > 0
+                && mapping.assigned_external_port == port
+                && pcp::unmapped(mapping.assigned_external) == client =>
+        {
             let lifetime = Duration::from_secs(u64::from(mapping.lifetime_secs));
             info!(protocol = "pcp6", address = %egress.local, lifetime_s = lifetime.as_secs(), "IPv6 pinhole opened");
             Some(Box::new(Pinhole {
@@ -1182,14 +1288,25 @@ async fn open_pcp_pinhole(
                 epoch: mapping.epoch,
                 gateway,
                 interface_index: egress.interface_index,
-                inner: PinholeHandle::Pcp {
-                    gateway,
-                    interface: egress.interface_index,
-                    nonce,
-                },
+                inner: PinholeHandle::Pcp { server, nonce },
             }))
         }
-        Ok(_) => {
+        Ok(mapping) => {
+            if mapping.lifetime_secs > 0 {
+                if let Err(error) = pcp::map(
+                    client,
+                    server,
+                    port,
+                    0,
+                    nonce,
+                    client,
+                    RetransmitSchedule::DELETE,
+                )
+                .await
+                {
+                    debug!(?error, "pcp6: unused translation deletion failed");
+                }
+            }
             warn!("pcp6: gateway granted a zero-lifetime or moved pinhole; not usable");
             None
         }
@@ -1234,17 +1351,9 @@ async fn open_upnp_pinhole(
 /// Renew in place. `false` means the pinhole should be treated as lost.
 pub async fn renew_pinhole(pinhole: &mut Pinhole) -> bool {
     match &pinhole.inner {
-        PinholeHandle::Pcp {
-            gateway,
-            interface,
-            nonce,
-        } => match pcp::map(
+        PinholeHandle::Pcp { server, nonce } => match pcp::map(
             IpAddr::V6(pinhole.address),
-            pcp::Server {
-                gateway: IpAddr::V6(*gateway),
-                interface: *interface,
-                port: PXP_PORT,
-            },
+            *server,
             pinhole.port,
             REQUESTED_LIFETIME_SECS,
             *nonce,
@@ -1254,7 +1363,9 @@ pub async fn renew_pinhole(pinhole: &mut Pinhole) -> bool {
         .await
         {
             Ok(mapping)
-                if mapping.lifetime_secs > 0 && mapping.assigned_external_port == pinhole.port =>
+                if mapping.lifetime_secs > 0
+                    && mapping.assigned_external_port == pinhole.port
+                    && pcp::unmapped(mapping.assigned_external) == IpAddr::V6(pinhole.address) =>
             {
                 if mapping.epoch < pinhole.epoch {
                     warn!(
@@ -1295,18 +1406,10 @@ pub async fn renew_pinhole(pinhole: &mut Pinhole) -> bool {
 /// ordering reason as [`release`].
 pub async fn release_pinhole(pinhole: Pinhole) {
     match pinhole.inner {
-        PinholeHandle::Pcp {
-            gateway,
-            interface,
-            nonce,
-        } => {
+        PinholeHandle::Pcp { server, nonce } => {
             let _ = pcp::map(
                 IpAddr::V6(pinhole.address),
-                pcp::Server {
-                    gateway: IpAddr::V6(gateway),
-                    interface,
-                    port: PXP_PORT,
-                },
+                server,
                 pinhole.port,
                 0,
                 nonce,

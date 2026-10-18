@@ -50,11 +50,8 @@ pub struct EgressPath {
     /// Interface index, for `IP_MULTICAST_IF` on the SSDP socket.
     pub interface_index: u32,
     pub interface_name: String,
-    /// First hop, for NAT-PMP and PCP unicast.
-    ///
-    /// `None` only when neither the owning interface nor the OS default route
-    /// names one, which on a routed host means there is genuinely nobody to
-    /// ask. Callers must report that as "not attempted", never as "unsupported".
+    /// First hop, for NAT-PMP and PCP unicast. PCP anycast discovery remains
+    /// available when the operating system names no first hop.
     pub gateway: Option<Ipv4Addr>,
 }
 
@@ -127,8 +124,8 @@ pub struct EgressPath6 {
     pub local: Ipv6Addr,
     pub interface_index: u32,
     pub interface_name: String,
-    /// First hop, usually link-local. `None` on a routed host with no v6
-    /// default route, which must be reported as "not attempted".
+    /// First hop, usually link-local. PCP anycast discovery remains available
+    /// when the operating system names no first hop.
     pub gateway: Option<Ipv6Addr>,
 }
 

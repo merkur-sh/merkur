@@ -850,7 +850,10 @@ A `nat_map` candidate comes from one lease on the pinned WebTransport port
 (`apps/daemon/dataplane/src/webtransport/portmap`). All three protocols are asked whether they
 are present at the same moment, with requests that change nothing: a PCP `ANNOUNCE` and a NAT-PMP
 external-address request from one socket bound to the egress address, and an SSDP search sent to
-the first hop before the multicast group. The first protocol that proves itself present is the
+the first hop before the multicast group. PCP also probes its RFC 7723 anycast address,
+`192.0.0.9`, on that same interface. This can reach a PCP service farther upstream than the
+default gateway. The anycast endpoint receives PCP only; NAT-PMP stays at the first hop.
+The first protocol that proves itself present is the
 only one that maps, because miniupnpd serves all three from one table and an RFC 6886 delete
 removes every mapping for the internal port. A gateway that speaks only UPnP therefore maps after
 one SSDP and one HTTP exchange instead of after the datagram protocols' retransmission schedule.
@@ -864,6 +867,10 @@ cycle runs. UPnP errors 725 and 402 retry as a permanent lease, 718 retries thro
 names are accepted. Nothing blocks on the lease: the candidate set publishes immediately and a
 won lease arrives in the next manifest. One socket on `224.0.0.1:5350` receives NAT-PMP address
 changes and PCP `ANNOUNCE`, so a gateway reboot triggers a fresh mapping cycle.
+Renewal and deletion retain the selected server address and mapping nonce independently of
+the route's first hop. A first-hop announcement cannot invalidate an upstream server's lease;
+renewal checks that server's epoch. Anycast requires a cooperating PCP service on the path and
+does not open an intervening NAT that the service does not control.
 
 IPv6 has no NAT, so a `host6` candidate is dialable exactly when the gateway's stateful firewall
 admits the browser's first datagram. The daemon asks for a pinhole with PCP `MAP` over IPv6 and
@@ -871,6 +878,10 @@ with IGDv2 `WANIPv6FirewallControl:1 AddPinhole`, probed together the same way. 
 (`bun run test:natlab`) proves both mechanisms in isolated Linux namespaces, where the lab owns
 the firewall, and runs the lease against a real miniupnpd: every protocol on, UPnP only, NAT-PMP
 and PCP silently dropped, and double NAT.
+IPv6 PCP discovery includes the RFC 7723 address `2001:1::1`, with the request bound to the
+interface owning the global address. A PCP pinhole must retain that exact address and port.
+A granted translation to another address or port is deleted rather than advertised as a
+firewall pinhole.
 
 ## STUN Responder
 

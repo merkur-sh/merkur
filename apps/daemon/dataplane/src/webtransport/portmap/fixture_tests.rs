@@ -166,6 +166,8 @@ fn ports(pxp: u16, ssdp: u16) -> GatewayPorts {
         pxp,
         ssdp,
         ssdp_window: Duration::from_millis(400),
+        pcp_anycast_v4: None,
+        pcp_anycast_v6: None,
     }
 }
 
@@ -239,6 +241,224 @@ async fn a_pcp_only_gateway_maps_with_pcp() {
     );
     assert_eq!(lease.protocol, Protocol::Pcp);
     assert_eq!(lease.external, SocketAddr::new(IpAddr::V4(REFLEXIVE), PORT));
+}
+
+#[tokio::test]
+async fn upstream_pcp_owns_acquire_renew_and_delete_without_a_first_hop_service() {
+    let (ssdp, _silent) = silent_ssdp().await;
+    let (pxp, seen) = fake_first_hop(FirstHop {
+        pcp: Some(REFLEXIVE),
+        ..FirstHop::default()
+    })
+    .await;
+    let mut targets = ports(pxp, ssdp);
+    targets.pcp_anycast_v4 = Some(Ipv4Addr::LOCALHOST);
+    let egress = EgressPath {
+        gateway: Some("192.0.2.1".parse().unwrap()),
+        ..loopback_egress()
+    };
+    let mut lease = mapped(
+        acquire_with(
+            PORT,
+            Some(&egress),
+            Some(IpAddr::V4(REFLEXIVE)),
+            fast(),
+            targets,
+        )
+        .await,
+    );
+    assert_eq!(lease.gateway, egress.gateway.unwrap());
+    assert!(!lease.lost_to(&announce::Announcement {
+        epoch: 0,
+        external: None
+    }));
+    assert!(renew(&mut lease).await);
+    release(*lease).await;
+    let maps = map_requests(&seen);
+    assert_eq!(maps.len(), 3);
+    assert!(
+        maps.iter()
+            .all(|request| request[24..36] == maps[0][24..36])
+    );
+    assert_eq!(&maps[2][4..8], &[0, 0, 0, 0]);
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|request| request.first() == Some(&2)),
+        "upstream discovery must not send NAT-PMP"
+    );
+}
+
+#[tokio::test]
+async fn upstream_pcp_does_not_require_a_first_hop_address_and_rejects_an_inner_lease() {
+    for external in [REFLEXIVE, INNER] {
+        let (ssdp, _silent) = silent_ssdp().await;
+        let (pxp, seen) = fake_first_hop(FirstHop {
+            pcp: Some(external),
+            ..FirstHop::default()
+        })
+        .await;
+        let mut targets = ports(pxp, ssdp);
+        targets.pcp_anycast_v4 = Some(Ipv4Addr::LOCALHOST);
+        let egress = EgressPath {
+            gateway: None,
+            ..loopback_egress()
+        };
+        let outcome = acquire_with(
+            PORT,
+            Some(&egress),
+            Some(IpAddr::V4(REFLEXIVE)),
+            fast(),
+            targets,
+        )
+        .await;
+        if external == REFLEXIVE {
+            let lease = mapped(outcome);
+            assert_eq!(lease.gateway, Ipv4Addr::UNSPECIFIED);
+            release(*lease).await;
+        } else {
+            assert!(matches!(outcome, Outcome::InnerNat));
+        }
+        let maps = map_requests(&seen);
+        assert_eq!(
+            maps.len(),
+            2,
+            "the nonce-owned mapping is deleted on its server"
+        );
+        assert_eq!(&maps[0][24..36], &maps[1][24..36]);
+        assert_eq!(&maps[1][4..8], &[0, 0, 0, 0]);
+    }
+}
+
+#[tokio::test]
+async fn an_anycast_address_equal_to_the_first_hop_is_probed_once() {
+    let (ssdp, _silent) = silent_ssdp().await;
+    let (pxp, seen) = fake_first_hop(FirstHop {
+        pcp: Some(REFLEXIVE),
+        ..FirstHop::default()
+    })
+    .await;
+    let mut targets = ports(pxp, ssdp);
+    targets.pcp_anycast_v4 = Some(Ipv4Addr::LOCALHOST);
+    let lease = mapped(
+        acquire_with(
+            PORT,
+            Some(&loopback_egress()),
+            Some(IpAddr::V4(REFLEXIVE)),
+            fast(),
+            targets,
+        )
+        .await,
+    );
+    assert_eq!(lease.protocol, Protocol::Pcp);
+    let requests = seen.lock().unwrap();
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request[..2] == [2, 0])
+            .count(),
+        1
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request[..2] == [2, 1])
+            .count(),
+        1
+    );
+}
+
+async fn fake_pcp6(external: IpAddr, assigned_port: u16) -> (u16, Recorded) {
+    let socket = UdpSocket::bind("[::1]:0").await.unwrap();
+    let pxp = socket.local_addr().unwrap().port();
+    let seen: Recorded = Arc::new(Mutex::new(Vec::new()));
+    let recorded = seen.clone();
+    tokio::spawn(async move {
+        let mut buf = [0u8; 1500];
+        while let Ok((len, from)) = socket.recv_from(&mut buf).await {
+            let request = &buf[..len];
+            recorded.lock().unwrap().push(request.to_vec());
+            let response = if request[..2] == [2, 0] {
+                pcp::tests::announce_response(0, 9).to_vec()
+            } else {
+                let nonce = request[24..36].try_into().unwrap();
+                let lifetime = u32::from_be_bytes(request[4..8].try_into().unwrap());
+                {
+                    let mut response =
+                        pcp::tests::map_response(&nonce, PORT, 0, lifetime, external).to_vec();
+                    response[42..44].copy_from_slice(&assigned_port.to_be_bytes());
+                    response
+                }
+            };
+            socket.send_to(&response, from).await.unwrap();
+        }
+    });
+    (pxp, seen)
+}
+
+#[tokio::test]
+async fn upstream_ipv6_pcp_retains_the_server_for_pinhole_renewal_and_deletion() {
+    let (pxp, seen) = fake_pcp6(IpAddr::V6(Ipv6Addr::LOCALHOST), PORT).await;
+    for gateway in [Some("2001:db8::1".parse().unwrap()), None] {
+        let egress = EgressPath6 {
+            local: Ipv6Addr::LOCALHOST,
+            interface_index: 0,
+            interface_name: "test".into(),
+            gateway,
+        };
+        let mut targets = ports(pxp, 1);
+        targets.pcp_anycast_v6 = Some(Ipv6Addr::LOCALHOST);
+        let PinholeOutcome::Pinholed(mut pinhole) =
+            acquire_pinhole_with(PORT, Some(&egress), fast(), targets).await
+        else {
+            panic!("upstream IPv6 PCP must open the pinhole")
+        };
+        assert_eq!(pinhole.gateway, gateway.unwrap_or(Ipv6Addr::UNSPECIFIED));
+        assert!(!pinhole.lost_to(&announce::Announcement {
+            epoch: 0,
+            external: None
+        }));
+        assert!(renew_pinhole(&mut pinhole).await);
+        release_pinhole(*pinhole).await;
+    }
+    let maps = map_requests(&seen);
+    assert_eq!(maps.len(), 6);
+    for group in maps.as_chunks::<3>().0 {
+        assert!(
+            group
+                .iter()
+                .all(|request| request[24..36] == group[0][24..36])
+        );
+        assert_eq!(&group[2][4..8], &[0, 0, 0, 0]);
+    }
+}
+
+#[tokio::test]
+async fn an_upstream_translation_is_not_an_ipv6_firewall_pinhole() {
+    for (external, assigned_port) in [
+        (IpAddr::V4(REFLEXIVE), PORT),
+        ("2001:db8::2".parse().unwrap(), PORT),
+        (IpAddr::V6(Ipv6Addr::LOCALHOST), PORT + 1),
+    ] {
+        let (pxp, seen) = fake_pcp6(external, assigned_port).await;
+        let egress = EgressPath6 {
+            local: Ipv6Addr::LOCALHOST,
+            interface_index: 0,
+            interface_name: "test".into(),
+            gateway: None,
+        };
+        let mut targets = ports(pxp, 1);
+        targets.pcp_anycast_v6 = Some(Ipv6Addr::LOCALHOST);
+        assert!(matches!(
+            acquire_pinhole_with(PORT, Some(&egress), fast(), targets).await,
+            PinholeOutcome::Unsupported,
+        ));
+        let maps = map_requests(&seen);
+        assert_eq!(maps.len(), 2);
+        assert_eq!(&maps[0][24..36], &maps[1][24..36]);
+        assert_eq!(&maps[1][4..8], &[0, 0, 0, 0]);
+    }
 }
 
 /// A PCP gateway assigning an address other than the reflexive one is an
@@ -405,7 +625,14 @@ async fn no_gateway_reports_not_attempted_rather_than_unsupported() {
         gateway: None,
         ..loopback_egress()
     };
-    let outcome = acquire(PORT, Some(&egress), Some(IpAddr::V4(REFLEXIVE))).await;
+    let outcome = acquire_with(
+        PORT,
+        Some(&egress),
+        Some(IpAddr::V4(REFLEXIVE)),
+        fast(),
+        ports(1, 1),
+    )
+    .await;
     assert!(
         matches!(outcome, Outcome::NotAttempted(SkipReason::NoGateway)),
         "a missing first hop is a routing fact, not a protocol verdict"
@@ -435,7 +662,7 @@ async fn pinhole_skips_are_reported_by_reason() {
         interface_name: "test".to_string(),
         gateway: None,
     };
-    let outcome = acquire_pinhole(PORT, Some(&egress)).await;
+    let outcome = acquire_pinhole_with(PORT, Some(&egress), fast(), ports(1, 1)).await;
     assert_eq!(outcome.metric_key(), "skipped:no_v6_gateway");
 }
 

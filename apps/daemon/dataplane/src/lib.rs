@@ -3439,7 +3439,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             || state
                                 .v6_pinhole
                                 .as_ref()
-                                .is_some_and(|pinhole| announcement.epoch < pinhole.epoch)
+                                .is_some_and(|pinhole| pinhole.lost_to(&announcement))
                     }
                     None => false,
                 };

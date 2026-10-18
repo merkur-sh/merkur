@@ -69,10 +69,10 @@ pub enum Failure {
 
 /// Where the exchange goes. `port` is 5351 in production (§19.1); tests point
 /// it at a fake server.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Server {
     pub gateway: IpAddr,
-    /// IPv6 scope for a link-local gateway; ignored for IPv4.
+    /// Egress interface, also the scope for an IPv6 link-local server.
     pub interface: u32,
     pub port: u16,
 }
@@ -112,8 +112,48 @@ pub async fn bind(client: IpAddr, server: Server) -> Result<UdpSocket, Failure> 
         _ => return Err(Failure::Socket),
     };
     let socket = UdpSocket::bind(local).await.map_err(|_| Failure::Socket)?;
+    bind_interface(&socket, client, server.interface)?;
     socket.connect(remote).await.map_err(|_| Failure::Socket)?;
     Ok(socket)
+}
+
+/// Pin upstream discovery to the interface that owns the mapping's source address.
+fn bind_interface(socket: &UdpSocket, client: IpAddr, interface: u32) -> Result<(), Failure> {
+    if interface == 0 {
+        return Ok(());
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        use std::os::fd::AsRawFd;
+        #[cfg(target_os = "macos")]
+        let (level, option, index) = match client {
+            IpAddr::V4(_) => (libc::IPPROTO_IP, libc::IP_BOUND_IF, interface),
+            IpAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF, interface),
+        };
+        #[cfg(target_os = "linux")]
+        let (level, option, index) = match client {
+            IpAddr::V4(_) => (libc::IPPROTO_IP, libc::IP_UNICAST_IF, interface.to_be()),
+            IpAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_UNICAST_IF, interface.to_be()),
+        };
+        // SAFETY: the live socket and u32 index match these interface options.
+        // Linux's unicast options take network byte order and need no capability.
+        if unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                level,
+                option,
+                (&index as *const u32).cast(),
+                libc::socklen_t::try_from(std::mem::size_of::<u32>())
+                    .map_err(|_length| Failure::Socket)?,
+            )
+        } != 0
+        {
+            return Err(Failure::Socket);
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let _ = (socket, client);
+    Ok(())
 }
 
 /// The §14.1 ANNOUNCE request: a header with lifetime zero. It changes nothing
