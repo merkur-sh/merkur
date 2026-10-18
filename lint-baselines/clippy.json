@@ -689,8 +689,8 @@
       "clippy::cast_possible_truncation": 2
     },
     "packages/merkur-client/src/liveness.rs": {
-      "clippy::cast_possible_truncation": 2,
-      "clippy::cast_sign_loss": 2
+      "clippy::cast_possible_truncation": 1,
+      "clippy::cast_sign_loss": 1
     },
     "packages/merkur-client/src/rebind.rs": {
       "clippy::map_err_ignore": 12
