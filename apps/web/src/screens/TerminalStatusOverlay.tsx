@@ -31,7 +31,7 @@ const TerminalStatusOverlay: Component<Props> = (props) => {
       setEscapeVisible(false);
       if (mode !== 'progress') return;
       const timer = setTimeout(() => setEscapeVisible(true), RECONNECT_ESCAPE_REVEAL_MS);
-      onCleanup(() => clearTimeout(timer));
+      return () => clearTimeout(timer);
     },
   );
   // An error always offers the way out; a long progress state earns it.
@@ -78,7 +78,7 @@ const TerminalStatusOverlay: Component<Props> = (props) => {
           () => undefined,
         );
       }, TERMINAL_SUCCESS_VISIBLE_MS);
-      onCleanup(() => clearTimeout(timer));
+      return () => clearTimeout(timer);
     },
   );
 

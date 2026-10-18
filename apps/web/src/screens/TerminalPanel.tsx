@@ -10,8 +10,10 @@ import {
   createMemo,
   createSignal,
   For,
+  getOwner,
   onCleanup,
   onSettled,
+  runWithOwner,
   Show,
 } from 'solid-js';
 import LinkStatus from '../components/LinkStatus';
@@ -204,6 +206,9 @@ const TerminalPanel: Component<Props> = (props) => {
   let containerEl!: HTMLDivElement;
   let headerEl!: HTMLElement;
   const touchKeyboardEligible = isTouchKeyboardEligible();
+  // `onSettled` may not own computations or cleanups; what its mount creates
+  // belongs to the panel, and goes when the panel does.
+  const panelOwner = getOwner();
   const [nativeKeyboardActive, setNativeKeyboardActive] = createSignal(false);
   const [terminalViewportHeight, setTerminalViewportHeight] = createSignal<number | null>(null);
   const [virtualKeyboardPreferences, setVirtualKeyboardPreferences] =
@@ -452,13 +457,15 @@ const TerminalPanel: Component<Props> = (props) => {
 
     workerClient = client;
 
-    wireSelectionMode(client, () => virtualModifiers().shift);
-    // The touch keyboard's Ctrl or Cmd latch turns the next tap on a link into
-    // opening it, as holding the key does for a mouse.
-    createEffect(
-      () => virtualModifiers().ctrl || virtualModifiers().meta,
-      (latched) => client.setLinkModifierLatched(latched),
-    );
+    runWithOwner(panelOwner, () => {
+      wireSelectionMode(client, () => virtualModifiers().shift);
+      // The touch keyboard's Ctrl or Cmd latch turns the next tap on a link into
+      // opening it, as holding the key does for a mouse.
+      createEffect(
+        () => virtualModifiers().ctrl || virtualModifiers().meta,
+        (latched) => client.setLinkModifierLatched(latched),
+      );
+    });
 
     // Screen-reader mirror: the WebGL canvas is opaque to assistive tech, so
     // new output is announced through a hidden polite live region.
@@ -469,10 +476,6 @@ const TerminalPanel: Component<Props> = (props) => {
     });
     containerEl.appendChild(mirror.element);
     accessibilityMirror = mirror;
-    onCleanup(() => {
-      mirror.destroy();
-      if (accessibilityMirror === mirror) accessibilityMirror = null;
-    });
 
     // Desktop gets a cursor-anchored EditContext/textarea surface; touch gets
     // a pinned textarea tier with soft-keyboard delete-intent dedup.
@@ -516,47 +519,51 @@ const TerminalPanel: Component<Props> = (props) => {
     (touchKeyboardEligible ? panelEl : containerEl).appendChild(surface.element);
     editingSurface = surface;
     if (lastCursorRect !== null) surface.setCursorRect(lastCursorRect);
-    onCleanup(() => {
-      surface.destroy();
-      if (editingSurface === surface) editingSurface = null;
-    });
 
     // Narrow per-field effects (initial values were applied at client
     // creation): a theme-only change must not re-fetch fonts or resize,
     // and a size change must not re-send the font family. Memos provide
     // the value comparison so a wholesale appearance-object swap only
     // triggers the effects whose field actually changed.
-    const appearanceFontFamilyId = createMemo(() => props.terminalAppearance.fontFamilyId);
-    const appearanceFontSize = createMemo(() => props.terminalAppearance.fontSize);
-    const appearanceThemeId = createMemo(() => props.terminalAppearance.themeId);
-    createEffect(
-      appearanceFontFamilyId,
-      (fontFamilyId) => {
-        client.updateFontFamily(TERMINAL_FONTS[fontFamilyId]);
-        markGeometryDirty();
-      },
-      { defer: true },
-    );
-    createEffect(
-      appearanceFontSize,
-      (fontSize) => {
-        client.updateFont(fontSize, TERMINAL_LINE_HEIGHT);
-        markGeometryDirty();
-      },
-      { defer: true },
-    );
-    createEffect(
-      appearanceThemeId,
-      (themeId) => {
-        client.updateTheme(TERMINAL_THEMES[themeId]);
-      },
-      { defer: true },
-    );
+    runWithOwner(panelOwner, () => {
+      const appearanceFontFamilyId = createMemo(() => props.terminalAppearance.fontFamilyId);
+      const appearanceFontSize = createMemo(() => props.terminalAppearance.fontSize);
+      const appearanceThemeId = createMemo(() => props.terminalAppearance.themeId);
+      createEffect(
+        appearanceFontFamilyId,
+        (fontFamilyId) => {
+          client.updateFontFamily(TERMINAL_FONTS[fontFamilyId]);
+          markGeometryDirty();
+        },
+        { defer: true },
+      );
+      createEffect(
+        appearanceFontSize,
+        (fontSize) => {
+          client.updateFont(fontSize, TERMINAL_LINE_HEIGHT);
+          markGeometryDirty();
+        },
+        { defer: true },
+      );
+      createEffect(
+        appearanceThemeId,
+        (themeId) => {
+          client.updateTheme(TERMINAL_THEMES[themeId]);
+        },
+        { defer: true },
+      );
+    });
 
     const ro = new ResizeObserver(() => markGeometryDirty());
     ro.observe(containerEl);
 
+    // `onSettled` forbids `onCleanup`: everything this mount made is released
+    // here, in the order it was made.
     return () => {
+      mirror.destroy();
+      if (accessibilityMirror === mirror) accessibilityMirror = null;
+      surface.destroy();
+      if (editingSurface === surface) editingSurface = null;
       ro.disconnect();
       geometryDirty = false;
       geometryFrame.cancel();
@@ -587,13 +594,13 @@ const TerminalPanel: Component<Props> = (props) => {
     body.style.overflow = 'hidden';
     body.style.overscrollBehaviorY = 'none';
 
-    onCleanup(() => {
+    return () => {
       html.style.overflow = previousHtmlOverflow;
       html.style.overscrollBehaviorY = previousHtmlOverscrollBehaviorY;
       body.style.overflow = previousBodyOverflow;
       body.style.overscrollBehaviorY = previousBodyOverscrollBehaviorY;
       window.scrollTo(scrollX, scrollY);
-    });
+    };
   });
 
   // ── Mount — screen wake lock ───────────────────────────────────────────────
@@ -667,13 +674,13 @@ const TerminalPanel: Component<Props> = (props) => {
     startAcquire();
     document.addEventListener('visibilitychange', onVisibility);
 
-    onCleanup(() => {
+    return () => {
       acquisitionGate.dispose();
       document.removeEventListener('visibilitychange', onVisibility);
       const heldSentinel = sentinel;
       sentinel = null;
       if (heldSentinel !== null) Effect.runFork(releaseWakeLockEffect(heldSentinel));
-    });
+    };
   });
 
   // ── Mount — input controller (keyboard, paste, composition, predictions) ───
@@ -694,10 +701,10 @@ const TerminalPanel: Component<Props> = (props) => {
     });
     inputController = controller;
     controller.attach();
-    onCleanup(() => {
+    return () => {
       controller.destroy();
       if (inputController === controller) inputController = null;
-    });
+    };
   });
 
   // ── Mount — diagnostics polling ────────────────────────────────────────────
@@ -712,7 +719,7 @@ const TerminalPanel: Component<Props> = (props) => {
     const interval = window.setInterval(() => {
       workerClient?.requestHealth();
     }, DIAGNOSTICS_POLL_INTERVAL_MS);
-    onCleanup(() => window.clearInterval(interval));
+    return () => window.clearInterval(interval);
   });
 
   // ── Focus ──────────────────────────────────────────────────────────────────
@@ -801,7 +808,7 @@ const TerminalPanel: Component<Props> = (props) => {
     window.addEventListener('orientationchange', syncKeyboardActive);
     setTerminalViewportHeight(readViewportHeight());
 
-    onCleanup(() => {
+    return () => {
       visualViewport?.removeEventListener('resize', syncKeyboardActive);
       visualViewport?.removeEventListener('scroll', scheduleViewportHeightSync);
       window.removeEventListener('resize', syncKeyboardActive);
@@ -809,7 +816,7 @@ const TerminalPanel: Component<Props> = (props) => {
       window.removeEventListener('orientationchange', syncKeyboardActive);
       viewportHeightPrevious = null;
       viewportHeightFrame.cancel();
-    });
+    };
   });
 
   onSettled(() => {
@@ -831,10 +838,10 @@ const TerminalPanel: Component<Props> = (props) => {
     window.addEventListener('pageshow', refreshTerminalSurface);
     document.addEventListener('visibilitychange', onVisibilityChange);
 
-    onCleanup(() => {
+    return () => {
       window.removeEventListener('pageshow', refreshTerminalSurface);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-    });
+    };
   });
 
   // ── IME preedit rendering ──────────────────────────────────────────────────
