@@ -12,15 +12,16 @@ import { connectTerminal } from './terminal-e2e-helpers';
  * - animation frames on main: the terminal's own rendering lives in a worker,
  *   and the shell has nothing to animate once it has arrived;
  * - WebGL draws: the machine-list mark is still mounted behind the terminal at
- *   opacity zero, and used to keep drawing there for the whole session;
+ *   opacity zero, and used to keep drawing there for the whole session; it now
+ *   rests on its still frame on the list itself, which the spec also holds;
  * - 2D canvas fills: the link-status waveform repaints only when its pixels
  *   change, and nothing changes them while the terminal is quiet;
  * - waveform publications from the transport worker: the heartbeat is link
  *   traffic, not terminal traffic, and must not keep the strip scrolling.
  *
  * Telemetry is off, as it is for anyone who never opted in, so the frame
- * monitor profiling installs is not part of the measurement. The two control
- * phases prove each counter can move before the idle window asserts that none
+ * monitor profiling installs is not part of the measurement. The control
+ * phases prove each counter can move before the idle windows assert that none
  * of them does, so a broken counter cannot pass as a quiet page. The window
  * opens on an exact signal rather than a settle guess: the worker's latest
  * publication shows no traffic in the strip's visible columns, which is the
@@ -234,12 +235,43 @@ test('a connected idle terminal runs no frames, draws, or waveform publications'
   expect(await page.evaluate(() => localStorage.getItem('merkur:telemetry-enabled'))).toBeNull();
   const counters = audit(page);
 
-  // Control: on the machine list the mark is showing, so frames and draws move.
+  // Control: both counters move. Nothing on the machine list draws any more
+  // (its mark rests on its still frame), so the control makes one frame and
+  // one WebGL draw of its own.
+  await counters.reset();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const gl = document.createElement('canvas').getContext('webgl2');
+        gl?.drawArrays(gl.POINTS, 0, 0);
+        requestAnimationFrame(() => resolve());
+      }),
+  );
+  const control = await counters.counts();
+  expect(control.animationFrames).toBeGreaterThan(0);
+  expect(control.webglDraws).toBeGreaterThan(0);
+
+  // The machine list itself is idle: the screen that stays open draws nothing.
+  // Its entrance is still finishing when its rows first show, so the window
+  // opens once two frames pass with nothing but this probe's own two callbacks
+  // in them; a loop that never stops never gets there.
+  await expect
+    .poll(async () => {
+      await counters.reset();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      return (await counters.counts()).animationFrames;
+    })
+    .toBe(2);
   await counters.reset();
   await page.waitForTimeout(CONTROL_WINDOW_MS);
   const listing = await counters.counts();
-  expect(listing.animationFrames).toBeGreaterThan(0);
-  expect(listing.webglDraws).toBeGreaterThan(0);
+  expect(listing.animationFrames).toBe(0);
+  expect(listing.webglDraws).toBe(0);
 
   await connectTerminal(page, linkedDaemon.daemonName);
 
