@@ -75,8 +75,6 @@ pub enum Output {
     },
     /// Which path now carries the session: the edge relay or the direct one.
     Path(PathKind),
-    /// The committed carrier's independently observed source address.
-    ObservedPath(std::net::IpAddr),
     /// Authenticated opt-in performance evidence.
     Observation(Box<merkur_client::session::observation::Observation>),
     /// Why the server refused the issuance the session asked for.
@@ -445,6 +443,9 @@ pub async fn run(
                     writes.retire(conn);
                     owned_tasks.abort(TaskOwner::Dial(conn));
                 }
+                // A native host dials each endpoint directly; no admission
+                // here is kept per network, so the address changes nothing.
+                Action::ObservedPath(_) => {}
                 _ => unreachable!("poll_io_action returned a host output"),
             }
         }
@@ -606,7 +607,6 @@ fn host_output(action: Action) -> Option<Output> {
         },
         Action::Status(status) => Output::Status(status),
         Action::Path(path) => Output::Path(path),
-        Action::ObservedPath(address) => Output::ObservedPath(address),
         Action::Observation(observation) => Output::Observation(observation),
         _ => return None,
     })

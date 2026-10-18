@@ -513,7 +513,6 @@ async fn run_headless(headless: Headless) -> ExitCode {
                         break;
                     }
                 }
-                Some(Output::ObservedPath(_)) => {},
                 Some(Output::Observation(observation)) => emit(json!({ "event": "observation", "measurement": observation })),
                 Some(Output::Path(path)) => {
                     emit(json!({ "event": "path", "path": format!("{path:?}") }));

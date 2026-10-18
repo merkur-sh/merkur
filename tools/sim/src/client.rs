@@ -216,7 +216,6 @@ async fn present(
                     }
                     Output::InputAcknowledged(_)
                     | Output::TerminalUi(_)
-                    | Output::ObservedPath(_)
                     | Output::Observation(_)
                     | Output::Path(_)
                     | Output::GeometryState(_) => {}
