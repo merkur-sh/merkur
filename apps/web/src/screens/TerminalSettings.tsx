@@ -203,26 +203,36 @@ const ChoiceTile: Component<{
 );
 
 /**
- * Continuous font size, drawn rather than themed.
+ * Font size in whole-pixel stops, drawn rather than themed.
  *
- * The track and its filled portion are elements so both engines paint the same
- * slider out of the palette; the native input stays on top, transparent apart
- * from its thumb, so pointer capture, touch, and the arrow keys remain the
- * browser's job. The thumb utilities are spelled out per engine rather than
- * shared through a constant because UnoCSS extracts class names from the source
- * text — an interpolated string generates no CSS at all.
+ * The track, its filled portion and its stops are elements so both engines
+ * paint the same slider out of the palette; the native input stays on top,
+ * transparent apart from its thumb, so pointer capture, touch, and the arrow
+ * keys remain the browser's job. The thumb utilities are spelled out per engine
+ * rather than shared through a constant because UnoCSS extracts class names
+ * from the source text — an interpolated string generates no CSS at all.
  */
 const SLIDER_THUMB_PX = 14;
+
+/**
+ * Every size the thumb can rest on. Each one is marked on the track, so the
+ * slider shows where it will stop before it is dragged, and a step under the
+ * finger is a step across a mark rather than an unexplained jump.
+ */
+const FONT_SIZE_STOPS = Array.from(
+  { length: (MAX_TERMINAL_FONT_SIZE - MIN_TERMINAL_FONT_SIZE) / TERMINAL_FONT_SIZE_STEP + 1 },
+  (_, index) => MIN_TERMINAL_FONT_SIZE + index * TERMINAL_FONT_SIZE_STEP,
+);
 
 const FontSizeSlider: Component<{ fontSize: number; onChange: (fontSize: number) => void }> = (
   props,
 ) => {
-  // Where the thumb's centre sits: it travels between half a thumb in from
-  // each end, so the filled track has to stop there too rather than at the
-  // element edge.
-  const fillWidth = (): string => {
+  // Where the thumb's centre sits at `size`: it travels between half a thumb in
+  // from each end, so the filled track and the stops have to as well rather
+  // than reach the element edge.
+  const along = (size: number): string => {
     const fraction =
-      (props.fontSize - MIN_TERMINAL_FONT_SIZE) / (MAX_TERMINAL_FONT_SIZE - MIN_TERMINAL_FONT_SIZE);
+      (size - MIN_TERMINAL_FONT_SIZE) / (MAX_TERMINAL_FONT_SIZE - MIN_TERMINAL_FONT_SIZE);
     return `calc(${SLIDER_THUMB_PX / 2}px + ${fraction} * (100% - ${SLIDER_THUMB_PX}px))`;
   };
 
@@ -231,8 +241,18 @@ const FontSizeSlider: Component<{ fontSize: number; onChange: (fontSize: number)
       <div class="pointer-events-none absolute inset-x-0 h-[4px] rounded-full bg-lifted" />
       <div
         class="pointer-events-none absolute left-0 h-[4px] rounded-full bg-accentlt"
-        style={{ width: fillWidth() }}
+        style={{ width: along(props.fontSize) }}
       />
+      {FONT_SIZE_STOPS.map((size) => (
+        <span
+          aria-hidden="true"
+          class={[
+            'pointer-events-none absolute h-[2px] w-[2px] -translate-x-1/2 rounded-full',
+            size <= props.fontSize ? 'bg-white/45' : 'bg-line3',
+          ]}
+          style={{ left: along(size) }}
+        />
+      ))}
       <input
         type="range"
         min={MIN_TERMINAL_FONT_SIZE}

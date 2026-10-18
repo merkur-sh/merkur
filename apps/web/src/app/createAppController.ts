@@ -64,7 +64,6 @@ import {
 } from '../perf/telemetry-preference';
 import { createTelemetryReporter, type TelemetryReporter } from '../perf/telemetry-reporter';
 import { type TerminalStartupMilestone, terminalPerfNowMs } from '../perf/terminal-latency';
-import type { DeviceActionKind } from '../screens/DeviceActionDialog';
 import type { TerminalPanelHandle, TerminalSize } from '../screens/TerminalPanel';
 import { createPredictionRttForwarder } from '../session/prediction-rtt-forwarding';
 import {
@@ -216,7 +215,7 @@ export interface AppController {
   onBack(): Promise<void>;
   onDeviceSelected(device: Device): Promise<void>;
   onDeviceRename(device: Device, name: string): Promise<boolean>;
-  onDeviceRemove(device: Device): Promise<boolean>;
+  onDeviceRemove(device: Device): Promise<void>;
   onLogout(): Promise<void>;
   onChangePassword(
     currentPassword: string,
@@ -253,7 +252,7 @@ export interface AppController {
   onOpenCommandPalette(): void;
   onOpenCreateBox(): void;
   onOpenKeyboardHelp(): void;
-  onOpenDeviceAction(action: DeviceActionKind, device: Device): void;
+  onOpenRename(device: Device): void;
   onOpenLinkApproval(): void;
   /** Opens Settings on `tab`, loading whatever that tab needs. */
   onOpenSettings(tab: SettingsTab): void;
@@ -847,8 +846,8 @@ export function createAppController(): AppController {
     onOpenKeyboardHelp() {
       nav.pushOverlay({ k: 'keyboard-help' });
     },
-    onOpenDeviceAction(action, device) {
-      nav.pushOverlay({ k: 'device-action', action, deviceId: device.id });
+    onOpenRename(device) {
+      nav.pushOverlay({ k: 'rename-device', deviceId: device.id });
     },
     onOpenLinkApproval() {
       nav.pushOverlay({ k: 'link-approval', code: null });
@@ -1646,22 +1645,14 @@ export function createAppController(): AppController {
     }
   }
 
-  async function onDeviceRemove(device: Device): Promise<boolean> {
+  async function onDeviceRemove(device: Device): Promise<void> {
     const token = accessToken();
-    if (token === null) {
-      return false;
+    if (token === null) return;
+    if (!(await deviceList.removeDevice(token, device.id))) return;
+    if (sessionStorage.getItem(LAST_DEVICE_ID_KEY) === device.id) {
+      sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
     }
-
-    try {
-      await deviceList.removeDevice(token, device.id);
-      if (sessionStorage.getItem(LAST_DEVICE_ID_KEY) === device.id) {
-        sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
-      }
-      if (selectedDevice()?.id === device.id) setSelectedDevice(null);
-      return true;
-    } catch {
-      return false;
-    }
+    if (selectedDevice()?.id === device.id) setSelectedDevice(null);
   }
 
   function reconnectLastDevice(opts: { refreshLink?: boolean }): void {

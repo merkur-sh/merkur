@@ -76,7 +76,8 @@ export interface DeviceListController {
   /** Drop the in-memory list and the persisted last-known cache (logout). */
   clearDevices(): void;
   refreshLink(token: string): Promise<void>;
-  removeDevice(token: string, deviceId: string): Promise<void>;
+  /** Whether the machine was removed; a failure is already on the list. */
+  removeDevice(token: string, deviceId: string): Promise<boolean>;
   renameDevice(token: string, deviceId: string, name: string): Promise<void>;
 }
 
@@ -294,8 +295,8 @@ export function createDeviceListController(
     }
   }
 
-  async function removeDevice(token: string, deviceId: string): Promise<void> {
-    if (currentOperation !== null) return;
+  async function removeDevice(token: string, deviceId: string): Promise<boolean> {
+    if (currentOperation !== null) return false;
     publishOperation({ deviceId, kind: 'remove' });
     try {
       await deleteDevice(token, deviceId);
@@ -306,13 +307,16 @@ export function createDeviceListController(
         registry.get(devicesAtom).filter((device) => device.id !== deviceId),
       );
       registry.set(deviceEventsErrorAtom, '');
+      return true;
     } catch (error) {
+      // Handled here, in full: the list shows the failure, and the row it
+      // names is still there to hold again.
       logger.warn('device_delete_failed', { error: String(error), deviceId });
       registry.set(
         deviceEventsErrorAtom,
         'Unable to remove that machine. Check your connection, then try again.',
       );
-      throw error;
+      return false;
     } finally {
       publishOperation(null);
     }

@@ -56,7 +56,7 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'signaling' | 'connected'
  * from a re-pushed one.
  */
 export type Overlay =
-  | { readonly k: 'device-action'; readonly action: 'rename' | 'remove'; readonly deviceId: string }
+  | { readonly k: 'rename-device'; readonly deviceId: string }
   | { readonly k: 'create-box' }
   /** `code` is set when the dialog was opened from a `/link#<code>` address. */
   | { readonly k: 'link-approval'; readonly code: string | null }

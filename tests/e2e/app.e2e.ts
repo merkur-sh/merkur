@@ -177,9 +177,10 @@ test('shows machine capacity and restores the link command after unlinking', asy
     const machine = linked[0];
     if (machine === undefined) throw new Error('expected a linked machine');
     await page.locator(`#device-menu-button-${machine.daemonId}`).click();
-    await page.getByRole('menuitem', { name: 'Remove' }).click();
-    await page.getByRole('button', { name: 'Remove machine', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Hold to remove' }).hover();
+    await page.mouse.down();
     await expect(usage).toHaveText('2 / 3 machine slots used');
+    await page.mouse.up();
     await openAddMachine(page);
     await expect(page.locator('#link-command')).toContainText('MERKUR_LINK_TOKEN=');
     await expect(page.getByRole('button', { name: 'Copy command', exact: true })).toBeEnabled();

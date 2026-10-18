@@ -21,6 +21,7 @@ import type {
   DeviceOperation,
   LinkCommandStatus,
 } from '../app/createDeviceListController';
+import HoldButton from '../components/HoldButton';
 import MerkurOrb from '../components/MerkurOrb';
 import StatusGlyph, { type MachineStatus } from '../components/StatusGlyph';
 import { tooltip } from '../components/tooltip';
@@ -37,7 +38,6 @@ import {
 import { createOwnedTimeout } from '../lib/owned-scheduled-callback';
 import { formatExactTime, formatLastSeenCompact } from '../lib/relative-time';
 import { isReleaseVersionBehind } from '../lib/release-version';
-import type { DeviceActionKind } from './DeviceActionDialog';
 
 /** Per-row entrance step, and the total the whole cascade may occupy. */
 const ROW_STAGGER_MAX_S = 0.03;
@@ -74,7 +74,8 @@ interface Props {
   onSelect: (device: Device) => void;
   onLogout: () => void;
   onOpenCreateBox: () => void;
-  onOpenDeviceAction: (action: DeviceActionKind, device: Device) => void;
+  onOpenRename: (device: Device) => void;
+  onRemoveDevice: (device: Device) => Promise<void>;
   onOpenLinkApproval: () => void;
   onStartDevice: (deviceId: string) => Promise<boolean>;
   onOpenSettings: () => void;
@@ -344,6 +345,29 @@ const DeviceList: Component<Props> = (props) => {
     }
   }
 
+  /**
+   * `x` aims rather than acts: it opens the row's menu on its remove control,
+   * and holding there — `x` again, Enter or Space — is what removes. The same
+   * two steps the pointer takes, and the same confirmation.
+   */
+  function aimRemove(device: Device): void {
+    if (isConnecting(device) || props.operation !== null) return;
+    setOpenMenuDeviceId(device.id);
+    queueMicrotask(() => document.getElementById(`device-remove-${device.id}`)?.focus());
+  }
+
+  function removeDevice(device: Device): void {
+    setOpenMenuDeviceId(null);
+    // The control that confirmed unmounts with the menu, and the menu's trigger
+    // is disabled while the removal runs. The row's own button stays focusable
+    // through it, so the cursor stays on this row until its departure passes
+    // the cursor on.
+    sectionEl
+      .querySelector<HTMLButtonElement>(`[data-device-row="${CSS.escape(device.id)}"] button`)
+      ?.focus();
+    void props.onRemoveDevice(device);
+  }
+
   // The open menu owns `j`/`k` for as long as it is open, and says so by
   // stopping propagation before the app's keyboard layer sees the press. Keys
   // it does not handle keep bubbling on purpose: `r` and `x` mean the same
@@ -476,8 +500,8 @@ const DeviceList: Component<Props> = (props) => {
   // same reason `toggleMenu` defers reaching for its first menu item. And only
   // taken when nothing inside the list already holds focus, so it cannot yank
   // focus back from a header button the user just tabbed to — nor out of a
-  // dialog open over the list, which the list changing under it (the machine
-  // that dialog just removed) used to do, parking the cursor on the first row.
+  // dialog open over the list, which the list changing under it (a machine
+  // another browser removed) used to do, parking the cursor on the first row.
   createEffect(
     () => props.keysActive && props.devices.length > 0,
     (ready) => {
@@ -531,13 +555,13 @@ const DeviceList: Component<Props> = (props) => {
         keys: 'r',
         label: 'Rename machine',
         keyOnly: true,
-        run: withCursorDevice((device) => openDeviceAction('rename', device)),
+        run: withCursorDevice(openRename),
       },
       {
         keys: 'x',
-        label: 'Remove machine',
+        label: 'Remove machine, then hold',
         keyOnly: true,
-        run: withCursorDevice((device) => openDeviceAction('remove', device)),
+        run: withCursorDevice(aimRemove),
       },
       { keys: 'n', label: 'New box', run: () => props.onOpenCreateBox() },
       { keys: 'a', label: 'Approve link code', run: () => props.onOpenLinkApproval() },
@@ -546,13 +570,13 @@ const DeviceList: Component<Props> = (props) => {
     ],
   });
 
-  function openDeviceAction(action: DeviceActionKind, device: Device): void {
+  function openRename(device: Device): void {
     setOpenMenuDeviceId(null);
     // Focus the trigger before the overlay opens. The overlay host captures
     // the active element to restore focus to on close, and the menu item that
     // holds focus right now unmounts with the menu.
     document.getElementById(`device-menu-button-${device.id}`)?.focus();
-    props.onOpenDeviceAction(action, device);
+    props.onOpenRename(device);
   }
 
   // True only while the section-wide fade below is still running.
@@ -798,9 +822,10 @@ const DeviceList: Component<Props> = (props) => {
 
   function settleDeparture(id: string, row: HTMLElement): void {
     if (disposed) return;
-    // The cursor was on this row when a dialog took focus — the remove dialog
-    // itself, usually. It returns focus here as it closes, so the row waits
-    // for that and then passes the cursor on, rather than leaving it nowhere.
+    // The cursor was on this row when a dialog took focus — its rename dialog,
+    // open while another browser removed the machine. It returns focus here as
+    // it closes, so the row waits for that and then passes the cursor on,
+    // rather than leaving it nowhere.
     if (lastFocusRowId === id && document.querySelector('[aria-modal="true"]') !== null) {
       afterDialogs(() => settleDeparture(id, row));
       return;
@@ -1061,7 +1086,7 @@ const DeviceList: Component<Props> = (props) => {
                             type="button"
                             role="menuitem"
                             class="btn-menuitem"
-                            onClick={() => openDeviceAction('rename', device)}
+                            onClick={() => openRename(device)}
                           >
                             Rename <span class="kbd">r</span>
                           </button>
@@ -1077,14 +1102,15 @@ const DeviceList: Component<Props> = (props) => {
                               same vertical line as theirs, which is the only
                               thing in a two-item menu the eye has to compare. */}
                           <div class="pt-1">
-                            <button
-                              type="button"
+                            <HoldButton
+                              id={`device-remove-${device.id}`}
                               role="menuitem"
+                              holdKey="x"
                               class="btn-danger btn-sm w-full justify-between px-[9px]"
-                              onClick={() => openDeviceAction('remove', device)}
+                              onConfirm={() => removeDevice(device)}
                             >
-                              Remove <span class="kbd">x</span>
-                            </button>
+                              Hold to remove <span class="kbd">x</span>
+                            </HoldButton>
                           </div>
                         </div>
                       </Show>

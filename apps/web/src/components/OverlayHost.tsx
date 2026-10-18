@@ -20,7 +20,7 @@ import { fadeTransition, hintMotion, SURFACE_SPRING, springTransition } from '..
 import { claimPress } from '../lib/press-claim';
 import CreateBoxDialog from '../screens/CreateBoxDialog';
 import DaemonLinkApprovalDialog from '../screens/DaemonLinkApprovalDialog';
-import DeviceActionDialog from '../screens/DeviceActionDialog';
+import RenameDeviceDialog from '../screens/RenameDeviceDialog';
 import CommandPalette, { type Command } from './CommandPalette';
 import KeyboardHelp from './KeyboardHelp';
 import { OVERLAY_AUTOFOCUS_ATTRIBUTE, type OverlayControls } from './overlay-controls';
@@ -63,10 +63,10 @@ interface PanelShape {
 
 function panelShape(overlay: Overlay): PanelShape {
   switch (overlay.k) {
-    case 'device-action':
+    case 'rename-device':
       return {
-        labelledBy: 'device-action-title',
-        describedBy: 'device-action-description',
+        labelledBy: 'rename-device-title',
+        describedBy: 'rename-device-description',
         widthClass: 'max-w-[390px]',
         padClass: 'p-5',
         anchor: 'center',
@@ -150,7 +150,6 @@ interface Props {
   ): Promise<{ readonly name: string; readonly platform: string } | null>;
   onCreateBox(boxId: string, password: string): Promise<boolean>;
   onJoinBoxWaitlist(): Promise<boolean>;
-  onRemove(device: Device): Promise<boolean>;
   onRename(device: Device, name: string): Promise<boolean>;
 }
 
@@ -270,25 +269,17 @@ const OverlayHost: Component<Props> = (props) => {
     const overlay = entry.overlay;
 
     switch (overlay.k) {
-      case 'device-action': {
+      case 'rename-device': {
         // Snapshotted at open, like the dialog used to receive it: a device
         // that leaves the list mid-dialog must not blank the panel out from
-        // under its own exit animation. Read untracked, or the removal the
+        // under its own exit animation. Read untracked, or the rename the
         // dialog itself just made re-runs this, unmounts the focused button and
         // drops focus to the body before the dialog can hand it back.
         const device = untrack(() =>
           props.devices.find((candidate) => candidate.id === overlay.deviceId),
         );
         if (device === undefined) return null;
-        return (
-          <DeviceActionDialog
-            action={overlay.action}
-            device={device}
-            controls={controls}
-            onRename={props.onRename}
-            onRemove={props.onRemove}
-          />
-        );
+        return <RenameDeviceDialog device={device} controls={controls} onRename={props.onRename} />;
       }
       case 'create-box':
         return (

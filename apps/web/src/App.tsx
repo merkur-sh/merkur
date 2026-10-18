@@ -128,7 +128,8 @@ const App: Component = () => {
                 onSelect={controller.onDeviceSelected}
                 onLogout={controller.onLogout}
                 onOpenCreateBox={controller.onOpenCreateBox}
-                onOpenDeviceAction={controller.onOpenDeviceAction}
+                onOpenRename={controller.onOpenRename}
+                onRemoveDevice={controller.onDeviceRemove}
                 onOpenLinkApproval={controller.onOpenLinkApproval}
                 onStartDevice={controller.onStartDevice}
                 onOpenSettings={() => controller.onOpenSettings('terminal')}
@@ -220,7 +221,6 @@ const App: Component = () => {
         onPreviewDaemonLink={controller.onPreviewDaemonLink}
         onCreateBox={controller.onCreateBox}
         onJoinBoxWaitlist={controller.onJoinBoxWaitlist}
-        onRemove={controller.onDeviceRemove}
         onRename={controller.onDeviceRename}
       />
 
