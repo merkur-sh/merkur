@@ -689,7 +689,9 @@ becomes the browser's address when the candidate commits.
 
 The daemon sends `webtransport_manifest` `{generation, certHash, candidates, nat,
 browserAddress, punch, admissionPending}` once authentication completes and the address is known, in either
-order; when a rebind commits; when the committed carrier's address changes, which is how a
+order; again when the first Noise handshake completes, because router preparation binds only an
+E2E-ready session and the first manifest left before it could be queued; when a rebind commits;
+when the committed carrier's address changes, which is how a
 connection that migrates (Safari's) moves networks; and when its candidates or certificate
 change. `generation` orders one peer's manifests. `admission_pending` means router
 preparation is still running. Successful preparations progressively extend the same

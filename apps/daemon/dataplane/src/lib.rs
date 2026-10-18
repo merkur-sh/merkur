@@ -4949,18 +4949,21 @@ async fn handle_noise_final(
     );
     info!("E2E established for peer {effective_peer_id}");
 
-    if committed {
-        if let Some(candidate) = candidate {
-            candidate.commit();
-            // The committed carrier is this candidate, and the edge proved its
-            // address before the rebind could begin. A carrier that moved
-            // networks is offered against where it is now, not where the
-            // session started.
-            peer.browser_address = Some(candidate.browser_address);
-        }
-        // `commit_rebind` installed the successor direct-upgrade secret. Send the
-        // manifest at once over the retained edge lane; waiting for a later
-        // change would strand a previously-direct session on the relay.
+    if committed && let Some(candidate) = candidate {
+        candidate.commit();
+        // The committed carrier is this candidate, and the edge proved its
+        // address before the rebind could begin. A carrier that moved
+        // networks is offered against where it is now, not where the
+        // session started.
+        peer.browser_address = Some(candidate.browser_address);
+    }
+    if committed || !is_rebind {
+        // A rebind: `commit_rebind` installed the successor direct-upgrade
+        // secret, and waiting for a later change would strand a previously
+        // direct session on the relay. A first authentication: its manifest
+        // left before Noise completed, when router admission, which binds an
+        // E2E-ready session, could not be queued, so a browser on another
+        // network would never be offered a helper candidate.
         crate::session::wt_upgrade_flow::emit_webtransport_manifest(
             wt_state,
             network_state,

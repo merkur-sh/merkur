@@ -589,6 +589,71 @@ async fn successful_rebind_retires_direct_commits_and_sends_a_manifest_for_the_n
     );
 }
 
+#[tokio::test]
+async fn a_first_authentication_offers_its_manifest_again_once_noise_completes() {
+    let peer_id = "browser-first-auth";
+    let (mut peer, _incumbent, _browser, msg3, _) = rebind_handshake_peer(peer_id);
+    peer.noise = None;
+    peer.rebind = None;
+    peer.browser_address = Some("203.0.113.9".parse().expect("browser address"));
+    let generation = peer.manifest_generation;
+    let mut peers = PeerMap::from([(peer_id.into(), peer)]);
+    let (event_tx, _event_output) = crate::ipc::events::test_event_sink();
+    let mut telemetry = session::rebind_flow::RebindTelemetry::new(event_tx);
+    let wt_state = Some(Arc::new(RwLock::new(WebTransportState::new(
+        webtransport::CertState {
+            cert_hash: [7; 32],
+            created_at: Instant::now(),
+            valid_for: Duration::from_secs(60),
+        },
+        44_000,
+        vec![webtransport::AddressCandidate {
+            addr: "192.168.1.10".to_string(),
+            port: 44_000,
+            kind: webtransport::CandidateFlavor::Host4,
+        }],
+        webtransport::pairing::NatSignature {
+            public_ip: None,
+            nat_type: webtransport::pairing::NatTypeLabel::None,
+            hairpin: false,
+        },
+        webtransport::stun::NatMapping::Unknown,
+        None,
+    ))));
+    let (signaling_tx, mut signaling_rx) = mpsc::unbounded_channel();
+    let network_state = Arc::new(RwLock::new(NetworkState::new()));
+    network::register_edge_signaling(
+        &network_state,
+        peer_id,
+        Arc::new(edge_tunnel::EdgeTunnel::new_capture(signaling_tx)),
+    )
+    .await;
+
+    assert!(
+        handle_noise_final(
+            peer_id,
+            &noise_final_envelope(&peers[peer_id], &msg3),
+            &mut peers,
+            &wt_state,
+            &network_state,
+            &mut telemetry,
+            20.0,
+            None,
+        )
+        .await
+        .is_some()
+    );
+    assert_eq!(
+        peers[peer_id].manifest_generation,
+        generation + 1,
+        "the E2E-ready session is offered a manifest of its own"
+    );
+    assert!(
+        signaling_rx.try_recv().is_ok(),
+        "the manifest leaves on the session's signaling lane"
+    );
+}
+
 fn pty_message(peer_id: &str, sealed: Vec<u8>, delivery: DeliveryMode) -> PeerMessage {
     PeerMessage {
         input_permit: None,
