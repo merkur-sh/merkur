@@ -34,6 +34,22 @@ resource "hcloud_firewall" "service_host" {
     port        = "3478-3481"
     source_ips  = ["0.0.0.0/0", "::/0"]
   }
+  # The development loop's own edge and STUN responder, which a checkout's
+  # server registers and tickets with dev-only keys (dev.merkur.sh).
+  rule {
+    description = "dev edge webtransport"
+    direction   = "in"
+    protocol    = "udp"
+    port        = "4434"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+  }
+  rule {
+    description = "dev stun observers + change port"
+    direction   = "in"
+    protocol    = "udp"
+    port        = "3488-3491"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+  }
   # The app answers everyone directly; Caddy answers the website's and the
   # dashboard's names only for Cloudflare (deploy/caddy).
   rule {
