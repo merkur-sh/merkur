@@ -247,6 +247,11 @@ impl Heartbeat {
         self.rtt.rto_ms()
     }
 
+    /// The RTO in whole milliseconds, rounded up, for a deadline.
+    pub fn rto_ceil_ms(&self) -> u64 {
+        ceil_ms(self.rtt.rto_ms())
+    }
+
     pub fn srtt_ms(&self) -> Option<f64> {
         self.rtt.srtt_ms()
     }
@@ -326,7 +331,7 @@ impl Heartbeat {
         self.armed_progress_seq = armed_at_progress;
         self.armed_emit_top_seq = link.emit_top_seq();
         self.ladder = Some(Ladder {
-            at_ms: now_ms + rto_ms.ceil() as u64,
+            at_ms: now_ms + ceil_ms(rto_ms),
             rto_ms,
             armed_at_progress,
             stage: Stage::Deadline,
@@ -377,7 +382,7 @@ impl Heartbeat {
             first: false,
             admitted,
         };
-        ladder.at_ms = now_ms + ladder.rto_ms.ceil() as u64;
+        ladder.at_ms = now_ms + ceil_ms(ladder.rto_ms);
     }
 
     /// End the ladder on positive proof the uplink works, retracting any
@@ -394,6 +399,12 @@ impl Heartbeat {
         self.armed_emit_top_seq = 0;
         self.armed_progress_seq = 0;
     }
+}
+
+/// An RTO is finite and clamped to `RTO_FLOOR_MS..=RTO_CEIL_MS`, so its
+/// ceiling is a small positive whole number of milliseconds.
+fn ceil_ms(ms: f64) -> u64 {
+    ms.ceil() as u64
 }
 
 #[cfg(test)]

@@ -654,7 +654,7 @@ impl Session {
         if conn == path {
             self.direct.probe.answered(token);
         } else {
-            let at_ms = now_ms + self.heartbeat.rto_ms().ceil() as u64;
+            let at_ms = now_ms + self.heartbeat.rto_ceil_ms();
             self.direct.probe.relay_answered(token, at_ms);
         }
     }

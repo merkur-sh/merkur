@@ -353,18 +353,20 @@ fn next_pings(harness: &mut Harness, daemon: &mut NoiseTransport) -> (u64, Vec<(
         harness.session.handle_timeout(at, &mut harness.entropy);
         let pings: Vec<(ConnId, u64)> = drain(&mut harness.session)
             .iter()
-            .filter_map(|action| match action {
-                Action::SendReliable {
+            .filter_map(|action| {
+                let Action::SendReliable {
                     conn,
                     channel: CHANNEL_CTRL,
                     payload,
-                } => match decode_proto_frame(&daemon.open_stream(lane, payload).unwrap()) {
-                    Some((MSG_TYPE_HEARTBEAT_PING, token)) => {
-                        Some((*conn, u64::from_be_bytes(token.try_into().unwrap())))
-                    }
-                    _ => None,
-                },
-                _ => None,
+                } = action
+                else {
+                    return None;
+                };
+                let frame = daemon.open_stream(lane, payload).unwrap();
+                let (MSG_TYPE_HEARTBEAT_PING, token) = decode_proto_frame(&frame)? else {
+                    return None;
+                };
+                Some((*conn, u64::from_be_bytes(token.try_into().unwrap())))
             })
             .collect();
         if !pings.is_empty() {
@@ -406,15 +408,18 @@ fn pong(
 fn direct_lost(actions: &[Action]) -> Vec<String> {
     actions
         .iter()
-        .filter_map(|action| match action {
-            Action::SendReliable {
+        .filter_map(|action| {
+            let Action::SendReliable {
                 channel: CHANNEL_SIGNALING,
                 ..
-            } => match signal(action) {
-                ClientSignal::WebtransportDirectLost { temp_peer_id } => Some(temp_peer_id),
-                _ => None,
-            },
-            _ => None,
+            } = action
+            else {
+                return None;
+            };
+            let ClientSignal::WebtransportDirectLost { temp_peer_id } = signal(action) else {
+                return None;
+            };
+            Some(temp_peer_id)
         })
         .collect()
 }
@@ -575,7 +580,7 @@ fn a_silent_direct_path_is_retired_an_rto_after_the_relay_answers_its_ping() {
     };
     assert_eq!(token, also);
     assert!(pings.iter().any(|(conn, _)| *conn == local));
-    let rto = harness.session.heartbeat.rto_ms().ceil() as u64;
+    let rto = harness.session.heartbeat.rto_ceil_ms();
     pong(&mut harness, &mut daemon, at + 4, relay, token);
     assert!(direct_lost(&pong(&mut harness, &mut daemon, at + 9, local, token)).is_empty());
     harness
@@ -588,7 +593,7 @@ fn a_silent_direct_path_is_retired_an_rto_after_the_relay_answers_its_ping() {
     // is retired, closed, and named to the daemon.
     let (at, pings) = next_pings(&mut harness, &mut daemon);
     let token = pings[0].1;
-    let rto = harness.session.heartbeat.rto_ms().ceil() as u64;
+    let rto = harness.session.heartbeat.rto_ceil_ms();
     assert!(direct_lost(&pong(&mut harness, &mut daemon, at + 4, relay, token)).is_empty());
     harness
         .session
