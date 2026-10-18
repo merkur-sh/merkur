@@ -15,8 +15,9 @@ import {
  * It exists for the thread, not the work: this worker does nothing else, so it
  * is never busy when a chunk arrives. On iOS a streamed body read by a busy
  * thread keeps the first of several queued chunks and holds the rest until
- * more data arrives (see `readEventStream`), which on the device-events stream
- * is a keep-alive 15 s later.
+ * more data arrives (see `readEventStream`, which also says why the body is
+ * decoded by hand), which on the device-events stream is a keep-alive 15 s
+ * later.
  */
 
 const streams = new Map<number, AbortController>();

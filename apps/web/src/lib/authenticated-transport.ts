@@ -76,7 +76,12 @@ interface EventStreamReadCallbacks {
  * keep-alive 15 s away, so a sign-in that keeps the main thread busy while the
  * opening frame lands left the machine list a skeleton until then, or until
  * the stall deadline. Every read mode on the main thread does it (default,
- * BYOB, `pipeTo`, `pipeThrough`); a thread that does nothing else never does.
+ * BYOB, `pipeTo`, `pipeThrough`).
+ *
+ * The body is decoded here rather than piped through a `TextDecoderStream`.
+ * In WebKit the pipe held the snapshot behind the stream's opening pad until
+ * the keep-alive, where a raw reader on the same page, a moment later, had
+ * every chunk within 4 ms.
  */
 export async function readEventStream(
   path: string,
@@ -112,7 +117,10 @@ export async function readEventStream(
 
   callbacks.onOpen();
 
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  const reader = response.body.getReader();
+  // `stream: true` carries a code point split across two chunks over to the
+  // next, which is what the decoder stream did.
+  const decoder = new TextDecoder();
   let completed: SseEvent[] = [];
   const parser = createSseEventParser((event) => completed.push(event));
 
@@ -120,10 +128,15 @@ export async function readEventStream(
     while (!init.signal.aborted) {
       const next = await reader.read();
       if (next.done) {
+        const tail = decoder.decode();
+        if (tail.length > 0) {
+          parser.push(tail);
+          callbacks.onChunk(completed);
+        }
         break;
       }
 
-      parser.push(next.value);
+      parser.push(decoder.decode(next.value, { stream: true }));
       callbacks.onChunk(completed);
       completed = [];
     }

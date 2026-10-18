@@ -115,6 +115,31 @@ describe('authenticated event stream', () => {
     expect(events).toEqual([{ event: 'devices', data: '[1,2,3]' }]);
   });
 
+  test('decodes a code point split across two chunks', async () => {
+    const encoded = new TextEncoder().encode('event: devices\ndata: ["café-☃"]\n\n');
+    // Split inside the snowman's three bytes.
+    const cut = encoded.indexOf(0xe2) + 1;
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoded.slice(0, cut));
+              controller.enqueue(encoded.slice(cut));
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+    });
+    const events: Array<{ event: string; data: string }> = [];
+
+    await openStream('token', 'https://merkur.test/events', (event) => events.push(event));
+
+    expect(events).toEqual([{ event: 'devices', data: '["café-☃"]' }]);
+  });
+
   test('rejects a delimiter-starved event at the memory bound', async () => {
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
