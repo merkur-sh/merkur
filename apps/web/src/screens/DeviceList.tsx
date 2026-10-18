@@ -873,8 +873,11 @@ const DeviceList: Component<Props> = (props) => {
             entrance and the sign-out exit: the orb and the wordmark on the
             sign-in card travel to these two slots rather than fading out and
             in, and travel back when the session ends. */}
+        {/* At rest here, on its still frame. The splash and sign-in are seen
+            once a visit and the mark moves there; this is the screen that stays
+            open, and nothing on it moves without a cause. */}
         <span class="flex items-center gap-[10px]">
-          <MerkurOrb size={22} class="vt-orb" />
+          <MerkurOrb size={22} class="vt-orb" reduced />
           <span class="wordmark-sm vt-wordmark">Merkur</span>
         </span>
         <span class="flex-1" />
@@ -1069,7 +1072,10 @@ const DeviceList: Component<Props> = (props) => {
                         aria-controls={`device-menu-${device.id}`}
                         aria-label={`Machine actions for ${device.name}`}
                         disabled={isConnecting(device) || props.operation !== null}
-                        class="focusable grid h-6 w-4 cursor-pointer place-items-center border-none bg-transparent text-[14px] leading-none text-faint transition-[color] duration-tint hover:text-ink motion-reduce:transition-none"
+                        // 16 px of glyph, 44 px of target: on a phone this is
+                        // the only way to rename or remove, so the press area
+                        // is the button's `after:`, as every `btn` has.
+                        class="focusable relative grid h-6 w-4 cursor-pointer place-items-center border-none bg-transparent text-[14px] leading-none text-faint transition-[color] duration-tint hover:text-ink motion-reduce:transition-none after:(content-empty absolute left-1/2 top-1/2 h-11 w-11 -translate-x-1/2 -translate-y-1/2)"
                         onClick={() => toggleMenu(device.id)}
                       >
                         ⋯
@@ -1088,7 +1094,7 @@ const DeviceList: Component<Props> = (props) => {
                             class="btn-menuitem"
                             onClick={() => openRename(device)}
                           >
-                            Rename <span class="kbd">r</span>
+                            Rename <span class="kbd keys-only">r</span>
                           </button>
                           <div class="menu-sep" />
                           {/* A destructive action is not a row. Rows are
@@ -1109,7 +1115,7 @@ const DeviceList: Component<Props> = (props) => {
                               class="btn-danger btn-sm w-full justify-between px-[9px]"
                               onConfirm={() => removeDevice(device)}
                             >
-                              Hold to remove <span class="kbd">x</span>
+                              Hold to remove <span class="kbd keys-only">x</span>
                             </HoldButton>
                           </div>
                         </div>
@@ -1225,23 +1231,23 @@ const AddMachineFooter: Component<{
           <Show
             when={props.hasDevices}
             fallback={
-              <span class="hint">
+              <span class="hint keys-only">
                 <span class="kbd">?</span> all
               </span>
             }
           >
-            <span class="hint">
+            <span class="hint keys-only">
               <span class="kbd">j</span>
               <span class="kbd">k</span> move
             </span>
-            <span class="hint">
+            <span class="hint keys-only">
               <span class="kbd">↵</span> connect
             </span>
             {/* Moving and connecting are what this screen is for, and `?` is how
               everything else is found. `n` stays bound and stays in the help
               sheet and the palette; making a box is not a thing anyone needs
               reminding of on every visit. */}
-            <span class="hint">
+            <span class="hint keys-only">
               <span class="kbd">?</span> all
             </span>
           </Show>

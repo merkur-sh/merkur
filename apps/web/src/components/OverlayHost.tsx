@@ -398,9 +398,25 @@ const OverlayLayer: Component<LayerProps> = (props) => {
   let enterBackdrop: ReturnType<typeof animate> | null = null;
   let enterPanel: ReturnType<typeof animate> | null = null;
   const exitMotion: ReturnType<typeof animate>[] = [];
+  /**
+   * The palette is opened hundreds of times a day, and it is there to be typed
+   * into: it appears and leaves in the frame that asked for it. A landing
+   * spring on it kept the panel travelling under the first keystrokes for a
+   * quarter of a second, which is motion on the one surface that should feel
+   * like part of the keyboard.
+   */
+  const instant = props.entry.overlay.k === 'command-palette';
 
   onSettled(() => {
     props.entry.panel = panelEl;
+
+    // Focus the control the dialog nominated, else whatever is first. Deferred
+    // a microtask so it runs once the body has rendered its fields.
+    queueMicrotask(() => {
+      const nominated = panelEl.querySelector<HTMLElement>(`[${OVERLAY_AUTOFOCUS_ATTRIBUTE}]`);
+      (nominated ?? focusableWithin(panelEl)[0])?.focus();
+    });
+    if (instant) return;
 
     enterBackdrop = animate(backdropEl, { opacity: [0, 1] }, fadeTransition(0.12));
     // The panel lands rather than fades: a spring with a trace of overshoot is
@@ -417,19 +433,16 @@ const OverlayLayer: Component<LayerProps> = (props) => {
       },
     );
     hintMotion([panelEl], enterPanel);
-
-    // Focus the control the dialog nominated, else whatever is first. Deferred
-    // a microtask so it runs once the body has rendered its fields.
-    queueMicrotask(() => {
-      const nominated = panelEl.querySelector<HTMLElement>(`[${OVERLAY_AUTOFOCUS_ATTRIBUTE}]`);
-      (nominated ?? focusableWithin(panelEl)[0])?.focus();
-    });
   });
 
   createEffect(
     () => props.entry.exiting(),
     (exiting) => {
       if (!exiting) return;
+      if (instant) {
+        queueMicrotask(() => props.onExited());
+        return;
+      }
 
       enterBackdrop?.stop();
       enterPanel?.stop();

@@ -75,11 +75,14 @@ what reads as unfinished.
 | A destructive confirm without a dialog | `HoldButton` (1 s fill, drains on release, leave or blur) | `apps/web/src/components/HoldButton.tsx` |
 | An immediate on/off setting | `ToggleSwitch` | `apps/web/src/components/ToggleSwitch.tsx` |
 | A tooltip | `tooltip()`: 500 ms first open, instant for 300 ms after, 450 ms long press | `apps/web/src/components/tooltip.ts` |
-| A dialog or the palette | `OverlayHost` | `apps/web/src/components/OverlayHost.tsx` |
+| A dialog or the palette | `OverlayHost`; dialogs land on `SURFACE_SPRING`, the palette appears and leaves in one frame | `apps/web/src/components/OverlayHost.tsx` |
 | A bottom sheet | `Sheet` | `apps/web/src/components/Sheet.tsx` |
 | A screen push or pop | `ViewLayer` | `apps/web/src/components/ViewLayer.tsx` |
 | The splash to shell handover | `PhaseHost`, with the orb and wordmark as view-transition pairs | `apps/web/src/components/PhaseHost.tsx` |
 | A disclosure opening | `revealDisclosure` (opacity and 4 px, space claimed at once) | `apps/web/src/lib/motion.ts` |
+| Key caps and key hints | `.keys-only`, hidden where the primary pointer is coarse | `apps/web/uno.config.ts` |
+| A scroller with rows below its edge | `.scroll-fade` plus `data-more` set from its own scroll geometry | `apps/web/uno.config.ts` |
+| A small control on touch | an `after:` press area of 44 px, as `btn` carries | `packages/quicksilver/src/preset.ts` |
 
 ## Press and focus
 

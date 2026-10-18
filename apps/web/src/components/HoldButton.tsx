@@ -18,11 +18,13 @@ const HOLD_S = 1;
 const DRAIN_S = 0.18;
 
 interface Props {
-  readonly id: string;
+  readonly id?: string;
   readonly class: string;
-  readonly role: 'menuitem';
+  readonly role?: 'menuitem';
+  readonly label?: string;
+  readonly disabled?: boolean;
   /** A key that holds as Enter and Space do: the action's own shortcut. */
-  readonly holdKey: string;
+  readonly holdKey?: string;
   readonly children: Element;
   onConfirm(): void;
 }
@@ -67,6 +69,9 @@ const HoldButton: Component<Props> = (props) => {
         if (current !== generation || heldBy === null) return;
         heldBy = null;
         props.onConfirm();
+        // Back to rest once the action is under way: a control that outlives
+        // its confirmation (a revoke that fails, say) must not stay full.
+        drain();
       },
       () => undefined,
     );
@@ -75,19 +80,23 @@ const HoldButton: Component<Props> = (props) => {
   function release(by: number | string): void {
     if (heldBy !== by) return;
     heldBy = null;
+    drain();
+  }
+
+  function drain(): void {
     generation += 1;
     fillMotion?.stop();
-    const drain = animate(
+    const emptying = animate(
       fillEl,
       { scaleX: 0 },
       { duration: motionDuration(DRAIN_S), ease: OUT_EASE },
     );
-    fillMotion = drain;
-    hintMotion([fillEl], drain, 'transform');
+    fillMotion = emptying;
+    hintMotion([fillEl], emptying, 'transform');
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || props.disabled === true) return;
     // A touch is captured by the control it lands on, which would keep a finger
     // that slides off it holding. Released, so leaving lets go.
     if (buttonEl.hasPointerCapture(event.pointerId)) {
@@ -101,7 +110,7 @@ const HoldButton: Component<Props> = (props) => {
   }
 
   function isHoldKey(event: KeyboardEvent): boolean {
-    if (event.ctrlKey || event.metaKey || event.altKey) return false;
+    if (event.ctrlKey || event.metaKey || event.altKey || props.disabled === true) return false;
     return event.key === 'Enter' || event.key === ' ' || event.key === props.holdKey;
   }
 
@@ -135,6 +144,8 @@ const HoldButton: Component<Props> = (props) => {
       id={props.id}
       type="button"
       role={props.role}
+      aria-label={props.label}
+      disabled={props.disabled === true}
       class={['isolate [-webkit-touch-callout:none]', props.class]}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerEnd}

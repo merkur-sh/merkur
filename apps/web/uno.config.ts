@@ -309,6 +309,27 @@ export default defineConfig({
         }
 
         /*
+         * Key caps and key hints teach a keyboard. Where the primary pointer is
+         * a finger there is usually no keyboard to teach, and the caps are
+         * noise on a phone-sized screen, so they go. Important, because the
+         * hints are flex items whose display utilities would otherwise win.
+         */
+        @media (pointer: coarse) {
+          .keys-only {
+            display: none !important;
+          }
+        }
+
+        /*
+         * A scroller with rows below its lower edge fades out over its last
+         * 28px. The scroller says so itself, through data-more, from its own
+         * scroll geometry; at the end of the list the edge is hard again.
+         */
+        .scroll-fade[data-more] {
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+        }
+
+        /*
          * Every row separator is a pseudo-element inset past the status column,
          * so the rule starts where the text does. The cursor row suppresses its
          * own and its successor's: a highlighted row is bounded by its ring,

@@ -377,23 +377,25 @@ test.describe('OPAQUE account and trusted-browser resilience', () => {
       await expect(firstPage.locator('#settings')).toBeVisible();
       await firstPage.getByRole('tab', { name: 'Sessions' }).click();
       // Each row is named by the browser it belongs to, so the one control
-      // this matches is a row's own Revoke — never "Revoke all other browsers".
+      // this matches is a row's own revoke — never "revoke all other browsers".
       const revokeButton = firstPage.getByRole('button', {
-        name: /^Revoke (?!all\b)/u,
+        name: /^Hold to revoke (?!all\b)/u,
       });
       await expect(revokeButton).toHaveCount(1);
-      await revokeButton.click();
+      // Revoking is held, not clicked: Enter held on the control fills it and
+      // the request goes when it is full.
+      await revokeButton.focus();
+      await firstPage.keyboard.down('Enter');
       await expect(firstPage.getByRole('alert')).toHaveText(
         'Unable to revoke that browser session.',
       );
+      await firstPage.keyboard.up('Enter');
       expect(revokeRequests).toBe(1);
-      await revokeButton.evaluate((button) => {
-        if (!(button instanceof HTMLButtonElement))
-          throw new Error('Revoke control is not a button');
-        button.click();
-        button.click();
-      });
+      // A hold confirms once, however long it lasts.
+      await revokeButton.focus();
+      await firstPage.keyboard.down('Enter');
       await expect(revokeButton).toHaveCount(0);
+      await firstPage.keyboard.up('Enter');
       expect(revokeRequests).toBe(2);
 
       await expectLoggedOut(secondPage);

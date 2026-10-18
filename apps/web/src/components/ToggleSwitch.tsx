@@ -27,7 +27,9 @@ const ToggleSwitch: Component<Props> = (props) => (
     disabled={props.disabled === true}
     onClick={() => props.onChange(!props.checked)}
     class={[
-      'focusable relative h-[18px] w-8 shrink-0 cursor-pointer rounded-full border border-solid p-0 tap-transparent transition-[background-color,border-color] duration-tint disabled:(cursor-not-allowed opacity-45) motion-reduce:transition-none',
+      // The press area is 44 px tall and wider than the track, through the
+      // same `after:` every `btn` carries: the drawn switch is 18 px.
+      'focusable relative h-[18px] w-8 shrink-0 cursor-pointer rounded-full border border-solid p-0 tap-transparent transition-[background-color,border-color] duration-tint disabled:(cursor-not-allowed opacity-45) motion-reduce:transition-none after:(content-empty absolute left-1/2 top-1/2 h-11 w-12 -translate-x-1/2 -translate-y-1/2)',
       {
         'border-accent bg-accent': props.checked,
         'border-line2 bg-lifted': !props.checked,

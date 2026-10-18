@@ -122,7 +122,22 @@ const CommandPalette: Component<Props> = (props) => {
   // them instead; more than fit still scroll inside the cap.
   onSettled(() => {
     listEl.style.height = `${listEl.offsetHeight}px`;
+    markMore();
   });
+
+  /**
+   * Whether rows sit below the list's lower edge. A list cut at a section
+   * heading otherwise reads as having ended there; the fade it turns on says
+   * there is more. Read from the list's own scroll geometry, on scroll and
+   * whenever the results change.
+   */
+  function markMore(): void {
+    listEl.toggleAttribute(
+      'data-more',
+      listEl.scrollTop + listEl.clientHeight < listEl.scrollHeight - 1,
+    );
+  }
+  createEffect(matches, () => markMore());
 
   // Keep the cursor in view without stealing focus from the query field: the
   // field owns focus for the whole interaction, so the list is scrolled to the
@@ -167,7 +182,8 @@ const CommandPalette: Component<Props> = (props) => {
         id="command-palette-list"
         role="listbox"
         aria-label="Commands"
-        class="max-h-[46vh] min-h-[64px] overflow-y-auto overscroll-contain px-[5px] py-[6px]"
+        onScroll={markMore}
+        class="scroll-fade max-h-[46vh] min-h-[64px] overflow-y-auto overscroll-contain px-[5px] py-[6px]"
       >
         <Show
           when={matches().length > 0}
@@ -218,7 +234,7 @@ const CommandPalette: Component<Props> = (props) => {
                     </Show>
                   </span>
                   <Show when={command.keys}>
-                    {(keys) => <kbd class="kbd shrink-0">{formatKeys(keys())}</kbd>}
+                    {(keys) => <kbd class="kbd keys-only shrink-0">{formatKeys(keys())}</kbd>}
                   </Show>
                 </button>
               </>
@@ -227,7 +243,7 @@ const CommandPalette: Component<Props> = (props) => {
         </Show>
       </div>
 
-      <div class="hintbar shrink-0">
+      <div class="hintbar keys-only shrink-0">
         <span class="hint">
           <kbd class="kbd">^J</kbd>
           <kbd class="kbd">^K</kbd> move

@@ -1,8 +1,12 @@
 import { type Component, createMemo, For, Show } from 'solid-js';
 
 import type { BrowserSessionRecord } from '../auth/account-api';
+import HoldButton from '../components/HoldButton';
 import StatusGlyph from '../components/StatusGlyph';
 import { ariaBool } from '../lib/aria';
+
+/** Shared by the control and the skeleton that reserves its footprint. */
+const REVOKE_OTHERS_CLASS = 'btn-ghost btn-sm';
 
 interface Props {
   readonly activeDelegationIds: readonly string[] | null;
@@ -74,15 +78,16 @@ const SessionSettings: Component<Props> = (props) => {
               <h2 id="other-browsers-heading" class="eyebrow">
                 Other browsers
               </h2>
-              <button
-                type="button"
-                aria-label="Revoke all other browsers"
+              {/* Signing every other browser out is as final as removing a
+                  machine, so it asks the same way: a hold, not a click. */}
+              <HoldButton
+                label="Hold to revoke all other browsers"
                 disabled={props.pending || otherSessions().length === 0}
-                onClick={() => void props.onRevokeOthers().catch(() => undefined)}
-                class="btn-ghost btn-sm"
+                onConfirm={() => void props.onRevokeOthers().catch(() => undefined)}
+                class={REVOKE_OTHERS_CLASS}
               >
-                Revoke others
-              </button>
+                Hold to revoke others
+              </HoldButton>
             </div>
             <div class="pref-group" aria-busy={ariaBool(props.pending)}>
               <Show
@@ -136,8 +141,9 @@ const SessionSettingsSkeleton: Component = () => (
     <section class="flex flex-col gap-2" aria-hidden="true">
       <div class="flex items-center justify-between gap-2">
         <span class="eyebrow">Other browsers</span>
-        {/* The control's footprint, so the heading row is the height it will be. */}
-        <span class="h-[26px] w-[96px]" />
+        {/* The control itself, unseen, so its footprint is exactly the one the
+            loaded heading row will have. */}
+        <span class={`${REVOKE_OTHERS_CLASS} invisible`}>Hold to revoke others</span>
       </div>
       <div class="pref-group">
         <SkeletonRow />
@@ -183,15 +189,14 @@ const BrowserSessionRow: Component<{
       </span>
     </span>
     <Show when={props.onRevoke !== undefined}>
-      <button
-        type="button"
-        aria-label={`Revoke ${describeClient(props.session)}`}
+      <HoldButton
+        label={`Hold to revoke ${describeClient(props.session)}`}
         disabled={props.pending}
-        onClick={() => void props.onRevoke?.(props.session.delegationId).catch(() => undefined)}
+        onConfirm={() => void props.onRevoke?.(props.session.delegationId).catch(() => undefined)}
         class="btn-quiet btn-sm text-badink hover:(bg-badsoft text-badink)"
       >
-        Revoke
-      </button>
+        Hold to revoke
+      </HoldButton>
     </Show>
   </div>
 );
@@ -218,6 +223,11 @@ function describeOrigin(session: BrowserSessionRecord): string {
   return `${here}${installed}added ${formatTimestamp(session.issuedAt)}`;
 }
 
+/**
+ * When a browser was added, to the minute. The seconds a full locale string
+ * carries say nothing anyone deciding whether to revoke needs, and make the
+ * row read like a log line.
+ */
 function formatTimestamp(value: number): string {
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }

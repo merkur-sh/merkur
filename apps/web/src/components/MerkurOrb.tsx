@@ -64,6 +64,10 @@ function warnOrbFailure(failure: OrbFailure): void {
 
 interface Props {
   readonly size?: number;
+  /**
+   * Draw the rest frame once and never animate: under reduced motion, and on
+   * the machine list, the screen that stays open, where the mark rests.
+   */
   readonly reduced?: boolean;
   readonly class?: string;
 }

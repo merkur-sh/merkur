@@ -84,8 +84,10 @@ test('revoking the native delegation ends its authenticated live session', async
           response.request().method() === 'DELETE' &&
           new URL(response.url()).pathname === `/api/browser-sessions/${delegationId}`,
       );
-      await nativeRow.getByRole('button', { name: /^Revoke / }).click();
+      await nativeRow.getByRole('button', { name: /^Hold to revoke / }).focus();
+      await page.keyboard.down('Enter');
       expect((await revoked).status()).toBe(200);
+      await page.keyboard.up('Enter');
       await expect(nativeRow).toHaveCount(0);
       await client.next(
         (event) =>
