@@ -20,7 +20,7 @@ is that same daemon inside a container on a box host, which the server reaches a
 
 | Path | What it is | Read first |
 | --- | --- | --- |
-| `apps/web`, `packages/quicksilver` | SolidJS/Vite app; main thread owns UI and input, workers own transport, terminal, telemetry; Quicksilver design system | rules `frontend`, `display` |
+| `apps/web`, `packages/quicksilver` | SolidJS/Vite app; main thread owns UI and input, workers own transport, terminal, telemetry; Quicksilver design system | rules `frontend`, `display`; skill `premium-ui` |
 | `apps/server` | Bun/Elysia + Effect: OPAQUE auth, devices, sessions, presence, push, installer, box hosts, STUN tickets, telemetry, libSQL, Redis | rules `effect`, `server-services` |
 | `apps/daemon` | Bun CLI (`merkur --help`) and thin orchestration around the dataplane | rules `effect`, `ipc`, `speculative-echo` |
 | `apps/daemon/dataplane` | Rust: PTY, WebTransport, peer auth, display encode/ACK/resync/FEC, input, heartbeat, NAT client | rules `dataplane`, `display`, `protocol` |
