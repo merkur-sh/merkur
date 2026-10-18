@@ -468,6 +468,12 @@ bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_group_bound_profile
 ```
 
+The reuse profiles validate each arm before timing it. Their per-thread CPU clock
+brackets the evaluation loop without the correctness oracle, excluding descheduled time
+and trial construction/destruction. Per-packet sender and receiver stage times remain
+wall-clock diagnostics. Checkpoint copying, identity discovery, decoding and grid writes
+are inside the CPU interval; shared PTY capture and browser presentation are outside it.
+
 The paired planner profiles compare exact close-price reuse and the unavoidable open-group
 close lower bound within one binary, requiring identical selected scores and partitions
 and zero warmed planner allocations. Quote or FEC-policy changes invalidate retained close

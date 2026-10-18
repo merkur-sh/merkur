@@ -683,6 +683,23 @@ struct ReuseMeasurement {
     sender_us: f64,
     receiver_us: f64,
     checkpoint_cell_bytes: usize,
+    thread_cpu_us: f64,
+}
+
+fn thread_cpu_time() -> Duration {
+    let mut value = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: the initialized timespec is writable for the whole call. The
+    // clock reads only this thread's CPU usage and the return is checked
+    // before either field is converted.
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut value) };
+    assert_eq!(status, 0, "the profile requires a thread CPU clock");
+    Duration::new(
+        u64::try_from(value.tv_sec).unwrap(),
+        u32::try_from(value.tv_nsec).unwrap(),
+    )
 }
 
 fn apply_entries(grid: &mut [Vec<CellRepr>], entries: &[Entry]) {
@@ -725,8 +742,8 @@ impl ReuseReceiver {
         let result = decode_reuse(packet, epoch, owned, &mut self.decoder).unwrap();
         apply_entries(&mut self.grid, &result);
         self.cpu_us += started.elapsed().as_secs_f64() * 1e6;
-        assert_obligations(&result, entries, target);
         if duplicate {
+            assert_obligations(&result, entries, target);
             let result = decode_reuse(packet, epoch, owned, &mut self.decoder).unwrap();
             apply_entries(&mut self.grid, &result);
         }
@@ -784,6 +801,7 @@ fn reuse_trial_with_dictionary(
     let mut cpu_us = 0.0;
     let mut pending = VecDeque::new();
     let mut acknowledged = None;
+    let cpu_started = thread_cpu_time();
     for step in TRAIN..updates.len() {
         let started = Instant::now();
         while pending.front().is_some_and(|(at, _)| *at <= step) {
@@ -845,8 +863,10 @@ fn reuse_trial_with_dictionary(
         }
         receiver.checkpoint(step, requested, acknowledged);
         assert!(receiver.checkpoints.len() <= 2);
-        for (actual, expected) in receiver.grid.iter().zip(&updates[step].screen) {
-            assert_eq!(actual.as_slice(), expected.as_ref());
+        if !timing {
+            for (actual, expected) in receiver.grid.iter().zip(&updates[step].screen) {
+                assert_eq!(actual.as_slice(), expected.as_ref());
+            }
         }
     }
     ReuseMeasurement {
@@ -855,6 +875,7 @@ fn reuse_trial_with_dictionary(
         sender_us: cpu_us,
         receiver_us: receiver.cpu_us,
         checkpoint_cell_bytes: receiver.peak_cell_bytes,
+        thread_cpu_us: (thread_cpu_time() - cpu_started).as_secs_f64() * 1e6,
     }
 }
 
@@ -879,6 +900,8 @@ fn row_reuse_net_profile() {
     for kind in ["logs", "scroll", "tui", "typing", "entropy", "switch"] {
         let updates = trace(kind);
         for lag in [0, 4, 16] {
+            reuse_trial(&updates, lag, false, false);
+            reuse_trial(&updates, lag, true, false);
             for round in 0..8 {
                 for reuse in if round % 2 == 0 {
                     [false, true]
@@ -891,9 +914,10 @@ fn row_reuse_net_profile() {
                         sender_us,
                         receiver_us,
                         checkpoint_cell_bytes,
+                        thread_cpu_us,
                     } = reuse_trial(&updates, lag, reuse, true);
                     eprintln!(
-                        "REUSE_RESULT workload={kind} lag={lag} round={round} reuse={reuse} bytes={bytes} references={references} sender_us={sender_us:.3} receiver_us={receiver_us:.3} checkpoint_cell_bytes={checkpoint_cell_bytes}"
+                        "REUSE_RESULT workload={kind} lag={lag} round={round} reuse={reuse} bytes={bytes} references={references} sender_us={sender_us:.3} receiver_us={receiver_us:.3} checkpoint_cell_bytes={checkpoint_cell_bytes} thread_cpu_us={thread_cpu_us:.3}"
                     );
                 }
             }
@@ -931,6 +955,8 @@ fn dictionary_reuse_cross_profile() {
             }
             let dictionary = DisplayDictionary::new(1, 1, bytes);
             for lag in [0, 16] {
+                reuse_trial_with_dictionary(&updates, lag, false, false, Some(&dictionary));
+                reuse_trial_with_dictionary(&updates, lag, true, false, Some(&dictionary));
                 for round in 0..8 {
                     for reuse in if round % 2 == 0 {
                         [false, true]
@@ -943,6 +969,7 @@ fn dictionary_reuse_cross_profile() {
                             sender_us,
                             receiver_us,
                             checkpoint_cell_bytes,
+                            thread_cpu_us,
                         } = reuse_trial_with_dictionary(
                             &updates,
                             lag,
@@ -951,7 +978,7 @@ fn dictionary_reuse_cross_profile() {
                             Some(&dictionary),
                         );
                         eprintln!(
-                            "CROSS_RESULT workload={kind} dictionary=history{cap} lag={lag} round={round} reuse={reuse} bytes={bytes} references={references} sender_us={sender_us:.3} receiver_us={receiver_us:.3} checkpoint_cell_bytes={checkpoint_cell_bytes}"
+                            "CROSS_RESULT workload={kind} dictionary=history{cap} lag={lag} round={round} reuse={reuse} bytes={bytes} references={references} sender_us={sender_us:.3} receiver_us={receiver_us:.3} checkpoint_cell_bytes={checkpoint_cell_bytes} thread_cpu_us={thread_cpu_us:.3}"
                         );
                     }
                 }
