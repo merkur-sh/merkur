@@ -80,7 +80,8 @@ export const TERMINAL_THEMES = {
     ],
   },
   // morta.nvim 2.0 defines no terminal colours; this maps its palette onto the
-  // ANSI slots, with `comment` as bright black so autosuggestions stay legible.
+  // ANSI slots, with `comment` as bright black so autosuggestions stay legible
+  // and `red`/`keyword` as red, since its coral `error` reads as orange there.
   morta: {
     name: 'Morta',
     foreground: [217, 224, 255],
@@ -88,18 +89,18 @@ export const TERMINAL_THEMES = {
     cursor: [216, 168, 255],
     palette: [
       [43, 45, 65],
-      [240, 121, 152],
+      [245, 129, 160],
       [158, 206, 106],
       [224, 175, 104],
-      [150, 180, 243],
+      [160, 189, 253],
       [216, 168, 255],
-      [85, 210, 233],
+      [117, 196, 186],
       [169, 177, 214],
-      [140, 151, 192],
-      [245, 129, 160],
+      [146, 157, 199],
+      [254, 153, 192],
       [159, 216, 147],
       [240, 192, 120],
-      [160, 189, 253],
+      [162, 191, 254],
       [216, 168, 255],
       [85, 210, 233],
       [217, 224, 255],
