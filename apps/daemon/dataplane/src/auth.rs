@@ -719,7 +719,7 @@ impl DaemonIdentity {
         transcript: Vec<u8>,
     ) -> Result<
         tokio::sync::oneshot::Receiver<
-            Result<crate::identity_signer::SignaturePair, crate::identity_seal::SealError>,
+            Result<Box<crate::identity_signer::SignaturePair>, crate::identity_seal::SealError>,
         >,
         crate::identity_seal::SealError,
     > {

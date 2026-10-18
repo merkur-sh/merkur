@@ -342,7 +342,7 @@ pub(crate) async fn handle_session_auth(
 pub(crate) struct IdentitySignDone {
     pub peer_id: Arc<str>,
     token: Arc<()>,
-    result: Result<crate::identity_signer::SignaturePair, crate::identity_seal::SealError>,
+    result: Result<Box<crate::identity_signer::SignaturePair>, crate::identity_seal::SealError>,
 }
 
 impl IdentitySignDone {

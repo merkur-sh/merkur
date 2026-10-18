@@ -1111,7 +1111,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
         mpsc::channel::<session::auth_flow::IdentitySignDone>(32);
     let mut management_signatures: tokio::task::JoinSet<(
         String,
-        Result<identity_signer::SignaturePair, identity_seal::SealError>,
+        Result<Box<identity_signer::SignaturePair>, identity_seal::SealError>,
     )> = tokio::task::JoinSet::new();
     let mut fatal_identity_failure = None;
 

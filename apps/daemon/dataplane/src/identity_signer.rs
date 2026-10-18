@@ -38,7 +38,7 @@ pub struct SignaturePair {
 struct SignJob {
     context: &'static [u8],
     transcript: Vec<u8>,
-    result: oneshot::Sender<Result<SignaturePair, SealError>>,
+    result: oneshot::Sender<Result<Box<SignaturePair>, SealError>>,
 }
 
 pub struct IdentitySigner {
@@ -95,7 +95,7 @@ impl IdentitySigner {
         &self,
         context: &'static [u8],
         transcript: Vec<u8>,
-    ) -> Result<oneshot::Receiver<Result<SignaturePair, SealError>>, SealError> {
+    ) -> Result<oneshot::Receiver<Result<Box<SignaturePair>, SealError>>, SealError> {
         if transcript.is_empty() || transcript.len() > MAX_TRANSCRIPT_BYTES {
             return Err(SealError::InvalidMaterial);
         }
@@ -140,7 +140,9 @@ fn sign_job(custody: &dyn KeyCustody, rng: &SystemRandom, job: SignJob, stopped:
         if job.result.is_closed() || stopped.load(Ordering::Acquire) {
             return Err(SealError::Closed);
         }
-        Ok(SignaturePair { mldsa, p256 })
+        // Boxed: the owner loop's select output is as large as its largest
+        // arm, and 4.7 KB inline would be copied on every turn it takes.
+        Ok(Box::new(SignaturePair { mldsa, p256 }))
     })();
     let _ = job.result.send(result);
 }
