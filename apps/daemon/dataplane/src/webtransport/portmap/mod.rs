@@ -1292,8 +1292,8 @@ async fn open_pcp_pinhole(
             }))
         }
         Ok(mapping) => {
-            if mapping.lifetime_secs > 0 {
-                if let Err(error) = pcp::map(
+            if mapping.lifetime_secs > 0
+                && let Err(error) = pcp::map(
                     client,
                     server,
                     port,
@@ -1303,9 +1303,8 @@ async fn open_pcp_pinhole(
                     RetransmitSchedule::DELETE,
                 )
                 .await
-                {
-                    debug!(?error, "pcp6: unused translation deletion failed");
-                }
+            {
+                debug!(?error, "pcp6: unused translation deletion failed");
             }
             warn!("pcp6: gateway granted a zero-lifetime or moved pinhole; not usable");
             None
