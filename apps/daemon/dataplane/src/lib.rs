@@ -433,15 +433,23 @@ fn wt_maintenance_for_first_credential(listener_held: bool) -> WtMaintenanceKind
     }
 }
 
-fn request_wt_network_change_maintenance(owner: &mut WtMaintenanceOwner, has_live_server: bool) {
+fn request_wt_network_change_maintenance(
+    owner: &mut WtMaintenanceOwner,
+    has_live_server: bool,
+    listener_held: bool,
+) {
     if has_live_server {
         owner.request(WtMaintenanceKind::Reprobe);
-    } else {
+    } else if !listener_held {
         // An external topology edge is also the bounded recovery path for a
         // failed initial startup. Preserve one trailing edge if startup is
         // already in flight; never poll/retry blindly.
         owner.request_trailing(WtMaintenanceKind::Startup);
     }
+    // A held listener starts on the first credential, against the topology
+    // current then. Starting it on this edge would spend the IPv6 reachability
+    // probe without a credential and leave the credential's own `Startup` to
+    // fail with `EADDRINUSE` on the port this one bound.
 }
 
 /// Re-evaluate display scheduling after a carrier lifecycle mutation.
@@ -2807,6 +2815,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             request_wt_network_change_maintenance(
                                 &mut wt_maintenance_owner,
                                 wt_state.is_some(),
+                                wt_start_awaiting_credential,
                             );
                             start_next_wt_maintenance(
                                 &mut wt_maintenance_owner,
@@ -3534,6 +3543,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 request_wt_network_change_maintenance(
                     &mut wt_maintenance_owner,
                     wt_state.is_some(),
+                    wt_start_awaiting_credential,
                 );
                 start_next_wt_maintenance(
                     &mut wt_maintenance_owner,
@@ -4230,6 +4240,12 @@ async fn retire_peer_transport_ownership(
     network_state: &Arc<RwLock<NetworkState>>,
     wt_state: &Option<Arc<RwLock<WebTransportState>>>,
 ) {
+    // The owner loop calls this at the top of every turn, almost always with
+    // nothing to retire. A `Reconcile` sent then wakes the loop's own admission
+    // arm, whose turn sends the next one, so the loop would never park.
+    if peer_ids.is_empty() {
+        return;
+    }
     let PeerRegistry {
         edge_dials,
         wt_temp_to_real,

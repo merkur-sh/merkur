@@ -276,8 +276,8 @@ fn external_network_edge_preserves_one_startup_recovery_generation() {
     owner.request(WtMaintenanceKind::Startup);
     let first = owner.begin_next().unwrap();
 
-    request_wt_network_change_maintenance(&mut owner, false);
-    request_wt_network_change_maintenance(&mut owner, false);
+    request_wt_network_change_maintenance(&mut owner, false, false);
+    request_wt_network_change_maintenance(&mut owner, false, false);
     owner
         .accept(WtMaintenanceCompletion {
             generation: first.generation,
@@ -297,12 +297,56 @@ fn external_network_edge_preserves_one_startup_recovery_generation() {
         .unwrap();
     assert!(owner.begin_next().is_none(), "recovery burst stays bounded");
 
-    request_wt_network_change_maintenance(&mut owner, true);
+    request_wt_network_change_maintenance(&mut owner, true, false);
     assert_eq!(
         owner.begin_next().unwrap().kind,
         WtMaintenanceKind::Reprobe,
         "a live server refreshes candidates instead of restarting"
     );
+}
+
+/// A network edge while the listener waits for its first credential leaves the
+/// start to that credential. Production started it on the edge instead, without
+/// a credential, and the credential's `Startup` then failed with `EADDRINUSE`
+/// on the port the first one bound.
+#[test]
+fn a_network_edge_leaves_a_held_listener_to_the_first_credential() {
+    let mut owner = WtMaintenanceOwner::default();
+    request_wt_network_change_maintenance(&mut owner, false, true);
+    assert!(owner.begin_next().is_none());
+
+    owner.request(wt_maintenance_for_first_credential(true));
+    assert_eq!(owner.begin_next().unwrap().kind, WtMaintenanceKind::Startup);
+    assert!(owner.begin_next().is_none(), "exactly one start");
+}
+
+/// The owner loop retires at the top of every turn. A turn that retired
+/// nothing must not wake admission: the admission arm it wakes runs another
+/// turn, which wakes it again, and the loop never parks.
+#[tokio::test]
+async fn retiring_no_identity_does_not_wake_admission() {
+    const PEER_ID: &str = "browser-a";
+    let state = wt_state_with_current_connection(PEER_ID, 1);
+    let (requests, mut commands) = webtransport::admission::channel();
+    state.write().await.admission_requests = Some(requests);
+    let wt_state = Some(state);
+    let mut registry = PeerRegistry::new();
+    let network_state = Arc::new(RwLock::new(NetworkState::new()));
+
+    retire_peer_transport_ownership(Vec::new(), &mut registry, &network_state, &wt_state).await;
+    assert!(commands.try_recv().is_err());
+
+    retire_peer_transport_ownership(
+        vec![Arc::from(PEER_ID)],
+        &mut registry,
+        &network_state,
+        &wt_state,
+    )
+    .await;
+    assert!(matches!(
+        commands.try_recv(),
+        Ok(webtransport::admission::Command::Reconcile)
+    ));
 }
 
 #[test]
