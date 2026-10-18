@@ -461,6 +461,7 @@ results establish component tradeoffs. Run the profiles serially:
 ```sh
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::dictionary_net_profile
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::row_reuse_net_profile
+bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::dictionary_reuse_cross_profile
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_close_cache_profile
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_group_bound_profile
 ```

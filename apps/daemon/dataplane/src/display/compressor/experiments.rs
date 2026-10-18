@@ -767,9 +767,19 @@ fn reuse_wire_len(packet: &ReusePacket) -> usize {
 fn reuse_trial(updates: &[Update], lag: usize, reuse: bool, timing: bool) -> ReuseMeasurement {
     let dictionary = screen_dictionary(&updates[TRAIN - 1].screen);
     let dictionary = (!dictionary.is_empty()).then(|| DisplayDictionary::new(1, 1, dictionary));
+    reuse_trial_with_dictionary(updates, lag, reuse, timing, dictionary.as_ref())
+}
+
+fn reuse_trial_with_dictionary(
+    updates: &[Update],
+    lag: usize,
+    reuse: bool,
+    timing: bool,
+    dictionary: Option<&DisplayDictionary>,
+) -> ReuseMeasurement {
     let mut compressor = Compressor::new();
-    let mut receiver = ReuseReceiver::new(&updates[TRAIN - 1].screen, dictionary.as_ref());
-    let mut bytes = install_cost(dictionary.as_ref().map_or(0, |d| d.bytes.len()));
+    let mut receiver = ReuseReceiver::new(&updates[TRAIN - 1].screen, dictionary);
+    let mut bytes = install_cost(dictionary.map_or(0, |d| d.bytes.len()));
     let mut hits = 0;
     let mut cpu_us = 0.0;
     let mut pending = VecDeque::new();
@@ -811,12 +821,12 @@ fn reuse_trial(updates: &[Update], lag: usize, reuse: bool, timing: bool) -> Reu
                         update: cache,
                         index,
                     },
-                    dictionary.as_ref(),
+                    dictionary,
                 )
             } else {
                 (
                     ReusePacket {
-                        bytes: packed(&mut compressor, entries, dictionary.as_ref()),
+                        bytes: packed(&mut compressor, entries, dictionary),
                     },
                     0,
                 )
@@ -904,4 +914,47 @@ fn reuse_rejects_a_snapshot_owned_by_another_checkpoint() {
     assert!(decode_reuse(&packet, 18, &updates[17].screen, &mut decoder).is_err());
     let decoded = decode_reuse(&packet, 17, &updates[17].screen, &mut decoder).unwrap();
     assert_eq!(decoded[0].cells, updates[17].screen[2]);
+}
+
+#[test]
+#[ignore = "paired dictionary and immutable-row interaction comparison"]
+fn dictionary_reuse_cross_profile() {
+    for kind in ["logs", "scroll", "tui", "typing", "entropy", "switch"] {
+        let updates = trace(kind);
+        let samples = split_samples(&updates[..TRAIN]);
+        for cap in [4096, 16384] {
+            let bytes = history_dictionary(&samples, cap);
+            if bytes.is_empty() {
+                eprintln!("CROSS_UNAVAILABLE workload={kind} dictionary=history{cap}");
+                continue;
+            }
+            let dictionary = DisplayDictionary::new(1, 1, bytes);
+            for lag in [0, 16] {
+                for round in 0..8 {
+                    for reuse in if round % 2 == 0 {
+                        [false, true]
+                    } else {
+                        [true, false]
+                    } {
+                        let ReuseMeasurement {
+                            bytes,
+                            references,
+                            sender_us,
+                            receiver_us,
+                            checkpoint_cell_bytes,
+                        } = reuse_trial_with_dictionary(
+                            &updates,
+                            lag,
+                            reuse,
+                            true,
+                            Some(&dictionary),
+                        );
+                        eprintln!(
+                            "CROSS_RESULT workload={kind} dictionary=history{cap} lag={lag} round={round} reuse={reuse} bytes={bytes} references={references} sender_us={sender_us:.3} receiver_us={receiver_us:.3} checkpoint_cell_bytes={checkpoint_cell_bytes}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
