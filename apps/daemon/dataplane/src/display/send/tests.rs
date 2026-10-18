@@ -9013,6 +9013,47 @@ fn display_follows_the_announced_floors_over_the_daemons_heartbeats() {
     }
 }
 
+/// Wi-Fi off, measured 2026-10-18: the browser retired its LAN direct path,
+/// but its notice rode a signaling connection Safari never migrated, so the
+/// daemon still held the direct carrier live for its whole staleness window.
+/// The announcement, on the migrated data lane, says direct is unmeasured:
+/// display leaves it at once, however fast its last estimate.
+#[test]
+fn display_never_takes_a_carrier_the_browser_announces_unmeasured() {
+    let (mut peer, _browser) = benchmark_noise_pair();
+    peer.paths.webtransport = crate::connection::PathHealth::fresh_available(100.0);
+    peer.paths.webtransport.seed_rtt(4.0);
+    peer.paths.edge.seed_rtt(90.0);
+    let plan = DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES;
+    assert_eq!(
+        planned_display_transport(&peer, 100.0, plan, 0),
+        PeerTransport::WebTransport
+    );
+    peer.accept_carrier_announcement(merkur_wire::protocol::CarrierPrimary {
+        announcement: 1,
+        direct: false,
+        direct_floor_us: 0,
+        relay_floor_us: 218_000,
+    });
+    assert_eq!(
+        display_carriers(&peer, 100.0).as_slice(),
+        [PeerTransport::Edge]
+    );
+    assert_eq!(
+        planned_display_transport(&peer, 100.0, plan, 0),
+        PeerTransport::Edge
+    );
+    assert_eq!(peer.primary_path(100.0), PeerTransport::Edge);
+    // With nothing measured yet, neither carrier is excluded.
+    peer.accept_carrier_announcement(merkur_wire::protocol::CarrierPrimary {
+        announcement: 2,
+        direct: false,
+        direct_floor_us: 0,
+        relay_floor_us: 0,
+    });
+    assert_eq!(display_carriers(&peer, 100.0).len(), 2);
+}
+
 #[test]
 fn exact_dual_path_plan_charges_every_critical_copy_and_repair_copy() {
     let (mut peer, _browser) = benchmark_noise_pair();

@@ -304,7 +304,10 @@ its counter restarts with each Noise session, and the daemon keeps the newest. E
 that names one carrier takes the announced one while it is live, else the other live carrier,
 and the edge before the first announcement. Display placement ranks carriers by their exact
 QUIC queues, windows, pacers and loss with the announced floor as their delay, so the two ends
-never disagree about which path is faster. A send that fails on the selected carrier still falls
+never disagree about which path is faster. A carrier announced unmeasured beside a measured one
+takes no display: the browser retired it or has not timed it, and the announcement rides the
+primary's data lane, so it arrives even when the `webtransport_direct_lost` notice is held on a
+signaling connection the browser's network move left behind. A send that fails on the selected carrier still falls
 through to the other, and redundancy is only for explicitly redundant frames or a primary whose
 sends are failing. Direct admission adds a
 path to the existing authenticated session and preserves the display generation, row baselines,

@@ -4295,7 +4295,7 @@ fn fallback_carrier_quote(
 /// can still send, only those that can. With every live carrier blocked, each
 /// that does not yet hold its one frame may take it.
 fn display_carriers(peer: &PeerDisplayState, now_ms: f64) -> ArrayVec<PeerTransport, 2> {
-    let live = [PeerTransport::WebTransport, PeerTransport::Edge]
+    let mut live = [PeerTransport::WebTransport, PeerTransport::Edge]
         .into_iter()
         .filter(|carrier| {
             peer.paths
@@ -4303,6 +4303,16 @@ fn display_carriers(peer: &PeerDisplayState, now_ms: f64) -> ArrayVec<PeerTransp
                 .is_live(now_ms, SessionPolicy::PATH_STALE_THRESHOLD_MS)
         })
         .collect::<ArrayVec<_, 2>>();
+    // A carrier the browser announces unmeasured beside a measured one is one
+    // it is not using: it retired it, possibly with its notice stuck on a
+    // signaling connection that did not migrate, or has not timed it yet.
+    // Display must not wait out this daemon's staleness on it.
+    if live
+        .iter()
+        .any(|carrier| peer.announced_one_way_us(*carrier).is_some())
+    {
+        live.retain(|carrier| peer.announced_one_way_us(*carrier).is_some());
+    }
     let open = live
         .iter()
         .any(|carrier| !peer.carrier_blocks.is_blocked(*carrier));
