@@ -198,7 +198,9 @@ pub enum Action {
     Status(Status),
     /// Which path now carries the session's sealed frames.
     Path(PathKind),
-    /// Proven source address of the committed signaling carrier.
+    /// Proven source address of the committed signaling carrier. It is I/O,
+    /// queued ahead of the dials the new network sets off, so a host that
+    /// admits dials per network learns of the move before it judges them.
     ObservedPath(std::net::IpAddr),
 }
 
@@ -238,7 +240,6 @@ impl Action {
                 | Self::GraphicsAsset { .. }
                 | Self::Status(_)
                 | Self::Path(_)
-                | Self::ObservedPath(_)
         )
     }
 }
@@ -618,6 +619,8 @@ struct IncumbentLink<'a> {
     phase: &'a mut Phase,
     lanes: Option<&'a Lanes>,
     direct: Option<ConnId>,
+    /// Which pings the direct path carried, so its silence can be judged.
+    probe: &'a mut direct::DirectProbe,
     outbox: &'a Outbox,
     buffers: &'a mut Buffers,
     actions: &'a mut VecDeque<Action>,
@@ -658,15 +661,21 @@ impl LivenessLink for IncumbentLink<'_> {
         if let Some(direct) = self
             .direct
             .filter(|conn| !self.blocked.contains(&(*conn, CHANNEL_CTRL)))
-        {
-            sent |= seal_reliable(
+            && seal_reliable(
                 established,
                 self.buffers,
                 direct,
                 CHANNEL_CTRL,
                 frame,
                 self.actions,
-            );
+            )
+        {
+            sent = true;
+            if let Some((MSG_TYPE_HEARTBEAT_PING, token)) = decode_proto_frame(frame)
+                && let Ok(token) = <[u8; 8]>::try_from(token)
+            {
+                self.probe.sent(u64::from_be_bytes(token));
+            }
         }
         sent
     }
@@ -1723,6 +1732,7 @@ impl Session {
                 phase: &mut self.phase,
                 lanes: self.lanes.as_ref(),
                 direct: self.direct.path(),
+                probe: self.direct.probe_mut(),
                 outbox: &self.outbox,
                 buffers: &mut self.buffers,
                 actions: &mut self.actions,
@@ -2187,6 +2197,11 @@ impl Session {
                                 self.actions.push_back(clock);
                             }
                         }
+                    }
+                    // Either copy says which providers still carry the session.
+                    if let Some(token) = body.get(..8) {
+                        let token = u64::from_be_bytes(token.try_into().expect("eight bytes"));
+                        self.on_direct_pong(now_ms, conn, token);
                     }
                     self.heartbeat.record_pong_proof();
                     return true;

@@ -55,6 +55,11 @@ pub enum ClientSignal {
     WebtransportUpgradeProof(WebtransportUpgradeProof),
     WebtransportOutcome(WebtransportOutcome),
     WebtransportAdmissionDone { generation: u64 },
+    /// The client retired its adopted direct attachment, named by the
+    /// provisional id its challenge carried. A dead path delivers no close, so
+    /// the daemon learns of it here, on signaling, and retires exactly that
+    /// attachment; a successor adopted meanwhile has another id.
+    WebtransportDirectLost { temp_peer_id: String },
     NetworkChange(NetworkChange),
     SignalingPong {},
     DataAttach(DataClaim),
@@ -418,6 +423,7 @@ impl ClientSignal {
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
             }
             Self::WebtransportAdmissionDone { generation } => *generation <= MAX_SAFE_INTEGER,
+            Self::WebtransportDirectLost { temp_peer_id } => is_temp_peer_id(temp_peer_id),
             Self::WebtransportOutcome(report) => {
                 let winner_matches = match report.outcome.as_str() {
                     // `lost` is a path that carried traffic and then died, so it
@@ -722,16 +728,21 @@ impl DaemonSignal {
                     && nonce_hex
                         .bytes()
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                    && temp_peer_id
-                        .strip_prefix(TEMP_PEER_ID_PREFIX)
-                        .is_some_and(|serial| {
-                            (serial == "0" || !serial.starts_with('0'))
-                                && serial.bytes().all(|byte| byte.is_ascii_digit())
-                                && serial.parse::<u64>().is_ok()
-                        })
+                    && is_temp_peer_id(temp_peer_id)
             }
         }
     }
+}
+
+/// `wt-pending-` and a canonical `u64` serial.
+fn is_temp_peer_id(value: &str) -> bool {
+    value
+        .strip_prefix(TEMP_PEER_ID_PREFIX)
+        .is_some_and(|serial| {
+            (serial == "0" || !serial.starts_with('0'))
+                && serial.bytes().all(|byte| byte.is_ascii_digit())
+                && serial.parse::<u64>().is_ok()
+        })
 }
 
 fn bounded_nonempty(value: &str, max_bytes: usize) -> bool {
@@ -1320,6 +1331,26 @@ mod tests {
             ("ab".repeat(31).as_str(), "wt-pending-7"),
         ] {
             assert_eq!(challenge(nonce, temp), None, "{nonce} {temp}");
+        }
+    }
+
+    #[test]
+    fn a_lost_direct_attachment_is_named_by_its_challenge_id() {
+        let lost = |temp: &str| {
+            ClientSignal::parse(
+                serde_json::json!({ "type": "webtransport_direct_lost", "temp_peer_id": temp })
+                    .to_string()
+                    .as_bytes(),
+            )
+        };
+        assert_eq!(
+            lost("wt-pending-3"),
+            Some(ClientSignal::WebtransportDirectLost {
+                temp_peer_id: "wt-pending-3".into()
+            })
+        );
+        for temp in ["wt-pending-03", "wt-pending-", "peer-3"] {
+            assert_eq!(lost(temp), None, "{temp}");
         }
     }
 }

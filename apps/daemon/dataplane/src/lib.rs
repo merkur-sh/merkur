@@ -4749,6 +4749,27 @@ async fn handle_signaling_message(
                 }
             }
         }
+        // A dead direct path delivers no close; the client says which
+        // attachment it retired, and only that one closes here.
+        ClientSignal::WebtransportDirectLost { temp_peer_id } => {
+            if is_authenticated_peer(peers, effective_peer_id)
+                && let Some(wt) = wt_state
+                && let Some(connection_id) = webtransport::connection_id_of(temp_peer_id)
+                && webtransport::close_peer_if_current(
+                    wt,
+                    effective_peer_id,
+                    connection_id,
+                    b"client-reported-direct-lost",
+                )
+                .await
+            {
+                info!(
+                    peer = %effective_peer_id,
+                    temp_peer_id,
+                    "client retired its direct attachment; closed it"
+                );
+            }
+        }
         ClientSignal::WebtransportOutcome(report) => {
             if !is_authenticated_peer(peers, effective_peer_id) {
                 warn!(

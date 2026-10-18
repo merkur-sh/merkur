@@ -341,6 +341,84 @@ fn measured_providers(
     drain(&mut harness.session)
 }
 
+/// The pings the session's next heartbeat sends, each provider's copy with
+/// its token, and when they left.
+fn next_pings(harness: &mut Harness, daemon: &mut NoiseTransport) -> (u64, Vec<(ConnId, u64)>) {
+    let lane = merkur_e2e::lane_for_channel(CHANNEL_CTRL).unwrap();
+    for _ in 0..8 {
+        let at = harness
+            .session
+            .next_deadline()
+            .expect("a heartbeat deadline");
+        harness.session.handle_timeout(at, &mut harness.entropy);
+        let pings: Vec<(ConnId, u64)> = drain(&mut harness.session)
+            .iter()
+            .filter_map(|action| match action {
+                Action::SendReliable {
+                    conn,
+                    channel: CHANNEL_CTRL,
+                    payload,
+                } => match decode_proto_frame(&daemon.open_stream(lane, payload).unwrap()) {
+                    Some((MSG_TYPE_HEARTBEAT_PING, token)) => {
+                        Some((*conn, u64::from_be_bytes(token.try_into().unwrap())))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        if !pings.is_empty() {
+            return (at, pings);
+        }
+    }
+    panic!("no heartbeat ping");
+}
+
+/// The daemon's pong datagram for `token`, arriving on `conn` at `at`.
+fn pong(
+    harness: &mut Harness,
+    daemon: &mut NoiseTransport,
+    at: u64,
+    conn: ConnId,
+    token: u64,
+) -> Vec<Action> {
+    let lane = merkur_e2e::lane_for_channel(CHANNEL_CTRL).unwrap();
+    let mut body = token.to_be_bytes().to_vec();
+    body.extend_from_slice(&(at * 1_000).to_be_bytes());
+    let mut payload = vec![CHANNEL_CTRL];
+    payload.extend_from_slice(
+        &daemon
+            .seal_datagram(lane, &encode_proto_frame(MSG_TYPE_HEARTBEAT_PONG, &body))
+            .unwrap(),
+    );
+    harness.session.handle(
+        at,
+        Event::Datagram {
+            conn,
+            payload: &payload,
+        },
+        &mut harness.entropy,
+    );
+    drain(&mut harness.session)
+}
+
+/// The attachments `actions` tell the daemon were retired.
+fn direct_lost(actions: &[Action]) -> Vec<String> {
+    actions
+        .iter()
+        .filter_map(|action| match action {
+            Action::SendReliable {
+                channel: CHANNEL_SIGNALING,
+                ..
+            } => match signal(action) {
+                ClientSignal::WebtransportDirectLost { temp_peer_id } => Some(temp_peer_id),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
 fn adopted() -> (Harness, NoiseTransport, ConnId) {
     let (mut harness, mut daemon, _, local, actions) = raced();
     let actions = upgrade(&mut harness, NOW + 160, local, &actions);
@@ -453,6 +531,7 @@ fn a_lost_direct_path_hands_input_back_to_the_relay_and_races_again() {
         (lost.outcome.as_str(), lost.winner_kind.as_deref()),
         ("lost", Some("host4"))
     );
+    assert_eq!(direct_lost(&actions), vec![TEMP_PEER.to_string()]);
     // The unacknowledged keystroke goes out again on the relay, whole.
     let relayed: Vec<Action> = actions
         .iter()
@@ -482,6 +561,48 @@ fn a_lost_direct_path_hands_input_back_to_the_relay_and_races_again() {
     );
     // Nothing this network offers is spent: it races again.
     assert_eq!(dialed(&actions), vec![addr(SRFLX)]);
+}
+
+#[test]
+fn a_silent_direct_path_is_retired_an_rto_after_the_relay_answers_its_ping() {
+    let (mut harness, mut daemon, local) = adopted();
+    let relay = harness.interactive;
+
+    // A path that answers the ping the relay answered keeps the session.
+    let (at, pings) = next_pings(&mut harness, &mut daemon);
+    let [(_, token), (_, also)] = pings[..] else {
+        panic!("both providers carry the ping: {pings:?}");
+    };
+    assert_eq!(token, also);
+    assert!(pings.iter().any(|(conn, _)| *conn == local));
+    let rto = harness.session.heartbeat.rto_ms().ceil() as u64;
+    pong(&mut harness, &mut daemon, at + 4, relay, token);
+    assert!(direct_lost(&pong(&mut harness, &mut daemon, at + 9, local, token)).is_empty());
+    harness
+        .session
+        .handle_timeout(at + 4 + rto + 1, &mut harness.entropy);
+    assert!(!drain(&mut harness.session).contains(&Action::Close { conn: local }));
+    assert_eq!(harness.session.direct.path(), Some(local));
+
+    // The relay answers, the direct copy never does: one RTO later the path
+    // is retired, closed, and named to the daemon.
+    let (at, pings) = next_pings(&mut harness, &mut daemon);
+    let token = pings[0].1;
+    let rto = harness.session.heartbeat.rto_ms().ceil() as u64;
+    assert!(direct_lost(&pong(&mut harness, &mut daemon, at + 4, relay, token)).is_empty());
+    harness
+        .session
+        .handle_timeout(at + 4 + rto - 1, &mut harness.entropy);
+    assert!(direct_lost(&drain(&mut harness.session)).is_empty());
+    harness
+        .session
+        .handle_timeout(at + 4 + rto, &mut harness.entropy);
+    let retired = drain(&mut harness.session);
+    assert_eq!(retired.first(), Some(&Action::Path(PathKind::Relay)));
+    assert!(retired.contains(&Action::Close { conn: local }));
+    assert_eq!(direct_lost(&retired), vec![TEMP_PEER.to_string()]);
+    assert_eq!(report(&retired).outcome, "lost");
+    assert_eq!(harness.session.direct.path(), None);
 }
 
 #[test]

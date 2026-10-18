@@ -17,7 +17,15 @@
 //! win; the winner's authenticated upgrade then decides. An endpoint whose
 //! handshake failed or went unanswered, or whose upgrade failed, is not
 //! dialled again from this network. A live direct path is kept.
+//!
+//! A dead path need not close: a phone that leaves the LAN, or one whose radio
+//! slept, keeps a QUIC connection open until its idle timeout. Every heartbeat
+//! ping goes out on both providers, so the relay answering a ping whose copy
+//! the adopted path carried, while that copy stays unanswered an RTO longer,
+//! is the path's death. The path is retired then, and the daemon told on
+//! signaling, since a close on the dead path would never reach it.
 
+use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};
 
 use base64::Engine;
@@ -46,6 +54,10 @@ const GRACE_MULTIPLIER: u64 = 3;
 /// challenge answers the init within this, the ack the proof within the next.
 const CHALLENGE_TIMEOUT_MS: u64 = 5_000;
 const ACK_TIMEOUT_MS: u64 = 2_000;
+/// Resource bound on the pings remembered for the adopted path. The relay
+/// settles each one within its own RTO, at most `RTO_CEIL_MS`, while pings
+/// leave every `HEARTBEAT_INTERVAL_MS`, so a handful are ever outstanding.
+const DIRECT_PROBE_TOKENS: usize = 16;
 
 fn race_grace_ms(first_handshake_ms: u64) -> u64 {
     (first_handshake_ms * GRACE_MULTIPLIER).clamp(GRACE_FLOOR_MS, GRACE_CEILING_MS)
@@ -121,12 +133,55 @@ struct Upgrade {
     deadline_ms: u64,
     nat_type: NatType,
     report: Vec<CandidateOutcome>,
+    /// The provisional id the daemon's challenge named this attachment by.
+    temp_peer_id: Option<String>,
 }
 
 struct Adopted {
     conn: ConnId,
     kind: CandidateKind,
     nat_type: NatType,
+    /// What the daemon knows this attachment by, for the loss notice.
+    temp_peer_id: String,
+}
+
+/// The adopted path's answers to the heartbeat, by ping token.
+#[derive(Default)]
+pub(super) struct DirectProbe {
+    /// Tokens whose ping the adopted path carried, oldest first.
+    sent: VecDeque<u64>,
+    /// The newest token the adopted path answered.
+    answered: u64,
+    /// A token the relay answered while the adopted path had not, and when
+    /// that silence becomes the path's death.
+    deadline: Option<(u64, u64)>,
+}
+
+impl DirectProbe {
+    /// The ping `token` went out on the adopted path.
+    pub(super) fn sent(&mut self, token: u64) {
+        if self.sent.len() == DIRECT_PROBE_TOKENS {
+            self.sent.pop_front();
+        }
+        self.sent.push_back(token);
+    }
+
+    /// The adopted path answered `token`: it carries what was sent up to it.
+    fn answered(&mut self, token: u64) {
+        self.answered = self.answered.max(token);
+        let answered = self.answered;
+        self.sent.retain(|sent| *sent > answered);
+        if self.deadline.is_some_and(|(token, _)| token <= answered) {
+            self.deadline = None;
+        }
+    }
+
+    /// The relay answered `token`; the adopted path has until `at_ms`.
+    fn relay_answered(&mut self, token: u64, at_ms: u64) {
+        if self.deadline.is_none() && token > self.answered && self.sent.contains(&token) {
+            self.deadline = Some((token, at_ms));
+        }
+    }
 }
 
 #[derive(Default)]
@@ -141,6 +196,7 @@ pub(super) struct Direct {
     race: Option<Race>,
     upgrade: Option<Upgrade>,
     path: Option<Adopted>,
+    probe: DirectProbe,
     admission_done: Option<u64>,
 }
 
@@ -148,6 +204,11 @@ impl Direct {
     /// The adopted direct attachment, which carries every sealed frame.
     pub(super) fn path(&self) -> Option<ConnId> {
         self.path.as_ref().map(|path| path.conn)
+    }
+
+    /// The adopted path's heartbeat ledger, for the link that pings it.
+    pub(super) fn probe_mut(&mut self) -> &mut DirectProbe {
+        &mut self.probe
     }
 
     /// Whether `conn` is the race's winner inside its upgrade, whose control
@@ -186,6 +247,7 @@ impl Direct {
                 .collect::<Vec<_>>()
         });
         race.chain(self.upgrade.iter().map(|upgrade| upgrade.deadline_ms))
+            .chain(self.probe.deadline.map(|(_, at_ms)| at_ms))
             .min()
     }
 
@@ -409,6 +471,7 @@ impl Session {
             self.paths.retire(PathKind::Direct);
             self.refresh_primary();
         }
+        self.direct.probe = DirectProbe::default();
         self.direct.manifest = None;
         self.direct.admission_done = None;
         self.direct.punch = None;
@@ -498,6 +561,14 @@ impl Session {
     }
 
     pub(super) fn handle_direct_timeout(&mut self, now_ms: u64) {
+        if self
+            .direct
+            .probe
+            .deadline
+            .is_some_and(|(_, at_ms)| at_ms <= now_ms)
+        {
+            self.retire_direct_path(now_ms, true);
+        }
         self.start_due_dials(now_ms);
         if self.direct.race.as_ref().is_some_and(|race| {
             race.deadline_ms <= now_ms || race.grace_ms.is_some_and(|at| at <= now_ms)
@@ -544,18 +615,7 @@ impl Session {
     /// winner's upgrade failed; the adopted path is lost.
     pub(super) fn on_direct_closed(&mut self, now_ms: u64, conn: ConnId) {
         if self.direct.path() == Some(conn) {
-            let Some(path) = self.direct.path.take() else {
-                return;
-            };
-            // What the path's streams carried is gone with them: input goes
-            // out again on the relay.
-            self.outbox.reliable_sent = 0;
-            self.paths.retire(PathKind::Direct);
-            self.refresh_primary();
-            self.report_direct("lost", Some(path.kind), path.nat_type, Vec::new(), None);
-            self.graphics_interrupt();
-            self.flush_input(now_ms);
-            return self.refresh_direct(now_ms);
+            return self.retire_direct_path(now_ms, false);
         }
         if let Some(stage) = self
             .direct
@@ -582,6 +642,53 @@ impl Session {
             self.direct.spent.push(endpoint);
         }
         self.try_finish_race(now_ms);
+    }
+
+    /// A pong for heartbeat `token` arrived on `conn`, either copy. The
+    /// adopted path's own answer proves it; the relay's answer to a ping the
+    /// adopted path also carried gives that path one RTO more to answer.
+    pub(super) fn on_direct_pong(&mut self, now_ms: u64, conn: ConnId, token: u64) {
+        let Some(path) = self.direct.path() else {
+            return;
+        };
+        if conn == path {
+            self.direct.probe.answered(token);
+        } else {
+            let at_ms = now_ms + self.heartbeat.rto_ms().ceil() as u64;
+            self.direct.probe.relay_answered(token, at_ms);
+        }
+    }
+
+    /// The adopted path is gone: closed, or `silent` past its probe deadline.
+    /// What its streams carried goes with it, so input goes out again on the
+    /// relay, and the daemon, which a dead path's close never reaches, is told
+    /// on signaling which attachment to retire.
+    fn retire_direct_path(&mut self, now_ms: u64, silent: bool) {
+        let Some(path) = self.direct.path.take() else {
+            return;
+        };
+        self.direct.probe = DirectProbe::default();
+        self.outbox.reliable_sent = 0;
+        self.paths.retire(PathKind::Direct);
+        self.refresh_primary();
+        if silent {
+            self.actions.push_back(Action::Close { conn: path.conn });
+        }
+        if let Some(lanes) = &self.lanes {
+            self.actions.push_back(Action::SendReliable {
+                conn: lanes.signaling,
+                channel: merkur_wire::protocol::CHANNEL_SIGNALING,
+                payload: ClientSignal::WebtransportDirectLost {
+                    temp_peer_id: path.temp_peer_id,
+                }
+                .to_json()
+                .into_bytes(),
+            });
+        }
+        self.report_direct("lost", Some(path.kind), path.nat_type, Vec::new(), None);
+        self.graphics_interrupt();
+        self.flush_input(now_ms);
+        self.refresh_direct(now_ms);
     }
 
     /// Finish once nothing is waiting to start and no pending handshake can
@@ -686,6 +793,7 @@ impl Session {
             deadline_ms: now_ms + CHALLENGE_TIMEOUT_MS,
             nat_type: race.nat_type,
             report,
+            temp_peer_id: None,
         });
     }
 
@@ -739,20 +847,31 @@ impl Session {
                 if let Some(upgrade) = self.direct.upgrade.as_mut() {
                     upgrade.stage = Stage::Ack;
                     upgrade.deadline_ms = now_ms + ACK_TIMEOUT_MS;
+                    upgrade.temp_peer_id = Some(temp_peer_id);
                 }
             }
             Stage::Ack => {
                 if payload != [MSG_TYPE_WEBTRANSPORT_UPGRADE_ACK, 0, 0, 0] {
                     return self.fail_upgrade(now_ms, Stage::Ack, "invalid");
                 }
-                let Some(upgrade) = self.direct.upgrade.take() else {
+                let Some(Upgrade {
+                    conn,
+                    kind,
+                    nat_type,
+                    report,
+                    temp_peer_id: Some(temp_peer_id),
+                    ..
+                }) = self.direct.upgrade.take()
+                else {
                     return;
                 };
                 self.direct.path = Some(Adopted {
-                    conn: upgrade.conn,
-                    kind: upgrade.kind,
-                    nat_type: upgrade.nat_type,
+                    conn,
+                    kind,
+                    nat_type,
+                    temp_peer_id,
                 });
+                self.direct.probe = DirectProbe::default();
                 self.finish_admission();
                 self.paths.register(PathKind::Direct);
                 self.refresh_primary();
@@ -761,13 +880,7 @@ impl Session {
                 let (heartbeat, mut link) = self.liveness();
                 heartbeat.probe_without_resetting(now_ms, &mut link);
                 self.graphics_admit();
-                self.report_direct(
-                    "selected",
-                    Some(upgrade.kind),
-                    upgrade.nat_type,
-                    upgrade.report,
-                    None,
-                );
+                self.report_direct("selected", Some(kind), nat_type, report, None);
             }
         }
     }

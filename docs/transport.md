@@ -800,7 +800,20 @@ for this daemon on this address first, then a manifest's public candidates, then
 ones, a punched candidate once its punch outcome arrives, a local candidate once its permission
 stops being denied. A live direct path is kept across a network change; if it dies, the new
 network's endpoints are dialled then. A port-mapping lease or pinhole that lands minutes later
-arrives in the next manifest.
+arrives in the next manifest. The core hands the host the proven address (`ObservedPath`) as
+I/O, ahead of the dials the move sets off, so the page's dial admission starts the new visit
+before it judges them; as host output it waited behind display frames, and a dial from the new
+network was refused against the previous visit's reservation.
+
+A dead direct path need not close: a phone that leaves the LAN, or whose radio slept, keeps its
+QUIC connection open until the idle timeout, and every sealed frame would ride it until then.
+Each heartbeat ping goes out on both providers (`IncumbentLink`). When the relay answers a ping
+whose copy the adopted path carried, the adopted path has one RTO more to answer it; silence
+past that retires the path: the client closes it, falls back to the relay, races again, and
+sends `webtransport_direct_lost` `{temp_peer_id}` on signaling, since a close on the dead path
+never arrives. The daemon closes the session only while the registry still holds that exact
+connection (`wt-pending-{connection_id}`), so a notice that crosses a successor's upgrade leaves
+the successor serving.
 
 Chrome from version 147 gates a dial to a local-scope address behind the `local-network` or
 `loopback-network` permission, from workers too. The browser leaves local candidates out while

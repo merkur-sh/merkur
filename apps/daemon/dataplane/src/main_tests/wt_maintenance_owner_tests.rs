@@ -464,6 +464,29 @@ fn wt_state_with_current_connection(
 }
 
 #[tokio::test]
+async fn a_client_loss_notice_closes_only_the_attachment_it_names() {
+    const REAL_ID: &str = "browser-a";
+    const B_ID: u64 = 12;
+    let state = wt_state_with_current_connection(REAL_ID, B_ID);
+    let pair = webtransport::loopback_pair().await;
+    state
+        .write()
+        .await
+        .sessions
+        .insert(REAL_ID.into(), Arc::clone(&pair.daemon));
+
+    // A notice for A, retired while B was adopted, leaves B serving.
+    let stale = webtransport::connection_id_of("wt-pending-11").expect("a challenge id");
+    assert!(!webtransport::close_peer_if_current(&state, REAL_ID, stale, b"lost").await);
+    assert!(!pair.daemon.is_closed());
+
+    let current = webtransport::connection_id_of("wt-pending-12").expect("a challenge id");
+    assert!(webtransport::close_peer_if_current(&state, REAL_ID, current, b"lost").await);
+    assert!(pair.daemon.is_closed());
+    assert_eq!(webtransport::connection_id_of("wt-pending-x"), None);
+}
+
+#[tokio::test]
 async fn stale_a_disconnect_after_b_install_cannot_remove_or_demote_b() {
     const REAL_ID: &str = "browser-a";
     const A_ID: u64 = 11;

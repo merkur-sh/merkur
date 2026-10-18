@@ -2555,6 +2555,39 @@ pub async fn remove_peer_if_current(
     true
 }
 
+/// The connection a challenge's provisional id names: every attachment is
+/// held as `wt-pending-{connection_id}` until its proof lands.
+pub fn connection_id_of(temp_peer_id: &str) -> Option<u64> {
+    temp_peer_id.strip_prefix("wt-pending-")?.parse().ok()
+}
+
+/// Close a peer's direct session while it is still the one `connection_id`
+/// names. Its lifecycle event then retires it behind the same fence as any
+/// close; a successor adopted meanwhile has another id and is untouched.
+pub async fn close_peer_if_current(
+    state: &Arc<RwLock<WebTransportState>>,
+    peer_id: &str,
+    connection_id: u64,
+    reason: &[u8],
+) -> bool {
+    let session = {
+        let state = registry_read(state).await;
+        if !state
+            .peer_connections
+            .get(peer_id)
+            .is_some_and(|connection| connection.connection_id == connection_id)
+        {
+            return false;
+        }
+        state.sessions.get(peer_id).cloned()
+    };
+    let Some(session) = session else {
+        return false;
+    };
+    session.close(wtransport::VarInt::from_u32(0), reason);
+    true
+}
+
 pub async fn remove_peer(state: &Arc<RwLock<WebTransportState>>, peer_id: &str) {
     let session = {
         let mut state = state.write().await;

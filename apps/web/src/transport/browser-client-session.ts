@@ -690,6 +690,11 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
         carriers.delete(conn);
         datagrams.retire(conn);
         break;
+      // I/O, ahead of the dials the new network sets off: the page's dial
+      // admission must hear of the move before it judges them.
+      case 18:
+        events?.observedPath(session.action_metadata());
+        break;
       // Its words are a phase and a job, not a connection.
       case 20:
         reportGraphicsJob(w);
@@ -873,9 +878,6 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
               session.action_metadata(),
             ) as import('../perf/client-session-observation').ClientSessionObservation,
           );
-          break;
-        case 18:
-          events?.observedPath(session.action_metadata());
           break;
         case 17:
           events?.terminalUi(JSON.parse(session.action_metadata()) as TerminalUiEffect);
