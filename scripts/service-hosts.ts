@@ -64,8 +64,11 @@ const EdgeService = Schema.Struct({
 });
 
 const StunService = Schema.Struct({
-  /** The host's IPv4, then two addresses from its routed IPv6 /64. */
-  addresses: Schema.Tuple([Schema.String, Schema.String, Schema.String]),
+  /**
+   * The host's primary IPv4, its floating IPv4, then two addresses from its
+   * routed IPv6 /64.
+   */
+  addresses: Schema.Tuple([Schema.String, Schema.String, Schema.String, Schema.String]),
   ports: Schema.NonEmptyArray(Port),
   changePorts: Schema.Array(Port),
 });
@@ -135,10 +138,12 @@ function assertCanonicalPublicUrl(value: string): void {
 }
 
 /**
- * The rules a field's own type cannot state. NAT classification needs the
- * address-change half of RFC 5780, which only distinct addresses on one host
- * answer: the single IPv4 answers the port change, two addresses out of the
- * host's IPv6 /64 answer both.
+ * The rules a field's own type cannot state. NAT classification needs two
+ * observer addresses per family: a mapping is endpoint-independent only when
+ * distinct addresses see the same one, and only another address answers the
+ * address-change half of RFC 5780. A server holds one primary IPv4, so the
+ * second is a floating IPv4; two addresses out of the host's IPv6 /64 give the
+ * other family its pair.
  */
 function assertEdgeHost(host: EdgeHost): void {
   const { edge, stun } = host;
@@ -153,8 +158,11 @@ function assertEdgeHost(host: EdgeHost): void {
     );
   }
   assertCanonicalPublicUrl(edge.publicUrl);
-  const [v4, v6a, v6b] = stun.addresses;
+  const [v4, v4b, v6a, v6b] = stun.addresses;
   if (v4 !== host.address) fail('stun field `addresses` must start with the host address');
+  if (!isIPv4(v4b) || v4b === v4) {
+    fail('stun field `addresses` must name a second, distinct IPv4 after the host address');
+  }
   if (!isIPv6(v6a) || !isIPv6(v6b) || v6a === v6b) {
     fail('stun field `addresses` must end with two distinct IPv6 addresses');
   }
@@ -263,12 +271,13 @@ export function renderEdgeEnvironment(
 
 /** The STUN units' non-secret environment, `/etc/merkur/stun.env`. */
 export function renderStunEnvironment(host: EdgeHost): string {
-  const [, v6a, v6b] = host.stun.addresses;
+  const [, v4b, v6a, v6b] = host.stun.addresses;
   return environmentFile([
     ['MERKUR_STUN_BIND', host.stun.addresses.join(',')],
     ['MERKUR_STUN_PORTS', host.stun.ports.join(',')],
     ['MERKUR_STUN_CHANGE_PORTS', host.stun.changePorts.join(',')],
     ['MERKUR_STUN_IFACE', host.interface],
+    ['MERKUR_STUN_ADDR_V4', `${v4b}/32`],
     ['MERKUR_STUN_ADDR_A', `${v6a}/64`],
     ['MERKUR_STUN_ADDR_B', `${v6b}/64`],
     ['RUST_LOG', 'info'],
@@ -276,17 +285,21 @@ export function renderStunEnvironment(host: EdgeHost): string {
 }
 
 /**
- * The server's `STUN_SERVERS`: every observer port of the IPv4, whose equal or
- * differing mappings classify the daemon's NAT, and one observer per IPv6
- * address, bracketed, which is all a NAT-free family needs to be reached at.
+ * The server's `STUN_SERVERS`: every observer port of the primary IPv4, whose
+ * equal or differing mappings classify the daemon's port allocation, then the
+ * floating IPv4 once, which proves the mapping endpoint-independent, and one
+ * observer per IPv6 address, bracketed. The primary comes first: the daemon
+ * runs its address-change filtering test after the first observation, before
+ * it contacts the second address.
  */
 export function stunServers(hosts: readonly EdgeHost[]): string {
   return hosts
     .flatMap((host) => {
-      const [v4, ...v6] = host.stun.addresses;
+      const [v4, v4b, ...v6] = host.stun.addresses;
       const [first] = host.stun.ports;
       return [
         ...host.stun.ports.map((port) => `${v4}:${port}`),
+        `${v4b}:${first}`,
         ...v6.map((address) => `[${address}]:${first}`),
       ];
     })

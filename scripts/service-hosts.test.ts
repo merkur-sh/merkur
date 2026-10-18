@@ -24,7 +24,12 @@ const NBG: EdgeHost = {
     signalingReserveGB: 512,
   },
   stun: {
-    addresses: ['46.225.209.73', '2a01:4f8:1c18:1eed::10', '2a01:4f8:1c18:1eed::11'],
+    addresses: [
+      '46.225.209.73',
+      '167.233.179.85',
+      '2a01:4f8:1c18:1eed::10',
+      '2a01:4f8:1c18:1eed::11',
+    ],
     ports: [3478, 3479, 3480],
     changePorts: [3481],
   },
@@ -35,7 +40,10 @@ const ASH: EdgeHost = {
   name: 'ash-1',
   address: '198.51.100.7',
   edge: { ...NBG.edge, edgeId: 'ash-1', region: 'ash', publicUrl: 'https://198.51.100.7:4433' },
-  stun: { ...NBG.stun, addresses: ['198.51.100.7', '2001:db8::10', '2001:db8::11'] },
+  stun: {
+    ...NBG.stun,
+    addresses: ['198.51.100.7', '198.51.100.8', '2001:db8::10', '2001:db8::11'],
+  },
 };
 
 /** A host of its own for the app, which runs no edge. */
@@ -149,12 +157,15 @@ describe('parseServiceHosts', () => {
     );
   });
 
-  test('requires the host IPv4 and two distinct IPv6 addresses for STUN', () => {
+  test('requires the host IPv4, a second IPv4 and two distinct IPv6 addresses for STUN', () => {
     for (const addresses of [
       ['46.225.209.73'],
-      ['198.51.100.7', '2001:db8::10', '2001:db8::11'],
-      ['46.225.209.73', '2001:db8::10', '2001:db8::10'],
-      ['46.225.209.73', '198.51.100.7', '2001:db8::11'],
+      ['46.225.209.73', '2001:db8::10', '2001:db8::11'],
+      ['198.51.100.7', '198.51.100.8', '2001:db8::10', '2001:db8::11'],
+      ['46.225.209.73', '46.225.209.73', '2001:db8::10', '2001:db8::11'],
+      ['46.225.209.73', '2001:db8::9', '2001:db8::10', '2001:db8::11'],
+      ['46.225.209.73', '198.51.100.8', '2001:db8::10', '2001:db8::10'],
+      ['46.225.209.73', '198.51.100.8', '198.51.100.9', '2001:db8::11'],
     ]) {
       expect(() =>
         parseServiceHosts(manifest({ ...NBG, stun: { ...NBG.stun, ...{ addresses } } })),
@@ -252,21 +263,23 @@ describe('rendered environments', () => {
     }
   });
 
-  test('bind STUN on every address and add the IPv6 pair to the interface', () => {
+  test('bind STUN on every address and add the floating IPv4 and IPv6 pair to the interface', () => {
     expect(stun).toContain(
-      'MERKUR_STUN_BIND=46.225.209.73,2a01:4f8:1c18:1eed::10,2a01:4f8:1c18:1eed::11\n',
+      'MERKUR_STUN_BIND=46.225.209.73,167.233.179.85,2a01:4f8:1c18:1eed::10,2a01:4f8:1c18:1eed::11\n',
     );
     expect(stun).toContain('MERKUR_STUN_PORTS=3478,3479,3480\n');
     expect(stun).toContain('MERKUR_STUN_CHANGE_PORTS=3481\n');
+    expect(stun).toContain('MERKUR_STUN_ADDR_V4=167.233.179.85/32\n');
     expect(stun).toContain('MERKUR_STUN_ADDR_A=2a01:4f8:1c18:1eed::10/64\n');
     expect(stun).toContain('MERKUR_STUN_ADDR_B=2a01:4f8:1c18:1eed::11/64\n');
   });
 
-  test('list the IPv4 observer ports and one bracketed observer per IPv6 address', () => {
+  test('list the primary IPv4 ports, then the floating IPv4 and each IPv6 address once', () => {
     expect(stunServers([NBG]).split(',')).toEqual([
       '46.225.209.73:3478',
       '46.225.209.73:3479',
       '46.225.209.73:3480',
+      '167.233.179.85:3478',
       '[2a01:4f8:1c18:1eed::10]:3478',
       '[2a01:4f8:1c18:1eed::11]:3478',
     ]);

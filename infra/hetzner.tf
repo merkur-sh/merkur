@@ -85,6 +85,18 @@ resource "hcloud_server" "nbg_1" {
   }
 }
 
+# The STUN responder's second IPv4. A daemon proves its NAT's mapping
+# endpoint-independent only from two observer addresses, and the TFTP admission
+# offers its candidate only when both agree; a server holds one primary IPv4, so
+# the second is a floating address the merkur-stun-addrs unit configures.
+resource "hcloud_floating_ip" "nbg_1_stun" {
+  name          = "merkur-edge-1-stun"
+  type          = "ipv4"
+  home_location = "nbg1"
+  server_id     = hcloud_server.nbg_1.id
+  labels        = { app = "merkur", role = "stun" }
+}
+
 import {
   to = hcloud_ssh_key.owner
   id = "131434366"
@@ -98,4 +110,9 @@ import {
 import {
   to = hcloud_server.nbg_1
   id = "170938264"
+}
+
+import {
+  to = hcloud_floating_ip.nbg_1_stun
+  id = "156239915"
 }

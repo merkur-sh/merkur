@@ -1,7 +1,11 @@
-# The STUN responder's two IPv6 addresses, made to survive a reboot.
+# The STUN responder's floating IPv4 and two IPv6 addresses, made to survive a
+# reboot.
 #
-# Hetzner routes each host a /64 of which the host uses one address; the
-# responder needs two more for the address-change half of RFC 5780. Addresses
+# Each family needs a second observer address: a daemon proves its mapping
+# endpoint-independent only from two addresses, and only another address
+# answers the address-change half of RFC 5780. Hetzner routes the floating IPv4
+# to the host without configuring it, and routes each host a /64 of which the
+# host uses one address, so the responder's extra addresses are added here. Addresses
 # added with a bare `ip -6 addr add` are runtime state that a reboot discards,
 # which would leave MERKUR_STUN_BIND naming addresses that no longer exist, so a
 # oneshot ordered before the responder re-adds them on every boot. That also
@@ -30,6 +34,7 @@ EnvironmentFile=/etc/merkur/stun.env
 # non-zero, which would make a re-run of an enabled unit a failure rather than
 # a no-op. Each ${VAR} is substituted as a single argument, so no shell is
 # involved and the values need no quoting.
+ExecStart=/usr/sbin/ip -4 addr replace ${MERKUR_STUN_ADDR_V4} dev ${MERKUR_STUN_IFACE}
 ExecStart=/usr/sbin/ip -6 addr replace ${MERKUR_STUN_ADDR_A} dev ${MERKUR_STUN_IFACE}
 ExecStart=/usr/sbin/ip -6 addr replace ${MERKUR_STUN_ADDR_B} dev ${MERKUR_STUN_IFACE}
 

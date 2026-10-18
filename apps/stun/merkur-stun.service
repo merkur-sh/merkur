@@ -1,9 +1,10 @@
 # The STUN responder on a service host (deploy/service-hosts.json).
 #
-# One process binds the host's public IPv4 and two addresses out of its routed
-# IPv6 /64 (MERKUR_STUN_BIND, rendered into /etc/merkur/stun.env). The IPv4's
-# ports answer the port-change half of RFC 5780; the IPv6 pair answers both
-# halves, which matters because IPv6 has no NAT: whether a `host6` candidate is
+# One process binds the host's primary and floating IPv4 and two addresses out
+# of its routed IPv6 /64 (MERKUR_STUN_BIND, rendered into /etc/merkur/stun.env).
+# Each family's pair answers both halves of RFC 5780. Over IPv4 the second
+# address is what proves a daemon's mapping endpoint-independent and admits its
+# TFTP candidate. Over IPv6 it matters because there is no NAT: whether a `host6` candidate is
 # dialable turns entirely on whether the CPE firewall passes a datagram from an
 # address the daemon never spoke to, which is the one thing `change_ip` tests.
 # A changed-address answer is sent from the sibling socket, so every address

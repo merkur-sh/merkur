@@ -11,9 +11,9 @@
 //! reaches this service.
 //!
 //! Multiple ports reveal port-dependent mapping. Equal mappings prove address
-//! independence only when distinct IP addresses were actually observed: the
-//! service host's single IPv4 cannot perform the different-IP tests, its IPv6
-//! addresses can.
+//! independence only when distinct IP addresses were actually observed, so the
+//! service host binds two addresses per family: its primary and floating IPv4,
+//! and two addresses out of its IPv6 /64.
 //!
 //! # Refusals are silent
 //!
@@ -57,8 +57,9 @@ struct Counters {
     dropped_unparsed: AtomicU64,
     dropped_bad_ticket: AtomicU64,
     dropped_bad_integrity: AtomicU64,
-    /// A CHANGE-REQUEST this deployment cannot honour — `change_ip` always, and
-    /// `change_port` when only one port is configured.
+    /// A CHANGE-REQUEST this deployment cannot honour — `change_ip` when the
+    /// arrival family has one bound address, and `change_port` when only one
+    /// port is configured.
     dropped_unsupported_change: AtomicU64,
 }
 
@@ -81,10 +82,9 @@ struct Config {
     change_ports: Vec<u16>,
     /// Explicit bind addresses, or empty for the IPv4 wildcard.
     ///
-    /// The service host sets its public IPv4, where `change_ip` is unanswerable,
-    /// and two addresses from its routed IPv6 /64, which is what makes the
-    /// address-change half of RFC 5780 answerable at all, and costs nothing
-    /// because a /64 is one allocation.
+    /// The service host sets its primary and floating IPv4 and two addresses
+    /// from its routed IPv6 /64: a second address per family is what makes the
+    /// address-change half of RFC 5780 answerable at all.
     bind_addresses: Vec<std::net::IpAddr>,
     ticket_key: TicketKey,
 }
@@ -192,10 +192,10 @@ fn now_unix_secs() -> u64 {
 /// Keyed by the full local address, not by port, because two deployments need
 /// different halves of RFC 5780 and only the full address distinguishes them.
 ///
-/// The service host's single IPv4 has several ports: `change_port` is
-/// answerable, `change_ip` is not. Its addresses out of the routed IPv6 /64
-/// answer both halves — which matters because IPv6 has no NAT, so filtering is
-/// the entire question a `host6` candidate turns on.
+/// The service host binds several ports on two addresses per family, so both
+/// halves are answerable over IPv4 and IPv6 — which matters most over IPv6,
+/// where there is no NAT, so filtering is the entire question a `host6`
+/// candidate turns on.
 type Responders = std::collections::HashMap<SocketAddr, Arc<UdpSocket>>;
 
 /// A socket on the same address as `arrived_on`, bound to a different port.
@@ -705,7 +705,7 @@ mod tests {
             Some(addr("10.0.0.1:3479"))
         );
         // ...and it cannot answer an address change at all, which is exactly why
-        // the service host binds addresses from its IPv6 /64 as well.
+        // the service host binds a second address in each family.
         assert_eq!(
             alternate_address_addr(&one_address, &change, addr("10.0.0.1:3478"), false),
             None
@@ -760,8 +760,8 @@ mod tests {
 
     /// The address-change half of RFC 5780, end to end over real sockets.
     ///
-    /// Two loopback addresses stand in for two addresses out of the Hetzner
-    /// host's routed IPv6 /64. This is the half a single-address deployment can
+    /// Two loopback addresses stand in for the service host's two addresses in
+    /// one family. This is the half a single-address deployment can
     /// never answer, and the half that matters over IPv6: there is no NAT
     /// there, so whether a `host6` candidate is reachable turns entirely on
     /// whether the CPE firewall passes a datagram from an address the daemon

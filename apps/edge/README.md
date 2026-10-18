@@ -416,8 +416,8 @@ bun run service-hosts stun-servers    # the server's STUN_SERVERS for these host
 bun run service-hosts render <host> <version> <server-origin> <dir>
 ```
 
-Adding a host: give it a public IPv4 that routes to exactly that machine and its own IPv6
-/64; generate a registration key and add it to the server's `EDGE_REGISTRATION_KEYS_JSON`;
+Adding a host: give it a public IPv4 that routes to exactly that machine, a floating IPv4
+assigned to it for the STUN responder's second observer, and its own IPv6 /64; generate a registration key and add it to the server's `EDGE_REGISTRATION_KEYS_JSON`;
 write `/etc/merkur/edge.secrets.env` (`MERKUR_EDGE_ATTACH_TICKET_KEY`,
 `MERKUR_EDGE_REGISTRATION_KEY`, `MERKUR_EDGE_OTLP_TOKEN`) and `/etc/merkur/stun.secrets.env`
 (`MERKUR_STUN_TICKET_KEY`), both mode 0600; add the deploy key to root's `authorized_keys`;

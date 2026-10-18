@@ -67,8 +67,10 @@ bazel run --config=release //tools/bazel/release:service_binaries
 ```
 
 On a host, `merkur-stun.service` runs it as a transient user with no capabilities and a
-system-call filter, bound to the host's IPv4 and two addresses from its routed IPv6 /64, which
-`merkur-stun-addrs.service` adds to the interface on every boot. Both read
+system-call filter, bound to the host's primary IPv4, its floating IPv4 and two addresses from
+its routed IPv6 /64. A server holds one primary IPv4, so the second is a Hetzner floating IP
+(`infra/hetzner.tf`); `merkur-stun-addrs.service` adds it and the IPv6 pair to the interface on
+every boot. Both read
 `/etc/merkur/stun.env`, rendered per release by `scripts/service-hosts.ts`, and the ticket key
 from `/etc/merkur/stun.secrets.env`, which never leaves the host. The server's `STUN_SERVERS`
 for the hosts is `bun run service-hosts stun-servers`.
