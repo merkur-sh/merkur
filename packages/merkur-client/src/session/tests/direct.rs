@@ -1016,6 +1016,36 @@ fn a_superseding_manifest_retires_pending_dials_and_stale_completion_cannot_revi
 }
 
 #[test]
+fn a_superseding_manifest_keeps_a_pending_dial_it_still_offers() {
+    let (mut h, _, actions) = offered(vec![host4()], PunchState::None);
+    let [(local, _)] = dials(&actions)[..] else {
+        panic!("host4 dial");
+    };
+    let sip = candidate("203.0.113.5:49154", CandidateKind::Sip, CandidateScope::Public);
+    let actions = deliver_signal(
+        &mut h,
+        NOW + 110,
+        &manifest(2, vec![host4(), sip], CLIENT, PunchState::None),
+    );
+    assert!(
+        !actions.contains(&Action::Close { conn: local }),
+        "the same endpoint under the same certificate is the same attempt: {actions:?}"
+    );
+    assert_eq!(dialed(&actions), [addr("203.0.113.5:49154")]);
+    h.session
+        .handle(NOW + 125, Event::Connected(local), &mut h.entropy);
+    h.session.handle_timeout(NOW + 400, &mut h.entropy);
+    let finished = drain(&mut h.session);
+    assert_eq!(
+        upgrade_record(&finished, local),
+        ClientSignal::WebtransportUpgradeInit(WebtransportUpgradeInit {
+            browser_node_id: BROWSER_NODE_ID.into(),
+        }),
+        "the kept dial wins the race: {finished:?}"
+    );
+}
+
+#[test]
 fn an_old_punch_outcome_cannot_replace_the_current_generations_result() {
     let (mut harness, _, _) = offered(Vec::new(), PunchState::Pending);
     harness

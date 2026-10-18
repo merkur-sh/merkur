@@ -400,8 +400,21 @@ impl Session {
             .as_ref()
             .is_some_and(|previous| generation > previous.generation)
         {
-            self.revoke_race();
-            if let Some(upgrade) = self.direct.upgrade.take() {
+            // A newer manifest retires only what it no longer offers: a dial
+            // or upgrade to an endpoint it still names is the same attempt,
+            // and charging it as spent would bar that endpoint for the visit.
+            let offered = |endpoint: &Endpoint| {
+                endpoint.cert_hash == cert_hash
+                    && candidates.iter().any(|candidate| {
+                        SocketAddr::new(candidate.addr, candidate.port) == endpoint.addr
+                    })
+            };
+            self.revoke_unoffered(offered);
+            if let Some(upgrade) = self
+                .direct
+                .upgrade
+                .take_if(|upgrade| !offered(&upgrade.endpoint))
+            {
                 self.direct.spent.push(upgrade.endpoint);
                 self.actions.push_back(Action::Close { conn: upgrade.conn });
             }
@@ -478,6 +491,29 @@ impl Session {
         if !keep_network {
             self.direct.carrier_address = None;
             self.direct.spent.clear();
+        }
+    }
+
+    /// Retire the race's attempts at endpoints `offered` rejects; the rest
+    /// keep racing. A retired pending handshake is spent, as in a revoke.
+    fn revoke_unoffered(&mut self, offered: impl Fn(&Endpoint) -> bool) {
+        let Some(race) = self.direct.race.as_mut() else {
+            return;
+        };
+        let (kept, retired): (Vec<Attempt>, Vec<Attempt>) = std::mem::take(&mut race.attempts)
+            .into_iter()
+            .partition(|attempt| offered(&attempt.endpoint));
+        race.attempts = kept;
+        if race.attempts.is_empty() {
+            self.direct.race = None;
+        }
+        for attempt in retired {
+            if let Some(conn) = attempt.conn {
+                if matches!(attempt.state, AttemptState::Pending { .. }) {
+                    self.direct.spent.push(attempt.endpoint);
+                }
+                self.actions.push_back(Action::Close { conn });
+            }
         }
     }
 

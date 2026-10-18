@@ -803,7 +803,10 @@ network's endpoints are dialled then. A port-mapping lease or pinhole that lands
 arrives in the next manifest. The core hands the host the proven address (`ObservedPath`) as
 I/O, ahead of the dials the move sets off, so the page's dial admission starts the new visit
 before it judges them; as host output it waited behind display frames, and a dial from the new
-network was refused against the previous visit's reservation.
+network was refused against the previous visit's reservation. A newer manifest retires only the
+attempts and upgrade at endpoints it no longer offers under its certificate: a dial to an
+endpoint it still names is the same attempt, and charging it would bar that endpoint for the
+rest of the visit.
 
 A dead direct path need not close: a phone that leaves the LAN, or whose radio slept, keeps its
 QUIC connection open until the idle timeout, and every sealed frame would ride it until then.
