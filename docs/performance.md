@@ -468,6 +468,17 @@ bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_group_bound_profile
 ```
 
+The standalone codec corpus exporter adds partly edited scrolling and Unicode traces.
+It emits chronological row bodies, their exact split payloads, production zstd byte
+counts, and canonical checkpoint bytes independently encoded from the captured sender
+grid and a receiver grid reconstructed through production decoding. Canonical encoding
+uses retained buffers; its per-checkpoint thread CPU measurement is separate from codec
+timings. This is a research artifact, with no production codec or wire-format change:
+
+```sh
+MERKUR_CODEC_CORPUS=/tmp/merkur-codec-corpus.bin bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::corpus::export_codec_corpus
+```
+
 The reuse profiles validate each arm before timing it. Their per-thread CPU clock
 brackets the evaluation loop without the correctness oracle, excluding descheduled time
 and trial construction/destruction. Per-packet sender and receiver stage times remain

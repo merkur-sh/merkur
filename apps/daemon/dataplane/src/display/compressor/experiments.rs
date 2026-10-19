@@ -199,6 +199,10 @@ fn write_update(kind: &str, step: usize) -> Vec<u8> {
 }
 
 fn trace(kind: &str) -> Vec<Update> {
+    trace_with_writer(|step| write_update(kind, step))
+}
+
+fn trace_with_writer(write: impl Fn(usize) -> Vec<u8>) -> Vec<Update> {
     let mut terminal = TerminalState::new(COLS, ROWS, crossbeam_channel::unbounded().0);
     let mut scratch = RowCaptureScratch::default();
     let mut old: Screen = (0..ROWS)
@@ -206,7 +210,7 @@ fn trace(kind: &str) -> Vec<Update> {
         .collect();
     (0..STEPS)
         .map(|step| {
-            terminal.apply_bytes(&write_update(kind, step));
+            terminal.apply_bytes(&write(step));
             let captured: Vec<_> = (0..ROWS)
                 .map(|row| terminal.capture_row(row, &mut scratch))
                 .collect();
@@ -226,6 +230,8 @@ fn trace(kind: &str) -> Vec<Update> {
         })
         .collect()
 }
+
+mod corpus;
 
 fn split_samples(updates: &[Update]) -> Vec<Vec<u8>> {
     let mut splitter = merkur_codec::RowSplitter::default();
