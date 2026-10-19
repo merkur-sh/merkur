@@ -273,7 +273,7 @@ impl Direct {
             return false;
         };
         if matches!(candidate.kind, CandidateKind::Tftp | CandidateKind::Sip) {
-            return here.is_ipv4()
+            return here.is_ipv4() == candidate.addr.is_ipv4()
                 && self
                     .manifest
                     .as_ref()

@@ -1,44 +1,274 @@
-//! Scoped physical socket/upgrade check. The fixture supplies an established
+//! Scoped helper listener/upgrade checks. Each fixture supplies an established
 //! peer and key; initial capability/bootstrap and terminal continuity are tested
 //! by the full session harness, not by this component check.
 use super::*;
-use wtransport::quinn::AsyncUdpSocket;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use merkur_wire::signaling::ClientSignal;
+use wtransport::quinn::AsyncUdpSocket;
+
+async fn write_record(stream: &mut wtransport::SendStream, bytes: &[u8]) {
+    stream
+        .write_all(&u32::try_from(bytes.len()).unwrap().to_be_bytes())
+        .await
+        .unwrap();
+    stream.write_all(bytes).await.unwrap();
+}
+
+async fn read_record(stream: &mut wtransport::RecvStream) -> Vec<u8> {
+    let mut length = [0; 4];
+    stream.read_exact(&mut length).await.unwrap();
+    let mut bytes = vec![0; u32::from_be_bytes(length) as usize];
+    stream.read_exact(&mut bytes).await.unwrap();
+    bytes
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "exercise a real IPv6 helper listener through framed session-key upgrade, adoption and retirement"
+)]
+async fn ipv6_binding_upgrade(kind: CandidateFlavor) {
+    use crate::network::protocol::{CHANNEL_CTRL, CHANNEL_DISPLAY_COMMIT, CHANNEL_PTY};
+    use merkur_wire::signaling::{WebtransportUpgradeInit, WebtransportUpgradeProof};
+    let (_endpoint, cert, info) = super::super::start_server(0, None).unwrap();
+    let hash = cert.cert_hash;
+    let state = Arc::new(RwLock::new(WebTransportState::from_server_info(
+        cert, &info,
+    )));
+    let (messages, mut incoming) = mpsc::channel(8);
+    let (events, mut event_rx) = mpsc::channel(8);
+    let (handle, _) = channel();
+    let mut owner = Owner::new(messages.clone(), events.clone(), &handle);
+    let mut peer = super::tests::peer();
+    peer.browser_address = Some("::1".parse().unwrap());
+    peer.upgrade_secret = Some([0x74; 32]);
+    let identity = Identity {
+        peer: peer.peer_id.clone(),
+        session: peer.signal_session_id.clone(),
+        rebind: 0,
+        manifest: peer.manifest_generation,
+        browser: peer.browser_address.unwrap(),
+    };
+    let claim = Claim::new(identity.clone(), handle.epoch.clone(), 0);
+    let (binding, candidate) = prepare_binding(
+        &state,
+        &info.admission_config,
+        None,
+        &super::tests::loopback_path(true),
+        kind,
+        claim.clone(),
+        messages,
+        events,
+        owner.retirements.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(candidate["addr"], "::1");
+    assert_eq!(candidate["kind"], serde_json::to_value(kind).unwrap());
+    let client = wtransport::Endpoint::client(
+        wtransport::ClientConfig::builder()
+            .with_bind_address("[::1]:0".parse().unwrap())
+            .with_server_certificate_hashes([wtransport::tls::Sha256Digest::new(hash)])
+            .build(),
+    )
+    .unwrap();
+    let connection = client
+        .connect(format!(
+            "https://[::1]:{}",
+            candidate["port"].as_u64().unwrap()
+        ))
+        .await
+        .unwrap();
+    let mut streams = Vec::new();
+    for channel in [CHANNEL_CTRL, CHANNEL_PTY, CHANNEL_DISPLAY_COMMIT] {
+        let (mut send, recv) = connection.open_bi().await.unwrap().await.unwrap();
+        send.write_all(&[channel]).await.unwrap();
+        streams.push((send, recv));
+    }
+    let PeerEvent::WebTransportSession { temp_peer_id, .. } = event_rx.recv().await.unwrap() else {
+        panic!("bound session");
+    };
+    assert!(
+        !peer.paths.webtransport.available,
+        "a send and TLS handshake grant no session"
+    );
+    let daemon_identity = Some(
+        crate::auth::DaemonIdentity::new(&URL_SAFE_NO_PAD.encode([0x33; 32]), "ipv6-test-daemon")
+            .unwrap(),
+    );
+    let mut peers = PeerMap::from([(peer.peer_id.clone(), peer)]);
+    let mut pending = HashMap::new();
+    let mut ownership = HashMap::new();
+    let init =
+        serde_json::json!({ "type": "webtransport_upgrade_init", "browser_node_id": "browser" });
+    write_record(&mut streams[0].0, &serde_json::to_vec(&init).unwrap()).await;
+    let message = incoming.recv().await.unwrap();
+    assert_eq!(message.peer_node_id.as_ref(), temp_peer_id);
+    let Some(ClientSignal::WebtransportUpgradeInit(WebtransportUpgradeInit { browser_node_id })) =
+        ClientSignal::parse(&message.payload)
+    else {
+        panic!("upgrade init");
+    };
+    crate::session::wt_upgrade_flow::handle_wt_upgrade_init(
+        &temp_peer_id,
+        &WebtransportUpgradeInit { browser_node_id },
+        &Some(state.clone()),
+        &daemon_identity,
+        &peers,
+        &mut pending,
+        1.0,
+    )
+    .await;
+    let challenge: serde_json::Value =
+        serde_json::from_slice(&read_record(&mut streams[0].1).await).unwrap();
+    let nonce = challenge["nonce_hex"].as_str().unwrap();
+    let transcript = merkur_wire::signaling::webtransport_upgrade_proof_payload(
+        nonce,
+        "session",
+        "browser",
+        "ipv6-test-daemon",
+        &temp_peer_id,
+    );
+    let proof = ring::hmac::sign(
+        &ring::hmac::Key::new(ring::hmac::HMAC_SHA512, &[0x74; 32]),
+        transcript.as_bytes(),
+    );
+    let proof_hex: String = proof
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    write_record(
+        &mut streams[0].0,
+        &serde_json::to_vec(&serde_json::json!({
+        "type": "webtransport_upgrade_proof", "proof_hex": proof_hex }))
+        .unwrap(),
+    )
+    .await;
+    let message = incoming.recv().await.unwrap();
+    let Some(ClientSignal::WebtransportUpgradeProof(WebtransportUpgradeProof { proof_hex })) =
+        ClientSignal::parse(&message.payload)
+    else {
+        panic!("upgrade proof");
+    };
+    crate::session::wt_upgrade_flow::handle_wt_upgrade_proof(
+        &temp_peer_id,
+        &WebtransportUpgradeProof { proof_hex },
+        &Some(state.clone()),
+        &daemon_identity,
+        &mut peers,
+        &mut ownership,
+        &mut pending,
+        2.0,
+    )
+    .await;
+    let ack = read_record(&mut streams[0].1).await;
+    assert_eq!(
+        crate::network::protocol::decode_proto_frame(&ack)
+            .unwrap()
+            .0,
+        merkur_wire::protocol::MSG_TYPE_WEBTRANSPORT_UPGRADE_ACK
+    );
+    assert!(claim.owns(&peers["browser"]));
+    owner.work.insert(
+        Arc::from("browser"),
+        Work {
+            identity,
+            epoch: 0,
+            task: None,
+            retirements: owner.retirements.clone(),
+            bindings: vec![binding],
+        },
+    );
+    owner.invalidate(&peers);
+    assert_eq!(owner.adopted.len(), 1);
+    assert!(
+        !claim.accepts("::1".parse().unwrap()),
+        "old epoch admits no new connection"
+    );
+    write_record(&mut streams[1].0, b"input-after-invalidation").await;
+    let input = incoming.recv().await.unwrap();
+    assert_eq!(input.payload.as_ref(), b"input-after-invalidation");
+    assert_eq!(input.channel_id, CHANNEL_PTY);
+    assert_eq!(ownership[input.peer_node_id.as_ref()].as_ref(), "browser");
+    super::super::send_to_peer(
+        &state,
+        "browser",
+        CHANNEL_PTY,
+        b"output-after-invalidation".to_vec(),
+    )
+    .await;
+    assert_eq!(
+        read_record(&mut streams[1].1).await,
+        b"output-after-invalidation"
+    );
+    owner.shutdown().await;
+    assert!(
+        peers["browser"]
+            .direct_session
+            .as_ref()
+            .unwrap()
+            .connection()
+            .unwrap()
+            .is_closed()
+    );
+}
+
+#[tokio::test]
+async fn ipv6_tftp_binding_authenticates_and_keeps_the_exact_winner_across_invalidation() {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        ipv6_binding_upgrade(CandidateFlavor::Tftp),
+    )
+    .await
+    .expect("IPv6 helper upgrade completes within the component-test budget");
+}
+
+#[tokio::test]
+async fn ipv6_sip_binding_authenticates_and_keeps_the_exact_winner_across_invalidation() {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        ipv6_binding_upgrade(CandidateFlavor::Sip),
+    )
+    .await
+    .expect("IPv6 helper upgrade completes within the component-test budget");
+}
 
 #[expect(
     clippy::too_many_lines,
     reason = "one bounded physical experiment owns listener preparation, authenticated upgrade and shutdown"
 )]
 #[tokio::test]
-#[ignore = "requires an owned router, fresh STUN ticket and an external-path browser"]
+#[ignore = "requires an owned router and external-path browser; IPv4 also needs a fresh STUN ticket"]
 async fn physical_router_admission_and_session_key_upgrade() {
     let config_path = std::env::var("MERKUR_ROUTER_TEST_CONFIG").unwrap();
     let config: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
-    let browser: Ipv4Addr = config["browser"].as_str().unwrap().parse().unwrap();
-    assert!(super::super::side_channel::is_globally_routable(
-        &IpAddr::V4(browser)
-    ));
-    let path = paths()
+    let browser: IpAddr = config["browser"].as_str().unwrap().parse().unwrap();
+    assert!(super::super::side_channel::is_globally_routable(&browser));
+    let path = paths(browser)
         .into_iter()
         .find(|path| Some(path.name.as_str()) == config["interface"].as_str())
         .unwrap();
-    let secret = URL_SAFE_NO_PAD
-        .decode(config["secret"].as_str().unwrap())
-        .unwrap();
-    let credential = stun::StunCredential {
-        servers: Arc::new(
-            config["servers"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| value.as_str().unwrap().into())
-                .collect(),
-        ),
-        ticket: Arc::new(config["ticket"].as_str().unwrap().into()),
-        integrity_key: Arc::new(ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &secret)),
-        expires_at: tokio::time::Instant::now() + std::time::Duration::from_secs(90),
+    let credential = if browser.is_ipv4() {
+        let secret = URL_SAFE_NO_PAD
+            .decode(config["secret"].as_str().unwrap())
+            .unwrap();
+        stun::StunCredential {
+            servers: Arc::new(
+                config["servers"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().into())
+                    .collect(),
+            ),
+            ticket: Arc::new(config["ticket"].as_str().unwrap().into()),
+            integrity_key: Arc::new(ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &secret)),
+            expires_at: tokio::time::Instant::now() + std::time::Duration::from_secs(90),
+        }
+        .into()
+    } else {
+        None
     };
     let (_endpoint, cert, info) = super::super::start_server(0, None).unwrap();
     let hash = cert.cert_hash_base64();
@@ -61,7 +291,7 @@ async fn physical_router_admission_and_session_key_upgrade() {
         messages.clone(),
         events.clone(),
     );
-    let baseline_mapping = stun::admission_mapping(&baseline_socket, &credential, false)
+    let baseline_mapping = candidate_endpoint(&baseline_socket, credential.as_ref(), false)
         .await
         .unwrap();
     let epoch = Arc::new(AtomicU64::new(0));
@@ -80,7 +310,7 @@ async fn physical_router_admission_and_session_key_upgrade() {
         let id = format!("browser-{name}-{index}");
         let mut peer = super::tests::peer();
         peer.peer_id = Arc::from(id.as_str());
-        peer.browser_address = Some(IpAddr::V4(browser));
+        peer.browser_address = Some(browser);
         let mut upgrade_secret = [0; 32];
         ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut upgrade_secret)
             .unwrap();
@@ -99,7 +329,7 @@ async fn physical_router_admission_and_session_key_upgrade() {
         let (binding, candidate) = prepare_binding(
             &state,
             &info.admission_config,
-            &credential,
+            credential.as_ref(),
             &path,
             kind,
             claim,

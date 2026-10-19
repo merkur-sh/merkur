@@ -6,7 +6,7 @@
 //! existing source-owned channel senders without another dispatch layer.
 use std::{
     collections::HashMap,
-    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    net::{IpAddr, SocketAddr, UdpSocket},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -42,7 +42,7 @@ pub struct Identity {
     pub session: String,
     pub rebind: u64,
     pub manifest: u64,
-    pub browser: Ipv4Addr,
+    pub browser: IpAddr,
 }
 
 impl Identity {
@@ -56,7 +56,7 @@ impl Identity {
             && peer.signal_session_id == self.session
             && peer.rebind.as_ref().map_or(0, |state| state.counter) == self.rebind
             && peer.manifest_generation == self.manifest
-            && peer.browser_address == Some(IpAddr::V4(self.browser))
+            && peer.browser_address.map(|address| address.to_canonical()) == Some(self.browser)
     }
 }
 
@@ -88,7 +88,7 @@ impl Claim {
     pub fn accepts(&self, remote: IpAddr) -> bool {
         self.live.load(Ordering::Acquire)
             && self.epoch_owner.load(Ordering::Acquire) == self.epoch
-            && remote.to_canonical() == IpAddr::V4(self.identity.browser)
+            && remote.to_canonical() == self.identity.browser
     }
 
     pub fn connected(&self, stable_id: usize) -> bool {
@@ -127,7 +127,7 @@ pub struct Request {
     pub identity: Identity,
     pub state: Arc<RwLock<WebTransportState>>,
     pub config: wtransport::quinn::ServerConfig,
-    pub credential: stun::StunCredential,
+    pub credential: Option<stun::StunCredential>,
     /// The initial manifest is repeated with prepared candidates, under the
     /// same generation. Its existing candidates are never reclassified.
     pub manifest: serde_json::Value,
@@ -143,15 +143,13 @@ pub fn queue(
     peer: &PeerDisplayState,
     manifest: &mut serde_json::Value,
 ) {
-    let Some(browser_address) = peer.browser_address else {
+    let Some(browser) = peer.browser_address.map(|address| address.to_canonical()) else {
         return;
     };
-    if let (std::net::IpAddr::V4(browser), Some(requests), Some(config), Some(credential)) = (
-        browser_address,
-        &snapshot.admission_requests,
-        &snapshot.admission_config,
-        &snapshot.admission_credential,
-    ) && super::side_channel::is_globally_routable(&browser_address)
+    if let (Some(requests), Some(config)) =
+        (&snapshot.admission_requests, &snapshot.admission_config)
+        && super::side_channel::is_globally_routable(&browser)
+        && (browser.is_ipv6() || snapshot.admission_credential.is_some())
         && !super::side_channel::punch_disabled()
         && peer.is_e2e_ready()
         && !peer.paths.webtransport.available
@@ -168,7 +166,7 @@ pub fn queue(
                 },
                 state: wt.clone(),
                 config: config.clone(),
-                credential: credential.clone(),
+                credential: snapshot.admission_credential.clone(),
                 manifest: manifest.clone(),
                 epoch: requests.epoch(),
                 epoch_owner: requests.clone(),
@@ -217,7 +215,7 @@ pub fn channel() -> (Handle, mpsc::Receiver<Command>) {
 struct Retirement {
     tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
     stopping: watch::Sender<bool>,
-    companions: Arc<Mutex<HashMap<u16, Arc<UdpSocket>>>>,
+    companions: Arc<Mutex<HashMap<CompanionKey, Arc<UdpSocket>>>>,
 }
 
 impl Retirement {
@@ -475,12 +473,28 @@ impl Owner {
 struct Path {
     index: u32,
     name: String,
-    address: Ipv4Addr,
+    address: IpAddr,
 }
 
-fn paths() -> Vec<Path> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct CompanionKey {
+    interface: u32,
+    local: SocketAddr,
+}
+
+impl Path {
+    fn companion_key(&self, port: u16) -> CompanionKey {
+        CompanionKey {
+            interface: self.index,
+            local: SocketAddr::from((self.address, port)),
+        }
+    }
+}
+
+fn paths(browser: IpAddr) -> Vec<Path> {
     #[cfg(merkur_sim)]
     {
+        let _ = browser;
         Vec::new()
     }
     #[cfg(not(merkur_sim))]
@@ -492,18 +506,33 @@ fn paths() -> Vec<Path> {
         interfaces
             .into_iter()
             .filter(|iface| iface.is_up() && !iface.is_loopback())
-            .filter_map(|iface| {
-                let address = iface.ipv4.iter().map(|net| net.addr()).find(|ip| {
-                    matches!(
-                        super::classify_ipv4(ip),
-                        super::AddressClass::Ipv4Private
-                            | super::AddressClass::Ipv4Global
-                            | super::AddressClass::Ipv4Cgnat
-                    )
-                })?;
-                Some(Path {
+            .flat_map(|iface| {
+                let addresses: Vec<IpAddr> = match browser {
+                    IpAddr::V4(_) => iface
+                        .ipv4
+                        .iter()
+                        .map(|net| net.addr())
+                        .find(|ip| {
+                            matches!(
+                                super::classify_ipv4(ip),
+                                super::AddressClass::Ipv4Private
+                                    | super::AddressClass::Ipv4Global
+                                    | super::AddressClass::Ipv4Cgnat
+                            )
+                        })
+                        .map(IpAddr::V4)
+                        .into_iter()
+                        .collect(),
+                    IpAddr::V6(_) => iface
+                        .ipv6
+                        .iter()
+                        .map(|net| IpAddr::V6(net.addr()))
+                        .filter(super::side_channel::is_globally_routable)
+                        .collect(),
+                };
+                addresses.into_iter().map(move |address| Path {
                     index: iface.index,
-                    name: iface.name,
+                    name: iface.name.clone(),
                     address,
                 })
             })
@@ -513,20 +542,27 @@ fn paths() -> Vec<Path> {
 
 fn bind(path: &Path, port: u16) -> std::io::Result<UdpSocket> {
     let socket = socket2::Socket::new(
-        socket2::Domain::IPV4,
+        socket2::Domain::for_address(SocketAddr::from((path.address, port))),
         socket2::Type::DGRAM,
         Some(socket2::Protocol::UDP),
     )?;
+    if path.address.is_ipv6() {
+        socket.set_only_v6(true)?;
+    }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         use std::os::fd::AsRawFd;
+        let (level, option) = match path.address {
+            IpAddr::V4(_) => (libc::IPPROTO_IP, libc::IP_BOUND_IF),
+            IpAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF),
+        };
         // SAFETY: the live descriptor, pointer and length describe a u32
-        // interface index. IP_BOUND_IF selects egress without changing routes.
+        // interface index. The bound-interface options select egress without changing routes.
         if unsafe {
             libc::setsockopt(
                 socket.as_raw_fd(),
-                libc::IPPROTO_IP,
-                libc::IP_BOUND_IF,
+                level,
+                option,
                 (&path.index as *const u32).cast(),
                 libc::socklen_t::try_from(std::mem::size_of::<u32>())
                     .map_err(std::io::Error::other)?,
@@ -540,14 +576,18 @@ fn bind(path: &Path, port: u16) -> std::io::Result<UdpSocket> {
     {
         use std::os::fd::AsRawFd;
         let index = path.index.to_be();
-        // SAFETY: IP_UNICAST_IF takes one network-order u32 interface index.
+        let (level, option) = match path.address {
+            IpAddr::V4(_) => (libc::IPPROTO_IP, libc::IP_UNICAST_IF),
+            IpAddr::V6(_) => (libc::IPPROTO_IPV6, libc::IPV6_UNICAST_IF),
+        };
+        // SAFETY: the unicast-interface options take one network-order u32 index.
         // Unlike SO_BINDTODEVICE this does not require CAP_NET_RAW. Binding
         // the local address below also fixes the receive address/family.
         if unsafe {
             libc::setsockopt(
                 socket.as_raw_fd(),
-                libc::IPPROTO_IP,
-                libc::IP_UNICAST_IF,
+                level,
+                option,
                 (&index as *const u32).cast(),
                 libc::socklen_t::try_from(std::mem::size_of::<u32>())
                     .map_err(std::io::Error::other)?,
@@ -572,8 +612,11 @@ fn pair(path: &Path, retirements: &Retirement) -> std::io::Result<(UdpSocket, Ar
     // not observable. At capacity, reuse only ports whose silent companion we
     // already own. No unrelated service can inherit that companion mid-process.
     if companions.len() == MAX_COMPANIONS {
-        for (&port, companion) in companions.iter() {
-            match bind(path, port - 1) {
+        for (key, companion) in companions.iter() {
+            if *key != path.companion_key(key.local.port()) {
+                continue;
+            }
+            match bind(path, key.local.port() - 1) {
                 Ok(media) => return Ok((media, companion.clone())),
                 Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
                 Err(error) => return Err(error),
@@ -588,13 +631,14 @@ fn pair(path: &Path, retirements: &Retirement) -> std::io::Result<(UdpSocket, Ar
             if !port.is_multiple_of(2) || port == u16::MAX {
                 continue;
             }
-            if let Some(companion) = companions.get(&(port + 1)) {
+            let key = path.companion_key(port + 1);
+            if let Some(companion) = companions.get(&key) {
                 return Ok((media, companion.clone()));
             }
-            match reserve_companion(media) {
+            match reserve_companion(path, media) {
                 Ok((media, companion)) => {
                     let companion = Arc::new(companion);
-                    companions.insert(port + 1, companion.clone());
+                    companions.insert(key, companion.clone());
                     return Ok((media, companion));
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
@@ -616,11 +660,11 @@ fn reserve_pair(path: &Path, port: u16) -> std::io::Result<(UdpSocket, UdpSocket
             "media port must own an even RTP/RTCP pair",
         ));
     }
-    reserve_companion(bind(path, port)?)
+    reserve_companion(path, bind(path, port)?)
 }
 
-fn reserve_companion(media: UdpSocket) -> std::io::Result<(UdpSocket, UdpSocket)> {
-    let companion = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, media.local_addr()?.port() + 1))?;
+fn reserve_companion(path: &Path, media: UdpSocket) -> std::io::Result<(UdpSocket, UdpSocket)> {
+    let companion = bind(path, media.local_addr()?.port() + 1)?;
     Ok((media, companion))
 }
 
@@ -636,15 +680,24 @@ fn sip_request(
     path: &Path,
     signal_port: u16,
     media_port: u16,
-    browser: Ipv4Addr,
+    browser: IpAddr,
     nonce: &[u8; 16],
 ) -> Vec<u8> {
     let nonce: String = nonce.iter().map(|byte| format!("{byte:02x}")).collect();
     let ip = path.address;
+    let family = if ip.is_ipv4() { "IP4" } else { "IP6" };
+    let local = match ip {
+        IpAddr::V4(ip) => ip.to_string(),
+        IpAddr::V6(ip) => format!("[{ip}]"),
+    };
+    let remote = match browser {
+        IpAddr::V4(ip) => ip.to_string(),
+        IpAddr::V6(ip) => format!("[{ip}]"),
+    };
     let body = format!(
-        "v=0\r\no=merkur 1 1 IN IP4 {ip}\r\ns=Merkur direct admission\r\nc=IN IP4 {ip}\r\nt=0 0\r\nm=audio {media_port} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n"
+        "v=0\r\no=merkur 1 1 IN {family} {ip}\r\ns=Merkur direct admission\r\nc=IN {family} {ip}\r\nt=0 0\r\nm=audio {media_port} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n"
     );
-    format!("INVITE sip:merkur-{nonce}@{browser} SIP/2.0\r\nVia: SIP/2.0/UDP {ip}:{signal_port};branch=z9hG4bK-{nonce}\r\nFrom: <sip:merkur@{ip}>;tag={nonce}\r\nTo: <sip:merkur@{browser}>\r\nCall-ID: {nonce}@{ip}\r\nCSeq: 1 INVITE\r\nContact: <sip:merkur@{ip}:{signal_port}>\r\nMax-Forwards: 1\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
+    format!("INVITE sip:merkur-{nonce}@{remote} SIP/2.0\r\nVia: SIP/2.0/UDP {local}:{signal_port};branch=z9hG4bK-{nonce}\r\nFrom: <sip:merkur@{local}>;tag={nonce}\r\nTo: <sip:merkur@{remote}>\r\nCall-ID: {nonce}@{local}\r\nCSeq: 1 INVITE\r\nContact: <sip:merkur@{local}:{signal_port}>\r\nMax-Forwards: 1\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
 }
 
 async fn prepare(
@@ -656,7 +709,10 @@ async fn prepare(
     let mut manifest = request.manifest.clone();
     let initial = manifest["candidates"].as_array().map_or(0, Vec::len);
     let room = merkur_wire::signaling::MAX_WEBTRANSPORT_OFFER_CANDIDATES.saturating_sub(initial);
-    let paths = tokio::task::spawn_blocking(paths).await.unwrap_or_default();
+    let browser = request.identity.browser;
+    let paths = tokio::task::spawn_blocking(move || paths(browser))
+        .await
+        .unwrap_or_default();
     let mut preparations = futures::stream::FuturesUnordered::new();
     for path in paths.into_iter().take(room / 2) {
         for kind in [CandidateFlavor::Tftp, CandidateFlavor::Sip] {
@@ -666,7 +722,7 @@ async fn prepare(
             let events = events.clone();
             preparations.push(async move {
                 let claim = Claim::new(request.identity.clone(), request.epoch_owner.epoch.clone(), request.epoch);
-                let result = prepare_binding(&request.state, &request.config, &request.credential, &path,
+                let result = prepare_binding(&request.state, &request.config, request.credential.as_ref(), &path,
                     kind, claim, messages, events, request.epoch_owner.retirements.clone()).await;
                 if let Err(error) = &result {
                     warn!(interface = path.name, ?kind, %error, "direct admission preparation refused");
@@ -722,7 +778,7 @@ async fn prepare(
 async fn prepare_binding(
     state: &Arc<RwLock<WebTransportState>>,
     config: &wtransport::quinn::ServerConfig,
-    credential: &stun::StunCredential,
+    credential: Option<&stun::StunCredential>,
     path: &Path,
     kind: CandidateFlavor,
     claim: Arc<Claim>,
@@ -730,6 +786,9 @@ async fn prepare_binding(
     events: mpsc::Sender<PeerEvent>,
     retirements: Retirement,
 ) -> Result<(Binding, serde_json::Value), String> {
+    if path.address.is_ipv4() != claim.identity.browser.is_ipv4() {
+        return Err("helper address families differ".into());
+    }
     let path_for_bind = path.clone();
     let allocation_owner = retirements.clone();
     let (socket, companion, signaling) =
@@ -776,10 +835,7 @@ async fn prepare_binding(
         signaling,
     };
     let observed =
-        stun::admission_mapping(&discovery, credential, kind == CandidateFlavor::Tftp).await?;
-    if !super::side_channel::is_globally_routable(&observed.ip()) {
-        return Err("observer is inside NAT realm".into());
-    }
+        candidate_endpoint(&discovery, credential, kind == CandidateFlavor::Tftp).await?;
     let mut nonce = [0u8; 16];
     ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce)
         .map_err(|error| format!("admission randomness unavailable: {error}"))?;
@@ -826,10 +882,33 @@ async fn prepare_binding(
     ))
 }
 
+async fn candidate_endpoint(
+    socket: &Arc<DiscoverySocket>,
+    credential: Option<&stun::StunCredential>,
+    require_agreement: bool,
+) -> Result<SocketAddr, String> {
+    use wtransport::quinn::AsyncUdpSocket;
+    let local = socket.local_addr().map_err(|error| error.to_string())?;
+    if local.is_ipv6() {
+        return Ok(local);
+    }
+    let observed = stun::admission_mapping(
+        socket,
+        credential.ok_or("missing IPv4 STUN credential")?,
+        require_agreement,
+    )
+    .await?;
+    if !super::side_channel::is_globally_routable(&observed.ip()) {
+        return Err("observer is inside NAT realm".into());
+    }
+    Ok(observed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::connection::PeerTransport;
+    use std::net::Ipv4Addr;
 
     fn identity() -> Identity {
         Identity {
@@ -883,7 +962,7 @@ mod tests {
         peer.signal_session_id = "session".into();
         peer.browser_address = Some("2001:db8::7".parse().unwrap());
         assert!(!claim.authorizes(&peer));
-        peer.browser_address = Some(IpAddr::V4(identity().browser));
+        peer.browser_address = Some(identity().browser);
         let mut rebound = identity();
         rebound.rebind = 1;
         assert!(!rebound.matches(&peer));
@@ -913,7 +992,7 @@ mod tests {
         let reconnect = Claim::new(identity(), epoch, 0);
         assert!(reconnect.connected(12), "a fresh claim has a fresh grant");
         assert!(
-            second.accepts(IpAddr::V4(identity().browser)),
+            second.accepts(identity().browser),
             "cancelling a loser preserves another session"
         );
     }
@@ -941,6 +1020,158 @@ mod tests {
     }
 
     #[test]
+    fn ipv6_sip_names_the_owned_address_in_sdp_and_brackets_sip_hosts() {
+        let path = Path {
+            index: 1,
+            name: "test".into(),
+            address: "2001:db8::10".parse().unwrap(),
+        };
+        let invite = sip_request(
+            &path,
+            40001,
+            49152,
+            "2001:db8::7".parse().unwrap(),
+            &[0x42; 16],
+        );
+        let text = std::str::from_utf8(&invite).unwrap();
+        let (headers, body) = text.split_once("\r\n\r\n").unwrap();
+        assert!(headers.contains("@[2001:db8::7] SIP/2.0\r\n"));
+        assert!(headers.contains("Via: SIP/2.0/UDP [2001:db8::10]:40001;"));
+        assert!(headers.contains("From: <sip:merkur@[2001:db8::10]>;"));
+        assert!(headers.contains("To: <sip:merkur@[2001:db8::7]>\r\n"));
+        assert!(headers.contains("Contact: <sip:merkur@[2001:db8::10]:40001>\r\n"));
+        assert!(headers.ends_with(&format!("Content-Length: {}", body.len())));
+        assert!(body.contains("o=merkur 1 1 IN IP6 2001:db8::10\r\n"));
+        assert!(body.contains("c=IN IP6 2001:db8::10\r\n"));
+        assert!(body.contains("m=audio 49152 RTP/AVP 0\r\n"));
+        assert!(!body.contains("49153"));
+        assert!(invite.len() < 1200);
+    }
+
+    #[test]
+    fn ipv6_claims_bind_the_exact_session_address_manifest_and_network_epoch() {
+        let mut identity = identity();
+        identity.browser = "2001:db8::7".parse().unwrap();
+        let epoch = Arc::new(AtomicU64::new(0));
+        let claim = Claim::new(identity, epoch.clone(), 0);
+        let mut peer = peer();
+        peer.browser_address = Some(claim.identity.browser);
+        assert!(claim.authorizes(&peer));
+        let mut rebound = claim.identity.clone();
+        rebound.rebind = 1;
+        assert!(!rebound.matches(&peer));
+        assert!(claim.accepts(claim.identity.browser));
+        assert!(!claim.accepts("2001:db8::8".parse().unwrap()));
+        assert!(!claim.accepts("198.51.100.7".parse().unwrap()));
+        peer.browser_address = Some("2001:db8::8".parse().unwrap());
+        assert!(!claim.authorizes(&peer));
+        peer.browser_address = Some(claim.identity.browser);
+        peer.manifest_generation += 1;
+        assert!(!claim.authorizes(&peer));
+        peer.manifest_generation -= 1;
+        peer.signal_session_id = "successor".into();
+        assert!(!claim.authorizes(&peer));
+        epoch.fetch_add(1, Ordering::AcqRel);
+        assert!(!claim.accepts(claim.identity.browser));
+    }
+
+    #[tokio::test]
+    async fn ipv6_queue_uses_the_trusted_address_without_a_stun_credential() {
+        let (_endpoint, cert, info) = super::super::start_server(0, None).unwrap();
+        let mut snapshot = WebTransportState::from_server_info(cert, &info);
+        let (handle, mut commands) = channel();
+        snapshot.admission_requests = Some(handle);
+        snapshot.admission_config = Some(info.admission_config.clone());
+        assert!(snapshot.admission_credential.is_none());
+        let state = Arc::new(RwLock::new(snapshot));
+        let snapshot = state.read().await;
+        let mut peer = peer();
+        peer.browser_address = Some("2001:db8::7".parse().unwrap());
+        let mut manifest = serde_json::json!({ "candidates": [], "admission_pending": false });
+        queue(&state, &snapshot, &peer, &mut manifest);
+        let Command::Prepare(request) = commands.try_recv().unwrap() else {
+            panic!("preparation queued");
+        };
+        assert_eq!(request.identity.browser, peer.browser_address.unwrap());
+        assert!(request.credential.is_none());
+        assert_eq!(manifest["admission_pending"], true);
+        for address in [
+            "fd00::7",
+            "fe80::7",
+            "::1",
+            "198.51.100.7",
+            "::ffff:198.51.100.7",
+        ] {
+            peer.browser_address = Some(address.parse().unwrap());
+            let mut manifest = serde_json::json!({ "admission_pending": false });
+            queue(&state, &snapshot, &peer, &mut manifest);
+            assert!(commands.try_recv().is_err(), "{address}");
+            assert_eq!(manifest["admission_pending"], false);
+        }
+    }
+
+    pub(super) fn loopback_path(ipv6: bool) -> Path {
+        let interface = netdev::get_interfaces()
+            .into_iter()
+            .find(|iface| iface.is_loopback())
+            .unwrap();
+        Path {
+            index: interface.index,
+            name: interface.name,
+            address: if ipv6 { "::1" } else { "127.0.0.1" }.parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn companion_ownership_is_distinct_across_addresses_families_and_interfaces() {
+        let v4 = loopback_path(false);
+        let v6 = loopback_path(true);
+        let (port, first, second) = (61000..62000)
+            .step_by(2)
+            .find_map(|port| {
+                Some((
+                    port,
+                    reserve_pair(&v4, port).ok()?,
+                    reserve_pair(&v6, port).ok()?,
+                ))
+            })
+            .unwrap();
+        let owner = Retirement::new();
+        let (v4_media, v4_companion) = first;
+        let (v6_media, v6_companion) = second;
+        assert_eq!(
+            v4_companion.local_addr().unwrap(),
+            SocketAddr::from((v4.address, port + 1))
+        );
+        assert_eq!(
+            v6_companion.local_addr().unwrap(),
+            SocketAddr::from((v6.address, port + 1))
+        );
+        assert!(socket2::SockRef::from(&v6_companion).only_v6().unwrap());
+        let v4_key = v4.companion_key(port + 1);
+        let v6_key = v6.companion_key(port + 1);
+        assert_ne!(v4_key, v6_key);
+        let mut another_address = v6.clone();
+        another_address.address = "2001:db8::10".parse().unwrap();
+        assert_ne!(v6_key, another_address.companion_key(port + 1));
+        let mut another_interface = v6.clone();
+        another_interface.index += 1;
+        assert_ne!(v6_key, another_interface.companion_key(port + 1));
+        {
+            let mut companions = owner.companions.lock().unwrap();
+            companions.insert(v4_key, Arc::new(v4_companion));
+            companions.insert(v6_key, Arc::new(v6_companion));
+        }
+        drop((v4_media, v6_media));
+        for path in [&v4, &v6] {
+            assert_eq!(
+                bind(path, port + 1).unwrap_err().kind(),
+                std::io::ErrorKind::AddrInUse
+            );
+        }
+    }
+
+    #[test]
     fn an_occupied_companion_refuses_the_pair_and_a_reserved_pair_excludes_unrelated_services() {
         let interface = netdev::get_interfaces()
             .into_iter()
@@ -949,7 +1180,7 @@ mod tests {
         let path = Path {
             index: interface.index,
             name: interface.name,
-            address: interface.ipv4[0].addr(),
+            address: IpAddr::V4(interface.ipv4[0].addr()),
         };
         assert_eq!(
             reserve_pair(&path, 49153).unwrap_err().kind(),
@@ -989,7 +1220,7 @@ mod tests {
         let path = Path {
             index: interface.index,
             name: interface.name,
-            address: interface.ipv4[0].addr(),
+            address: IpAddr::V4(interface.ipv4[0].addr()),
         };
         let owner = Retirement::new();
         let (media, companion) = pair(&path, &owner).unwrap();
@@ -1012,7 +1243,7 @@ mod tests {
         let path = Path {
             index: interface.index,
             name: interface.name,
-            address: interface.ipv4[0].addr(),
+            address: IpAddr::V4(interface.ipv4[0].addr()),
         };
         let owner = Retirement::new();
         for port in (49152..65534).step_by(2) {
@@ -1021,7 +1252,7 @@ mod tests {
                     .companions
                     .lock()
                     .unwrap()
-                    .insert(port + 1, Arc::new(companion));
+                    .insert(path.companion_key(port + 1), Arc::new(companion));
                 drop(media);
             }
             if owner.companions.lock().unwrap().len() == MAX_COMPANIONS {
@@ -1029,11 +1260,19 @@ mod tests {
             }
         }
         assert_eq!(owner.companions.lock().unwrap().len(), MAX_COMPANIONS);
+        assert_eq!(
+            pair(&loopback_path(true), &owner).unwrap_err().kind(),
+            std::io::ErrorKind::AddrNotAvailable,
+            "a full IPv4 reservation set cannot supply an IPv6 companion"
+        );
         let (media, companion) = pair(&path, &owner).unwrap();
         let companion_port = media.local_addr().unwrap().port() + 1;
         let companions = owner.companions.lock().unwrap();
         assert_eq!(companions.len(), MAX_COMPANIONS);
-        assert!(Arc::ptr_eq(&companion, &companions[&companion_port]));
+        assert!(Arc::ptr_eq(
+            &companion,
+            &companions[&path.companion_key(companion_port)]
+        ));
         assert_eq!(
             UdpSocket::bind((path.address, companion_port))
                 .unwrap_err()

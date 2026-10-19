@@ -1101,3 +1101,73 @@ fn a_network_move_does_not_redial_helper_claims_prepared_for_the_previous_addres
     );
     assert_eq!(dials(&fresh).len(), 1, "a matching fresh claim can race");
 }
+
+#[test]
+fn ipv6_helpers_require_the_current_observed_family_and_exact_address() {
+    for kind in [CandidateKind::Tftp, CandidateKind::Sip] {
+        let (mut harness, _) = ready();
+        let here = "2001:db8::7";
+        observed(&mut harness, NOW + 40, here);
+        let helper = candidate("[2001:db8::5]:45002", kind, CandidateScope::Public);
+        let actions = deliver_signal(
+            &mut harness,
+            NOW + 100,
+            &manifest(1, vec![helper.clone()], here, PunchState::None),
+        );
+        assert_eq!(dialed(&actions), [addr("[2001:db8::5]:45002")]);
+        assert!(
+            dials(&deliver_signal(
+                &mut harness,
+                NOW + 105,
+                &manifest(1, vec![helper.clone()], here, PunchState::None)
+            ))
+            .is_empty()
+        );
+        let moved = observed(&mut harness, NOW + 110, "2001:db8::8");
+        assert!(
+            dials(&moved).is_empty(),
+            "an old helper cannot serve a new address"
+        );
+        assert!(
+            dials(&deliver_signal(
+                &mut harness,
+                NOW + 115,
+                &manifest(2, vec![helper.clone()], here, PunchState::None)
+            ))
+            .is_empty()
+        );
+        let fresh = deliver_signal(
+            &mut harness,
+            NOW + 120,
+            &manifest(3, vec![helper], "2001:db8::8", PunchState::None),
+        );
+        assert_eq!(dialed(&fresh), [addr("[2001:db8::5]:45002")]);
+    }
+}
+
+#[test]
+fn a_helper_of_the_other_family_does_not_spend_a_constructor() {
+    for kind in [CandidateKind::Tftp, CandidateKind::Sip] {
+        for (here, next, at) in [
+            ("2001:db8::7", CLIENT, "203.0.113.5:45002"),
+            (CLIENT, "2001:db8::7", "[2001:db8::5]:45002"),
+        ] {
+            let (mut harness, _) = ready();
+            observed(&mut harness, NOW + 40, here);
+            let helper = candidate(at, kind, CandidateScope::Public);
+            let actions = deliver_signal(
+                &mut harness,
+                NOW + 100,
+                &manifest(1, vec![helper.clone()], here, PunchState::None),
+            );
+            assert!(dials(&actions).is_empty(), "a helper belongs to one family");
+            assert!(dials(&observed(&mut harness, NOW + 110, next)).is_empty());
+            let fresh = deliver_signal(
+                &mut harness,
+                NOW + 120,
+                &manifest(2, vec![helper], next, PunchState::None),
+            );
+            assert_eq!(dialed(&fresh), [addr(at)]);
+        }
+    }
+}

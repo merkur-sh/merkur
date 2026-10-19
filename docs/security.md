@@ -1120,11 +1120,12 @@ committed signaling connection. Private and local helper destinations are refuse
 ordinary punch is four one-byte datagrams aimed at the daemon's own port number and the next
 one, under a per-destination cooldown and global token bucket. Router admission adds one
 bounded TFTP read request or SIP/SDP request per independently owned mechanism binding,
-addressed to that same validated public IPv4. The SIP media listener exclusively reserves its
-even RTP/RTCP pair; the coordinator retains silent companion reservations after candidate
-retirement because router-side expiry is not observable. The reservation set is bounded and
-reused only by owned SIP media pairs. A requested media
-port is never treated as a verified lease.
+addressed to that same validated public IP, using only its address family. An IPv4 carrier
+cannot authorize preparation toward an unobserved IPv6 address. The SIP media listener
+exclusively reserves its even RTP/RTCP pair; the coordinator retains silent companion
+reservations after candidate retirement because router-side expiry is not observable. The reservation set is bounded and
+reused only by owned SIP media pairs on the same local address, family and interface. A
+requested media port is never treated as a verified lease.
 
 At most 32 peer cohorts prepare or retain helper bindings, each within the ten-candidate
 manifest bound; every listener shares the existing 64-session capacity. Each helper claim

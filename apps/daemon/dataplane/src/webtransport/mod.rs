@@ -321,7 +321,7 @@ pub enum CandidateFlavor {
     Host6,
     /// 127.0.0.1 / ::1, added only for the SameHost selection strategy.
     Loopback,
-    /// A same-socket observed endpoint, prepared with a TFTP RRQ.
+    /// A dedicated socket endpoint, prepared with a TFTP RRQ.
     Tftp,
     /// An unverified SDP media endpoint; never a port-mapping lease.
     Sip,

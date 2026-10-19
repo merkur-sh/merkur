@@ -682,7 +682,7 @@ its candidates; the browser orders and dials them. Seven candidate kinds exist:
 | `srflx` | The public endpoint observed from the live WebTransport socket by an authenticated STUN probe, including the translated port |
 | `nat_map` | An explicit port-mapping lease; the one kind that does not depend on NAT filter state |
 | `loopback` | `127.0.0.1` or `::1`, offered only to a browser the edge observed on loopback |
-| `tftp` | An endpoint observed on its own interface-bound QUIC socket, prepared by a TFTP read request from that exact socket |
+| `tftp` | An endpoint on its own interface-bound QUIC socket, STUN-observed for IPv4 or the owned IPv6 address, prepared by a TFTP read request from that exact socket |
 | `sip` | An unverified requested SDP media endpoint on a separate interface-bound QUIC socket; helper rewriting can make it unreachable |
 
 Every browser gets the daemon's whole candidate set, its **manifest**. Whether a LAN, overlay or
@@ -735,36 +735,40 @@ DTLS, or RTP and solicits no reply.
 The browser dials a punched candidate, `srflx` toward an IPv4 browser or a global `host6` toward
 an IPv6 one, only under a manifest built for its carrier's current address, and only once that
 manifest's punch outcome arrived. Prepared helper candidates also require the manifest's
-browser address to match the current IPv4 carrier. LAN, host and explicit lease candidates
-are dialable as soon as the manifest lands.
+browser address to match the current carrier, and the candidate to have that same address
+family. LAN, host and explicit lease candidates are dialable as soon as the manifest lands.
 
 ### Router admission
 
 The Rust admission coordinator prepares independent accepting sockets for TFTP and SIP. It
 keys work to the authenticated peer, session, rebind counter, manifest generation, validated
-browser IPv4 and daemon network epoch. An interface/address is selected explicitly for every
-socket; the default OS route is never used as a substitute. macOS uses `IP_BOUND_IF`; Linux
-uses the unprivileged `IP_UNICAST_IF` option and a concrete local bind. Preparation and
-retirement run outside the terminal owner. All direct logical channels share one QUIC
-connection and use the existing channel senders after authentication.
+browser IP and daemon network epoch. Preparation uses only the validated carrier's address
+family: an IPv4 observation cannot authorize an IPv6 helper destination. An interface/address
+is selected explicitly for every socket; the default OS route is never used as a substitute.
+macOS uses `IP_BOUND_IF` or `IPV6_BOUND_IF`; Linux uses the unprivileged `IP_UNICAST_IF` or
+`IPV6_UNICAST_IF` option and a concrete local bind. IPv6 sockets accept IPv6 only.
+Preparation and retirement run outside the terminal owner. All direct logical channels share
+one QUIC connection and use the existing channel senders after authentication.
 
 A TFTP request is a read request for a random nonexistent name in octet mode, sent to the
-validated browser IPv4 on UDP69 from the exact accepting socket. Two distinct authenticated
-STUN observer IPs must agree on that socket's external endpoint before it is offered. This
-mechanism can admit a browser whose ephemeral source port is unknown through a helper-enabled
-port-dependent filter. It does not discover a destination-dependent external mapping.
+validated browser IP on UDP69 from the exact accepting socket. For IPv4, two distinct
+authenticated STUN observer IPs must agree on that socket's external endpoint before it is offered. IPv6
+uses an owned global interface address and the listener's port, without STUN credentials or
+an IPv4 observation. This mechanism can admit a browser whose ephemeral source port is unknown
+through a helper-enabled port-dependent filter. It does not discover a destination-dependent external mapping.
 
-SIP uses a separate signaling socket directed to that browser's IPv4 on UDP5060, with an SDP
-media offer naming an exclusively owned even UDP listener port. The adjacent RTCP port is
-reserved and silent for the coordinator's lifetime, including after a candidate retires:
+SIP uses a separate signaling socket directed to that browser's IP on UDP5060, with an SDP
+media offer naming an exclusively owned even UDP listener port. IPv6 SDP uses `IN IP6` and
+SIP hosts use bracketed IPv6 literals. The adjacent RTCP port is reserved and silent for the coordinator's lifetime, including after a candidate retires:
 router-side expiry is unobservable, so releasing it could expose a subsequently bound local
-service. At most 160 companion reservations are retained; after that, allocation reuses only
-pairs whose companion is already owned. The OS allocates an ephemeral media socket; odd ports and occupied companion ports
-are discarded before any SIP request leaves. Allocation never searches neighboring WAN ports
-or restarts from a fixed local port after a daemon restart. The requested media port at the same
-interface's observed public IP is a `sip` candidate, never a verified `nat_map` lease. A
-helper can rewrite that address or port on collision or across NAT layers; such a candidate
-can fail. Neither a send completion nor a STUN observation proves router acceptance.
+service. Reservations belong to the exact address, family and interface. At most 160 companion
+reservations are retained across both families; after that, allocation reuses only pairs whose
+companion is already owned on that path. The OS allocates an ephemeral media socket; odd ports
+and occupied companion ports are discarded before any SIP request leaves. Allocation never
+searches neighboring WAN ports or restarts from a fixed local port after a daemon restart. The requested media port at the same
+interface's observed public IPv4 or owned global IPv6 is a `sip` candidate, never a verified
+`nat_map` lease. A helper can rewrite that address or port on collision or across NAT layers;
+such a candidate can fail. Neither a send completion nor a STUN observation proves router acceptance.
 
 Each new admission attempt owns its own mechanism bindings. Consequently two browsers behind
 one public IP do not consume the same one-shot TFTP expectation, and SIP cannot alter the
