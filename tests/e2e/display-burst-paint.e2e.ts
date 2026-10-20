@@ -18,6 +18,10 @@ function buildViewerBundle(): string {
     .replace(
       "'@merkur/shared'",
       JSON.stringify(path.join(PROJECT_ROOT, 'packages/shared/src/index.ts')),
+    )
+    .replace(
+      "'../../../packages/shared/test-vectors/display-mz-grids.json'",
+      JSON.stringify(path.join(PROJECT_ROOT, 'packages/shared/test-vectors/display-mz-grids.json')),
     );
   const helpers = workerTest.slice(
     workerTest.indexOf('function writeU16BE('),
