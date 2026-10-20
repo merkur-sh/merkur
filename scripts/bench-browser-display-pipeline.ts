@@ -175,12 +175,10 @@ if (copiedBytesPerPayloadByte !== expectedCopiesPerPayloadByte) {
 const receiverSurface =
   SCENARIO !== 'compressed-full'
     ? []
-    : [1, 2, 4, 8, 16, rows]
-        .filter((encodedRows, index, sizes) => sizes.indexOf(encodedRows) === index)
-        .map((encodedRows) => {
-          const raw = createBlankFrame(cols, rows, 0, encodedRows);
-          return benchmarkReceiverRepresentation(raw, createCompressedDisplayFrame(raw));
-        });
+    : [...new Set([1, 2, 4, 8, 16, rows])].map((encodedRows) => {
+        const raw = createBlankFrame(cols, rows, 0, encodedRows);
+        return benchmarkReceiverRepresentation(raw, createCompressedDisplayFrame(raw));
+      });
 viewerDriver.close();
 terminal.free();
 

@@ -70,7 +70,7 @@
   "scripts/bench-immutable-image.ts": 7,
   "scripts/bench-keyboard.ts": 3,
   "scripts/bench-render-admission-browser.ts": 5,
-  "scripts/bench-retained-wire-payload-pool.ts": 2,
+  "scripts/bench-retained-wire-payload-pool.ts": 1,
   "scripts/bench-session-crypto-startup.ts": 1,
   "scripts/bench-shadow-terminal.ts": 1,
   "scripts/bench-sse-parser.ts": 2,
