@@ -53,13 +53,8 @@ export interface WasmTerminalHandle {
   /** Last authoritative display sequence applied to this row, or zero. */
   displayRowVersion(row: number): number;
   validateFrame(data: Uint8Array): boolean;
-  installDisplayDictionary(
-    generation: number,
-    id: number,
-    hash: number,
-    bytes: Uint8Array,
-  ): boolean;
-  clearDisplayDictionaries(): void;
+  /** Forget the row history MZ references read. */
+  clearDisplayHistory(): void;
   stageDisplayFrame(data: Uint8Array): number;
   /** Logical bytes requested when the reusable WASM ingress grew; zero on reuse. */
   lastStageAllocationRequestedBytes(): number;
@@ -256,13 +251,7 @@ interface WasmTerminalInstance {
   last_apply_visually_changed(): boolean;
   display_row_version(row: number): number;
   validate_frame(data: Uint8Array): boolean;
-  install_display_dictionary(
-    generation: number,
-    id: number,
-    hash: number,
-    bytes: Uint8Array,
-  ): boolean;
-  clear_display_dictionaries(): void;
+  clear_display_history(): void;
   reserve_display_frame_input(capacity: number): number;
   stage_display_frame_input(len: number): number;
   validate_staged_frame(handle: number): boolean;
@@ -441,16 +430,8 @@ function createWasmTerminalHandleFromInstance(
     validateFrame(data: Uint8Array): boolean {
       return terminal.validate_frame(data);
     },
-    installDisplayDictionary(
-      generation: number,
-      id: number,
-      hash: number,
-      bytes: Uint8Array,
-    ): boolean {
-      return terminal.install_display_dictionary(generation, id, hash, bytes);
-    },
-    clearDisplayDictionaries(): void {
-      terminal.clear_display_dictionaries();
+    clearDisplayHistory(): void {
+      terminal.clear_display_history();
     },
     stageDisplayFrame(data: Uint8Array): number {
       lastStageAllocationRequestedBytes = 0;

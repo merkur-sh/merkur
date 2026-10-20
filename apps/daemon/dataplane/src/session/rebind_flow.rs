@@ -858,9 +858,8 @@ pub(crate) fn commit_rebind(
 /// The counterpart of `splice_resumed_peer`, and deliberately a different
 /// function rather than a flag on it, because the two disagree about what a
 /// reconnect *is*. A resume builds a successor session and must therefore open
-/// a fresh input-sequence domain, a fresh dictionary, and a fresh display
-/// generation. A rebind swaps the carrier under the *same* session: those are
-/// unchanged on the browser side, so resetting them here would desynchronize
+/// a fresh input-sequence domain and a fresh display generation. A rebind
+/// swaps the carrier under the *same* session: those are unchanged on the browser side, so resetting them here would desynchronize
 /// the two ends rather than resynchronize them.
 ///
 /// Preserved on purpose:
@@ -871,16 +870,6 @@ pub(crate) fn commit_rebind(
 ///   keystroke read as out-of-domain. It also means replayed input is
 ///   deduplicated against a counter that never reset, so the window where a
 ///   rebase could double-apply or drop a keystroke simply does not exist.
-/// - The compression dictionary. It lives in the browser's terminal worker,
-///   which survives the carrier swap, and it was trained on the grid this
-///   rebind is preserving — so discarding it would force a readiness/install/ack
-///   round trip and cold compression on exactly the frames the user is waiting
-///   for. `carrier_boundary` therefore clears only READINESS, which the browser
-///   re-signals once its replacement worker lineage is live. The daemon learns
-///   what the peer actually kept from the resume claim: hashes present means it
-///   held on, absent means it did not, and `handle_display_resume` discards
-///   accordingly. This comment used to claim the preservation while
-///   `carrier_boundary` reset it two lines later; the behaviour now matches.
 /// - The display generation, cache, and row hashes, so the browser's resume
 ///   claim can still be answered with repairs instead of a full snapshot.
 /// - The edge path's RTT estimates: the daemon-to-edge half is literally the
@@ -2137,35 +2126,21 @@ mod tests {
         assert_eq!(peer.next_datagram_seq, 40);
     }
 
-    /// Carrier-scoped display readiness is retired only at commit, while the
-    /// predecessor sealing context survives until the caller installs its
-    /// already-validated successor in the same owner-loop turn.
-    ///
-    /// The browser's session-epoch fence runs on every authenticated session,
-    /// a rebound one included, and unconditionally clears its compression
-    /// dictionaries. Keeping ours would compress against bytes the peer just
-    /// discarded. Noise has the opposite boundary: dropping it at admission
-    /// makes a failed rebind destroy a healthy incumbent.
+    /// The predecessor sealing context survives a committed carrier swap until
+    /// the caller installs its already-validated successor in the same
+    /// owner-loop turn: dropping it at admission makes a failed rebind destroy
+    /// a healthy incumbent.
     #[test]
-    fn a_committed_carrier_swap_retires_readiness_without_preempting_noise() {
+    fn a_committed_carrier_swap_does_not_preempt_noise() {
         use crate::connection::PeerTransport;
-        use crate::display::compressor::DISPLAY_DICTIONARY_MIN_BYTES;
         use merkur_codec::CellRepr;
 
         let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
         peer.generation = 5;
-        peer.display_dictionary_ready = true;
         peer.display_cache.resize(2, 2);
         let grid = vec![CellRepr::BLANK; 4];
         peer.display_cache
             .prime_from_snapshot(&grid, &[11, 22], &[]);
-        // A REAL install, so this pins behaviour rather than passing vacuously:
-        // a peer with no dictionary has no wire state to keep or drop, and an
-        // assertion about it says nothing either way.
-        peer.dictionary
-            .build_next(5, vec![7u8; DISPLAY_DICTIONARY_MIN_BYTES])
-            .expect("dictionary install");
-        assert!(peer.dictionary.has_wire_state());
         let (incumbent, _browser) = established_noise_pair();
         peer.noise = Some(incumbent);
 
@@ -2182,20 +2157,6 @@ mod tests {
         ));
         splice_rebound_peer(&mut peer, 1_000.0);
 
-        assert!(
-            !peer.display_dictionary_ready,
-            "readiness describes the peer's possession of a live install on THIS \
-             carrier, and the browser re-signals it once its replacement worker \
-             lineage is up"
-        );
-        assert!(
-            peer.dictionary.has_wire_state(),
-            "the dictionary was trained on the grid this rebind preserves, so \
-             dropping it would cost a readiness/install/ack exchange and cold \
-             compression on exactly the repair rows the user is waiting for. \
-             `handle_display_resume` retires it if the peer's claim says it kept \
-             no grid."
-        );
         assert!(
             peer.noise.is_some(),
             "the incumbent is retired only when the caller installs the already-validated successor"

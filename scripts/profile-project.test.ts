@@ -59,7 +59,7 @@ describe('project profile workload registry', () => {
 
     expect(exitCode, stderr).toBe(0);
     expect(stdout).toContain(
-      'dataplane/display-zstd\tbenchmark\tcriterion\trepetitions=20\twarmups=0',
+      'dataplane/display-fec\tbenchmark\tcriterion\trepetitions=20\twarmups=0',
     );
     expect(stdout).toContain(
       'dataplane/edge-reliable-ingress\tbenchmark\tframed-or-none\trepetitions=20\twarmups=2',

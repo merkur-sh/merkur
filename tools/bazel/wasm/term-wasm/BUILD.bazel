@@ -42,15 +42,13 @@ wasm_module(
     simd128 = True,
 )
 
-# Measured against the plain build, alternated on an idle machine: compressed staging of
-# terminal text -7.7% to -15.0% and of random content -3.3% to -7.6%, and the apply path -4% to
-# -9%.
+# Trained on the ingress benchmark's raw frames and their MZ-coded twins (`scripts/term-wasm-pgo.ts`).
 wasm_profile(
     name = "profile",
     font = "//apps/web:public/fonts/JetBrainsMonoNF-Regular.ttf",
     instrumented = ":instrumented",
     trainer = "//scripts:term_wasm_pgo",
-    zstd_fixture = "//packages/zstd-fixture",
+    display_fixture = "//packages/display-fixture",
 )
 
 wasm_module(

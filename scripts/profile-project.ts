@@ -540,7 +540,7 @@ const BENCHMARKS: readonly WorkloadSpec[] = [
   },
   {
     service: 'web',
-    name: 'browser-display-zstd-one-row',
+    name: 'browser-display-compressed-one-row',
     fidelity: 'production',
     kind: 'benchmark',
     command: ['bun', 'run', 'scripts/bench-browser-display-pipeline.ts', 'compressed-one-row'],
@@ -837,34 +837,6 @@ const VERIFICATIONS: readonly WorkloadSpec[] = [
 ];
 
 const RUST_BENCHMARKS: readonly WorkloadSpec[] = [
-  {
-    service: 'dataplane',
-    name: 'display-zstd',
-    fidelity: 'production',
-    kind: 'benchmark',
-    command: [
-      'cargo',
-      'bench',
-      '--locked',
-      '-p',
-      'merkur-dataplane',
-      '--bench',
-      'zstd',
-      '--',
-      '--noplot',
-      '--sample-size',
-      '20',
-      '--warm-up-time',
-      '1',
-      '--measurement-time',
-      '2',
-    ],
-    timeoutMs: 300_000,
-    repetitions: 1,
-    warmups: 0,
-    requireMetrics: true,
-    metricParser: 'criterion',
-  },
   {
     service: 'dataplane',
     name: 'display-fec',

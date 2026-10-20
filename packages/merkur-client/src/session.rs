@@ -35,10 +35,10 @@ use merkur_wire::protocol::{
     CHANNEL_CTRL, CHANNEL_DATA_HELLO, CHANNEL_DISPLAY_ACK, CHANNEL_DISPLAY_COMMIT,
     CHANNEL_DISPLAY_DATAGRAM, CHANNEL_PTY, CHANNEL_SIGNALING, CarrierPrimary,
     DATA_HANDSHAKE_NONCE_BYTES, DataHandshakeKind, DisplayAckPayload, EdgeLane,
-    MSG_TYPE_CARRIER_PRIMARY, MSG_TYPE_DISPLAY_ACK, MSG_TYPE_DISPLAY_DICT_ACK,
-    MSG_TYPE_DISPLAY_DICT_READY, MSG_TYPE_DISPLAY_HASH_DIGEST, MSG_TYPE_DISPLAY_LINK_TABLE,
-    MSG_TYPE_DISPLAY_REPAIR_END, MSG_TYPE_DISPLAY_RESUME, MSG_TYPE_DISPLAY_RESYNC_ROWS,
-    MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, MSG_TYPE_GEOMETRY_STATE, MSG_TYPE_GRAPHICS_UNAVAILABLE,
+    MSG_TYPE_CARRIER_PRIMARY, MSG_TYPE_DISPLAY_ACK, MSG_TYPE_DISPLAY_HASH_DIGEST,
+    MSG_TYPE_DISPLAY_LINK_TABLE, MSG_TYPE_DISPLAY_REPAIR_END, MSG_TYPE_DISPLAY_RESUME,
+    MSG_TYPE_DISPLAY_RESYNC_ROWS, MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, MSG_TYPE_GEOMETRY_STATE,
+    MSG_TYPE_GRAPHICS_UNAVAILABLE,
     MSG_TYPE_HEARTBEAT_PING, MSG_TYPE_HEARTBEAT_PONG, MSG_TYPE_INPUT_ACK, MSG_TYPE_OPEN_URL,
     MSG_TYPE_OPEN_URL_ACK, OpenUrlId, decode_data_handshake_frame, decode_proto_frame,
     encode_data_handshake_frame, encode_probed_input_run_into, encode_proto_frame, parse_open_url,
@@ -256,7 +256,7 @@ pub struct DisplayFence {
 /// The viewer's claim about its grid, answered by the daemon with a repair of
 /// the rows that diverged or with a snapshot. `row_hashes` is present exactly
 /// when the viewer kept its grid, one `merkur_codec::row_hash` per row; the
-/// daemon keeps its compression dictionaries under the same condition.
+/// daemon keeps the MZ references it may send under the same condition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DisplayResume {
     pub generation: u32,
@@ -1584,23 +1584,6 @@ impl Session {
     pub fn request_display_snapshot(&mut self, now_ms: u64) {
         self.quality.resync(now_ms);
         self.send_display_control(encode_proto_frame(MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, &[]));
-    }
-
-    /// Tell the daemon whether the grid takes compression dictionaries.
-    pub fn send_display_dictionary_ready(&mut self, ready: bool) {
-        self.send_display_control(encode_proto_frame(
-            MSG_TYPE_DISPLAY_DICT_READY,
-            &[u8::from(ready)],
-        ));
-    }
-
-    /// The grid holds dictionary `id`. The daemon never re-sends an install,
-    /// so this is owed until a carrier takes it.
-    pub fn send_display_dictionary_ack(&mut self, id: u32) {
-        self.send_display_control(encode_proto_frame(
-            MSG_TYPE_DISPLAY_DICT_ACK,
-            &id.to_be_bytes(),
-        ));
     }
 
     /// Cold host measurement/policy controls. Authority-bearing viewer and

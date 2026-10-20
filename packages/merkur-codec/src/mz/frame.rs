@@ -3,13 +3,14 @@
 //! receiver already holds.
 
 use super::model::{
-    AUX, DecodeModel, ESC, EncodeModel, F_BG, F_CODEPOINT, F_COUNT, F_FG, F_HASH, F_LEFT, F_LINK,
-    F_MODE, F_OP, F_ROW, F_RUN, F_SEQ, F_SOURCE, F_TAG, decode_model, encode_model, key,
+    AUX, DecodeModel, ESC, EncodeModel, F_BG, F_CODEPOINT, F_COUNT, F_FG, F_GRAPHICS, F_HASH,
+    F_LEFT, F_LINK, F_MODE, F_OP, F_ROW, F_RUN, F_SAME_COLOR, F_SEQ, F_SOURCE, F_TAG, decode_model,
+    encode_model, key,
 };
 use super::rans;
 use crate::{
-    LINK_SPAN_BYTES, LINK_TABLE_COUNT_BYTES, MAX_TERMINAL_COLUMNS, ROW_CELL_COUNT_MASK,
-    ROW_FLAG_GRAPHICS, ROW_FLAG_LINKS, ROW_PREFIX_BYTES,
+    LINK_SPAN_BYTES, LINK_TABLE_COUNT_BYTES, MAX_GRAPHICS_SECTION_BYTES, MAX_TERMINAL_COLUMNS,
+    ROW_CELL_COUNT_MASK, ROW_FLAG_GRAPHICS, ROW_FLAG_LINKS, ROW_PREFIX_BYTES,
 };
 
 /// Decoded row bytes from which a frame codes with two interleaved states.
@@ -27,6 +28,16 @@ const HAS_BG: u8 = 1 << 1;
 const RUN: u8 = 1 << 7;
 const COLOR_LITERAL_ESCAPE: u8 = crate::encode::COLOR_LITERAL_ESCAPE;
 const COLOR_MODE_LITERAL: u8 = crate::encode::COLOR_MODE_LITERAL;
+/// The bytes of a graphics section's length, which the row layout writes
+/// after the row's cells.
+const GRAPHICS_LENGTH_BYTES: usize = 4;
+
+/// The context of byte `index` of a graphics section, its length included:
+/// each length byte its own, then the section's bytes.
+#[inline]
+fn graphics_aux(index: usize) -> u32 {
+    index.min(GRAPHICS_LENGTH_BYTES) as u32
+}
 
 /// A row the receiver already holds, standing in for a literal entry: the
 /// complete row the entry at `source_row` of the datagram `seq_delta` before
@@ -101,6 +112,10 @@ pub(super) struct Walk {
     prev_mode: u32,
     prev_codepoint: u32,
     prev_color: [[u32; 4]; 2],
+    /// Bytes of each slot's previous colour; zero before the first.
+    prev_width: [u8; 2],
+    /// Whether each slot's previous colour repeated the one before it.
+    prev_same: [u8; 2],
 }
 
 impl Walk {
@@ -111,6 +126,8 @@ impl Walk {
             prev_mode: MODE_START,
             prev_codepoint: 0,
             prev_color: [[0; 4]; 2],
+            prev_width: [0; 2],
+            prev_same: [0; 2],
         }
     }
 }
@@ -122,6 +139,14 @@ fn codepoint_aux(index: u32, first: u32, prev: u32) -> u32 {
     } else {
         index | first << 3
     }
+}
+
+/// The context of whether a slot's colour repeats its previous one: the
+/// slot, the colour mode, whether the previous colour repeated too, and that
+/// colour's first byte, since some colours repeat far more than others.
+#[inline]
+fn same_color_aux(slot: usize, mode: u8, prev_same: u8, prev_first: u32) -> u32 {
+    slot as u32 | u32::from(mode) << 1 | u32::from(prev_same) << 2 | prev_first << 3
 }
 
 #[inline]
@@ -179,16 +204,19 @@ pub(super) fn put_reference(
     }
 }
 
-/// Walk one literal entry, `entry` its complete row-layout bytes. `None` when
-/// the bytes are not a row the encoder can carry: graphics never ride MZ.
+/// Walk one literal entry, `entry` its complete row-layout bytes, a graphics
+/// section included. `None` when the bytes are not a row the encoder can
+/// carry.
 pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -> Option<()> {
     let row = u16::from_be_bytes([*entry.first()?, *entry.get(1)?]);
     let left_field = u16::from_be_bytes([entry[2], entry[3]]);
     let count_field = u16::from_be_bytes([*entry.get(4)?, *entry.get(5)?]);
-    if left_field & ROW_FLAG_GRAPHICS != 0 {
+    let body_len = usize::from(u16::from_be_bytes([*entry.get(6)?, *entry.get(7)?]));
+    let body = entry.get(ROW_PREFIX_BYTES..ROW_PREFIX_BYTES + body_len)?;
+    let graphics = &entry[ROW_PREFIX_BYTES + body_len..];
+    if (left_field & ROW_FLAG_GRAPHICS != 0) == graphics.is_empty() {
         return None;
     }
-    let body = entry.get(ROW_PREFIX_BYTES..)?;
     put_row(walk, sink, OP_LITERAL, row);
     sink.put(key(F_LEFT, 0), entry[2]);
     sink.put(key(F_LEFT, 1 | u32::from(entry[2]) << 1), entry[3]);
@@ -204,6 +232,9 @@ pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -
         at = table.len();
     }
     let mode = *body.get(at)?;
+    if mode > COLOR_MODE_LITERAL {
+        return None;
+    }
     at += 1;
     sink.put(key(F_MODE, walk.prev_mode), mode);
     walk.prev_mode = u32::from(mode);
@@ -244,8 +275,27 @@ pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -
             } else {
                 1
             };
-            for index in 0..width {
-                let byte = *body.get(at + index)?;
+            let bytes = body.get(at..at + width)?;
+            at += width;
+            // A colour that repeats the slot's previous one, the common case
+            // for a styled run of differing glyphs, is one decision whatever
+            // its value; any other is coded byte by byte.
+            let prev_width = usize::from(walk.prev_width[slot]);
+            if prev_width != 0 {
+                let same = prev_width == width
+                    && bytes
+                        .iter()
+                        .zip(walk.prev_color[slot])
+                        .all(|(&byte, prev)| u32::from(byte) == prev);
+                let aux =
+                    same_color_aux(slot, mode, walk.prev_same[slot], walk.prev_color[slot][0]);
+                sink.put(key(F_SAME_COLOR, aux), u8::from(same));
+                walk.prev_same[slot] = u8::from(same);
+                if same {
+                    continue;
+                }
+            }
+            for (index, &byte) in bytes.iter().enumerate() {
                 let aux = color_aux(
                     index,
                     walk.prev_color[slot][index],
@@ -255,7 +305,7 @@ pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -
                 sink.put(key(field, aux), byte);
                 walk.prev_color[slot][index] = u32::from(byte);
             }
-            at += width;
+            walk.prev_width[slot] = width as u8;
         }
         let length = if tag & RUN != 0 {
             let (mut value, mut shift, mut index) = (0usize, 0u32, 0u32);
@@ -282,18 +332,30 @@ pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -
         }
         covered += length;
     }
-    (at == body.len() && covered == cells).then_some(())
+    if at != body.len() || covered != cells {
+        return None;
+    }
+    for (index, &byte) in graphics.iter().enumerate() {
+        sink.put(key(F_GRAPHICS, graphics_aux(index)), byte);
+    }
+    Some(())
 }
 
-/// Split a row-layout payload into its `row_count` entries.
+/// Split a row-layout payload into its `row_count` entries, each with its
+/// graphics section.
 pub(super) fn entries(rows: &[u8], row_count: u16) -> impl Iterator<Item = Option<&[u8]>> {
     let mut at = 0usize;
     (0..row_count).map(move |_| {
         let prefix = rows.get(at..at + ROW_PREFIX_BYTES)?;
+        let mut len = ROW_PREFIX_BYTES + usize::from(u16::from_be_bytes([prefix[6], prefix[7]]));
         if u16::from_be_bytes([prefix[2], prefix[3]]) & ROW_FLAG_GRAPHICS != 0 {
-            return None;
+            let length = rows.get(at + len..at + len + GRAPHICS_LENGTH_BYTES)?;
+            let length = u32::from_be_bytes(length.try_into().expect("four bytes")) as usize;
+            if length == 0 || length > MAX_GRAPHICS_SECTION_BYTES {
+                return None;
+            }
+            len += GRAPHICS_LENGTH_BYTES + length;
         }
-        let len = ROW_PREFIX_BYTES + usize::from(u16::from_be_bytes([prefix[6], prefix[7]]));
         let entry = rows.get(at..at + len)?;
         at += len;
         Some(entry)
@@ -348,8 +410,8 @@ impl MzEncoder {
     /// Code the `row_count` row-layout entries of `rows` into `out`
     /// (appended). `references[i]`, when present, may stand in for entry `i`;
     /// each is taken exactly when it codes smaller than the literal. Returns
-    /// the row-layout length the payload decodes to, or `None` when a row
-    /// carries graphics or the rows do not parse.
+    /// the row-layout length the payload decodes to, or `None` when the rows
+    /// do not parse.
     pub fn encode(
         &mut self,
         rows: &[u8],
@@ -397,8 +459,10 @@ impl MzEncoder {
     ) -> Option<usize> {
         let mut walk = Walk::new();
         let mut rows_len = 0usize;
+        let mut consumed = 0usize;
         for (index, entry) in entries(rows, row_count).enumerate() {
             let entry = entry?;
+            consumed += entry.len();
             let row = u16::from_be_bytes([entry[0], entry[1]]);
             let Some(reference) = references.get(index).copied().flatten() else {
                 put_literal(&mut walk, coder, entry)?;
@@ -428,7 +492,8 @@ impl MzEncoder {
             rows_len += reference.full_row_bytes as usize;
             *taken += 1;
         }
-        Some(rows_len)
+        // Bytes past the last entry are not a row.
+        (consumed == rows.len()).then_some(rows_len)
     }
 }
 
@@ -483,37 +548,41 @@ pub fn decode_mz_rows(
 ) -> Result<(), MzError> {
     out.clear();
     out.reserve(rows_len);
-    decode(payload, row_count, rows_len, rows_len, resolve, out, |_| {})?;
+    decode(payload, row_count, rows_len, rows_len, resolve, out)?;
     if out.len() != rows_len {
         return Err(MzError::Corrupt);
     }
     Ok(())
 }
 
-/// The target row of every entry of an MZ payload, in order, without
-/// resolving its references: what a reader that only routes rows needs.
-pub fn mz_entry_rows(
+/// An MZ payload's literal entries, decoded into `literals` (cleared first)
+/// as the row layout writes them, and the target rows of its references in
+/// `references` (cleared first), without resolving them: what a reader that
+/// only inspects the rows a frame carries needs. `literals` holds
+/// `row_count - references.len()` entries.
+pub fn mz_literal_entries(
     payload: &[u8],
     row_count: u16,
     rows_len: usize,
-    rows: &mut Vec<u16>,
+    references: &mut Vec<u16>,
+    literals: &mut Vec<u8>,
 ) -> Result<(), MzError> {
-    struct Skip;
-    impl MzResolve for Skip {
-        fn resolve(&mut self, _: u16, _: MzReference, _: &mut Vec<u8>) -> Result<(), MzError> {
+    struct Skip<'a>(&'a mut Vec<u16>);
+    impl MzResolve for Skip<'_> {
+        fn resolve(&mut self, row: u16, _: MzReference, _: &mut Vec<u8>) -> Result<(), MzError> {
+            self.0.push(row);
             Ok(())
         }
     }
-    rows.clear();
-    let mut literals = Vec::new();
+    references.clear();
+    literals.clear();
     decode(
         payload,
         row_count,
         rows_len,
-        usize::MAX,
-        &mut Skip,
-        &mut literals,
-        |row| rows.push(row),
+        rows_len,
+        &mut Skip(references),
+        literals,
     )
 }
 
@@ -524,7 +593,6 @@ fn decode(
     limit: usize,
     resolve: &mut impl MzResolve,
     out: &mut Vec<u8>,
-    mut on_row: impl FnMut(u16),
 ) -> Result<(), MzError> {
     let mut reader = Reader {
         model: decode_model(),
@@ -538,7 +606,6 @@ fn decode(
         let delta = reader.varint(F_ROW)?;
         let row = expected.wrapping_add(unzigzag(delta) as i16 as u16);
         walk.prev_row = row;
-        on_row(row);
         match op {
             OP_REFERENCE => {
                 let seq_delta = reader.varint(F_SEQ)?;
@@ -592,7 +659,7 @@ fn decode_literal(
     let left_field = u16::from_be_bytes([left_high, left_low]);
     let count_field = u16::from_be_bytes([count_high, count_low]);
     let cells = usize::from(count_field & ROW_CELL_COUNT_MASK);
-    if left_field & ROW_FLAG_GRAPHICS != 0 || cells == 0 || cells > MAX_TERMINAL_COLUMNS {
+    if cells == 0 || cells > MAX_TERMINAL_COLUMNS {
         return Err(MzError::Corrupt);
     }
     let body_start = out.len();
@@ -648,6 +715,22 @@ fn decode_literal(
             if tag & flag == 0 {
                 continue;
             }
+            let prev_width = usize::from(walk.prev_width[slot]);
+            if prev_width != 0 {
+                let aux =
+                    same_color_aux(slot, mode, walk.prev_same[slot], walk.prev_color[slot][0]);
+                let same = reader.get(key(F_SAME_COLOR, aux));
+                if same > 1 {
+                    return Err(MzError::Corrupt);
+                }
+                walk.prev_same[slot] = same;
+                if same == 1 {
+                    for &prev in &walk.prev_color[slot][..prev_width] {
+                        out.push(prev as u8);
+                    }
+                    continue;
+                }
+            }
             let mut width = if mode == COLOR_MODE_LITERAL { 3 } else { 1 };
             let mut index = 0;
             while index < width {
@@ -660,6 +743,7 @@ fn decode_literal(
                 out.push(byte);
                 index += 1;
             }
+            walk.prev_width[slot] = width as u8;
         }
         let length = if tag & RUN != 0 {
             let (mut value, mut shift, mut index) = (0usize, 0u32, 0u32);
@@ -690,6 +774,22 @@ fn decode_literal(
     }
     let body_len = u16::try_from(out.len() - body_start).map_err(|_| MzError::Corrupt)?;
     out[start + 6..start + 8].copy_from_slice(&body_len.to_be_bytes());
+    if left_field & ROW_FLAG_GRAPHICS != 0 {
+        let mut length = [0u8; GRAPHICS_LENGTH_BYTES];
+        for (index, byte) in length.iter_mut().enumerate() {
+            *byte = reader.get(key(F_GRAPHICS, graphics_aux(index)));
+        }
+        out.extend_from_slice(&length);
+        let length = u32::from_be_bytes(length) as usize;
+        // Bound the section before decoding it: the bytes come from the
+        // payload, and a length past the frame is corrupt.
+        if length == 0 || length > MAX_GRAPHICS_SECTION_BYTES || out.len() + length > rows_len {
+            return Err(MzError::Corrupt);
+        }
+        for index in GRAPHICS_LENGTH_BYTES..GRAPHICS_LENGTH_BYTES + length {
+            out.push(reader.get(key(F_GRAPHICS, graphics_aux(index))));
+        }
+    }
     Ok(())
 }
 

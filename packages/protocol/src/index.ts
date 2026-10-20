@@ -10,8 +10,8 @@ const UINT32_BYTES = 4;
 const UINT64_BYTES = 8;
 const TRANSPORT_HINT_BYTES = 11;
 const DISPLAY_RECEIVER_PROFILE_HEADER_BYTES = 13;
-const DISPLAY_RECEIVER_PROFILE_BUCKET_BYTES = 20;
-const DISPLAY_RECEIVER_PROFILE_MAX_BUCKETS = 48;
+const DISPLAY_RECEIVER_PROFILE_BUCKET_BYTES = 19;
+const DISPLAY_RECEIVER_PROFILE_MAX_BUCKETS = 24;
 const INPUT_ACK_PAYLOAD_BYTES = UINT32_BYTES;
 const PERF_GRID_CONVERGENCE_REQUEST_PAYLOAD_BYTES = 8;
 
@@ -86,8 +86,6 @@ export interface TransportHintMessage {
 }
 
 export interface DisplayReceiverProfileBucket {
-  /** 0 = plain zstd, 1 = finalized-dictionary zstd. */
-  readonly dictionaryClass: number;
   /** Log2-like raw frame size bucket, 0..5. */
   readonly sizeClass: number;
   /** Compressed wire/raw ratio bucket: <=1/8, <=1/4, <=1/2, >1/2. */
@@ -392,7 +390,6 @@ function encodeDisplayReceiverProfile(message: DisplayReceiverProfileMessage): A
   frame[offset + 12] = message.buckets.length;
   offset += DISPLAY_RECEIVER_PROFILE_HEADER_BYTES;
   for (const bucket of message.buckets) {
-    validateUint8(bucket.dictionaryClass, 'dictionaryClass');
     validateUint8(bucket.sizeClass, 'sizeClass');
     validateUint8(bucket.ratioClass, 'ratioClass');
     validateUint8(bucket.sampleCount, 'sampleCount');
@@ -400,14 +397,13 @@ function encodeDisplayReceiverProfile(message: DisplayReceiverProfileMessage): A
     validateUint32(bucket.meanUs, 'meanUs');
     validateUint32(bucket.varianceUs2, 'varianceUs2');
     validateUint32(bucket.upperUs, 'upperUs');
-    frame[offset] = bucket.dictionaryClass;
-    frame[offset + 1] = bucket.sizeClass;
-    frame[offset + 2] = bucket.ratioClass;
-    frame[offset + 3] = bucket.sampleCount;
-    writeU32BE(frame, offset + 4, bucket.wireRatioPpm);
-    writeU32BE(frame, offset + 8, bucket.meanUs);
-    writeU32BE(frame, offset + 12, bucket.varianceUs2);
-    writeU32BE(frame, offset + 16, bucket.upperUs);
+    frame[offset] = bucket.sizeClass;
+    frame[offset + 1] = bucket.ratioClass;
+    frame[offset + 2] = bucket.sampleCount;
+    writeU32BE(frame, offset + 3, bucket.wireRatioPpm);
+    writeU32BE(frame, offset + 7, bucket.meanUs);
+    writeU32BE(frame, offset + 11, bucket.varianceUs2);
+    writeU32BE(frame, offset + 15, bucket.upperUs);
     offset += DISPLAY_RECEIVER_PROFILE_BUCKET_BYTES;
   }
   return frame.buffer;

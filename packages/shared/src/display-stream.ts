@@ -114,26 +114,15 @@ export const DISPLAY_PATCH_FLAG_DEMAND_PROMPT = 1 << 5;
  * are never a newer state; a clipped prefix never carries this.
  */
 export const DISPLAY_PATCH_FLAG_DEMAND_AWAITS_GRANT = 1 << 7;
-export const DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD = 1 << 0;
+/**
+ * The body is an MZ payload behind the row-body length, the one display payload
+ * codec. Its references resolve against the receiver's own row history,
+ * counted back from the frame's presentation id.
+ */
+export const DISPLAY_HEADER_FLAG_COMPRESSED_MZ = 1 << 0;
 export const DISPLAY_HEADER_FLAG_FEC_PROTECTED = 1 << 1;
-/**
- * Set in addition to `COMPRESSED_ZSTD` when the body was compressed against an
- * external dictionary. The envelope then carries `dict_id` and `dict_hash`
- * before the payload, which is what selects the receiver's dictionary slot.
- * zstd additionally stamps its own dictionary id inside every frame, so a
- * decoder handed the wrong dictionary rejects the frame rather than producing
- * plausible wrong bytes the way the LZ4 encoding this replaced would have.
- */
-export const DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT = 1 << 2;
-/**
- * The body is an MZ payload behind the row-body length, never set together
- * with `COMPRESSED_ZSTD`. Its references resolve against the receiver's own
- * row history, counted back from the frame's presentation id.
- */
-export const DISPLAY_HEADER_FLAG_COMPRESSED_MZ = 1 << 7;
 export const DISPLAY_COMPRESSED_LENGTH_OFFSET = DISPLAY_ROWS_OFFSET;
 export const DISPLAY_COMPRESSED_PAYLOAD_OFFSET = DISPLAY_COMPRESSED_LENGTH_OFFSET + 4;
-export const DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET = DISPLAY_COMPRESSED_LENGTH_OFFSET + 12;
 /// Mirrors `merkur_codec::VERSION`; `display-stream.test.ts` pins them
 /// together. 13 is a hard cut from 12, carrying two shape changes at once: the
 /// row prefix's `cell_count` gave up its top bit to
@@ -184,7 +173,9 @@ export const DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET = DISPLAY_COMPRESSED_LENGTH_
 /// Version 33 gives the wire its own compact header (`display-wire.ts`); the
 /// staged layout above keeps its fixed fields and gains the headroom.
 /// Version 35 adds MZ payloads (`DISPLAY_HEADER_FLAG_COMPRESSED_MZ`).
-export const DISPLAY_PROTOCOL_VERSION = 35;
+/// Version 36 makes MZ the only payload codec: zstd, its dictionaries and the
+/// stream-split layout are gone, and the compressed flag moves to bit 0.
+export const DISPLAY_PROTOCOL_VERSION = 36;
 export const DISPLAY_FEC_HEADER_BYTES = 16;
 /**
  * Bytes of the length stripe at the head of every recovery shard: the frames

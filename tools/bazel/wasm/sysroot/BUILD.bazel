@@ -2,8 +2,8 @@ load("//tools/bazel:files.bzl", "package_files")
 
 package_files()
 
-# The wasm32 C toolchain's sysroot, which holds nothing: what C a wasm32 crate compiles needs no C
-# library, as zstd-sys brings its own shim headers.
+# The wasm32 C toolchain's sysroot, which holds nothing: the C a wasm32 crate compiles (minicov's
+# profile runtime, in the PGO training build) needs no C library.
 filegroup(
     name = "sysroot",
     srcs = [],

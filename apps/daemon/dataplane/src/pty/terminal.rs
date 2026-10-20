@@ -37,8 +37,8 @@ pub struct DisplayHeaderState {
     pub cursor_row: Option<u16>,
 }
 
-/// Immutable visible-row capture shared by diffing, encoding, resume adoption
-/// and dictionary preparation. Its graphics row carries bytes but no storage
+/// Immutable visible-row capture shared by diffing, encoding and resume
+/// adoption. Its graphics row carries bytes but no storage
 /// charge; ACK provenance keeps only the row's version (`connection::SentRow`).
 #[derive(Clone)]
 pub struct CapturedRow {
@@ -1448,6 +1448,7 @@ impl TerminalState {
     /// access `Term` itself. `echo_horizon` is zero here: it belongs to the
     /// peer the capture is for (`PeerDisplayState::echo_horizon`), and a
     /// capture sent to a browser stamps it.
+    #[cfg(test)]
     pub fn current_display_header(&self, kind: FrameKind) -> FrameHeader {
         self.display_header(kind, 0)
     }

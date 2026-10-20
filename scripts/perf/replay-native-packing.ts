@@ -99,7 +99,7 @@ const OWNER_LATENCY = [
 ];
 const FULL_LATENCY = ['bulk_us', 'interactive_queue_us', 'interactive_cpu_us'];
 export const NATIVE_PACKING_CONTRACT = [
-  'coverage=plain-dictionary,single-edge,clean-loss',
+  'coverage=mz,single-edge,clean-loss',
   'cold=cold-planning-model,warmed-worker-and-compressor',
   'learned=arm-specific-emitted-online-trajectory',
   'snapshot-stage=identical-thermal-control-not-candidate-evidence',

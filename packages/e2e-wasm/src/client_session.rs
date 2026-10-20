@@ -335,8 +335,8 @@ impl ClientSession {
 
     /// One viewer output from reserved ingress: its seven words, little-endian,
     /// then its bytes, exactly as the viewer's `poll_output` left them. Decoded
-    /// here so TypeScript owns no protocol serialization, ACK coalescing,
-    /// dictionary state or resume authority.
+    /// here so TypeScript owns no protocol serialization, ACK coalescing or
+    /// resume authority.
     pub fn ingest_viewer_output(&mut self, now: f64, lineage: u32, kind: u8, length: u32) -> bool {
         let length = length as usize;
         if lineage == 0
@@ -374,8 +374,6 @@ impl ClientSession {
                     .collect();
                 self.session.send_display_resync_rows(words[0], &rows);
             }
-            4 if bytes.is_empty() => self.session.send_display_dictionary_ready(words[0] != 0),
-            5 if bytes.is_empty() => self.session.send_display_dictionary_ack(words[0]),
             6 => {
                 let (Ok(cols), Ok(rows)) = (u16::try_from(words[3]), u16::try_from(words[4]))
                 else {

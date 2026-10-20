@@ -311,7 +311,7 @@ signaling connection the browser's network move left behind. A send that fails o
 through to the other, and redundancy is only for explicitly redundant frames or a primary whose
 sends are failing. Direct admission adds a
 path to the existing authenticated session and preserves the display generation, row baselines,
-and the acknowledged compression dictionary. The daemon's direct-WebTransport certificate is
+and the acknowledged rows MZ references name. The daemon's direct-WebTransport certificate is
 self-signed and short-lived; rotation swaps the TLS configuration on the live socket, and a
 manifest carrying the new hash is the whole handoff.
 
@@ -953,7 +953,7 @@ copies the id byte without reading it.
 | --- | --- | --- |
 | `0x00` | Signaling | Plaintext, reliable: capability, delegation proof, ML-KEM authentication, signed daemon response, Noise bootstrap, path-management JSON |
 | `0x01` | PTY input | Noise-sealed `input_run`s of input records and the inline 8-byte input ACK, on the datagram lane and the reliable stream alike |
-| `0x02` | Control | Reliable Noise-sealed heartbeat pings, pong twins, resize, geometry ownership, display resume/resync, dictionary install, session control and typed terminal title/bell/notification/clipboard events; the pong's RTT-sample copy is a datagram |
+| `0x02` | Control | Reliable Noise-sealed heartbeat pings, pong twins, resize, geometry ownership, display resume/resync, session control and typed terminal title/bell/notification/clipboard events; the pong's RTT-sample copy is a datagram |
 | `0x03` | Display datagram | Low-latency sealed row deltas with FEC repair |
 | `0x04` | Display commit | Reliable sealed snapshots, jumbo rows, and repair |
 | `0x05` | Display ACK | Sealed selective datagram acknowledgements; the same body rides control when reliable delivery is needed |
@@ -1036,7 +1036,7 @@ This section is a summary. The normative rules (idempotent datagrams, advisory p
 selective ACK, the no-coalescing owner loop, compression, the wrap bit) are in
 [`docs/display-invariants.md`](display-invariants.md).
 
-The codec version is 35; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
+The codec version is 36; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
 
 Display frames use `merkur-codec` with a 1100-byte application datagram ceiling. A frame has two
 forms. Staged, in memory on both ends, it has an 18-byte stream envelope (type and flags, a
@@ -1113,24 +1113,18 @@ sealed by Enter is answered against it, so an echo still on the wire is not read
 having rewritten the row. Generation and carrier
 boundaries reopen the free delivery window until the replacement flight is acknowledged.
 
-Deltas may be compressed with zstd against a per-peer dictionary trained on the browser's own
-grid. A dictionary is finalized (`ZDICT_finalizeDictionary`) so every frame carries a dictionary
-id and a diverged dictionary is rejected rather than decoded to garbage. Install is reliable,
-on the control lane, and three-step: the browser signals readiness (`0x2b`), the daemon installs (`0x2d`), and the daemon must not compress against that dictionary until the browser acknowledges it (`0x2c`), because a successful reliable write is not evidence the browser installed anything.
-The browser keeps the current and previous dictionary, since datagrams can overtake the install.
-
-Every compression attempt also codes the frame as MZ (`merkur_codec::mz`) and keeps whichever of
-the two is smaller. MZ is one rANS stream over the row layout, every field coded in its own
-context against a static model compiled into both ends and trained on recorded sessions through
-this pipeline, so it needs no install and no model state on the wire. An MZ entry may instead
-name an acknowledged row with exactly its cells: the datagram, counted back from the frame's
-presentation id, the source row, and a 32-bit row hash. The browser rebuilds that row from its
-history of the entries it applied, checks the hash, and writes it whole to the target row. A
-reference it cannot rebuild refuses the frame like a lost datagram: it is never acknowledged,
-its rows come again, and it never calls for a snapshot.
+A frame that MZ (`merkur_codec::mz`) shrinks travels compressed, any other raw. MZ is one rANS
+stream over the row layout, every field coded in its own context against a static model
+compiled into both ends and trained on recorded sessions through this pipeline, so it needs no
+install and no model state on the wire. An MZ entry may instead name an acknowledged row with
+exactly its cells: the datagram, counted back from the frame's presentation id, the source row,
+and a 32-bit row hash. The browser rebuilds that row from its history of the entries it applied,
+checks the hash, and writes it whole to the target row. A reference it cannot rebuild refuses the
+frame like a lost datagram: it is never acknowledged, its rows come again, and it never calls for
+a snapshot.
 
 A carrier swap keeps the display generation, the sequence space, the browser's grid, and the
-dictionary: it is the same screen over a different pipe. The daemon retires only what the dead
+row history MZ references read: it is the same screen over a different pipe. The daemon retires only what the dead
 carrier held and disowns every outstanding send at the boundary rather than waiting for an
 acknowledgement that cannot arrive. What does not survive is the Noise keys: rebind is a
 transactional key cut committed at the successor's final Noise message.

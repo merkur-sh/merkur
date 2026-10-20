@@ -11,8 +11,8 @@ agent trusts it. Once the code is written and the selected gates are green, swee
 drift before reporting the work done.
 
 1. `bun run check:docs`: every backticked repo path and `bun run` script must resolve,
-   markdown links must resolve, pinned facts (codec version, loss threshold, dictionary
-   message types, zstd knees, wrap flag, token TTL bounds) must match their source, the
+   markdown links must resolve, pinned facts (codec version, loss threshold, wrap flag,
+   token TTL bounds) must match their source, the
    README config table and `apps/server/.env.example` must match the loader, the README
    e2e and gate tables must equal `bun run generate:docs` output,
    the README workspace table must list every manifest member, and the harness files must

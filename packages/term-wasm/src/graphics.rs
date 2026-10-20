@@ -595,26 +595,18 @@ mod tests {
         raw[DISPLAY_HEADER_BODY_LENGTH_OFFSET..DISPLAY_HEADER_BODY_LENGTH_OFFSET + 4]
             .copy_from_slice(&len.to_be_bytes());
         let compressed = |raw: &[u8]| {
-            use zstd::zstd_safe::{CParameter, FrameFormat};
             let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
             let mut wire = raw[..rows_offset].to_vec();
-            wire[DISPLAY_HEADER_FLAGS_OFFSET] = DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD;
+            wire[DISPLAY_HEADER_FLAGS_OFFSET] = DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
             wire.extend_from_slice(&((raw.len() - rows_offset) as u32).to_be_bytes());
-            let mut splitter = RowSplitter::default();
-            let split = splitter
-                .split(
+            merkur_codec::mz::MzEncoder::default()
+                .encode(
                     &raw[rows_offset..],
                     parse_frame_header(raw).unwrap().row_count,
+                    &[],
+                    &mut wire,
                 )
                 .unwrap();
-            let mut compressor = zstd::bulk::Compressor::new(3).unwrap();
-            compressor
-                .set_parameter(CParameter::Format(FrameFormat::Magicless))
-                .unwrap();
-            compressor
-                .set_parameter(CParameter::ContentSizeFlag(false))
-                .unwrap();
-            wire.extend_from_slice(&compressor.compress(split).unwrap());
             let len = (wire.len() - STREAM_HEADER_BYTES) as u32;
             wire[DISPLAY_HEADER_BODY_LENGTH_OFFSET..DISPLAY_HEADER_BODY_LENGTH_OFFSET + 4]
                 .copy_from_slice(&len.to_be_bytes());

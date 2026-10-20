@@ -14,8 +14,12 @@ filegroup(
     srcs = glob(["public/fonts/**"]),
 )
 
-# The face the terminal's profile-guided build trains on.
-exports_files(["public/fonts/JetBrainsMonoNF-Regular.ttf"])
+# The face the terminal's profile-guided build trains on, and the receiver calibration's MZ
+# fixtures, which `//packages/display-fixture` checks against the model.
+exports_files([
+    "public/fonts/JetBrainsMonoNF-Regular.ttf",
+    "src/terminal/display-receiver-calibration-fixtures.ts",
+])
 
 npm_link_all_packages(name = "node_modules")
 

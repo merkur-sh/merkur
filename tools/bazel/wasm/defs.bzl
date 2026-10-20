@@ -73,13 +73,13 @@ def _wasm_profile_impl(ctx):
         command = '"{trainer}" "$PWD/{module}" "$PWD/{fixture}" "$PWD/{font}" "$PWD/{raw}"'.format(
             trainer = ctx.executable.trainer.path,
             module = ctx.file.instrumented.path,
-            fixture = ctx.executable.zstd_fixture.path,
+            fixture = ctx.executable.display_fixture.path,
             font = ctx.file.font.path,
             raw = raw.path,
         ),
         inputs = [ctx.file.instrumented, ctx.file.font],
         outputs = [raw],
-        tools = [ctx.attr.trainer[DefaultInfo].files_to_run, ctx.attr.zstd_fixture[DefaultInfo].files_to_run],
+        tools = [ctx.attr.trainer[DefaultInfo].files_to_run, ctx.attr.display_fixture[DefaultInfo].files_to_run],
         mnemonic = "WasmProfileTrain",
         progress_message = "Training %{label}",
     )
@@ -103,7 +103,7 @@ wasm_profile = rule(
         "font": attr.label(allow_single_file = True, mandatory = True),
         "instrumented": attr.label(allow_single_file = [".wasm"], mandatory = True),
         "trainer": attr.label(cfg = "exec", executable = True, mandatory = True),
-        "zstd_fixture": attr.label(cfg = "exec", executable = True, mandatory = True),
+        "display_fixture": attr.label(cfg = "exec", executable = True, mandatory = True),
     },
     toolchains = ["@rules_rust//rust:toolchain_type"],
 )

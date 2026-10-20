@@ -29,10 +29,7 @@ use merkur_codec::theme::{
 };
 use merkur_codec::{
     CELL_DIGEST_BYTES, CELL_DIGEST_WRAPPED_BIT, CellRepr, DISPLAY_COMPRESSED_LENGTH_OFFSET,
-    DISPLAY_COMPRESSED_PAYLOAD_OFFSET, DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET,
-    DISPLAY_GENERATION_OFFSET, DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
-    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD, DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
-    DISPLAY_HEADER_FLAGS_COMPRESSED, DISPLAY_HEADER_FLAGS_OFFSET, DISPLAY_VERSION_OFFSET,
+    DISPLAY_COMPRESSED_PAYLOAD_OFFSET, DISPLAY_HEADER_FLAG_COMPRESSED_MZ, DISPLAY_VERSION_OFFSET,
     FRAME_HEADER_BODY_BYTES, FrameHeader, FrameKind, MAX_DISPLAY_FRAME_BYTES, MAX_TERMINAL_CELLS,
     MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, MSG_TYPE_DISPLAY_PATCH, STREAM_HEADER_BYTES, VERSION,
     ValidatedDisplayRow, append_link_digest, cell_wraps, pack_cell_digest, parse_frame_header,
@@ -65,9 +62,6 @@ const STAGED_FRAME_MAX: usize = 256;
 const STAGED_ACTIVE_MAX_WIRE_BYTES: usize = merkur_codec::MAX_DISPLAY_SNAPSHOT_BYTES;
 const STAGED_ACTIVE_MAX_DECODED_BYTES: usize = merkur_codec::MAX_DISPLAY_SNAPSHOT_BYTES;
 const STAGED_ACTIVE_MAX_CELL_BUDGET: usize = MAX_TERMINAL_CELLS * 2;
-// A compressed frame cannot need more history than the bounded frame itself.
-// Keep decoder history bounded independently of its advertised output length.
-const DISPLAY_ZSTD_MAX_WINDOW_BYTES: u64 = MAX_DISPLAY_FRAME_BYTES as u64;
 const GEOMETRY_STATE_WORDS_PER_BUFFER: usize = 5;
 const GEOMETRY_STATE_BUFFER_COUNT: usize = 4;
 const GEOMETRY_STATE_LEN: usize = GEOMETRY_STATE_WORDS_PER_BUFFER * GEOMETRY_STATE_BUFFER_COUNT + 1;
@@ -559,172 +553,6 @@ impl EventListener for WasmEventListener {
     fn send_event(&self, _event: Event) {}
 }
 
-const CURRENT_DISPLAY_DICTIONARY: usize = 0;
-const PREVIOUS_DISPLAY_DICTIONARY: usize = 1;
-
-struct DisplayDictionarySlot {
-    bytes: Vec<u8>,
-    /// The parsed decoder form of `bytes`, present exactly when `bytes` is.
-    /// A frame names its slot through the authenticated outer tuple, so each
-    /// slot decodes with its own dictionary and zstd ids never have to be
-    /// unique across slots.
-    ddict: Option<zstd_safe::DDict<'static>>,
-    generation: u32,
-    id: u32,
-    hash: u32,
-    zstd_id: u32,
-}
-
-impl DisplayDictionarySlot {
-    fn empty() -> Self {
-        Self {
-            bytes: Vec::new(),
-            ddict: None,
-            generation: 0,
-            id: 0,
-            hash: 0,
-            zstd_id: 0,
-        }
-    }
-
-    #[inline]
-    fn matches(&self, generation: u32, id: u32, hash: u32) -> bool {
-        !self.bytes.is_empty()
-            && self.generation == generation
-            && self.id == id
-            && self.hash == hash
-    }
-
-    fn replace(
-        &mut self,
-        generation: u32,
-        id: u32,
-        hash: u32,
-        zstd_id: u32,
-        bytes: &[u8],
-        ddict: zstd_safe::DDict<'static>,
-    ) {
-        self.clear();
-        self.bytes.extend_from_slice(bytes);
-        self.ddict = Some(ddict);
-        self.generation = generation;
-        self.id = id;
-        self.hash = hash;
-        self.zstd_id = zstd_id;
-    }
-
-    fn clear(&mut self) {
-        // Vec::clear only changes length. Zero the live range first so a later
-        // shorter replacement cannot leave authenticated dictionary tail bytes
-        // resident in the retained allocation.
-        self.bytes.fill(0);
-        self.bytes.clear();
-        // `ZSTD_freeDDict` releases the decoder's copy of the dictionary.
-        self.ddict = None;
-        self.generation = 0;
-        self.id = 0;
-        self.hash = 0;
-        self.zstd_id = 0;
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ZstdFrameMetadata {
-    dictionary_id: Option<u32>,
-    window_size: u64,
-    /// Bytes of the frame header, where the first block begins.
-    header_len: usize,
-}
-
-/// Parse the allocation-driving subset of the display payload's zstd frame
-/// header: magicless, with a window descriptor, no content size and no
-/// checksum, exactly what the daemon writes.
-///
-/// Merkur never emits skippable frames or concatenated frames. Reading this
-/// fixed prefix before invoking libzstd lets us compare authenticated outer
-/// metadata with the embedded dictionary identity and reject an excessive
-/// window before any decode work.
-fn parse_zstd_frame_metadata(data: &[u8]) -> Option<ZstdFrameMetadata> {
-    let descriptor = *data.first()?;
-    // Bits 4 and 3 are unused/reserved and must be zero in the frame dialect
-    // libzstd produces. The daemon writes neither a frame content size (the
-    // top two bits, and the single-segment bit that implies one) nor a
-    // checksum (bit 2): the envelope carries the length, and the AEAD
-    // authenticates the bytes.
-    if descriptor & 0b1111_1100 != 0 {
-        return None;
-    }
-    let window_descriptor = *data.get(1)?;
-    let dictionary_id_bytes = match descriptor & 0x03 {
-        0 => 0,
-        1 => 1,
-        2 => 2,
-        _ => 4,
-    };
-    let dictionary_id = read_zstd_little_endian(data, 2, dictionary_id_bytes)?;
-    let exponent = u32::from(window_descriptor >> 3);
-    let base = 1u64.checked_shl(10 + exponent)?;
-    let window_size = base.checked_add((base / 8) * u64::from(window_descriptor & 0x07))?;
-    Some(ZstdFrameMetadata {
-        dictionary_id: (dictionary_id != 0).then_some(dictionary_id as u32),
-        window_size,
-        header_len: 2 + dictionary_id_bytes,
-    })
-}
-
-/// The exact size of the one checksum-free zstd frame at the start of `data`
-/// whose header is `header_len` bytes, walking its block headers; `None` when
-/// a block is reserved or runs past `data`.
-///
-/// `ZSTD_decompress*` decodes every frame concatenated in its input, and with
-/// no magic number there is nothing else to tell where a frame ends, so the
-/// payload must be proven to be exactly one frame before it is decoded.
-fn zstd_frame_size(data: &[u8], header_len: usize) -> Option<usize> {
-    const BLOCK_HEADER_BYTES: usize = 3;
-    let mut at = header_len;
-    loop {
-        let header = data.get(at..at + BLOCK_HEADER_BYTES)?;
-        let block = u32::from(header[0]) | u32::from(header[1]) << 8 | u32::from(header[2]) << 16;
-        let size = (block >> 3) as usize;
-        let content = match (block >> 1) & 0x03 {
-            // Raw and compressed blocks carry `size` bytes; an RLE block one.
-            0 | 2 => size,
-            1 => 1,
-            _ => return None,
-        };
-        at = at.checked_add(BLOCK_HEADER_BYTES + content)?;
-        if at > data.len() {
-            return None;
-        }
-        if block & 0x01 != 0 {
-            return Some(at);
-        }
-    }
-}
-
-fn read_zstd_little_endian(data: &[u8], offset: usize, len: usize) -> Option<u64> {
-    let bytes = data.get(offset..offset.checked_add(len)?)?;
-    let mut value = 0u64;
-    for (shift, byte) in bytes.iter().copied().enumerate() {
-        value |= u64::from(byte) << (shift * 8);
-    }
-    Some(value)
-}
-
-/// One-shot decoding writes straight into the caller's split buffer and never
-/// allocates a history window, so the only window bound is the exact byte
-/// check `parse_zstd_frame_metadata` feeds before any decode. The display
-/// payload's frames are magicless.
-fn new_display_decoder() -> zstd_safe::DCtx<'static> {
-    let mut decoder = zstd_safe::DCtx::create();
-    decoder
-        .set_parameter(zstd_safe::DParameter::Format(
-            zstd_safe::FrameFormat::Magicless,
-        ))
-        .expect("magicless display frames");
-    decoder
-}
-
 /// Mark one row's cached hash stale.
 ///
 /// A free function over the three fields rather than a method: the apply loops
@@ -817,19 +645,7 @@ pub struct Terminal {
     staged_active_decoded_bytes: usize,
     staged_active_decoded_cells: usize,
     staged_frame_input: Vec<u8>,
-    // Display streams can overtake the reliable dictionary-install control
-    // lane after the daemon promotes an acknowledged dictionary. Retain the
-    // immediately previous dictionary so those already-sent frames remain
-    // decodable. The fixed pair reuses both Vec allocations after warmup.
-    display_dictionaries: [DisplayDictionarySlot; 2],
-    // Rebuilt whenever a dictionary slot changes, because ruzstd's dictionary
-    // map has no removal API and a session would otherwise retain every
-    // dictionary revision it ever saw. Installs are rare; frames are not.
-    display_decoder: zstd_safe::DCtx<'static>,
-    /// Decompressed split payload of the frame being staged, before the join.
-    /// Reused across frames; bounded by the envelope's row-body length.
-    display_decoded_split: Vec<u8>,
-    /// Joined rows of the frame being staged. Reused across frames and
+    /// Decoded rows of the frame being staged. Reused across frames and
     /// bounded by `MAX_DISPLAY_FRAME_BYTES`, like `staged_frame_input`.
     display_decoded_rows: Vec<u8>,
     /// Every row entry this grid applied, which MZ references read. Cleared
@@ -1006,9 +822,9 @@ pub fn init_regular(
 /// calibration after the live terminal's first authoritative GPU frame.
 ///
 /// It intentionally owns no font or atlas: calibration exercises only display
-/// framing, fused ruzstd validation, and terminal mutation. Keeping this as a
-/// distinct instance makes it impossible for calibration rows, dictionaries,
-/// ordering, prediction state, or damage to leak into the presented terminal.
+/// framing, fused MZ decode and validation, and terminal mutation. Keeping
+/// this as a distinct instance makes it impossible for calibration rows, row
+/// history, ordering, prediction state, or damage to leak into the presented terminal.
 #[wasm_bindgen]
 pub fn init_display_receiver_calibration(cols: u16, rows: u16) -> Terminal {
     Terminal::new(cols.max(1), rows.max(1))
@@ -1160,8 +976,8 @@ impl Terminal {
     /// The browser reserves a capacity, writes the frame into linear memory
     /// through the returned pointer, then stages it. This performs the same
     /// three steps with a safe direct copy in place of the pointer write, so
-    /// the real capacity gate and staging path — including fused zstd validation — run
-    /// exactly as they do in the browser.
+    /// the real capacity gate and staging path — including fused MZ decode and
+    /// validation — run exactly as they do in the browser.
     pub fn stage_display_frame_bytes(&mut self, bytes: &[u8]) -> u32 {
         let Ok(len) = u32::try_from(bytes.len()) else {
             self.last_error = Some(String::from("display_stage_length_invalid"));
@@ -1485,12 +1301,6 @@ impl Terminal {
             staged_active_decoded_bytes: 0,
             staged_active_decoded_cells: 0,
             staged_frame_input: Vec::new(),
-            display_dictionaries: [
-                DisplayDictionarySlot::empty(),
-                DisplayDictionarySlot::empty(),
-            ],
-            display_decoder: new_display_decoder(),
-            display_decoded_split: Vec::new(),
             display_decoded_rows: Vec::new(),
             display_row_history: merkur_codec::mz::RowHistory::default(),
             display_row_readback: Vec::new(),
@@ -1624,71 +1434,9 @@ impl Terminal {
         self.apply_frame(data, false, seq)
     }
 
-    pub fn install_display_dictionary(
-        &mut self,
-        generation: u32,
-        id: u32,
-        hash: u32,
-        bytes: &[u8],
-    ) -> bool {
-        if generation == 0 || id == 0 || bytes.is_empty() {
-            return false;
-        }
-        let actual_hash = (merkur_codec::hash_bytes(bytes) >> 32) as u32;
-        if actual_hash != hash {
-            return false;
-        }
-        // Reliable control can still be duplicated across transport fallback.
-        // An exact duplicate must be idempotent: rotating a repeated previous
-        // install back to current would evict the dictionary frames now use.
-        for slot in &self.display_dictionaries {
-            if slot.matches(generation, id, hash) {
-                return slot.bytes == bytes;
-            }
-        }
-
-        // A dictionary that will not parse can never decode a frame, and
-        // accepting it would leave the peer compressing against a slot the
-        // browser believes it holds. Only a finalized dictionary carries the
-        // magic and id; given that magic, libzstd parses the entropy tables
-        // and refuses a corrupt dictionary instead of loading raw content.
-        let Some(zstd_id) = zstd_safe::get_dict_id_from_dict(bytes) else {
-            return false;
-        };
-        let Some(ddict) = zstd_safe::DDict::try_create(bytes) else {
-            return false;
-        };
-
-        let retain_current = !self.display_dictionaries[CURRENT_DISPLAY_DICTIONARY]
-            .bytes
-            .is_empty()
-            && self.display_dictionaries[CURRENT_DISPLAY_DICTIONARY].generation == generation;
-        if retain_current {
-            self.display_dictionaries
-                .swap(CURRENT_DISPLAY_DICTIONARY, PREVIOUS_DISPLAY_DICTIONARY);
-        } else {
-            // A terminal generation boundary is a hard cut: accepting a frame
-            // from the prior session would cross ordering/security lineage.
-            self.display_dictionaries[PREVIOUS_DISPLAY_DICTIONARY].clear();
-        }
-        self.display_dictionaries[CURRENT_DISPLAY_DICTIONARY].replace(
-            generation,
-            id,
-            hash,
-            zstd_id.get(),
-            bytes,
-            ddict,
-        );
-        true
-    }
-
-    /// Drop codec state at an authenticated-session boundary without touching
-    /// the terminal grid or font atlas. Slot allocations remain reusable, but
-    /// every replaced/cleared live range is zeroed before its length is reset.
-    pub fn clear_display_dictionaries(&mut self) {
-        for dictionary in &mut self.display_dictionaries {
-            dictionary.clear();
-        }
+    /// Drop the row history MZ references read at an authenticated-session
+    /// boundary that kept no grid, without touching the grid or font atlas.
+    pub fn clear_display_history(&mut self) {
         self.display_row_history.clear();
     }
 
@@ -1736,7 +1484,7 @@ impl Terminal {
         };
         let input = std::mem::take(&mut self.staged_frame_input);
         let (data, validation) = if admission.compressed {
-            let Some(validation) = self.decode_compressed_frame(
+            let Some(validation) = self.decode_mz_frame(
                 &input[..len],
                 admission.header,
                 admission.budget.decoded_bytes,
@@ -1794,21 +1542,9 @@ impl Terminal {
             return Err("display_stage_sequence_invalid");
         }
         let bounds = validate_display_frame_header(header).map_err(|error| error.code())?;
-        let compressed = stream.flags & DISPLAY_HEADER_FLAGS_COMPRESSED != 0;
-        let zstd = stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0;
-        let uses_dictionary = stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0;
-        if (uses_dictionary && !zstd)
-            || (zstd && stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0)
-        {
-            return Err("compressed_display_metadata_mismatch");
-        }
+        let compressed = stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0;
         let decoded_bytes = if compressed {
-            let payload_offset = if uses_dictionary {
-                DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET
-            } else {
-                DISPLAY_COMPRESSED_PAYLOAD_OFFSET
-            };
-            if data.len() <= payload_offset {
+            if data.len() <= DISPLAY_COMPRESSED_PAYLOAD_OFFSET {
                 return Err("compressed_display_payload_missing");
             }
             let rows_len = u32::from_be_bytes(
@@ -1853,115 +1589,6 @@ impl Terminal {
             budget,
             compressed,
         })
-    }
-
-    fn decode_compressed_frame(
-        &mut self,
-        data: &[u8],
-        header: FrameHeader,
-        rows_len: usize,
-    ) -> Option<StagedDisplayValidation> {
-        if data[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
-            return self.decode_mz_frame(data, header, rows_len);
-        }
-        let uses_dictionary =
-            data[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0;
-        let payload_offset = if uses_dictionary {
-            DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET
-        } else {
-            DISPLAY_COMPRESSED_PAYLOAD_OFFSET
-        };
-        let payload = &data[payload_offset..];
-        let Some(zstd_metadata) = parse_zstd_frame_metadata(payload) else {
-            self.last_error = Some(String::from("compressed_display_metadata_mismatch"));
-            return None;
-        };
-        if zstd_metadata.window_size > DISPLAY_ZSTD_MAX_WINDOW_BYTES {
-            self.last_error = Some(String::from("compressed_display_window_too_large"));
-            return None;
-        }
-        let dictionary_slot = if uses_dictionary {
-            let generation = u32::from_be_bytes(
-                data[DISPLAY_GENERATION_OFFSET..DISPLAY_GENERATION_OFFSET + 4]
-                    .try_into()
-                    .expect("generation field"),
-            );
-            let id = u32::from_be_bytes(
-                data[DISPLAY_COMPRESSED_LENGTH_OFFSET + 4..DISPLAY_COMPRESSED_LENGTH_OFFSET + 8]
-                    .try_into()
-                    .expect("dictionary id field"),
-            );
-            let hash = u32::from_be_bytes(
-                data[DISPLAY_COMPRESSED_LENGTH_OFFSET + 8..DISPLAY_COMPRESSED_LENGTH_OFFSET + 12]
-                    .try_into()
-                    .expect("dictionary hash field"),
-            );
-            if self.display_dictionaries[CURRENT_DISPLAY_DICTIONARY].matches(generation, id, hash) {
-                Some(CURRENT_DISPLAY_DICTIONARY)
-            } else if self.display_dictionaries[PREVIOUS_DISPLAY_DICTIONARY]
-                .matches(generation, id, hash)
-            {
-                Some(PREVIOUS_DISPLAY_DICTIONARY)
-            } else {
-                self.last_error = Some(String::from("compressed_display_dictionary_missing"));
-                return None;
-            }
-        } else {
-            None
-        };
-        let expected_zstd_dictionary_id =
-            dictionary_slot.map(|slot| self.display_dictionaries[slot].zstd_id);
-        if zstd_metadata.dictionary_id != expected_zstd_dictionary_id {
-            self.last_error = Some(String::from("compressed_display_metadata_mismatch"));
-            return None;
-        }
-        if zstd_frame_size(payload, zstd_metadata.header_len) != Some(payload.len()) {
-            self.last_error = Some(String::from("compressed_display_trailing_or_checksum"));
-            return None;
-        }
-        #[cfg(test)]
-        {
-            self.display_frame_decode_count = self.display_frame_decode_count.saturating_add(1);
-        }
-        // One-shot decode into the reusable split buffer. A split payload is
-        // its rows less two bytes a row plus a header of at most
-        // `SPLIT_HEADER_MAX_BYTES`, so this capacity bounds what libzstd may
-        // write; the join below proves the exact length.
-        self.display_decoded_split.clear();
-        self.display_decoded_split
-            .reserve(rows_len + merkur_codec::SPLIT_HEADER_MAX_BYTES);
-        let decompressed = match dictionary_slot {
-            Some(slot) => {
-                let Some(ddict) = self.display_dictionaries[slot].ddict.as_ref() else {
-                    self.last_error = Some(String::from("compressed_display_dictionary_missing"));
-                    return None;
-                };
-                self.display_decoder.decompress_using_ddict(
-                    &mut self.display_decoded_split,
-                    payload,
-                    ddict,
-                )
-            }
-            None => self
-                .display_decoder
-                .decompress(&mut self.display_decoded_split, payload),
-        };
-        if decompressed.is_err() {
-            self.last_error = Some(String::from("compressed_display_trailing_or_checksum"));
-            return None;
-        }
-        if merkur_codec::join_rows_into(
-            &self.display_decoded_split,
-            header.row_count,
-            &mut self.display_decoded_rows,
-        )
-        .is_err()
-            || self.display_decoded_rows.len() != rows_len
-        {
-            self.last_error = Some(String::from("compressed_display_split_invalid"));
-            return None;
-        }
-        self.validate_decoded_rows(header)
     }
 
     /// Decode an MZ payload into the reusable rows buffer, resolving its

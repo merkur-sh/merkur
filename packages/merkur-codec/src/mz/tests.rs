@@ -168,14 +168,33 @@ fn linked_and_wide_rows_round_trip() {
     round_trip(&rows, 2);
 }
 
+/// A graphics row codes its section after its cells, and the rows around it
+/// code as they would alone; a flag without a section, or a section without
+/// the flag, is not a row.
 #[test]
-fn a_frame_with_graphics_is_not_coded() {
-    let mut rows = rows_of(&[(1, 0, &text_row("x", crate::DEFAULT_FOREGROUND))]);
+fn graphics_rows_round_trip_with_their_sections() {
+    let row = text_row("image below", crate::DEFAULT_FOREGROUND);
+    let mut rows = rows_of(&[(1, 0, &row)]);
     rows[2] |= (crate::ROW_FLAG_GRAPHICS >> 8) as u8;
-    assert_eq!(
-        MzEncoder::default().encode(&rows, 1, &[], &mut Vec::new()),
-        None
-    );
+    let section: Vec<u8> = (0..300u32).map(|i| (i * 7 + i / 13) as u8).collect();
+    rows.extend_from_slice(&(section.len() as u32).to_be_bytes());
+    rows.extend_from_slice(&section);
+    rows.extend_from_slice(&rows_of(&[(2, 0, &row)]));
+    round_trip(&rows, 2);
+
+    let mut flag_only = rows_of(&[(1, 0, &row)]);
+    flag_only[2] |= (crate::ROW_FLAG_GRAPHICS >> 8) as u8;
+    let mut empty_section = flag_only.clone();
+    empty_section.extend_from_slice(&0u32.to_be_bytes());
+    let mut section_only = rows_of(&[(1, 0, &row)]);
+    section_only.extend_from_slice(&1u32.to_be_bytes());
+    section_only.push(9);
+    for rows in [flag_only, empty_section, section_only] {
+        assert_eq!(
+            MzEncoder::default().encode(&rows, 1, &[], &mut Vec::new()),
+            None
+        );
+    }
 }
 
 #[test]

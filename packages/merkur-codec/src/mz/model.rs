@@ -23,11 +23,14 @@ pub(super) const F_CODEPOINT: u32 = 7;
 pub(super) const F_FG: u32 = 8;
 pub(super) const F_BG: u32 = 9;
 pub(super) const F_RUN: u32 = 10;
-// Field 11 is unassigned.
+/// A graphics row's section: its four length bytes, then its bytes.
+pub(super) const F_GRAPHICS: u32 = 11;
 pub(super) const F_SEQ: u32 = 12;
 pub(super) const F_SOURCE: u32 = 13;
 pub(super) const F_HASH: u32 = 14;
-pub(super) const FIELDS: usize = 15;
+/// Whether a cell's colour repeats its slot's previous colour.
+pub(super) const F_SAME_COLOR: u32 = 15;
+pub(super) const FIELDS: usize = 16;
 
 #[inline]
 pub(super) const fn key(field: u32, aux: u32) -> u32 {

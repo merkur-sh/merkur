@@ -38,7 +38,7 @@ into rules_js's store, with the `.bin` commands pnpm would write; the vendored t
 crates, which Bazel does not load as packages, are mounted at their paths. Bun, Node (the
 release `.node-version` names), Redis and OpenSSL, and the Playwright Chromium revision
 `playwright-core` names are hermetic and on the test's `PATH`. A native helper a script
-spawns (the zstd fixture, the session oracle) is a declared tool on `PATH`; run from the
+spawns (the display fixture, the session oracle) is a declared tool on `PATH`; run from the
 checkout, `scripts/bazel-tool.ts` builds it with `--config=release`.
 
 `scripts/bazel-sources.ts` generates `tools/bazel/sources.bzl`, the package list

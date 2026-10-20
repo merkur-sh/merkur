@@ -63,7 +63,7 @@ pub const RELIABLE_PRIORITY_BULK: i32 = -1;
 /// `CHANNEL_DISPLAY_COMMIT` is the one bulk lane: reliable snapshots, jumbo
 /// frames and resume repair. Everything else carries control — signaling
 /// (session establishment and rebind), CTRL (input ACKs, heartbeat pongs,
-/// dictionary lifecycle), PTY (keystrokes and echo), and the bulk lane's own
+/// prompt anchors), PTY (keystrokes and echo), and the bulk lane's own
 /// handshake, which is a handshake rather than content.
 pub fn reliable_stream_priority(channel_id: u8) -> i32 {
     match channel_id {
@@ -219,28 +219,6 @@ impl DisplayAckPayload {
     }
 }
 
-/// Browser -> daemon dictionary-readiness signal (CTRL lane), body =
-/// `ready:u8` (0 or 1, one byte exactly).
-///
-/// This is terminal-worker lifecycle, not feature negotiation. The browser's
-/// dictionary lives in a terminal worker that can be replaced while the
-/// transport survives; a replacement worker has no memory of the dictionary
-/// the daemon still owns. Clearing readiness makes the daemon fence its
-/// dictionary state before the next frame, because compressing against a
-/// dictionary the peer lacks is silent corruption rather than an error.
-/// Readiness starts clear on every authentication and is set once the terminal
-/// epoch is live.
-pub const MSG_TYPE_DISPLAY_DICT_READY: u8 = 0x2B;
-/// Browser -> daemon dictionary acknowledgement (CTRL lane), body =
-/// `dict_id:u32`. The daemon must not compress against a dictionary until the
-/// peer acknowledges it by id: reliable records share a persistent channel
-/// stream, but successful transport admission is not evidence of browser
-/// application, and decompressing against a missing dictionary is silent
-/// corruption rather than an error.
-pub const MSG_TYPE_DISPLAY_DICT_ACK: u8 = 0x2C;
-/// Daemon -> browser dictionary install (CTRL lane, reliable), body =
-/// `generation:u32 | dict_id:u32 | dict_hash:u32 | dict_len:u16 | bytes`.
-pub const MSG_TYPE_DISPLAY_DICT_INSTALL: u8 = 0x2D;
 /// Daemon -> browser prompt anchor (CTRL lane, reliable), body =
 /// `generation:u32 | anchor_row:u16 | anchor_col:u16 | flags:u16`.
 ///

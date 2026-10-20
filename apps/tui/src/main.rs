@@ -591,8 +591,6 @@ async fn run_headless(headless: Headless) -> ExitCode {
                 viewer::Output::ResyncRows { generation, rows } => {
                     Command::ResyncRows { generation, rows }
                 }
-                viewer::Output::DictionaryReady(ready) => Command::DictionaryReady(ready),
-                viewer::Output::DictionaryAck(id) => Command::DictionaryAck(id),
                 viewer::Output::GraphicsDemand { epoch, demands } => {
                     emit(json!({
                         "event": "graphics_demand",
@@ -700,7 +698,6 @@ fn emit_screen(viewer: &Viewer<NativeGrid>, sent: u32) {
         "last_resync": stats.last_resync.map(|reason| format!("{reason:?}")),
         "recovered": stats.recovered,
         "resync_rows": stats.resync_rows,
-        "dictionaries": stats.dictionaries,
         "resumes": stats.resumes,
         "repairs": stats.repairs,
         "input": {

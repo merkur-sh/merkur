@@ -192,8 +192,6 @@ pub(crate) struct SimViewer {
     pub(crate) rejected: usize,
     pub(crate) skipped_repair: usize,
     pub(crate) compressed_seen: usize,
-    /// Frames that arrived compressed against an installed dictionary.
-    pub(crate) dictionary_seen: usize,
     pub(crate) multi_chunk_seen: usize,
     /// Snapshots this viewer applied. Deltas and snapshots are written by
     /// different row encoders, so a test that only ever converges on deltas
@@ -204,8 +202,6 @@ pub(crate) struct SimViewer {
     /// Frames refused because the grid's history could not rebuild a row an
     /// MZ reference named; never acknowledged, like lost ones.
     pub(crate) references_unresolved: usize,
-    /// Frames that arrived as MZ payloads.
-    pub(crate) mz_seen: usize,
     /// FEC-protected frame plaintexts by display generation and seq, so a
     /// repair can rebuild the ones that never arrived. Every generation
     /// restarts its seqs, and a repair names its own generation, so a
@@ -249,13 +245,6 @@ pub(crate) struct SimViewer {
     /// repair — the same property the browser needs draining a socket.
     fec_padded: Vec<u8>,
     fec_output: Vec<u8>,
-    /// Dictionary ids this viewer's terminal actually installed, awaiting
-    /// the acknowledgement the browser would send.
-    installed_dictionaries: Vec<u32>,
-    /// Exact finalized bytes used to inspect dictionary-compressed frames in
-    /// the native harness. Bounded to the same current+previous lifetime as
-    /// term-wasm's dictionary slots.
-    dictionary_bytes: std::collections::BTreeMap<u32, Vec<u8>>,
     /// Highest input sequence any applied frame said authority covers — the
     /// worker's `authoritativeInputHighWater`, read from the same field.
     pub(crate) authoritative_input_seq: u32,
@@ -745,12 +734,10 @@ impl SimViewers {
                     rejected: 0,
                     skipped_repair: 0,
                     compressed_seen: 0,
-                    dictionary_seen: 0,
                     multi_chunk_seen: 0,
                     snapshots_applied: 0,
                     apply_rejected: 0,
                     references_unresolved: 0,
-                    mz_seen: 0,
                     retained: std::collections::BTreeMap::new(),
                     recovered_by_fec: 0,
                     ack: AckWindow::default(),
@@ -772,8 +759,6 @@ impl SimViewers {
                     transport_counters: SimTransportCounters::default(),
                     fec_padded: Vec::new(),
                     fec_output: Vec::new(),
-                    installed_dictionaries: Vec::new(),
-                    dictionary_bytes: std::collections::BTreeMap::new(),
                     authoritative_input_seq: 0,
                     authoritative_echo_horizon: 0,
                     typing_visibility_probe: None,
@@ -915,8 +900,6 @@ impl SimViewers {
                     {
                         viewer.digests.push(plain[4..].to_vec());
                         viewer.digests_seen += 1;
-                    } else if plain[0] == crate::network::protocol::MSG_TYPE_DISPLAY_DICT_INSTALL {
-                        Self::install_dictionary(viewer, &plain);
                     } else if plain[0] == crate::network::protocol::MSG_TYPE_EDITOR_ANCHOR {
                         Self::adopt_editor_anchor(viewer, &plain);
                     } else if plain[0] == crate::network::protocol::MSG_TYPE_INPUT_ROUTING {
@@ -1067,47 +1050,42 @@ impl SimViewers {
         }
         let (header, rows_start) = parse_frame_header_and_rows_start(plain)
             .unwrap_or_else(|error| panic!("a unit with an unreadable frame header: {error:?}"));
-        assert_eq!(
-            stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
-            0,
-            "unit classification reads plain zstd only; this session installed a dictionary"
-        );
-        if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
-            // MZ never carries graphics: every entry is an empty replacement.
+        let mut literals = Vec::new();
+        let (rows, start, literal_count) = if stream.flags
+            & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ
+            != 0
+        {
             let rows_len = u32::from_be_bytes(
                 plain[merkur_codec::DISPLAY_COMPRESSED_LENGTH_OFFSET
                     ..merkur_codec::DISPLAY_COMPRESSED_LENGTH_OFFSET + 4]
                     .try_into()
                     .expect("compressed length"),
             ) as usize;
-            let mut rows = Vec::new();
-            merkur_codec::mz::mz_entry_rows(
+            let mut references = Vec::new();
+            merkur_codec::mz::mz_literal_entries(
                 &plain[merkur_codec::DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
                 header.row_count,
                 rows_len,
-                &mut rows,
+                &mut references,
+                &mut literals,
             )
             .expect("the daemon codes well-formed MZ payloads");
-            for row in rows {
-                let key = (stream.generation, row);
+            // A reference stands for a whole row the browser already holds,
+            // and never one with graphics: an empty replacement.
+            for row in &references {
+                let key = (stream.generation, *row);
                 shape.empty_replacement |= viewer
                     .unit_graphics
                     .get(&key)
                     .is_some_and(|graphics| !graphics.is_empty());
                 viewer.unit_graphics.insert(key, Vec::new());
             }
-            return shape;
-        }
-        let decompressed;
-        let (rows, start) = if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0
-        {
-            decompressed = crate::display::compressor::decode_display_payload(plain, None)
-                .expect("the daemon compressed a well-formed row payload");
-            (decompressed.as_slice(), 0)
+            let count = header.row_count - references.len() as u16;
+            (literals.as_slice(), 0, count)
         } else {
-            (plain, rows_start)
+            (plain, rows_start, header.row_count)
         };
-        for entry in merkur_codec::iter_rows_at(rows, start, header.row_count) {
+        for entry in merkur_codec::iter_rows_at(rows, start, literal_count) {
             let entry = entry.expect("the daemon encodes well-formed rows");
             let key = (stream.generation, entry.row_index);
             let previous = viewer.unit_graphics.get(&key);
@@ -1288,68 +1266,6 @@ impl SimViewers {
         }
     }
 
-    /// Install a dictionary in the viewer's real terminal.
-    ///
-    /// The harness used to forge the acknowledgement without ever installing
-    /// anything, so the daemon compressed against a dictionary no viewer held
-    /// and the hash-verify path — the only thing between a diverged dictionary
-    /// and a wrongly decoded screen — went untested.
-    ///
-    /// Body: `[msg_type:1][len_be24:3][generation:4][id:4][hash:4][len:2][bytes]`.
-    fn install_dictionary(viewer: &mut SimViewer, plain: &[u8]) {
-        const HEADER: usize = 4 + 4 + 4 + 4 + 2;
-        assert!(
-            plain.len() >= HEADER,
-            "a dictionary install reached a viewer without a complete header"
-        );
-        let field =
-            |at: usize| u32::from_be_bytes(plain[at..at + 4].try_into().expect("four byte field"));
-        let generation = field(4);
-        let id = field(8);
-        let hash = field(12);
-        let bytes_len = usize::from(u16::from_be_bytes(
-            plain[16..18].try_into().expect("length field"),
-        ));
-        assert_eq!(
-            plain.len(),
-            HEADER + bytes_len,
-            "a dictionary install declared {bytes_len} bytes but carried {}",
-            plain.len() - HEADER
-        );
-        assert!(
-            viewer
-                .terminal
-                .install_display_dictionary(generation, id, hash, &plain[HEADER..]),
-            "the viewer refused a dictionary the daemon installed: \
-             generation={generation} id={id} hash={hash} bytes={bytes_len}"
-        );
-        while viewer.dictionary_bytes.len() >= 2 {
-            let oldest = *viewer
-                .dictionary_bytes
-                .keys()
-                .next()
-                .expect("dictionary map is non-empty");
-            viewer.dictionary_bytes.remove(&oldest);
-        }
-        viewer.dictionary_bytes.insert(id, plain[HEADER..].to_vec());
-        viewer.installed_dictionaries.push(id);
-    }
-
-    /// Acknowledge exactly the dictionaries viewers installed, as the browser's
-    /// dict-ack does. Unlike forging the acknowledgement, this cannot confirm a
-    /// dictionary no viewer holds.
-    pub(crate) fn acknowledge_dictionaries(&mut self, sim: &mut DisplaySim) -> usize {
-        let mut acknowledged = 0usize;
-        for (peer_id, viewer) in self.viewers.iter_mut() {
-            for id in viewer.installed_dictionaries.drain(..) {
-                if sim.acknowledge_dictionary(peer_id, id) {
-                    acknowledged += 1;
-                }
-            }
-        }
-        acknowledged
-    }
-
     fn deliver(viewer: &mut SimViewer, wire: &[u8], _rows: u16, recovered: bool, now_ms: f64) {
         if wire.first() == Some(&MSG_TYPE_DISPLAY_FEC_REPAIR) {
             Self::recover_from_repair(viewer, wire, now_ms);
@@ -1393,14 +1309,8 @@ impl SimViewers {
             }
             return;
         }
-        if stream.flags & merkur_codec::DISPLAY_HEADER_FLAGS_COMPRESSED != 0 {
-            viewer.compressed_seen += 1;
-        }
         if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
-            viewer.mz_seen += 1;
-        }
-        if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0 {
-            viewer.dictionary_seen += 1;
+            viewer.compressed_seen += 1;
         }
         if header.chunk_count > 1 {
             viewer.multi_chunk_seen += 1;
@@ -2606,21 +2516,16 @@ mod tests {
             for label in ["code", "colored", "random"] {
                 let mut sim = DisplaySim::new(cols, rows);
                 let mut viewers = SimViewers::attach(&mut sim, cols, rows);
-                if std::env::var("SIM_DICT").is_ok() {
-                    sim.enable_display_dictionary();
-                }
                 let peer = sim_peer_id(0);
                 match label {
                     "random" => sim.write_noisy_screen(1),
                     "colored" => sim.write_colored_screen(1),
                     _ => sim.write_code_screen(1),
                 }
-                let mut dict_acked = 0usize;
                 for _ in 0..64 {
                     sim.step().await;
                     viewers.pump(&sim);
                     viewers.acknowledge(&mut sim);
-                    dict_acked += viewers.acknowledge_dictionaries(&mut sim);
                 }
                 let before = sim.wire_bytes();
                 let before_datagrams = sim.built_datagram_count();
@@ -2643,61 +2548,12 @@ mod tests {
                     }
                 }
                 println!(
-                    "DIAG {cols}x{rows} {label}: paints={increments} elapsed={:.0}ms repaint_bytes={}B datagrams={} dict_acked={dict_acked}",
+                    "DIAG {cols}x{rows} {label}: paints={increments} elapsed={:.0}ms repaint_bytes={}B datagrams={}",
                     sim.now_ms() - started_ms,
                     sim.wire_bytes() - before,
                     sim.built_datagram_count() - before_datagrams
                 );
             }
-        }
-    }
-
-    /// Does compressing one whole frame beat compressing its chunks separately?
-    ///
-    /// The daemon compresses each ~1 KB datagram independently, which gives zstd
-    /// almost no window to work with. This measures what a single frame-wide
-    /// compression would have achieved over the same bytes.
-    #[tokio::test(flavor = "current_thread")]
-    #[ignore = "diagnostic"]
-    async fn diag_compression_granularity() {
-        for (cols, rows) in [(120u16, 40u16), (200, 50), (240, 60)] {
-            let mut sim = DisplaySim::new(cols, rows);
-            let mut viewers = SimViewers::attach(&mut sim, cols, rows);
-            let peer = sim_peer_id(0);
-            sim.write_colored_screen(1);
-            for _ in 0..64 {
-                sim.step().await;
-                viewers.pump(&sim);
-                viewers.acknowledge(&mut sim);
-            }
-            viewers.viewer(&peer).captured.clear();
-            sim.write_colored_screen(7);
-            for _ in 0..64 {
-                sim.step().await;
-                viewers.pump(&sim);
-                viewers.acknowledge(&mut sim);
-            }
-            let frames: Vec<Vec<u8>> = viewers.viewer(&peer).captured.clone();
-            if frames.is_empty() {
-                println!("DIAG {cols}x{rows}: no frames captured");
-                continue;
-            }
-
-            let raw: usize = frames.iter().map(|f| f.len()).sum();
-            let level = crate::display::compressor::DISPLAY_COMPRESSION_LEVEL;
-            let per_chunk: usize = frames
-                .iter()
-                .map(|f| zstd::bulk::compress(f, level).expect("compress").len())
-                .sum();
-            let concatenated: Vec<u8> = frames.concat();
-            let whole = zstd::bulk::compress(&concatenated, level)
-                .expect("compress")
-                .len();
-            println!(
-                "DIAG {cols}x{rows}: frames={} raw={raw}B per_chunk={per_chunk}B whole_frame={whole}B ratio={:.2}x",
-                frames.len(),
-                per_chunk as f64 / whole as f64
-            );
         }
     }
 
@@ -4565,79 +4421,6 @@ mod tests {
         let mut sim = DisplaySim::new(80, 24);
         let mut viewers = SimViewers::attach(&mut sim, 80, 24);
         viewers.viewer(&sim_peer_id(0)).set_ack_delay_ms(0.0);
-    }
-
-    /// The dictionary must be installed, acknowledged, and then actually used.
-    ///
-    /// Every dictionary figure in PERF.md depends on this path running, and it
-    /// did not: the harness forged the acknowledgement without the viewer ever
-    /// installing anything, so the daemon compressed against a dictionary no
-    /// viewer held. This asserts the whole loop — the install reaches a real
-    /// terminal, the terminal accepts it after verifying its hash, the
-    /// acknowledgement names that id, and frames afterwards carry the
-    /// dictionary flag and still decode to the daemon's grid.
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_dictionary_is_installed_acknowledged_and_used() {
-        const COLS: u16 = 200;
-        const ROWS: u16 = 50;
-
-        let mut sim = DisplaySim::new(COLS, ROWS);
-        let mut viewers = SimViewers::attach(&mut sim, COLS, ROWS);
-        sim.enable_display_dictionary();
-        let peer = sim_peer_id(0);
-        sim.advance_ms(FOLLOW_ALONG_AFTER_MS);
-
-        let mut acknowledged = 0usize;
-        for round in 0..8u64 {
-            sim.write_colored_screen(round);
-            for _ in 0..16 {
-                sim.step().await;
-                viewers.pump(&sim);
-                viewers.acknowledge(&mut sim);
-                acknowledged += viewers.acknowledge_dictionaries(&mut sim);
-            }
-        }
-        assert!(
-            acknowledged > 0,
-            "no dictionary was ever installed and acknowledged, so the dictionary \
-             path never ran"
-        );
-        assert!(
-            sim.active_dictionary_id(&peer).is_some(),
-            "an acknowledged dictionary must remain active for compression"
-        );
-
-        let before = viewers.viewer(&peer).dictionary_seen;
-        sim.write_colored_screen(42);
-        let mut daemon = Vec::new();
-        for _ in 0..64 {
-            sim.step().await;
-            viewers.pump(&sim);
-            viewers.acknowledge(&mut sim);
-            viewers.acknowledge_dictionaries(&mut sim);
-            sim.terminal_row_hashes(&mut daemon);
-            if viewers.diverged_rows(&peer, &daemon).is_empty() {
-                break;
-            }
-        }
-
-        let (compressed_seen, dictionary_seen) = {
-            let viewer = viewers.viewer(&peer);
-            (viewer.compressed_seen, viewer.dictionary_seen)
-        };
-        assert!(
-            dictionary_seen > before,
-            "the repaint carried no dictionary-compressed frame after {acknowledged} \
-             acknowledged dictionaries (compressed={}, dictionary={}, datagrams={})",
-            compressed_seen,
-            dictionary_seen,
-            sim.built_datagram_count(),
-        );
-        sim.terminal_row_hashes(&mut daemon);
-        assert!(
-            viewers.diverged_rows(&peer, &daemon).is_empty(),
-            "the viewer did not converge on the daemon grid through the dictionary path"
-        );
     }
 
     /// A coloured full-screen repaint must land as ONE paint.

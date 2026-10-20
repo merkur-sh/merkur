@@ -2,7 +2,7 @@
  * Browser compressed-display staging benchmark.
  *
  * Measures the production decode boundary: one JS -> terminal-WASM copy,
- * zstd row-payload decompression into terminal-owned reusable storage, and
+ * MZ row-payload decode into terminal-owned reusable storage, and
  * handle release back to the staging pool.
  */
 import {
@@ -15,7 +15,7 @@ import {
   DISPLAY_FRAME_ID_OFFSET,
   DISPLAY_GENERATION_OFFSET,
   DISPLAY_GRID_ROWS_OFFSET,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+  DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
   DISPLAY_PRESENTATION_ID_OFFSET,
   DISPLAY_PROTOCOL_VERSION,
   DISPLAY_ROW_COUNT_OFFSET,
@@ -26,10 +26,10 @@ import {
   writeU32BE,
 } from '../packages/shared/src';
 import { loadBenchmarkTerminal } from './perf/declared-terminal';
+import { displayFixtureExecutable } from './perf/display-fixture';
 import { emitPerfMetric } from './perf/harness';
-import { zstdFixtureExecutable } from './perf/zstd-fixture';
 
-const FIXTURE_BINARY = zstdFixtureExecutable();
+const FIXTURE_BINARY = displayFixtureExecutable();
 // Leave room for the current visible header, length field, and codec expansion
 // so the random-pattern fixture still fits the u16 wire body.
 const MAX_ROWS_BYTES = 65_000;
@@ -61,7 +61,7 @@ let frameInputCapacity = 0;
 
 const lines = [
   `display staging benchmark: sizes=${sizes.join(',')} patterns=${patterns.join(',')} targetBytes=${formatBytes(targetBytes)}`,
-  'path: JS wire frame -> terminal WASM -> zstd row decode -> pooled staged frame',
+  'path: JS wire frame -> terminal WASM -> MZ row decode -> pooled staged frame',
 ];
 
 for (const size of sizes) {
@@ -125,7 +125,7 @@ function createCompressedFrame(rows: {
   const compressed = compressFixture(rows.bytes);
   const wire = new Uint8Array(DISPLAY_COMPRESSED_PAYLOAD_OFFSET + compressed.byteLength);
   wire[0] = MESSAGE_TYPE_DISPLAY_PATCH;
-  wire[1] = DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD;
+  wire[1] = DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
   writeU32BE(wire, DISPLAY_SEQUENCE_OFFSET, 1);
   writeU32BE(wire, DISPLAY_GENERATION_OFFSET, 1);
   wire[DISPLAY_STREAM_HEADER_BYTES] = DISPLAY_PROTOCOL_VERSION;
@@ -152,7 +152,7 @@ function compressFixture(payload: Uint8Array): Uint8Array {
     stderr: 'inherit',
   });
   if (result.exitCode !== 0 || result.stdout.byteLength === 0) {
-    throw new Error(`zstd fixture failed for ${payload.byteLength} bytes`);
+    throw new Error(`display fixture failed for ${payload.byteLength} bytes`);
   }
   return new Uint8Array(result.stdout);
 }

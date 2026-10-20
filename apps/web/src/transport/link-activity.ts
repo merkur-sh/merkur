@@ -17,8 +17,7 @@ export function linkActivityNow(): number {
 /**
  * The channels whose bytes the waveform plots: terminal input and display, in
  * both directions. `ctrl` carries the link's own machinery (heartbeats, the
- * reliable acknowledgement backstop, hints, repair markers, dictionary
- * installs); signaling and the data handshake are connection setup; `null` is
+ * reliable acknowledgement backstop, hints, repair markers); signaling and the data handshake are connection setup; `null` is
  * framing that belongs to no channel. Every one of those still counts toward
  * the session byte totals, so the strip going flat means the terminal is quiet,
  * not that the link is.

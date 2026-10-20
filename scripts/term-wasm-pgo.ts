@@ -3,13 +3,11 @@
 // Bazel builds the terminal instrumented, with its in-crate training entry points and minicov's
 // profile runtime, and runs this over it:
 //
-//   term-wasm-pgo.ts <instrumented module> <zstd-fixture> <font> <raw profile out>
+//   term-wasm-pgo.ts <instrumented module> <display-fixture> <font> <raw profile out>
 //
-// It replays the ingress benchmark's frames through the production staging and apply paths and
-// writes the raw profile the module captures; Bazel merges it for `-Cprofile-use`. Measured
-// against the plain build, alternated on an idle machine: compressed staging of terminal text
-// -7.7% to -15.0% and of random content -3.3% to -7.6% (faster in 10-12 of 12 rounds at every
-// size), and the apply path -4% to -9% (6 of 6).
+// It replays the ingress benchmark's frames, raw and MZ-coded, through the production staging and
+// apply paths and writes the raw profile the module captures; Bazel merges it for
+// `-Cprofile-use`.
 
 import { writeFileSync } from 'node:fs';
 import { writeU32BE } from '../packages/shared/src/binary';
@@ -17,7 +15,7 @@ import {
   DISPLAY_COMPRESSED_LENGTH_OFFSET,
   DISPLAY_COMPRESSED_PAYLOAD_OFFSET,
   DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+  DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
   DISPLAY_PATCH_FLAGS_OFFSET,
   DISPLAY_ROWS_OFFSET,
   DISPLAY_SEQUENCE_OFFSET,
@@ -28,10 +26,15 @@ import { ingressFixture } from './term-wasm-ingress-fixture';
 const COLS = 120;
 const TRAINING_ROUNDS = 30;
 
-const [driver, zstdFixture, font, output] = process.argv.slice(2);
-if (driver === undefined || zstdFixture === undefined || font === undefined || output === undefined)
-  throw new Error('usage: term-wasm-pgo.ts <module> <zstd-fixture> <font> <raw profile>');
-const { stream, frames } = trainingFixtures(zstdFixture);
+const [driver, displayFixture, font, output] = process.argv.slice(2);
+if (
+  driver === undefined ||
+  displayFixture === undefined ||
+  font === undefined ||
+  output === undefined
+)
+  throw new Error('usage: term-wasm-pgo.ts <module> <display-fixture> <font> <raw profile>');
+const { stream, frames } = trainingFixtures(displayFixture);
 writeFileSync(output, await train(driver, font, stream, frames));
 
 async function train(
@@ -92,10 +95,10 @@ async function train(
 
 /**
  * The ingress benchmark's frames (plain and styled rows, 1 to 256 dirty rows, eight
- * content phases), each followed by its `zstd-fixture`-compressed twin, behind one
- * snapshot per grid height. This is the set the PGO measurement trained on.
+ * content phases), each followed by its `display-fixture`-coded MZ twin, behind one
+ * snapshot per grid height.
  */
-function trainingFixtures(zstdFixture: string): { stream: Uint8Array; frames: number } {
+function trainingFixtures(displayFixture: string): { stream: Uint8Array; frames: number } {
   const parts: Uint8Array[] = [];
   const push = (frame: Uint8Array, rows: number, snapshot: boolean) => {
     const record = new Uint8Array(9);
@@ -116,7 +119,7 @@ function trainingFixtures(zstdFixture: string): { stream: Uint8Array; frames: nu
           const frame = ingressFixture(COLS, rows, dirty, phase, styled, 0, phase);
           writeU32BE(frame, DISPLAY_SEQUENCE_OFFSET, 1);
           push(frame, rows, false);
-          push(compressed(zstdFixture, frame), rows, false);
+          push(compressed(displayFixture, frame), rows, false);
         }
       }
     }
@@ -130,15 +133,19 @@ function trainingFixtures(zstdFixture: string): { stream: Uint8Array; frames: nu
   return { stream, frames: parts.length / 2 };
 }
 
-/** The same frame with its row region zstd-compressed, as the daemon sends it. */
-function compressed(zstdFixture: string, frame: Uint8Array): Uint8Array {
+/** The same frame with its row region MZ-coded, as the daemon sends it. */
+function compressed(displayFixture: string, frame: Uint8Array): Uint8Array {
   const rows = frame.subarray(DISPLAY_ROWS_OFFSET);
-  const result = Bun.spawnSync([zstdFixture], { stdin: rows, stdout: 'pipe', stderr: 'inherit' });
-  if (result.exitCode !== 0) throw new Error('zstd-fixture failed');
+  const result = Bun.spawnSync([displayFixture], {
+    stdin: rows,
+    stdout: 'pipe',
+    stderr: 'inherit',
+  });
+  if (result.exitCode !== 0) throw new Error('display-fixture failed');
   const payload = new Uint8Array(result.stdout);
   const wire = new Uint8Array(DISPLAY_COMPRESSED_PAYLOAD_OFFSET + payload.byteLength);
   wire.set(frame.subarray(0, DISPLAY_ROWS_OFFSET));
-  wire[1] = (wire[1] ?? 0) | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD;
+  wire[1] = (wire[1] ?? 0) | DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
   writeU32BE(
     wire,
     DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,

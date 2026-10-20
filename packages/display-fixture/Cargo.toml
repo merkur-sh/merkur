@@ -1,0 +1,21 @@
+[package]
+name = "display-fixture"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+# Development-only fixture generator for the browser display benchmarks, the
+# receiver calibration and the term-wasm PGO training. The browser decoder is
+# decode-only by design, so compressed decoder input has to come from the Rust
+# side that actually produces display frames — the same MZ encoder the daemon
+# codes with, so the benchmark measures the exact bytes the browser receives.
+[[bin]]
+name = "display-fixture"
+path = "src/main.rs"
+
+[dependencies]
+merkur-codec = { path = "../merkur-codec" }
+
+[lints]
+workspace = true

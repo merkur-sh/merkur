@@ -40,7 +40,7 @@ with the intended diagnostic.
 | `fuzz_wire` | Canonical framing, exact lengths, handshake and input-run parsing, input-record validation agreement. |
 | `fuzz_stun` | Both network parsers, real authenticated encoder output, wrong-key and modified-request rejection, response integrity. |
 | `fuzz_display_ingress` | Untrusted staged display frames cannot change authoritative terminal state before apply; released slots and budgets recover. |
-| `fuzz_display_zstd` | Real compressed ingress enforces exact single-frame decompression and output shape, preserves authority on rejection and releases staging ownership. |
+| `fuzz_display_mz` | Real compressed ingress enforces an MZ payload that decodes to exactly the declared rows, preserves authority on rejection and releases staging ownership. |
 | `fuzz_display_roundtrip` | Compressed and plain valid display frames produce equal authority, including duplicate application. |
 
 Valid encoder seeds exercise deeper paths directly and initialize the mutation corpus.
@@ -121,5 +121,5 @@ Record text is what costs the solver: std validates UTF-8 a word at a time, and 
 model stubbed in its place did not bring either record proof inside the budget. The STUN
 parsers need 60 and 68 bytes for their shortest accepted messages and got no verdict at
 64 and 72, so they stay with `fuzz_stun`'s encoder seeds. Code Kani cannot reason about at
-all stays with fuzzing and unit tests too: ring's HMAC (assembly), C zstd, and
-`merkur-fec`, whose every path runs NEON, SSSE3 or simd128 intrinsics.
+all stays with fuzzing and unit tests too: ring's HMAC (assembly) and `merkur-fec`, whose
+every path runs NEON, SSSE3 or simd128 intrinsics.

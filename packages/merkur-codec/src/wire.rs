@@ -51,9 +51,8 @@ use crate::encode::{FrameHeader, FrameKind, frame_header_fixed};
 use crate::stream::{StreamHeader, parse_stream_header, write_stream_header};
 use crate::varint::decode_varint_u32;
 use crate::{
-    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD, DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
-    DISPLAY_HEADER_FLAG_FEC_PROTECTED, FRAME_HEADER_BODY_BYTES, MSG_TYPE_DISPLAY_PATCH,
-    STREAM_HEADER_BYTES, VERSION,
+    DISPLAY_HEADER_FLAG_COMPRESSED_MZ, DISPLAY_HEADER_FLAG_FEC_PROTECTED, FRAME_HEADER_BODY_BYTES,
+    MSG_TYPE_DISPLAY_PATCH, STREAM_HEADER_BYTES, VERSION,
 };
 
 /// Bytes of the wire header that every frame carries at fixed offsets.
@@ -82,10 +81,7 @@ pub const WIRE_PRESENT_CHUNK: u8 = 1 << 5;
 /// Stream-flags presence bit: the row predecessor follows.
 pub const WIRE_PRESENT_PREDECESSOR: u8 = 1 << 6;
 
-const STREAM_FLAG_BITS: u8 = DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
-    | DISPLAY_HEADER_FLAG_FEC_PROTECTED
-    | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT
-    | crate::DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
+const STREAM_FLAG_BITS: u8 = DISPLAY_HEADER_FLAG_COMPRESSED_MZ | DISPLAY_HEADER_FLAG_FEC_PROTECTED;
 const PRESENCE_BITS: u8 = WIRE_PRESENT_CLOSURE
     | WIRE_PRESENT_ECHO_HORIZON
     | WIRE_PRESENT_CHUNK
@@ -572,10 +568,9 @@ pub fn parse_wire(wire: &[u8]) -> Result<WireFrame, WireError> {
     }
     let presence = fixed.flags & PRESENCE_BITS;
     let patch_flags = fixed.patch_flags;
-    // Every bit of the flags byte is a stream flag or a presence bit; only the
-    // patch flags keep one no version defines.
-    const _: () = assert!(STREAM_FLAG_BITS | PRESENCE_BITS == u8::MAX);
-    if patch_flags & PATCH_FLAG_UNDEFINED != 0 {
+    if fixed.flags & !(STREAM_FLAG_BITS | PRESENCE_BITS) != 0
+        || patch_flags & PATCH_FLAG_UNDEFINED != 0
+    {
         return Err(WireError::ReservedBits);
     }
     let seq = fixed.seq;
@@ -726,7 +721,7 @@ mod tests {
     fn stream(seq: u32) -> StreamHeader {
         StreamHeader {
             msg_type: MSG_TYPE_DISPLAY_PATCH,
-            flags: DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+            flags: DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
             body_len: 0,
             seq,
             generation: 3,
@@ -978,6 +973,11 @@ mod tests {
         let mut reserved = wire.to_vec();
         reserved[3] |= PATCH_FLAG_UNDEFINED;
         assert_eq!(parse_wire(&reserved), Err(WireError::ReservedBits));
+        for bit in [1 << 2, 1 << 7] {
+            let mut reserved = wire.to_vec();
+            reserved[2] |= bit;
+            assert_eq!(parse_wire(&reserved), Err(WireError::ReservedBits));
+        }
         let mut reserved = wire.to_vec();
         reserved[16] |= 0x10;
         assert_eq!(parse_wire(&reserved), Err(WireError::ReservedBits));
@@ -1074,7 +1074,7 @@ mod tests {
             h.demand_serial = u32::MAX;
             h.scroll_serial = u32::MAX;
             let s = StreamHeader {
-                flags: DISPLAY_HEADER_FLAG_FEC_PROTECTED | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+                flags: DISPLAY_HEADER_FLAG_FEC_PROTECTED | DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
                 seq: 7,
                 input_seq: 3,
                 generation: u32::MAX,

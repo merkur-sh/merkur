@@ -31,8 +31,7 @@ import type { DisplayReceiverProfileWriter } from './display-receiver-profile';
 class FakeCalibrationTerminal implements DisplayReceiverCalibrationTerminal {
   readonly rawFrames: Uint8Array[] = [];
   readonly stagedFrames: Uint8Array[] = [];
-  dictionaryInstalls = 0;
-  dictionaryClears = 0;
+  historyClears = 0;
   orderingResets = 0;
   releases = 0;
   destroys = 0;
@@ -49,18 +48,8 @@ class FakeCalibrationTerminal implements DisplayReceiverCalibrationTerminal {
     return !this.rejectRaw;
   }
 
-  installDisplayDictionary(
-    _generation: number,
-    _id: number,
-    _hash: number,
-    _bytes: Uint8Array,
-  ): boolean {
-    this.dictionaryInstalls += 1;
-    return true;
-  }
-
-  clearDisplayDictionaries(): void {
-    this.dictionaryClears += 1;
+  clearDisplayHistory(): void {
+    this.historyClears += 1;
   }
 
   stageDisplayFrame(data: Uint8Array): number {
@@ -92,7 +81,7 @@ class FakeCalibrationTerminal implements DisplayReceiverCalibrationTerminal {
 interface WriterProbe {
   readonly writer: DisplayReceiverProfileWriter;
   readonly raw: Array<readonly [number, number]>;
-  readonly compressed: Array<readonly [number, number, boolean, number]>;
+  readonly compressed: Array<readonly [number, number, number]>;
   publishes: number;
 }
 
@@ -105,8 +94,8 @@ function createWriterProbe(): WriterProbe {
       recordRaw(rawBytes, validationApplyUs): void {
         probe.raw.push([rawBytes, validationApplyUs]);
       },
-      recordCompressed(rawBytes, wireBytes, dictionary, fusedValidationApplyUs): void {
-        probe.compressed.push([rawBytes, wireBytes, dictionary, fusedValidationApplyUs]);
+      recordCompressed(rawBytes, wireBytes, fusedValidationApplyUs): void {
+        probe.compressed.push([rawBytes, wireBytes, fusedValidationApplyUs]);
       },
       publish(): void {
         probe.publishes += 1;
@@ -193,7 +182,7 @@ describe('display receiver calibration', () => {
       seenRows.add(rowCount);
     }
     expect([...seenRows].sort((left, right) => left - right)).toEqual([1, 2, 4, 8, 16, 29]);
-    expect(terminal.dictionaryClears).toBe(1);
+    expect(terminal.historyClears).toBe(1);
     expect(terminal.orderingResets).toBe(1);
     expect(terminal.destroys).toBe(1);
   });
@@ -213,8 +202,8 @@ describe('display receiver calibration', () => {
       expect(result.status).toBe('complete');
       break;
     }
-    expect(writer.raw).toHaveLength(96);
-    expect(writer.compressed).toHaveLength(96);
+    expect(writer.raw).toHaveLength(48);
+    expect(writer.compressed).toHaveLength(48);
     expect(writer.publishes).toBe(1);
   });
 
@@ -223,10 +212,10 @@ describe('display receiver calibration', () => {
     rejected.rejectValidation = true;
     const rejectedWriter = createWriterProbe();
     expect(drive(createDisplayReceiverCalibrationRun(rejected, rejectedWriter.writer))).toBe(
-      'rows=1 plain: synthetic_rejection',
+      'rows=1 compressed: synthetic_rejection',
     );
     expect(rejectedWriter.publishes).toBe(0);
-    expect(rejected.dictionaryClears).toBe(1);
+    expect(rejected.historyClears).toBe(1);
     expect(rejected.orderingResets).toBe(1);
     expect(rejected.destroys).toBe(1);
 
@@ -237,7 +226,7 @@ describe('display receiver calibration', () => {
     run.cancel();
     run.cancel();
     expect(cancelledWriter.publishes).toBe(0);
-    expect(cancelled.dictionaryClears).toBe(1);
+    expect(cancelled.historyClears).toBe(1);
     expect(cancelled.orderingResets).toBe(1);
     expect(cancelled.destroys).toBe(1);
   });
@@ -374,7 +363,7 @@ describe('display receiver calibration', () => {
     const live = {
       grid: 'authoritative',
       predictions: 4,
-      dictionaries: 2,
+      rowHistory: 2,
       coordinatorDatagrams: 3,
     };
     const epoch = 11;
@@ -408,7 +397,7 @@ describe('display receiver calibration', () => {
     expect(live).toEqual({
       grid: 'authoritative',
       predictions: 4,
-      dictionaries: 2,
+      rowHistory: 2,
       coordinatorDatagrams: 3,
     });
   });

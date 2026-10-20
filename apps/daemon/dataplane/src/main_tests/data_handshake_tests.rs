@@ -369,7 +369,6 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
     peer.needs_snapshot = false;
     peer.needs_full_diff = false;
     peer.generation = 19;
-    peer.display_dictionary_ready = true;
     peer.last_admitted_critical_header_signal = 0xfeed;
     peer.display_cache.resize(1, 3);
     peer.display_cache
@@ -497,7 +496,6 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
     assert!(!peer.paths.webtransport.available);
     assert!(peer.paths.edge.available);
     assert_eq!(peer.generation, 19);
-    assert!(peer.display_dictionary_ready);
     assert!(!peer.needs_snapshot);
     assert!(peer.needs_full_diff);
     assert_eq!(peer.last_admitted_critical_header_signal, 0xfeed);
@@ -514,7 +512,6 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
     assert!(peer.paths.webtransport.available);
     assert_eq!(peer.paths.webtransport.rtt_ewma_ms, 30.0);
     assert_eq!(peer.generation, 19);
-    assert!(peer.display_dictionary_ready);
     assert_eq!(peer.display_cache.sent_row_latest_seq, vec![0, 11, 12]);
     assert!(peer.display_cache.sent_datagrams.contains_key(&11));
     assert!(peer.display_cache.sent_datagrams.contains_key(&12));

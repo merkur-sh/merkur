@@ -32,19 +32,18 @@ fn synchronized_update_safety_deadline_is_anchored_until_an_explicit_end() {
 
 use super::*;
 
-/// A dictionary worker completes about once per 1,024 display flushes. It
-/// carries no new terminal mutation, so landing between the sparse TUI
-/// writer's 0.8 ms PTY reads must not turn the already-anchored 10 ms tail
-/// into another immediate send.
+/// A preparation completion carries no new terminal mutation, so landing
+/// between the sparse TUI writer's 0.8 ms PTY reads must not turn the
+/// already-anchored 10 ms tail into another immediate send.
 #[tokio::test(start_paused = true)]
-async fn dictionary_completion_amid_sparse_reads_keeps_one_original_deadline() {
+async fn a_lifecycle_completion_amid_sparse_reads_keeps_one_original_deadline() {
     let started_at = tokio::time::Instant::now();
     let original_deadline = started_at + Duration::from_millis(10);
     let mut flush_sleep = Box::pin(tokio::time::sleep(Duration::from_secs(60)));
     let mut flush_armed = false;
     arm_display_flush_no_later(flush_sleep.as_mut(), &mut flush_armed, original_deadline);
 
-    // Seven later PTY reads and one dictionary completion all compute the
+    // Seven later PTY reads and one preparation completion all compute the
     // same 10 ms bounded tail from their own event time. Earlier-only
     // arming keeps the first event's absolute deadline.
     for event in 1..=8 {

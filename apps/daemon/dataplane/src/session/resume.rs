@@ -366,24 +366,6 @@ pub(crate) fn handle_display_resume(
     // driving the decision instead of the awaiting_resume timer.
     peer.awaiting_resume_until_ms = None;
 
-    // The one place the daemon learns whether the peer preserved its display.
-    //
-    // The browser publishes row hashes exactly when its epoch fence preserved
-    // the grid, and it keeps its compression dictionary under exactly the same
-    // condition. So a claim WITHOUT hashes is the peer stating it threw both
-    // away, and a dictionary held here would describe bytes it no longer has. A
-    // claim WITH hashes means it kept them, and the dictionary survives the
-    // carrier swap with the grid — which is why `carrier_boundary` no longer
-    // drops it, and what saves a readiness/install/ack round trip plus cold
-    // compression on the very frames the user is waiting for.
-    //
-    // Deliberately about what the PEER kept, not about which way the decision
-    // below goes: a snapshot forced by divergence still leaves the browser
-    // holding the dictionary it just told us about.
-    if client_row_hashes.is_none() {
-        peer.discard_dictionary_for_snapshot();
-    }
-
     // Coordinates identify which retained cache we *could* compare, but only
     // the browser's complete row-hash claim proves that cache still describes
     // its grid. A claimless resume means the browser discarded its terminal

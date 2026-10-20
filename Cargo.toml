@@ -12,7 +12,7 @@ members = [
   "packages/e2e-wasm",
   "packages/graphics-wasm",
   "packages/graphics-codec-probe",
-  "packages/zstd-fixture",
+  "packages/display-fixture",
   "packages/merkur-authorization",
   "packages/merkur-client",
   "packages/merkur-client-native",

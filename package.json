@@ -77,7 +77,6 @@
     "bench:terminal-network-matrix": "bun run scripts/run-terminal-network-matrix.ts",
     "bench:display-multichunk:wasm": "bun run scripts/bench-term-wasm-multichunk.ts",
     "bench:display-claim": "bun run scripts/bench-display-claim.ts",
-    "bench:terminal-dictionary": "bun run scripts/bench-terminal-dictionary.ts",
     "bench:terminal-geometry-state": "bun run scripts/bench-terminal-geometry-state.ts",
     "bench:client-viewer-boundary": "bun run scripts/bench-client-viewer-boundary.ts",
     "bench:terminal-render-readers": "bun run scripts/bench-terminal-render-readers.ts",

@@ -901,6 +901,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "display-fixture"
+version = "0.1.0"
+dependencies = [
+ "merkur-codec",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2172,8 +2179,6 @@ dependencies = [
  "tracing-subscriber",
  "wtransport",
  "zeroize",
- "zstd",
- "zstd-sys",
 ]
 
 [[package]]
@@ -4019,8 +4024,6 @@ dependencies = [
  "unicode-width",
  "wasm-bindgen",
  "zeroize",
- "zstd",
- "zstd-safe",
 ]
 
 [[package]]
@@ -5157,14 +5160,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "057cfd910cfac363a0ada849592624b4c9ff2e10bef504c3433810d78ed96f93"
 dependencies = [
  "zstd-safe",
-]
-
-[[package]]
-name = "zstd-fixture"
-version = "0.1.0"
-dependencies = [
- "merkur-codec",
- "zstd",
 ]
 
 [[package]]

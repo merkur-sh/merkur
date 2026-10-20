@@ -301,7 +301,7 @@ Bun and TypeScript handle the application and orchestration; Rust owns the termi
 | `packages/merkur-fec`               | Display forward error correction.                                            |
 | `packages/merkur-graphics`          | Kitty graphics ingestion, placement, and resource ownership.                 |
 | `packages/merkur-image-worker`      | Isolated image decoding and tile encoding.                                   |
-| `packages/zstd-fixture`             | Native fixtures for browser compression benchmarks.                          |
+| `packages/display-fixture`          | Native MZ fixtures for browser compression benchmarks and calibration.       |
 | `packages/alacritty-terminal-patch` | Patched authoritative terminal grid.                                         |
 | `packages/vte-patch`                | Patched terminal escape-sequence parser.                                     |
 | `packages/wtransport-patch`         | Patched WebTransport implementation.                                         |

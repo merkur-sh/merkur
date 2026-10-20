@@ -14,7 +14,7 @@ extract_cargo_lints(
 )
 
 rust_binary(
-    name = "zstd-fixture",
+    name = "display-fixture",
     srcs = glob(["src/**/*.rs"]),
     aliases = aliases(),
     lint_config = ":lints",
@@ -24,7 +24,11 @@ rust_binary(
 
 rust_test(
     name = "unit",
-    crate = ":zstd-fixture",
+    crate = ":display-fixture",
+    data = [
+        "//apps/web:src/terminal/display-receiver-calibration-fixtures.ts",
+        "//packages/shared:test_vectors",
+    ],
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro_dev = True),
     deps = all_crate_deps(normal_dev = True),

@@ -142,9 +142,9 @@ helper, a native backend) never reaches the browser. wasm-bindgen and `wasm-opt 
 the package wasm-pack wrote. The terminal WASM is profile-guided: Bazel builds it instrumented
 (its `pgo-train` training entry points, with `minicov` as wasm32's profile runtime, and
 `RUSTC_BOOTSTRAP=1` for `-Zno-profiler-runtime` on the pinned release compiler), trains it on the
-ingress benchmark's frames and their `zstd-fixture`-compressed twins (`scripts/term-wasm-pgo.ts`),
-merges the profile with the toolchain's `llvm-profdata`, and builds the shipped module, libzstd's
-C included, with `-Cprofile-use`. Both builds compile the same targets, so every function keeps
+ingress benchmark's frames and their `display-fixture`-coded MZ twins (`scripts/term-wasm-pgo.ts`),
+merges the profile with the toolchain's `llvm-profdata`, and builds the shipped module with
+`-Cprofile-use`. Both builds compile the same targets, so every function keeps
 its name and its profile.
 
 Signing and deployment packaging commands are in [`docs/releases.md`](../docs/releases.md).
@@ -210,7 +210,7 @@ never in the terminal hot path. This is what a deployment needs.
 | --- | --- |
 | Bun | Server runtime and the runtime the daemon CLI is compiled with. |
 | Rust | Builds the daemon dataplane, the edge relay, the STUN responder and the display codec. |
-| Bazel | Builds the WASM packages, including `packages/term-wasm`, which links libzstd, and `packages/e2e-wasm`, which the server and daemon executables embed. |
+| Bazel | Builds the WASM packages, including `packages/term-wasm` and `packages/e2e-wasm`, which the server and daemon executables embed. |
 | libSQL | The server's durable database, reached through `DB_URL`. A `file:` URL opens a local database in-process, defaulting to `file:./data/merkur.db`; `http(s)://` or `libsql://` reach a libSQL server, which is what production runs so more than one process can share one database. |
 | Redis or Dragonfly | The realtime coordination backend, reached through `REDIS_URL`. |
 | Merkur edge | A registered blind WebTransport relay. Every replica publishes its exact URL and current certificate pins to the server. |

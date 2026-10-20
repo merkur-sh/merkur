@@ -69,9 +69,9 @@ mod geometry_allocations {
 
 use super::*;
 use merkur_codec::{
-    DISPLAY_GENERATION_OFFSET, DISPLAY_HEADER_BODY_LENGTH_OFFSET,
-    DISPLAY_HEADER_FLAG_FEC_PROTECTED, DISPLAY_MSG_TYPE_OFFSET, DISPLAY_SEQ_OFFSET, FrameHeader,
-    FrameKind, RowRef, STREAM_HEADER_BYTES, encode_frame_into,
+    DISPLAY_GENERATION_OFFSET, DISPLAY_HEADER_BODY_LENGTH_OFFSET, DISPLAY_HEADER_FLAGS_OFFSET,
+    DISPLAY_MSG_TYPE_OFFSET, DISPLAY_SEQ_OFFSET, FrameHeader, FrameKind, RowRef,
+    STREAM_HEADER_BYTES, encode_frame_into,
 };
 
 #[test]
@@ -421,12 +421,7 @@ fn display_receiver_calibration_terminal_is_headless_and_isolated() {
     assert_eq!(terminal.cols(), 120);
     assert_eq!(terminal.rows(), 29);
     assert!(terminal.atlas.is_none());
-    assert!(
-        terminal
-            .display_dictionaries
-            .iter()
-            .all(|slot| slot.bytes.is_empty())
-    );
+    assert_eq!(terminal.display_row_history.held_cells(), 0);
     assert!(!terminal.has_predictions());
 }
 
@@ -1064,53 +1059,11 @@ fn packed_geometry_state_is_published_after_atlas_growth_retry() {
     assert_packed_geometry_state_matches_legacy(&terminal);
 }
 
-/// Build a real zstd dictionary whose identity is derived from `seed`.
-///
-/// The decode path selects a dictionary by the id zstd stamped into it, so
-/// tests cannot use arbitrary byte strings the way the LZ4 path allowed —
-/// an unparseable dictionary is now refused at install.
-fn test_dictionary(seed: &str) -> Vec<u8> {
-    let mut data = Vec::new();
-    let mut sizes = Vec::new();
-    for index in 0..96 {
-        let sample = format!("{seed} row {index:03} terminal rows shell output prompt state ");
-        let sample = sample.repeat(3);
-        sizes.push(sample.len());
-        data.extend_from_slice(sample.as_bytes());
-    }
-    zstd::dict::from_continuous(&data, &sizes, 4096).expect("test dictionary")
-}
-
-/// A compressor writing the display payload's zstd frame, as the daemon's
-/// does: level 3, magicless, no frame content size.
-fn display_test_compressor(dictionary: Option<&[u8]>) -> zstd::bulk::Compressor<'static> {
-    use zstd::zstd_safe::{CParameter, FrameFormat};
-    let mut compressor = zstd::bulk::Compressor::new(3).expect("compressor");
-    compressor
-        .set_parameter(CParameter::Format(FrameFormat::Magicless))
-        .unwrap();
-    compressor
-        .set_parameter(CParameter::ContentSizeFlag(false))
-        .unwrap();
-    if let Some(dictionary) = dictionary {
-        compressor
-            .set_dictionary(3, dictionary)
-            .expect("dictionary");
-    }
-    compressor
-}
-
-fn compressed_test_frame(frame: &[u8], dictionary: Option<(u32, u32, &[u8])>) -> Vec<u8> {
+/// The MZ frame of a raw test frame, as the daemon writes it: the header, the
+/// row-layout length, then the coded rows.
+fn compressed_test_frame(frame: &[u8]) -> Vec<u8> {
     let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
     let rows = &frame[rows_offset..];
-    let mut splitter = merkur_codec::RowSplitter::default();
-    let split = splitter
-        .split(rows, parse_frame_header(frame).unwrap().row_count)
-        .expect("split rows");
-    let compressed = display_test_compressor(dictionary.map(|(_, _, bytes)| bytes))
-        .compress(split)
-        .expect("compress");
-
     let mut wire = frame[..rows_offset].to_vec();
     wire[0] = MSG_TYPE_DISPLAY_PATCH;
     wire[DISPLAY_GENERATION_OFFSET..DISPLAY_GENERATION_OFFSET + 4]
@@ -1121,14 +1074,17 @@ fn compressed_test_frame(frame: &[u8], dictionary: Option<(u32, u32, &[u8])>) ->
         1u32
     };
     wire[DISPLAY_SEQ_OFFSET..DISPLAY_SEQ_OFFSET + 4].copy_from_slice(&seq.to_be_bytes());
-    wire[DISPLAY_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD;
+    wire[DISPLAY_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
     wire.extend_from_slice(&(rows.len() as u32).to_be_bytes());
-    if let Some((id, hash, _)) = dictionary {
-        wire[DISPLAY_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT;
-        wire.extend_from_slice(&id.to_be_bytes());
-        wire.extend_from_slice(&hash.to_be_bytes());
-    }
-    wire.extend_from_slice(&compressed);
+    let rows_len = merkur_codec::mz::MzEncoder::default()
+        .encode(
+            rows,
+            parse_frame_header(frame).unwrap().row_count,
+            &[],
+            &mut wire,
+        )
+        .expect("MZ codes the rows");
+    assert_eq!(rows_len, rows.len());
     restamp_test_body_len(&mut wire);
     wire
 }
@@ -1196,7 +1152,7 @@ fn wide_raw_and_compressed_envelopes_stage_and_apply_identical_authority() {
         test_frame_chunk_with_entries(FrameKind::Snapshot, COLS, ROWS, 0, 0, 1, 0, 1, &entries);
     assert!(raw.len() > usize::from(u16::MAX) + STREAM_HEADER_BYTES);
     assert!(raw.len() < MAX_DISPLAY_FRAME_BYTES);
-    let wire = compressed_test_frame(&raw, None);
+    let wire = compressed_test_frame(&raw);
     let mut expected = Terminal::new(COLS, ROWS);
     assert!(expected.apply_state_seq(&raw, 0));
     for bytes in [&raw, &wire] {
@@ -1220,39 +1176,12 @@ fn replace_plain_compressed_payload(wire: &mut Vec<u8>, payload: &[u8]) {
     restamp_test_body_len(wire);
 }
 
-fn dictionary_test_frame(
-    frame: &[u8],
-    generation: u32,
-    id: u32,
-    dictionary: &[u8],
-) -> (Vec<u8>, u32) {
-    let hash = (merkur_codec::hash_bytes(dictionary) >> 32) as u32;
-    let mut wire = compressed_test_frame(frame, Some((id, hash, dictionary)));
-    wire[DISPLAY_GENERATION_OFFSET..DISPLAY_GENERATION_OFFSET + 4]
-        .copy_from_slice(&generation.to_be_bytes());
-    (wire, hash)
-}
-
 fn stage_test_frame(terminal: &mut Terminal, wire: &[u8]) -> u32 {
     if terminal.reserve_display_frame_input(wire.len() as u32) == 0 {
         return 0;
     }
     terminal.staged_frame_input[..wire.len()].copy_from_slice(wire);
     terminal.stage_display_frame_input(wire.len() as u32)
-}
-
-fn assert_dictionary_stage(terminal: &mut Terminal, wire: &[u8], expected: bool) {
-    let handle = stage_test_frame(terminal, wire);
-    if expected {
-        assert_ne!(handle, 0, "{:?}", terminal.last_error);
-        terminal.release_staged_frame(handle);
-    } else {
-        assert_eq!(handle, 0);
-        assert_eq!(
-            terminal.last_error.as_deref(),
-            Some("compressed_display_dictionary_missing")
-        );
-    }
 }
 
 fn assert_terminal_authority_eq(left: &Terminal, right: &Terminal, cols: u16, rows: u16) {
@@ -1313,7 +1242,7 @@ fn compressed_stage_fuses_decode_and_validation_then_applies_without_reparse() {
             cells: &cells,
         },
     );
-    let wire = compressed_test_frame(&frame, None);
+    let wire = compressed_test_frame(&frame);
     let mut direct = Terminal::new(4, 1);
     let mut staged = Terminal::new(4, 1);
     let handle = stage_test_frame(&mut staged, &wire);
@@ -1362,7 +1291,7 @@ fn slice_and_fused_reader_preserve_identical_authority_across_wrap_and_rejection
                       snapshot: bool,
                       seq: u32|
      -> (bool, bool) {
-        let wire = compressed_test_frame(frame, None);
+        let wire = compressed_test_frame(frame);
         let handle = stage_test_frame(fused, &wire);
         let slice_result = if snapshot {
             slice.apply_presented_state_seq(frame, seq)
@@ -1474,31 +1403,23 @@ fn slice_and_fused_reader_reject_the_same_decoded_payload_corpus_atomically() {
         ],
     );
 
-    // A body whose rows do not parse cannot be split, so its compressed
-    // counterpart is the split payload damaged the same way: the join, not
-    // the row reader, refuses it.
-    let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
-    let valid_split = merkur_codec::RowSplitter::default()
-        .split(&valid[rows_offset..], 1)
-        .unwrap()
-        .to_vec();
+    // A body whose rows do not parse is not one MZ codes, so its compressed
+    // counterpart is the valid frame's payload damaged the same way: the MZ
+    // decoder, not the row reader, refuses it.
     let damaged_wire = |damage: fn(&mut Vec<u8>)| {
-        let mut split = valid_split.clone();
-        damage(&mut split);
-        let mut wire = compressed_test_frame(&valid, None);
-        replace_plain_compressed_payload(
-            &mut wire,
-            &display_test_compressor(None).compress(&split).unwrap(),
-        );
+        let mut wire = compressed_test_frame(&valid);
+        let mut payload = wire[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..].to_vec();
+        damage(&mut payload);
+        replace_plain_compressed_payload(&mut wire, &payload);
         wire
     };
     let cases = [
         (
             &truncated,
-            damaged_wire(|split| split.truncate(split.len() - 1)),
+            damaged_wire(|payload| payload.truncate(payload.len() - 1)),
         ),
-        (&trailing, damaged_wire(|split| split.push(0))),
-        (&duplicate, compressed_test_frame(&duplicate, None)),
+        (&trailing, damaged_wire(|payload| payload.push(0))),
+        (&duplicate, compressed_test_frame(&duplicate)),
     ];
     for (malformed, wire) in cases {
         let mut slice = Terminal::new(3, 1);
@@ -1529,7 +1450,7 @@ fn staged_delta_sequence_zero_is_rejected_before_decode() {
             cells: &cells,
         },
     );
-    let mut wire = compressed_test_frame(&frame, None);
+    let mut wire = compressed_test_frame(&frame);
     wire[DISPLAY_SEQ_OFFSET..DISPLAY_SEQ_OFFSET + 4].fill(0);
     let mut terminal = Terminal::new(1, 1);
     let before_decode = terminal.display_frame_decode_count;
@@ -1566,7 +1487,7 @@ fn explicitly_prevalidated_staged_apply_reuses_one_cached_decode() {
             cells: &cells,
         },
     );
-    let wire = compressed_test_frame(&frame, None);
+    let wire = compressed_test_frame(&frame);
     let mut direct = Terminal::new(4, 1);
     let mut staged = Terminal::new(4, 1);
     let handle = stage_test_frame(&mut staged, &wire);
@@ -1643,8 +1564,8 @@ fn malformed_compressed_snapshot_is_rejected_during_fused_staging() {
             cells: &surrogate,
         },
     );
-    let malformed_wire = compressed_test_frame(&malformed, None);
-    let valid_wire = compressed_test_frame(&valid, None);
+    let malformed_wire = compressed_test_frame(&malformed);
+    let valid_wire = compressed_test_frame(&valid);
     let mut raw = Terminal::new(3, 1);
     assert!(!raw.apply_state_seq(&malformed, 0));
     let mut terminal = Terminal::new(3, 1);
@@ -1891,43 +1812,6 @@ fn corrupt_later_chunk_keeps_the_atomic_validation_barrier_non_mutating() {
 }
 
 #[test]
-fn dictionary_and_fec_envelope_streams_into_exact_validated_cells() {
-    let cells = [test_cell('d'), test_cell('i'), test_cell('c')];
-    let frame = test_frame_chunk_with_entries(
-        FrameKind::Delta,
-        3,
-        1,
-        0,
-        0,
-        101,
-        0,
-        1,
-        &[RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        }],
-    );
-    let dictionary = &test_dictionary("terminal rows")[..];
-    let (mut wire, hash) = dictionary_test_frame(&frame, 9, 7, dictionary);
-    wire[DISPLAY_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_FEC_PROTECTED;
-    let mut terminal = Terminal::new(3, 1);
-    assert!(terminal.install_display_dictionary(9, 7, hash, dictionary));
-
-    let handle = stage_test_frame(&mut terminal, &wire);
-    assert_ne!(handle, 0, "{:?}", terminal.last_error);
-    let slot = usize::try_from(handle).unwrap() - 1;
-    let staged = terminal.staged_frames[slot].as_ref().unwrap();
-    assert!(staged.data.is_empty());
-    assert_eq!(staged.validation.as_ref().unwrap().decoded.cells, cells);
-    assert!(terminal.validate_staged_frame(handle));
-    assert!(terminal.apply_presented_staged_delta_seq(handle, 1));
-    assert_eq!(terminal.display_frame_decode_count, 1);
-    terminal.release_staged_frame(handle);
-}
-
-#[test]
 fn compressed_frame_stages_applies_and_reuses_its_handle_slot() {
     let cells = [test_cell('a'), test_cell('b'), test_cell('c')];
     let frame = test_frame(
@@ -1940,7 +1824,7 @@ fn compressed_frame_stages_applies_and_reuses_its_handle_slot() {
             cells: &cells,
         },
     );
-    let wire = compressed_test_frame(&frame, None);
+    let wire = compressed_test_frame(&frame);
     let mut terminal = Terminal::new(3, 1);
 
     let handle = stage_test_frame(&mut terminal, &wire);
@@ -1958,146 +1842,6 @@ fn compressed_frame_stages_applies_and_reuses_its_handle_slot() {
 }
 
 #[test]
-fn dictionary_compressed_frame_requires_the_exact_installed_dictionary() {
-    let cells = [test_cell('x'), test_cell('x'), test_cell('x')];
-    let frame = test_frame(
-        FrameKind::Delta,
-        3,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let dictionary = &test_dictionary("encoded terminal rows")[..];
-    let (wire, hash) = dictionary_test_frame(&frame, 9, 7, dictionary);
-    let mut terminal = Terminal::new(3, 1);
-
-    assert_dictionary_stage(&mut terminal, &wire, false);
-    assert!(terminal.install_display_dictionary(9, 7, hash, dictionary));
-    let handle = stage_test_frame(&mut terminal, &wire);
-    assert_ne!(handle, 0, "{:?}", terminal.last_error);
-    assert!(terminal.validate_staged_frame(handle));
-    assert!(terminal.apply_presented_staged_delta_seq(handle, 1));
-    assert_eq!(terminal.display_frame_decode_count, 1);
-    terminal.release_staged_frame(handle);
-}
-
-#[test]
-fn dictionary_slot_zeroes_shrunk_and_cleared_allocation_bytes() {
-    // Byte patterns without the dictionary magic load as raw content,
-    // which is all this allocation test needs from the decoder form.
-    let mut slot = DisplayDictionarySlot::empty();
-    slot.replace(
-        1,
-        1,
-        1,
-        11,
-        &[0xaa; 64],
-        zstd_safe::DDict::create(&[0xaa; 64]),
-    );
-    slot.replace(
-        1,
-        2,
-        2,
-        22,
-        &[0xbb; 8],
-        zstd_safe::DDict::create(&[0xbb; 8]),
-    );
-
-    const PRIOR_LEN: usize = 64;
-    assert!(slot.bytes.capacity() >= PRIOR_LEN);
-    // SAFETY: all PRIOR_LEN bytes were initialized by the first replacement,
-    // and the capacity asserted above shows the smaller second replacement
-    // retains an allocation at least that long.
-    let allocation = unsafe { std::slice::from_raw_parts(slot.bytes.as_ptr(), PRIOR_LEN) };
-    assert!(allocation[..8].iter().all(|byte| *byte == 0xbb));
-    assert!(allocation[8..].iter().all(|byte| *byte == 0));
-
-    slot.clear();
-    // SAFETY: `clear` wipes the bytes and keeps the allocation the assertion
-    // above measured, whose first PRIOR_LEN bytes stay initialized.
-    let cleared = unsafe { std::slice::from_raw_parts(slot.bytes.as_ptr(), PRIOR_LEN) };
-    assert!(cleared.iter().all(|byte| *byte == 0));
-}
-
-#[test]
-fn dictionary_slots_have_exact_current_previous_and_generation_lifecycle() {
-    let cells = [test_cell('x'), test_cell('y'), test_cell('z')];
-    let frame = test_frame(
-        FrameKind::Delta,
-        3,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let dictionary_a = &test_dictionary("A terminal rows")[..];
-    let dictionary_b = &test_dictionary("B shell output")[..];
-    let dictionary_c = &test_dictionary("C prompt state")[..];
-    let dictionary_d = &test_dictionary("D next session")[..];
-    let (wire_a, hash_a) = dictionary_test_frame(&frame, 9, 1, dictionary_a);
-    let (wire_b, hash_b) = dictionary_test_frame(&frame, 9, 2, dictionary_b);
-    let (wire_c, hash_c) = dictionary_test_frame(&frame, 9, 3, dictionary_c);
-    let (wire_d, hash_d) = dictionary_test_frame(&frame, 10, 4, dictionary_d);
-    let mut terminal = Terminal::new(3, 1);
-
-    assert!(terminal.install_display_dictionary(9, 1, hash_a, dictionary_a));
-    assert_dictionary_stage(&mut terminal, &wire_a, true);
-
-    assert!(terminal.install_display_dictionary(9, 2, hash_b, dictionary_b));
-    assert_dictionary_stage(&mut terminal, &wire_a, true);
-    assert_dictionary_stage(&mut terminal, &wire_b, true);
-
-    // The boot -> regular -> styled atlas promotion path must not replace
-    // codec ownership. Exercise the actual production font APIs with the
-    // bundled faces, then prove both retained dictionary slots still decode.
-    let regular = include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf");
-    let bold = include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Bold.ttf");
-    let italic = include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Italic.ttf");
-    let bold_italic =
-        include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-BoldItalic.ttf");
-    terminal.set_regular_font_bytes(regular);
-    assert_dictionary_stage(&mut terminal, &wire_a, true);
-    assert_dictionary_stage(&mut terminal, &wire_b, true);
-    terminal.set_style_font_bytes(bold, italic, bold_italic);
-    assert_dictionary_stage(&mut terminal, &wire_a, true);
-    assert_dictionary_stage(&mut terminal, &wire_b, true);
-
-    // Repeated control delivery for either retained slot is idempotent and
-    // cannot demote the active dictionary or perturb eviction order.
-    assert!(terminal.install_display_dictionary(9, 1, hash_a, dictionary_a));
-    assert!(terminal.install_display_dictionary(9, 2, hash_b, dictionary_b));
-    assert_dictionary_stage(&mut terminal, &wire_a, true);
-    assert_dictionary_stage(&mut terminal, &wire_b, true);
-
-    // A rejected install leaves both valid slots untouched.
-    assert!(!terminal.install_display_dictionary(9, 3, hash_c ^ 1, dictionary_c));
-    assert_dictionary_stage(&mut terminal, &wire_a, true);
-    assert_dictionary_stage(&mut terminal, &wire_b, true);
-
-    // The third dictionary evicts exactly the oldest slot.
-    assert!(terminal.install_display_dictionary(9, 3, hash_c, dictionary_c));
-    assert_dictionary_stage(&mut terminal, &wire_a, false);
-    assert_dictionary_stage(&mut terminal, &wire_b, true);
-    assert_dictionary_stage(&mut terminal, &wire_c, true);
-
-    // A session-generation change hard-cuts both prior dictionaries.
-    assert!(terminal.install_display_dictionary(10, 4, hash_d, dictionary_d));
-    assert_dictionary_stage(&mut terminal, &wire_b, false);
-    assert_dictionary_stage(&mut terminal, &wire_c, false);
-    assert_dictionary_stage(&mut terminal, &wire_d, true);
-
-    // Authenticated epoch ownership is stricter than grid preservation:
-    // even the current dictionary becomes unavailable immediately.
-    terminal.clear_display_dictionaries();
-    assert_dictionary_stage(&mut terminal, &wire_d, false);
-}
-
-#[test]
 fn compressed_frame_rejects_oversized_advertised_rows_before_allocating() {
     let cells = [test_cell('z')];
     let frame = test_frame(
@@ -2110,7 +1854,7 @@ fn compressed_frame_rejects_oversized_advertised_rows_before_allocating() {
             cells: &cells,
         },
     );
-    let mut wire = compressed_test_frame(&frame, None);
+    let mut wire = compressed_test_frame(&frame);
     wire[DISPLAY_COMPRESSED_LENGTH_OFFSET..DISPLAY_COMPRESSED_LENGTH_OFFSET + 4]
         .copy_from_slice(&u32::MAX.to_be_bytes());
     let mut terminal = Terminal::new(1, 1);
@@ -2129,43 +1873,7 @@ fn compressed_frame_rejects_oversized_advertised_rows_before_allocating() {
 }
 
 #[test]
-fn compressed_frame_requires_one_exact_zstd_source() {
-    let cells = [test_cell('e'), test_cell('o'), test_cell('f')];
-    let frame = test_frame(
-        FrameKind::Delta,
-        3,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let wire = compressed_test_frame(&frame, None);
-    let compressed = wire[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..].to_vec();
-
-    let mut appended = wire.clone();
-    appended.push(0xa5);
-    restamp_test_body_len(&mut appended);
-    let mut terminal = Terminal::new(3, 1);
-    assert_eq!(stage_test_frame(&mut terminal, &appended), 0);
-    assert_eq!(
-        terminal.last_error.as_deref(),
-        Some("compressed_display_trailing_or_checksum")
-    );
-
-    let mut concatenated = wire;
-    concatenated.extend_from_slice(&compressed);
-    restamp_test_body_len(&mut concatenated);
-    assert_eq!(stage_test_frame(&mut terminal, &concatenated), 0);
-    assert_eq!(
-        terminal.last_error.as_deref(),
-        Some("compressed_display_trailing_or_checksum")
-    );
-}
-
-#[test]
-fn compressed_frame_rejects_a_truncated_payload_before_decode() {
+fn compressed_frame_refuses_a_truncated_payload() {
     let cells = [test_cell('c'); 64];
     let frame = test_frame(
         FrameKind::Delta,
@@ -2177,243 +1885,17 @@ fn compressed_frame_rejects_a_truncated_payload_before_decode() {
             cells: &cells,
         },
     );
-    let mut wire = compressed_test_frame(&frame, None);
+    let mut wire = compressed_test_frame(&frame);
     let mut payload = wire[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..].to_vec();
-    assert!(parse_zstd_frame_metadata(&payload).is_some());
     payload.pop();
     replace_plain_compressed_payload(&mut wire, &payload);
     let mut terminal = Terminal::new(64, 1);
     assert_eq!(stage_test_frame(&mut terminal, &wire), 0);
     assert_eq!(
         terminal.last_error.as_deref(),
-        Some("compressed_display_trailing_or_checksum")
+        Some("compressed_display_mz_invalid")
     );
-    assert_eq!(terminal.display_frame_decode_count, 0);
-}
-
-#[test]
-fn compressed_frame_rejects_more_than_the_merkur_window_before_decode() {
-    let cells = [test_cell('w')];
-    let frame = test_frame(
-        FrameKind::Delta,
-        1,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let mut wire = compressed_test_frame(&frame, None);
-    // Magicless, no single-segment/content-size/dictionary, and window
-    // descriptor exponent 12 => 2^(10+12) = 4 MiB.
-    replace_plain_compressed_payload(&mut wire, &[0x00, 0x60]);
-    let before_decode = {
-        let terminal = Terminal::new(1, 1);
-        terminal.display_frame_decode_count
-    };
-    let mut terminal = Terminal::new(1, 1);
-    assert_eq!(stage_test_frame(&mut terminal, &wire), 0);
-    assert_eq!(
-        terminal.last_error.as_deref(),
-        Some("compressed_display_window_too_large")
-    );
-    assert_eq!(terminal.display_frame_decode_count, before_decode);
-}
-
-#[test]
-fn merkur_maximum_legal_rows_fit_the_decoder_window_with_or_without_dictionary() {
-    let maximum_rows_bytes = usize::from(u16::MAX) - FRAME_HEADER_BODY_BYTES;
-    let input: Vec<u8> = (0..maximum_rows_bytes)
-        .map(|index| ((index * 31 + index / 97) & 0xff) as u8)
-        .collect();
-    let dictionary = test_dictionary("maximum legal receiver window");
-    let plain = display_test_compressor(None).compress(&input).unwrap();
-    let dictionary_compressed = display_test_compressor(Some(&dictionary))
-        .compress(&input)
-        .unwrap();
-
-    for payload in [&plain, &dictionary_compressed] {
-        let metadata = parse_zstd_frame_metadata(payload).expect("libzstd frame metadata");
-        assert_eq!(
-            zstd_frame_size(payload, metadata.header_len),
-            Some(payload.len())
-        );
-        assert!(
-            metadata.window_size <= DISPLAY_ZSTD_MAX_WINDOW_BYTES,
-            "window={} cap={DISPLAY_ZSTD_MAX_WINDOW_BYTES}",
-            metadata.window_size
-        );
-    }
-}
-
-#[test]
-fn a_payload_with_a_magic_content_size_or_checksum_is_refused_before_decode() {
-    use zstd::zstd_safe::CParameter;
-    let cells = [test_cell('s'); 32];
-    let frame = test_frame(
-        FrameKind::Delta,
-        32,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let rows = &frame[STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES..];
-    let split = merkur_codec::RowSplitter::default()
-        .split(rows, 1)
-        .unwrap()
-        .to_vec();
-    let standard = zstd::bulk::compress(&split, 3).unwrap();
-    let mut sized = display_test_compressor(None);
-    sized
-        .set_parameter(CParameter::ContentSizeFlag(true))
-        .unwrap();
-    let mut checksummed = display_test_compressor(None);
-    checksummed
-        .set_parameter(CParameter::ChecksumFlag(true))
-        .unwrap();
-    for payload in [
-        standard,
-        sized.compress(&split).unwrap(),
-        checksummed.compress(&split).unwrap(),
-    ] {
-        assert_eq!(parse_zstd_frame_metadata(&payload), None);
-        let mut wire = compressed_test_frame(&frame, None);
-        replace_plain_compressed_payload(&mut wire, &payload);
-        let mut terminal = Terminal::new(32, 1);
-        assert_eq!(stage_test_frame(&mut terminal, &wire), 0);
-        assert_eq!(
-            terminal.last_error.as_deref(),
-            Some("compressed_display_metadata_mismatch")
-        );
-        assert_eq!(terminal.display_frame_decode_count, 0);
-    }
-}
-
-#[test]
-fn the_split_payload_must_join_to_exactly_the_declared_rows() {
-    let cells = [test_cell('j'); 24];
-    let frame = test_frame(
-        FrameKind::Delta,
-        24,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let mut wire = compressed_test_frame(&frame, None);
-    let length_offset = DISPLAY_COMPRESSED_PAYLOAD_OFFSET - 4;
-    let declared = u32::from_be_bytes(
-        wire[length_offset..DISPLAY_COMPRESSED_PAYLOAD_OFFSET]
-            .try_into()
-            .unwrap(),
-    );
-    wire[length_offset..DISPLAY_COMPRESSED_PAYLOAD_OFFSET]
-        .copy_from_slice(&(declared + 1).to_be_bytes());
-    let mut terminal = Terminal::new(24, 1);
-    assert_eq!(stage_test_frame(&mut terminal, &wire), 0);
-    assert_eq!(
-        terminal.last_error.as_deref(),
-        Some("compressed_display_split_invalid")
-    );
-}
-
-#[test]
-fn outer_dictionary_tuple_must_name_the_embedded_zstd_dictionary() {
-    let cells = [test_cell('d'); 16];
-    let frame = test_frame(
-        FrameKind::Delta,
-        16,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let dictionary_a = test_dictionary("outer A");
-    let dictionary_b = test_dictionary("outer B");
-    let (mut wire, hash_a) = dictionary_test_frame(&frame, 9, 11, &dictionary_a);
-    let hash_b = (merkur_codec::hash_bytes(&dictionary_b) >> 32) as u32;
-    let mut terminal = Terminal::new(16, 1);
-    assert!(terminal.install_display_dictionary(9, 11, hash_a, &dictionary_a));
-    assert!(terminal.install_display_dictionary(9, 12, hash_b, &dictionary_b));
-
-    // The authenticated outer tuple selects B, while the zstd frame still
-    // embeds A's dictionary id. The reusable decoder has both dictionaries,
-    // so only the explicit identity comparison prevents silent cross-use.
-    wire[DISPLAY_COMPRESSED_LENGTH_OFFSET + 4..DISPLAY_COMPRESSED_LENGTH_OFFSET + 8]
-        .copy_from_slice(&12u32.to_be_bytes());
-    wire[DISPLAY_COMPRESSED_LENGTH_OFFSET + 8..DISPLAY_COMPRESSED_LENGTH_OFFSET + 12]
-        .copy_from_slice(&hash_b.to_be_bytes());
-    assert_eq!(stage_test_frame(&mut terminal, &wire), 0);
-    assert_eq!(
-        terminal.last_error.as_deref(),
-        Some("compressed_display_metadata_mismatch")
-    );
-}
-
-#[test]
-fn outer_dictionary_flag_must_match_embedded_zstd_state() {
-    let cells = [test_cell('m'); 16];
-    let frame = test_frame(
-        FrameKind::Delta,
-        16,
-        RowRef {
-            graphics: &[],
-            row_index: 0,
-            left: 0,
-            cells: &cells,
-        },
-    );
-    let dictionary = test_dictionary("outer dictionary state");
-    let hash = (merkur_codec::hash_bytes(&dictionary) >> 32) as u32;
-    let mut terminal = Terminal::new(16, 1);
-    assert!(terminal.install_display_dictionary(1, 7, hash, &dictionary));
-
-    let mut plain_claiming_dictionary = compressed_test_frame(&frame, None);
-    plain_claiming_dictionary[DISPLAY_HEADER_FLAGS_OFFSET] |=
-        DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT;
-    plain_claiming_dictionary.splice(
-        DISPLAY_COMPRESSED_PAYLOAD_OFFSET..DISPLAY_COMPRESSED_PAYLOAD_OFFSET,
-        [7u32.to_be_bytes(), hash.to_be_bytes()].concat(),
-    );
-    restamp_test_body_len(&mut plain_claiming_dictionary);
-    assert_eq!(
-        stage_test_frame(&mut terminal, &plain_claiming_dictionary),
-        0
-    );
-    assert_eq!(
-        terminal.last_error.as_deref(),
-        Some("compressed_display_metadata_mismatch")
-    );
-
-    let (mut dictionary_without_outer_flag, _) = dictionary_test_frame(&frame, 1, 7, &dictionary);
-    dictionary_without_outer_flag[DISPLAY_HEADER_FLAGS_OFFSET] &=
-        !DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT;
-    assert_eq!(
-        stage_test_frame(&mut terminal, &dictionary_without_outer_flag),
-        0
-    );
-    // Without the flag the payload is read eight bytes early, from the
-    // dictionary tuple. A magicless frame has no magic number to refuse
-    // there, so the refusal is whichever check that misread first fails:
-    // the frame header or the block walk. Nothing is decoded either way.
-    assert!(
-        matches!(
-            terminal.last_error.as_deref(),
-            Some("compressed_display_metadata_mismatch")
-                | Some("compressed_display_trailing_or_checksum")
-        ),
-        "{:?}",
-        terminal.last_error
-    );
-    assert_eq!(terminal.display_frame_decode_count, 0);
+    assert_eq!(terminal.staged_active_decoded_bytes, 0);
 }
 
 #[test]
@@ -2422,7 +1904,7 @@ fn expanded_staging_budget_and_handle_arena_plateau() {
     const ROWS: u16 = 192;
     let fill: Vec<(u16, char)> = (0..ROWS).map(|row| (row, 'r')).collect();
     let frame = text_rows_frame(FrameKind::Delta, COLS, ROWS, &fill);
-    let wire = compressed_test_frame(&frame, None);
+    let wire = compressed_test_frame(&frame);
     let mut terminal = Terminal::new(COLS, ROWS);
     let first = stage_test_frame(&mut terminal, &wire);
     let second = stage_test_frame(&mut terminal, &wire);
@@ -2472,7 +1954,7 @@ fn invalid_staged_handles_report_the_failed_ownership_boundary() {
             let mut terminal = Terminal::new(4, 3);
             let frame = text_rows_frame(FrameKind::Delta, 4, 3, &[(0, 'x')]);
             let frame = if compressed {
-                compressed_test_frame(&frame, None)
+                compressed_test_frame(&frame)
             } else {
                 frame
             };
@@ -2521,12 +2003,12 @@ fn released_staging_slot_cannot_alias_two_queued_datagrams() {
         let first = text_rows_frame(FrameKind::Delta, 8, 2, &[(0, 'a')]);
         let second = text_rows_frame(FrameKind::Delta, 8, 2, &[(1, 'b')]);
         let first = if compressed {
-            compressed_test_frame(&first, None)
+            compressed_test_frame(&first)
         } else {
             first
         };
         let second = if compressed {
-            compressed_test_frame(&second, None)
+            compressed_test_frame(&second)
         } else {
             second
         };
@@ -6027,7 +5509,7 @@ fn identical_newer_rows_advance_authority_without_damage_across_wrap() {
             terminal.refresh_row_hashes();
             let revision = terminal.authoritative_revision;
             if compressed {
-                let wire = compressed_test_frame(&frame, None);
+                let wire = compressed_test_frame(&frame);
                 let handle = stage_test_frame(&mut terminal, &wire);
                 assert_ne!(handle, 0);
                 assert!(terminal.apply_presented_staged_delta_seq(handle, seq));

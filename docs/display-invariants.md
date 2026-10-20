@@ -56,8 +56,8 @@ ACKed.
 ## Graphics row authority
 
 A row entry carries its complete graphics replacement, even when its text span is
-partial. Absence clears graphics; no entry depends on another packet's dictionary or
-mutable placement definition. Raw and streamed decoders validate the full entry before
+partial. Absence clears graphics; no entry depends on another packet's mutable placement
+definition, and an MZ reference never names a row with graphics. Raw and streamed decoders validate the full entry before
 application. Descriptors participate in received row hashes and row ordering independently
 of pixel residency. Eligible descriptors change only at the presentation commit.
 Logical multi-chunk prevalidation also retains every graphics replacement under its
@@ -432,7 +432,7 @@ on the wire and after decompression. The staged stream envelope carries a 32-bit
 length and a reliable record a 32-bit record length, so a reliable frame can preserve an
 indivisible row beyond 64 KiB. WASM ingress,
 raw validation and decompression enforce the same frame ceiling; aggregate
-staging quotas remain separate. zstd history is also bounded to 2 MiB before decoding.
+staging quotas remain separate.
 The browser frame ring reserves two maximum aligned slots plus sentinel and metadata
 space, ensuring a maximum frame fits at any empty-ring cursor without a wrapped payload
 copy or an intermediate buffer.
@@ -448,59 +448,26 @@ and noncritical domains.
 
 ## Compression
 
-Display bodies are compressed with zstd, and both ends link the C library. The daemon
-encodes with `zstd`, plus `zstd-sys` directly for `ZDICT_finalizeDictionary`, which the safe
-wrapper does not expose. `term-wasm` decodes through `zstd-safe` with libzstd compiled to
-wasm32, so the WASM build compiles C for wasm32 with Bazel's LLVM (`//tools/bazel/wasm`).
-
-A compressed payload holds the rows in their stream-split layout
-(`merkur_codec::RowSplitter`), not the row layout: like fields of every row travel together
-(row indices, `left` fields, cell counts, colour modes, link tables, graphics sections, cell tags,
-codepoints with their run lengths, colours), and the row byte count is dropped because the join
-recomputes it. One entropy distribution per field is what makes it smaller than compressing the
-row layout. The zstd frame is magicless, with a window descriptor and no frame content size or
-checksum: the envelope already says the payload is zstd, carries the row-body length, and the
-Noise AEAD authenticates every byte. The browser parses that header before decoding, refuses
-any other frame dialect and any window above its bound, walks the block headers to prove the
-payload is exactly one frame, decodes one-shot into a reusable split buffer, and joins it into a
-reusable rows buffer that must come out exactly the declared length; the one row validator then
-reads it. Nothing is allocated per frame. Level 3 and the 16 KiB dictionary cap are measured
-knees, with the measurements recorded in `apps/daemon/dataplane/src/display/compressor.rs`; do
-not round them off. Raw (uncompressed) frames keep the row layout.
-
-Compression dictionaries are per peer and *finalized*, not raw recent content. The content is
-the current screen in the form frames carry it: rows grouped to one datagram's worth, each group
-split on its own, newest groups up to the cap. Finalizing buys pre-computed entropy tables and,
-more importantly, stamps a dictionary id into every frame header, so a diverged dictionary is
-rejected outright instead of decoding to plausible garbage. Install
-rides the reliable CTRL lane and is a three-step exchange: the browser signals readiness
-(`MSG_TYPE_DISPLAY_DICT_READY` (`0x2b`)), the daemon installs
-(`MSG_TYPE_DISPLAY_DICT_INSTALL` (`0x2d`)), and the daemon must not compress against
-that dictionary until the browser acknowledges it
-(`MSG_TYPE_DISPLAY_DICT_ACK` (`0x2c`)): a successful reliable write is not evidence of install.
-Neither the install nor its ACK is ever sent again, so neither is lost between the browser's workers: an install the
-full frame ring refuses waits in the transport worker until the terminal worker's drain posts
-`FRAME_RING_SPACE_EDGE`, and an ACK the full viewer-output ring refuses waits in the
-terminal worker until the transport worker's drain posts `VIEWER_OUTPUT_SPACE_EDGE`. Both use the
-input routing word's counted-refusal handshake (`docs/transport.md`, Input Records), and no
-timer retries either. Readiness starts clear
-on every authentication because the browser's dictionary lives in a terminal worker that
-can be replaced while the transport survives. The browser retains the current *and*
-immediately previous dictionary, because display datagrams can overtake the install on
-the reliable lane. A peer holding no dictionary is a normal state, not a fallback path.
-
-### MZ
-
-Every compression attempt also codes the frame as MZ (`merkur_codec::mz`), and the smaller of
-the two payloads is kept: an exact choice, never a prediction of which would win. MZ is one
-rANS stream over the row layout in its natural order, every field coded in its own context
-against a static model compiled into both ends (`mz/model_data.rs`, regenerated by
-`mz_train_model` in the display simulator from recorded sessions), so there is nothing to
-install, acknowledge or keep in step. The decoder writes row-layout bytes for the one row
-validator; a frame with graphics rows is never MZ. An MZ frame (`DISPLAY_HEADER_FLAG_COMPRESSED_MZ`)
-carries the decoded row length like a zstd frame and never sets the zstd flag. A payload whose
+A compressed display body is an MZ payload (`merkur_codec::mz`), the one payload codec; a frame
+MZ would not shrink travels raw. MZ is one rANS stream over the row layout in its natural order,
+every field coded in its own context against a static model compiled into both ends
+(`mz/model_data.rs`, regenerated by `mz_train_model` in the display simulator from recorded
+sessions), so there is nothing to install, acknowledge or keep in step between the ends. A
+cell's colour is first a decision whether it repeats its slot's previous colour, so a styled run
+of differing glyphs costs a fraction of a bit per colour whatever the colour; any other colour is
+coded byte by byte. A graphics row's section is coded after its cells. The decoder writes
+row-layout bytes for the one row validator, into a reusable rows buffer bounded by the
+envelope's row-body length, which it must fill exactly. A compressed frame
+(`DISPLAY_HEADER_FLAG_COMPRESSED_MZ`) carries that length behind its header. A payload whose
 states do not end where the encoder began, or that does not consume exactly its bytes, is
-corrupt (prevents a malformed payload decoding to a plausible frame).
+corrupt (prevents a malformed payload decoding to a plausible frame). Nothing is allocated per
+frame.
+
+The static model makes every coded byte a function of the model: the browser receiver
+calibration's MZ fixtures (`display-receiver-calibration-fixtures.ts`) and the terminal worker
+test's grids (`display-mz-grids.json`) are generated from it, and `packages/display-fixture`
+fails when either drifts from the model (prevents a retrained model failing the browser's
+calibration).
 
 An MZ entry may stand in for a literal with a reference: datagram `presentation_id - delta`,
 source row, 32-bit row hash, written by the receiver as a complete row for the target. The
@@ -512,9 +479,10 @@ encoder takes a reference only when it codes smaller than the literal.
   whole, read back from the grid right after the entry that starts it, exactly as the row hash
   reads it; an entry written only partly breaks the chain. A chain holds at most 32 spans past
   its complete row, so a reference costs a bounded rebuild. History clears with the ordering
-  epoch, the geometry and the session's codec state; a row drops a whole chain once every
-  record in it is older than `MZ_HISTORY_DATAGRAMS` (prevents a reference reading content a
-  later writer changed).
+  epoch, the geometry and a session boundary that kept no grid, the boundary at which the
+  daemon's resume answer is a snapshot that clears its index; a row drops a whole chain once
+  every record in it is older than `MZ_HISTORY_DATAGRAMS` (prevents a reference reading content
+  a later writer changed).
 - **A source is acknowledged and was not skipped.** The daemon indexes a row a datagram carried
   only when that datagram's ACK arrived before any newer send of the row: every later send then
   reached the browser after it, so the browser applied that entry rather than skipping it as

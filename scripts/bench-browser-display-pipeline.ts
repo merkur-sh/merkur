@@ -1,6 +1,6 @@
 /**
  * Production browser display pipeline:
- * frame-ring receipt -> parse/zstd WASM decode -> terminal WASM apply -> geometry.
+ * frame-ring receipt -> parse/MZ WASM decode -> terminal WASM apply -> geometry.
  */
 import path from 'node:path';
 import {
@@ -37,12 +37,10 @@ import {
   DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
   DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET,
   DISPLAY_DEMAND_SERIAL_OFFSET,
-  DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET,
   DISPLAY_FRAME_ID_OFFSET,
   DISPLAY_GENERATION_OFFSET,
   DISPLAY_GRID_ROWS_OFFSET,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
+  DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
   DISPLAY_MESSAGE_TYPE_OFFSET,
   DISPLAY_PATCH_FLAG_RESET,
   DISPLAY_PATCH_FLAGS_OFFSET,
@@ -59,17 +57,16 @@ import {
 } from '../packages/shared/src';
 import { createViewerDriver } from './perf/client-viewer-driver';
 import { loadBenchmarkTerminal } from './perf/declared-terminal';
-import { createTextRowBody, trainFixtureDictionary } from './perf/display-text-rows';
+import { displayFixtureExecutable } from './perf/display-fixture';
 import { createGeometryCountReader } from './perf/geometry-counts';
 import { emitPerfMetric, summarizeSamples } from './perf/harness';
-import { zstdFixtureExecutable } from './perf/zstd-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SAMPLES = positiveInteger('BENCH_SAMPLES', 1_000);
 const WARMUPS = positiveInteger('BENCH_WARMUPS', 100);
 const SKIP_GEOMETRY = process.env.BENCH_SKIP_GEOMETRY === '1';
 const SCENARIO = process.argv[2] ?? process.env.BENCH_BROWSER_SCENARIO ?? 'compressed-full';
-const FIXTURE_BINARY = zstdFixtureExecutable();
+const FIXTURE_BINARY = displayFixtureExecutable();
 
 const { wasm, runtime: wasmRuntime, terminal } = await loadBenchmarkTerminal(960, 640);
 let frameInputPtr = 0;
@@ -92,9 +89,7 @@ const calibrationError = runDisplayReceiverCalibrationSynchronously(
   {
     destroy: () => calibrationTerminal.free(),
     applyDelta: (data, frameSeq) => calibrationTerminal.apply_delta_seq(data, frameSeq),
-    installDisplayDictionary: (generation, id, hash, bytes) =>
-      calibrationTerminal.install_display_dictionary(generation, id, hash, bytes),
-    clearDisplayDictionaries: () => calibrationTerminal.clear_display_dictionaries(),
+    clearDisplayHistory: () => calibrationTerminal.clear_display_history(),
     stageDisplayFrame: (data) => {
       if (data.byteLength > calibrationFrameInputCapacity) {
         calibrationFrameInputPtr = calibrationTerminal.reserve_display_frame_input(data.byteLength);
@@ -133,14 +128,6 @@ if (!terminal.apply_state_seq(initial, 0)) {
 }
 const rawDelta = createBlankFrame(cols, rows, 0, SCENARIO.endsWith('one-row') ? 1 : rows);
 const compressed = createCompressedDisplayFrame(rawDelta);
-const receiverDictionary =
-  SCENARIO === 'compressed-full' ? createBenchmarkDictionary(16 * 1024) : null;
-if (
-  receiverDictionary !== null &&
-  !terminal.install_display_dictionary(1, 1, receiverDictionary.hash, receiverDictionary.bytes)
-) {
-  throw new Error(`browser pipeline dictionary install failed: ${terminal.take_last_error()}`);
-}
 const wireFrame =
   SCENARIO === 'raw-one-row' ? rawDelta : SCENARIO.startsWith('raw-') ? rawDelta : compressed;
 const ring = new SharedArrayBuffer(FRAME_RING_SIZE);
@@ -186,18 +173,13 @@ if (copiedBytesPerPayloadByte !== expectedCopiesPerPayloadByte) {
   );
 }
 const receiverSurface =
-  receiverDictionary === null
+  SCENARIO !== 'compressed-full'
     ? []
     : [1, 2, 4, 8, 16, rows]
         .filter((encodedRows, index, sizes) => sizes.indexOf(encodedRows) === index)
-        .flatMap((encodedRows) => {
+        .map((encodedRows) => {
           const raw = createBlankFrame(cols, rows, 0, encodedRows);
-          const plain = createCompressedDisplayFrame(raw);
-          const dictionary = createCompressedDisplayFrame(raw, receiverDictionary);
-          return [
-            benchmarkReceiverRepresentation(raw, plain, false),
-            benchmarkReceiverRepresentation(raw, dictionary, true),
-          ];
+          return benchmarkReceiverRepresentation(raw, createCompressedDisplayFrame(raw));
         });
 viewerDriver.close();
 terminal.free();
@@ -281,18 +263,17 @@ for (const [name, value, unit] of [
   });
 }
 for (const point of receiverSurface) {
-  const dictionaryClass = point.dictionary ? 'dict' : 'plain';
   process.stdout.write(
     `receiver surface raw=${point.rawBytes}B wire=${point.wireBytes}B ` +
-      `ratio=${(point.wireBytes / point.rawBytes).toFixed(3)} dict=${point.dictionary ? 'yes' : 'no'} ` +
+      `ratio=${(point.wireBytes / point.rawBytes).toFixed(3)} ` +
       `raw-p50=${point.raw.median.toFixed(6)}ms fused-p50=${point.fused.median.toFixed(6)}ms ` +
       `incremental-p50=${point.incremental.median.toFixed(6)}ms ` +
       `incremental-p95=${point.incremental.p95.toFixed(6)}ms\n`,
   );
   for (const [suffix, summary] of [
-    [`raw-paired-${dictionaryClass}`, point.raw],
-    [`fused-${dictionaryClass}`, point.fused],
-    [`incremental-${dictionaryClass}`, point.incremental],
+    ['raw-paired', point.raw],
+    ['fused', point.fused],
+    ['incremental', point.incremental],
   ] as const) {
     for (const [percentile, value] of [
       [0.5, summary.median],
@@ -309,7 +290,7 @@ for (const point of receiverSurface) {
     }
   }
   emitPerfMetric({
-    name: `browser-display-receiver-wire-ratio-${dictionaryClass}-${point.rawBytes}`,
+    name: `browser-display-receiver-wire-ratio-${point.rawBytes}`,
     value: point.wireBytes / point.rawBytes,
     unit: 'ratio',
     direction: 'lower',
@@ -362,11 +343,9 @@ function stageDisplayFrame(payload: Uint8Array): number {
 function benchmarkReceiverRepresentation(
   raw: Uint8Array,
   wire: Uint8Array,
-  dictionary: boolean,
 ): {
   rawBytes: number;
   wireBytes: number;
-  dictionary: boolean;
   raw: ReturnType<typeof summarizeSamples>;
   fused: ReturnType<typeof summarizeSamples>;
   incremental: ReturnType<typeof summarizeSamples>;
@@ -406,7 +385,6 @@ function benchmarkReceiverRepresentation(
   return {
     rawBytes: raw.byteLength,
     wireBytes: wire.byteLength,
-    dictionary,
     raw: summarizeSamples(rawSamples),
     fused: summarizeSamples(fusedSamples),
     incremental: summarizeSamples(incrementalSamples),
@@ -495,84 +473,27 @@ function createBlankFrame(
   return frame;
 }
 
-interface BenchmarkDictionary {
-  readonly bytes: Uint8Array;
-  readonly hash: number;
-}
-
-function createCompressedDisplayFrame(
-  raw: Uint8Array,
-  dictionary?: BenchmarkDictionary,
-): Uint8Array {
-  const input =
-    dictionary === undefined
-      ? raw.subarray(DISPLAY_ROWS_OFFSET)
-      : concatenate(dictionary.bytes, raw.subarray(DISPLAY_ROWS_OFFSET));
-  const result = Bun.spawnSync(
-    dictionary === undefined
-      ? [FIXTURE_BINARY]
-      : [FIXTURE_BINARY, `--dictionary-bytes=${dictionary.bytes.byteLength}`],
-    {
-      cwd: ROOT,
-      stdin: input,
-      stdout: 'pipe',
-      stderr: 'inherit',
-    },
-  );
-  if (result.exitCode !== 0) throw new Error('zstd fixture compression failed');
-  const fixture = new Uint8Array(result.stdout);
-  const block = dictionary === undefined ? fixture : fixture.subarray(4);
-  const payloadOffset =
-    dictionary === undefined
-      ? DISPLAY_COMPRESSED_PAYLOAD_OFFSET
-      : DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET;
-  const out = new Uint8Array(payloadOffset + block.byteLength);
+function createCompressedDisplayFrame(raw: Uint8Array): Uint8Array {
+  const result = Bun.spawnSync([FIXTURE_BINARY], {
+    cwd: ROOT,
+    stdin: raw.subarray(DISPLAY_ROWS_OFFSET),
+    stdout: 'pipe',
+    stderr: 'inherit',
+  });
+  if (result.exitCode !== 0) throw new Error('display fixture compression failed');
+  const block = new Uint8Array(result.stdout);
+  const out = new Uint8Array(DISPLAY_COMPRESSED_PAYLOAD_OFFSET + block.byteLength);
   out.set(raw.subarray(0, DISPLAY_ROWS_OFFSET));
   out[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] =
-    (out[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] ?? 0) | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD;
-  if (dictionary !== undefined) {
-    out[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT;
-    writeU32BE(out, DISPLAY_GENERATION_OFFSET, 1);
-    writeU32BE(out, DISPLAY_COMPRESSED_LENGTH_OFFSET + 4, 1);
-    writeU32BE(out, DISPLAY_COMPRESSED_LENGTH_OFFSET + 8, dictionary.hash);
-  }
+    (out[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] ?? 0) | DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
   writeU32BE(
     out,
     DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
     out.byteLength - DISPLAY_STREAM_HEADER_BYTES,
   );
   writeU32BE(out, DISPLAY_COMPRESSED_LENGTH_OFFSET, raw.byteLength - DISPLAY_ROWS_OFFSET);
-  out.set(block, payloadOffset);
+  out.set(block, DISPLAY_COMPRESSED_PAYLOAD_OFFSET);
   return out;
-}
-
-function createBenchmarkDictionary(size: number): BenchmarkDictionary {
-  // The fixture hashes the dictionary while compressing a one-cell row.
-  const bytes = trainFixtureDictionary(FIXTURE_BINARY, ROOT, cols, size, 0x2468_ace0);
-  const hashResult = Bun.spawnSync([FIXTURE_BINARY, `--dictionary-bytes=${bytes.byteLength}`], {
-    cwd: ROOT,
-    stdin: concatenate(
-      bytes,
-      createTextRowBody(1, 1, () => 0x20),
-    ),
-    stdout: 'pipe',
-    stderr: 'inherit',
-  });
-  if (hashResult.exitCode !== 0 || hashResult.stdout.byteLength < 4) {
-    throw new Error('zstd fixture dictionary hash failed');
-  }
-  const output = new Uint8Array(hashResult.stdout);
-  return {
-    bytes,
-    hash: new DataView(output.buffer, output.byteOffset, 4).getUint32(0, false),
-  };
-}
-
-function concatenate(first: Uint8Array, second: Uint8Array): Uint8Array {
-  const joined = new Uint8Array(first.byteLength + second.byteLength);
-  joined.set(first, 0);
-  joined.set(second, first.byteLength);
-  return joined;
 }
 
 function writeU16(target: Uint8Array, offset: number, value: number): void {

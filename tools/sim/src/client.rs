@@ -242,8 +242,6 @@ async fn present(
                 viewer::Output::ResyncRows { generation, rows } => {
                     Command::ResyncRows { generation, rows }
                 }
-                viewer::Output::DictionaryReady(ready) => Command::DictionaryReady(ready),
-                viewer::Output::DictionaryAck(id) => Command::DictionaryAck(id),
                 viewer::Output::GraphicsDemand { epoch, demands } => {
                     Command::GraphicsDemand { epoch, demands }
                 }

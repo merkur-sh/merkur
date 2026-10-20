@@ -550,9 +550,9 @@ pub(crate) async fn finish_identity_signature(
 }
 
 /// Revive display/input state after a fresh hybrid exchange. Every
-/// connection-specific key, transcript, tunnel, reorder buffer, and dictionary
-/// capability is reset; only terminal-view state and input sequence continuity
-/// may cross the reconnect boundary.
+/// connection-specific key, transcript, tunnel and reorder buffer is reset;
+/// only terminal-view state and input sequence continuity may cross the
+/// reconnect boundary.
 ///
 /// Every carrier the preserved peer held is dead, exactly as on a rebind, and
 /// the peer may come straight from the live map: the daemon holds a peer whose
@@ -636,8 +636,6 @@ pub(crate) fn splice_resumed_peer(
     peer.pending_input_ack = None;
     peer.snapshot_retry_at_ms = 0.0;
     peer.snapshot_consecutive_failures = 0;
-    peer.display_dictionary_ready = false;
-    peer.dictionary.reset();
 
     let prior_edge_rtt = peer.paths.edge.rtt_ewma_ms;
     let prior_edge_network_rtt = peer.paths.edge.network_rtt_ewma_ms;

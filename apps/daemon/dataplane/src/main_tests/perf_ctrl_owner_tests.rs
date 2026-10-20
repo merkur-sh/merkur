@@ -14,7 +14,7 @@ async fn ignored_perf_configuration_never_lends_another_owner_trace_token() {
         peer.signal_session_id = "original-session".into();
         registry.peers.insert(id.into(), peer);
     }
-    let (mut prepare, _prepare_rx, _snapshot_rx, _dictionary_rx) = start_display_prepare_worker();
+    let (_prepare, _prepare_rx, _snapshot_rx) = start_display_prepare_worker();
     let start = Instant::now();
     let network = Arc::new(RwLock::new(NetworkState::new()));
     let mut timing = PerfTimingTracker::default();
@@ -60,7 +60,6 @@ async fn ignored_perf_configuration_never_lends_another_owner_trace_token() {
             &mut terminal,
             &event_tx,
             &mut registry,
-            &mut prepare,
             start,
             &network,
             &[],

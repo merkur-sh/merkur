@@ -2,8 +2,7 @@
 //! between the transport and the renderer. It applies display frames to a
 //! terminal grid, rebuilds lost ones from FEC, answers the daemon's row-hash
 //! digest, keeps the selective display ACK and issues presentation grants;
-//! dictionaries, input routing, epochs and presentation transactions build on
-//! it.
+//! input routing, epochs and presentation transactions build on it.
 
 // A latency path: the viewer waits on the event itself, never on a clock. `clippy.toml` lists
 // the timer calls this denies.

@@ -4,9 +4,6 @@
     "apps/daemon/dataplane/benches/fec.rs": {
       "clippy::cast_possible_truncation": 1
     },
-    "apps/daemon/dataplane/benches/zstd.rs": {
-      "clippy::cast_possible_truncation": 5
-    },
     "apps/daemon/dataplane/src/assets.rs": {
       "clippy::cast_possible_truncation": 3,
       "clippy::let_underscore_must_use": 3,
@@ -834,12 +831,6 @@
       "clippy::cast_sign_loss": 14,
       "clippy::indexing_slicing": 5
     },
-    "packages/merkur-codec/src/split.rs": {
-      "clippy::cast_possible_truncation": 11,
-      "clippy::indexing_slicing": 44,
-      "clippy::map_err_ignore": 2,
-      "clippy::too_many_lines": 2
-    },
     "packages/merkur-codec/src/stream.rs": {
       "clippy::expect_used": 1,
       "clippy::indexing_slicing": 9
@@ -1163,10 +1154,6 @@
       "clippy::cast_possible_truncation": 44,
       "clippy::let_underscore_must_use": 2,
       "clippy::too_many_lines": 1
-    },
-    "packages/zstd-fixture/src/main.rs": {
-      "clippy::cast_possible_truncation": 2,
-      "clippy::map_err_ignore": 3
     }
   }
 }

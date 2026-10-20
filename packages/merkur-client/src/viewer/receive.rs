@@ -26,9 +26,9 @@ use merkur_codec::{
 };
 use merkur_wire::protocol::{
     CHANNEL_CTRL, CHANNEL_DISPLAY_COMMIT, CHANNEL_DISPLAY_DATAGRAM, DISPLAY_ACK_MASK_WORDS,
-    DisplayAckPayload, MSG_TYPE_DISPLAY_DICT_INSTALL, MSG_TYPE_DISPLAY_HASH_DIGEST,
-    MSG_TYPE_DISPLAY_LINK_TABLE, MSG_TYPE_DISPLAY_REPAIR_END, MSG_TYPE_EDITOR_ANCHOR,
-    MSG_TYPE_INPUT_ROUTING, decode_proto_frame,
+    DisplayAckPayload, MSG_TYPE_DISPLAY_HASH_DIGEST, MSG_TYPE_DISPLAY_LINK_TABLE,
+    MSG_TYPE_DISPLAY_REPAIR_END, MSG_TYPE_EDITOR_ANCHOR, MSG_TYPE_INPUT_ROUTING,
+    decode_proto_frame,
 };
 
 use super::ack_window::AckWindow;
@@ -83,11 +83,9 @@ pub trait DisplayGrid {
     fn row_hashes(&mut self) -> &[u64];
     /// The sequence of the newest frame that wrote this row; 0 for none.
     fn row_version(&self, row: u16) -> u32;
-    /// Install a finalized zstd dictionary whose bytes hash to `hash`; false
-    /// refuses it, and the daemon then never compresses against it.
-    fn install_dictionary(&mut self, generation: u32, id: u32, hash: u32, bytes: &[u8]) -> bool;
-    /// An authenticated session boundary: codec state never follows the grid.
-    fn clear_dictionaries(&mut self);
+    /// An authenticated session boundary that kept no grid: the row history
+    /// MZ references read never follows it.
+    fn clear_history(&mut self);
     fn cols(&self) -> u16;
     /// Whether the last apply changed what the grid would show.
     fn last_apply_visually_changed(&self) -> bool;
@@ -198,11 +196,6 @@ pub enum Output {
     /// Rows of `generation` whose hashes disagree with the daemon's digest:
     /// it disowns them and re-sends them complete.
     ResyncRows { generation: u32, rows: Vec<u16> },
-    /// Whether the grid takes compression dictionaries, once per session.
-    DictionaryReady(bool),
-    /// The grid holds dictionary `id`: the daemon may compress against it.
-    /// The daemon never re-sends an install, so this must reach it.
-    DictionaryAck(u32),
     /// What the grid can tell a new session's daemon about itself.
     Resume(DisplayResume),
     /// The assets the presented scene of display lineage `epoch` needs.
@@ -244,8 +237,6 @@ pub struct Stats {
     pub recovered: u64,
     /// Rows a digest showed diverged, asked for again.
     pub resync_rows: u64,
-    /// Compression dictionaries the grid accepted.
-    pub dictionaries: u64,
     /// Frames refused because the grid could not rebuild a row they named.
     pub references_unresolved: u64,
     /// Applied states the grid committed for the host to show.
@@ -860,16 +851,12 @@ impl<G: DisplayGrid> Viewer<G> {
         self.deferred = None;
         self.deferred_at_ms = None;
         self.owed.clear();
-        // The daemon keeps its dictionaries exactly when the claim carries row
-        // hashes, so a kept grid keeps its dictionaries and the acks it still
-        // owes for them.
-        if preserve {
-            self.control
-                .retain(|output| matches!(output, Output::DictionaryAck(_)));
-        } else {
-            self.grid.clear_dictionaries();
-            self.control.clear();
+        // The daemon keeps the references it may send exactly when the claim
+        // carries row hashes, so a kept grid keeps the history they read.
+        if !preserve {
+            self.grid.clear_history();
         }
+        self.control.clear();
         // States in flight on the replaced carrier never arrive; the daemon
         // grants itself one state past its newest across the same boundary.
         self.demand.reset_session();
@@ -898,7 +885,6 @@ impl<G: DisplayGrid> Viewer<G> {
         if self.resync_pending {
             self.control.push_back(Output::SnapshotRequest);
         }
-        self.control.push_back(Output::DictionaryReady(true));
         self.project_graphics(now_ms);
         if preserve && !superseded {
             self.repaint_hold.arm(fence.lineage);
@@ -950,7 +936,6 @@ impl<G: DisplayGrid> Viewer<G> {
                     self.links.receive(body);
                 }
                 Some((MSG_TYPE_DISPLAY_HASH_DIGEST, body)) => self.on_digest(now_ms, body),
-                Some((MSG_TYPE_DISPLAY_DICT_INSTALL, body)) => self.on_dictionary_install(body),
                 Some((MSG_TYPE_INPUT_ROUTING, body)) => self.on_input_routing(body),
                 Some((MSG_TYPE_DISPLAY_REPAIR_END, body)) => self.on_repair_end(now_ms, body),
                 Some((MSG_TYPE_EDITOR_ANCHOR, body)) => {
@@ -2186,27 +2171,6 @@ impl<G: DisplayGrid> Viewer<G> {
                 .set_input_routing(u16::from_be_bytes([body[12], body[13]]));
             self.prediction
                 .observe_mode(&mut self.grid, self.epoch_reset);
-        }
-    }
-
-    /// `[generation:4][id:4][hash:4][len:2][bytes]`. The grid verifies the
-    /// hash and that the bytes are a finalized dictionary before it holds
-    /// them, and only then may the daemon compress against it.
-    fn on_dictionary_install(&mut self, body: &[u8]) {
-        let Some((header, bytes)) = body.split_at_checked(14) else {
-            return;
-        };
-        let field = |at: usize| u32::from_be_bytes(header[at..at + 4].try_into().expect("u32"));
-        if usize::from(u16::from_be_bytes([header[12], header[13]])) != bytes.len() {
-            return;
-        }
-        let id = field(4);
-        if !self.grid.install_dictionary(field(0), id, field(8), bytes) {
-            return;
-        }
-        self.stats.dictionaries += 1;
-        if !self.control.contains(&Output::DictionaryAck(id)) {
-            self.control.push_back(Output::DictionaryAck(id));
         }
     }
 

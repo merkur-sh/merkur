@@ -36,7 +36,7 @@
     "crate": "term-wasm",
     "tests": [
       "tests::fuzz::fuzz_display_ingress",
-      "tests::fuzz::fuzz_display_zstd",
+      "tests::fuzz::fuzz_display_mz",
       "tests::fuzz::fuzz_display_roundtrip"
     ],
     "maxLength": 4096

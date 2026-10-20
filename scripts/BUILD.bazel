@@ -37,7 +37,7 @@ bun_tests(
         "@openssl//:openssl": "openssl",
         "@redis//:redis-server": "redis-server",
         "//packages/merkur-client:browser_session_oracle": "browser_session_oracle",
-        "//packages/zstd-fixture": "zstd-fixture",
+        "//packages/display-fixture": "display-fixture",
     },
     tests = glob(
         ["**/*.test.ts"],

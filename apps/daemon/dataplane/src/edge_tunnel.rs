@@ -3034,7 +3034,7 @@ pub(crate) async fn connected_interactive_test_tunnel()
 /// region and read back exact allocation counts and requested bytes; the
 /// A separate constant-initialized thread-local scope isolates actual worker
 /// service from concurrent owner/channel allocations. These counters observe
-/// Rust's allocator requests, not allocations internal to the C zstd library.
+/// Rust's allocator requests, not allocations internal to a C library.
 #[cfg(test)]
 pub(crate) mod test_allocations {
     use std::alloc::{GlobalAlloc, Layout, System};
