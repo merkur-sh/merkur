@@ -24,8 +24,9 @@ pub const MZ_HISTORY_CELLS: u64 = (32 << 20) / std::mem::size_of::<CellRepr>() a
 /// that was declared lost long before and is resent.
 pub fn mz_reference_datagrams(cols: u16, rows: u16) -> u32 {
     let grid = u64::from(cols.max(1)) * u64::from(rows.max(1));
-    u32::try_from(MZ_HISTORY_CELLS / (2 * grid))
-        .map_or(MZ_REFERENCE_DATAGRAMS, |window| window.clamp(1, MZ_REFERENCE_DATAGRAMS))
+    u32::try_from(MZ_HISTORY_CELLS / (2 * grid)).map_or(MZ_REFERENCE_DATAGRAMS, |window| {
+        window.clamp(1, MZ_REFERENCE_DATAGRAMS)
+    })
 }
 
 /// The datagrams a receiver keeps rows from on a `cols` by `rows` grid.
@@ -42,7 +43,7 @@ const CHAIN_SPANS: u8 = 32;
 /// Whether sequence `a` is older than `b` in the wrapping sequence space.
 #[inline]
 fn older(a: u32, b: u32) -> bool {
-    (b.wrapping_sub(a) as i32) > 0
+    matches!(b.wrapping_sub(a), 1..0x8000_0000)
 }
 
 /// Entry keys are a sequence and a row; one multiply spreads both over the
@@ -56,6 +57,10 @@ impl Hasher for EntryHasher {
         self.0
     }
 
+    #[expect(
+        clippy::unreachable,
+        reason = "the only key type is `u64`, which hashes through `write_u64`"
+    )]
     fn write(&mut self, _: &[u8]) {
         unreachable!("entry keys hash as one u64");
     }
@@ -106,7 +111,8 @@ struct Row {
 impl Row {
     fn get(&self, id: u64) -> Option<&Record> {
         id.checked_sub(self.base)
-            .and_then(|index| self.records.get(index as usize))
+            .and_then(|index| usize::try_from(index).ok())
+            .and_then(|index| self.records.get(index))
     }
 
     fn end(&self) -> u64 {
@@ -130,10 +136,12 @@ impl Row {
         }
         cells.clear();
         for id in start..=id {
-            let record = self
-                .get(id)
-                .expect("every chained record was just found live");
-            let at = (record.at - self.arena_base) as usize;
+            let Some(record) = self.get(id) else {
+                return false;
+            };
+            let Ok(at) = usize::try_from(record.at - self.arena_base) else {
+                return false;
+            };
             let len = usize::from(record.len);
             if record.full {
                 cells.clear();
@@ -141,11 +149,11 @@ impl Row {
                 continue;
             }
             let left = usize::from(record.left);
-            if left + len > cells.len() {
+            let Some(span) = cells.get_mut(left..left + len) else {
                 return false;
-            }
-            for (offset, cell) in self.arena.range(at..at + len).enumerate() {
-                cells[left + offset] = *cell;
+            };
+            for (cell, recorded) in span.iter_mut().zip(self.arena.range(at..at + len)) {
+                *cell = *recorded;
             }
         }
         cells.len() == usize::from(cols)
@@ -205,6 +213,11 @@ impl RowHistory {
             self.grid_rows = rows;
             self.window = mz_reference_datagrams(cols, rows);
         }
+        // No row holds more cells than a `u16` counts.
+        let Ok(len) = u16::try_from(cells.len()) else {
+            self.invalidate_row(row);
+            return;
+        };
         if self.newest.is_none_or(|newest| older(newest, seq)) {
             self.newest = Some(seq);
         }
@@ -213,13 +226,17 @@ impl RowHistory {
             self.rows.resize_with(row_index + 1, Row::default);
         }
         self.retire_row(row);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "the rows were extended to `row` above"
+        )]
         let entry = &mut self.rows[row_index];
         let id = entry.base + entry.records.len() as u64;
         let at = entry.end();
         let mut record = Record {
             seq,
             left,
-            len: cells.len() as u16,
+            len,
             at,
             full: left == 0 && cells.len() == usize::from(cols),
             linked: entry.chained,
@@ -231,9 +248,12 @@ impl RowHistory {
         } else {
             let previous = entry.records.back().filter(|_| entry.chained);
             record.depth = previous.map_or(1, |previous| previous.depth.saturating_add(1));
-            if record.depth > CHAIN_SPANS && entry.materialize(id - 1, cols, &mut self.cells) {
-                let start = usize::from(left);
-                self.cells[start..start + cells.len()].copy_from_slice(cells);
+            let start = usize::from(left);
+            if record.depth > CHAIN_SPANS
+                && entry.materialize(id - 1, cols, &mut self.cells)
+                && let Some(span) = self.cells.get_mut(start..start + cells.len())
+            {
+                span.copy_from_slice(cells);
                 entry.arena.extend(self.cells.iter().copied());
                 record.full = true;
                 record.depth = 0;
@@ -272,7 +292,9 @@ impl RowHistory {
             return;
         };
         let floor = newest.wrapping_sub(2 * self.window);
-        let entry = &mut self.rows[usize::from(row)];
+        let Some(entry) = self.rows.get_mut(usize::from(row)) else {
+            return;
+        };
         if entry.records.is_empty() {
             return;
         }
@@ -290,7 +312,7 @@ impl RowHistory {
         } else {
             (0..=old.min(entry.records.len() - 1))
                 .rev()
-                .find(|&index| entry.records[index].full)
+                .find(|&index| entry.records.get(index).is_some_and(|record| record.full))
                 .unwrap_or(0)
         };
         if keep == 0 {
@@ -310,8 +332,10 @@ impl RowHistory {
             .records
             .front()
             .map_or(entry.end(), |front| front.arena_at);
-        let drop = keep_from.saturating_sub(entry.arena_base) as usize;
-        entry.arena.drain(..drop.min(entry.arena.len()));
+        // The front record's cells are in the arena, so this never passes its end.
+        let drop = usize::try_from(keep_from.saturating_sub(entry.arena_base))
+            .map_or(entry.arena.len(), |drop| drop.min(entry.arena.len()));
+        entry.arena.drain(..drop);
         entry.arena_base += drop as u64;
     }
 

@@ -2085,7 +2085,7 @@ impl Terminal {
                 // back exactly as the row hash reads it.
                 read_row_cells(
                     self.term.grid(),
-                    row_index,
+                    row.row_index,
                     cols,
                     &self.display_cell_links,
                     &mut self.display_row_readback,
@@ -5616,20 +5616,23 @@ fn hash_row(
 /// colours, the row-scoped wrap bit on the final cell, and each column's link.
 fn read_row_cells(
     grid: &Grid<Cell>,
-    row: usize,
+    row: u16,
     cols: usize,
     links: &[u32],
     out: &mut Vec<CellRepr>,
 ) {
     out.clear();
-    let line = &grid[Line(row as i32)];
+    let line = &grid[Line(i32::from(row))];
     let mut fg_cache = None;
     let mut bg_cache = None;
     for (col, cell) in line.into_iter().take(cols).enumerate() {
         let fg = resolve_cached_color(cell.fg, &mut fg_cache);
         let bg = resolve_cached_color(cell.bg, &mut bg_cache);
         let mut repr = CellRepr::from_alacritty_with_colors(cell, fg, bg);
-        repr.link = links.get(row * cols + col).copied().unwrap_or(0);
+        repr.link = links
+            .get(usize::from(row) * cols + col)
+            .copied()
+            .unwrap_or(0);
         out.push(repr);
     }
     if let (Some(cell), Some(last)) = (line.last(), out.last_mut())

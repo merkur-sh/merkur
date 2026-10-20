@@ -146,7 +146,7 @@ impl ReferenceIndex {
             seq_delta,
             source_row: source.row,
             hash: reference_hash(&captured.cells),
-            full_row_bytes: full_row_entry_bytes(&captured.cells) as u32,
+            full_row_bytes: u32::try_from(full_row_entry_bytes(&captured.cells)).ok()?,
         })
     }
 

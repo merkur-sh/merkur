@@ -1080,7 +1080,8 @@ impl SimViewers {
                     .is_some_and(|graphics| !graphics.is_empty());
                 viewer.unit_graphics.insert(key, Vec::new());
             }
-            let count = header.row_count - references.len() as u16;
+            let count = header.row_count
+                - u16::try_from(references.len()).expect("references stand in for rows");
             (literals.as_slice(), 0, count)
         } else {
             (plain, rows_start, header.row_count)

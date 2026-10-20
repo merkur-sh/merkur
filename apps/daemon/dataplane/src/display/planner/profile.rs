@@ -288,8 +288,18 @@ impl Worker {
                 self.span.extend_from_slice(&row.encoded);
             }
             self.payload.clear();
+            #[expect(
+                clippy::unwrap_in_result,
+                reason = "the rows were captured from a real grid; rows MZ cannot code are a \
+                          profile defect, never a raw record"
+            )]
             self.mz
-                .encode(&self.span, rows.len() as u16, &[], &mut self.payload)
+                .encode(
+                    &self.span,
+                    u16::try_from(rows.len()).expect("a grid's rows"),
+                    &[],
+                    &mut self.payload,
+                )
                 .expect("captured rows code");
             let compressed = &self.payload;
             self.global.observe_sender_service(

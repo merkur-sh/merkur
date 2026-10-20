@@ -1,6 +1,14 @@
 //! Building the static model from row traffic. Nothing on a display path runs
 //! this: `mz_train_model` in the dataplane's simulator replays recorded
 //! sessions through the production daemon and writes `model_data.rs` with it.
+#![expect(
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    clippy::expect_used,
+    clippy::too_many_lines,
+    reason = "an offline training run over its own counts, whose tables fit the model \
+              format by construction; a defect stops the run, never a session"
+)]
 
 use super::frame::{MzReference, Sink, entries};
 use super::model::{AUX, ESC, FIELDS, PROB_BITS, field_of};
@@ -101,10 +109,10 @@ impl MzTrainer {
     ) -> bool {
         let mut walk = super::frame::Walk::new();
         for (index, entry) in entries(rows, row_count).enumerate() {
-            let Some(entry) = entry else {
+            let Some(entry @ &[row_high, row_low, ..]) = entry else {
                 return false;
             };
-            let row = u16::from_be_bytes([entry[0], entry[1]]);
+            let row = u16::from_be_bytes([row_high, row_low]);
             match references.get(index).copied().flatten() {
                 Some(reference) => super::frame::put_reference(&mut walk, self, row, &reference),
                 None => {
