@@ -14,6 +14,7 @@ PACKAGES = [
     "//packages/auth",
     "//packages/config",
     "//packages/daemon-control-protocol",
+    "//packages/display-fixture",
     "//packages/e2e-wasm",
     "//packages/fontdue-patch",
     "//packages/graphics-codec-probe",
