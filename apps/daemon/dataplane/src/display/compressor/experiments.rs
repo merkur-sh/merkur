@@ -345,7 +345,14 @@ impl Decoder {
 
     fn decode(&mut self, frame: &[u8]) -> Vec<Entry> {
         let count = merkur_codec::parse_frame_header(frame).unwrap().row_count;
-        let rows = if frame[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0
+        let mz_rows;
+        let rows = if frame[DISPLAY_HEADER_FLAGS_OFFSET]
+            & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ
+            != 0
+        {
+            mz_rows = crate::display::compressor::decode_display_payload(frame, None).unwrap();
+            &mz_rows[..]
+        } else if frame[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0
         {
             let offset = if frame[DISPLAY_HEADER_FLAGS_OFFSET]
                 & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT

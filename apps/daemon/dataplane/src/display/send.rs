@@ -8,6 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use arrayvec::ArrayVec;
+use merkur_codec::mz::MzReference;
 #[cfg(test)]
 use merkur_codec::{RowRef, encoded_cells_size};
 
@@ -127,6 +128,8 @@ pub(crate) struct PreparedDisplayDatagram {
     /// Exact post-encode physical admission, embedded in the pooled prepared
     /// record rather than allocated as a parallel per-burst plan vector.
     physical_plan: PreparedPhysicalDatagramPlan,
+    /// An MZ frame that took a reference. Its loss retires the peer's sources.
+    references: bool,
 }
 // One complete owner-loop cohort fits without pushing planning/compression
 // back onto that loop. Each peer owns at most one in-flight request.
@@ -174,6 +177,8 @@ struct DisplayPrepareRow {
     content: ContentEvidence,
     /// The columns this row's entry carries, found once at capture.
     span: RowSpan,
+    /// An acknowledged row with exactly these cells, which MZ may name instead.
+    reference: Option<MzReference>,
 }
 
 /// Where a row entry starts and how many cells it carries; no cells is a row
@@ -1351,6 +1356,7 @@ fn prepare_captured_frame(
         header_reserve,
         compression,
         content_class,
+        references,
     } = payload;
     patch_stream_header(
         &mut frame,
@@ -1391,6 +1397,7 @@ fn prepare_captured_frame(
         content_class,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
+        references,
     }
 }
 
@@ -1433,6 +1440,8 @@ struct BatchPayload {
     /// Class of the rows the frame carries, from their summed census; the
     /// class whose ratio posterior this frame's achieved compression feeds.
     content_class: ContentClass,
+    /// See [`PreparedDisplayDatagram::references`].
+    references: bool,
 }
 
 /// What the batch-sizing pass already learned about this payload.
@@ -1460,6 +1469,7 @@ impl BatchPayload {
             header_reserve,
             compression: BatchCompression::NotAttempted,
             content_class,
+            references: false,
         }
     }
 
@@ -1498,6 +1508,7 @@ fn compress_batch_candidate(
     policy: &DisplayCompressionPolicy,
     presentation_workload: DisplayWorkload,
     dictionary: Option<&DisplayDictionary>,
+    references: impl IntoIterator<Item = Option<MzReference>>,
     planned_representation: Representation,
     content_class: ContentClass,
     profile: PeerPlanningSnapshot,
@@ -1540,7 +1551,8 @@ fn compress_batch_candidate(
         return DisplayCompressionOutcome::NOTHING;
     }
     let started = Instant::now();
-    let Some(saved_bytes) = compressor.compress_display_frame_into(frame, dictionary, out) else {
+    let Some(compressed) = compressor.compress_display_rows_into(frame, dictionary, references, out)
+    else {
         let service_us = started.elapsed().as_secs_f64() * 1_000_000.0;
         planner.observe_sender_service(
             policy.execution_lane,
@@ -1552,8 +1564,10 @@ fn compress_batch_candidate(
         return DisplayCompressionOutcome {
             used: false,
             achieved_ratio: Some(1.0),
+            references: false,
         };
     };
+    let saved_bytes = compressed.saved_bytes;
     let service_us = started.elapsed().as_secs_f64() * 1_000_000.0;
     planner.observe_sender_service(
         policy.execution_lane,
@@ -1573,6 +1587,7 @@ fn compress_batch_candidate(
         achieved_ratio: Some(
             planned_wire_len(out.len(), header_reserve) as f64 / raw_bytes.max(1) as f64,
         ),
+        references: compressed.references,
     }
 }
 
@@ -1638,6 +1653,7 @@ fn emit_fitted_batches(
         policy,
         presentation_workload,
         dictionary,
+        rows.iter().map(|row| row.reference),
         planned_representation,
         content_class,
         profile,
@@ -1657,6 +1673,7 @@ fn emit_fitted_batches(
             header_reserve,
             compression: BatchCompression::from_outcome(&outcome),
             content_class,
+            references: outcome.used && outcome.references,
         };
         out.push((payload, sent_rows, encoded_rows, utility));
         return outcome.achieved_ratio;
@@ -2164,6 +2181,7 @@ fn pack_whole_span_candidate(
                     BatchCompression::AttemptedRejected
                 },
                 content_class: classify_captured_content(&rows[start..end]),
+                references: false,
             },
             sent,
             (end - start) as u16,
@@ -6926,6 +6944,7 @@ fn prepare_display_datagram(
         header_reserve,
         compression,
         content_class,
+        references,
     } = payload;
     patch_stream_header(
         &mut frame,
@@ -7017,6 +7036,7 @@ fn prepare_display_datagram(
         content_class,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
+        references,
     }
 }
 
@@ -7062,6 +7082,12 @@ fn capture_prepare_rows(
 ) {
     out.clear();
     let cols = usize::from(terminal.cols);
+    // Every frame of this capture belongs to the presentation its first
+    // datagram names, the base its references count back from.
+    let presentation_id = {
+        let mut cursor = peer.next_datagram_seq;
+        take_wrapping_nonzero(&mut cursor)
+    };
     for request in rows {
         let Some((baseline, &baseline_revision)) = peer
             .display_cache
@@ -7090,6 +7116,7 @@ fn capture_prepare_rows(
         if encoded_size == 0 {
             continue;
         }
+        let reference = peer.display_cache.references.find(sent, presentation_id);
         out.push(DisplayPrepareRow {
             request: *request,
             sent: sent.clone(),
@@ -7100,6 +7127,7 @@ fn capture_prepare_rows(
             encoding,
             content,
             span,
+            reference,
         });
     }
 }
@@ -7748,6 +7776,11 @@ fn record_display_datagram_snapshot(
 ) {
     let resend_interval_ms = peer_row_resend_interval_ms(peer, now_ms);
     let header_only = datagram.rows.is_empty();
+    if datagram.references {
+        peer.display_cache
+            .references
+            .note_referencing(datagram.seq);
+    }
     // The rows move into the record as they are — inline for a datagram
     // batch — so the send side allocates nothing for them and the ACK side
     // frees nothing.
@@ -7786,6 +7819,8 @@ struct DisplayCompressionOutcome {
     /// to be worth sending, the ratio never leaves 1.0, and the batcher never
     /// packs the larger unit that would have compressed well.
     achieved_ratio: Option<f64>,
+    /// The compressed frame is MZ and took a reference.
+    references: bool,
 }
 
 impl DisplayCompressionOutcome {
@@ -7793,6 +7828,7 @@ impl DisplayCompressionOutcome {
     const NOTHING: Self = Self {
         used: false,
         achieved_ratio: None,
+        references: false,
     };
 }
 

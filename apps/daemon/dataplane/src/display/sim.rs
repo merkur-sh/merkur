@@ -1166,6 +1166,16 @@ impl DisplaySim {
             .waste
     }
 
+    /// Datagrams this peer was sent with an MZ reference.
+    pub(crate) fn peer_frames_referencing(&self, peer_id: &str) -> usize {
+        self.peers
+            .get(peer_id)
+            .expect("peer exists")
+            .display_cache
+            .references
+            .frames_referencing
+    }
+
     /// The daemon's authoritative row hashes — the other half of the
     /// convergence oracle. Same `merkur_codec::row_hash` the viewer uses.
     pub(crate) fn terminal_row_hashes(&mut self, out: &mut Vec<u64>) {
@@ -3953,5 +3963,250 @@ mod tests {
                 ]
             );
         }
+    }
+}
+
+/// MZ measured on recorded sessions through the production pipeline and the
+/// real browser terminal: the same replay with MZ on and off, bytes on every
+/// lane, frames refused for an unresolvable reference, and the browser grid
+/// converging on the daemon's. Recordings are `MZPTY1` files (u16 columns and
+/// rows, then `u64 µs | u32 length | bytes` chunks) in
+/// `MERKUR_DISPLAY_RECORDINGS`; `MERKUR_MZ_LOSS` sets datagram loss in percent, and
+/// `MERKUR_MZ_ONLY` / `MERKUR_MZ_EXCEPT` keep or drop recordings by name, so a
+/// model trained without a workload can be measured on it.
+#[cfg(test)]
+mod mz_census {
+    use super::*;
+    use crate::display::compressor::{MZ_DISABLED_FOR_CENSUS, MZ_TRAINER};
+    use crate::display::viewer::SimViewers;
+    use std::sync::atomic::Ordering::Relaxed;
+
+    /// Datagrams the last replay sent with a reference.
+    static REFERENCING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    struct Recording {
+        name: String,
+        cols: u16,
+        rows: u16,
+        chunks: Vec<(u64, Vec<u8>)>,
+    }
+
+    fn recordings() -> Vec<Recording> {
+        let dir = std::env::var("MERKUR_DISPLAY_RECORDINGS").expect("MERKUR_DISPLAY_RECORDINGS");
+        let mut paths: Vec<_> = std::fs::read_dir(&dir)
+            .expect("recordings directory")
+            .map(|entry| entry.expect("entry").path())
+            .collect();
+        paths.sort();
+        let only = std::env::var("MERKUR_MZ_ONLY").ok();
+        let except = std::env::var("MERKUR_MZ_EXCEPT").ok();
+        paths
+            .into_iter()
+            .filter(|path| only.as_deref().is_none_or(|only| path.to_string_lossy().contains(only)))
+            .filter(|path| {
+                except
+                    .as_deref()
+                    .is_none_or(|except| !path.to_string_lossy().contains(except))
+            })
+            .map(|path| {
+                let data = std::fs::read(&path).expect("recording");
+                assert_eq!(&data[..6], b"MZPTY1", "{path:?} is not a recording");
+                let mut chunks = Vec::new();
+                let mut at = 10;
+                while at < data.len() {
+                    let t_us = u64::from_le_bytes(data[at..at + 8].try_into().expect("time"));
+                    let n = u32::from_le_bytes(data[at + 8..at + 12].try_into().expect("len"));
+                    chunks.push((t_us, data[at + 12..at + 12 + n as usize].to_vec()));
+                    at += 12 + n as usize;
+                }
+                Recording {
+                    name: path.file_stem().expect("stem").to_string_lossy().into_owned(),
+                    cols: u16::from_le_bytes([data[6], data[7]]),
+                    rows: u16::from_le_bytes([data[8], data[9]]),
+                    chunks,
+                }
+            })
+            .collect()
+    }
+
+    #[derive(Default, Debug, Clone, Copy)]
+    struct Replay {
+        datagram_bytes: usize,
+        reliable_bytes: usize,
+        datagrams: usize,
+        mz_frames: usize,
+        compressed_frames: usize,
+        unresolved: usize,
+        dropped: usize,
+        diverged_rows: usize,
+        /// Daemon CPU in zstd and MZ attempts, and browser CPU staging and
+        /// applying every delivered frame, in microseconds.
+        zstd_us: u64,
+        mz_us: u64,
+        browser_us: u64,
+    }
+
+    async fn replay(recording: &Recording, mz: bool, loss_pct: u32) -> Replay {
+        MZ_DISABLED_FOR_CENSUS.store(!mz, Relaxed);
+        crate::display::compressor::ZSTD_DISABLED_FOR_CENSUS.store(
+            mz && std::env::var("MERKUR_MZ_ALONE").is_ok(),
+            Relaxed,
+        );
+        let (cols, rows) = (recording.cols, recording.rows);
+        let mut sim = crate::display::send::with_pinned_sender_service(20.0, || {
+            DisplaySim::new(cols, rows)
+        });
+        let mut viewers = SimViewers::attach(&mut sim, cols, rows);
+        let peer = sim_peer_id(0);
+        sim.set_downlink_delay_ms(37.0);
+        viewers.viewer(&peer).set_ack_delay_ms(37.0);
+        sim.set_loss(loss_pct, 0x9e37_79b9);
+        for (t_us, bytes) in &recording.chunks {
+            sim.schedule_pty_write(*t_us as f64 / 1000.0, bytes.clone());
+        }
+        use crate::display::compressor::{CENSUS_MZ_NS, CENSUS_ZSTD_NS};
+        CENSUS_ZSTD_NS.store(0, Relaxed);
+        CENSUS_MZ_NS.store(0, Relaxed);
+        let mut browser = std::time::Duration::ZERO;
+        let mut steps = 0usize;
+        loop {
+            let woke = sim.step().await;
+            let pumped = std::time::Instant::now();
+            viewers.pump(&sim);
+            browser += pumped.elapsed();
+            viewers.acknowledge(&mut sim);
+            if woke.is_none() {
+                if sim.has_pending_acks() || sim.has_pending_deliveries() {
+                    continue;
+                }
+                break;
+            }
+            steps += 1;
+            assert!(steps < 20_000_000, "{} did not park", recording.name);
+        }
+        let mut daemon = Vec::new();
+        sim.terminal_row_hashes(&mut daemon);
+        let diverged_rows = viewers.diverged_rows(&peer, &daemon).len();
+        REFERENCING.store(sim.peer_frames_referencing(&peer), Relaxed);
+        let viewer = viewers.viewer(&peer);
+        let result = Replay {
+            datagram_bytes: sim.wire_bytes(),
+            reliable_bytes: sim.reliable().iter().map(|frame| frame.len).sum(),
+            datagrams: sim.wire().len(),
+            mz_frames: viewer.mz_seen,
+            compressed_frames: viewer.compressed_seen,
+            unresolved: viewer.references_unresolved,
+            dropped: sim.dropped_count(),
+            diverged_rows,
+            zstd_us: CENSUS_ZSTD_NS.load(Relaxed) / 1000,
+            mz_us: CENSUS_MZ_NS.load(Relaxed) / 1000,
+            browser_us: browser.as_micros() as u64,
+        };
+        assert_eq!(viewer.rejected, 0, "{}: a frame was rejected", recording.name);
+        sim.terminal.shutdown_graphics().await;
+        result
+    }
+
+    /// Scrolling output moves each line up a row per update: after the first
+    /// screen the daemon names most rows by reference, the real browser
+    /// terminal rebuilds every one from its own history, and the grids agree.
+    #[tokio::test(flavor = "current_thread")]
+    async fn scrolled_rows_ride_references_the_browser_rebuilds() {
+        // One line per round trip and a half, so each row's ACK lands before
+        // the screen moves it on: the pace a presented terminal scrolls at.
+        let mut chunks = Vec::new();
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        for line in 0..120u64 {
+            let mut text = format!("\x1b[3{}m{line:>5}\x1b[0m ", line % 7 + 1);
+            for _ in 0..(40 + line % 30) {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                text.push(char::from(b"etaoinshrdlucmfwypvbgkjqxz  ,.:;0123"[(state % 36) as usize]));
+            }
+            text.push_str("\r\n");
+            chunks.push((line * 120_000, text.into_bytes()));
+        }
+        let recording = Recording {
+            name: String::from("scroll"),
+            cols: 100,
+            rows: 30,
+            chunks,
+        };
+        let replayed = replay(&recording, true, 5).await;
+        assert!(replayed.mz_frames > 0, "{replayed:?}");
+        assert_eq!(replayed.unresolved, 0, "{replayed:?}");
+        assert_eq!(replayed.diverged_rows, 0, "{replayed:?}");
+        assert!(
+            REFERENCING.load(Relaxed) > 0,
+            "no datagram carried a reference: {replayed:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "replays recorded sessions from MERKUR_DISPLAY_RECORDINGS"]
+    async fn mz_census() {
+        let loss_pct: u32 = std::env::var("MERKUR_MZ_LOSS").map_or(0, |v| v.parse().expect("loss"));
+        let mut totals = [Replay::default(); 2];
+        for recording in recordings() {
+            let mut arms = [Replay::default(); 2];
+            for (arm, mz) in [false, true].into_iter().enumerate() {
+                arms[arm] = replay(&recording, mz, loss_pct).await;
+                let total = &mut totals[arm];
+                let r = arms[arm];
+                total.datagram_bytes += r.datagram_bytes;
+                total.reliable_bytes += r.reliable_bytes;
+                total.datagrams += r.datagrams;
+                total.mz_frames += r.mz_frames;
+                total.compressed_frames += r.compressed_frames;
+                total.unresolved += r.unresolved;
+                total.dropped += r.dropped;
+                total.diverged_rows += r.diverged_rows;
+                total.zstd_us += r.zstd_us;
+                total.mz_us += r.mz_us;
+                total.browser_us += r.browser_us;
+            }
+            let bytes = |r: &Replay| r.datagram_bytes + r.reliable_bytes;
+            println!(
+                "MZ {:<24} zstd {:>8} mz {:>8} {:+6.1}%  {:?}",
+                recording.name,
+                bytes(&arms[0]),
+                bytes(&arms[1]),
+                (bytes(&arms[1]) as f64 / bytes(&arms[0]).max(1) as f64 - 1.0) * 100.0,
+                arms[1],
+            );
+        }
+        MZ_DISABLED_FOR_CENSUS.store(false, Relaxed);
+        let bytes = |r: &Replay| r.datagram_bytes + r.reliable_bytes;
+        println!(
+            "MZ TOTAL loss {loss_pct}%: zstd {} mz {} {:+.1}%\n  zstd {:?}\n  mz   {:?}",
+            bytes(&totals[0]),
+            bytes(&totals[1]),
+            (bytes(&totals[1]) as f64 / bytes(&totals[0]).max(1) as f64 - 1.0) * 100.0,
+            totals[0],
+            totals[1],
+        );
+        assert_eq!(totals[1].diverged_rows, 0, "a browser grid diverged under MZ");
+        assert_eq!(totals[0].diverged_rows, 0, "a browser grid diverged without MZ");
+    }
+
+    /// Regenerate `packages/merkur-codec/src/mz/model_data.rs` from every
+    /// frame the daemon codes while replaying the recordings, within
+    /// `MERKUR_MZ_TABLE_KIB` (256 by default) of decode tables.
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "writes the MZ model from MERKUR_DISPLAY_RECORDINGS"]
+    async fn mz_train_model() {
+        *MZ_TRAINER.lock().expect("trainer") = Some(Default::default());
+        for recording in recordings() {
+            replay(&recording, true, 0).await;
+        }
+        let trainer = MZ_TRAINER.lock().expect("trainer").take().expect("trainer");
+        let kib: usize = std::env::var("MERKUR_MZ_TABLE_KIB").map_or(256, |v| v.parse().expect("KiB"));
+        let data = trainer.model_data(kib * 1024);
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../packages/merkur-codec/src/mz/model_data.rs");
+        std::fs::write(&path, merkur_codec::mz::train::MzTrainer::model_source(&data))
+            .expect("write the model");
+        println!("wrote {} bytes of model data to {path:?}", data.len());
     }
 }

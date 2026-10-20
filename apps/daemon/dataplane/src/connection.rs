@@ -1514,6 +1514,8 @@ pub struct PerPeerDisplayCache {
     /// Unlike lifetime telemetry this is a rolling control window.
     pub(crate) fec_evidence: FecEvidenceByPath,
     pub fec_encoder: FecEncoder,
+    /// Acknowledged rows MZ references may name.
+    pub(crate) references: crate::display::references::ReferenceIndex,
     /// The rows one `invalidate_rows` call is disowning, as a bitmask over row
     /// indices, sized by `resize`. Set and cleared inside that one call and
     /// retained between calls, so the walk over every retained datagram record
@@ -1576,6 +1578,7 @@ impl PerPeerDisplayCache {
             datagram_outcomes: DisplayDatagramOutcomes::default(),
             fec_evidence: FecEvidenceByPath::default(),
             fec_encoder: FecEncoder::new(),
+            references: Default::default(),
             row_invalidation_mask: Vec::new(),
             heartbeat_frames_since_last: 0,
             heartbeat_last_sent_ms: 0.0,
@@ -1768,6 +1771,11 @@ impl PerPeerDisplayCache {
             self.invalidate_calls += 1;
         }
         let mut disowned = 0usize;
+        // A disowned row may differ from what the browser's history rebuilds,
+        // and a reference to it would only be refused.
+        if !rows.is_empty() {
+            self.references.clear();
+        }
         for &row in rows {
             let r = usize::from(row);
             if r >= usize::from(self.rows) {
@@ -2600,6 +2608,9 @@ impl PerPeerDisplayCache {
     }
 
     fn retire_all_sent_datagrams_unknown(&mut self) {
+        // A reference outcome this would have resolved can no longer arrive,
+        // and the history the sources describe may not survive what retired it.
+        self.references.clear();
         let retired = std::mem::take(&mut self.sent_datagrams);
         self.oldest_sent_datagram_at_ms = f64::INFINITY;
         for sent in retired.values() {

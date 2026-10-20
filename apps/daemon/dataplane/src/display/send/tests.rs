@@ -842,6 +842,7 @@ fn batch_compression_preserves_attempted_rejection() {
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: false,
             achieved_ratio: Some(1.0),
+            references: false,
         }),
         BatchCompression::AttemptedRejected,
     );
@@ -849,6 +850,7 @@ fn batch_compression_preserves_attempted_rejection() {
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: false,
             achieved_ratio: Some(0.97),
+            references: false,
         }),
         BatchCompression::AttemptedRejected,
     );
@@ -856,6 +858,7 @@ fn batch_compression_preserves_attempted_rejection() {
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: true,
             achieved_ratio: Some(0.25),
+            references: false,
         }),
         BatchCompression::Compressed,
     );
@@ -2105,6 +2108,7 @@ fn prepared_with_utility_for_test(
         content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
+        references: false,
     }
 }
 
@@ -2180,6 +2184,7 @@ pub(super) fn valid_header_only_prepared_with_presentation_for_test(
         content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
+        references: false,
     }
 }
 
@@ -3873,6 +3878,7 @@ fn prepare_row_for_test(row: u16, baseline: Arc<[CellRepr]>) -> DisplayPrepareRo
         encoding: CellEncoding::default(),
         content: ContentEvidence::default(),
         span: RowSpan::default(),
+        reference: None,
     }
 }
 
@@ -4437,6 +4443,7 @@ fn heterogeneous_prepare_row(row: u16, compressible: bool) -> DisplayPrepareRow 
         encoding,
         content,
         span,
+        reference: None,
     }
 }
 
@@ -5501,6 +5508,7 @@ fn fence_horizon_tracks_only_datagram_sends() {
         content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
+        references: false,
     };
     record_sent_datagram(
         &mut peer,

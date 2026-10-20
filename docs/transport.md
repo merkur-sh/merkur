@@ -1036,7 +1036,7 @@ This section is a summary. The normative rules (idempotent datagrams, advisory p
 selective ACK, the no-coalescing owner loop, compression, the wrap bit) are in
 [`docs/display-invariants.md`](display-invariants.md).
 
-The codec version is 34; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
+The codec version is 35; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
 
 Display frames use `merkur-codec` with a 1100-byte application datagram ceiling. A frame has two
 forms. Staged, in memory on both ends, it has an 18-byte stream envelope (type and flags, a
@@ -1063,7 +1063,9 @@ compressed on its own, so it is complete on arrival and can be decrypted, applie
 lost, or recovered without any other datagram. Each flush ranks rows into `Critical` (cursor rows
 and changed cursor/mode headers, sent redundantly across live direct and relay paths) and
 `NonCritical` (one admitted carrier, chosen by the prepared burst's complete delivery cost). Row
-text is literal cell spans only; there are no mutable-grid row copies.
+text is literal cell spans, or in an MZ payload a reference to a row as an acknowledged earlier
+datagram left it, which the browser rebuilds from its own history of applied entries; there are
+no mutable-grid row copies.
 
 Three boundaries are deliberately separate: each datagram stands alone on the wire, the terminal
 worker applies each accepted datagram to the authoritative WASM grid at once, and one bounded
@@ -1116,6 +1118,16 @@ grid. A dictionary is finalized (`ZDICT_finalizeDictionary`) so every frame carr
 id and a diverged dictionary is rejected rather than decoded to garbage. Install is reliable,
 on the control lane, and three-step: the browser signals readiness (`0x2b`), the daemon installs (`0x2d`), and the daemon must not compress against that dictionary until the browser acknowledges it (`0x2c`), because a successful reliable write is not evidence the browser installed anything.
 The browser keeps the current and previous dictionary, since datagrams can overtake the install.
+
+Every compression attempt also codes the frame as MZ (`merkur_codec::mz`) and keeps whichever of
+the two is smaller. MZ is one rANS stream over the row layout, every field coded in its own
+context against a static model compiled into both ends and trained on recorded sessions through
+this pipeline, so it needs no install and no model state on the wire. An MZ entry may instead
+name an acknowledged row with exactly its cells: the datagram, counted back from the frame's
+presentation id, the source row, and a 32-bit row hash. The browser rebuilds that row from its
+history of the entries it applied, checks the hash, and writes it whole to the target row. A
+reference it cannot rebuild refuses the frame like a lost datagram: it is never acknowledged,
+its rows come again, and it never calls for a snapshot.
 
 A carrier swap keeps the display generation, the sequence space, the browser's grid, and the
 dictionary: it is the same screen over a different pipe. The daemon retires only what the dead

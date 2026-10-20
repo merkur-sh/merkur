@@ -170,7 +170,7 @@ fn row_application_preserves_sparse_cell_ordering_damage_and_occupancy() {
             false,
             17
         ),
-        (true, Some((2, 4)), true),
+        (2, Some((2, 4)), true),
     );
     assert_eq!(versions[10..14], [1, 3, 1, 0x8000_0001]);
     assert_eq!(revisions[10..14], [17, 0, 17, 0]);
@@ -196,7 +196,7 @@ fn row_application_preserves_sparse_cell_ordering_damage_and_occupancy() {
             false,
             18
         ),
-        (false, None, false),
+        (0, None, false),
     );
     // Refused writes must not mark the blank row occupied: that changes reflow.
     assert_eq!(grid, before);
@@ -215,7 +215,7 @@ fn row_application_preserves_sparse_cell_ordering_damage_and_occupancy() {
             false,
             19
         ),
-        (false, None, false),
+        (0, None, false),
     );
     assert_eq!(grid, before);
 }
