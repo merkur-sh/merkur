@@ -868,6 +868,7 @@ mod tests {
             row: 0,
             hash: 0xfeed,
             cells: Arc::from(vec![merkur_codec::CellRepr::BLANK]),
+            complete: false,
         };
         peer.display_cache.record_sent_rows(
             REPAIR_SEQ,

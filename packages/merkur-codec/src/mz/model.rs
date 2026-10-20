@@ -29,7 +29,8 @@ pub(super) const F_RUN: u32 = 10;
 pub(super) const F_GRAPHICS: u32 = 11;
 pub(super) const F_SEQ: u32 = 12;
 pub(super) const F_SOURCE: u32 = 13;
-pub(super) const F_HASH: u32 = 14;
+/// How many rows past two a range of references covers.
+pub(super) const F_RANGE: u32 = 14;
 /// Whether a cell's colour repeats its slot's previous colour.
 pub(super) const F_SAME_COLOR: u32 = 15;
 pub(super) const FIELDS: usize = 16;

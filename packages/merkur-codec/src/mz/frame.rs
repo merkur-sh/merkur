@@ -3,9 +3,9 @@
 //! receiver already holds.
 
 use super::model::{
-    AUX, DecodeModel, ESC, EncodeModel, F_BG, F_CODEPOINT, F_COUNT, F_FG, F_GRAPHICS, F_HASH,
-    F_LEFT, F_LINK, F_MODE, F_OP, F_ROW, F_RUN, F_SAME_COLOR, F_SEQ, F_SOURCE, F_TAG, decode_model,
-    encode_model, key,
+    AUX, DecodeModel, ESC, EncodeModel, F_BG, F_CODEPOINT, F_COUNT, F_FG, F_GRAPHICS, F_LEFT,
+    F_LINK, F_MODE, F_OP, F_RANGE, F_ROW, F_RUN, F_SAME_COLOR, F_SEQ, F_SOURCE, F_TAG,
+    decode_model, encode_model, key,
 };
 use super::rans;
 use crate::{
@@ -21,6 +21,10 @@ const OP_LITERAL: u8 = 0;
 const OP_REFERENCE: u8 = 1;
 /// The context of a frame's first operation, and a row's first cell tag.
 const OP_START: u32 = 2;
+/// References for consecutive rows from consecutive rows of one datagram.
+const OP_RANGE: u8 = 3;
+/// The fewest rows a range covers; one row is a reference.
+const RANGE_MIN_ROWS: u16 = 2;
 const MODE_START: u32 = 2;
 const TAG_START: u32 = 0x100;
 const HAS_FG: u8 = 1 << 0;
@@ -44,16 +48,14 @@ fn graphics_aux(index: usize) -> u32 {
 }
 
 /// A row the receiver already holds, standing in for a literal entry: the
-/// complete row the entry at `source_row` of the datagram `seq_delta` before
-/// this one left behind, which the receiver writes as a full-row entry for the
-/// target row. `hash` is [`reference_hash`] of those cells, which the receiver
-/// checks before it writes anything, and `full_row_bytes` is the size of that
+/// complete row that datagram `seq_delta` before this one carried at
+/// `source_row`, exactly as it carried it, which the receiver writes as a
+/// full-row entry for the target row. `full_row_bytes` is the size of that
 /// full-row entry in the row layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MzReference {
     pub seq_delta: u32,
     pub source_row: u16,
-    pub hash: u32,
     pub full_row_bytes: u32,
 }
 
@@ -78,13 +80,6 @@ pub trait MzResolve {
         reference: MzReference,
         out: &mut Vec<u8>,
     ) -> Result<(), MzError>;
-}
-
-/// The digest a reference carries: the low 32 bits of [`crate::row_hash`].
-#[inline]
-pub fn reference_hash(cells: &[crate::CellRepr]) -> u32 {
-    let [a, b, c, d, ..] = crate::row_hash(cells).to_le_bytes();
-    u32::from_le_bytes([a, b, c, d])
 }
 
 /// The two-state threshold, decided from what both ends know before decoding.
@@ -212,9 +207,20 @@ pub(super) fn put_reference(
         F_SOURCE,
         zigzag(i32::from(reference.source_row) - i32::from(row)),
     );
-    for (index, byte) in (0..).zip(reference.hash.to_be_bytes()) {
-        sink.put(key(F_HASH, index), byte);
-    }
+}
+
+/// References for the `count` rows from `row`, the first naming `reference`
+/// and each next one the next source row of the same datagram.
+fn put_range(walk: &mut Walk, sink: &mut impl Sink, row: u16, count: u16, reference: &MzReference) {
+    put_row(walk, sink, OP_RANGE, row);
+    put_varint(sink, F_RANGE, u32::from(count - RANGE_MIN_ROWS));
+    put_varint(sink, F_SEQ, reference.seq_delta);
+    put_varint(
+        sink,
+        F_SOURCE,
+        zigzag(i32::from(reference.source_row) - i32::from(row)),
+    );
+    walk.prev_row = row.wrapping_add(count - 1);
 }
 
 /// Walk the colour at `at` of `body` for one slot, `None` past the body's end.
@@ -449,15 +455,25 @@ impl Sink for Coder<'_> {
 pub struct MzEncoder {
     coded: Vec<u32>,
     scratch: Vec<u8>,
-    references_taken: usize,
+    /// The last encode's entries, as `(start, length)` in its rows.
+    entries: Vec<(usize, usize)>,
+    /// Whether each entry of the last encode was coded as a reference.
+    taken: Vec<bool>,
+}
+
+/// The row an entry writes.
+#[inline]
+fn entry_row(entry: &[u8]) -> Option<u16> {
+    Some(u16::from_be_bytes([*entry.first()?, *entry.get(1)?]))
 }
 
 impl MzEncoder {
     /// Code the `row_count` row-layout entries of `rows` into `out`
     /// (appended). `references[i]`, when present, may stand in for entry `i`;
-    /// each is taken exactly when it codes smaller than the literal. Returns
-    /// the row-layout length the payload decodes to, or `None` when the rows
-    /// do not parse.
+    /// each is taken exactly when it codes smaller than the literal, and a run
+    /// of them naming consecutive rows of one datagram is coded as one range
+    /// exactly when that is smaller still. Returns the row-layout length the
+    /// payload decodes to, or `None` when the rows do not parse.
     pub fn encode(
         &mut self,
         rows: &[u8],
@@ -465,20 +481,26 @@ impl MzEncoder {
         references: &[Option<MzReference>],
         out: &mut Vec<u8>,
     ) -> Option<usize> {
+        self.entries.clear();
+        self.taken.clear();
+        let mut consumed = 0usize;
+        for entry in entries(rows, row_count) {
+            let entry = entry?;
+            self.entries.push((consumed, entry.len()));
+            consumed += entry.len();
+        }
+        // Bytes past the last entry are not a row.
+        if consumed != rows.len() {
+            return None;
+        }
+        self.taken.resize(self.entries.len(), false);
         let mut coder = Coder {
             model: encode_model(),
             coded: std::mem::take(&mut self.coded),
             bits: 0,
         };
         coder.coded.clear();
-        self.references_taken = 0;
-        let result = Self::walk(
-            &mut coder,
-            rows,
-            row_count,
-            references,
-            &mut self.references_taken,
-        );
+        let result = Self::walk(&mut coder, rows, &self.entries, references, &mut self.taken);
         self.coded = coder.coded;
         let rows_len = result?;
         rans::encode(
@@ -493,54 +515,153 @@ impl MzEncoder {
 
     /// How many entries the last [`Self::encode`] coded as references.
     pub fn references_taken(&self) -> usize {
-        self.references_taken
+        self.taken.iter().filter(|&&taken| taken).count()
+    }
+
+    /// Whether each entry of the last [`Self::encode`] was coded as a
+    /// reference, in entry order.
+    pub fn taken(&self) -> &[bool] {
+        &self.taken
     }
 
     fn walk(
         coder: &mut Coder<'_>,
         rows: &[u8],
-        row_count: u16,
+        spans: &[(usize, usize)],
         references: &[Option<MzReference>],
-        taken: &mut usize,
+        taken: &mut [bool],
     ) -> Option<usize> {
+        let entry = |index: usize| {
+            let &(start, len) = spans.get(index)?;
+            rows.get(start..start + len)
+        };
         let mut walk = Walk::new();
         let mut rows_len = 0usize;
-        let mut consumed = 0usize;
-        for (index, entry) in entries(rows, row_count).enumerate() {
-            let entry = entry?;
-            consumed += entry.len();
-            let row = u16::from_be_bytes([*entry.first()?, *entry.get(1)?]);
-            let Some(reference) = references.get(index).copied().flatten() else {
-                put_literal(&mut walk, coder, entry)?;
-                rows_len += entry.len();
+        let mut index = 0usize;
+        while index < spans.len() {
+            let row = entry_row(entry(index)?)?;
+            let reference = references.get(index).copied().flatten();
+            let run = reference.map_or(1, |reference| {
+                range_run(index, row, &reference, references, |next| {
+                    entry(next).and_then(entry_row)
+                })
+            });
+            let Some(reference) = reference.filter(|_| run >= usize::from(RANGE_MIN_ROWS)) else {
+                rows_len += Self::put_entry(
+                    coder,
+                    &mut walk,
+                    entry(index)?,
+                    reference,
+                    taken.get_mut(index)?,
+                )?;
+                index += 1;
                 continue;
             };
-            // Exact choice: code the reference, then the literal, and keep the
-            // cheaper one. A reference is a handful of symbols, so the retry
-            // is the reference, not the row.
+            // Exact choice between the run as one range and each of its
+            // entries on its own terms. The range is a handful of symbols, so
+            // the retry is the range.
             let (start, before, cost_before) = (coder.coded.len(), walk, coder.bits);
-            put_reference(&mut walk, coder, row, &reference);
-            let (reference_cost, reference_walk) = (coder.bits - cost_before, walk);
+            let count = u16::try_from(run).ok()?;
+            put_range(&mut walk, coder, row, count, &reference);
+            let range_cost = coder.bits - cost_before;
             coder.coded.truncate(start);
             coder.bits = cost_before;
             walk = before;
-            put_literal(&mut walk, coder, entry)?;
-            if coder.bits - cost_before <= reference_cost {
-                rows_len += entry.len();
-                continue;
+            let mut each_len = 0usize;
+            for next in index..index + run {
+                let next_reference = references.get(next).copied().flatten();
+                each_len += Self::put_entry(
+                    coder,
+                    &mut walk,
+                    entry(next)?,
+                    next_reference,
+                    taken.get_mut(next)?,
+                )?;
             }
-            coder.coded.truncate(start);
-            coder.bits = cost_before;
-            walk = before;
-            put_reference(&mut walk, coder, row, &reference);
-            debug_assert_eq!(coder.bits - cost_before, reference_cost);
-            debug_assert_eq!(walk.prev_op, reference_walk.prev_op);
-            rows_len += reference.full_row_bytes as usize;
-            *taken += 1;
+            if coder.bits - cost_before <= range_cost {
+                rows_len += each_len;
+            } else {
+                coder.coded.truncate(start);
+                coder.bits = cost_before;
+                walk = before;
+                put_range(&mut walk, coder, row, count, &reference);
+                for next in index..index + run {
+                    *taken.get_mut(next)? = true;
+                    rows_len += references.get(next).copied().flatten()?.full_row_bytes as usize;
+                }
+            }
+            index += run;
         }
-        // Bytes past the last entry are not a row.
-        (consumed == rows.len()).then_some(rows_len)
+        Some(rows_len)
     }
+
+    /// Code one entry, as `reference` exactly when that is smaller than its
+    /// literal, and return the row-layout bytes it decodes to.
+    fn put_entry(
+        coder: &mut Coder<'_>,
+        walk: &mut Walk,
+        entry: &[u8],
+        reference: Option<MzReference>,
+        taken: &mut bool,
+    ) -> Option<usize> {
+        *taken = false;
+        let Some(reference) = reference else {
+            put_literal(walk, coder, entry)?;
+            return Some(entry.len());
+        };
+        let row = entry_row(entry)?;
+        // Exact choice: code the reference, then the literal, and keep the
+        // cheaper one. A reference is a handful of symbols, so the retry is
+        // the reference, not the row.
+        let (start, before, cost_before) = (coder.coded.len(), *walk, coder.bits);
+        put_reference(walk, coder, row, &reference);
+        let reference_cost = coder.bits - cost_before;
+        coder.coded.truncate(start);
+        coder.bits = cost_before;
+        *walk = before;
+        put_literal(walk, coder, entry)?;
+        if coder.bits - cost_before <= reference_cost {
+            return Some(entry.len());
+        }
+        coder.coded.truncate(start);
+        coder.bits = cost_before;
+        *walk = before;
+        put_reference(walk, coder, row, &reference);
+        *taken = true;
+        Some(reference.full_row_bytes as usize)
+    }
+}
+
+/// How many entries from `index`, which writes `row` and may be `reference`,
+/// can be one range: each next entry writes the next row and may be the next
+/// source row of the same datagram.
+fn range_run(
+    index: usize,
+    row: u16,
+    reference: &MzReference,
+    references: &[Option<MzReference>],
+    row_of: impl Fn(usize) -> Option<u16>,
+) -> usize {
+    let mut run = 1usize;
+    while run < usize::from(u16::MAX) {
+        let Ok(offset) = u16::try_from(run) else {
+            break;
+        };
+        let continues = references
+            .get(index + run)
+            .copied()
+            .flatten()
+            .is_some_and(|next| {
+                next.seq_delta == reference.seq_delta
+                    && Some(next.source_row) == reference.source_row.checked_add(offset)
+            })
+            && row_of(index + run).is_some_and(|next| Some(next) == row.checked_add(offset));
+        if !continues {
+            break;
+        }
+        run += 1;
+    }
+    run
 }
 
 struct Reader<'m, 'b> {
@@ -649,7 +770,8 @@ fn decode(
         rans: rans::Decoder::new(payload, ways(rows_len)).ok_or(MzError::Corrupt)?,
     };
     let mut walk = Walk::new();
-    for _ in 0..row_count {
+    let mut decoded = 0u16;
+    while decoded < row_count {
         let op = reader.get(key(F_OP, walk.prev_op));
         walk.prev_op = u32::from(op);
         let expected = walk.prev_row.wrapping_add(1);
@@ -659,42 +781,75 @@ fn decode(
         };
         let row = expected.wrapping_add(delta.cast_unsigned());
         walk.prev_row = row;
-        match op {
+        let count = match op {
+            OP_LITERAL => {
+                decode_literal(&mut reader, &mut walk, row, limit, out)?;
+                1
+            }
             OP_REFERENCE => {
-                let seq_delta = reader.varint(F_SEQ)?;
-                let source = i32::from(row) + unzigzag(reader.varint(F_SOURCE)?);
-                let Ok(source_row) = u16::try_from(source) else {
+                let reference = decode_reference(&mut reader, row)?;
+                resolve.resolve(row, reference, out)?;
+                1
+            }
+            OP_RANGE => {
+                let Some(count) = u16::try_from(reader.varint(F_RANGE)?)
+                    .ok()
+                    .and_then(|extra| extra.checked_add(RANGE_MIN_ROWS))
+                    .filter(|&count| count <= row_count - decoded)
+                else {
                     return Err(MzError::Corrupt);
                 };
-                let mut hash = [0u8; 4];
-                for (index, byte) in (0..).zip(&mut hash) {
-                    *byte = reader.get(key(F_HASH, index));
+                let first = decode_reference(&mut reader, row)?;
+                for offset in 0..count {
+                    let (Some(target), Some(source_row)) = (
+                        row.checked_add(offset),
+                        first.source_row.checked_add(offset),
+                    ) else {
+                        return Err(MzError::Corrupt);
+                    };
+                    resolve.resolve(
+                        target,
+                        MzReference {
+                            source_row,
+                            ..first
+                        },
+                        out,
+                    )?;
+                    if out.len() > limit {
+                        return Err(MzError::Corrupt);
+                    }
                 }
-                if seq_delta == 0 {
-                    return Err(MzError::Corrupt);
-                }
-                resolve.resolve(
-                    row,
-                    MzReference {
-                        seq_delta,
-                        source_row,
-                        hash: u32::from_be_bytes(hash),
-                        full_row_bytes: 0,
-                    },
-                    out,
-                )?;
+                walk.prev_row = row.wrapping_add(count - 1);
+                count
             }
-            OP_LITERAL => decode_literal(&mut reader, &mut walk, row, limit, out)?,
             _ => return Err(MzError::Corrupt),
-        }
+        };
         if out.len() > limit {
             return Err(MzError::Corrupt);
         }
+        decoded += count;
     }
     if !reader.rans.finish() {
         return Err(MzError::Corrupt);
     }
     Ok(())
+}
+
+/// Decode a reference's datagram and source row, for the entry at `row`.
+fn decode_reference(reader: &mut Reader<'_, '_>, row: u16) -> Result<MzReference, MzError> {
+    let seq_delta = reader.varint(F_SEQ)?;
+    let source = i32::from(row) + unzigzag(reader.varint(F_SOURCE)?);
+    let Ok(source_row) = u16::try_from(source) else {
+        return Err(MzError::Corrupt);
+    };
+    if seq_delta == 0 {
+        return Err(MzError::Corrupt);
+    }
+    Ok(MzReference {
+        seq_delta,
+        source_row,
+        full_row_bytes: 0,
+    })
 }
 
 fn decode_literal(

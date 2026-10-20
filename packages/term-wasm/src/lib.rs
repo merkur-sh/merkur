@@ -648,11 +648,9 @@ pub struct Terminal {
     /// Decoded rows of the frame being staged. Reused across frames and
     /// bounded by `MAX_DISPLAY_FRAME_BYTES`, like `staged_frame_input`.
     display_decoded_rows: Vec<u8>,
-    /// Every row entry this grid applied, which MZ references read. Cleared
+    /// Every complete row a delta carried, which MZ references read. Cleared
     /// with the ordering epoch, the geometry and the session's codec state.
     display_row_history: merkur_codec::mz::RowHistory,
-    /// One row read back from the grid, to start a row's history chain.
-    display_row_readback: Vec<CellRepr>,
     full_damage: bool,
     display_mode: u32,
     // The routing bits of `display_mode` are the daemon's input-routing word,
@@ -1303,7 +1301,6 @@ impl Terminal {
             staged_frame_input: Vec::new(),
             display_decoded_rows: Vec::new(),
             display_row_history: merkur_codec::mz::RowHistory::default(),
-            display_row_readback: Vec::new(),
             full_damage: true,
             display_mode: 0,
             input_routing_held: false,
@@ -2040,6 +2037,18 @@ impl Terminal {
         let mut shadow_authority_changed = false;
         for row in self.frame_rows_scratch.iter().copied() {
             let row_index = usize::from(row.row_index);
+            let cells = &self.frame_cells_scratch[row.cells_start..row.cells_end];
+            // Every complete row a delta carries is history a reference may
+            // name, as the frame carried it, whether or not the grid takes it.
+            if !snapshot && row.left == 0 && cells.len() == cols {
+                self.display_row_history.record(
+                    seq,
+                    row.row_index,
+                    cells,
+                    header.cols,
+                    header.rows,
+                );
+            }
             // ACK-baseline deltas can contain disjoint cells from a shared
             // baseline. Reject the entire stale row, not just overlapping
             // cells, so reordering cannot restore older omitted content.
@@ -2064,43 +2073,6 @@ impl Terminal {
                     authoritative_revision,
                 )
             };
-            // An entry the grid wrote whole is history a reference may read;
-            // one it wrote only partly leaves the row unrebuildable until a
-            // full row lands.
-            let entry_cells = row.cells_end - row.cells_start;
-            if applied_cells == entry_cells
-                && (self.display_row_history.row_chained(row.row_index)
-                    || (row.left == 0 && entry_cells == cols))
-            {
-                self.display_row_history.record(
-                    seq,
-                    row.row_index,
-                    row.left,
-                    &self.frame_cells_scratch[row.cells_start..row.cells_end],
-                    header.cols,
-                    header.rows,
-                );
-            } else if applied_cells == entry_cells {
-                // The row's chain starts here: what the grid now holds, read
-                // back exactly as the row hash reads it.
-                read_row_cells(
-                    self.term.grid(),
-                    row.row_index,
-                    cols,
-                    &self.display_cell_links,
-                    &mut self.display_row_readback,
-                );
-                self.display_row_history.record(
-                    seq,
-                    row.row_index,
-                    0,
-                    &self.display_row_readback,
-                    header.cols,
-                    header.rows,
-                );
-            } else {
-                self.display_row_history.invalidate_row(row.row_index);
-            }
             let applied = applied_cells > 0;
             // Authority advances even when a repair carries the exact content
             // already present. Ordering and prediction evidence are not damage.
@@ -5610,36 +5582,6 @@ fn hash_row(
     }
     merkur_codec::append_graphics_digest(digest, fragments);
     row_hash_packed(digest)
-}
-
-/// One grid row as `CellRepr`s, exactly as [`hash_row`] digests it: resolved
-/// colours, the row-scoped wrap bit on the final cell, and each column's link.
-fn read_row_cells(
-    grid: &Grid<Cell>,
-    row: u16,
-    cols: usize,
-    links: &[u32],
-    out: &mut Vec<CellRepr>,
-) {
-    out.clear();
-    let line = &grid[Line(i32::from(row))];
-    let mut fg_cache = None;
-    let mut bg_cache = None;
-    for (col, cell) in line.into_iter().take(cols).enumerate() {
-        let fg = resolve_cached_color(cell.fg, &mut fg_cache);
-        let bg = resolve_cached_color(cell.bg, &mut bg_cache);
-        let mut repr = CellRepr::from_alacritty_with_colors(cell, fg, bg);
-        repr.link = links
-            .get(usize::from(row) * cols + col)
-            .copied()
-            .unwrap_or(0);
-        out.push(repr);
-    }
-    if let (Some(cell), Some(last)) = (line.last(), out.last_mut())
-        && cell_wraps(cell)
-    {
-        last.attrs = last.attrs.with(merkur_codec::CellAttrs::WRAPPED, true);
-    }
 }
 
 /// OR the row-scoped wrap bit into the final cell's already-packed flags byte.

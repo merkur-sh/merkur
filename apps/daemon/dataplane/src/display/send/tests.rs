@@ -402,6 +402,7 @@ mod ack_route_invariance {
             row: 0,
             hash: 7,
             cells: Arc::from([CellRepr::BLANK]),
+            complete: false,
         }]);
         let paths = SentPaths::single(original_path);
         peer.display_cache
@@ -1155,6 +1156,7 @@ fn only_header_or_causal_cursor_row_updates_bypass_presentation_coherence() {
                 row,
                 hash: u64::from(row) + 1,
                 cells: Arc::from(vec![CellRepr::BLANK]),
+                complete: false,
             });
         }
         (
@@ -1509,6 +1511,7 @@ fn an_unacked_row_stays_schedulable_and_becomes_runnable_at_its_deadline() {
         row: 0,
         hash: 0xfeed,
         cells: Arc::from(vec![CellRepr::BLANK; 2]),
+        complete: false,
     };
     peer.display_cache.record_sent_rows(
         1,
@@ -1638,6 +1641,7 @@ fn a_peer_with_no_counterpart_is_unscheduled_until_its_carrier_returns() {
             row: 0,
             hash: 0xfeed,
             cells: Arc::from(vec![CellRepr::BLANK; 2]),
+            complete: false,
         }),
         sent_at_ms,
         resend_interval_ms,
@@ -2225,6 +2229,7 @@ pub(super) fn row_predecessor_original_for_test(
             row,
             hash: merkur_codec::row_hash(&cells),
             cells,
+            complete: false,
         });
     }
     encode_frame_into(
@@ -3356,6 +3361,7 @@ fn sent_datagram_retains_its_original_header_only_classification() {
         row: 0,
         hash: 7,
         cells: vec![CellRepr::BLANK; 2].into(),
+        complete: false,
     });
     record_sent_datagram(&mut peer, &mut row_bearing, 100.0, sent_via);
 
@@ -3515,6 +3521,7 @@ async fn newer_ack_of_same_exact_arc_preserves_worker_result() {
         row: 0,
         hash,
         cells: Arc::clone(&baseline),
+        complete: false,
     };
     crate::display::recv::advance_acked_rows_from_sent_snapshot(
         &mut peer.display_cache,
@@ -5360,6 +5367,7 @@ fn row_superseding_an_unacked_version_is_sent_full_width() {
             row: 0,
             hash: merkur_codec::row_hash(&speculative_cells),
             cells: speculative_cells,
+            complete: false,
         }],
         0.0,
         DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -5410,6 +5418,7 @@ fn a_row_returning_to_its_acked_hash_stays_full_width_until_reconfirmed() {
             codepoint: glyph,
             ..CellRepr::BLANK
         }]),
+        complete: false,
     };
     cache.record_sent_rows(1, &[row(9, u32::from('B'))], 0.0, 25.0);
     cache.record_sent_rows(2, &[row(7, u32::from('A'))], 1.0, 25.0);
@@ -5474,6 +5483,7 @@ fn unresolved_attempts_keep_deadlines_until_applied_evidence_resolves_them() {
                 row,
                 hash,
                 cells: Arc::from([CellRepr::BLANK]),
+                complete: false,
             }],
             0.0,
             100.0,
@@ -13776,6 +13786,7 @@ fn send_paced_duplicate(peer: &mut PeerDisplayState, current: &mut [u64], now_ms
         row: 0,
         hash: 0xfeed,
         cells: Arc::from(vec![CellRepr::BLANK; 2]),
+        complete: false,
     };
     peer.display_cache.record_sent_rows(
         1,

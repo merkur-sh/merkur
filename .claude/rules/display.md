@@ -31,8 +31,9 @@ health. The one-line versions:
   constant, with no inter-group pacing.
 - MZ is the one payload codec: a frame it would not shrink travels raw. A static model
   compiled into both ends, no install; a retrained model regenerates the browser
-  calibration fixtures and test grids (`packages/display-fixture`). References name an
-  acknowledged row (counted from the presentation id) that the browser rebuilds from its own
-  applied-entry history and hash-checks; a source is indexed only if its ACK beat any newer
-  send of that row; an unresolvable reference is a lost datagram, never a resync.
+  calibration fixtures and test grids (`packages/display-fixture`). References name a
+  complete row of an acknowledged delta (counted from the presentation id), which the browser
+  kept as the frame carried it, applied or stale; both ends run the same `MzLedger`, the
+  daemon's over a superset, so it never names a retired row; an unresolvable reference is a
+  lost datagram, never a resync.
 - One wrap bit per row on the row's final cell; `row_hash` digests it.

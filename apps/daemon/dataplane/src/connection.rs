@@ -570,6 +570,9 @@ pub struct SentRow {
     pub hash: u64,
     pub cells: Arc<[CellRepr]>,
     pub graphics: Option<GraphicsVersion>,
+    /// The datagram carried the whole row, as a full-row entry or a reference,
+    /// so the browser's history holds it as carried.
+    pub complete: bool,
 }
 
 // The inline record size below is this.
@@ -582,6 +585,7 @@ impl From<&crate::pty::CapturedRow> for SentRow {
             hash: captured.hash,
             cells: Arc::clone(&captured.cells),
             graphics: captured.graphics.version(),
+            complete: false,
         }
     }
 }
@@ -665,6 +669,23 @@ impl SentRows {
                 SentRowsIter::Inline(rows[..usize::from(*len)].iter().flatten())
             }
             Self::Heap(rows) => SentRowsIter::Heap(rows.iter()),
+        }
+    }
+
+    /// Mark complete each row `referenced` flags, in row order: the frame
+    /// carried it as a reference, which the browser writes as a full row.
+    pub fn mark_referenced(&mut self, referenced: &[bool]) {
+        match self {
+            Self::Inline { len, rows } => {
+                for (row, &taken) in rows[..usize::from(*len)].iter_mut().flatten().zip(referenced) {
+                    row.complete |= taken;
+                }
+            }
+            Self::Heap(rows) => {
+                for (row, &taken) in rows.iter_mut().zip(referenced) {
+                    row.complete |= taken;
+                }
+            }
         }
     }
 
@@ -1665,7 +1686,7 @@ impl PerPeerDisplayCache {
         self.sent_row_resend_after_ms.clear();
         self.sent_row_resend_after_ms.resize(usize::from(rows), 0.0);
         self.retire_all_sent_datagrams_unknown();
-        self.references.resize(cols, rows);
+        self.references.resize();
         self.row_invalidation_mask.clear();
         self.row_invalidation_mask
             .resize(usize::from(rows).div_ceil(u64::BITS as usize), 0);
@@ -4663,12 +4684,14 @@ mod tests {
                         row: 0,
                         hash: 0xdead,
                         cells: vec![cell('x'), cell('x')].into(),
+                        complete: false,
                     },
                     SentRow {
                         graphics: None,
                         row: 1,
                         hash: 0xbeef,
                         cells: vec![cell(' '), cell(' ')].into(),
+                        complete: false,
                     },
                 ]),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -4711,12 +4734,14 @@ mod tests {
                         row: 0,
                         hash: 0xdead,
                         cells: vec![cell('x'), cell('x')].into(),
+                        complete: false,
                     },
                     SentRow {
                         graphics: None,
                         row: 1,
                         hash: 0xbeef,
                         cells: vec![cell(' '), cell(' ')].into(),
+                        complete: false,
                     },
                 ]),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -4759,6 +4784,7 @@ mod tests {
             row: index,
             hash: u64::from(index),
             cells: Arc::clone(&cells),
+            complete: false,
         };
         let build = |count: u16| {
             test_allocations::begin();
@@ -4832,6 +4858,7 @@ mod tests {
             row: 0,
             hash: 7,
             cells: vec![cell('x'), cell('y')].into(),
+            complete: false,
         };
         cache.sent_datagrams.insert(
             1,
@@ -4924,6 +4951,7 @@ mod tests {
             hash: merkur_codec::row_hash(&cells),
             cells,
             graphics: None,
+            complete: true,
         };
         let sent = |sent_at_ms| SentDatagram {
             sent_at_ms,
@@ -4938,7 +4966,8 @@ mod tests {
         for end in ["expired", "evicted", "carrier retired"] {
             let mut cache = PerPeerDisplayCache::new();
             cache.resize(4, 2);
-            cache.references.note_applied(1, [&source], &[1, 0]);
+            cache.references.note_sent(1, [&source]);
+            cache.references.note_applied(1, [&source]);
             cache.references.note_referencing(2);
             cache.insert_sent_datagram(2, sent(1.0));
             assert_eq!(cache.references.len(), 1);
@@ -5195,6 +5224,7 @@ mod tests {
             row: 0,
             hash: 0x1234,
             cells: Arc::clone(&cells),
+            complete: false,
         };
         cache.record_sent_rows(
             1,
@@ -5212,6 +5242,7 @@ mod tests {
             row: 0,
             hash: 0x1234,
             cells: Arc::clone(&cells),
+            complete: false,
         };
         cache.record_sent_rows(
             5,
@@ -5236,6 +5267,7 @@ mod tests {
             row: 0,
             hash: 0x9999,
             cells: Arc::from(vec![cell('c'), cell('d')]),
+            complete: false,
         };
         cache.record_sent_rows(
             9,
@@ -5266,6 +5298,7 @@ mod tests {
             row,
             hash,
             cells: Arc::from(vec![cell(char::from(b'a' + row as u8))]),
+            complete: false,
         };
 
         // One datagram may satisfy several rows and dual-path bookkeeping may
@@ -5357,6 +5390,7 @@ mod tests {
                 row: 0,
                 hash,
                 cells: Arc::from(vec![cell('a'), cell('b')]),
+                complete: false,
             };
             cache.record_sent_rows(
                 seq,
@@ -5467,6 +5501,7 @@ mod tests {
                             .wrapping_mul(0x9e37_79b9_7f4a_7c15)
                             .wrapping_add(u64::from(row)),
                         cells: Arc::from(vec![CellRepr::BLANK; usize::from(COLS)]),
+                        complete: false,
                     });
                 }
                 cache.record_sent_rows(

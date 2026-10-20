@@ -379,6 +379,7 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
         row: 0,
         hash: 101,
         cells: vec![CellRepr::BLANK].into(),
+        complete: false,
     };
     peer.display_cache.record_reliable_sent_rows_on_path(
         10,
@@ -404,6 +405,7 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
         row: 1,
         hash: 202,
         cells: vec![CellRepr::BLANK].into(),
+        complete: false,
     };
     let edge_paths = SentPaths::single(PeerTransport::Edge);
     peer.display_cache.record_sent_rows_on_paths(
@@ -430,6 +432,7 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
         row: 2,
         hash: 303,
         cells: vec![CellRepr::BLANK].into(),
+        complete: false,
     };
     let dual_paths = SentPaths {
         webtransport: true,

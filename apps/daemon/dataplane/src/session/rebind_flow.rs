@@ -2205,6 +2205,7 @@ mod tests {
                     ..CellRepr::BLANK
                 }]
                 .into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,

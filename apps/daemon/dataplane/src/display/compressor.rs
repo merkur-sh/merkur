@@ -164,6 +164,12 @@ impl Compressor {
         })
     }
 
+    /// Whether each row of the last compressed frame rode as a reference, in
+    /// row order.
+    pub fn referenced_rows(&self) -> &[bool] {
+        self.mz.taken()
+    }
+
     #[cfg(test)]
     pub(crate) fn display_frame_compression_attempts(&self) -> usize {
         self.display_frame_compression_attempts

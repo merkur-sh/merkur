@@ -1080,9 +1080,15 @@ fn take_wrapping_nonzero(cursor: &mut u32) -> u32 {
     }
 }
 
-/// The cells a literal row entry carries: the whole row when forced, otherwise
-/// the span between the first and last cell that differ from the baseline.
-/// `None` when nothing differs — the row would encode to zero bytes.
+/// The cells a literal row entry carries: the whole row when forced or when
+/// every cell before the first change is blank, otherwise the span between the
+/// first and last cell that differ from the baseline. `None` when nothing
+/// differs — the row would encode to zero bytes.
+///
+/// A change that starts in the row's leading blanks rewrites the line, and a
+/// whole row is a source MZ references can name exactly; the extension adds
+/// only runs, which code in about a byte. An edit after other text stays a
+/// span.
 fn row_span<'a>(
     force_full: bool,
     baseline: &[CellRepr],
@@ -1095,6 +1101,12 @@ fn row_span<'a>(
         .iter()
         .zip(cells.iter())
         .position(|(previous, current)| previous != current)?;
+    if cells
+        .get(..left)
+        .is_some_and(|before| before.iter().all(|cell| *cell == CellRepr::BLANK))
+    {
+        return Some((0, cells));
+    }
     let right_from_end = baseline
         .iter()
         .rev()
@@ -1180,7 +1192,10 @@ where
     encode_prepared_frame_into(frame, &header, entries);
     let mut sent_rows = SentRows::with_capacity(encoded_rows);
     for row in rows.filter(|row| captured_row_encoded_size(row) > 0) {
-        sent_rows.push(SentRow::from(&row.sent));
+        sent_rows.push(SentRow {
+            complete: row.span.left == 0 && usize::from(row.span.cells) == row.sent.cells.len(),
+            ..SentRow::from(&row.sent)
+        });
     }
     sent_rows
 }
@@ -1489,7 +1504,7 @@ fn emit_fitted_batches(
     let content_class = classify_captured_content(rows);
     let profile = profiles[content_class.index()];
     let mut frame = frames.take(0);
-    let sent_rows = encode_captured_rows(header, rows.iter(), &mut frame);
+    let mut sent_rows = encode_captured_rows(header, rows.iter(), &mut frame);
     if frame.is_empty() {
         frames.put(frame);
         return None;
@@ -1524,6 +1539,9 @@ fn emit_fitted_batches(
     };
 
     if wire_bytes <= wire_cap || rows.len() == 1 {
+        if outcome.used {
+            sent_rows.mark_referenced(compressor.referenced_rows());
+        }
         let payload = BatchPayload {
             frame: choose_compressed_frame(frame, compressed, outcome.used, frames),
             raw_bytes,
@@ -7197,6 +7215,7 @@ fn record_reliable_display_send(
     now_ms: f64,
 ) {
     let resend_interval_ms = peer_row_resend_interval_ms(peer, now_ms);
+    peer.display_cache.references.note_sent(seq, &sent_rows);
     peer.display_cache.record_reliable_sent_rows_on_path(
         seq,
         &sent_rows,
@@ -7346,6 +7365,7 @@ fn record_display_datagram_snapshot(
     // batch — so the send side allocates nothing for them and the ACK side
     // frees nothing.
     let rows = std::mem::take(&mut datagram.rows);
+    peer.display_cache.references.note_sent(datagram.seq, &rows);
     peer.display_cache.record_sent_rows_on_paths(
         datagram.seq,
         &rows,
