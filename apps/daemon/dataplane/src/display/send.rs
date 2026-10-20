@@ -1081,14 +1081,13 @@ fn take_wrapping_nonzero(cursor: &mut u32) -> u32 {
 }
 
 /// The cells a literal row entry carries: the whole row when forced or when
-/// every cell before the first change is blank, otherwise the span between the
-/// first and last cell that differ from the baseline. `None` when nothing
-/// differs — the row would encode to zero bytes.
+/// the cells on each side of the change are one run, otherwise the span
+/// between the first and last cell that differ from the baseline. `None` when
+/// nothing differs — the row would encode to zero bytes.
 ///
-/// A change that starts in the row's leading blanks rewrites the line, and a
-/// whole row is a source MZ references can name exactly; the extension adds
-/// only runs, which code in about a byte. An edit after other text stays a
-/// span.
+/// A change with a single run on each side rewrites the line, and a whole row
+/// is a source MZ references can name exactly; a run codes in a byte or two
+/// whatever it holds. A change beside other text stays a span.
 fn row_span<'a>(
     force_full: bool,
     baseline: &[CellRepr],
@@ -1101,12 +1100,6 @@ fn row_span<'a>(
         .iter()
         .zip(cells.iter())
         .position(|(previous, current)| previous != current)?;
-    if cells
-        .get(..left)
-        .is_some_and(|before| before.iter().all(|cell| *cell == CellRepr::BLANK))
-    {
-        return Some((0, cells));
-    }
     let right_from_end = baseline
         .iter()
         .rev()
@@ -1114,6 +1107,12 @@ fn row_span<'a>(
         .position(|(previous, current)| previous != current)
         .unwrap_or(0);
     let right = cells.len().saturating_sub(1 + right_from_end);
+    let one_run = |cells: Option<&[CellRepr]>| {
+        cells.is_some_and(|cells| cells.windows(2).all(|pair| pair[0] == pair[1]))
+    };
+    if one_run(cells.get(..left)) && one_run(cells.get(right + 1..)) {
+        return Some((0, cells));
+    }
     Some((left.min(u16::MAX as usize) as u16, &cells[left..=right]))
 }
 
