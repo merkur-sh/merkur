@@ -4027,7 +4027,7 @@ mod mz_census {
             dropped: sim.dropped_count(),
             diverged_rows,
             mz_us: CENSUS_MZ_NS.load(Relaxed) / 1000,
-            browser_us: browser.as_micros() as u64,
+            browser_us: u64::try_from(browser.as_micros()).expect("a replay's browser time"),
         };
         assert_eq!(viewer.rejected, 0, "{}: a frame was rejected", recording.name);
         sim.terminal.shutdown_graphics().await;

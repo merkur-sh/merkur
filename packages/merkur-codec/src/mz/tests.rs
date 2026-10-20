@@ -67,7 +67,7 @@ fn rows_of(entries: &[(u16, u16, &[CellRepr])]) -> Vec<u8> {
     let mut frame = Vec::new();
     encode_frame_into(
         &mut frame,
-        &header(entries.len() as u16),
+        &header(u16::try_from(entries.len()).expect("a grid of rows")),
         entries.iter().map(|&(row_index, left, cells)| RowRef {
             row_index,
             left,
@@ -133,7 +133,10 @@ fn literal_frames_round_trip_and_code_smaller_than_their_rows() {
         crate::DEFAULT_FOREGROUND,
     );
     let colored: Vec<CellRepr> = (0..COLS)
-        .map(|i| cell('#', [i as u8 * 6, 200, 17], [3, i as u8, 9]))
+        .map(|i| {
+            let i = u8::try_from(i).expect("a column");
+            cell('#', [i * 6, 200, 17], [3, i, 9])
+        })
         .collect();
     let text = rows_of(&[(3, 0, &prompt), (4, 0, &log)]);
     let coded = round_trip(&text, 2);
@@ -177,8 +180,14 @@ fn graphics_rows_round_trip_with_their_sections() {
     let row = text_row("image below", crate::DEFAULT_FOREGROUND);
     let mut rows = rows_of(&[(1, 0, &row)]);
     rows[2] |= (crate::ROW_FLAG_GRAPHICS >> 8) as u8;
-    let section: Vec<u8> = (0..300u32).map(|i| (i * 7 + i / 13) as u8).collect();
-    rows.extend_from_slice(&(section.len() as u32).to_be_bytes());
+    let section: Vec<u8> = (0..300u32)
+        .map(|i| (i * 7 + i / 13).to_le_bytes()[0])
+        .collect();
+    rows.extend_from_slice(
+        &u32::try_from(section.len())
+            .expect("a section")
+            .to_be_bytes(),
+    );
     rows.extend_from_slice(&section);
     rows.extend_from_slice(&rows_of(&[(2, 0, &row)]));
     round_trip(&rows, 2);
@@ -218,7 +227,7 @@ fn references_rebuild_the_row_the_receiver_applied_and_are_taken_only_when_small
         seq_delta: 1,
         source_row: 5,
         hash: reference_hash(&edited),
-        full_row_bytes: full_row_entry_bytes(&edited) as u32,
+        full_row_bytes: u32::try_from(full_row_entry_bytes(&edited)).expect("a row"),
     };
     let mut payload = Vec::new();
     let rows_len = MzEncoder::default()
@@ -281,7 +290,7 @@ fn a_reference_the_receiver_cannot_rebuild_exactly_is_refused() {
         seq_delta,
         source_row: 2,
         hash,
-        full_row_bytes: full_row_entry_bytes(&row) as u32,
+        full_row_bytes: u32::try_from(full_row_entry_bytes(&row)).expect("a row"),
     };
     let rows = rows_of(&[(3, 0, &row)]);
     let mut out = Vec::new();
@@ -322,7 +331,7 @@ fn history_rebuilds_rows_in_apply_order_across_retirement() {
         history.record(
             seq,
             0,
-            column as u16,
+            u16::try_from(column).expect("a column"),
             &expected[column..column + 1],
             COLS,
             ROWS,
@@ -482,7 +491,7 @@ fn decoded_frames_pass_the_row_validator() {
     encode_frame_into(&mut frame, &header(2), std::iter::empty());
     frame.truncate(crate::STREAM_HEADER_BYTES + crate::FRAME_HEADER_BODY_BYTES);
     frame.extend_from_slice(&decoded);
-    let body_len = (frame.len() - crate::STREAM_HEADER_BYTES) as u32;
+    let body_len = u32::try_from(frame.len() - crate::STREAM_HEADER_BYTES).expect("a frame");
     frame[crate::DISPLAY_BODY_LENGTH_OFFSET..crate::DISPLAY_BODY_LENGTH_OFFSET + 4]
         .copy_from_slice(&body_len.to_be_bytes());
     let parsed = validate_display_frame(

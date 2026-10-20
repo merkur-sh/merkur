@@ -194,9 +194,8 @@ pub(crate) fn decode_display_payload(frame: &[u8]) -> std::io::Result<Vec<u8>> {
     let declared = u32::from_be_bytes(
         frame
             .get(length_offset..length_offset + 4)
-            .ok_or_else(|| invalid("compressed frame shorter than its envelope"))?
-            .try_into()
-            .expect("four bytes"),
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .ok_or_else(|| invalid("compressed frame shorter than its envelope"))?,
     ) as usize;
     let row_count = u16::from_be_bytes([
         frame[merkur_codec::DISPLAY_ROW_COUNT_OFFSET],

@@ -638,7 +638,12 @@ mod tests {
         let rows_offset = STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES;
         let mut compressed = Vec::new();
         merkur_codec::mz::MzEncoder::default()
-            .encode(&snapshot[rows_offset..], ROWS as u16, &[], &mut compressed)
+            .encode(
+                &snapshot[rows_offset..],
+                u16::try_from(ROWS).expect("a grid of rows"),
+                &[],
+                &mut compressed,
+            )
             .expect("rows code");
         assert!(compressed.len() > u16::MAX as usize);
         let (_, original_rows_offset) = parse_frame_header_and_rows_start(&snapshot).unwrap();

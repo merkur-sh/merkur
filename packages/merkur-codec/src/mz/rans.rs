@@ -23,10 +23,15 @@ pub(super) fn encode(
     let mut states = [RANS_L; 2];
     let way_mask = ways - 1;
     for (index, &id) in coded.iter().enumerate().rev() {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "every coded id is an index `EncodeModel` gave into this table"
+        )]
         let symbol = &symbols[id as usize];
-        let state = &mut states[index & way_mask];
+        let [first, second] = &mut states;
+        let state = if index & way_mask == 0 { first } else { second };
         while *state >= symbol.x_max {
-            scratch.push(*state as u8);
+            scratch.push(state.to_le_bytes()[0]);
             *state >>= 8;
         }
         // `state / freq` by its reciprocal; exact for every state below
@@ -35,7 +40,7 @@ pub(super) fn encode(
             ((u64::from(*state) * u64::from(symbol.rcp_freq)) >> 32) as u32 >> symbol.rcp_shift;
         *state += symbol.bias + quotient * u32::from(symbol.cmpl_freq);
     }
-    for state in &states[..ways] {
+    for state in states.iter().take(ways) {
         out.extend_from_slice(&state.to_be_bytes());
     }
     out.extend(scratch.iter().rev());
@@ -55,7 +60,8 @@ impl<'a> Decoder<'a> {
     pub(super) fn new(buf: &'a [u8], ways: usize) -> Option<Self> {
         let state = |at: usize| {
             buf.get(at..at + 4)
-                .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+                .map(u32::from_be_bytes)
         };
         let first = state(0)?;
         let second = if ways == 2 { state(4)? } else { RANS_L };
@@ -80,7 +86,8 @@ impl<'a> Decoder<'a> {
     pub(super) fn get(&mut self, slots: &[u32], handle: u32) -> usize {
         let way = self.next & self.way_mask;
         self.next += 1;
-        let state = &mut self.states[way & 1];
+        let [first, second] = &mut self.states;
+        let state = if way == 0 { first } else { second };
         let bits = handle & 0xf;
         let mask = (1u32 << bits) - 1;
         // SAFETY: a handle names a table `DecodeModel::build` laid out as
@@ -110,8 +117,10 @@ impl<'a> Decoder<'a> {
     /// Whether the decode ended exactly where the encoder began.
     pub(super) fn finish(&self) -> bool {
         self.at == self.buf.len()
-            && self.states[..self.ways]
+            && self
+                .states
                 .iter()
+                .take(self.ways)
                 .all(|&state| state == RANS_L)
     }
 }

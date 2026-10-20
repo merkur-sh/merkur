@@ -35,6 +35,10 @@ const GRAPHICS_LENGTH_BYTES: usize = 4;
 /// The context of byte `index` of a graphics section, its length included:
 /// each length byte its own, then the section's bytes.
 #[inline]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the context is at most `GRAPHICS_LENGTH_BYTES`"
+)]
 fn graphics_aux(index: usize) -> u32 {
     index.min(GRAPHICS_LENGTH_BYTES) as u32
 }
@@ -79,7 +83,8 @@ pub trait MzResolve {
 /// The digest a reference carries: the low 32 bits of [`crate::row_hash`].
 #[inline]
 pub fn reference_hash(cells: &[crate::CellRepr]) -> u32 {
-    crate::row_hash(cells) as u32
+    let [a, b, c, d, ..] = crate::row_hash(cells).to_le_bytes();
+    u32::from_le_bytes([a, b, c, d])
 }
 
 /// The two-state threshold, decided from what both ends know before decoding.
@@ -94,13 +99,27 @@ fn ways(rows_len: usize) -> usize {
 
 #[inline]
 fn zigzag(value: i32) -> u32 {
-    ((value << 1) ^ (value >> 31)) as u32
+    ((value << 1) ^ (value >> 31)).cast_unsigned()
 }
 
 #[inline]
 fn unzigzag(value: u32) -> i32 {
-    ((value >> 1) as i32) ^ -((value & 1) as i32)
+    (value >> 1).cast_signed() ^ -(value & 1).cast_signed()
 }
+
+/// One colour slot's previous colour, carried from cell to cell.
+#[derive(Clone, Copy, Default)]
+struct SlotColor {
+    bytes: [u8; 4],
+    /// How many of `bytes` the colour has; zero before the first.
+    width: u8,
+    /// Whether it repeated the colour before it.
+    same: u8,
+}
+
+/// The foreground and background slots: their slot context, tag flag and
+/// field.
+const COLOR_SLOTS: [(u32, u8, u32); 2] = [(0, HAS_FG, F_FG), (1, HAS_BG, F_BG)];
 
 /// Contexts carried from one entry to the next. A reference changes only the
 /// operation and row contexts, because the receiver resolves it without
@@ -111,11 +130,7 @@ pub(super) struct Walk {
     prev_op: u32,
     prev_mode: u32,
     prev_codepoint: u32,
-    prev_color: [[u32; 4]; 2],
-    /// Bytes of each slot's previous colour; zero before the first.
-    prev_width: [u8; 2],
-    /// Whether each slot's previous colour repeated the one before it.
-    prev_same: [u8; 2],
+    colors: [SlotColor; 2],
 }
 
 impl Walk {
@@ -125,9 +140,7 @@ impl Walk {
             prev_op: OP_START,
             prev_mode: MODE_START,
             prev_codepoint: 0,
-            prev_color: [[0; 4]; 2],
-            prev_width: [0; 2],
-            prev_same: [0; 2],
+            colors: [SlotColor::default(); 2],
         }
     }
 }
@@ -145,13 +158,13 @@ fn codepoint_aux(index: u32, first: u32, prev: u32) -> u32 {
 /// slot, the colour mode, whether the previous colour repeated too, and that
 /// colour's first byte, since some colours repeat far more than others.
 #[inline]
-fn same_color_aux(slot: usize, mode: u8, prev_same: u8, prev_first: u32) -> u32 {
-    slot as u32 | u32::from(mode) << 1 | u32::from(prev_same) << 2 | prev_first << 3
+fn same_color_aux(slot: u32, mode: u8, prev: &SlotColor) -> u32 {
+    slot | u32::from(mode) << 1 | u32::from(prev.same) << 2 | u32::from(prev.bytes[0]) << 3
 }
 
 #[inline]
-fn color_aux(index: usize, prev: u32, mode: u8, escaped: bool) -> u32 {
-    index as u32 | prev << 2 | u32::from(mode) << 10 | u32::from(escaped) << 11
+fn color_aux(index: u32, prev: u8, mode: u8, escaped: bool) -> u32 {
+    index | u32::from(prev) << 2 | u32::from(mode) << 10 | u32::from(escaped) << 11
 }
 
 const _: () = assert!(AUX == 1 << 12, "every context above fits twelve bits");
@@ -181,7 +194,7 @@ fn put_row(walk: &mut Walk, sink: &mut impl Sink, op: u8, row: u16) {
     put_varint(
         sink,
         F_ROW,
-        zigzag(i32::from(row.wrapping_sub(expected) as i16)),
+        zigzag(i32::from(row.wrapping_sub(expected).cast_signed())),
     );
     walk.prev_row = row;
 }
@@ -199,35 +212,91 @@ pub(super) fn put_reference(
         F_SOURCE,
         zigzag(i32::from(reference.source_row) - i32::from(row)),
     );
-    for (index, byte) in reference.hash.to_be_bytes().into_iter().enumerate() {
-        sink.put(key(F_HASH, index as u32), byte);
+    for (index, byte) in (0..).zip(reference.hash.to_be_bytes()) {
+        sink.put(key(F_HASH, index), byte);
     }
+}
+
+/// Walk the colour at `at` of `body` for one slot, `None` past the body's end.
+fn put_color(
+    color: &mut SlotColor,
+    sink: &mut impl Sink,
+    (slot, field): (u32, u32),
+    mode: u8,
+    body: &[u8],
+    at: &mut usize,
+) -> Option<()> {
+    let width: u8 = if mode == COLOR_MODE_LITERAL {
+        3
+    } else if *body.get(*at)? == COLOR_LITERAL_ESCAPE {
+        4
+    } else {
+        1
+    };
+    let bytes = body.get(*at..*at + usize::from(width))?;
+    *at += usize::from(width);
+    // A colour that repeats the slot's previous one, the common case for a
+    // styled run of differing glyphs, is one decision whatever its value; any
+    // other is coded byte by byte.
+    if color.width != 0 {
+        let same = color.width == width && bytes.iter().zip(color.bytes).all(|(&a, b)| a == b);
+        sink.put(
+            key(F_SAME_COLOR, same_color_aux(slot, mode, color)),
+            u8::from(same),
+        );
+        color.same = u8::from(same);
+        if same {
+            return Some(());
+        }
+    }
+    for ((index, prev), &byte) in (0..).zip(&mut color.bytes).zip(bytes) {
+        let aux = color_aux(index, *prev, mode, index > 0 && width == 4);
+        sink.put(key(field, aux), byte);
+        *prev = byte;
+    }
+    color.width = width;
+    Some(())
 }
 
 /// Walk one literal entry, `entry` its complete row-layout bytes, a graphics
 /// section included. `None` when the bytes are not a row the encoder can
 /// carry.
 pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -> Option<()> {
-    let row = u16::from_be_bytes([*entry.first()?, *entry.get(1)?]);
-    let left_field = u16::from_be_bytes([entry[2], entry[3]]);
-    let count_field = u16::from_be_bytes([*entry.get(4)?, *entry.get(5)?]);
-    let body_len = usize::from(u16::from_be_bytes([*entry.get(6)?, *entry.get(7)?]));
+    let prefix: [u8; ROW_PREFIX_BYTES] = entry.get(..ROW_PREFIX_BYTES)?.try_into().ok()?;
+    let [
+        row_high,
+        row_low,
+        left_high,
+        left_low,
+        count_high,
+        count_low,
+        len_high,
+        len_low,
+    ] = prefix;
+    let left_field = u16::from_be_bytes([left_high, left_low]);
+    let count_field = u16::from_be_bytes([count_high, count_low]);
+    let body_len = usize::from(u16::from_be_bytes([len_high, len_low]));
     let body = entry.get(ROW_PREFIX_BYTES..ROW_PREFIX_BYTES + body_len)?;
-    let graphics = &entry[ROW_PREFIX_BYTES + body_len..];
+    let graphics = entry.get(ROW_PREFIX_BYTES + body_len..)?;
     if (left_field & ROW_FLAG_GRAPHICS != 0) == graphics.is_empty() {
         return None;
     }
-    put_row(walk, sink, OP_LITERAL, row);
-    sink.put(key(F_LEFT, 0), entry[2]);
-    sink.put(key(F_LEFT, 1 | u32::from(entry[2]) << 1), entry[3]);
-    sink.put(key(F_COUNT, 0), entry[4]);
-    sink.put(key(F_COUNT, 1 | u32::from(entry[4]) << 1), entry[5]);
+    put_row(
+        walk,
+        sink,
+        OP_LITERAL,
+        u16::from_be_bytes([row_high, row_low]),
+    );
+    sink.put(key(F_LEFT, 0), left_high);
+    sink.put(key(F_LEFT, 1 | u32::from(left_high) << 1), left_low);
+    sink.put(key(F_COUNT, 0), count_high);
+    sink.put(key(F_COUNT, 1 | u32::from(count_high) << 1), count_low);
     let mut at = 0usize;
     if left_field & ROW_FLAG_LINKS != 0 {
         let spans = usize::from(u16::from_be_bytes([*body.first()?, *body.get(1)?]));
         let table = body.get(..LINK_TABLE_COUNT_BYTES + spans * LINK_SPAN_BYTES)?;
-        for (index, &byte) in table.iter().enumerate() {
-            sink.put(key(F_LINK, (index % LINK_SPAN_BYTES) as u32), byte);
+        for (aux, &byte) in link_aux().zip(table) {
+            sink.put(key(F_LINK, aux), byte);
         }
         at = table.len();
     }
@@ -264,73 +333,16 @@ pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -
             }
         }
         walk.prev_codepoint = first;
-        for (slot, flag, field) in [(0usize, HAS_FG, F_FG), (1, HAS_BG, F_BG)] {
-            if tag & flag == 0 {
-                continue;
+        for (color, (slot, flag, field)) in walk.colors.iter_mut().zip(COLOR_SLOTS) {
+            if tag & flag != 0 {
+                put_color(color, sink, (slot, field), mode, body, &mut at)?;
             }
-            let width = if mode == COLOR_MODE_LITERAL {
-                3
-            } else if *body.get(at)? == COLOR_LITERAL_ESCAPE {
-                4
-            } else {
-                1
-            };
-            let bytes = body.get(at..at + width)?;
-            at += width;
-            // A colour that repeats the slot's previous one, the common case
-            // for a styled run of differing glyphs, is one decision whatever
-            // its value; any other is coded byte by byte.
-            let prev_width = usize::from(walk.prev_width[slot]);
-            if prev_width != 0 {
-                let same = prev_width == width
-                    && bytes
-                        .iter()
-                        .zip(walk.prev_color[slot])
-                        .all(|(&byte, prev)| u32::from(byte) == prev);
-                let aux =
-                    same_color_aux(slot, mode, walk.prev_same[slot], walk.prev_color[slot][0]);
-                sink.put(key(F_SAME_COLOR, aux), u8::from(same));
-                walk.prev_same[slot] = u8::from(same);
-                if same {
-                    continue;
-                }
-            }
-            for (index, &byte) in bytes.iter().enumerate() {
-                let aux = color_aux(
-                    index,
-                    walk.prev_color[slot][index],
-                    mode,
-                    index > 0 && width == 4,
-                );
-                sink.put(key(field, aux), byte);
-                walk.prev_color[slot][index] = u32::from(byte);
-            }
-            walk.prev_width[slot] = width as u8;
         }
-        let length = if tag & RUN != 0 {
-            let (mut value, mut shift, mut index) = (0usize, 0u32, 0u32);
-            loop {
-                let byte = *body.get(at)?;
-                at += 1;
-                sink.put(key(F_RUN, index), byte);
-                value |= usize::from(byte & 0x7f) << shift;
-                index += 1;
-                if byte & 0x80 == 0 {
-                    break;
-                }
-                shift += 7;
-                if shift > 28 {
-                    return None;
-                }
-            }
-            value
+        covered += if tag & RUN != 0 {
+            put_run(sink, body, &mut at)?
         } else {
             1
         };
-        if length == 0 {
-            return None;
-        }
-        covered += length;
     }
     if at != body.len() || covered != cells {
         return None;
@@ -341,16 +353,44 @@ pub(super) fn put_literal(walk: &mut Walk, sink: &mut impl Sink, entry: &[u8]) -
     Some(())
 }
 
+/// Walk the run length at `at` of `body`, returning it; `None` for a length
+/// the row layout never writes.
+fn put_run(sink: &mut impl Sink, body: &[u8], at: &mut usize) -> Option<usize> {
+    let (mut value, mut shift, mut index) = (0usize, 0u32, 0u32);
+    loop {
+        let byte = *body.get(*at)?;
+        *at += 1;
+        sink.put(key(F_RUN, index), byte);
+        value |= usize::from(byte & 0x7f) << shift;
+        index += 1;
+        if byte & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+        if shift > 28 {
+            return None;
+        }
+    }
+    (value != 0).then_some(value)
+}
+
+/// The context of each byte of a link table, its count included: its offset
+/// within a span.
+fn link_aux() -> impl Iterator<Item = u32> {
+    (0..).take(LINK_SPAN_BYTES).cycle()
+}
+
 /// Split a row-layout payload into its `row_count` entries, each with its
 /// graphics section.
 pub(super) fn entries(rows: &[u8], row_count: u16) -> impl Iterator<Item = Option<&[u8]>> {
     let mut at = 0usize;
     (0..row_count).map(move |_| {
-        let prefix = rows.get(at..at + ROW_PREFIX_BYTES)?;
+        let prefix: [u8; ROW_PREFIX_BYTES] =
+            rows.get(at..at + ROW_PREFIX_BYTES)?.try_into().ok()?;
         let mut len = ROW_PREFIX_BYTES + usize::from(u16::from_be_bytes([prefix[6], prefix[7]]));
         if u16::from_be_bytes([prefix[2], prefix[3]]) & ROW_FLAG_GRAPHICS != 0 {
             let length = rows.get(at + len..at + len + GRAPHICS_LENGTH_BYTES)?;
-            let length = u32::from_be_bytes(length.try_into().expect("four bytes")) as usize;
+            let length = u32::from_be_bytes(length.try_into().ok()?) as usize;
             if length == 0 || length > MAX_GRAPHICS_SECTION_BYTES {
                 return None;
             }
@@ -371,6 +411,12 @@ struct Coder<'m> {
 
 impl Coder<'_> {
     #[inline(always)]
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::cast_possible_truncation,
+        reason = "every position is one `EncodeModel::context` or `field` gave into its arena, \
+                  which holds far fewer than 4 Gi symbols"
+    )]
     fn push(&mut self, at: usize) -> bool {
         let symbol = &self.model.symbols[at];
         if symbol.x_max == 0 {
@@ -463,7 +509,7 @@ impl MzEncoder {
         for (index, entry) in entries(rows, row_count).enumerate() {
             let entry = entry?;
             consumed += entry.len();
-            let row = u16::from_be_bytes([entry[0], entry[1]]);
+            let row = u16::from_be_bytes([*entry.first()?, *entry.get(1)?]);
             let Some(reference) = references.get(index).copied().flatten() else {
                 put_literal(&mut walk, coder, entry)?;
                 rows_len += entry.len();
@@ -504,6 +550,10 @@ struct Reader<'m, 'b> {
 
 impl Reader<'_, '_> {
     #[inline(always)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a context table's symbols are bytes or `ESC`, and a field table's bytes"
+    )]
     fn get(&mut self, key: u32) -> u8 {
         let context = self.model.context(key);
         if context != 0 {
@@ -603,17 +653,22 @@ fn decode(
         let op = reader.get(key(F_OP, walk.prev_op));
         walk.prev_op = u32::from(op);
         let expected = walk.prev_row.wrapping_add(1);
-        let delta = reader.varint(F_ROW)?;
-        let row = expected.wrapping_add(unzigzag(delta) as i16 as u16);
+        // The encoder codes a row as its 16-bit wrapping distance.
+        let Ok(delta) = i16::try_from(unzigzag(reader.varint(F_ROW)?)) else {
+            return Err(MzError::Corrupt);
+        };
+        let row = expected.wrapping_add(delta.cast_unsigned());
         walk.prev_row = row;
         match op {
             OP_REFERENCE => {
                 let seq_delta = reader.varint(F_SEQ)?;
                 let source = i32::from(row) + unzigzag(reader.varint(F_SOURCE)?);
-                let source_row = u16::try_from(source).map_err(|_| MzError::Corrupt)?;
+                let Ok(source_row) = u16::try_from(source) else {
+                    return Err(MzError::Corrupt);
+                };
                 let mut hash = [0u8; 4];
-                for (index, byte) in hash.iter_mut().enumerate() {
-                    *byte = reader.get(key(F_HASH, index as u32));
+                for (index, byte) in (0..).zip(&mut hash) {
+                    *byte = reader.get(key(F_HASH, index));
                 }
                 if seq_delta == 0 {
                     return Err(MzError::Corrupt);
@@ -672,8 +727,11 @@ fn decode_literal(
         if spans > cells {
             return Err(MzError::Corrupt);
         }
-        for index in LINK_TABLE_COUNT_BYTES..LINK_TABLE_COUNT_BYTES + spans * LINK_SPAN_BYTES {
-            out.push(reader.get(key(F_LINK, (index % LINK_SPAN_BYTES) as u32)));
+        for aux in link_aux()
+            .skip(LINK_TABLE_COUNT_BYTES)
+            .take(spans * LINK_SPAN_BYTES)
+        {
+            out.push(reader.get(key(F_LINK, aux)));
         }
     }
     let mode = reader.get(key(F_MODE, walk.prev_mode));
@@ -711,90 +769,121 @@ fn decode_literal(
             }
         }
         walk.prev_codepoint = first;
-        for (slot, flag, field) in [(0usize, HAS_FG, F_FG), (1, HAS_BG, F_BG)] {
-            if tag & flag == 0 {
-                continue;
+        for (color, (slot, flag, field)) in walk.colors.iter_mut().zip(COLOR_SLOTS) {
+            if tag & flag != 0 {
+                decode_color(reader, color, (slot, field), mode, out)?;
             }
-            let prev_width = usize::from(walk.prev_width[slot]);
-            if prev_width != 0 {
-                let aux =
-                    same_color_aux(slot, mode, walk.prev_same[slot], walk.prev_color[slot][0]);
-                let same = reader.get(key(F_SAME_COLOR, aux));
-                if same > 1 {
-                    return Err(MzError::Corrupt);
-                }
-                walk.prev_same[slot] = same;
-                if same == 1 {
-                    for &prev in &walk.prev_color[slot][..prev_width] {
-                        out.push(prev as u8);
-                    }
-                    continue;
-                }
-            }
-            let mut width = if mode == COLOR_MODE_LITERAL { 3 } else { 1 };
-            let mut index = 0;
-            while index < width {
-                let aux = color_aux(index, walk.prev_color[slot][index], mode, width == 4);
-                let byte = reader.get(key(field, aux));
-                if index == 0 && mode != COLOR_MODE_LITERAL && byte == COLOR_LITERAL_ESCAPE {
-                    width = 4;
-                }
-                walk.prev_color[slot][index] = u32::from(byte);
-                out.push(byte);
-                index += 1;
-            }
-            walk.prev_width[slot] = width as u8;
         }
         let length = if tag & RUN != 0 {
-            let (mut value, mut shift, mut index) = (0usize, 0u32, 0u32);
-            loop {
-                let byte = reader.get(key(F_RUN, index));
-                out.push(byte);
-                value |= usize::from(byte & 0x7f) << shift;
-                index += 1;
-                if byte & 0x80 == 0 {
-                    break;
-                }
-                shift += 7;
-                if shift > 14 {
-                    return Err(MzError::Corrupt);
-                }
-            }
-            value
+            decode_run(reader, out)?
         } else {
             1
         };
-        if length == 0 {
-            return Err(MzError::Corrupt);
-        }
         covered += length;
     }
     if covered != cells {
         return Err(MzError::Corrupt);
     }
-    let body_len = u16::try_from(out.len() - body_start).map_err(|_| MzError::Corrupt)?;
-    out[start + 6..start + 8].copy_from_slice(&body_len.to_be_bytes());
+    let Ok(body_len) = u16::try_from(out.len() - body_start) else {
+        return Err(MzError::Corrupt);
+    };
+    out.get_mut(start + 6..start + 8)
+        .ok_or(MzError::Corrupt)?
+        .copy_from_slice(&body_len.to_be_bytes());
     if left_field & ROW_FLAG_GRAPHICS != 0 {
-        let mut length = [0u8; GRAPHICS_LENGTH_BYTES];
-        for (index, byte) in length.iter_mut().enumerate() {
-            *byte = reader.get(key(F_GRAPHICS, graphics_aux(index)));
-        }
-        out.extend_from_slice(&length);
-        let length = u32::from_be_bytes(length) as usize;
-        // Bound the section before decoding it: the bytes come from the
-        // payload, and a length past the frame is corrupt.
-        if length == 0 || length > MAX_GRAPHICS_SECTION_BYTES || out.len() + length > rows_len {
+        decode_graphics(reader, rows_len, out)?;
+    }
+    Ok(())
+}
+
+/// Decode one slot's colour into `out`.
+fn decode_color(
+    reader: &mut Reader<'_, '_>,
+    color: &mut SlotColor,
+    (slot, field): (u32, u32),
+    mode: u8,
+    out: &mut Vec<u8>,
+) -> Result<(), MzError> {
+    if color.width != 0 {
+        let same = reader.get(key(F_SAME_COLOR, same_color_aux(slot, mode, color)));
+        if same > 1 {
             return Err(MzError::Corrupt);
         }
-        for index in GRAPHICS_LENGTH_BYTES..GRAPHICS_LENGTH_BYTES + length {
-            out.push(reader.get(key(F_GRAPHICS, graphics_aux(index))));
+        color.same = same;
+        if same == 1 {
+            out.extend(color.bytes.iter().take(usize::from(color.width)));
+            return Ok(());
         }
+    }
+    let mut width: u8 = if mode == COLOR_MODE_LITERAL { 3 } else { 1 };
+    for (index, prev) in (0..).zip(&mut color.bytes) {
+        if index == u32::from(width) {
+            break;
+        }
+        let byte = reader.get(key(field, color_aux(index, *prev, mode, width == 4)));
+        if index == 0 && mode != COLOR_MODE_LITERAL && byte == COLOR_LITERAL_ESCAPE {
+            width = 4;
+        }
+        *prev = byte;
+        out.push(byte);
+    }
+    color.width = width;
+    Ok(())
+}
+
+/// Decode a run's length into `out`, returning it.
+fn decode_run(reader: &mut Reader<'_, '_>, out: &mut Vec<u8>) -> Result<usize, MzError> {
+    let (mut value, mut shift, mut index) = (0usize, 0u32, 0u32);
+    loop {
+        let byte = reader.get(key(F_RUN, index));
+        out.push(byte);
+        value |= usize::from(byte & 0x7f) << shift;
+        index += 1;
+        if byte & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+        if shift > 14 {
+            return Err(MzError::Corrupt);
+        }
+    }
+    if value == 0 {
+        return Err(MzError::Corrupt);
+    }
+    Ok(value)
+}
+
+/// Decode a row's graphics section, its length first, into `out`.
+fn decode_graphics(
+    reader: &mut Reader<'_, '_>,
+    rows_len: usize,
+    out: &mut Vec<u8>,
+) -> Result<(), MzError> {
+    let mut length = [0u8; GRAPHICS_LENGTH_BYTES];
+    for (index, byte) in length.iter_mut().enumerate() {
+        *byte = reader.get(key(F_GRAPHICS, graphics_aux(index)));
+    }
+    out.extend_from_slice(&length);
+    let length = u32::from_be_bytes(length) as usize;
+    // Bound the section before decoding it: the bytes come from the payload,
+    // and a length past the frame is corrupt.
+    if length == 0 || length > MAX_GRAPHICS_SECTION_BYTES || out.len() + length > rows_len {
+        return Err(MzError::Corrupt);
+    }
+    for index in GRAPHICS_LENGTH_BYTES..GRAPHICS_LENGTH_BYTES + length {
+        out.push(reader.get(key(F_GRAPHICS, graphics_aux(index))));
     }
     Ok(())
 }
 
 /// Append the complete full-row entry for `row` holding `cells`, as the row
 /// layout writes it.
+#[expect(
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    reason = "the length slot was just written, and a row's cells fit the layout's \
+              16-bit body length, as every row encoder relies on"
+)]
 pub fn encode_full_row_entry(out: &mut Vec<u8>, row: u16, cells: &[crate::CellRepr]) {
     out.extend_from_slice(&row.to_be_bytes());
     out.extend_from_slice(&crate::row_left_field(0, cells).to_be_bytes());

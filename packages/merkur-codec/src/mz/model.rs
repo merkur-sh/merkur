@@ -9,8 +9,10 @@ pub(super) const PROB_BITS: u32 = 11;
 /// The escape symbol of a context table: the symbol is coded again with its
 /// field's table.
 pub(super) const ESC: usize = 256;
-/// Context values per field. Every context a field takes fits twelve bits.
-pub(super) const AUX: usize = 1 << 12;
+/// Bits of context per field. Every context a field takes fits twelve bits.
+const AUX_BITS: u32 = 12;
+/// Context values per field.
+pub(super) const AUX: usize = 1 << AUX_BITS;
 
 pub(super) const F_OP: u32 = 0;
 pub(super) const F_ROW: u32 = 1;
@@ -34,12 +36,12 @@ pub(super) const FIELDS: usize = 16;
 
 #[inline]
 pub(super) const fn key(field: u32, aux: u32) -> u32 {
-    field << 12 | (aux & (AUX as u32 - 1))
+    field << AUX_BITS | (aux & ((1 << AUX_BITS) - 1))
 }
 
 #[inline]
 pub(super) const fn field_of(key: u32) -> usize {
-    (key >> 12) as usize
+    (key >> AUX_BITS) as usize
 }
 
 /// Normalized frequencies of one table, as the model data stores them.
@@ -51,6 +53,11 @@ struct Frequencies {
 
 /// Parse the model data. It is compiled in, so a malformed table is a build
 /// defect and panics; `the_model_data_is_well_formed` runs this in the tests.
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "the model data is compiled in, and a malformed table is a build defect"
+)]
 fn parse(data: &[u8]) -> (Vec<Frequencies>, Vec<(u32, Frequencies)>) {
     let mut at = 0usize;
     let u16_at = |at: &mut usize| {
@@ -129,6 +136,13 @@ pub(super) struct DecodeModel {
 }
 
 impl DecodeModel {
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::expect_used,
+        clippy::cast_possible_truncation,
+        reason = "`parse` checked the compiled-in tables: every symbol lies in its \
+                  table's scale, every key below `FIELDS * AUX`, the arena far below 4 Gi"
+    )]
     fn build() -> Self {
         let (fields, contexts) = parse(super::model_data::MODEL);
         let mut slots = Vec::new();
@@ -168,6 +182,10 @@ impl DecodeModel {
     }
 
     #[inline(always)]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "every key is `key(field, aux)` with a field below `FIELDS`"
+    )]
     pub(super) fn field(&self, key: u32) -> u32 {
         self.fields[field_of(key)]
     }
@@ -193,6 +211,12 @@ pub(super) struct EncodeSymbol {
 }
 
 impl EncodeSymbol {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`freq` is in 1..scale with scale at most 2^11, so the reciprocal is \
+                  below 2^32 and the complement and cost fit 16 bits"
+    )]
     fn new(start: u32, freq: u32, bits: u32) -> Self {
         let scale = 1u32 << bits;
         let (rcp_freq, rcp_shift, bias) = if freq < 2 {
@@ -225,6 +249,13 @@ pub(super) struct EncodeModel {
 }
 
 impl EncodeModel {
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::expect_used,
+        clippy::cast_possible_truncation,
+        reason = "`parse` checked the compiled-in tables: every symbol is at most `ESC`, \
+                  every key below `FIELDS * AUX`, the arena far below 4 Gi tables"
+    )]
     fn build() -> Self {
         let (fields, contexts) = parse(super::model_data::MODEL);
         let mut symbols = Vec::new();
@@ -260,6 +291,10 @@ impl EncodeModel {
     }
 
     #[inline(always)]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "every key is `key(field, aux)` with a field below `FIELDS`"
+    )]
     pub(super) fn field(&self, key: u32, symbol: usize) -> usize {
         self.fields[field_of(key)] as usize * (ESC + 1) + symbol
     }

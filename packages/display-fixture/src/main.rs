@@ -90,7 +90,7 @@ mod tests {
             cursor_shape: 1,
             cursor_visible: 1,
             mode_flags: 0,
-            row_count: rows as u16,
+            row_count: u16::try_from(rows).expect("a grid of rows"),
             frame_id: 1,
             presentation_id: 0,
             presentation_member_index: 0,
@@ -117,7 +117,7 @@ mod tests {
                 .enumerate()
                 .map(|(row, cells)| merkur_codec::RowRef {
                     graphics: &[],
-                    row_index: row as u16,
+                    row_index: u16::try_from(row).expect("a grid row"),
                     left: 0,
                     cells,
                 }),
@@ -169,7 +169,11 @@ mod tests {
             body.extend_from_slice(&row.to_be_bytes());
             body.extend_from_slice(&0u16.to_be_bytes());
             body.extend_from_slice(&CALIBRATION_COLS.to_be_bytes());
-            body.extend_from_slice(&(cell_bytes as u16).to_be_bytes());
+            body.extend_from_slice(
+                &u16::try_from(cell_bytes)
+                    .expect("a calibration row")
+                    .to_be_bytes(),
+            );
             body.push(COLOR_MODE_INDEXED);
             for col in 0..CALIBRATION_COLS {
                 body.push(0);
@@ -239,14 +243,21 @@ mod tests {
                 cells.push(if run > 1 { 0x80 } else { 0 });
                 merkur_codec::encode_varint_u32(&mut cells, u32::from(text[index]));
                 if run > 1 {
-                    merkur_codec::encode_varint_u32(&mut cells, run as u32);
+                    merkur_codec::encode_varint_u32(
+                        &mut cells,
+                        u32::try_from(run).expect("a run within a row"),
+                    );
                 }
                 index += run;
             }
             body.extend_from_slice(&row.to_be_bytes());
             body.extend_from_slice(&0u16.to_be_bytes());
             body.extend_from_slice(&OWNER_GRID_COLS.to_be_bytes());
-            body.extend_from_slice(&(cells.len() as u16).to_be_bytes());
+            body.extend_from_slice(
+                &u16::try_from(cells.len())
+                    .expect("a grid row")
+                    .to_be_bytes(),
+            );
             body.extend_from_slice(&cells);
         }
         (body, OWNER_GRID_ROWS)
@@ -254,7 +265,15 @@ mod tests {
 
     /// `MAX_TERMINAL_ROWS` rows of `MAX_TERMINAL_CELLS / MAX_TERMINAL_ROWS`
     /// columns: the display-owner test's maximal grid.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "256 rows of 384 columns, both well inside a `u16`"
+    )]
     const OWNER_GRID_ROWS: u16 = merkur_codec::MAX_TERMINAL_ROWS as u16;
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "256 rows of 384 columns, both well inside a `u16`"
+    )]
     const OWNER_GRID_COLS: u16 =
         (merkur_codec::MAX_TERMINAL_CELLS / merkur_codec::MAX_TERMINAL_ROWS) as u16;
 
