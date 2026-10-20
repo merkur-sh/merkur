@@ -481,8 +481,14 @@ encoder takes a reference only when it codes smaller than the literal.
   its complete row, so a reference costs a bounded rebuild. History clears with the ordering
   epoch, the geometry and a session boundary that kept no grid, the boundary at which the
   daemon's resume answer is a snapshot that clears its index; a row drops a whole chain once
-  every record in it is older than `MZ_HISTORY_DATAGRAMS` (prevents a reference reading content
-  a later writer changed).
+  every record in it is older than the history window, keeping the chain its next span applies
+  over (prevents a reference reading content a later writer changed, and a quiet row losing its
+  chain).
+- **The window fits a cell budget.** A reference reaches back `mz_reference_datagrams(cols,
+  rows)` datagrams and the browser keeps twice that: the most whose history fits
+  `MZ_HISTORY_CELLS` (32 MiB of cells) when every datagram rewrites every row, at most 512. Both
+  ends compute it from the grid, so a large grid trades reach for memory (prevents a scrolling
+  session growing WASM memory without bound).
 - **A source is acknowledged and was not skipped.** The daemon indexes a row a datagram carried
   only when that datagram's ACK arrived before any newer send of the row: every later send then
   reached the browser after it, so the browser applied that entry rather than skipping it as

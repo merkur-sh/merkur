@@ -11,9 +11,11 @@
 //! the frame like a lost one.
 
 use crate::connection::SentRow;
+use crate::display::policy::DisplayPolicy;
+use crate::display::recv::display_seq_is_older;
 use crate::pty::CapturedRow;
 use merkur_codec::CellRepr;
-use merkur_codec::mz::{MZ_REFERENCE_DATAGRAMS, MzReference, full_row_entry_bytes, reference_hash};
+use merkur_codec::mz::{MzReference, full_row_entry_bytes, mz_reference_datagrams, reference_hash};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
@@ -29,17 +31,15 @@ pub struct ReferenceIndex {
     by_hash: HashMap<u64, Source>,
     /// `(seq, hash)` in insertion order, so sources retire oldest first.
     order: VecDeque<(u32, u64)>,
-    /// Datagrams sent with references whose outcome is not yet known.
+    /// Datagrams sent with references whose outcome is not yet known. Each
+    /// has a sent-datagram record until its outcome is noted here.
     referencing: VecDeque<u32>,
+    /// How far back a reference reaches on this grid, as the browser
+    /// computes it ([`mz_reference_datagrams`]).
+    window: u32,
     /// Every datagram that went out with a reference.
     #[cfg(test)]
     pub(crate) frames_referencing: usize,
-}
-
-/// Whether sequence `a` is older than `b` in the wrapping sequence space.
-#[inline]
-fn older(a: u32, b: u32) -> bool {
-    (b.wrapping_sub(a) as i32) > 0
 }
 
 impl ReferenceIndex {
@@ -48,6 +48,12 @@ impl ReferenceIndex {
         self.by_hash.clear();
         self.order.clear();
         self.referencing.clear();
+    }
+
+    /// The grid is now `cols` by `rows`, and its history starts empty.
+    pub fn resize(&mut self, cols: u16, rows: u16) {
+        self.clear();
+        self.window = mz_reference_datagrams(cols, rows);
     }
 
     /// The browser applied datagram `seq`, which carried `rows`. `latest_seq`
@@ -81,9 +87,9 @@ impl ReferenceIndex {
         self.retire(seq);
     }
 
-    /// Datagram `seq` was declared lost or its outcome is unknown. If it
-    /// carried references, a browser may have refused it, so none of the
-    /// sources is trusted again.
+    /// Datagram `seq` was declared lost, or its record ended with its outcome
+    /// unknown. If it carried references, a browser may have refused it, so
+    /// none of the sources is trusted again.
     pub fn note_unresolved(&mut self, seq: u32) {
         if self.referencing.contains(&seq) {
             self.clear();
@@ -96,17 +102,19 @@ impl ReferenceIndex {
         {
             self.frames_referencing += 1;
         }
-        self.referencing.push_back(seq);
-        while self.referencing.len() > MZ_REFERENCE_DATAGRAMS as usize {
-            self.referencing.pop_front();
+        // Every entry has a record, so this holds only when a record ended
+        // without its outcome reaching here; that outcome is then unknown.
+        if self.referencing.len() == DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES {
+            self.clear();
         }
+        self.referencing.push_back(seq);
     }
 
     /// Drop sources a frame sent after `newest` could no longer name.
     fn retire(&mut self, newest: u32) {
-        let floor = newest.wrapping_sub(MZ_REFERENCE_DATAGRAMS);
+        let floor = newest.wrapping_sub(self.window);
         while let Some(&(seq, hash)) = self.order.front() {
-            if !older(seq, floor) {
+            if !display_seq_is_older(seq, floor) {
                 break;
             }
             self.order.pop_front();
@@ -129,7 +137,7 @@ impl ReferenceIndex {
         let source = self.by_hash.get(&captured.hash)?;
         let seq_delta = presentation_id.wrapping_sub(source.seq);
         if seq_delta == 0
-            || seq_delta > MZ_REFERENCE_DATAGRAMS
+            || seq_delta > self.window
             || (!Arc::ptr_eq(&source.cells, &captured.cells) && *source.cells != *captured.cells)
         {
             return None;
@@ -143,7 +151,7 @@ impl ReferenceIndex {
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.by_hash.len()
     }
 }
@@ -152,6 +160,15 @@ impl ReferenceIndex {
 mod tests {
     use super::*;
     use merkur_codec::CellAttrs;
+
+    const COLS: u16 = 20;
+    const ROWS: u16 = 8;
+
+    fn index() -> ReferenceIndex {
+        let mut index = ReferenceIndex::default();
+        index.resize(COLS, ROWS);
+        index
+    }
 
     fn cells(text: &str) -> Arc<[CellRepr]> {
         text.chars()
@@ -187,7 +204,7 @@ mod tests {
 
     #[test]
     fn an_acknowledged_row_with_no_newer_send_is_named_by_its_content() {
-        let mut index = ReferenceIndex::default();
+        let mut index = index();
         let line = cells("cargo test --release");
         let mut latest = vec![0u32; 8];
         latest[3] = 40;
@@ -207,16 +224,48 @@ mod tests {
         assert!(index.find(&captured(2, &line), 40).is_none());
         assert!(
             index
-                .find(&captured(2, &line), 40 + MZ_REFERENCE_DATAGRAMS + 1)
+                .find(
+                    &captured(2, &line),
+                    40 + mz_reference_datagrams(COLS, ROWS) + 1
+                )
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_large_grid_names_only_what_its_browser_history_keeps() {
+        let (cols, rows) = (300, 80);
+        let window = mz_reference_datagrams(cols, rows);
+        assert!(window < merkur_codec::mz::MZ_REFERENCE_DATAGRAMS);
+        let mut index = ReferenceIndex::default();
+        index.resize(cols, rows);
+        let line = cells("tail -f build.log");
+        let latest = vec![40u32; 4];
+        index.note_applied(40, [&sent(3, &line)], &latest);
+        assert!(index.find(&captured(2, &line), 40 + window).is_some());
+        assert!(index.find(&captured(2, &line), 40 + window + 1).is_none());
+    }
+
+    #[test]
+    fn a_referencing_datagram_whose_outcome_never_arrives_retires_every_source() {
+        let mut index = index();
+        let latest = vec![1u32; 2];
+        index.note_applied(1, [&sent(0, &cells("source"))], &latest);
+        let mut seqs = 2u32..;
+        for seq in seqs.by_ref().take(DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES) {
+            index.note_referencing(seq);
+        }
+        assert_eq!(index.len(), 1);
+        // More referencing datagrams than records: one record ended unnoted.
+        index.note_referencing(seqs.next().expect("unbounded"));
+        assert_eq!(index.len(), 0);
     }
 
     #[test]
     fn a_row_sent_again_before_its_ack_is_not_a_source() {
         // The newer send may have reached the browser first, which then
         // skipped this entry as stale.
-        let mut index = ReferenceIndex::default();
+        let mut index = index();
         let line = cells("may have been skipped");
         let mut latest = vec![0u32; 8];
         latest[1] = 41;
@@ -226,7 +275,7 @@ mod tests {
 
     #[test]
     fn linked_rows_are_never_sources() {
-        let mut index = ReferenceIndex::default();
+        let mut index = index();
         let mut linked: Vec<CellRepr> = cells("https://example.com").to_vec();
         linked[0].link = 3;
         let linked: Arc<[CellRepr]> = linked.into();
@@ -237,7 +286,7 @@ mod tests {
 
     #[test]
     fn losing_a_frame_that_carried_references_retires_every_source() {
-        let mut index = ReferenceIndex::default();
+        let mut index = index();
         let line = cells("source");
         let latest = vec![10u32; 4];
         index.note_applied(10, [&sent(0, &line)], &latest);
@@ -252,16 +301,13 @@ mod tests {
 
     #[test]
     fn sources_retire_once_no_frame_can_name_them() {
-        let mut index = ReferenceIndex::default();
+        let mut index = index();
         let mut latest = vec![0u32; 2];
         latest[0] = 1;
         index.note_applied(1, [&sent(0, &cells("old"))], &latest);
-        latest[1] = 2 + MZ_REFERENCE_DATAGRAMS;
-        index.note_applied(
-            2 + MZ_REFERENCE_DATAGRAMS,
-            [&sent(1, &cells("new"))],
-            &latest,
-        );
+        let newest = 2 + mz_reference_datagrams(COLS, ROWS);
+        latest[1] = newest;
+        index.note_applied(newest, [&sent(1, &cells("new"))], &latest);
         assert_eq!(index.len(), 1);
     }
 }
