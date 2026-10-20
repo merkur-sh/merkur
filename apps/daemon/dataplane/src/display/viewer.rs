@@ -201,6 +201,11 @@ pub(crate) struct SimViewer {
     pub(crate) snapshots_applied: usize,
     /// Validated staged frames whose application was rejected.
     pub(crate) apply_rejected: usize,
+    /// Frames refused because the grid's history could not rebuild a row an
+    /// MZ reference named; never acknowledged, like lost ones.
+    pub(crate) references_unresolved: usize,
+    /// Frames that arrived as MZ payloads.
+    pub(crate) mz_seen: usize,
     /// FEC-protected frame plaintexts by display generation and seq, so a
     /// repair can rebuild the ones that never arrived. Every generation
     /// restarts its seqs, and a repair names its own generation, so a
@@ -744,6 +749,8 @@ impl SimViewers {
                     multi_chunk_seen: 0,
                     snapshots_applied: 0,
                     apply_rejected: 0,
+                    references_unresolved: 0,
+                    mz_seen: 0,
                     retained: std::collections::BTreeMap::new(),
                     recovered_by_fec: 0,
                     ack: AckWindow::default(),
@@ -1065,6 +1072,32 @@ impl SimViewers {
             0,
             "unit classification reads plain zstd only; this session installed a dictionary"
         );
+        if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
+            // MZ never carries graphics: every entry is an empty replacement.
+            let rows_len = u32::from_be_bytes(
+                plain[merkur_codec::DISPLAY_COMPRESSED_LENGTH_OFFSET
+                    ..merkur_codec::DISPLAY_COMPRESSED_LENGTH_OFFSET + 4]
+                    .try_into()
+                    .expect("compressed length"),
+            ) as usize;
+            let mut rows = Vec::new();
+            merkur_codec::mz::mz_entry_rows(
+                &plain[merkur_codec::DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
+                header.row_count,
+                rows_len,
+                &mut rows,
+            )
+            .expect("the daemon codes well-formed MZ payloads");
+            for row in rows {
+                let key = (stream.generation, row);
+                shape.empty_replacement |= viewer
+                    .unit_graphics
+                    .get(&key)
+                    .is_some_and(|graphics| !graphics.is_empty());
+                viewer.unit_graphics.insert(key, Vec::new());
+            }
+            return shape;
+        }
         let decompressed;
         let (rows, start) = if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0
         {
@@ -1360,8 +1393,11 @@ impl SimViewers {
             }
             return;
         }
-        if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0 {
+        if stream.flags & merkur_codec::DISPLAY_HEADER_FLAGS_COMPRESSED != 0 {
             viewer.compressed_seen += 1;
+        }
+        if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
+            viewer.mz_seen += 1;
         }
         if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0 {
             viewer.dictionary_seen += 1;
@@ -1405,12 +1441,16 @@ impl SimViewers {
         // staging is a strict superset: faithful for compressed and multi-chunk
         // frames, and behaviourally identical for a plain single-chunk one.
         let handle = viewer.terminal.stage_display_frame_bytes(plain);
-        assert_ne!(
-            handle,
-            0,
-            "staging rejected a frame the daemon sent: {:?}",
-            viewer.terminal.take_last_error()
-        );
+        if handle == 0 {
+            let error = viewer.terminal.take_last_error();
+            // As the client viewer does: a reference the grid's history
+            // cannot rebuild refuses the frame as a lost one.
+            if error.as_deref() == Some(term_wasm::DISPLAY_REFERENCE_UNRESOLVED) {
+                viewer.references_unresolved += 1;
+                return;
+            }
+            panic!("staging rejected a frame the daemon sent: {error:?}");
+        }
         viewer.applied_bytes += wire.len();
 
         if header.chunk_count <= 1 {

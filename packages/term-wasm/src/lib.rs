@@ -30,8 +30,9 @@ use merkur_codec::theme::{
 use merkur_codec::{
     CELL_DIGEST_BYTES, CELL_DIGEST_WRAPPED_BIT, CellRepr, DISPLAY_COMPRESSED_LENGTH_OFFSET,
     DISPLAY_COMPRESSED_PAYLOAD_OFFSET, DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET,
-    DISPLAY_GENERATION_OFFSET, DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
-    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT, DISPLAY_HEADER_FLAGS_OFFSET, DISPLAY_VERSION_OFFSET,
+    DISPLAY_GENERATION_OFFSET, DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
+    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD, DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
+    DISPLAY_HEADER_FLAGS_COMPRESSED, DISPLAY_HEADER_FLAGS_OFFSET, DISPLAY_VERSION_OFFSET,
     FRAME_HEADER_BODY_BYTES, FrameHeader, FrameKind, MAX_DISPLAY_FRAME_BYTES, MAX_TERMINAL_CELLS,
     MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, MSG_TYPE_DISPLAY_PATCH, STREAM_HEADER_BYTES, VERSION,
     ValidatedDisplayRow, append_link_digest, cell_wraps, pack_cell_digest, parse_frame_header,
@@ -40,6 +41,10 @@ use merkur_codec::{
 };
 use unicode_width::UnicodeWidthChar;
 use wasm_bindgen::prelude::*;
+
+/// Why a frame whose reference this grid's history cannot rebuild was refused.
+/// The viewer treats it as a lost datagram, never a reason to resync.
+pub const DISPLAY_REFERENCE_UNRESOLVED: &str = "display_reference_unresolved";
 
 const THEME_BYTES: usize = 57;
 const THEME_ANSI_OFFSET: usize = 9;
@@ -827,6 +832,11 @@ pub struct Terminal {
     /// Joined rows of the frame being staged. Reused across frames and
     /// bounded by `MAX_DISPLAY_FRAME_BYTES`, like `staged_frame_input`.
     display_decoded_rows: Vec<u8>,
+    /// Every row entry this grid applied, which MZ references read. Cleared
+    /// with the ordering epoch, the geometry and the session's codec state.
+    display_row_history: merkur_codec::mz::RowHistory,
+    /// One row read back from the grid, to start a row's history chain.
+    display_row_readback: Vec<CellRepr>,
     full_damage: bool,
     display_mode: u32,
     // The routing bits of `display_mode` are the daemon's input-routing word,
@@ -1482,6 +1492,8 @@ impl Terminal {
             display_decoder: new_display_decoder(),
             display_decoded_split: Vec::new(),
             display_decoded_rows: Vec::new(),
+            display_row_history: merkur_codec::mz::RowHistory::default(),
+            display_row_readback: Vec::new(),
             full_damage: true,
             display_mode: 0,
             input_routing_held: false,
@@ -1677,6 +1689,7 @@ impl Terminal {
         for dictionary in &mut self.display_dictionaries {
             dictionary.clear();
         }
+        self.display_row_history.clear();
     }
 
     /// Reserve the one reusable JS -> WASM ingress buffer. JS caches this
@@ -1781,9 +1794,12 @@ impl Terminal {
             return Err("display_stage_sequence_invalid");
         }
         let bounds = validate_display_frame_header(header).map_err(|error| error.code())?;
-        let compressed = stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0;
+        let compressed = stream.flags & DISPLAY_HEADER_FLAGS_COMPRESSED != 0;
+        let zstd = stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD != 0;
         let uses_dictionary = stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0;
-        if uses_dictionary && !compressed {
+        if (uses_dictionary && !zstd)
+            || (zstd && stream.flags & DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0)
+        {
             return Err("compressed_display_metadata_mismatch");
         }
         let decoded_bytes = if compressed {
@@ -1845,6 +1861,9 @@ impl Terminal {
         header: FrameHeader,
         rows_len: usize,
     ) -> Option<StagedDisplayValidation> {
+        if data[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
+            return self.decode_mz_frame(data, header, rows_len);
+        }
         let uses_dictionary =
             data[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0;
         let payload_offset = if uses_dictionary {
@@ -1942,6 +1961,60 @@ impl Terminal {
             self.last_error = Some(String::from("compressed_display_split_invalid"));
             return None;
         }
+        self.validate_decoded_rows(header)
+    }
+
+    /// Decode an MZ payload into the reusable rows buffer, resolving its
+    /// references against this grid's own row history.
+    fn decode_mz_frame(
+        &mut self,
+        data: &[u8],
+        header: FrameHeader,
+        rows_len: usize,
+    ) -> Option<StagedDisplayValidation> {
+        struct History<'a> {
+            history: &'a mut merkur_codec::mz::RowHistory,
+            presentation_id: u32,
+        }
+        impl merkur_codec::mz::MzResolve for History<'_> {
+            fn resolve(
+                &mut self,
+                target_row: u16,
+                reference: merkur_codec::mz::MzReference,
+                out: &mut Vec<u8>,
+            ) -> Result<(), merkur_codec::mz::MzError> {
+                self.history
+                    .resolve(self.presentation_id, target_row, reference, out)
+            }
+        }
+        #[cfg(test)]
+        {
+            self.display_frame_decode_count = self.display_frame_decode_count.saturating_add(1);
+        }
+        let decoded = merkur_codec::mz::decode_mz_rows(
+            &data[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
+            header.row_count,
+            rows_len,
+            &mut History {
+                history: &mut self.display_row_history,
+                presentation_id: header.presentation_id,
+            },
+            &mut self.display_decoded_rows,
+        );
+        match decoded {
+            Ok(()) => self.validate_decoded_rows(header),
+            Err(merkur_codec::mz::MzError::Unresolved) => {
+                self.last_error = Some(String::from(DISPLAY_REFERENCE_UNRESOLVED));
+                None
+            }
+            Err(merkur_codec::mz::MzError::Corrupt) => {
+                self.last_error = Some(String::from("compressed_display_mz_invalid"));
+                None
+            }
+        }
+    }
+
+    fn validate_decoded_rows(&mut self, header: FrameHeader) -> Option<StagedDisplayValidation> {
         let mut decoded = self.take_staged_validation();
         let validation = validate_display_rows(
             header,
@@ -2347,7 +2420,7 @@ impl Terminal {
                 continue;
             }
             let left = usize::from(row.left);
-            let (applied, damage, links_changed) = {
+            let (applied_cells, damage, links_changed) = {
                 let grid = self.term.grid_mut();
                 apply_row_cells(
                     grid,
@@ -2364,6 +2437,42 @@ impl Terminal {
                     authoritative_revision,
                 )
             };
+            // An entry the grid wrote whole is history a reference may read;
+            // one it wrote only partly leaves the row unrebuildable until a
+            // full row lands.
+            let entry_cells = row.cells_end - row.cells_start;
+            if applied_cells == entry_cells
+                && (self.display_row_history.row_chained(row.row_index)
+                    || (row.left == 0 && entry_cells == cols))
+            {
+                self.display_row_history.record(
+                    seq,
+                    row.row_index,
+                    row.left,
+                    &self.frame_cells_scratch[row.cells_start..row.cells_end],
+                    header.cols,
+                );
+            } else if applied_cells == entry_cells {
+                // The row's chain starts here: what the grid now holds, read
+                // back exactly as the row hash reads it.
+                read_row_cells(
+                    self.term.grid(),
+                    row_index,
+                    cols,
+                    &self.display_cell_links,
+                    &mut self.display_row_readback,
+                );
+                self.display_row_history.record(
+                    seq,
+                    row.row_index,
+                    0,
+                    &self.display_row_readback,
+                    header.cols,
+                );
+            } else {
+                self.display_row_history.invalidate_row(row.row_index);
+            }
+            let applied = applied_cells > 0;
             // Authority advances even when a repair carries the exact content
             // already present. Ordering and prediction evidence are not damage.
             if applied {
@@ -2535,6 +2644,7 @@ impl Terminal {
         self.damaged_row_set.clear();
         self.damaged_row_set.resize(usize::from(rows.max(1)), false);
         self.row_geometry.clear();
+        self.display_row_history.clear();
         self.display_row_versions.clear();
         self.display_row_versions
             .resize(usize::from(rows.max(1)), 0);
@@ -2575,6 +2685,7 @@ impl Terminal {
     }
 
     pub fn reset_display_ordering(&mut self) {
+        self.display_row_history.clear();
         self.display_row_versions.fill(0);
         self.display_cell_versions.fill(0);
         self.display_header_version = 0;
@@ -5770,8 +5881,8 @@ fn apply_row_cells(
     seq: u32,
     snapshot: bool,
     authoritative_revision: u32,
-) -> (bool, Option<(usize, usize)>, bool) {
-    let mut applied = false;
+) -> (usize, Option<(usize, usize)>, bool) {
+    let mut applied = 0usize;
     let mut links_changed = false;
     let mut applied_left = cols;
     let mut applied_right = 0usize;
@@ -5793,7 +5904,7 @@ fn apply_row_cells(
             *row_link_cells =
                 *row_link_cells + u16::from(cell.link != 0) - u16::from(previous_link != 0);
             display_cell_links[cell_version_index] = cell.link;
-            applied = true;
+            applied += 1;
             if visually_changed {
                 applied_left = applied_left.min(col);
                 applied_right = applied_right.max(col);
@@ -5870,6 +5981,33 @@ fn hash_row(
     }
     merkur_codec::append_graphics_digest(digest, fragments);
     row_hash_packed(digest)
+}
+
+/// One grid row as `CellRepr`s, exactly as [`hash_row`] digests it: resolved
+/// colours, the row-scoped wrap bit on the final cell, and each column's link.
+fn read_row_cells(
+    grid: &Grid<Cell>,
+    row: usize,
+    cols: usize,
+    links: &[u32],
+    out: &mut Vec<CellRepr>,
+) {
+    out.clear();
+    let line = &grid[Line(row as i32)];
+    let mut fg_cache = None;
+    let mut bg_cache = None;
+    for (col, cell) in line.into_iter().take(cols).enumerate() {
+        let fg = resolve_cached_color(cell.fg, &mut fg_cache);
+        let bg = resolve_cached_color(cell.bg, &mut bg_cache);
+        let mut repr = CellRepr::from_alacritty_with_colors(cell, fg, bg);
+        repr.link = links.get(row * cols + col).copied().unwrap_or(0);
+        out.push(repr);
+    }
+    if let (Some(cell), Some(last)) = (line.last(), out.last_mut())
+        && cell_wraps(cell)
+    {
+        last.attrs = last.attrs.with(merkur_codec::CellAttrs::WRAPPED, true);
+    }
 }
 
 /// OR the row-scoped wrap bit into the final cell's already-packed flags byte.

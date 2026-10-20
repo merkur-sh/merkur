@@ -449,6 +449,24 @@ counts Rust allocator requests, not C-zstd's internal allocations. `pty::buffer_
 requires the full requested capacity before a reused frame is filled. Paired measurements bound
 the speed claim; it is component evidence, not an end-to-end result.
 
+Every attempt also codes the frame as MZ into the compressor's retained buffer and copies the
+smaller result into the caller's output, so the pooled vector keeps its own allocation
+(`display::compressor::tests`). Both codecs' time is the attempt's sender service time, which the
+planner already prices against the carrier. The MZ encoder steps rANS by reciprocal, never by
+division, and the decoder reads every table from one slot arena, so a symbol costs one dependent
+load after its context index. `display::sim::mz_census` replays recorded PTY sessions (`MZPTY1`
+files in `MERKUR_DISPLAY_RECORDINGS`) through `DisplaySim` and the real `term-wasm` viewer, with MZ
+on and off: bytes on every lane, frames refused for an unresolved reference, grid convergence,
+and both ends' codec CPU. `MERKUR_MZ_LOSS` sets loss, `MERKUR_MZ_ONLY` and `MERKUR_MZ_EXCEPT`
+select recordings (train without a workload with `mz_train_model`, then measure it alone), and
+`MERKUR_MZ_ALONE` drops the zstd attempt. `mz_train_model` regenerates the shipped model from the
+same replays:
+
+```sh
+MERKUR_DISPLAY_RECORDINGS=<dir> bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_census
+MERKUR_DISPLAY_RECORDINGS=<dir> bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_train_model
+```
+
 The ignored tests in `display::compressor::experiments` compare dictionary construction
 and immutable row references over generated PTY traces. Training precedes evaluation;
 dictionary transfer and checkpoint control records count toward bytes. Row references

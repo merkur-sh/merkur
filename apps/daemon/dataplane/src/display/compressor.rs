@@ -1,6 +1,8 @@
+use merkur_codec::mz::{MzEncoder, MzReference};
 use merkur_codec::{
     DISPLAY_COMPRESSED_PAYLOAD_OFFSET, DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET,
-    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD, DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
+    DISPLAY_HEADER_FLAG_COMPRESSED_MZ, DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT, DISPLAY_HEADER_FLAGS_COMPRESSED,
     DISPLAY_HEADER_FLAGS_OFFSET, FRAME_HEADER_BODY_BYTES, MSG_TYPE_DISPLAY_PATCH,
     STREAM_HEADER_BYTES,
 };
@@ -246,6 +248,41 @@ pub struct Compressor {
     /// eleven peers digests once, and holding it here keeps the address from
     /// being reused while it is the key.
     loaded_dictionary: Option<std::sync::Arc<[u8]>>,
+    /// The MZ candidate, coded beside zstd on every attempt.
+    mz: MzEncoder,
+    mz_frame: Vec<u8>,
+    references: Vec<Option<MzReference>>,
+    /// Tests that pin zstd's own bytes code without the MZ candidate.
+    #[cfg(test)]
+    zstd_only: bool,
+}
+
+/// Measurement arms only: `mz_census` runs the same replay with MZ off to
+/// price it, and `mz_train_model` counts every frame MZ codes.
+#[cfg(test)]
+pub(crate) static MZ_DISABLED_FOR_CENSUS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+/// CPU each codec's attempts took, for `mz_census`.
+#[cfg(test)]
+pub(crate) static CENSUS_ZSTD_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+pub(crate) static CENSUS_MZ_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+pub(crate) static ZSTD_DISABLED_FOR_CENSUS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+#[cfg(test)]
+pub(crate) static MZ_TRAINER: std::sync::Mutex<Option<merkur_codec::mz::train::MzTrainer>> =
+    std::sync::Mutex::new(None);
+
+/// What one successful compression produced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompressedFrame {
+    /// Bytes saved against the frame as given.
+    pub saved_bytes: usize,
+    /// The frame is MZ and at least one entry is a reference. A
+    /// receiver that cannot resolve one refuses the frame; losing it retires
+    /// the references the peer's index holds.
+    pub references: bool,
 }
 
 impl Compressor {
@@ -253,12 +290,26 @@ impl Compressor {
         Self {
             plain: display_context(),
             dictionary_context: display_context(),
+            mz: MzEncoder::default(),
+            mz_frame: Vec::new(),
+            references: Vec::new(),
+            #[cfg(test)]
+            zstd_only: false,
             splitter: merkur_codec::RowSplitter::default(),
             timing_enabled: false,
             timed_compression: Duration::ZERO,
             loaded_dictionary: None,
             #[cfg(test)]
             display_frame_compression_attempts: 0,
+        }
+    }
+
+    /// A compressor that never offers MZ, for tests of zstd's own framing.
+    #[cfg(test)]
+    pub(crate) fn zstd_only() -> Self {
+        Self {
+            zstd_only: true,
+            ..Self::new()
         }
     }
 
@@ -297,12 +348,114 @@ impl Compressor {
         dictionary: Option<&DisplayDictionary>,
         out: &mut Vec<u8>,
     ) -> Option<usize> {
+        self.compress_display_rows_into(frame, dictionary, std::iter::empty(), out)
+            .map(|compressed| compressed.saved_bytes)
+    }
+
+    /// [`Self::compress_display_frame_into`], with `references` offering a
+    /// reference for each of the frame's entries in order. The frame is coded
+    /// both ways, MZ and zstd, and the smaller is kept: an exact choice, never
+    /// a guess at which would win.
+    pub fn compress_display_rows_into(
+        &mut self,
+        frame: &[u8],
+        dictionary: Option<&DisplayDictionary>,
+        references: impl IntoIterator<Item = Option<MzReference>>,
+        out: &mut Vec<u8>,
+    ) -> Option<CompressedFrame> {
         let started_at = self.timing_enabled.then(Instant::now);
-        let result = self.compress_display_frame_into_inner(frame, dictionary, out);
+        self.references.clear();
+        self.references.extend(references);
+        #[cfg(test)]
+        let zstd_started = Instant::now();
+        #[cfg(not(test))]
+        let zstd = self.compress_display_frame_into_inner(frame, dictionary, out);
+        #[cfg(test)]
+        let zstd = if ZSTD_DISABLED_FOR_CENSUS.load(std::sync::atomic::Ordering::Relaxed) {
+            out.clear();
+            None
+        } else {
+            self.compress_display_frame_into_inner(frame, dictionary, out)
+        };
+        #[cfg(test)]
+        let mz_started = Instant::now();
+        let mz = self.compress_mz(frame);
+        #[cfg(test)]
+        {
+            use std::sync::atomic::Ordering::Relaxed;
+            CENSUS_ZSTD_NS.fetch_add((mz_started - zstd_started).as_nanos() as u64, Relaxed);
+            CENSUS_MZ_NS.fetch_add(mz_started.elapsed().as_nanos() as u64, Relaxed);
+        }
+        let result = match (zstd, mz) {
+            (zstd, Some((mz_saved, references))) if zstd.is_none_or(|saved| mz_saved > saved) => {
+                // A copy, not a swap: `out` is the caller's pooled frame, and
+                // it keeps its own allocation.
+                out.clear();
+                out.extend_from_slice(&self.mz_frame);
+                Some(CompressedFrame {
+                    saved_bytes: mz_saved,
+                    references,
+                })
+            }
+            (Some(saved_bytes), _) => Some(CompressedFrame {
+                saved_bytes,
+                references: false,
+            }),
+            (None, _) => None,
+        };
         if let Some(started_at) = started_at {
             self.timed_compression += started_at.elapsed();
         }
         result
+    }
+
+    /// Code `frame`'s rows as MZ into `self.mz_frame`, returning the bytes
+    /// saved and whether any entry took its reference. `None` when MZ cannot
+    /// carry the frame (graphics) or would not shrink it.
+    fn compress_mz(&mut self, frame: &[u8]) -> Option<(usize, bool)> {
+        let out = &mut self.mz_frame;
+        out.clear();
+        let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
+        if frame.len() <= rows_offset
+            || frame.len() > merkur_codec::MAX_DISPLAY_FRAME_BYTES
+            || frame[0] != MSG_TYPE_DISPLAY_PATCH
+            || frame[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAGS_COMPRESSED != 0
+        {
+            return None;
+        }
+        let row_count = u16::from_be_bytes([
+            frame[merkur_codec::DISPLAY_ROW_COUNT_OFFSET],
+            frame[merkur_codec::DISPLAY_ROW_COUNT_OFFSET + 1],
+        ]);
+        #[cfg(test)]
+        {
+            if self.zstd_only || MZ_DISABLED_FOR_CENSUS.load(std::sync::atomic::Ordering::Relaxed) {
+                return None;
+            }
+            if let Some(trainer) = MZ_TRAINER.lock().expect("trainer").as_mut() {
+                trainer.add_rows(&frame[rows_offset..], row_count, &self.references);
+            }
+        }
+        out.extend_from_slice(&frame[..rows_offset]);
+        out.extend_from_slice(&[0; 4]);
+        let rows_len = self.mz.encode(
+            &frame[rows_offset..],
+            row_count,
+            &self.references,
+            out,
+        )?;
+        let frame_len = out.len();
+        if frame_len >= frame.len()
+            || rows_offset + rows_len > merkur_codec::MAX_DISPLAY_FRAME_BYTES
+        {
+            return None;
+        }
+        out[rows_offset..rows_offset + 4].copy_from_slice(&(rows_len as u32).to_be_bytes());
+        out[DISPLAY_HEADER_FLAGS_OFFSET] =
+            frame[DISPLAY_HEADER_FLAGS_OFFSET] | DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
+        out[merkur_codec::DISPLAY_BODY_LENGTH_OFFSET..merkur_codec::DISPLAY_BODY_LENGTH_OFFSET + 4]
+            .copy_from_slice(&((frame_len - STREAM_HEADER_BYTES) as u32).to_be_bytes());
+        Some((frame.len() - frame_len, self.mz.references_taken() > 0))
     }
 
     fn compress_display_frame_into_inner(
@@ -320,7 +473,7 @@ impl Compressor {
             return None;
         }
         if (frame.get(DISPLAY_HEADER_FLAGS_OFFSET).copied().unwrap_or(0))
-            & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
+            & DISPLAY_HEADER_FLAGS_COMPRESSED
             != 0
         {
             return None;
@@ -422,8 +575,9 @@ impl Compressor {
 }
 
 /// Decode a compressed frame's payload as the browser does: the magicless zstd
-/// frame, then the join back into the row layout. Production decodes in
-/// term-wasm; this is the native harnesses' reading of the same bytes.
+/// frame, then the join back into the row layout, or the MZ payload. Production
+/// decodes in term-wasm; this is the native harnesses' reading of the same
+/// bytes, and it resolves no references.
 #[cfg(test)]
 pub(crate) fn decode_display_payload(
     frame: &[u8],
@@ -431,6 +585,39 @@ pub(crate) fn decode_display_payload(
 ) -> std::io::Result<Vec<u8>> {
     use zstd::zstd_safe::{DCtx, DParameter, FrameFormat};
     let invalid = |what: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, what);
+    if frame[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
+        struct NoReferences;
+        impl merkur_codec::mz::MzResolve for NoReferences {
+            fn resolve(
+                &mut self,
+                _: u16,
+                _: MzReference,
+                _: &mut Vec<u8>,
+            ) -> Result<(), merkur_codec::mz::MzError> {
+                Err(merkur_codec::mz::MzError::Unresolved)
+            }
+        }
+        let length_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
+        let declared = u32::from_be_bytes(
+            frame[length_offset..length_offset + 4]
+                .try_into()
+                .map_err(|_| invalid("compressed frame shorter than its envelope"))?,
+        ) as usize;
+        let row_count = u16::from_be_bytes([
+            frame[merkur_codec::DISPLAY_ROW_COUNT_OFFSET],
+            frame[merkur_codec::DISPLAY_ROW_COUNT_OFFSET + 1],
+        ]);
+        let mut rows = Vec::new();
+        merkur_codec::mz::decode_mz_rows(
+            &frame[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
+            row_count,
+            declared,
+            &mut NoReferences,
+            &mut rows,
+        )
+        .map_err(|_| invalid("mz payload"))?;
+        return Ok(rows);
+    }
     let payload_offset = if dictionary.is_some() {
         DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET
     } else {
@@ -845,7 +1032,7 @@ mod tests {
         use crate::edge_tunnel::test_allocations;
 
         let dictionary = benchmark_dictionary();
-        let mut compressor = Compressor::new();
+        let mut compressor = Compressor::zstd_only();
         let mut out = Vec::new();
         for target in [65_536, 300, 4_096, 512, 16_384, 1_100] {
             let frame = benchmark_frame_of_at_least(target);
@@ -924,7 +1111,7 @@ mod tests {
             oversized.push(random as u8);
         }
         let empty_dictionary = dict(1, 1, &[]);
-        let mut compressor = Compressor::new();
+        let mut compressor = Compressor::zstd_only();
         let mut out = Vec::new();
         for rejected in [&tiny, &oversized] {
             assert!(
@@ -1049,6 +1236,54 @@ mod tests {
     }
 
     #[test]
+    fn mz_is_kept_exactly_when_it_is_smaller_and_reuses_the_callers_frame() {
+        use crate::edge_tunnel::test_allocations;
+
+        let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
+        let mut kept = [0usize; 2];
+        for frame in [
+            benchmark_frame_of_at_least(4_096),
+            delta_frame(&[(3, log_line(7)), (4, log_line(8))]),
+            delta_frame(&[(0, "x".repeat(3))]),
+        ] {
+            let mut zstd = Vec::new();
+            let zstd_saved =
+                Compressor::zstd_only().compress_display_frame_into(&frame, None, &mut zstd);
+            let mut compressor = Compressor::new();
+            let mut out = Vec::new();
+            let saved = compressor.compress_display_frame_into(&frame, None, &mut out);
+            let mz = !out.is_empty()
+                && out[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0;
+            kept[usize::from(mz)] += 1;
+            if mz {
+                assert!(saved > zstd_saved, "MZ is kept only when it saves more");
+                assert_eq!(
+                    out[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+                    0
+                );
+            } else {
+                assert_eq!(saved, zstd_saved);
+                assert_eq!(out, zstd);
+            }
+            if saved.is_some() {
+                assert_eq!(
+                    decode_display_payload(&out, None).expect("decodes"),
+                    frame[rows_offset..]
+                );
+            }
+            let pointer = out.as_ptr();
+            test_allocations::begin_thread();
+            for _ in 0..64 {
+                std::hint::black_box(compressor.compress_display_frame_into(&frame, None, &mut out));
+            }
+            let tally = test_allocations::end_thread();
+            assert_eq!(tally.allocations, 0);
+            assert_eq!(out.as_ptr(), pointer);
+        }
+        assert!(kept[1] > 0, "MZ won no frame: {kept:?}");
+    }
+
+    #[test]
     fn a_dictionary_frame_carries_its_id_and_hash_and_beats_plain_zstd() {
         let frame = delta_frame(
             &(0..20)
@@ -1147,7 +1382,7 @@ mod tests {
     fn an_empty_dictionary_is_refused_rather_than_producing_a_dictionary_frame() {
         let frame = delta_frame(&[(0, log_line(1))]);
         let empty = DisplayDictionary::new(1, 1, Vec::new());
-        assert!(compress(&mut Compressor::new(), &frame, Some(&empty)).is_none());
+        assert!(compress(&mut Compressor::zstd_only(), &frame, Some(&empty)).is_none());
     }
 
     #[test]

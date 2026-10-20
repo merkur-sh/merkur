@@ -529,6 +529,9 @@ pub(crate) fn handle_display_ack(
             }
         };
         peer.display_cache.record_datagram_outcome(&sent, outcome);
+        if resolution != DisplayAckResolution::Applied {
+            peer.display_cache.references.note_unresolved(seq);
+        }
         if resolution == DisplayAckResolution::Lost {
             // Retire the entry, but do NOT disown its rows from here. A row this
             // datagram carried may already have been re-sent at a newer sequence
@@ -560,6 +563,10 @@ pub(crate) fn handle_display_ack(
             sent.reliable,
             true,
         );
+        let cache = &mut peer.display_cache;
+        cache
+            .references
+            .note_applied(seq, &sent.rows, &cache.sent_row_latest_seq);
         // Every newly-applied row-bearing datagram is one uncensored sample of
         // the quantity the duplicate deadline predicts. Header-only frames are
         // dual-pathed control updates and reliable frames include stream HOL;

@@ -55,9 +55,8 @@ export const DISPLAY_WIRE_PRESENT_CLOSURE = 1 << 3;
 export const DISPLAY_WIRE_PRESENT_ECHO_HORIZON = 1 << 4;
 export const DISPLAY_WIRE_PRESENT_CHUNK = 1 << 5;
 export const DISPLAY_WIRE_PRESENT_PREDECESSOR = 1 << 6;
-/** The compression and FEC bits of the stream-flags byte. */
-const DISPLAY_WIRE_STREAM_FLAG_BITS = 0b111;
-const DISPLAY_WIRE_RESERVED_FLAG_BIT = 1 << 7;
+/** The compression and FEC bits of the stream-flags byte: zstd, FEC, dictionary and MZ. */
+const DISPLAY_WIRE_STREAM_FLAG_BITS = 0b1000_0111;
 
 /** The identity a frame's wire header gives a transport-side observer. */
 export interface DisplayWireIdentity {
@@ -86,7 +85,6 @@ export function readDisplayWireIdentity(source: SynchronousByteSource): DisplayW
     return null;
   }
   const flags = source.getUint8(DISPLAY_WIRE_FLAGS_OFFSET);
-  if ((flags & DISPLAY_WIRE_RESERVED_FLAG_BIT) !== 0) return null;
   const generation = source.getUint32BE(DISPLAY_WIRE_GENERATION_OFFSET);
   const seq = source.getUint32BE(DISPLAY_WIRE_SEQUENCE_OFFSET);
   if ((flags & DISPLAY_WIRE_PRESENT_CHUNK) === 0) {

@@ -7,6 +7,7 @@ mod decode;
 mod encode;
 mod graphics;
 mod hash;
+pub mod mz;
 mod split;
 mod stream;
 pub mod theme;
@@ -253,7 +254,13 @@ pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
 /// sequence number, encodes the other ids and the echo horizon relative to the
 /// frame's own fields, and omits default-valued optional fields: a typed echo
 /// carries 34 header bytes instead of 73.
-pub const VERSION: u8 = 34;
+///
+/// Version 35 adds MZ payloads ([`mz`], [`DISPLAY_HEADER_FLAG_COMPRESSED_MZ`]):
+/// the row layout coded field by field against a static model, with
+/// references to rows the receiver applied from earlier datagrams, counted
+/// back from the frame's presentation id. The envelope is byte-identical, so a
+/// version-34 receiver would read the new flag as a reserved bit at best.
+pub const VERSION: u8 = 35;
 pub const PATCH_FLAG_RESET: u8 = 1 << 0;
 pub const PATCH_FLAG_PRESENTATION_COHERENT: u8 = 1 << 1;
 pub const PATCH_FLAG_PRESENTATION_END: u8 = 1 << 2;
@@ -356,6 +363,13 @@ pub const DISPLAY_HEADER_FLAG_FEC_PROTECTED: u8 = 1 << 1;
 /// an external dictionary. The daemon only sets it for a peer that announced
 /// support and acknowledged the exact dictionary.
 pub const DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT: u8 = 1 << 2;
+/// The body is an MZ payload ([`mz`]) behind the envelope's row-body length:
+/// never set together with `COMPRESSED_ZSTD`. Its references resolve against
+/// the receiver's own row history, relative to the frame's presentation id.
+pub const DISPLAY_HEADER_FLAG_COMPRESSED_MZ: u8 = 1 << 7;
+/// Either compressed payload: the body is a payload behind the row-body length.
+pub const DISPLAY_HEADER_FLAGS_COMPRESSED: u8 =
+    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD | DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
 pub const DISPLAY_FEC_HEADER_BYTES: usize = 16;
 pub const MSG_TYPE_DISPLAY_PATCH: u8 = 0x20;
 pub const MSG_TYPE_DISPLAY_FEC_REPAIR: u8 = 0x21;

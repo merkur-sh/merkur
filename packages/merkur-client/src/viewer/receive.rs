@@ -148,8 +148,13 @@ pub trait DisplayGrid {
     }
 }
 
-/// The one refusal that is not a lineage fault.
+/// A refusal that is not a lineage fault.
 const DIMENSIONS_MISMATCH: &str = "display_dimensions_mismatch";
+/// The grid's row history cannot rebuild a row an MZ reference names, the
+/// refusal of a datagram that arrived after its sources retired or whose source
+/// row the grid holds differently. Like a lost datagram it is never
+/// acknowledged, and its rows come again; it never calls for a snapshot.
+const REFERENCE_UNRESOLVED: &str = "display_reference_unresolved";
 
 /// Resource bounds on retained frames: at
 /// most one reliable snapshot is incomplete at a time, so four assemblies is
@@ -241,6 +246,8 @@ pub struct Stats {
     pub resync_rows: u64,
     /// Compression dictionaries the grid accepted.
     pub dictionaries: u64,
+    /// Frames refused because the grid could not rebuild a row they named.
+    pub references_unresolved: u64,
     /// Applied states the grid committed for the host to show.
     pub presentations: u64,
     /// Sessions that kept the grid and claimed it to their daemon.
@@ -1506,6 +1513,10 @@ impl<G: DisplayGrid> Viewer<G> {
             &payload[frame.wire.body_offset..],
         );
         if handle == 0 {
+            if self.grid.take_error().as_deref() == Some(REFERENCE_UNRESOLVED) {
+                self.stats.references_unresolved += 1;
+                return;
+            }
             return self.resync(now_ms, Resync::FrameStageFailed);
         }
         let decoded_at_ms = if self.tracing {

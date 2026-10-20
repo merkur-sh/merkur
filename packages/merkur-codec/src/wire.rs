@@ -84,7 +84,8 @@ pub const WIRE_PRESENT_PREDECESSOR: u8 = 1 << 6;
 
 const STREAM_FLAG_BITS: u8 = DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
     | DISPLAY_HEADER_FLAG_FEC_PROTECTED
-    | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT;
+    | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT
+    | crate::DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
 const PRESENCE_BITS: u8 = WIRE_PRESENT_CLOSURE
     | WIRE_PRESENT_ECHO_HORIZON
     | WIRE_PRESENT_CHUNK
@@ -571,9 +572,10 @@ pub fn parse_wire(wire: &[u8]) -> Result<WireFrame, WireError> {
     }
     let presence = fixed.flags & PRESENCE_BITS;
     let patch_flags = fixed.patch_flags;
-    if fixed.flags & !(STREAM_FLAG_BITS | PRESENCE_BITS) != 0
-        || patch_flags & PATCH_FLAG_UNDEFINED != 0
-    {
+    // Every bit of the flags byte is a stream flag or a presence bit; only the
+    // patch flags keep one no version defines.
+    const _: () = assert!(STREAM_FLAG_BITS | PRESENCE_BITS == u8::MAX);
+    if patch_flags & PATCH_FLAG_UNDEFINED != 0 {
         return Err(WireError::ReservedBits);
     }
     let seq = fixed.seq;
@@ -973,9 +975,6 @@ mod tests {
         let wire = &wire[..len];
         assert!(parse_wire(wire).is_ok());
 
-        let mut reserved = wire.to_vec();
-        reserved[2] |= 1 << 7;
-        assert_eq!(parse_wire(&reserved), Err(WireError::ReservedBits));
         let mut reserved = wire.to_vec();
         reserved[3] |= PATCH_FLAG_UNDEFINED;
         assert_eq!(parse_wire(&reserved), Err(WireError::ReservedBits));
