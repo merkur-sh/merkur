@@ -1,7 +1,7 @@
 {
   "apps/daemon/dataplane/src/connection.rs": {
     "comment-defensive": 1,
-    "comment-provenance": 3
+    "comment-provenance": 2
   },
   "apps/daemon/dataplane/src/display/recv.rs": {
     "comment-provenance": 1
@@ -11,7 +11,7 @@
     "comment-provenance": 1
   },
   "apps/daemon/dataplane/src/display/send/tests.rs": {
-    "comment-provenance": 2
+    "comment-provenance": 1
   },
   "apps/daemon/dataplane/src/input.rs": {
     "comment-temporary": 1
@@ -1306,9 +1306,6 @@
   },
   "apps/web/src/terminal-worker-cursor-presentation.test.ts": {
     "no-unknown-parameters": 1
-  },
-  "apps/web/src/terminal-worker-display-owner.test.ts": {
-    "prefer-effect-match": 1
   },
   "apps/web/src/terminal-worker-font-ownership.test.ts": {
     "no-unknown-parameters": 1

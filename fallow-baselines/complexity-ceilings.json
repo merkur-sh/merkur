@@ -71,10 +71,6 @@
     "cyclomatic": 39,
     "cognitive": 43
   },
-  "apps/web/src/terminal/display-receiver-calibration.ts::step": {
-    "cyclomatic": 33,
-    "cognitive": 49
-  },
   "apps/web/src/terminal/input-controller.ts::onKeyDown": {
     "cyclomatic": 48,
     "cognitive": 34
