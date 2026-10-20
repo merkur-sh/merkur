@@ -1665,6 +1665,7 @@ impl PerPeerDisplayCache {
         self.sent_row_resend_after_ms.clear();
         self.sent_row_resend_after_ms.resize(usize::from(rows), 0.0);
         self.retire_all_sent_datagrams_unknown();
+        self.references.resize(cols, rows);
         self.row_invalidation_mask.clear();
         self.row_invalidation_mask
             .resize(usize::from(rows).div_ceil(u64::BITS as usize), 0);
@@ -2383,6 +2384,7 @@ impl PerPeerDisplayCache {
     pub fn insert_sent_datagram(&mut self, seq: u32, sent: SentDatagram) {
         self.oldest_sent_datagram_at_ms = self.oldest_sent_datagram_at_ms.min(sent.sent_at_ms);
         if let Some(replaced) = self.sent_datagrams.insert(seq, sent) {
+            // The new record keeps `seq`'s outcome pending for the references.
             self.record_unknown_datagram(replaced);
         }
         while self.sent_datagrams.len() > DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES {
@@ -2408,6 +2410,7 @@ impl PerPeerDisplayCache {
             };
             if let Some(evicted) = self.sent_datagrams.remove(&oldest_seq) {
                 self.record_unknown_datagram(evicted);
+                self.references.note_unresolved(oldest_seq);
             }
         }
     }
@@ -2554,7 +2557,8 @@ impl PerPeerDisplayCache {
 
         let mut sole_path_unknown = 0u64;
         let mut header_retired = false;
-        self.sent_datagrams.retain(|_, sent| {
+        let references = &mut self.references;
+        self.sent_datagrams.retain(|&seq, sent| {
             let (rode_retired, rode_survivor) = match retired_path {
                 PeerTransport::WebTransport => (sent.sent_via.webtransport, sent.sent_via.edge),
                 PeerTransport::Edge => (sent.sent_via.edge, sent.sent_via.webtransport),
@@ -2562,6 +2566,7 @@ impl PerPeerDisplayCache {
             if !rode_retired || rode_survivor {
                 return true;
             }
+            references.note_unresolved(seq);
             if sent.outcome_path() == Some(retired_path) {
                 sole_path_unknown += 1;
             }
@@ -2585,8 +2590,9 @@ impl PerPeerDisplayCache {
         }
         let outcomes = &mut self.datagram_outcomes;
         let evidence = &mut self.fec_evidence;
+        let references = &mut self.references;
         let mut oldest = f64::INFINITY;
-        for (_, expired) in self.sent_datagrams.extract_if(.., |_, sent| {
+        for (seq, expired) in self.sent_datagrams.extract_if(.., |_, sent| {
             let expired = now_ms - sent.sent_at_ms > DisplayPolicy::SENT_DATAGRAM_PRUNE_AGE_MS;
             if !expired {
                 oldest = oldest.min(sent.sent_at_ms);
@@ -2599,6 +2605,7 @@ impl PerPeerDisplayCache {
                 &expired,
                 DisplayDatagramOutcome::Unknown,
             );
+            references.note_unresolved(seq);
         }
         self.oldest_sent_datagram_at_ms = oldest;
     }
@@ -4907,6 +4914,49 @@ mod tests {
             u64::from(extra),
             "each eligible capacity eviction is one censored outcome"
         );
+    }
+
+    #[test]
+    fn a_referencing_datagram_whose_record_ends_unresolved_retires_every_source() {
+        let cells: Arc<[CellRepr]> = vec![cell('x'); 4].into();
+        let source = SentRow {
+            row: 0,
+            hash: merkur_codec::row_hash(&cells),
+            cells,
+            graphics: None,
+        };
+        let sent = |sent_at_ms| SentDatagram {
+            sent_at_ms,
+            rows: SentRows::default(),
+            sent_via: SentPaths::single(PeerTransport::Edge),
+            header_only: false,
+            reliable: false,
+            protection: DisplayDatagramProtection::Unprotected,
+        };
+        // Expiry, eviction and the retirement of its only carrier each end the
+        // record with the browser's verdict on its references unknown.
+        for end in ["expired", "evicted", "carrier retired"] {
+            let mut cache = PerPeerDisplayCache::new();
+            cache.resize(4, 2);
+            cache.references.note_applied(1, [&source], &[1, 0]);
+            cache.references.note_referencing(2);
+            cache.insert_sent_datagram(2, sent(1.0));
+            assert_eq!(cache.references.len(), 1);
+            match end {
+                "expired" => cache
+                    .prune_expired_sent_datagrams(DisplayPolicy::SENT_DATAGRAM_PRUNE_AGE_MS + 2.0),
+                "evicted" => {
+                    for seq in (3u32..).take(DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES) {
+                        cache.insert_sent_datagram(seq, sent(f64::from(seq)));
+                    }
+                }
+                _ => {
+                    cache.retire_path_attempts(PeerTransport::Edge);
+                }
+            }
+            assert!(!cache.sent_datagrams.contains_key(&2), "{end}");
+            assert_eq!(cache.references.len(), 0, "{end}");
+        }
     }
 
     #[test]

@@ -2078,6 +2078,7 @@ impl Terminal {
                     row.left,
                     &self.frame_cells_scratch[row.cells_start..row.cells_end],
                     header.cols,
+                    header.rows,
                 );
             } else if applied_cells == entry_cells {
                 // The row's chain starts here: what the grid now holds, read
@@ -2095,6 +2096,7 @@ impl Terminal {
                     0,
                     &self.display_row_readback,
                     header.cols,
+                    header.rows,
                 );
             } else {
                 self.display_row_history.invalidate_row(row.row_index);

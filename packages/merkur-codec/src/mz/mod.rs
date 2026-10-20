@@ -17,7 +17,10 @@ pub use frame::{
     MZ_TWO_STATE_MIN_ROW_BYTES, MzEncoder, MzError, MzReference, MzResolve, decode_mz_rows,
     encode_full_row_entry, full_row_entry_bytes, mz_literal_entries, reference_hash,
 };
-pub use history::{MZ_HISTORY_DATAGRAMS, MZ_REFERENCE_DATAGRAMS, RowHistory};
+pub use history::{
+    MZ_HISTORY_CELLS, MZ_REFERENCE_DATAGRAMS, RowHistory, mz_history_datagrams,
+    mz_reference_datagrams,
+};
 
 #[cfg(test)]
 mod tests;

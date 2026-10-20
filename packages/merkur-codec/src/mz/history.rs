@@ -5,15 +5,33 @@ use crate::CellRepr;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hasher};
 
-/// The newest datagrams, by sequence, whose rows a sender may reference: a
-/// reference reaches back at most this far from the frame carrying it.
-///
-/// A resource bound. The receiver keeps twice this ([`MZ_HISTORY_DATAGRAMS`]),
-/// so a frame that arrives up to this many datagrams after newer ones still
-/// resolves; one later than that was declared lost long before and is resent.
+/// The most datagrams, by sequence, a reference reaches back from the frame
+/// carrying it, on any grid. A wire fact: a reference past it is corrupt.
 pub const MZ_REFERENCE_DATAGRAMS: u32 = 512;
-/// The datagrams a receiver keeps rows from.
-pub const MZ_HISTORY_DATAGRAMS: u32 = 2 * MZ_REFERENCE_DATAGRAMS;
+
+/// A resource bound: the cells a receiver's history holds across its window,
+/// 32 MiB of them. A datagram writes each row at most once, so a window of `w`
+/// datagrams holds at most `w` grids of cells, plus one chain per row from
+/// before it.
+pub const MZ_HISTORY_CELLS: u64 = (32 << 20) / std::mem::size_of::<CellRepr>() as u64;
+
+/// The datagrams a reference may reach back on a `cols` by `rows` grid: the
+/// most whose history, twice this window, fits [`MZ_HISTORY_CELLS`], up to
+/// [`MZ_REFERENCE_DATAGRAMS`]. Both ends compute it from the grid's geometry.
+///
+/// The receiver keeps twice the window ([`mz_history_datagrams`]), so a frame
+/// that arrives up to a window after newer ones still resolves; one later than
+/// that was declared lost long before and is resent.
+pub fn mz_reference_datagrams(cols: u16, rows: u16) -> u32 {
+    let grid = u64::from(cols.max(1)) * u64::from(rows.max(1));
+    u32::try_from(MZ_HISTORY_CELLS / (2 * grid))
+        .map_or(MZ_REFERENCE_DATAGRAMS, |window| window.clamp(1, MZ_REFERENCE_DATAGRAMS))
+}
+
+/// The datagrams a receiver keeps rows from on a `cols` by `rows` grid.
+pub fn mz_history_datagrams(cols: u16, rows: u16) -> u32 {
+    2 * mz_reference_datagrams(cols, rows)
+}
 
 /// Spans a row's chain may hold past its last complete row before the next
 /// span is stored complete instead. A resource bound on the work one
@@ -80,7 +98,8 @@ struct Row {
     base: u64,
     arena: VecDeque<CellRepr>,
     arena_base: u64,
-    /// The next record applies over the newest one.
+    /// The next record applies over the newest one, whose chain reaches a
+    /// complete row.
     chained: bool,
 }
 
@@ -145,6 +164,9 @@ impl Row {
 #[derive(Default)]
 pub struct RowHistory {
     cols: u16,
+    grid_rows: u16,
+    /// [`mz_reference_datagrams`] of the grid.
+    window: u32,
     rows: Vec<Row>,
     by_entry: HashMap<u64, u64, BuildHasherDefault<EntryHasher>>,
     newest: Option<u32>,
@@ -158,17 +180,30 @@ impl RowHistory {
         self.by_entry.clear();
         self.newest = None;
         self.cols = 0;
+        self.grid_rows = 0;
+        self.window = 0;
     }
 
     /// The grid applied `cells` at column `left` of `row`, from the frame with
-    /// sequence `seq`, on a grid `cols` wide. Every cell of the entry must
-    /// have been written; a row an entry wrote only partly is
+    /// sequence `seq`, on a grid `cols` by `rows`. Every cell of the entry
+    /// must have been written; a row an entry wrote only partly is
     /// [`Self::invalidate_row`]. A span on a row that is not
-    /// [`Self::row_chained`] is recorded but never rebuilds.
-    pub fn record(&mut self, seq: u32, row: u16, left: u16, cells: &[CellRepr], cols: u16) {
-        if cols != self.cols {
+    /// [`Self::row_chained`] is recorded but never rebuilds, and leaves the row
+    /// unchained.
+    pub fn record(
+        &mut self,
+        seq: u32,
+        row: u16,
+        left: u16,
+        cells: &[CellRepr],
+        cols: u16,
+        rows: u16,
+    ) {
+        if cols != self.cols || rows != self.grid_rows {
             self.clear();
             self.cols = cols;
+            self.grid_rows = rows;
+            self.window = mz_reference_datagrams(cols, rows);
         }
         if self.newest.is_none_or(|newest| older(newest, seq)) {
             self.newest = Some(seq);
@@ -208,8 +243,8 @@ impl RowHistory {
                 entry.arena.extend(cells.iter().copied());
             }
         }
+        entry.chained = record.full || record.linked;
         entry.records.push_back(record);
-        entry.chained = true;
         self.by_entry.insert(entry_key(seq, row), id);
     }
 
@@ -231,25 +266,29 @@ impl RowHistory {
     }
 
     /// Drop the chains of `row` no reference can still name: every record
-    /// before its newest complete row older than the window, so long as all of
-    /// them are older.
+    /// older than the window before the chain the rest builds on.
     fn retire_row(&mut self, row: u16) {
         let Some(newest) = self.newest else {
             return;
         };
-        let floor = newest.wrapping_sub(MZ_HISTORY_DATAGRAMS);
+        let floor = newest.wrapping_sub(2 * self.window);
         let entry = &mut self.rows[usize::from(row)];
+        if entry.records.is_empty() {
+            return;
+        }
         let old = entry
             .records
             .iter()
             .take_while(|record| older(record.seq, floor))
             .count();
-        // All of them, or up to the newest complete row at or before the first
-        // record still in the window, which the rest of the window builds on.
-        let keep = if old == entry.records.len() {
+        // Up to the newest complete row at or before the first record still in
+        // the window, which the rest of the window builds on. When every record
+        // is older, the newest chain is what the row holds now and what its
+        // next span applies over, so it stays while the row is chained.
+        let keep = if old == entry.records.len() && !entry.chained {
             old
         } else {
-            (0..=old)
+            (0..=old.min(entry.records.len() - 1))
                 .rev()
                 .find(|&index| entry.records[index].full)
                 .unwrap_or(0)
@@ -287,6 +326,10 @@ impl RowHistory {
     ) -> Result<(), MzError> {
         if reference.seq_delta > MZ_REFERENCE_DATAGRAMS {
             return Err(MzError::Corrupt);
+        }
+        // Past this grid's window the source may be retired.
+        if reference.seq_delta > self.window {
+            return Err(MzError::Unresolved);
         }
         let source_seq = presentation_id.wrapping_sub(reference.seq_delta);
         let id = *self
