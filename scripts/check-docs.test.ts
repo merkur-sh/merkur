@@ -50,7 +50,7 @@ test('pathCandidate recognises rooted paths only, and strips suffixes', () => {
   expect(pathCandidate('apps/web/**')).toBeUndefined();
   expect(pathCandidate('bun run scripts/x.ts')).toBeUndefined();
   expect(pathCandidate('~/.merkur/config.json')).toBeUndefined();
-  expect(pathCandidate('MESSAGE_TYPE_DISPLAY_DICT_READY')).toBeUndefined();
+  expect(pathCandidate('MESSAGE_TYPE_DISPLAY_ACK')).toBeUndefined();
 });
 
 test('a backticked path that does not exist is a paths violation; fenced code is ignored', () => {

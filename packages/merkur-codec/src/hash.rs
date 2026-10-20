@@ -67,8 +67,8 @@ pub fn append_graphics_digest(digest: &mut Vec<u8>, graphics: Option<u64>) {
 
 /// XXH3 of an opaque byte run.
 ///
-/// Used for the compression-dictionary digest, where the two sides must agree
-/// on raw bytes rather than on decoded cells. Separate from [`row_hash`] so a
+/// Used for the link-table digest, which must agree on raw bytes rather than
+/// on decoded cells. Separate from [`row_hash`] so a
 /// change to the cell digest layout cannot silently alter it.
 #[inline]
 pub fn hash_bytes(bytes: &[u8]) -> u64 {

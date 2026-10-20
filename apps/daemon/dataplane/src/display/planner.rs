@@ -10,7 +10,6 @@ use crate::display::policy::DisplayPolicy;
 pub const SIZE_CLASSES: usize = 6;
 pub const RATIO_CLASSES: usize = 4;
 pub const MAX_PLANNED_ROWS: usize = merkur_codec::MAX_TERMINAL_ROWS;
-pub const DICTIONARY_CLASSES: usize = 2;
 const CONTENT_CLASSES: usize = 3;
 const EXECUTION_LANES: usize = 3;
 const POSTERIOR_SAMPLES: usize = 32;
@@ -25,22 +24,6 @@ const SHARD_SIZES: usize = DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES + 1;
 const MAX_FRONTIER_STATES: usize = GROUP_LENGTHS * SHARD_SIZES;
 const CANDIDATE_DIRTY_WORDS: usize = MAX_FRONTIER_STATES.div_ceil(u64::BITS as usize);
 const MAX_PLANNER_STATES: usize = 1 + MAX_PLANNED_ROWS * MAX_FRONTIER_STATES;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DictionaryClass {
-    Plain,
-    Finalized,
-}
-
-impl DictionaryClass {
-    #[inline]
-    pub const fn index(self) -> usize {
-        match self {
-            Self::Plain => 0,
-            Self::Finalized => 1,
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContentClass {
@@ -1018,7 +1001,7 @@ pub struct GlobalDisplayPlanningModel {
     /// A compression attempt writes one window; every solve reads its lane's
     /// eighteen.
     sender_service: [ReadMostlyPosterior;
-        EXECUTION_LANES * SIZE_CLASSES * CONTENT_CLASSES * DICTIONARY_CLASSES],
+        EXECUTION_LANES * SIZE_CLASSES * CONTENT_CLASSES],
 }
 
 impl Default for GlobalDisplayPlanningModel {
@@ -1027,7 +1010,7 @@ impl Default for GlobalDisplayPlanningModel {
             #[cfg(test)]
             sender_service_us_for_test: None,
             sender_service: [ReadMostlyPosterior::default();
-                EXECUTION_LANES * SIZE_CLASSES * CONTENT_CLASSES * DICTIONARY_CLASSES],
+                EXECUTION_LANES * SIZE_CLASSES * CONTENT_CLASSES],
         }
     }
 }
@@ -1037,11 +1020,8 @@ impl GlobalDisplayPlanningModel {
         lane: ExecutionLane,
         bytes: usize,
         content: ContentClass,
-        dictionary: DictionaryClass,
     ) -> usize {
-        (((lane.index() * SIZE_CLASSES + size_class(bytes)) * CONTENT_CLASSES + content.index())
-            * DICTIONARY_CLASSES)
-            + dictionary.index()
+        (lane.index() * SIZE_CLASSES + size_class(bytes)) * CONTENT_CLASSES + content.index()
     }
 
     pub fn observe_sender_service(
@@ -1049,12 +1029,11 @@ impl GlobalDisplayPlanningModel {
         lane: ExecutionLane,
         bytes: usize,
         content: ContentClass,
-        dictionary: DictionaryClass,
         service_us: f64,
     ) {
         #[cfg(test)]
         let service_us = self.sender_service_us_for_test.unwrap_or(service_us);
-        self.sender_service[Self::sender_index(lane, bytes, content, dictionary)]
+        self.sender_service[Self::sender_index(lane, bytes, content)]
             .observe(service_us);
     }
 
@@ -1063,12 +1042,11 @@ impl GlobalDisplayPlanningModel {
         lane: ExecutionLane,
         bytes: usize,
         content: ContentClass,
-        dictionary: DictionaryClass,
     ) -> f64 {
         // Cold state is conservative but finite; the first real attempt
         // replaces it for this machine/lane/content class.
         let cold = 20.0 + bytes as f64 * 0.01;
-        self.sender_service[Self::sender_index(lane, bytes, content, dictionary)]
+        self.sender_service[Self::sender_index(lane, bytes, content)]
             .predictive_upper(cold)
     }
 }
@@ -1485,7 +1463,7 @@ fn visit_distinct_predecessors(
 /// own learned ratio for this size bucket, summed, with the frame header
 /// priced at the dominant class's ratio. A span mixing an incompressible color
 /// row with compressible text therefore predicts the sum of both parts, which
-/// is what zstd produces, rather than one class's ratio over both. Service
+/// is what MZ produces, rather than one class's ratio over both. Service
 /// posteriors are per class, so the dominant class prices sender and receiver
 /// work and receives the achieved ratio afterwards.
 fn batch_candidates(
@@ -1569,7 +1547,6 @@ fn plan_for_carrier(
     global: &GlobalDisplayPlanningModel,
     profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
     lane: ExecutionLane,
-    dictionary: DictionaryClass,
     context: PlanningContext,
     rows: &[PlannedRow],
     header_bytes: usize,
@@ -1595,7 +1572,6 @@ fn plan_for_carrier(
                     lane,
                     bytes,
                     CONTENT_CLASS_BY_INDEX[content],
-                    dictionary,
                 )
             })
         });
@@ -1990,7 +1966,6 @@ pub fn plan_batch_partitions(
     global: &GlobalDisplayPlanningModel,
     profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
     lane: ExecutionLane,
-    dictionary: DictionaryClass,
     mut context: PlanningContext,
     rows: &[PlannedRow],
     header_bytes: usize,
@@ -2014,7 +1989,6 @@ pub fn plan_batch_partitions(
         global,
         profiles,
         lane,
-        dictionary,
         context,
         &rows[..count],
         header_bytes,
@@ -2033,7 +2007,6 @@ pub fn plan_batch_partitions(
             global,
             profiles,
             lane,
-            dictionary,
             alternate,
             &rows[..count],
             header_bytes,
@@ -2050,8 +2023,8 @@ pub fn plan_batch_partitions(
 }
 
 pub struct PeerDisplayPlanningModel {
-    ratio: [BoundedPosterior; SIZE_CLASSES * CONTENT_CLASSES * DICTIONARY_CLASSES],
-    receiver: [ReceiverCostPosterior; SIZE_CLASSES * RATIO_CLASSES * DICTIONARY_CLASSES],
+    ratio: [BoundedPosterior; SIZE_CLASSES * CONTENT_CLASSES],
+    receiver: [ReceiverCostPosterior; SIZE_CLASSES * RATIO_CLASSES],
     receiver_service_debt_us: f64,
     receiver_profile_revision: u32,
     /// Written once per flush per carrier and read by every quote, about ten
@@ -2142,9 +2115,9 @@ impl Default for PeerDisplayPlanningModel {
     fn default() -> Self {
         Self {
             ratio: [BoundedPosterior::default();
-                SIZE_CLASSES * CONTENT_CLASSES * DICTIONARY_CLASSES],
+                SIZE_CLASSES * CONTENT_CLASSES],
             receiver: [ReceiverCostPosterior::default();
-                SIZE_CLASSES * RATIO_CLASSES * DICTIONARY_CLASSES],
+                SIZE_CLASSES * RATIO_CLASSES],
             receiver_service_debt_us: 0.0,
             receiver_profile_revision: 0,
             carrier_network_delivery: [ReadMostlyPosterior::default(); 2],
@@ -2155,24 +2128,21 @@ impl Default for PeerDisplayPlanningModel {
 }
 
 impl PeerDisplayPlanningModel {
-    fn ratio_index(bytes: usize, content: ContentClass, dictionary: DictionaryClass) -> usize {
-        ((size_class(bytes) * CONTENT_CLASSES + content.index()) * DICTIONARY_CLASSES)
-            + dictionary.index()
+    fn ratio_index(bytes: usize, content: ContentClass) -> usize {
+        size_class(bytes) * CONTENT_CLASSES + content.index()
     }
 
-    fn receiver_index(bytes: usize, ratio: f64, dictionary: DictionaryClass) -> usize {
-        ((size_class(bytes) * RATIO_CLASSES + ratio_class(ratio)) * DICTIONARY_CLASSES)
-            + dictionary.index()
+    fn receiver_index(bytes: usize, ratio: f64) -> usize {
+        size_class(bytes) * RATIO_CLASSES + ratio_class(ratio)
     }
 
     pub fn observe_ratio(
         &mut self,
         raw_bytes: usize,
         content: ContentClass,
-        dictionary: DictionaryClass,
         ratio: f64,
     ) {
-        self.ratio[Self::ratio_index(raw_bytes, content, dictionary)]
+        self.ratio[Self::ratio_index(raw_bytes, content)]
             .observe(ratio.clamp(0.0, 1.0));
     }
 
@@ -2202,25 +2172,22 @@ impl PeerDisplayPlanningModel {
             let wire_ratio = f64::from(bucket.wire_ratio_ppm) / 1_000_000.0;
             if bucket.size_class >= SIZE_CLASSES
                 || bucket.ratio_class >= RATIO_CLASSES
-                || bucket.dictionary_class >= DICTIONARY_CLASSES
                 || bucket.wire_ratio_ppm == 0
                 || bucket.wire_ratio_ppm > 1_000_000
                 || ratio_class(wire_ratio) != bucket.ratio_class
             {
                 continue;
             }
-            let index = ((bucket.size_class * RATIO_CLASSES + bucket.ratio_class)
-                * DICTIONARY_CLASSES)
-                + bucket.dictionary_class;
+            let index = bucket.size_class * RATIO_CLASSES + bucket.ratio_class;
             self.receiver[index].replace(*bucket, age_uncertainty);
         }
     }
 
-    pub fn receiver_upper_us(&self, bytes: usize, ratio: f64, dictionary: DictionaryClass) -> f64 {
+    pub fn receiver_upper_us(&self, bytes: usize, ratio: f64) -> f64 {
         // No profile means compression must win without assuming a fast
         // browser. 250us is bounded and is rapidly replaced by authenticated
         // device evidence.
-        self.receiver[Self::receiver_index(bytes, ratio, dictionary)].predictive_upper(250.0)
+        self.receiver[Self::receiver_index(bytes, ratio)].predictive_upper(250.0)
     }
 
     pub fn receiver_service_debt_us(&self) -> f64 {
@@ -2267,7 +2234,6 @@ impl PeerDisplayPlanningModel {
     pub fn snapshot(
         &self,
         content: ContentClass,
-        dictionary: DictionaryClass,
     ) -> PeerPlanningSnapshot {
         // Representative value strictly inside each bucket.
         let representative = [512, 768, 1_536, 3_072, 6_144, 12_288];
@@ -2285,7 +2251,7 @@ impl PeerDisplayPlanningModel {
         // planner stops building frames that size, and the neighbour never
         // collects the samples that would warm it.
         let windows =
-            representative.map(|bytes| &self.ratio[Self::ratio_index(bytes, content, dictionary)]);
+            representative.map(|bytes| &self.ratio[Self::ratio_index(bytes, content)]);
         let own = BoundedPosterior::predictive_uppers(windows, [0.0; SIZE_CLASSES]);
         let mut ratio_by_size = [0.0; SIZE_CLASSES];
         let mut prior = COLD_RATIO_UPPER;
@@ -2302,7 +2268,7 @@ impl PeerDisplayPlanningModel {
         for (class, bytes) in representative.into_iter().enumerate() {
             for (ratio_index, ratio) in [0.1, 0.2, 0.375, 0.75].into_iter().enumerate() {
                 receiver_upper_by_surface[class * RATIO_CLASSES + ratio_index] =
-                    self.receiver_upper_us(bytes, ratio, dictionary);
+                    self.receiver_upper_us(bytes, ratio);
             }
         }
         PeerPlanningSnapshot {
@@ -2315,7 +2281,6 @@ impl PeerDisplayPlanningModel {
 
 #[derive(Clone, Copy, Debug)]
 pub struct ReceiverProfileBucket {
-    pub dictionary_class: usize,
     pub size_class: usize,
     pub ratio_class: usize,
     pub sample_count: u16,
@@ -2331,7 +2296,6 @@ pub fn should_attempt_compression(
     lane: ExecutionLane,
     raw_bytes: usize,
     content: ContentClass,
-    dictionary: DictionaryClass,
     mut context: PlanningContext,
 ) -> bool {
     let predicted_bytes = (raw_bytes as f64 * peer.ratio(raw_bytes)).ceil() as usize;
@@ -2342,7 +2306,7 @@ pub fn should_attempt_compression(
     let raw = best_single_record_plan(raw_bytes, 0.0, context);
     let receiver_us =
         peer.receiver_upper_us(raw_bytes, predicted_bytes as f64 / raw_bytes.max(1) as f64);
-    let sender_service = global.sender_service_upper_us(lane, raw_bytes, content, dictionary);
+    let sender_service = global.sender_service_upper_us(lane, raw_bytes, content);
     let compressed_finish = |context: PlanningContext| {
         let compressed = single_record_plan(predicted_bytes, receiver_us, context);
         let critical_path = (sender_service - context.earliest_uncompressed_send_us).max(0.0)
@@ -2360,7 +2324,6 @@ pub fn choose_after_compression(
     peer: PeerPlanningSnapshot,
     raw_bytes: usize,
     compressed_bytes: usize,
-    _dictionary: DictionaryClass,
     mut context: PlanningContext,
 ) -> Representation {
     if compressed_bytes >= raw_bytes {
@@ -2537,7 +2500,6 @@ mod tests {
             &GlobalDisplayPlanningModel::default(),
             &cold_profiles(),
             ExecutionLane::Inline,
-            DictionaryClass::Plain,
             planning,
             &[row],
             header_bytes,
@@ -2584,7 +2546,6 @@ mod tests {
                 &global,
                 &profiles,
                 ExecutionLane::Interactive,
-                DictionaryClass::Plain,
                 context(),
                 rows,
                 48,
@@ -2714,16 +2675,15 @@ mod tests {
         for (class, bytes) in representative.into_iter().enumerate() {
             for sample in 0..class * 7 {
                 let ratio = 0.05 + 0.13 * ((sample * 7 + class) % 11) as f64 / 11.0;
-                peer.observe_ratio(bytes, ContentClass::Text, DictionaryClass::Plain, ratio);
+                peer.observe_ratio(bytes, ContentClass::Text, ratio);
             }
         }
-        let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        let snapshot = peer.snapshot(ContentClass::Text);
         let mut prior = COLD_RATIO_UPPER;
         for (class, bytes) in representative.into_iter().enumerate() {
             let window = &peer.ratio[PeerDisplayPlanningModel::ratio_index(
                 bytes,
                 ContentClass::Text,
-                DictionaryClass::Plain,
             )];
             let expected = window.predictive_upper(prior).clamp(0.01, 1.0);
             assert_eq!(
@@ -2740,14 +2700,14 @@ mod tests {
         let mut peer = PeerDisplayPlanningModel::default();
         let observe = |peer: &mut PeerDisplayPlanningModel, bytes, ratio, samples| {
             for _ in 0..samples {
-                peer.observe_ratio(bytes, ContentClass::Text, DictionaryClass::Plain, ratio);
+                peer.observe_ratio(bytes, ContentClass::Text, ratio);
             }
         };
         // 1-2 KB warm at 0.27; 2-4 KB has six samples, short of warm, as a
         // planner that stopped building frames that size leaves it.
         observe(&mut peer, 1_536, 0.27, POSTERIOR_WARM_SAMPLES);
         observe(&mut peer, 3_072, 0.19, POSTERIOR_WARM_SAMPLES - 2);
-        let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        let snapshot = peer.snapshot(ContentClass::Text);
         assert_eq!(snapshot.ratio(1_536), 0.27);
         assert_eq!(
             snapshot.ratio(3_072),
@@ -2763,14 +2723,14 @@ mod tests {
 
         // Once warm, a bucket reads only its own samples.
         observe(&mut peer, 3_072, 0.19, 2);
-        let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        let snapshot = peer.snapshot(ContentClass::Text);
         assert!((snapshot.ratio(3_072) - 0.19).abs() < 1e-12);
         assert!((snapshot.ratio(6_144) - 0.19).abs() < 1e-12);
 
         // An incompressible smaller bucket never raises the neutral prior.
         let mut peer = PeerDisplayPlanningModel::default();
         observe(&mut peer, 1_536, 0.9, POSTERIOR_WARM_SAMPLES);
-        let snapshot = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        let snapshot = peer.snapshot(ContentClass::Text);
         assert_eq!(snapshot.ratio(3_072), COLD_RATIO_UPPER);
     }
 
@@ -2778,7 +2738,7 @@ mod tests {
     fn multirow_feasibility_bound_respects_nonmonotone_size_buckets() {
         let cap = DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES;
         let mut peer = PeerDisplayPlanningModel::default()
-            .snapshot(ContentClass::Color, DictionaryClass::Plain);
+            .snapshot(ContentClass::Color);
         for class in 0..SIZE_CLASSES {
             for ratio in [0.01, 0.125, 0.5, 0.999, 1.0] {
                 peer.ratio_by_size = [1.0; SIZE_CLASSES];
@@ -2808,7 +2768,6 @@ mod tests {
         global: &GlobalDisplayPlanningModel,
         profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
         lane: ExecutionLane,
-        dictionary: DictionaryClass,
         context: PlanningContext,
         rows: &[PlannedRow],
         header_bytes: usize,
@@ -2900,7 +2859,6 @@ mod tests {
                     lane,
                     bytes,
                     CONTENT_CLASS_BY_INDEX[content],
-                    dictionary,
                 )
             })
         });
@@ -3005,7 +2963,6 @@ mod tests {
                 &global,
                 &[peer; CONTENT_CLASSES],
                 ExecutionLane::Bulk,
-                DictionaryClass::Plain,
                 context,
                 &rows,
                 merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES,
@@ -3017,7 +2974,6 @@ mod tests {
                 &global,
                 &[peer; CONTENT_CLASSES],
                 ExecutionLane::Bulk,
-                DictionaryClass::Plain,
                 context,
                 &rows,
                 merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES,
@@ -3041,7 +2997,6 @@ mod tests {
             0,
             0,
             &[ReceiverProfileBucket {
-                dictionary_class: 0,
                 size_class: size_class(1_101),
                 ratio_class: ratio_class(0.999),
                 sample_count: 32,
@@ -3053,10 +3008,9 @@ mod tests {
         );
         assert_eq!(
             choose_after_compression(
-                peer.snapshot(ContentClass::Sparse, DictionaryClass::Plain),
+                peer.snapshot(ContentClass::Sparse),
                 1_101,
                 1_100,
-                DictionaryClass::Plain,
                 context(),
             ),
             Representation::Compressed,
@@ -3072,20 +3026,18 @@ mod tests {
                 ExecutionLane::Bulk,
                 4_000,
                 ContentClass::Text,
-                DictionaryClass::Plain,
                 100.0,
             );
-            peer.observe_ratio(4_000, ContentClass::Text, DictionaryClass::Plain, 0.2);
+            peer.observe_ratio(4_000, ContentClass::Text, 0.2);
         }
         let mut hidden = context();
         hidden.earliest_uncompressed_send_us = 200.0;
         assert!(should_attempt_compression(
             &global,
-            peer.snapshot(ContentClass::Text, DictionaryClass::Plain),
+            peer.snapshot(ContentClass::Text),
             ExecutionLane::Bulk,
             4_000,
             ContentClass::Text,
-            DictionaryClass::Plain,
             hidden,
         ));
     }
@@ -3099,12 +3051,11 @@ mod tests {
                 ExecutionLane::Bulk,
                 4_000,
                 ContentClass::Text,
-                DictionaryClass::Plain,
                 100.0,
             );
-            peer.observe_ratio(4_000, ContentClass::Text, DictionaryClass::Plain, 0.2);
+            peer.observe_ratio(4_000, ContentClass::Text, 0.2);
         }
-        let profile = peer.snapshot(ContentClass::Text, DictionaryClass::Plain);
+        let profile = peer.snapshot(ContentClass::Text);
         let mut unopposed = context();
         unopposed.carrier.pacing_rate_bps = 50_000_000;
         unopposed.carrier.one_way_us = 100.0;
@@ -3116,7 +3067,6 @@ mod tests {
             ExecutionLane::Bulk,
             4_000,
             ContentClass::Text,
-            DictionaryClass::Plain,
             unopposed,
         ));
         let opposed = PlanningContext {
@@ -3129,7 +3079,6 @@ mod tests {
             ExecutionLane::Bulk,
             4_000,
             ContentClass::Text,
-            DictionaryClass::Plain,
             opposed,
         ));
     }
@@ -3143,7 +3092,6 @@ mod tests {
             0,
             &[
                 ReceiverProfileBucket {
-                    dictionary_class: 0,
                     size_class: size_class(2_000),
                     ratio_class: ratio_class(0.1),
                     sample_count: 32,
@@ -3153,7 +3101,6 @@ mod tests {
                     upper_us: 3,
                 },
                 ReceiverProfileBucket {
-                    dictionary_class: 0,
                     size_class: size_class(2_000),
                     ratio_class: ratio_class(0.75),
                     sample_count: 32,
@@ -3165,11 +3112,11 @@ mod tests {
             ],
         );
         assert_eq!(
-            peer.receiver_upper_us(2_000, 0.1, DictionaryClass::Plain),
+            peer.receiver_upper_us(2_000, 0.1),
             3.0
         );
         assert_eq!(
-            peer.receiver_upper_us(2_000, 0.75, DictionaryClass::Plain),
+            peer.receiver_upper_us(2_000, 0.75),
             40.0
         );
     }
@@ -3182,7 +3129,6 @@ mod tests {
             0,
             0,
             &[ReceiverProfileBucket {
-                dictionary_class: DictionaryClass::Plain.index(),
                 size_class: size_class(2_000),
                 ratio_class: ratio_class(0.1),
                 sample_count: 32,
@@ -3193,15 +3139,15 @@ mod tests {
             }],
         );
         assert_eq!(
-            peer.snapshot(ContentClass::Text, DictionaryClass::Plain)
+            peer.snapshot(ContentClass::Text)
                 .ratio(2_000),
             0.5
         );
         for _ in 0..POSTERIOR_WARM_SAMPLES {
-            peer.observe_ratio(2_000, ContentClass::Text, DictionaryClass::Plain, 0.2);
+            peer.observe_ratio(2_000, ContentClass::Text, 0.2);
         }
         assert_eq!(
-            peer.snapshot(ContentClass::Text, DictionaryClass::Plain)
+            peer.snapshot(ContentClass::Text)
                 .ratio(2_000),
             0.2
         );
@@ -3228,7 +3174,7 @@ mod tests {
     #[test]
     fn adaptive_redraw_ratio_is_size_conditioned_and_worsens_without_hysteresis() {
         let peer = PeerDisplayPlanningModel::default()
-            .snapshot(ContentClass::Color, DictionaryClass::Plain);
+            .snapshot(ContentClass::Color);
         let mut blank_then_color = peer;
         blank_then_color.observe_actual_ratio(500, 0.05);
         assert!(blank_then_color.ratio(500) < peer.ratio(500));
@@ -3360,7 +3306,6 @@ mod tests {
     #[test]
     fn an_older_receiver_profile_cannot_replace_newer_authenticated_evidence() {
         let bucket = |upper_us| ReceiverProfileBucket {
-            dictionary_class: DictionaryClass::Plain.index(),
             size_class: size_class(2_000),
             ratio_class: ratio_class(0.2),
             sample_count: 32,
@@ -3373,7 +3318,7 @@ mod tests {
         peer.apply_receiver_profile(2, 0, 0, &[bucket(40)]);
         peer.apply_receiver_profile(1, 0, 0, &[bucket(3)]);
         assert_eq!(
-            peer.receiver_upper_us(2_000, 0.2, DictionaryClass::Plain),
+            peer.receiver_upper_us(2_000, 0.2),
             40.0,
         );
     }
@@ -3424,13 +3369,12 @@ mod tests {
                 peer,
                 5_000,
                 1_000,
-                DictionaryClass::Plain,
                 small_packet_winner_only
             ),
             Representation::Compressed,
         );
         assert_eq!(
-            choose_after_compression(peer, 5_000, 1_000, DictionaryClass::Plain, context),
+            choose_after_compression(peer, 5_000, 1_000, context),
             Representation::Raw,
         );
         let global = GlobalDisplayPlanningModel::default();
@@ -3440,7 +3384,6 @@ mod tests {
             ExecutionLane::Bulk,
             5_000,
             ContentClass::Text,
-            DictionaryClass::Plain,
             context,
         ));
         let raw_edge = single_record_plan(5_000, 0.0, context.alternate().unwrap());
@@ -3482,7 +3425,6 @@ mod tests {
                     &global,
                     &[peer; CONTENT_CLASSES],
                     ExecutionLane::Bulk,
-                    DictionaryClass::Plain,
                     planning,
                     rows,
                     0,
@@ -3603,9 +3545,9 @@ mod tests {
     fn cold_profiles() -> [PeerPlanningSnapshot; CONTENT_CLASSES] {
         let model = PeerDisplayPlanningModel::default();
         [
-            model.snapshot(ContentClass::Sparse, DictionaryClass::Plain),
-            model.snapshot(ContentClass::Text, DictionaryClass::Plain),
-            model.snapshot(ContentClass::Color, DictionaryClass::Plain),
+            model.snapshot(ContentClass::Sparse),
+            model.snapshot(ContentClass::Text),
+            model.snapshot(ContentClass::Color),
         ]
     }
 
@@ -3632,7 +3574,6 @@ mod tests {
             &global,
             &profiles,
             ExecutionLane::Bulk,
-            DictionaryClass::Plain,
             context(),
             &rows,
             48,
@@ -3695,7 +3636,6 @@ mod tests {
                 &global,
                 &profiles,
                 ExecutionLane::Bulk,
-                DictionaryClass::Plain,
                 planning,
                 &rows,
                 48,
@@ -3707,7 +3647,6 @@ mod tests {
                 &global,
                 &profiles,
                 ExecutionLane::Bulk,
-                DictionaryClass::Plain,
                 planning,
                 &rows,
                 48,
@@ -3750,7 +3689,6 @@ mod tests {
                         &global,
                         &profiles,
                         ExecutionLane::Bulk,
-                        DictionaryClass::Plain,
                         planning,
                         &rows,
                         48,
@@ -3762,7 +3700,6 @@ mod tests {
                         &global,
                         &profiles,
                         ExecutionLane::Bulk,
-                        DictionaryClass::Plain,
                         planning,
                         &rows,
                         48,
@@ -3780,7 +3717,7 @@ mod tests {
             [137, 211, 89, 377, 144, 263].map(|bytes| PlannedRow::of(bytes, ContentClass::Color));
         let global = GlobalDisplayPlanningModel::default();
         let peer = PeerDisplayPlanningModel::default()
-            .snapshot(ContentClass::Color, DictionaryClass::Plain);
+            .snapshot(ContentClass::Color);
         let mut planning = context();
         planning.carrier.loss_upper = 0.09;
         planning.carrier.pacing_rate_bps = 3_000_000;
@@ -3792,7 +3729,6 @@ mod tests {
             &global,
             &[peer; CONTENT_CLASSES],
             ExecutionLane::Bulk,
-            DictionaryClass::Plain,
             planning,
             &rows,
             48,
@@ -3804,7 +3740,6 @@ mod tests {
             &global,
             &[peer; CONTENT_CLASSES],
             ExecutionLane::Bulk,
-            DictionaryClass::Plain,
             planning,
             &rows,
             48,
@@ -3818,7 +3753,7 @@ mod tests {
     fn partition_dp_matches_the_oracle_with_open_and_unprotected_groups() {
         let global = GlobalDisplayPlanningModel::default();
         let peer = PeerDisplayPlanningModel::default()
-            .snapshot(ContentClass::Color, DictionaryClass::Plain);
+            .snapshot(ContentClass::Color);
         let mut workspace = PlannerWorkspace::default();
         let mut plan = BatchPartitionPlan::default();
         for rows in [
@@ -3845,7 +3780,6 @@ mod tests {
                                 &global,
                                 &[peer; CONTENT_CLASSES],
                                 ExecutionLane::Bulk,
-                                DictionaryClass::Plain,
                                 planning,
                                 &rows,
                                 47,
@@ -3857,7 +3791,6 @@ mod tests {
                                 &global,
                                 &[peer; CONTENT_CLASSES],
                                 ExecutionLane::Bulk,
-                                DictionaryClass::Plain,
                                 planning,
                                 &rows,
                                 47,
@@ -3883,7 +3816,6 @@ mod tests {
                                     ExecutionLane::Bulk,
                                     [512, 768, 1_536, 3_072, 6_144, 12_288][class],
                                     ContentClass::Color,
-                                    DictionaryClass::Plain,
                                 )
                             });
                             let mut state = PlannerState {
@@ -3946,7 +3878,7 @@ mod tests {
         let rows = [PlannedRow::of(7, ContentClass::Text); MAX_PLANNED_ROWS];
         let global = GlobalDisplayPlanningModel::default();
         let peer = PeerDisplayPlanningModel::default()
-            .snapshot(ContentClass::Text, DictionaryClass::Plain);
+            .snapshot(ContentClass::Text);
         let mut workspace = PlannerWorkspace::default();
         let mut plan = BatchPartitionPlan::default();
         let started = std::time::Instant::now();
@@ -3954,7 +3886,6 @@ mod tests {
             &global,
             &[peer; CONTENT_CLASSES],
             ExecutionLane::Bulk,
-            DictionaryClass::Plain,
             context(),
             &rows,
             48,
@@ -3972,7 +3903,6 @@ mod tests {
             &global,
             &[peer; CONTENT_CLASSES],
             ExecutionLane::Bulk,
-            DictionaryClass::Plain,
             context(),
             &rows,
             48,
@@ -4029,7 +3959,7 @@ mod tests {
             .max(100);
         let global = GlobalDisplayPlanningModel::default();
         let peer = PeerDisplayPlanningModel::default()
-            .snapshot(ContentClass::Text, DictionaryClass::Plain);
+            .snapshot(ContentClass::Text);
         let mut workspace = PlannerWorkspace::default();
         let mut plan = BatchPartitionPlan::default();
         let crossing = crossing_carrier_context();
@@ -4056,7 +3986,6 @@ mod tests {
                         &global,
                         &[peer; CONTENT_CLASSES],
                         ExecutionLane::Bulk,
-                        DictionaryClass::Plain,
                         planning,
                         &rows,
                         48,
@@ -4074,7 +4003,6 @@ mod tests {
                         &global,
                         &[peer; CONTENT_CLASSES],
                         ExecutionLane::Bulk,
-                        DictionaryClass::Plain,
                         planning,
                         &rows,
                         48,

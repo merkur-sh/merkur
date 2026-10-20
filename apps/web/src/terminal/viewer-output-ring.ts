@@ -3,7 +3,7 @@ import { readerNeedsWakeAfterPublish } from '../lib/spsc-ring-wake';
 /**
  * Viewer-output ring (terminal worker → transport worker): what the Rust
  * viewer asks its session to send. Display ACKs at presentation rate, and the
- * rarer snapshot, resync, dictionary, resume and graphics-demand requests.
+ * rarer snapshot, resync, resume and graphics-demand requests.
  *
  * It is the frame ring's counterpart in the other direction, and bounded the
  * same way: a transport worker that falls behind leaves the terminal worker

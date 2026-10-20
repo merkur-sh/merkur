@@ -227,8 +227,8 @@ pub(crate) fn handle_transport_hint(msg: &PeerMessage, body: &[u8], peers: &mut 
 /// The record stays off the selective-ACK datagram path.
 pub(crate) fn handle_display_receiver_profile(msg: &PeerMessage, body: &[u8], peers: &mut PeerMap) {
     const HEADER_BYTES: usize = 13;
-    const BUCKET_BYTES: usize = 20;
-    const MAX_BUCKETS: usize = 48;
+    const BUCKET_BYTES: usize = 19;
+    const MAX_BUCKETS: usize = 24;
     const MAX_AGE_MS: u32 = 30 * 24 * 60 * 60 * 1_000;
     const MAX_SERVICE_DEBT_US: u32 = 5_000_000;
     const MAX_RECEIVER_COST_US: u32 = 1_000_000;
@@ -247,7 +247,6 @@ pub(crate) fn handle_display_receiver_profile(msg: &PeerMessage, body: &[u8], pe
         return;
     }
     let mut buckets = [ReceiverProfileBucket {
-        dictionary_class: 0,
         size_class: 0,
         ratio_class: 0,
         sample_count: 0,
@@ -259,16 +258,14 @@ pub(crate) fn handle_display_receiver_profile(msg: &PeerMessage, body: &[u8], pe
     let mut accepted = 0usize;
     for index in 0..count {
         let at = HEADER_BYTES + index * BUCKET_BYTES;
-        let dictionary_class = usize::from(body[at]);
-        let size_class = usize::from(body[at + 1]);
-        let ratio_class = usize::from(body[at + 2]);
-        let sample_count = u16::from(body[at + 3]);
-        let wire_ratio_ppm = read_u32_be(body, at + 4);
-        let mean_us = read_u32_be(body, at + 8).min(MAX_RECEIVER_COST_US);
-        let variance_us2 = read_u32_be(body, at + 12);
-        let upper_us = read_u32_be(body, at + 16).min(MAX_RECEIVER_COST_US);
-        if dictionary_class >= 2
-            || size_class >= 6
+        let size_class = usize::from(body[at]);
+        let ratio_class = usize::from(body[at + 1]);
+        let sample_count = u16::from(body[at + 2]);
+        let wire_ratio_ppm = read_u32_be(body, at + 3);
+        let mean_us = read_u32_be(body, at + 7).min(MAX_RECEIVER_COST_US);
+        let variance_us2 = read_u32_be(body, at + 11);
+        let upper_us = read_u32_be(body, at + 15).min(MAX_RECEIVER_COST_US);
+        if size_class >= 6
             || ratio_class >= 4
             || sample_count == 0
             || sample_count > 32
@@ -278,7 +275,6 @@ pub(crate) fn handle_display_receiver_profile(msg: &PeerMessage, body: &[u8], pe
             continue;
         }
         buckets[accepted] = ReceiverProfileBucket {
-            dictionary_class,
             size_class,
             ratio_class,
             sample_count,

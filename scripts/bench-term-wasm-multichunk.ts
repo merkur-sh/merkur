@@ -21,7 +21,7 @@ import {
   DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
   DISPLAY_FRAME_ID_OFFSET,
   DISPLAY_GENERATION_OFFSET,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+  DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
   DISPLAY_PATCH_FLAG_RESET,
   DISPLAY_PROTOCOL_VERSION,
   DISPLAY_ROW_COUNT_OFFSET,
@@ -32,8 +32,8 @@ import {
   writeU32BE,
 } from '../packages/shared/src';
 import { loadBenchmarkTerminal } from './perf/declared-terminal';
+import { displayFixtureExecutable } from './perf/display-fixture';
 import { emitPerfMetric, summarizeSamples } from './perf/harness';
-import { zstdFixtureExecutable } from './perf/zstd-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SAMPLES = positiveInteger('BENCH_SAMPLES', 500);
@@ -44,7 +44,7 @@ if (!Number.isInteger(LINKS) || LINKS < 0) throw new Error('BENCH_LINKS must be 
 // Row prefix `left` flag and span shape, as merkur-codec writes them.
 const ROW_FLAG_LINKS = 0x8000;
 const LINK_SPAN_BYTES = 8;
-const FIXTURE_BINARY = zstdFixtureExecutable();
+const FIXTURE_BINARY = displayFixtureExecutable();
 
 const { runtime: wasmRuntime, terminal } = await loadBenchmarkTerminal(1280, 720);
 const cols = terminal.cols();
@@ -277,11 +277,11 @@ function createCompressedDisplayFrame(raw: Uint8Array): Uint8Array {
     stdout: 'pipe',
     stderr: 'inherit',
   });
-  if (result.exitCode !== 0) throw new Error('zstd fixture compression failed');
+  if (result.exitCode !== 0) throw new Error('display fixture compression failed');
   const block = new Uint8Array(result.stdout);
   const out = new Uint8Array(DISPLAY_COMPRESSED_PAYLOAD_OFFSET + block.byteLength);
   out.set(raw.subarray(0, DISPLAY_ROWS_OFFSET));
-  out[1] = (out[1] ?? 0) | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD;
+  out[1] = (out[1] ?? 0) | DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
   writeU32BE(out, DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET, out.byteLength - 16);
   writeU32BE(out, DISPLAY_COMPRESSED_LENGTH_OFFSET, raw.byteLength - DISPLAY_ROWS_OFFSET);
   out.set(block, DISPLAY_COMPRESSED_PAYLOAD_OFFSET);

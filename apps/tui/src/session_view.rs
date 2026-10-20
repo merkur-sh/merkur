@@ -469,8 +469,6 @@ impl SessionView {
             viewer::Output::ResyncRows { generation, rows } => {
                 Command::ResyncRows { generation, rows }
             }
-            viewer::Output::DictionaryReady(ready) => Command::DictionaryReady(ready),
-            viewer::Output::DictionaryAck(id) => Command::DictionaryAck(id),
             viewer::Output::Resume(resume) => Command::DisplayResume(resume),
             viewer::Output::GraphicsDemand { epoch, demands } => {
                 Command::GraphicsDemand { epoch, demands }

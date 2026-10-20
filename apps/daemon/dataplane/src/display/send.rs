@@ -33,9 +33,7 @@ use crate::connection::{
 #[cfg(test)]
 use crate::connection::{SimDatagramMetadata, SimDatagramRole};
 use crate::display::clock::FlushClock;
-use crate::display::compressor::{
-    Compressor, DictionaryScratch, DisplayDictionary, dictionary_hash, finalize_display_dictionary,
-};
+use crate::display::compressor::Compressor;
 
 use crate::DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES;
 use crate::display::credit::{DemandStamp, DisplayAdmission, PreparedDemand};
@@ -44,8 +42,8 @@ use crate::display::encoder::{
     planned_wire_len, stamp_display_demand, wire_frame, wire_len,
 };
 use crate::display::planner::{
-    BatchPartitionPlan, CarrierDeliveryQuote, ContentClass, ContentEvidence, DictionaryClass,
-    ExecutionLane, GlobalDisplayPlanningModel, PeerPlanningSnapshot, PlannedRow, PlannerWorkspace,
+    BatchPartitionPlan, CarrierDeliveryQuote, ContentClass, ContentEvidence, ExecutionLane,
+    GlobalDisplayPlanningModel, PeerPlanningSnapshot, PlannedRow, PlannerWorkspace,
     PlanningContext, Representation, choose_after_compression, content_class_by_bytes,
     display_repair_wire_len, encoded_record_cost_us, fec_recovery_shard_count, group_close_cost_us,
     plan_batch_partitions, should_attempt_compression as planner_should_attempt_compression,
@@ -365,10 +363,6 @@ struct DisplayPrepareRequest {
     /// `rows` filled by capture, `datagrams` empty, both taken from the pool.
     buffers: PrepareBuffers,
     compression: DisplayCompressionPolicy,
-    /// Exact acknowledged dictionary visible when the owner admitted this
-    /// request. Keeping the Arc alive lets the worker compress without copying
-    /// the 16 KiB dictionary and gives completion admission an identity fence.
-    compression_dictionary: Option<Arc<DisplayDictionary>>,
     burst_group_max_size: usize,
     summary: DisplayFlushSummary,
 }
@@ -613,21 +607,6 @@ fn forward_prepared_completion<T>(
     }
 }
 
-struct DictionaryPrepareRequest {
-    token: u64,
-    display_revision: u64,
-    header: FrameHeader,
-    rows: Vec<CapturedRow>,
-}
-
-pub(crate) struct DictionaryPrepareCompletion {
-    token: u64,
-    display_revision: u64,
-    cpu_time: Duration,
-    source: Arc<[u8]>,
-    hash: u32,
-}
-
 pub(crate) struct DisplayPrepareCompletion {
     token: u64,
     submitted_at: Instant,
@@ -638,10 +617,6 @@ pub(crate) struct DisplayPrepareCompletion {
     completed_sync_update_epoch: u64,
     start_seq: u32,
     next_seq: u32,
-    dictionary_class: DictionaryClass,
-    /// Retained only when at least one prepared frame actually references it.
-    /// Dictionary-free completions remain independent of dictionary rotation.
-    compression_dictionary: Option<Arc<DisplayDictionary>>,
     /// The request's buffers, back: `rows` still carries every captured
     /// baseline, which is the completion's identity fence, and `datagrams`
     /// carries the burst.
@@ -666,29 +641,15 @@ impl DisplayPrepareCompletion {
 /// pair to take.
 const DISPLAY_PREPARE_SPARE_BUFFERS: usize = 2 * DISPLAY_PREPARE_QUEUE_DEPTH;
 
-/// The owner loop's handle on the two preparation threads.
+/// The owner loop's handle on the preparation thread.
 ///
 /// `merkur-display-prepare` schedules both delta lanes and cohort-shared
-/// snapshots by deadline, with row utility breaking equal delta deadlines;
-/// `merkur-display-dict` finalizes compression dictionaries. They are
-/// separate threads because the two workloads have nothing in common but a
-/// CPU: a dictionary finalize is milliseconds of speculative work, while a
-/// display preparation job is on a browser's time-to-applied path. Sharing one
-/// thread meant a dictionary build that had been picked up first ran to
-/// completion ahead of every display job queued behind it, and a build parked
-/// on a full completion channel stalled display preparation outright.
+/// snapshots by deadline, with row utility breaking equal delta deadlines.
 pub(crate) struct DisplayPrepareWorker {
     interactive_tx: crossbeam_channel::Sender<DisplayPrepareRequest>,
     bulk_tx: crossbeam_channel::Sender<DisplayPrepareRequest>,
     snapshot_tx: crossbeam_channel::Sender<SnapshotPrepareRequest>,
-    /// One slot. A dictionary is a whole-screen capture, so a second request
-    /// behind an unfinished one would only describe an older screen than the
-    /// one the next flush can capture; `schedule_dictionary_prepare_if_due`
-    /// skips the capture entirely while the slot is occupied.
-    dictionary_tx: crossbeam_channel::Sender<DictionaryPrepareRequest>,
     next_token: u64,
-    dictionary_in_flight: Option<u64>,
-    dictionary_ready: Option<DictionaryPrepareCompletion>,
     /// Emptied `PrepareBuffers` waiting for the next flush; see `take_buffers`.
     spare: Vec<PrepareBuffers>,
     /// The network simulator prepares on the owner loop, at the top of each
@@ -696,16 +657,13 @@ pub(crate) struct DisplayPrepareWorker {
     /// a thread's (`crate::sim`).
     #[cfg(merkur_sim)]
     lanes: PrepareLanes,
-    #[cfg(merkur_sim)]
-    dictionaries: DictionaryLane,
 }
 
 impl DisplayPrepareWorker {
-    /// Runs every queued preparation, as the two threads would have by now.
+    /// Runs every queued preparation, as the thread would have by now.
     #[cfg(merkur_sim)]
     pub(crate) fn run_inline(&mut self) {
         self.lanes.run_inline();
-        self.dictionaries.run_inline();
     }
 
     fn next_token(&mut self) -> u64 {
@@ -748,31 +706,12 @@ impl DisplayPrepareWorker {
             .sum()
     }
 
-    /// Fence both queued/running dictionary work and a completion waiting for
-    /// the next flush. The dictionary thread may still return the old token,
-    /// but `finish_dictionary_prepare` will reject it by identity.
-    fn invalidate_dictionary_preparation(&mut self) {
-        self.dictionary_in_flight = None;
-        self.dictionary_ready = None;
-    }
-
-    /// Whether a dictionary build this owner still wants is outstanding.
-    ///
-    /// Exposed for the deterministic display simulator, which waits on this
-    /// instead of polling the completion channel: a build that has been
-    /// submitted but not finished is the one state a `try_recv` drain cannot
-    /// tell apart from "nothing was submitted".
-    #[cfg(test)]
-    pub(crate) fn has_dictionary_prepare_in_flight(&self) -> bool {
-        self.dictionary_in_flight.is_some()
-    }
 }
 
 pub(crate) fn start_display_prepare_worker() -> (
     DisplayPrepareWorker,
     mpsc::Receiver<DisplayPrepareCompletion>,
     mpsc::Receiver<SnapshotPrepareCompletion>,
-    mpsc::Receiver<DictionaryPrepareCompletion>,
 ) {
     #[cfg(test)]
     let experiment = TEST_PACKING_EXPERIMENT.get();
@@ -784,15 +723,8 @@ pub(crate) fn start_display_prepare_worker() -> (
         crossbeam_channel::bounded::<DisplayPrepareRequest>(DISPLAY_PREPARE_QUEUE_DEPTH);
     let (snapshot_tx, snapshot_rx) =
         crossbeam_channel::bounded::<SnapshotPrepareRequest>(DISPLAY_PREPARE_QUEUE_DEPTH);
-    let (dictionary_tx, dictionary_rx) = crossbeam_channel::bounded::<DictionaryPrepareRequest>(1);
     let (completion_tx, completion_rx) = mpsc::channel(DISPLAY_PREPARE_QUEUE_DEPTH);
     let (snapshot_completion_tx, snapshot_completion_rx) =
-        mpsc::channel(DISPLAY_PREPARE_QUEUE_DEPTH);
-    // Not one slot: a build fenced mid-flight by `invalidate_dictionary_preparation`
-    // still returns its (rejected) completion, and the owner loop may have
-    // submitted the live replacement before it drained that one. Capacity for
-    // both keeps the dictionary thread off the owner loop's heels.
-    let (dictionary_completion_tx, dictionary_completion_rx) =
         mpsc::channel(DISPLAY_PREPARE_QUEUE_DEPTH);
     let channels = PrepareChannels {
         interactive_rx,
@@ -818,29 +750,19 @@ pub(crate) fn start_display_prepare_worker() -> (
                 lanes.run();
             })
             .expect("display preparation worker must start");
-        thread::Builder::new()
-            .name("merkur-display-dict".to_owned())
-            .spawn(move || DictionaryLane::new(dictionary_rx, dictionary_completion_tx).run())
-            .expect("display dictionary worker must start");
     }
     (
         DisplayPrepareWorker {
             interactive_tx,
             bulk_tx,
             snapshot_tx,
-            dictionary_tx,
             next_token: 0,
-            dictionary_in_flight: None,
-            dictionary_ready: None,
             spare: Vec::with_capacity(DISPLAY_PREPARE_SPARE_BUFFERS),
             #[cfg(merkur_sim)]
             lanes: PrepareLanes::new(channels),
-            #[cfg(merkur_sim)]
-            dictionaries: DictionaryLane::new(dictionary_rx, dictionary_completion_tx),
         },
         completion_rx,
         snapshot_completion_rx,
-        dictionary_completion_rx,
     )
 }
 
@@ -1092,59 +1014,6 @@ impl PrepareLanes {
             PrepareTurn::Progressed
         } else {
             PrepareTurn::Stalled
-        }
-    }
-}
-
-/// `merkur-display-dict`: finalizes each requested dictionary in turn.
-struct DictionaryLane {
-    requests: crossbeam_channel::Receiver<DictionaryPrepareRequest>,
-    completions: mpsc::Sender<DictionaryPrepareCompletion>,
-    /// The whole-screen encode buffer outlives every build, so a steady
-    /// session finalizes into the same allocation each time.
-    frame: Vec<u8>,
-    scratch: DictionaryScratch,
-}
-
-impl DictionaryLane {
-    fn new(
-        requests: crossbeam_channel::Receiver<DictionaryPrepareRequest>,
-        completions: mpsc::Sender<DictionaryPrepareCompletion>,
-    ) -> Self {
-        Self {
-            requests,
-            completions,
-            frame: Vec::new(),
-            scratch: DictionaryScratch::default(),
-        }
-    }
-
-    #[cfg(not(merkur_sim))]
-    fn run(mut self) {
-        while let Ok(request) = self.requests.recv() {
-            let completion =
-                prepare_dictionary_off_loop(request, &mut self.frame, &mut self.scratch);
-            if self.completions.blocking_send(completion).is_err() {
-                return;
-            }
-        }
-    }
-
-    /// Every build requested so far (`crate::sim`).
-    #[cfg(merkur_sim)]
-    fn run_inline(&mut self) {
-        while let Ok(request) = self.requests.try_recv() {
-            let completion =
-                prepare_dictionary_off_loop(request, &mut self.frame, &mut self.scratch);
-            match self.completions.try_send(completion) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Closed(_)) => return,
-                // One build in flight and one fenced is the most the owner
-                // ever leaves unread; the channel holds more.
-                Err(mpsc::error::TrySendError::Full(_)) => {
-                    unreachable!("the dictionary completion channel holds every build in flight")
-                }
-            }
         }
     }
 }
@@ -1414,14 +1283,13 @@ fn observe_display_compression_outcome(
     raw_bytes: usize,
     attempted: bool,
     content_class: ContentClass,
-    dictionary_class: DictionaryClass,
 ) {
     if !attempted || raw_bytes == 0 {
         return;
     }
     let sample = (wire_bytes as f64 / raw_bytes as f64).clamp(0.01, 1.0);
     peer.display_planning
-        .observe_ratio(raw_bytes, content_class, dictionary_class, sample);
+        .observe_ratio(raw_bytes, content_class, sample);
 }
 
 /// A batch as it will ride the wire, together with the size it was encoded from.
@@ -1447,7 +1315,7 @@ struct BatchPayload {
 /// What the batch-sizing pass already learned about this payload.
 ///
 /// `AttemptedRejected` is materially different from `NotAttempted`: the former
-/// means zstd already ran and the post-attempt packet plan selected raw. The
+/// means MZ already ran and the post-attempt packet plan selected raw. The
 /// subsequent prepare pass cannot make that identical frame more compressible,
 /// so retrying only repeats the most expensive part of preparation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1498,7 +1366,7 @@ impl BatchCompression {
 /// `achieved_ratio: None` means compression did not apply and leaves the frame
 /// for the prepare step to handle exactly as before — in particular the
 /// `Interactive` bypass and its relay-critical MTU fit. `Some` records that
-/// zstd did run, even when the result was not worth retaining.
+/// MZ did run, even when the result was not worth retaining.
 fn compress_batch_candidate(
     planner: &mut GlobalDisplayPlanningModel,
     compressor: &mut Compressor,
@@ -1507,7 +1375,6 @@ fn compress_batch_candidate(
     interactive_compression_allowed: bool,
     policy: &DisplayCompressionPolicy,
     presentation_workload: DisplayWorkload,
-    dictionary: Option<&DisplayDictionary>,
     references: impl IntoIterator<Item = Option<MzReference>>,
     planned_representation: Representation,
     content_class: ContentClass,
@@ -1528,7 +1395,7 @@ fn compress_batch_candidate(
     // Workload is a property of the logical terminal mutation, not of the
     // datagram-sized piece currently being evaluated. Without this promotion a
     // cold full-screen redraw is split into one-row candidates first; every
-    // candidate then looks "interactive", zstd never gets a cross-row window,
+    // candidate then looks "interactive", compression never sees the rows together,
     // and an initial QUIC congestion window visibly delivers the screen in RTT-
     // separated flights. Keep genuinely small interaction uncompressed, but do
     // not let packetization reclassify a bulk presentation as one.
@@ -1542,23 +1409,17 @@ fn compress_batch_candidate(
     if workload == DisplayWorkload::Interactive && !interactive_compression_allowed {
         return DisplayCompressionOutcome::NOTHING;
     }
-    let dictionary_class = if dictionary.is_some() {
-        DictionaryClass::Finalized
-    } else {
-        DictionaryClass::Plain
-    };
     if planned_representation == Representation::Raw {
         return DisplayCompressionOutcome::NOTHING;
     }
     let started = Instant::now();
-    let Some(compressed) = compressor.compress_display_rows_into(frame, dictionary, references, out)
+    let Some(compressed) = compressor.compress_display_rows_into(frame, references, out)
     else {
         let service_us = started.elapsed().as_secs_f64() * 1_000_000.0;
         planner.observe_sender_service(
             policy.execution_lane,
             raw_bytes,
             content_class,
-            dictionary_class,
             service_us,
         );
         return DisplayCompressionOutcome {
@@ -1573,7 +1434,6 @@ fn compress_batch_candidate(
         policy.execution_lane,
         raw_bytes,
         content_class,
-        dictionary_class,
         service_us,
     );
     DisplayCompressionOutcome {
@@ -1581,7 +1441,6 @@ fn compress_batch_candidate(
             profile,
             raw_bytes,
             raw_bytes - saved_bytes,
-            dictionary_class,
             policy.planning_context,
         ) == Representation::Compressed,
         achieved_ratio: Some(
@@ -1611,7 +1470,6 @@ fn emit_fitted_batches(
     policy: &DisplayCompressionPolicy,
     profiles: &[PeerPlanningSnapshot; 3],
     presentation_workload: DisplayWorkload,
-    dictionary: Option<&DisplayDictionary>,
     compressor: &mut Compressor,
     planner: &mut GlobalDisplayPlanningModel,
     frames: &mut BufferPool,
@@ -1652,7 +1510,6 @@ fn emit_fitted_batches(
         policy.fit_relay_critical_datagram && utility == DisplayUtility::Critical,
         policy,
         presentation_workload,
-        dictionary,
         rows.iter().map(|row| row.reference),
         planned_representation,
         content_class,
@@ -1690,7 +1547,6 @@ fn emit_fitted_batches(
         policy,
         profiles,
         presentation_workload,
-        dictionary,
         compressor,
         planner,
         frames,
@@ -1706,7 +1562,6 @@ fn emit_fitted_batches(
         policy,
         profiles,
         presentation_workload,
-        dictionary,
         compressor,
         planner,
         frames,
@@ -1923,14 +1778,13 @@ fn packed_header_reserve(header: &FrameHeader, input_seq: u32, rows: usize) -> u
 /// lands in `scratch.batches`, cleared first, for the caller to drain.
 ///
 /// Rows are packed against their *compressed* size. A datagram carries
-/// compressed bytes, so the dynamic program uses the peer/content/dictionary
-/// ratio posterior when it compares candidate partitions.
+/// compressed bytes, so the dynamic program uses the peer/content ratio
+/// posterior when it compares candidate partitions.
 fn pack_captured_rows(
     rows: &[DisplayPrepareRow],
     header: FrameHeader,
     input_seq: u32,
     policy: &DisplayCompressionPolicy,
-    dictionary: Option<&DisplayDictionary>,
     header_changed: bool,
     compressor: &mut Compressor,
     scratch: &mut PrepareScratch,
@@ -1984,7 +1838,6 @@ fn pack_captured_rows(
             rows,
             header,
             header_reserve,
-            dictionary,
             compressor,
             batches,
             frames,
@@ -2015,11 +1868,6 @@ fn pack_captured_rows(
                 class: row.content.class(),
             };
         }
-        let dictionary_class = if dictionary.is_some() {
-            DictionaryClass::Finalized
-        } else {
-            DictionaryClass::Plain
-        };
         let mut planned_start = 0usize;
         let mut partition_origin = 0usize;
         let mut partition_cursor = 0usize;
@@ -2039,7 +1887,6 @@ fn pack_captured_rows(
                     planner,
                     &local_profiles,
                     policy.execution_lane,
-                    dictionary_class,
                     planning_context,
                     &planned_rows[planned_start..domain.len()],
                     header_reserve,
@@ -2073,7 +1920,6 @@ fn pack_captured_rows(
                 policy,
                 &local_profiles,
                 presentation_workload,
-                dictionary,
                 compressor,
                 planner,
                 frames,
@@ -2142,7 +1988,6 @@ fn pack_whole_span_candidate(
     rows: &[DisplayPrepareRow],
     header: FrameHeader,
     header_reserve: usize,
-    dictionary: Option<&DisplayDictionary>,
     compressor: &mut Compressor,
     out: &mut Vec<PackedBatch>,
     frames: &mut BufferPool,
@@ -2167,7 +2012,7 @@ fn pack_whole_span_candidate(
         let raw_bytes = planned_wire_len(raw.len(), header_reserve);
         let mut compressed = frames.take(0);
         let used = compressor
-            .compress_display_frame_into(&raw, dictionary, &mut compressed)
+            .compress_display_frame_into(&raw, &mut compressed)
             .is_some();
         let frame = choose_compressed_frame(raw, compressed, used, frames);
         out.push((
@@ -2220,13 +2065,11 @@ fn prepare_display_off_loop(
         header,
         mut buffers,
         compression,
-        compression_dictionary,
         burst_group_max_size,
         mut summary,
     } = request;
     compressor.begin_timing(perf_flush_started_at.is_some());
     let mut next_seq = start_seq;
-    let dictionary = compression_dictionary.as_deref();
     let PrepareBuffers {
         rows,
         datagrams,
@@ -2238,7 +2081,6 @@ fn prepare_display_off_loop(
         header,
         input_seq,
         &compression,
-        dictionary,
         header_changed,
         compressor,
         scratch,
@@ -2299,12 +2141,6 @@ fn prepare_display_off_loop(
             .map(|datagram| datagram.frame.wire_len() + 1)
             .sum();
     }
-    let dictionary_class = if compression_dictionary.is_some() {
-        DictionaryClass::Finalized
-    } else {
-        DictionaryClass::Plain
-    };
-    let compression_dictionary = retain_referenced_dictionary(datagrams, compression_dictionary);
     #[cfg(test)]
     let allocations =
         perf_flush_started_at.map(|_| crate::edge_tunnel::test_allocations::end_thread());
@@ -2340,8 +2176,6 @@ fn prepare_display_off_loop(
         completed_sync_update_epoch,
         start_seq,
         next_seq,
-        dictionary_class,
-        compression_dictionary,
         buffers,
         summary,
     }
@@ -2366,7 +2200,6 @@ fn cancelled_display_prepare(request: DisplayPrepareRequest) -> DisplayPrepareCo
         header: _,
         buffers,
         compression: _,
-        compression_dictionary,
         burst_group_max_size: _,
         summary,
     } = request;
@@ -2380,12 +2213,6 @@ fn cancelled_display_prepare(request: DisplayPrepareRequest) -> DisplayPrepareCo
         completed_sync_update_epoch,
         start_seq,
         next_seq: start_seq,
-        dictionary_class: if compression_dictionary.is_some() {
-            DictionaryClass::Finalized
-        } else {
-            DictionaryClass::Plain
-        },
-        compression_dictionary,
         buffers,
         summary,
     }
@@ -2443,7 +2270,6 @@ fn prepare_snapshot_off_loop(
                 ExecutionLane::Bulk,
                 wire_len(raw),
                 content_class,
-                DictionaryClass::Plain,
                 peer.context,
             )
         });
@@ -2454,12 +2280,11 @@ fn prepare_snapshot_off_loop(
         }
         let started = Instant::now();
         let mut compressed = Vec::new();
-        let saved = compressor.compress_display_frame_into(raw, None, &mut compressed);
+        let saved = compressor.compress_display_frame_into(raw, &mut compressed);
         planner.observe_sender_service(
             ExecutionLane::Bulk,
             wire_len(raw),
             content_class,
-            DictionaryClass::Plain,
             started.elapsed().as_secs_f64() * 1_000_000.0,
         );
         compressed_chunks.push(saved.map(|_| compressed));
@@ -2485,118 +2310,11 @@ fn prepare_snapshot_off_loop(
     }
 }
 
-/// Finalize one dictionary source on the `merkur-display-dict` thread.
-///
-/// `frame` is that thread's retained whole-screen encode buffer; it is cleared
-/// and refilled here, never reallocated once it has seen the largest screen.
-fn prepare_dictionary_off_loop(
-    request: DictionaryPrepareRequest,
-    frame: &mut Vec<u8>,
-    scratch: &mut DictionaryScratch,
-) -> DictionaryPrepareCompletion {
-    let cpu_started_at = Instant::now();
-    let mut header = request.header;
-    header.row_count = request.rows.len().min(u16::MAX as usize) as u16;
-    let entries = request.rows.iter().map(|row| PreparedRowRef {
-        encoding: plan_cell_encoding(&row.cells).1,
-        graphics: &row.graphics,
-        row_index: row.row,
-        left: 0,
-        cells: &row.cells,
-    });
-    frame.clear();
-    encode_prepared_frame_into(frame, &header, entries);
-
-    // All splitting, grouping, finalizing and hashing happen on this worker.
-    let body_start = (STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES).min(frame.len());
-    let source: Arc<[u8]> = Arc::from(finalize_display_dictionary(
-        &frame[body_start..],
-        header.row_count,
-        scratch,
-    ));
-    let hash = dictionary_hash(&source);
-    DictionaryPrepareCompletion {
-        token: request.token,
-        display_revision: request.display_revision,
-        cpu_time: cpu_started_at.elapsed(),
-        source,
-        hash,
-    }
-}
-
-pub(crate) fn finish_dictionary_prepare(
-    completion: DictionaryPrepareCompletion,
-    worker: &mut DisplayPrepareWorker,
-) {
-    if worker.dictionary_in_flight != Some(completion.token) {
-        return;
-    }
-    trace!(
-        revision = completion.display_revision,
-        cpu_us = completion.cpu_time.as_micros(),
-        bytes = completion.source.len(),
-        "display dictionary prepared off owner loop"
-    );
-    worker.dictionary_in_flight = None;
-    worker.dictionary_ready = Some(completion);
-}
-
-/// Revoke this peer's owners created while its dictionary was ready.
-///
-/// Per-peer display work cannot identify a worker request's compression choice
-/// until completion, so it is invalidated conservatively. A queued
-/// dictionary-bearing burst has already reserved sequence numbers and crosses
-/// a generation boundary instead of leaving an unfillable gap. Dictionary-free
-/// paced work survives. The shared dictionary-source worker is fenced by the
-/// readiness owner only when no ready peer remains.
-pub(crate) fn fence_display_dictionary_withdrawal(peer: &mut PeerDisplayState) {
-    peer.cancel_display_prepare();
-    if peer.dictionary.has_wire_state() {
-        peer.next_generation();
-    } else {
-        peer.dictionary.reset();
-    }
-}
-
-/// Discard a shared source preparation only when a readiness withdrawal leaves
-/// no eligible consumer. A remaining ready peer can safely consume the same
-/// screen-derived bytes, so preserving the work avoids a cross-peer rebuild.
-pub(crate) fn fence_dictionary_preparation_without_consumers(
-    worker: &mut DisplayPrepareWorker,
-    peers: &PeerMap,
-) {
-    let has_consumer = peers
-        .values()
-        .any(|peer| peer.authenticated && peer.is_e2e_ready() && peer.display_dictionary_ready);
-    if !has_consumer {
-        worker.invalidate_dictionary_preparation();
-    }
-}
-
 /// A frame rides a datagram when it fits one however its row predecessor is
 /// stamped, so the lane never changes between preparing and sealing it.
 #[inline]
 fn uses_display_datagram(datagram: &PreparedDisplayDatagram) -> bool {
     datagram.frame.wire_bound() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
-}
-
-fn retain_referenced_dictionary(
-    prepared: &[PreparedDisplayDatagram],
-    dictionary: Option<Arc<DisplayDictionary>>,
-) -> Option<Arc<DisplayDictionary>> {
-    dictionary.filter(|_| prepared_references_dictionary(prepared))
-}
-
-fn prepared_references_dictionary(prepared: &[PreparedDisplayDatagram]) -> bool {
-    prepared.iter().any(|datagram| {
-        datagram
-            .frame
-            .bytes()
-            .get(merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET)
-            .is_some_and(|flags| {
-                flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0
-            })
-    })
 }
 
 /// Keep the current prompt context and shell's newest output ahead of ordinary
@@ -2876,8 +2594,8 @@ pub(crate) async fn flush_display(
     let flush_started_at = perf_timing.is_enabled().then(FlushStart::now);
     // Captures persist across flushes and are replaced only for dirty rows.
     // This makes the hash pass the one terminal-to-CellRepr conversion point
-    // and lets retries/dictionary builds reuse unchanged rows without touching
-    // the terminal grid.
+    // and lets retries reuse unchanged rows without touching the terminal
+    // grid.
     flush_row_cache.retain(|row, _| *row < terminal.rows);
     let damage = terminal.pending_display_damage();
     let has_display_damage = damage.any;
@@ -2977,7 +2695,6 @@ pub(crate) async fn flush_display(
         if let Some(peer) = peers.get_mut(peer_id) {
             // Its header-only or echo frame, if the flush owed one, is admitted.
             peer.egress_hold = None;
-            peer.dictionary.observe_flush();
             send_editor_anchor_if_changed(terminal, peer, peer_now_ms);
         }
 
@@ -3002,22 +2719,13 @@ pub(crate) async fn flush_display(
     for peer in peers.values_mut() {
         send_link_table_if_changed(terminal, peer, links_now_ms);
     }
-
-    install_prepared_dictionaries_if_due(prepare_worker, peers, clock.now_ms());
-    schedule_dictionary_prepare_if_due(
-        terminal,
-        prepare_worker,
-        peers,
-        &mut flush_row_scratch.capture,
-        flush_row_cache,
-    );
 }
 
 /// The flush's hash pass: refresh the per-row hash baseline for every dirty
 /// row and replace those rows' captures in the per-flush cache.
 ///
 /// This is the one terminal-to-`CellRepr` conversion point of a flush; every
-/// consumer downstream — selection, capture, dictionary builds — reads the
+/// consumer downstream — selection and capture — reads the
 /// captures made here rather than the grid. Each capture moves into the cache;
 /// its storage comes from the terminal's two-version row pool. Returns how many
 /// rows it re-captured, so the simulator's allocation oracle can attribute this
@@ -3086,8 +2794,8 @@ pub(crate) struct DisplayScratch {
     /// would silently promote the next flush to a full redraw.
     pub(crate) current_row_hashes: Vec<u64>,
     /// **Persists across flushes.** Row captures replaced only for dirty rows,
-    /// so retries and dictionary builds reuse unchanged rows without going back
-    /// to the terminal grid. Pruned by row index on resize, never emptied.
+    /// so retries reuse unchanged rows without going back to the terminal
+    /// grid. Pruned by row index on resize, never emptied.
     pub(crate) flush_row_capture: HashMap<u16, CapturedRow>,
     pub(crate) rows: FlushRowScratch,
     /// Batching state for the inline prepare arm; drained within every flush
@@ -4005,7 +3713,7 @@ fn send_display_wire_budgeted(
 }
 
 /// Bound one flush against the carrier's current free datagram buffer using
-/// the same peer/content/dictionary posterior as the partition planner.
+/// the same peer/content posterior as the partition planner.
 ///
 /// `wire_budget_bytes` is read from the carrier immediately before the flush is
 /// built, so it is the exact number of compressed bytes the send buffer can
@@ -4184,7 +3892,6 @@ fn build_captured_datagram_batches(
         ExecutionLane::Inline,
         0,
     );
-    let dictionary = peer.dictionary.active();
     let mut header = head.header;
     header.closure_digest = closure_digest;
     header.echo_horizon = peer.echo_horizon;
@@ -4193,7 +3900,6 @@ fn build_captured_datagram_batches(
         header,
         input_seq,
         &policy,
-        dictionary.map(|dictionary| &**dictionary),
         header_signal != peer.last_admitted_critical_header_signal,
         compressor,
         scratch,
@@ -4203,8 +3909,8 @@ fn build_captured_datagram_batches(
     // One datagram, one frame.
     //
     // Every batch here is already a complete, independently decodable display
-    // payload: it carries its own stream header and is compressed on its own
-    // against the peer's dictionary. Grouping several of them under one frame id
+    // payload: it carries its own stream header and is compressed on its own.
+    // Grouping several of them under one frame id
     // added nothing to the wire and one property to the receiver — that it must
     // hold every chunk before applying any — and that property is what turned
     // ordinary datagram loss into screen-scale loss. A 33-datagram frame on a
@@ -4429,11 +4135,6 @@ fn display_compression_policy(
     execution_lane: ExecutionLane,
     send_buffer_occupied_bytes: usize,
 ) -> DisplayCompressionPolicy {
-    let dictionary_class = if peer.dictionary.active().is_some() {
-        DictionaryClass::Finalized
-    } else {
-        DictionaryClass::Plain
-    };
     DisplayCompressionPolicy {
         terminal_rows: peer.display_cache.rows,
         chunk_target_bytes: peer.adaptive.chunk_target_bytes,
@@ -4443,11 +4144,11 @@ fn display_compression_policy(
         fit_relay_critical_datagram,
         planning_profiles: [
             peer.display_planning
-                .snapshot(ContentClass::Sparse, dictionary_class),
+                .snapshot(ContentClass::Sparse),
             peer.display_planning
-                .snapshot(ContentClass::Text, dictionary_class),
+                .snapshot(ContentClass::Text),
             peer.display_planning
-                .snapshot(ContentClass::Color, dictionary_class),
+                .snapshot(ContentClass::Color),
         ],
         planning_context: display_planning_context(peer, now_ms, send_buffer_occupied_bytes),
         execution_lane,
@@ -5829,7 +5530,6 @@ pub(crate) fn send_peer_datagram_delta_with_worker(
             header,
             buffers,
             compression,
-            compression_dictionary: peer.dictionary.active().cloned(),
             burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
             summary,
         };
@@ -5848,7 +5548,7 @@ pub(crate) fn send_peer_datagram_delta_with_worker(
                 return;
             }
             // Full preparation capacity is scheduling backpressure, not
-            // permission to move an O(n²) plan and zstd onto the owner loop.
+            // permission to move an O(n²) plan and compression onto the owner loop.
             // Nothing was admitted, so keep the input/header edge stale and
             // reselect these rows on the next flush.
             Err(refused) => {
@@ -6126,8 +5826,6 @@ pub(crate) async fn finish_display_prepare(
         completed_sync_update_epoch,
         start_seq,
         next_seq,
-        dictionary_class,
-        compression_dictionary,
         mut buffers,
         summary,
     } = completion;
@@ -6167,12 +5865,8 @@ pub(crate) async fn finish_display_prepare(
     });
     let current_ordering_matches =
         peer.generation == generation && peer.next_datagram_seq == start_seq;
-    let dictionary_matches = compression_dictionary
-        .as_ref()
-        .is_none_or(|prepared| peer.dictionary.retains(prepared));
     if !current_ordering_matches
         || !baseline_matches
-        || !dictionary_matches
         || peer.needs_snapshot
         || !peer.is_e2e_ready()
     {
@@ -6213,7 +5907,6 @@ pub(crate) async fn finish_display_prepare(
             datagram.raw_bytes,
             datagram.compression_attempted,
             datagram.content_class,
-            dictionary_class,
         );
     }
 
@@ -6791,134 +6484,6 @@ fn input_routing_delivered(peer: &PeerDisplayState) -> Option<u16> {
     }
 }
 
-/// Queue one shared dictionary source for every peer that is currently due.
-/// Rows already captured by delta preparation are reused from `flush_row_cache`;
-/// only missing rows touch the terminal, and the encode, truncate, finalize and
-/// hash all run on the `merkur-display-dict` thread.
-///
-/// The request slot is checked before anything is captured: while a fenced
-/// build still occupies it, the whole-screen capture would only be dropped on
-/// the floor by `try_send`. The stale build is consumed by the thread and its
-/// completion rejected by token in `finish_dictionary_prepare`.
-fn schedule_dictionary_prepare_if_due(
-    terminal: &TerminalState,
-    worker: &mut DisplayPrepareWorker,
-    peers: &PeerMap,
-    scratch: &mut RowCaptureScratch,
-    flush_row_cache: &mut HashMap<u16, CapturedRow>,
-) {
-    if worker.dictionary_in_flight.is_some()
-        || worker.dictionary_ready.is_some()
-        || worker.dictionary_tx.is_full()
-    {
-        return;
-    }
-    let any_due = peers.values().any(|peer| {
-        peer.authenticated
-            && peer.is_e2e_ready()
-            && peer.display_dictionary_ready
-            && peer.dictionary.build_due()
-    });
-    if !any_due {
-        return;
-    }
-
-    let rows = capture_rows(terminal, 0..terminal.rows, scratch, flush_row_cache);
-    let token = worker.next_token();
-    let request = DictionaryPrepareRequest {
-        token,
-        display_revision: terminal.display_revision(),
-        header: terminal.current_display_header(merkur_codec::FrameKind::Snapshot),
-        rows,
-    };
-    if worker.dictionary_tx.try_send(request).is_ok() {
-        worker.dictionary_in_flight = Some(token);
-    }
-}
-
-fn install_prepared_dictionaries_if_due(
-    worker: &mut DisplayPrepareWorker,
-    peers: &mut PeerMap,
-    now_ms: f64,
-) {
-    let Some(prepared) = worker.dictionary_ready.take() else {
-        return;
-    };
-    for peer in peers.values_mut() {
-        install_display_dictionary_if_due(
-            peer,
-            Arc::clone(&prepared.source),
-            prepared.hash,
-            now_ms,
-        );
-    }
-}
-
-/// Install a worker-prepared compression dictionary for this peer, if due.
-///
-/// The dictionary is not used for compression until the browser acknowledges
-/// its id. Reliable display records share a persistent channel stream, but a
-/// successful admission/write still proves nothing about browser application,
-/// and compression cannot begin until the receiver has installed the exact
-/// finalized dictionary named by the frame.
-pub(crate) fn install_display_dictionary_if_due(
-    peer: &mut PeerDisplayState,
-    source: Arc<[u8]>,
-    source_hash: u32,
-    now_ms: f64,
-) {
-    if !peer.authenticated
-        || !peer.is_e2e_ready()
-        || !peer.display_dictionary_ready
-        || !peer.dictionary.build_due()
-    {
-        return;
-    }
-    let generation = peer.generation;
-    let Some(dictionary) = peer
-        .dictionary
-        .build_next_prepared(generation, source, source_hash)
-    else {
-        return;
-    };
-
-    // [msg_type:1, length_be24:3, generation:4, dict_id:4, dict_hash:4, dict_len:2, bytes]
-    let body_len = 4 + 4 + 4 + 2 + dictionary.bytes.len();
-    let Ok(dict_len) = u16::try_from(dictionary.bytes.len()) else {
-        peer.dictionary.abandon_pending();
-        return;
-    };
-    let mut payload: Vec<u8> = Vec::with_capacity(PROTO_HEADER_BYTES + body_len);
-    payload.push(MSG_TYPE_DISPLAY_DICT_INSTALL);
-    payload.extend_from_slice(&(body_len as u32).to_be_bytes()[1..4]);
-    payload.extend_from_slice(&generation.to_be_bytes());
-    payload.extend_from_slice(&dictionary.id.to_be_bytes());
-    payload.extend_from_slice(&dictionary.hash.to_be_bytes());
-    payload.extend_from_slice(&dict_len.to_be_bytes());
-    payload.extend_from_slice(&dictionary.bytes);
-
-    let Some(payload) = peer.seal_stream(CHANNEL_CTRL, &payload) else {
-        peer.dictionary.abandon_pending();
-        return;
-    };
-    let primary = peer.primary_path(now_ms);
-    let edge = peer.reliable_edge_tunnel();
-    let sent = transport_send_reliable_with_fallback(
-        &mut peer.paths,
-        primary,
-        CHANNEL_CTRL,
-        ReliablePayload::Heap(payload),
-        peer.direct_session.as_ref(),
-        edge.as_ref(),
-        now_ms,
-    );
-    if sent.is_none() {
-        // Never leave a pending install stranded: without this the peer would
-        // hold a dictionary slot forever and never receive another offer.
-        peer.dictionary.abandon_pending();
-    }
-}
-
 fn prepare_display_datagram(
     payload: BatchPayload,
     rows: SentRows,
@@ -6984,18 +6549,12 @@ fn prepare_display_datagram(
     let planned_wire_bytes = planned_wire_len(frame.len(), header_reserve);
     peer.last_wire_bytes = wire_len(&frame);
     peer.last_compression_ratio = planned_wire_bytes as f64 / raw_bytes.max(1) as f64;
-    let dictionary_class = if peer.dictionary.active().is_some() {
-        DictionaryClass::Finalized
-    } else {
-        DictionaryClass::Plain
-    };
     observe_display_compression_outcome(
         peer,
         planned_wire_bytes,
         raw_bytes,
         compression_attempted,
         content_class,
-        dictionary_class,
     );
 
     if raw_bytes >= DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES
@@ -7040,11 +6599,13 @@ fn prepare_display_datagram(
     }
 }
 
-/// Capture the requested rows, cells and graphics bytes, for a dictionary build.
-/// `flush_row_cache` is refreshed from the terminal's dirty-row hash pass and
-/// retained across flushes. A row captured for one peer/batch is therefore
-/// shared (refcounted) by every peer, retry, and dictionary build until that
-/// row is dirtied and atomically replaced; ACK records keep only its `SentRow`.
+/// Capture the requested rows, cells and graphics bytes, for tests that build
+/// frames from the flush's captures. `flush_row_cache` is refreshed from the
+/// terminal's dirty-row hash pass and retained across flushes. A row captured
+/// for one peer/batch is therefore shared (refcounted) by every peer and retry
+/// until that row is dirtied and atomically replaced; ACK records keep only its
+/// `SentRow`.
+#[cfg(test)]
 pub(crate) fn capture_rows(
     terminal: &TerminalState,
     rows: impl IntoIterator<Item = u16>,
@@ -7882,7 +7443,7 @@ pub(crate) fn schedule_pending_snapshots(
             prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
             profile: peer
                 .display_planning
-                .snapshot(content_class, DictionaryClass::Plain),
+                .snapshot(content_class),
             context,
         });
     }
@@ -8024,7 +7585,6 @@ pub(crate) async fn finish_snapshot_prepare(
                 peer.display_planning.observe_ratio(
                     raw_wire,
                     content_class,
-                    DictionaryClass::Plain,
                     compressed.map_or(1.0, |frame| wire_len(frame) as f64 / raw_wire as f64),
                 );
             }
@@ -8033,7 +7593,6 @@ pub(crate) async fn finish_snapshot_prepare(
                     plan.profile,
                     raw_wire,
                     wire_len(frame),
-                    DictionaryClass::Plain,
                     plan.context,
                 ) == Representation::Compressed
             });
@@ -8068,7 +7627,6 @@ pub(crate) async fn finish_snapshot_prepare(
                         plan.profile,
                         wire_len(raw),
                         wire_len(frame),
-                        DictionaryClass::Plain,
                         plan.context,
                     ) == Representation::Compressed
                 })
@@ -8552,11 +8110,6 @@ pub(crate) fn arm_expired_resume_snapshots(peers: &mut PeerMap, now_ms: f64) -> 
         }
         peer.awaiting_resume_until_ms = None;
         peer.needs_snapshot = true;
-        // No claim arrived, so the daemon never learned whether this peer kept
-        // its grid — and a snapshot is what it is about to get. Fail closed:
-        // compressing against a dictionary the peer may have discarded produces
-        // frames it refuses by id, on the recovery path of all places.
-        peer.discard_dictionary_for_snapshot();
         armed += 1;
     }
     armed

@@ -65,7 +65,7 @@ scenario adds client hosts and drives them.
   direct path's discovery. `src/shell.rs` is the program on the PTY, a line editor with a
   `$ ` prompt. Every thread the process hands work to does that work on the owner loop
   instead, at the top of each turn or in place: the PTY writer, display preparation and
-  dictionary finalizing, and identity signing. The owner loop's order of events is then
+  identity signing. The owner loop's order of events is then
   a function of the seed.
 - **Server.** `src/server.rs` is one account (root, delegate, delegation, the daemon's
   binding, all from fixed seeds) and the issuance and renewal routes. An issuance hands

@@ -31,9 +31,8 @@ struct FakeGrid {
     error: Option<String>,
     /// Row hashes by row; a row not listed hashes to 0.
     hashes: Vec<u64>,
-    /// Installed dictionaries, `(generation, id, hash, bytes)`.
-    dictionaries: Vec<(u32, u32, u32, Vec<u8>)>,
-    refuse_dictionaries: bool,
+    /// Session boundaries that cleared the row history.
+    history_clears: usize,
     /// Applies change nothing visible.
     nonvisual: bool,
     /// The grid digests to every claim.
@@ -156,17 +155,8 @@ impl DisplayGrid for FakeGrid {
             .unwrap_or(0)
     }
 
-    fn install_dictionary(&mut self, generation: u32, id: u32, hash: u32, bytes: &[u8]) -> bool {
-        if self.refuse_dictionaries {
-            return false;
-        }
-        self.dictionaries
-            .push((generation, id, hash, bytes.to_vec()));
-        true
-    }
-
-    fn clear_dictionaries(&mut self) {
-        self.dictionaries.clear();
+    fn clear_history(&mut self) {
+        self.history_clears += 1;
     }
 
     fn cols(&self) -> u16 {
@@ -429,9 +419,9 @@ fn requests(outputs: &[Output]) -> usize {
         .count()
 }
 
-/// What a session fence asks of the session: a snapshot, and dictionaries.
-fn fenced() -> [Output; 2] {
-    [Output::SnapshotRequest, Output::DictionaryReady(true)]
+/// What a session fence asks of the session: a snapshot.
+fn fenced() -> [Output; 1] {
+    [Output::SnapshotRequest]
 }
 
 #[test]
@@ -889,7 +879,6 @@ fn a_grid_it_cannot_claim_drops_the_old_lineage_and_accepts_a_restarted_daemon()
                 row_hashes: None,
             }),
             Output::SnapshotRequest,
-            Output::DictionaryReady(true),
         ]
     );
     // Even the old generation's number waits: no ordering spans the fence.
@@ -927,7 +916,6 @@ fn a_grid_holding_only_its_snapshot_is_claimed_at_sequence_zero() {
                 rows: 24,
                 row_hashes: Some(vec![0; 24]),
             }),
-            Output::DictionaryReady(true),
         ],
         "the daemon acknowledged the snapshot's rows when it sent it"
     );
@@ -972,7 +960,6 @@ fn a_kept_grid_is_claimed_and_continues_its_generation_with_fresh_grants() {
                 rows: 24,
                 row_hashes: Some(row_hashes),
             }),
-            Output::DictionaryReady(true),
         ],
         "no snapshot: the daemon answers the claim with a repair"
     );
@@ -1460,104 +1447,24 @@ fn a_malformed_digest_is_refused_whole() {
     assert_eq!(drain(&mut viewer, 3.0), []);
 }
 
-/// A dictionary install as the daemon frames it on the control lane.
-fn install(generation: u32, id: u32, hash: u32, bytes: &[u8], declared: u16) -> Vec<u8> {
-    let mut body = Vec::new();
-    body.extend_from_slice(&generation.to_be_bytes());
-    body.extend_from_slice(&id.to_be_bytes());
-    body.extend_from_slice(&hash.to_be_bytes());
-    body.extend_from_slice(&declared.to_be_bytes());
-    body.extend_from_slice(bytes);
-    merkur_wire::protocol::encode_proto_frame(
-        merkur_wire::protocol::MSG_TYPE_DISPLAY_DICT_INSTALL,
-        &body,
-    )
-}
-
+/// A claim with row hashes keeps the grid, so it keeps the row history the
+/// daemon's references read; a grid it cannot claim clears it.
 #[test]
-fn a_dictionary_the_grid_holds_is_acknowledged_once() {
-    let mut viewer = rooted(1);
-    viewer.receive(
-        1.0,
-        CHANNEL_CTRL,
-        &install(1, 7, 0xabcd, b"dict", 4),
-        InputMapping::default(),
-    );
-    viewer.receive(
-        1.0,
-        CHANNEL_CTRL,
-        &install(1, 7, 0xabcd, b"dict", 4),
-        InputMapping::default(),
-    );
-    assert_eq!(drain(&mut viewer, 1.0), [Output::DictionaryAck(7)]);
-    assert_eq!(
-        viewer.grid().dictionaries,
-        [
-            (1, 7, 0xabcd, b"dict".to_vec()),
-            (1, 7, 0xabcd, b"dict".to_vec())
-        ],
-        "the grid is the one that treats an exact duplicate as idempotent"
-    );
-}
-
-#[test]
-fn a_refused_or_misframed_dictionary_is_never_acknowledged() {
-    let mut viewer = rooted(1);
-    viewer.receive(
-        1.0,
-        CHANNEL_CTRL,
-        &install(1, 7, 0xabcd, b"dict", 5),
-        InputMapping::default(),
-    );
-    assert!(
-        viewer.grid().dictionaries.is_empty(),
-        "a length that lies is not installed"
-    );
-    viewer.grid_mut().refuse_dictionaries = true;
-    viewer.receive(
-        1.0,
-        CHANNEL_CTRL,
-        &install(1, 8, 0xabcd, b"dict", 4),
-        InputMapping::default(),
-    );
-    assert_eq!(drain(&mut viewer, 1.0), []);
-}
-
-#[test]
-fn a_kept_grid_keeps_its_dictionaries_and_a_grid_it_cannot_claim_clears_them() {
+fn a_kept_grid_keeps_its_history_and_a_grid_it_cannot_claim_clears_it() {
     let mut viewer = rooted(1);
     datagram(&mut viewer, 1.0, &delta(1, 1));
     drain(&mut viewer, 1.0);
-    viewer.receive(
-        1.0,
-        CHANNEL_CTRL,
-        &install(1, 7, 0xabcd, b"dict", 4),
-        InputMapping::default(),
-    );
-    // The claim carries row hashes, so the daemon keeps its dictionaries too
-    // and still wants the acknowledgement.
+    let cleared = viewer.grid().history_clears;
     viewer.fence(2.0, SUCCESSOR);
-    assert_eq!(viewer.grid().dictionaries.len(), 1);
-    let outputs = drain(&mut viewer, 2.0);
-    assert_eq!(outputs[0], Output::DictionaryAck(7));
-    assert_eq!(outputs.last(), Some(&Output::DictionaryReady(true)));
+    assert_eq!(viewer.grid().history_clears, cleared);
 
     // A grid still waiting for its first snapshot cannot be claimed.
     let mut waiting = self::viewer();
     waiting.fence(0.0, SESSION);
-    waiting.receive(
-        1.0,
-        CHANNEL_CTRL,
-        &install(1, 9, 0xabcd, b"dict", 4),
-        InputMapping::default(),
-    );
+    let cleared = waiting.grid().history_clears;
     waiting.fence(2.0, SUCCESSOR);
-    assert!(waiting.grid().dictionaries.is_empty());
-    assert_eq!(
-        drain(&mut waiting, 2.0),
-        fenced(),
-        "an acknowledgement the last session owed is not carried into this one"
-    );
+    assert_eq!(waiting.grid().history_clears, cleared + 1);
+    assert_eq!(drain(&mut waiting, 2.0), fenced());
 }
 
 /// A viewer rooted at generation 1 whose snapshot is already shown.

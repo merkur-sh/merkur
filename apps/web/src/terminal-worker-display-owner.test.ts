@@ -13,7 +13,7 @@ import {
   DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET,
   DISPLAY_FRAME_ID_OFFSET,
   DISPLAY_GENERATION_OFFSET,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+  DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
   DISPLAY_HEADER_FLAG_FEC_PROTECTED,
   DISPLAY_PATCH_FLAG_PRESENTATION_COHERENT,
   DISPLAY_PATCH_FLAG_PRESENTATION_END,
@@ -36,6 +36,7 @@ import {
   TRANSPORT_CHANNEL_ID,
   writeU32BE,
 } from '@merkur/shared';
+import mzGrids from '../../../packages/shared/test-vectors/display-mz-grids.json';
 import loadWasm, { init_display_receiver_calibration } from './term-wasm/pkg/term_wasm.js';
 import { displayProcessSliceBudgetMs } from './terminal/display-process-budget';
 import { createFirstDisplayGpuFenceTracker } from './terminal/first-display-gpu-fence';
@@ -246,74 +247,6 @@ function encodeRow(text: string): Uint8Array {
   return Uint8Array.from(encoded);
 }
 
-/**
- * The rows' split payload, as `merkur_codec::split_rows_into` writes it. These
- * rows carry no colours, links or graphics, so the colour, link and graphics
- * regions are empty and every row is in indexed colour mode.
- */
-function splitPayload(
-  rows: readonly { readonly row: number; readonly text: string }[],
-): Uint8Array {
-  const tags: number[] = [];
-  const runs: number[] = [];
-  for (const entry of rows) {
-    const cells = Array.from(entry.text);
-    let index = 0;
-    while (index < cells.length) {
-      const cell = cells[index] ?? ' ';
-      let runLength = 1;
-      while (index + runLength < cells.length && cells[index + runLength] === cell) {
-        runLength += 1;
-      }
-      tags.push(runLength > 1 ? 0x80 : 0);
-      encodeVarint(cell.codePointAt(0) ?? 0, runs);
-      if (runLength > 1) encodeVarint(runLength, runs);
-      index += runLength;
-    }
-  }
-  const out: number[] = [];
-  encodeVarint(tags.length, out);
-  out.push(0, 0);
-  const field = (value: number) => out.push(value >>> 8, value & 0xff);
-  for (const entry of rows) field(entry.row);
-  for (const _ of rows) field(0);
-  for (const entry of rows) field(entry.text.length);
-  for (const _ of rows) out.push(DISPLAY_COLOR_MODE_INDEXED);
-  out.push(...tags, ...runs);
-  return Uint8Array.from(out);
-}
-
-/**
- * Rewrite a standard zstd frame as the display payload's frame: magicless,
- * with a window descriptor in place of the frame content size and no checksum.
- * The blocks are unchanged; a window covering the content decodes them.
- */
-function magiclessFrame(standard: Uint8Array): Uint8Array {
-  const descriptor = standard[4] ?? 0;
-  const singleSegment = (descriptor & 0x20) !== 0;
-  const dictionaryBytes = [0, 1, 2, 4][descriptor & 0x03] ?? 0;
-  const contentSizeBytes = [singleSegment ? 1 : 0, 2, 4, 8][descriptor >>> 6] ?? 0;
-  let offset = 5;
-  let windowDescriptor = standard[offset] ?? 0;
-  if (singleSegment) {
-    const view = new DataView(standard.buffer, standard.byteOffset);
-    const at = offset + dictionaryBytes;
-    const contentSize =
-      contentSizeBytes === 1
-        ? view.getUint8(at)
-        : contentSizeBytes === 2
-          ? view.getUint16(at, true) + 256
-          : view.getUint32(at, true);
-    windowDescriptor = Math.max(0, Math.ceil(Math.log2(Math.max(contentSize, 1))) - 10) << 3;
-  } else {
-    offset += 1;
-  }
-  const dictionary = standard.subarray(offset, offset + dictionaryBytes);
-  const blocksEnd = standard.byteLength - ((descriptor & 0x04) !== 0 ? 4 : 0);
-  const blocks = standard.subarray(offset + dictionaryBytes + contentSizeBytes, blocksEnd);
-  return Uint8Array.from([descriptor & 0x03, windowDescriptor, ...dictionary, ...blocks]);
-}
-
 interface FrameSpec {
   readonly generation: number;
   readonly seq: number;
@@ -379,13 +312,11 @@ function buildFrame(spec: FrameSpec): Uint8Array {
     }
     return encodeDisplayWireFrame(raw);
   }
-  const compressedRows = magiclessFrame(
-    Bun.zstdCompressSync(splitPayload(spec.rows), { level: 3 }),
-  );
+  const compressedRows = mzGridPayload(spec, rowsLength);
   const wire = new Uint8Array(DISPLAY_COMPRESSED_PAYLOAD_OFFSET + compressedRows.byteLength);
   wire.set(raw.subarray(0, DISPLAY_ROWS_OFFSET));
   wire[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] =
-    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD |
+    DISPLAY_HEADER_FLAG_COMPRESSED_MZ |
     (spec.fecProtected === true ? DISPLAY_HEADER_FLAG_FEC_PROTECTED : 0);
   writeU32BE(wire, DISPLAY_COMPRESSED_LENGTH_OFFSET, rowsLength);
   wire.set(compressedRows, DISPLAY_COMPRESSED_PAYLOAD_OFFSET);
@@ -395,6 +326,26 @@ function buildFrame(spec: FrameSpec): Uint8Array {
     wire.byteLength - DISPLAY_STREAM_HEADER_BYTES,
   );
   return encodeDisplayWireFrame(wire);
+}
+
+/**
+ * The MZ payload of a compressed spec's rows. There is no MZ encoder in
+ * TypeScript, so a compressed frame must be one of the full grids
+ * `packages/display-fixture` codes into `display-mz-grids.json`.
+ */
+function mzGridPayload(spec: FrameSpec, rowsLength: number): Uint8Array {
+  const marker = spec.rows[0]?.text[0];
+  const grid = mzGrids.grids.find((entry) => entry.marker === marker);
+  if (
+    grid === undefined ||
+    mzGrids.cols !== COLS ||
+    mzGrids.rows !== ROWS ||
+    grid.rowsLength !== rowsLength ||
+    spec.rows.some((entry, row) => entry.text !== fullGridRows(grid.marker)[row]?.text)
+  ) {
+    throw new Error('a compressed frame must be a full grid display-mz-grids.json carries');
+  }
+  return Uint8Array.from(atob(grid.payload), (char) => char.charCodeAt(0));
 }
 
 function fullGridRows(marker: string): { row: number; text: string }[] {

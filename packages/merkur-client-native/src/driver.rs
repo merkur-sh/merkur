@@ -100,8 +100,6 @@ pub enum Command {
         generation: u32,
         rows: Vec<u16>,
     },
-    DictionaryReady(bool),
-    DictionaryAck(u32),
     DisplayResume(DisplayResume),
     /// The assets the viewer's scene of display lineage `epoch` needs.
     GraphicsDemand {
@@ -550,8 +548,6 @@ fn apply_command(session: &mut Session, delivery: CommandDelivery, now_ms: u64) 
         Command::ResyncRows { generation, rows } => {
             session.send_display_resync_rows(*generation, rows)
         }
-        Command::DictionaryReady(ready) => session.send_display_dictionary_ready(*ready),
-        Command::DictionaryAck(id) => session.send_display_dictionary_ack(*id),
         Command::DisplayResume(resume) => session.send_display_resume(now_ms, resume),
         Command::GraphicsDemand { epoch, demands } => {
             session.graphics_demand(*epoch, std::mem::take(demands))

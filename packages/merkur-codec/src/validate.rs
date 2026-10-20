@@ -34,8 +34,8 @@ pub struct ValidatedDisplayRow {
 
 /// Allocation-free limits derived from a validated fixed display header.
 ///
-/// Receivers use this before touching a compressed row payload so a tiny zstd
-/// frame cannot reserve more aggregate decoded scratch than the authenticated
+/// Receivers use this before touching a compressed row payload so a tiny MZ
+/// payload cannot reserve more aggregate decoded scratch than the authenticated
 /// terminal shape permits. `max_decoded_cells` is deliberately conservative:
 /// every advertised row may cover the complete terminal width.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,7 +109,7 @@ pub fn validate_display_frame(
 
 /// Validate a frame's row region against its already parsed fixed header.
 ///
-/// The fixed display header stays outside zstd so the transport can route and
+/// The fixed display header stays outside the payload codec so the transport can route and
 /// assemble a frame without decoding it, so a compressed receiver parses that
 /// header from the envelope, decompresses the rows into one buffer, and passes
 /// that buffer here; an uncompressed frame passes the region after its header.
@@ -187,8 +187,8 @@ pub fn validate_display_rows(
             return Err(DisplayFrameValidationError::PayloadShape);
         }
         // A row names its colour mode in its first byte whether or not a cell
-        // reads a colour. The stream splitter refuses any other value, so a row
-        // it cannot represent is refused here too, before a cell is staged.
+        // reads a colour. MZ decodes no other value, so a row it
+        // cannot carry is refused here too, before a cell is staged.
         if row.cells.first().is_some_and(|&mode| {
             mode != crate::encode::COLOR_MODE_INDEXED && mode != crate::encode::COLOR_MODE_LITERAL
         }) {

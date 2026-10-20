@@ -29,16 +29,10 @@ health. The one-line versions:
   actually applied successors, never from sequence distance.
 - A flush is bounded by the carrier's measured free datagram-buffer space, never a byte
   constant, with no inter-group pacing.
-- zstd: the C library on both ends, compiled to wasm32 for `term-wasm` and decoded
-  one-shot, exactly one magicless frame (no content size, no checksum) per payload; the
-  payload is the rows' stream-split layout (`merkur_codec::RowSplitter`), joined back
-  before the one row validator reads it; level and dictionary cap
-  are measured knees recorded in `compressor.rs`; dictionaries are the screen split as
-  frames carry it, finalized, and installed READY → INSTALL → ACK, and the daemon never
-  compresses against one before the ACK.
-- MZ: every compression attempt also codes the frame as MZ and keeps the smaller; a static
-  model compiled into both ends, no install. References name an acknowledged row (counted
-  from the presentation id) that the browser rebuilds from its own applied-entry history and
-  hash-checks; a source is indexed only if its ACK beat any newer send of that row; an
-  unresolvable reference is a lost datagram, never a resync.
+- MZ is the one payload codec: a frame it would not shrink travels raw. A static model
+  compiled into both ends, no install; a retrained model regenerates the browser
+  calibration fixtures and test grids (`packages/display-fixture`). References name an
+  acknowledged row (counted from the presentation id) that the browser rebuilds from its own
+  applied-entry history and hash-checks; a source is indexed only if its ACK beat any newer
+  send of that row; an unresolvable reference is a lost datagram, never a resync.
 - One wrap bit per row on the row's final cell; `row_hash` digests it.

@@ -299,7 +299,7 @@ fn a_kept_grid_shows_its_repair_only_once_every_named_row_landed() {
     let hashes: Vec<u64> = viewer.grid_mut().row_hashes().to_vec();
     assert_eq!(hashes.len(), usize::from(ROWS));
     let outputs: Vec<Output> = std::iter::from_fn(|| viewer.poll_output(2.0)).collect();
-    let [Output::Resume(resume), Output::DictionaryReady(true)] = &outputs[..] else {
+    let [Output::Resume(resume)] = &outputs[..] else {
         panic!("a kept grid is claimed, not snapshotted: {outputs:?}");
     };
     assert_eq!(

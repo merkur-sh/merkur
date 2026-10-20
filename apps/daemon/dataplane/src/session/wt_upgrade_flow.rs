@@ -309,8 +309,8 @@ pub(crate) async fn handle_wt_upgrade_proof(
 /// A first direct carrier is path addition, not a carrier boundary. A later
 /// upgrade can instead replace an already-routed direct connection; only attempts owned
 /// exclusively by that displaced carrier are retired then. In both cases the
-/// edge remains live, so its in-flight acknowledgements, the display generation,
-/// dictionary readiness, and pending preparation survive. The upgrade proof
+/// edge remains live, so its in-flight acknowledgements, the display generation
+/// and pending preparation survive. The upgrade proof
 /// supplies the new direct path's first RTT calibration.
 pub(crate) fn admit_direct_path(
     peer: &mut PeerDisplayState,
@@ -790,7 +790,6 @@ mod tests {
         peer.needs_snapshot = false;
         peer.generation = 17;
         peer.last_display_seq_sent = 41;
-        peer.display_dictionary_ready = true;
         peer.display_cache.resize(2, 1);
         peer.display_cache.sent_datagrams.insert(
             41,
@@ -834,7 +833,6 @@ mod tests {
         );
         assert_eq!(peer.last_display_seq_sent, 41);
         assert!(peer.display_cache.sent_datagrams.contains_key(&41));
-        assert!(peer.display_dictionary_ready);
         assert!(!peer.needs_snapshot, "the browser already holds this grid");
     }
 
@@ -909,7 +907,6 @@ mod tests {
         peer.paths.webtransport = crate::connection::PathHealth::fresh_available(1.0);
         peer.needs_snapshot = false;
         peer.generation = 17;
-        peer.display_dictionary_ready = true;
         peer.last_admitted_critical_header_signal = 0xfeed;
         peer.display_cache.resize(1, 3);
         peer.display_cache
@@ -998,7 +995,6 @@ mod tests {
         admit_direct_path(&mut peer, 100.0, 20.0, true);
 
         assert_eq!(peer.generation, 17);
-        assert!(peer.display_dictionary_ready);
         assert!(!peer.needs_snapshot);
         assert!(peer.needs_full_diff);
         assert_eq!(peer.last_admitted_critical_header_signal, 0xfeed);

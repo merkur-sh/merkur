@@ -71,12 +71,10 @@ use display::recv::{
     handle_reliable_display_ack, handle_transport_hint, parse_display_ack,
 };
 use display::send::{
-    DisplayFlushCursor, DisplayPrepareWorker, DisplayScratch, arm_expired_resume_snapshots,
-    compute_next_flush_delay_ms, fence_dictionary_preparation_without_consumers,
-    fence_display_dictionary_withdrawal, finish_dictionary_prepare, finish_display_prepare,
-    finish_snapshot_prepare, flush_display, has_active_display_peers, has_runnable_display_work,
-    send_due_perf_timing_batches, send_open_url_requests, send_terminal_ui,
-    start_display_prepare_worker,
+    DisplayFlushCursor, DisplayScratch, arm_expired_resume_snapshots, compute_next_flush_delay_ms,
+    finish_display_prepare, finish_snapshot_prepare, flush_display, has_active_display_peers,
+    has_runnable_display_work, send_due_perf_timing_batches, send_open_url_requests,
+    send_terminal_ui, start_display_prepare_worker,
 };
 use ipc::commands::*;
 use ipc::events::*;
@@ -1203,7 +1201,6 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
         mut display_prepare_worker,
         mut display_prepare_completion_rx,
         mut snapshot_prepare_completion_rx,
-        mut dictionary_prepare_completion_rx,
     ) = start_display_prepare_worker();
     // One owner for every browser-identity-keyed registry; see `PeerRegistry`.
     let mut registry = PeerRegistry::new();
@@ -1593,33 +1590,6 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 // level from the tracker's deadline, so this arm only exists
                 // to wake an otherwise idle loop for a partial tail.
                 perf_timing_maintenance.mark_due(Instant::now());
-            }
-            completion = dictionary_prepare_completion_rx.recv() => {
-                let Some(completion) = completion else {
-                    // The `merkur-display-dict` thread exits only when this
-                    // loop's handle on it is gone, so a closed channel here is
-                    // a bug, not a state to run on without dictionaries. What
-                    // keeps a dictionary build from ever costing a keystroke
-                    // is that it runs on its own thread, not a degraded mode
-                    // entered from here.
-                    error!("display dictionary worker completion channel closed");
-                    running = false;
-                    continue;
-                };
-                finish_dictionary_prepare(completion, &mut display_prepare_worker);
-                // Installing a prepared dictionary may expose work. Re-enter
-                // through the same scheduling decision as every other
-                // lifecycle completion.
-                advance_display_flush_after_lifecycle(
-                    flush_sleep.as_mut(),
-                    &mut flush_armed,
-                    &mut flush_now,
-                    &registry.peers,
-                    terminal.pending_display_damage(),
-                    terminal.current_display_header_signal(),
-                    &display_scratch.current_row_hashes,
-                    now_ms_since(start_instant),
-                );
             }
             completion = display_prepare_completion_rx.recv() => {
                 let Some(completion) = completion else {
@@ -2764,7 +2734,6 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 &mut terminal,
                                 &event_tx,
                                 &mut registry,
-                                &mut display_prepare_worker,
                                 start_instant,
                                 &network_state,
                                 &display_scratch.current_row_hashes,
@@ -2861,7 +2830,6 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             &mut terminal,
                             &event_tx,
                             &mut registry,
-                            &mut display_prepare_worker,
                             start_instant,
                             &network_state,
                             &display_scratch.current_row_hashes,
@@ -2985,7 +2953,6 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 &mut terminal,
                                 &event_tx,
                                 &mut registry,
-                                &mut display_prepare_worker,
                                 start_instant,
                                 &network_state,
                                 &display_scratch.current_row_hashes,
@@ -5017,7 +4984,6 @@ async fn handle_peer_message(
     terminal: &mut TerminalState,
     event_tx: &EventSink,
     registry: &mut PeerRegistry,
-    display_prepare_worker: &mut DisplayPrepareWorker,
     start_instant: Instant,
     network_state: &Arc<RwLock<NetworkState>>,
     current_row_hashes: &[u64],
@@ -5174,7 +5140,6 @@ async fn handle_peer_message(
             terminal,
             event_tx,
             registry,
-            display_prepare_worker,
             start_instant,
             network_state,
             current_row_hashes,
@@ -5977,7 +5942,6 @@ async fn handle_ctrl_channel(
     terminal: &mut TerminalState,
     event_tx: &EventSink,
     registry: &mut PeerRegistry,
-    display_prepare_worker: &mut DisplayPrepareWorker,
     start_instant: Instant,
     network_state: &Arc<RwLock<NetworkState>>,
     current_row_hashes: &[u64],
@@ -6131,10 +6095,6 @@ async fn handle_ctrl_channel(
         if msg.delivery == DeliveryMode::Stream {
             handle_resize_request(&msg.peer_node_id, body, pty_master, terminal, peers);
         }
-    } else if msg_type == MSG_TYPE_DISPLAY_DICT_READY && body.len() == 1 {
-        handle_display_dict_ready(msg, body, peers, display_prepare_worker);
-    } else if msg_type == MSG_TYPE_DISPLAY_DICT_ACK && body.len() == 4 {
-        handle_display_dict_ack(msg, body, peers);
     } else {
         warn_unhandled_wire_type("ctrl", msg_type, body.len());
     }
@@ -6223,57 +6183,6 @@ fn handle_perf_grid_convergence_request(
         edge.as_ref(),
         now_ms,
     );
-}
-
-/// Record whether this peer's terminal worker currently holds the compression
-/// dictionary.
-///
-/// Readiness is per-connection and edge-triggered: a replacement terminal
-/// worker clears it before the daemon can send another dictionary-compressed
-/// frame, so a resumed or replaced browser cannot inherit a predecessor's
-/// dictionary. Withdrawal fences the peer's own state and then discards the
-/// shared preparation if no ready consumer is left.
-fn handle_display_dict_ready(
-    msg: &PeerMessage,
-    body: &[u8],
-    peers: &mut PeerMap,
-    display_prepare_worker: &mut DisplayPrepareWorker,
-) {
-    let ready = match body[0] {
-        0 => false,
-        1 => true,
-        // Non-canonical readiness is malformed, not a hint. Dropping it leaves
-        // the peer on its last acknowledged state rather than guessing.
-        _ => return,
-    };
-    let withdrew_dictionary = {
-        let Some(peer) = peers.get_mut(msg.peer_node_id.as_ref()) else {
-            return;
-        };
-        let withdrew = peer.display_dictionary_ready && !ready;
-        peer.display_dictionary_ready = ready;
-        if withdrew {
-            fence_display_dictionary_withdrawal(peer);
-        }
-        withdrew
-    };
-    if withdrew_dictionary {
-        fence_dictionary_preparation_without_consumers(display_prepare_worker, peers);
-    }
-}
-
-/// Promote a pending compression dictionary once the peer confirms it stored
-/// the exact bytes. A stale or unknown id is ignored rather than treated as an
-/// error: a late acknowledgement from a superseded install must not resurrect
-/// a dictionary the daemon has already replaced.
-fn handle_display_dict_ack(msg: &PeerMessage, body: &[u8], peers: &mut PeerMap) {
-    let Some(peer) = peers.get_mut(msg.peer_node_id.as_ref()) else {
-        return;
-    };
-    let Ok(dict_id) = body[..4].try_into().map(u32::from_be_bytes) else {
-        return;
-    };
-    peer.dictionary.acknowledge(dict_id);
 }
 
 async fn handle_explicit_peer_disconnect(

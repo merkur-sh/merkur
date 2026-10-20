@@ -76,7 +76,6 @@
   "scripts/bench-sse-parser.ts": 2,
   "scripts/bench-term-wasm-ingress.ts": 2,
   "scripts/bench-term-wasm-multichunk.ts": 3,
-  "scripts/bench-terminal-dictionary.ts": 3,
   "scripts/bench-terminal-geometry-state.ts": 4,
   "scripts/bench-terminal-render-readers.ts": 3,
   "scripts/bench-transport-story.ts": 1,

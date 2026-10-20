@@ -8,7 +8,6 @@ mod encode;
 mod graphics;
 mod hash;
 pub mod mz;
-mod split;
 mod stream;
 pub mod theme;
 mod validate;
@@ -33,7 +32,6 @@ pub use hash::{
     CELL_DIGEST_BYTES, CELL_DIGEST_WRAPPED_BIT, append_graphics_digest, append_link_digest,
     hash_bytes, pack_cell_digest, row_hash, row_hash_packed, viewport_closure_digest,
 };
-pub use split::{RowSplitter, SPLIT_HEADER_MAX_BYTES, join_rows_into};
 pub use stream::{
     DISPLAY_BASE_SEQ_OFFSET, DISPLAY_BODY_LENGTH_OFFSET, DISPLAY_GENERATION_OFFSET,
     DISPLAY_MSG_TYPE_OFFSET, DISPLAY_SEQ_OFFSET, DISPLAY_STREAM_FLAGS_OFFSET, StreamHeader,
@@ -241,7 +239,7 @@ pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
 /// advertised input watermark (PTY write completion) cannot say.
 ///
 /// Version 32 changes what a compressed payload holds. Its rows travel in the
-/// stream-split layout of [`RowSplitter`] rather than the row layout, and
+/// stream-split layout rather than the row layout, and
 /// the zstd frame is magicless with no frame content size, because the envelope
 /// already carries the row-body length and the compressed flag. The envelope is
 /// byte-identical, so a version-31 receiver would hand a split payload to its
@@ -260,7 +258,13 @@ pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
 /// references to rows the receiver applied from earlier datagrams, counted
 /// back from the frame's presentation id. The envelope is byte-identical, so a
 /// version-34 receiver would read the new flag as a reserved bit at best.
-pub const VERSION: u8 = 35;
+///
+/// Version 36 makes MZ the only payload codec: zstd, its dictionaries and the
+/// stream-split layout are gone, the compressed flag moves to bit 0 (the old
+/// zstd bit), the dictionary READY, ACK and INSTALL control messages are
+/// deleted, and the receiver-profile bucket drops its dictionary class. A
+/// version-35 receiver would hand an MZ payload to its zstd decoder.
+pub const VERSION: u8 = 36;
 pub const PATCH_FLAG_RESET: u8 = 1 << 0;
 pub const PATCH_FLAG_PRESENTATION_COHERENT: u8 = 1 << 1;
 pub const PATCH_FLAG_PRESENTATION_END: u8 = 1 << 2;
@@ -354,22 +358,11 @@ pub const DISPLAY_PATCH_FLAGS_OFFSET: usize = STREAM_HEADER_BYTES + 1;
 /// is the decompressed row-payload length.
 pub const DISPLAY_COMPRESSED_LENGTH_OFFSET: usize = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
 pub const DISPLAY_COMPRESSED_PAYLOAD_OFFSET: usize = DISPLAY_COMPRESSED_LENGTH_OFFSET + 4;
-/// Payload offset for a frame compressed against an external dictionary. The
-/// envelope extends the plain one with `dict_id: u32` then `dict_hash: u32`.
-pub const DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET: usize = DISPLAY_COMPRESSED_LENGTH_OFFSET + 12;
-pub const DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD: u8 = 1 << 0;
+/// The body is an MZ payload ([`mz`]) behind the envelope's row-body length,
+/// the one display payload codec. Its references resolve against the
+/// receiver's own row history, relative to the frame's presentation id.
+pub const DISPLAY_HEADER_FLAG_COMPRESSED_MZ: u8 = 1 << 0;
 pub const DISPLAY_HEADER_FLAG_FEC_PROTECTED: u8 = 1 << 1;
-/// Set *in addition to* `COMPRESSED_ZSTD` when the body was compressed against
-/// an external dictionary. The daemon only sets it for a peer that announced
-/// support and acknowledged the exact dictionary.
-pub const DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT: u8 = 1 << 2;
-/// The body is an MZ payload ([`mz`]) behind the envelope's row-body length:
-/// never set together with `COMPRESSED_ZSTD`. Its references resolve against
-/// the receiver's own row history, relative to the frame's presentation id.
-pub const DISPLAY_HEADER_FLAG_COMPRESSED_MZ: u8 = 1 << 7;
-/// Either compressed payload: the body is a payload behind the row-body length.
-pub const DISPLAY_HEADER_FLAGS_COMPRESSED: u8 =
-    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD | DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
 pub const DISPLAY_FEC_HEADER_BYTES: usize = 16;
 pub const MSG_TYPE_DISPLAY_PATCH: u8 = 0x20;
 pub const MSG_TYPE_DISPLAY_FEC_REPAIR: u8 = 0x21;

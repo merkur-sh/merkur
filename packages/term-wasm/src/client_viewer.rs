@@ -260,9 +260,8 @@ impl ClientViewer {
     /// they send to another worker. No per-datagram JS object is constructed.
     /// 1 ACK: word 0 durable, bytes canonical ACK body.
     /// 2 snapshot request. 3 resync: word 0 generation, big-endian u16 rows.
-    /// 4 dictionary ready: word 0 boolean. 5 dictionary ACK: word 0 id.
-    /// 6 resume: generation, applied seq, repair, cols, rows, hashes-present;
-    ///   bytes big-endian u64 hashes. 7 graphics: epoch, the records in this
+    /// 4 and 5 are unassigned. 6 resume: generation, applied seq, repair,
+    ///   cols, rows, hashes-present; bytes big-endian u64 hashes. 7 graphics: epoch, the records in this
     ///   part, flags (bit 0 more parts follow, bit 1 this part continues a
     ///   list); records asset:u8, level:u8, reserved:2,
     ///   frame/x/y/width/height:u32 BE, authority:32, source:32,
@@ -291,14 +290,6 @@ impl ClientViewer {
                     self.output_bytes.extend_from_slice(&row.to_be_bytes());
                 }
                 3
-            }
-            Output::DictionaryReady(ready) => {
-                self.output_words[0] = u32::from(ready);
-                4
-            }
-            Output::DictionaryAck(id) => {
-                self.output_words[0] = id;
-                5
             }
             Output::Resume(resume) => {
                 self.output_words[..6].copy_from_slice(&[

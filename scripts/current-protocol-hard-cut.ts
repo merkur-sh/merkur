@@ -379,6 +379,27 @@ const FORBIDDEN_SOURCE_RULES: readonly ForbiddenSourceRule[] = [
     ],
   },
   {
+    label: 'retired zstd display payloads and dictionaries',
+    roots: [
+      'apps/daemon/dataplane/src',
+      'apps/web/src',
+      'packages/merkur-client/src',
+      'packages/merkur-codec/src',
+      'packages/protocol/src',
+      'packages/shared/src',
+      'packages/term-wasm/src',
+    ],
+    patterns: [
+      /\bMSG_TYPE_DISPLAY_DICT_(?:READY|ACK|INSTALL)\b/,
+      /\bDISPLAY_HEADER_FLAG_COMPRESSED_ZSTD(?:_DICT)?\b/,
+      /\bDISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET\b/,
+      /\binstall_display_dictionary\b/,
+      /\binstallDisplayDictionary\b/,
+      /\bRowSplitter\b/,
+      /\bdictionaryClass\b/,
+    ],
+  },
+  {
     label: 'retired unflagged input run',
     roots: ['apps/daemon/dataplane/src', 'apps/web/src', 'packages/protocol/src'],
     patterns: [

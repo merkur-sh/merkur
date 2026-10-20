@@ -396,58 +396,6 @@ export const PINNED_FACTS: readonly PinnedFact[] = [
     },
   },
   {
-    name: 'dict-ready-type',
-    claims: [
-      { pattern: /`MSG_TYPE_DISPLAY_DICT_READY` \(`(0x[0-9a-fA-F]{2})`\)/, normalize: lowerHex },
-      { pattern: /\breadiness \(`(0x[0-9a-fA-F]{2})`\)/, normalize: lowerHex },
-    ],
-    source: {
-      file: 'packages/merkur-wire/src/protocol.rs',
-      pattern: /^pub const MSG_TYPE_DISPLAY_DICT_READY: u8 = (0x[0-9a-fA-F]+);/m,
-      normalize: lowerHex,
-    },
-  },
-  {
-    name: 'dict-install-type',
-    claims: [
-      { pattern: /`MSG_TYPE_DISPLAY_DICT_INSTALL` \(`(0x[0-9a-fA-F]{2})`\)/, normalize: lowerHex },
-      { pattern: /\bdaemon installs \(`(0x[0-9a-fA-F]{2})`\)/, normalize: lowerHex },
-    ],
-    source: {
-      file: 'packages/merkur-wire/src/protocol.rs',
-      pattern: /^pub const MSG_TYPE_DISPLAY_DICT_INSTALL: u8 = (0x[0-9a-fA-F]+);/m,
-      normalize: lowerHex,
-    },
-  },
-  {
-    name: 'dict-ack-type',
-    claims: [
-      { pattern: /`MSG_TYPE_DISPLAY_DICT_ACK` \(`(0x[0-9a-fA-F]{2})`\)/, normalize: lowerHex },
-      { pattern: /\backnowledges it \(`(0x[0-9a-fA-F]{2})`\)/, normalize: lowerHex },
-    ],
-    source: {
-      file: 'packages/merkur-wire/src/protocol.rs',
-      pattern: /^pub const MSG_TYPE_DISPLAY_DICT_ACK: u8 = (0x[0-9a-fA-F]+);/m,
-      normalize: lowerHex,
-    },
-  },
-  {
-    name: 'zstd-level',
-    claims: [{ pattern: /\bLevel (\d+) and (?:the|a) \d+ KiB dictionary cap/ }],
-    source: {
-      file: 'apps/daemon/dataplane/src/display/compressor.rs',
-      pattern: /^pub const DISPLAY_COMPRESSION_LEVEL: i32 = (\d+);/m,
-    },
-  },
-  {
-    name: 'dict-cap-kib',
-    claims: [{ pattern: /\bLevel \d+ and (?:the|a) (\d+) KiB dictionary cap/ }],
-    source: {
-      file: 'apps/daemon/dataplane/src/display/compressor.rs',
-      pattern: /^pub const DISPLAY_DICTIONARY_MAX_BYTES: usize = (\d+) \* 1024;/m,
-    },
-  },
-  {
     name: 'row-wrap-flag',
     claims: [{ pattern: /`ROW_FLAG_WRAPPED`(?:, | \()`?(0x[0-9a-fA-F]{4})/, normalize: lowerHex }],
     source: {

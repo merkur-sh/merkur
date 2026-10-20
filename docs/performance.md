@@ -177,8 +177,8 @@ oracle free, and the action graph names exactly what it was built from.
 | `bun run bench:all` | Repeated production/component/model hot-path benchmarks, including browser, TypeScript/WASM, server, and the Rust display pipeline | Fast local regression check |
 | `bun run scripts/bench-user-agent.ts` | Browser/OS and OS-only parsing, with separate UA, Client Hints, and unknown-input batches | Local parser cost, with validated inputs and recorded timing samples |
 | `bun run bench:display-ack:rust` | One selective display acknowledgement crediting a full 120x40 screen, with an exact per-acknowledgement allocation tally | Owner-loop cost of the ACK half of the display path |
-| `bun run bench:compression-planner` | Production C-zstd sender service and achieved wire-ratio surfaces across nine frame sizes, plain and finalized-dictionary classes | Seed and regress the planner's sender-side empirical posteriors without substituting host constants into production policy |
-| `bun run bench:display-pipeline:browser` | Browser-built `term-wasm` under Bun/JSC, running the production startup calibration plus raw and fused zstd-to-validator-to-apply paths over six frame sizes | Receiver incremental-cost surface, embedded calibration-fixture oracle, and proof that compressed receive has no normalized staging buffer or second parse; use browser tracing for engine-specific absolute timing |
+| `bun run bench:compression-planner` | Production MZ sender service and achieved wire-ratio surfaces across nine frame sizes | Seed and regress the planner's sender-side empirical posteriors without substituting host constants into production policy |
+| `bun run bench:display-pipeline:browser` | Browser-built `term-wasm` under Bun/JSC, running the production startup calibration plus raw and fused MZ-to-validator-to-apply paths over six frame sizes | Receiver incremental-cost surface, embedded calibration-fixture oracle, and proof that compressed receive has no normalized staging buffer or second parse; use browser tracing for engine-specific absolute timing |
 | `bun run bench:terminal-render-readers` | The renderer's own `cursorInfo` read at 100 000 iterations a sample, measured twice: with the backwards-cursor journal off, which is production, and with it armed, which is every profiling session. The armed arm asserts it recorded nothing, so the figure is the comparison and not the recording | Cost of the per-frame cursor read, and the standing guard that the journal stays free |
 | `bun run bench:webgpu-renderer` | Real-Chromium production WebGPU submit CPU and observed queue completion, plus separately counted API uploads/resources for glyph/cursor, all-pass, and unchanged-version frames | Isolated renderer API cost; not open-loop interaction or paint latency |
 | `bun run bench:render-admission` | Production mailbox under independent virtual serial-GPU service and completion-observation delay; uniform offers, bursts, slowdowns, recovery, missing callbacks, and rejected larger-credit sweeps | Bounds and all-offer latency, not browser or network performance |
@@ -437,71 +437,33 @@ bun run scripts/profile-project.ts \
   --output=test-results/profile/display-baseline.json
 ```
 
-Display compression splits the row body in one pass through the compressor's retained
-`RowSplitter`, then writes the zstd frame directly after the header in the caller's pooled
-output vector, using zstd's `WriteBuf` cursor support. There is no compressed-payload staging copy or separate
-128 KiB staging allocation per compressor. Output vectors reserve compression headroom, with
-the requested capacity capped at the maximum wire frame; ordinary vector growth can retain more.
-This trades larger individual output capacities for eliminating the intermediate buffer/copy,
-not a claim of lower whole-process RSS. Warm reuse, byte-exact plain/dictionary output, and
-rejected-candidate clearing are covered by `display::compressor::tests`. Their allocation tally
-counts Rust allocator requests, not C-zstd's internal allocations. `pty::buffer_pool_tests` also
-requires the full requested capacity before a reused frame is filled. Paired measurements bound
-the speed claim; it is component evidence, not an end-to-end result.
-
-Every attempt also codes the frame as MZ into the compressor's retained buffer and copies the
-smaller result into the caller's output, so the pooled vector keeps its own allocation
-(`display::compressor::tests`). Both codecs' time is the attempt's sender service time, which the
-planner already prices against the carrier. The MZ encoder steps rANS by reciprocal, never by
-division, and the decoder reads every table from one slot arena, so a symbol costs one dependent
-load after its context index. `display::sim::mz_census` replays recorded PTY sessions (`MZPTY1`
-files in `MERKUR_DISPLAY_RECORDINGS`) through `DisplaySim` and the real `term-wasm` viewer, with MZ
-on and off: bytes on every lane, frames refused for an unresolved reference, grid convergence,
-and both ends' codec CPU. `MERKUR_MZ_LOSS` sets loss, `MERKUR_MZ_ONLY` and `MERKUR_MZ_EXCEPT`
-select recordings (train without a workload with `mz_train_model`, then measure it alone), and
-`MERKUR_MZ_ALONE` drops the zstd attempt. `mz_train_model` regenerates the shipped model from the
-same replays:
+Display compression codes the rows as MZ directly after the header in the caller's pooled
+output vector, so there is no compressed-payload staging copy. Warm reuse, byte-exact output and
+rejected-candidate clearing are covered by `display::compressor::tests`, whose allocation tally
+counts Rust allocator requests. `pty::buffer_pool_tests` also requires the full requested
+capacity before a reused frame is filled. An attempt's time is its sender service time, which the
+planner prices against the carrier. The MZ encoder steps rANS by reciprocal, never by division,
+and the decoder reads every table from one slot arena, so a symbol costs one dependent load after
+its context index. `display::sim::mz_census` replays recorded PTY sessions (`MZPTY1` files in
+`MERKUR_DISPLAY_RECORDINGS`) through `DisplaySim` and the real `term-wasm` viewer, with MZ on and
+off (raw frames): bytes on every lane, frames refused for an unresolved reference, grid
+convergence, and both ends' codec CPU. `MERKUR_MZ_LOSS` sets loss, and `MERKUR_MZ_ONLY` and
+`MERKUR_MZ_EXCEPT` select recordings (train without a workload with `mz_train_model`, then
+measure it alone). `mz_train_model` regenerates the shipped model from the same replays; a new
+model then needs the browser calibration fixtures and test grids regenerated with
+`MERKUR_WRITE_CALIBRATION_FIXTURES=1` on `//packages/display-fixture:unit`:
 
 ```sh
 MERKUR_DISPLAY_RECORDINGS=<dir> bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_census
 MERKUR_DISPLAY_RECORDINGS=<dir> bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_train_model
 ```
 
-The ignored tests in `display::compressor::experiments` compare dictionary construction
-and immutable row references over generated PTY traces. Training precedes evaluation;
-dictionary transfer and checkpoint control records count toward bytes. Row references
-use acknowledged immutable screen checkpoints, the production capture hashes and exact
-cell comparisons. Only one checkpoint request awaits acknowledgment at a time; the
-modeled receiver retains its active checkpoint and one pending checkpoint. Every packet
-retains its literal row obligations. The harness uses
-shared raw-size packet boundaries and native decode, excluding adaptive packetization,
-QUIC/FEC delivery, browser presentation and checkpoint retirement. Its byte and CPU
-results establish component tradeoffs. Run the profiles serially:
+The paired planner profiles run serially:
 
 ```sh
-bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::dictionary_net_profile
-bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::row_reuse_net_profile
-bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::dictionary_reuse_cross_profile
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_close_cache_profile
 bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_group_bound_profile
 ```
-
-The standalone codec corpus exporter adds partly edited scrolling and Unicode traces.
-It emits chronological row bodies, their exact split payloads, production zstd byte
-counts, and canonical checkpoint bytes independently encoded from the captured sender
-grid and a receiver grid reconstructed through production decoding. Canonical encoding
-uses retained buffers; its per-checkpoint thread CPU measurement is separate from codec
-timings. This is a research artifact, with no production codec or wire-format change:
-
-```sh
-MERKUR_CODEC_CORPUS=/tmp/merkur-codec-corpus.bin bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::compressor::experiments::corpus::export_codec_corpus
-```
-
-The reuse profiles validate each arm before timing it. Their per-thread CPU clock
-brackets the evaluation loop without the correctness oracle, excluding descheduled time
-and trial construction/destruction. Per-packet sender and receiver stage times remain
-wall-clock diagnostics. Checkpoint copying, identity discovery, decoding and grid writes
-are inside the CPU interval; shared PTY capture and browser presentation are outside it.
 
 The paired planner profiles compare exact close-price reuse and the unavoidable open-group
 close lower bound within one binary, requiring identical selected scores and partitions
@@ -511,15 +473,15 @@ when every singleton fits the protected cap, which bounds future datagram widths
 
 The display compression/row-encoding and daemon updater profiles have focused workload
 selectors. Run the two updater modes together: separate processes are required for meaningful
-maximum-RSS comparison. The zstd browser workloads execute the real `term-wasm` decoder, while the
-dataplane workloads execute the production C zstd context and row codec:
+maximum-RSS comparison. The compressed browser workloads execute the real `term-wasm` decoder, while
+the dataplane workloads execute the production MZ encoder and row codec:
 
 ```bash
 bun run scripts/profile-project.ts --mode=full \
   --workload=dataplane/display-compression-planner-surface \
   --workload=dataplane/display-single-pass-row-encoding \
   --workload=web/browser-display-production-pipeline \
-  --workload=web/browser-display-zstd-one-row \
+  --workload=web/browser-display-compressed-one-row \
   --workload=daemon/update-download-memory \
   --workload=daemon/update-download-stream \
   --output=test-results/profile/display-update-investigation.json
@@ -880,13 +842,12 @@ reliability contract: changing the system clock must not indefinitely suppress a
 rate-limit release, command-ack watchdog, cache refresh, or daemon stop deadline.
 
 Rust Criterion confidence-interval point estimates are normalized to `ns/op` structured metrics,
-so codec, FEC, and zstd kernel regressions participate in the same gate instead of being hidden
+so codec and FEC kernel regressions participate in the same gate instead of being hidden
 inside a fixed-duration `cargo bench` process time. The live display boundary uses a 1,100-byte
 datagram ceiling, up to four data shards, width-selected parity for groups of two through four, and
 path-evidence-gated exact replay for a one-data-shard group. The global display planner
-selects row partitions and raw or zstd representations using sender cost, receiver cost,
-carrier delivery quotes, and measured loss. Acknowledged per-peer dictionaries are an
-input to that decision. Benchmarks must exercise the shared planner, not a per-class policy.
+selects row partitions and raw or MZ representations using sender cost, receiver cost,
+carrier delivery quotes, and measured loss. Benchmarks must exercise the shared planner, not a per-class policy.
 The planner, its compression ratios and the browser receiver profile measure wire bytes. A
 packed frame is planned at its body plus its flush's header reserve, and a prepared frame is
 measured by its wire bound (`StagedFrame::wire_bound`), its exact header with the row predecessor
@@ -1149,24 +1110,21 @@ and only their referring rows rebind. Per-row origin contributions and a preallo
 worklist avoid rescanning all prototypes or cells when one virtual parent changes. Existing row
 and selector storage is reused when cell positions change without changing selector membership.
 
-Dictionary work is revision-scoped rather than peer-scoped. A dedicated `merkur-display-dict`
-thread receives already captured rows, builds and truncates one dictionary source for the flush,
-finalizes and hashes it once, and shares the result with every eligible peer. Display deltas are
-prepared on a separate `merkur-display-prepare` thread with two lanes and strict interactive
-priority: a queued interactive delta is always encoded before a queued bulk redraw and never waits
-behind a dictionary build. Small raw updates stay on the owner loop when queueing would cost more
+Display deltas are prepared on a dedicated `merkur-display-prepare` thread with two lanes and
+strict interactive priority: a queued interactive delta is always encoded before a queued bulk
+redraw. Small raw updates stay on the owner loop when queueing would cost more
 than the work; compression, snapshot, and larger-delta preparation run away from the
 latency-sensitive owner flow.
 
-The fixed display envelope stays visible and only the encoded row body is compressed, in its
-stream-split layout. Every row carries literal cells, so a delayed datagram never depends on
-another mutable receiver row. Each independent transformation also carries advisory
+The fixed display envelope stays visible and only the encoded row body is compressed, as MZ. A
+row is either literal cells or a reference to a row the browser applied from an acknowledged
+datagram, which it rebuilds from its own history and hash-checks, so a delayed datagram never
+depends on another mutable receiver row. Each independent transformation also carries advisory
 presentation provenance, and receiver-cost feedback gives the global sender planner measured
 browser service distributions without changing application or ACK boundaries. On the browser,
 compressed ring entries are leased until terminal WASM has copied them into its reusable input
-allocation; WASM then validates the envelope, resolves the dictionary, decompresses the split
-payload, joins it into reusable row storage, and applies the rows without a normalized
-JavaScript buffer. Rust owns bounded FEC storage, and render geometry scratch buffers retain
+allocation; WASM then validates the envelope, decodes the MZ payload into reusable row storage,
+and applies the rows without a normalized JavaScript buffer. Rust owns bounded FEC storage, and render geometry scratch buffers retain
 capacity across frames.
 
 FEC recovery selects from the complete finite set of decoding plans for the wire's four-data,
@@ -1904,9 +1862,7 @@ which drops a retransmission still queued, and it leaves the loss count every co
 Reliable send queues release acknowledged payloads immediately but retain eight
 `Bytes` slots (256 bytes on 64-bit targets). Large queues shrink once per ACK
 operation only below quarter occupancy; fully acknowledged bursts clear their
-owners in bulk instead of walking every segment's length. The dictionary worker keeps its
-split samples, their lengths and its split scratch across builds, so a steady session builds
-without reallocating; the finalized dictionary still requires its own allocation.
+owners in bulk instead of walking every segment's length.
 
 The ignored release tests `owned_display_admission_profile` and
 `retained_segments_profile` retain the prior

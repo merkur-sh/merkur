@@ -144,5 +144,4 @@ rust_e2e_testing_test(
     ),
 ) for bench in [
     "fec",
-    "zstd",
 ]]

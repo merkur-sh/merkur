@@ -2939,13 +2939,6 @@ pub struct PeerDisplayState {
     pub authenticated: bool,
     pub(crate) pending_identity_signature:
         Option<Box<crate::session::auth_flow::PendingIdentitySignature>>,
-    /// Whether this browser's terminal worker currently holds the compression
-    /// dictionary. False until the terminal epoch signals readiness, and
-    /// cleared again when a replacement worker takes over, so the daemon never
-    /// compresses against bytes the peer no longer has.
-    pub display_dictionary_ready: bool,
-    /// Compression-dictionary lifecycle for this peer.
-    pub dictionary: crate::display::compressor::PeerDictionaryState,
     /// Anchor generation last delivered to this peer, so an unchanged prompt
     /// costs nothing.
     pub last_editor_anchor_generation: u32,
@@ -3547,8 +3540,6 @@ impl PeerDisplayState {
             geometry_reply: None,
             authenticated: false,
             pending_identity_signature: None,
-            display_dictionary_ready: false,
-            dictionary: crate::display::compressor::PeerDictionaryState::default(),
             last_editor_anchor_generation: 0,
             input_routing_sent: None,
             input_routing_serial: 0,
@@ -3861,65 +3852,6 @@ impl PeerDisplayState {
         }
     }
 
-    /// Retire the state that belonged to a carrier that just vanished, without
-    /// opening a new display generation.
-    ///
-    /// The deliberate counterpart to `next_generation`, and the difference is
-    /// the whole reason a carrier rebind can be cheap. A generation boundary
-    /// says "forget the screen and start again"; a carrier boundary says "the
-    /// same screen, over a different pipe". The browser's terminal worker, its
-    /// grid, its row hashes, its FEC decoder and its compression dictionary all
-    /// survive the swap, and its resume claim still names the generation it
-    /// last applied — so bumping the generation here would make that claim
-    /// unmatchable and force a full snapshot on every single reconnect. It did,
-    /// for 27 of 31 measured reconnects.
-    ///
-    /// What is emphatically NOT reset, and why:
-    ///
-    /// - `generation`, so `handle_display_resume` can still match the browser's
-    ///   claim and answer it with per-row repairs.
-    /// - `next_datagram_seq`, `last_datagram_seq` and `last_display_seq_sent`.
-    ///   These are the sequence space the retained generation
-    ///   names, and they must stay monotonic across the swap: restarting them
-    ///   inside a live generation would read on the browser as a flood of
-    ///   duplicate and wildly reordered frames. Keeping them monotonic is also
-    ///   what makes an FEC group safe across the boundary — a repair is pinned
-    ///   by `batch_start_seq`, which is now unique for the life of the session
-    ///   rather than only within a generation.
-    /// - The display cache baseline, which is the record of what the browser
-    ///   actually has on screen. It is the input to the resume comparison.
-    ///
-    /// The compression dictionary now survives too, and the reasoning is worth
-    /// stating because it used to be reset here.
-    ///
-    /// The browser's epoch fence keeps its dictionaries exactly when it
-    /// preserves its display, and it publishes row hashes in its resume claim
-    /// exactly when it preserves its display. So the daemon's repair path —
-    /// which is reachable ONLY from a claim carrying row hashes — implies the
-    /// peer still holds the dictionary. The unsafe direction, daemon keeps
-    /// while browser discarded, is therefore unreachable: every snapshot
-    /// decision calls `discard_dictionary_for_snapshot`, and nothing is sent
-    /// while `awaiting_resume_until_ms` is armed, so there is no window in
-    /// which the daemon could compress against bytes the peer threw away.
-    ///
-    /// The frame header's dictionary id remains the backstop. It is stamped on
-    /// every compressed frame and both decoders reject a mismatch outright, so
-    /// a divergence is refused rather than decoded into plausible garbage —
-    /// which is why re-stating the id on the readiness signal would be
-    /// redundant wire state rather than a second guarantee.
-    /// Retire the dictionary because this peer is about to be repainted whole.
-    ///
-    /// The counterpart to keeping it across a carrier boundary. A snapshot means
-    /// the browser's display did not survive — its epoch fence discarded the
-    /// grid, and with it the dictionary slots — so ours describes bytes the peer
-    /// no longer has. `next_id` deliberately survives, so the replacement
-    /// carries an id the browser has never seen and a stale frame cannot be
-    /// mistaken for a fresh one.
-    pub fn discard_dictionary_for_snapshot(&mut self) {
-        self.display_dictionary_ready = false;
-        self.dictionary.reset();
-    }
-
     /// Retire display work owned exclusively by one displaced carrier. Attempts
     /// that also rode the other path stay valid; sole-path rows and header state
     /// become immediately sendable on the survivor.
@@ -3951,6 +3883,33 @@ impl PeerDisplayState {
         self.display_cache.fec_evidence.reset(path);
     }
 
+    /// Retire the state that belonged to a carrier that just vanished, without
+    /// opening a new display generation.
+    ///
+    /// The deliberate counterpart to `next_generation`, and the difference is
+    /// the whole reason a carrier rebind can be cheap. A generation boundary
+    /// says "forget the screen and start again"; a carrier boundary says "the
+    /// same screen, over a different pipe". The browser's terminal worker, its
+    /// grid, its row hashes, its FEC decoder and the row history MZ references
+    /// read all survive the swap, and its resume claim still names the
+    /// generation it last applied — so bumping the generation here would make
+    /// that claim unmatchable and force a full snapshot on every single
+    /// reconnect. It did, for 27 of 31 measured reconnects.
+    ///
+    /// What is emphatically NOT reset, and why:
+    ///
+    /// - `generation`, so `handle_display_resume` can still match the browser's
+    ///   claim and answer it with per-row repairs.
+    /// - `next_datagram_seq`, `last_datagram_seq` and `last_display_seq_sent`.
+    ///   These are the sequence space the retained generation
+    ///   names, and they must stay monotonic across the swap: restarting them
+    ///   inside a live generation would read on the browser as a flood of
+    ///   duplicate and wildly reordered frames. Keeping them monotonic is also
+    ///   what makes an FEC group safe across the boundary — a repair is pinned
+    ///   by `batch_start_seq`, which is now unique for the life of the session
+    ///   rather than only within a generation.
+    /// - The display cache baseline, which is the record of what the browser
+    ///   actually has on screen. It is the input to the resume comparison.
     pub fn carrier_boundary(&mut self) -> usize {
         // A CPU preparation completion is delivered only to the carrier that
         // requested it; the reply can never arrive now.
@@ -3965,13 +3924,6 @@ impl PeerDisplayState {
         // routing word in flight on the old carrier is resent on the same terms.
         self.last_admitted_critical_header_signal = 0;
         self.input_routing_sent = None;
-        // Readiness is per-carrier and edge-triggered: the browser re-signals it
-        // once its replacement terminal-worker lineage is live. The dictionary
-        // itself is NOT dropped — see the note above — so a rebind that ends in
-        // row repairs keeps compressing against a dictionary both ends still
-        // hold, instead of paying a readiness/install/ack round trip and cold
-        // compression on exactly the frames the user is waiting for.
-        self.display_dictionary_ready = false;
         // Carrier delivery/loss evidence is attachment-scoped. A successor can
         // share the display generation and the edge's daemon-facing QUIC half,
         // but it does not share the browser-facing congestion/loss epoch (and
@@ -4011,11 +3963,6 @@ impl PeerDisplayState {
         // generation. Dropping it here also prevents an old Noise/display
         // sequence from being emitted after a snapshot.
         self.cancel_display_prepare();
-        // A compression dictionary is scoped to `(peer, generation)`: its id is
-        // only meaningful inside the generation it was installed in. Every
-        // resize, resume, and snapshot boundary routes through here, so this is
-        // the one place that has to drop it.
-        self.dictionary.reset();
         self.has_receiver_ack = false;
         self.display_cache.abandon_resume_repair();
         self.display_cache.reset_for_snapshot();

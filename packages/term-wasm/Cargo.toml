@@ -18,22 +18,9 @@ zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 fontdue = "0.9"
 hashbrown = "0.17"
 unicode-width = "0.2"
-# Display-frame decompression with the same C library the daemon encodes with,
-# compiled to wasm32 through zstd-sys's wasm shim (its malloc routes to the Rust
-# allocator), so the WASM build compiles C for wasm32 (`//tools/bazel/wasm`). One-shot decode measured 2.1-2.4x faster than the
-# pure-Rust `ruzstd` it replaced, byte-exact, on V8 and JavaScriptCore.
-# `std` only adds the `Vec<u8>` output buffer; legacy formats and the
-# dictionary builder stay out of the artifact. `experimental` exposes the
-# magicless frame format the display payload uses.
-zstd-safe = { version = "8.0", default-features = false, features = ["std", "experimental"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 merkur-client = { path = "../merkur-client" }
-
-[dev-dependencies]
-# Native tests build real zstd dictionaries and compressed frames to drive the
-# decode path.
-zstd = { version = "0.14", features = ["experimental"] }
 
 [features]
 # The instrumented training build of the profile-guided terminal

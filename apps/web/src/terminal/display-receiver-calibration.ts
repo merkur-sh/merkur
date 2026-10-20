@@ -7,12 +7,10 @@ import {
   DISPLAY_COMPRESSED_PAYLOAD_OFFSET,
   DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
   DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET,
-  DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET,
   DISPLAY_FRAME_ID_OFFSET,
   DISPLAY_GENERATION_OFFSET,
   DISPLAY_GRID_ROWS_OFFSET,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
+  DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
   DISPLAY_MESSAGE_TYPE_OFFSET,
   DISPLAY_PATCH_FLAGS_OFFSET,
   DISPLAY_PRESENTATION_ID_OFFSET,
@@ -28,14 +26,13 @@ import {
   writeU32BE,
 } from '@merkur/shared';
 import type { WasmTerminalHandle } from '../wasm-loader';
+import { CALIBRATION_FIXTURES } from './display-receiver-calibration-fixtures';
 import type { DisplayReceiverProfileWriter } from './display-receiver-profile';
 
 export const DISPLAY_RECEIVER_CALIBRATION_COLS = 120;
 export const DISPLAY_RECEIVER_CALIBRATION_ROWS = 29;
 const CALIBRATION_SAMPLES = 8;
-const CALIBRATION_DICTIONARY_GENERATION = 1;
-const CALIBRATION_DICTIONARY_ID = 1;
-const CALIBRATION_DICTIONARY_HASH = 441_442_863;
+const CALIBRATION_GENERATION = 1;
 const CALIBRATION_FRAME_ID = 1;
 const CALIBRATION_PRESENTATION_ID = 1;
 const CALIBRATION_BUSY_RETRY_MS = 4;
@@ -44,8 +41,7 @@ export type DisplayReceiverCalibrationTerminal = Pick<
   WasmTerminalHandle,
   | 'destroy'
   | 'applyDelta'
-  | 'installDisplayDictionary'
-  | 'clearDisplayDictionaries'
+  | 'clearDisplayHistory'
   | 'stageDisplayFrame'
   | 'validateStagedFrame'
   | 'applyStagedDelta'
@@ -56,14 +52,12 @@ export type DisplayReceiverCalibrationTerminal = Pick<
 
 interface CalibrationFixture {
   readonly rows: number;
-  readonly plainBlock: string;
-  readonly dictionaryBlock: string;
+  readonly block: string;
 }
 
 interface CalibrationObservation {
   readonly rawBytes: number;
   readonly wireBytes: number;
-  readonly dictionary: boolean;
   readonly rawUs: number;
   readonly fusedUs: number;
 }
@@ -79,8 +73,7 @@ interface PreparedCalibrationFixture {
   readonly raw: Uint8Array;
   /** Wire lengths, which the profile and the planner reading it measure in. */
   readonly rawWireBytes: number;
-  readonly plain: CompressedCalibrationFrame;
-  readonly dictionary: CompressedCalibrationFrame;
+  readonly compressed: CompressedCalibrationFrame;
 }
 
 export type DisplayReceiverCalibrationStep =
@@ -113,58 +106,6 @@ export interface DisplayReceiverCalibrationSchedulerOptions<THandle> {
   cancelScheduled(handle: THandle): void;
 }
 
-// Trained by `packages/zstd-fixture --make-dictionary` on calibration-shaped
-// rows with a different glyph pattern, sampled as the split payloads frames
-// carry, never on the measured fixtures below. It is a zstd dictionary with an
-// embedded id: the decoder verifies both this protocol hash and that id.
-const CALIBRATION_DICTIONARY_BASE64 =
-  'N6Qw7IP1PTQjENibOQzDMAzDMHKNjRAiGUcHFiLd2N1ERESESCmllFJKKVMjBQAABovFIiFnAwAkQAAMAgQDAYkFgQMEAQIFgQQDgQUEgYIDgQIEAQWDCQKEBAEBDYYKkFNwJWaTJB0EWzEEYRBGISIiIiIiIiIiSZKkAwEAAAAEAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWVxfIiUoKy4xNDc6PUBDRklMT1JVWFteISQnKi0wMzY5PD9CRUhLTlFUV1pdICMmKSwvMjU4Oz5BREdKTVBTVllcXyIlKCsuMTQ3Oj1AQ0ZJTE9SVVhbXiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksLzI1ODs+XiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksLzI1ODs+QURHSk1QU1ZZXF8iJSgrLjE0Nzo9QENGSUxPUlVYW14hJCcqLTAzNjk8P0JFSEtOUVRXWl0gIyYpLC8yNTg7PkFER0pNUFNWWVxfIiUoKy4xNDc6PUBDIyYpLC8yNTg7PkFER0pNUFNWWVxfIiUoKy4xNDc6PUBDRklMT1JVWFteISQnKi0wMzY5PD9CRUhLTlFUV1pdICMmKSwvMjU4Oz5BREdKTVBTVllcXyIlKCsuMTQ3Oj1AQ0ZJTE9SVVhbXiEkJyotMDM2OTw/QkVIKCsuMTQ3Oj1AQ0ZJTE9SVVhbXiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksLzI1ODs+QURHSk1QU1ZZXF8iJSgrLjE0Nzo9QENGSUxPUlVYW14hJCcqLTAzNjk8P0JFSEtOUVRXWl0gIyYpLC8yNTg7PkFER0pN4AMAAAAXABgAGQAaAAAAAAAAAAAAeAB4AHgAeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPUBDRklMT1JVWFteISQnKi0wMzY5PD9CRUhLTlFUV1pdICMmKSwvMjU4Oz5BREdKTVBTVllcXyIlKCsuMTQ3Oj1AQ0ZJTE9SVVhbXiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksLzI1ODs+QURHSk1QU1ZZXF8iQkVIS05RVFdaXSAjJiksLzI1ODs+QURHSk1QU1ZZXF8iJSgrLjE0Nzo9QENGSUxPUlVYW14hJCcqLTAzNjk8P0JFSEtOUVRXWl0gIyYpLC8yNTg7PkFER0pNUFNWWVxfIiUoKy4xNDc6PUBDRklMT1JVWFteISQnR0pNUFNWWVxfIiUoKy4xNDc6PUBDRklMT1JVWFteISQnKi0wMzY5PD9CRUhLTlFUV1pdICMmKSwvMjU4Oz5BREdKTVBTVllcXyIlKCsuMTQ3Oj1AQ0ZJTE9SVVhbXiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksTE9SVVhbXiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksLzI1ODs+QURHSk1QU1ZZXF8iJSgrLjE0Nzo9QENGSUxPUlVYW14hJCcqLTAzNjk8P0JFSEtOUVRXWl0gIyYpLC8yNTg7PkFER0pNUFNWWVxfIiUoKy4x4AMAAAAUABUAFgAXAAAAAAAAAAAAeAB4AHgAeAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABRVFdaXSAjJiksLzI1ODs+QURHSk1QU1ZZXF8iJSgrLjE0Nzo9QENGSUxPUlVYW14hJCcqLTAzNjk8P0JFSEtOUVRXWl0gIyYpLC8yNTg7PkFER0pNUFNWWVxfIiUoKy4xNDc6PUBDRklMT1JVWFteISQnKi0wMzZWWVxfIiUoKy4xNDc6PUBDRklMT1JVWFteISQnKi0wMzY5PD9CRUhLTlFUV1pdICMmKSwvMjU4Oz5BREdKTVBTVllcXyIlKCsuMTQ3Oj1AQ0ZJTE9SVVhbXiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksLzI1ODtbXiEkJyotMDM2OTw/QkVIS05RVFdaXSAjJiksLzI1ODs+QURHSk1QU1ZZXF8iJSgrLjE0Nzo9QENGSUxPUlVYW14hJCcqLTAzNjk8P0JFSEtOUVRXWl0gIyYpLC8yNTg7PkFER0pNUFNWWVxfIiUoKy4xNDc6PUAgIyY=';
-
-const CALIBRATION_FIXTURES: readonly CalibrationFixture[] = [
-  {
-    rows: 1,
-    plainBlock:
-      'AACNAgBEBHgAeAAgISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fAwBAh3DGChLGABY=',
-    dictionaryBlock:
-      'AwCD9T00jQIAFAR4ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eXwT8QIcNJyzuyda9aGEB',
-  },
-  {
-    rows: 2,
-    plainBlock:
-      'AADtAgCEBPABAHgAeAAgISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fWAYA1YME1HoC0CGcxo2jmTIhAEM=',
-    dictionaryBlock:
-      'AwCD9T005QIAVATwAQABICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX1gG/NXTqNcBA3RYmJv3wixgU4ZO3w0=',
-  },
-  {
-    rows: 4,
-    plainBlock:
-      'AABNAwC0BOADAAEAAgB4ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX1hZWgoAFKRCIb3qQQpqPQHoEE4DB8pyzmDZFiQWGAI=',
-    dictionaryBlock:
-      'AwCD9T00DQMApAQAAAEAAgADICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX1hZWgf8FDl9ufoJ6rhaAR3q4wW3KYS0BA==',
-  },
-  {
-    rows: 8,
-    plainBlock:
-      'AAj9AwB0BcAHAAEAAgADAAQABQAGAHggISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fWFlaW1xdXg4AFKRCQXoUpIyCVChIj0LK1YNk1HoG0CGcRhxUlusYcFtzUgCG',
-    dictionaryBlock:
-      'AwiD9T00DQQAdAXABwABAAIAAwAEAAUABgAHICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX1hZWltcXV4Q/BQ5PRuKFuU+mkCUqfro1PwEADoQwv7zSubjl0Ez4g+jAfuGAt8N',
-  },
-  {
-    rows: 16,
-    plainBlock:
-      'ABBlBQD0BoAPAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgB4ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX1hZWltcXV5fICEiIyQlJhYAFKRCQXoUpIyCVChIj4KUUZAKBelRkDIKUqEgPQpSRkEqFNKrHqSg1hOADuE0xsFvuYYBsxQ1LgBD',
-    dictionaryBlock:
-      'AxCD9T00HQUA80YaCxQkQHDAQIEbNvZq0NCbkXfDxl4NGnoz8vBk3NnFgFH3wgVdCxbJFSqQKVCcMHEsQWKEiBAgPnjoMMdhg5yGDBguWKhAYYKECBAeOGjAYIGCBAgOGCgQHPhv3+/u7ezr6uno5+blQSwBF/wUOT0bihblPppAFDNailRO1HGqNDQtSn40QpSP6kOEBTpIAnErd4fmC29DN/xPnNRMHAp8Nw==',
-  },
-  {
-    rows: 29,
-    plainBlock:
-      'ABg9BwCECZgbAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgAPABAAEQASABMAFAAVABYAFwAYABkAGgAbABwAeCAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9YWVpbXF1eXyAhIiMkJSYnKCkqKywtLi8wMTIzIiDQQ+U0FZoeTRlNhUqPpoymQtOjKaNSoenRlNFUaHpUymgqND2aMpoKlR5NGU2FpkdTRqVC06OVcvUkGfWeAXQ4LbbZN3cy/O0VugE=',
-    dictionaryBlock:
-      'AxiD9T00tQYAk8gfGC5YqEBhgoQIEB44aMBggYIECA4YKHDDxl4NGnoz8m7Y2KtBQ29GHp6MO7sYMOpeuKBrwSK5QgUyBYoTJo4lSIwQEQLEBw8d5jhskNOQAcMFCxUoTJAQAcIDBw0YLFCQAMEBAwWGYjyuOPHhwoMD/+373b2dfV09Hf3cvDwOTiT8FDk9G4oW5T6aQBQzWopUTtRxqjQ0LUp+NELUZTQRqZyo5FQ29FkU+WiEqMxoFKk3UcKpbOgkqksOAXTI9octb+xbLTGEw6ytxQa1DJiVoe53Aw==',
-  },
-];
-
 /**
  * Build the calibration as an explicitly stepped transaction over an isolated
  * terminal. Production executes one step per worker task after the first
@@ -173,7 +114,7 @@ const CALIBRATION_FIXTURES: readonly CalibrationFixture[] = [
  *
  * No writer state changes until every fixture has validated and every paired
  * measurement has succeeded. Completion, failure, and cancellation all erase
- * the calibration dictionary, reset ordering, and free the scratch terminal.
+ * the scratch terminal's row history, reset ordering, and free it.
  */
 export function createDisplayReceiverCalibrationRun(
   terminal: DisplayReceiverCalibrationTerminal,
@@ -183,18 +124,15 @@ export function createDisplayReceiverCalibrationRun(
   const prepared: PreparedCalibrationFixture[] = [];
   const observations: CalibrationObservation[] = [];
   let phase:
-    | 'install'
     | 'prepare'
     | 'validate-raw'
-    | 'validate-plain'
-    | 'validate-dictionary'
+    | 'validate-compressed'
     | 'measure'
     | 'publish'
     | 'complete'
     | 'failed'
-    | 'cancelled' = 'install';
+    | 'cancelled' = 'prepare';
   let fixtureIndex = 0;
-  let dictionaryClass = 0;
   let sample = 0;
   let measurementOperation = 0;
   let sequence = 1;
@@ -207,7 +145,7 @@ export function createDisplayReceiverCalibrationRun(
     if (cleaned) return;
     cleaned = true;
     try {
-      terminal.clearDisplayDictionaries();
+      terminal.clearDisplayHistory();
     } catch {
       // Scratch teardown remains best-effort so `destroy` always runs.
     }
@@ -278,22 +216,6 @@ export function createDisplayReceiverCalibrationRun(
       if (phase === 'failed') return { status: 'failed', error: failure };
       if (phase === 'cancelled') return { status: 'failed', error: 'calibration_cancelled' };
       try {
-        if (phase === 'install') {
-          const dictionary = decodeBase64(CALIBRATION_DICTIONARY_BASE64);
-          if (
-            !terminal.installDisplayDictionary(
-              CALIBRATION_DICTIONARY_GENERATION,
-              CALIBRATION_DICTIONARY_ID,
-              CALIBRATION_DICTIONARY_HASH,
-              dictionary,
-            )
-          ) {
-            return reject(terminal.takeLastError() ?? 'dictionary_install_rejected');
-          }
-          phase = 'prepare';
-          return { status: 'pending' };
-        }
-
         if (phase === 'prepare') {
           const fixture = CALIBRATION_FIXTURES[fixtureIndex];
           if (fixture === undefined) {
@@ -310,7 +232,6 @@ export function createDisplayReceiverCalibrationRun(
         if (phase === 'validate-raw') {
           if (fixture === undefined) {
             fixtureIndex = 0;
-            dictionaryClass = 0;
             sample = 0;
             measurementOperation = 0;
             phase = 'measure';
@@ -323,19 +244,12 @@ export function createDisplayReceiverCalibrationRun(
               `rows=${fixture.rows} raw: ${terminal.takeLastError() ?? 'validation_rejected'}`,
             );
           }
-          phase = 'validate-plain';
+          phase = 'validate-compressed';
           return { status: 'pending' };
         }
-        if (phase === 'validate-plain') {
+        if (phase === 'validate-compressed') {
           if (fixture === undefined) return reject('calibration_fixture_missing');
-          const result = validateStaged(fixture, fixture.plain.frame, 'plain');
-          if (result.status === 'failed') return result;
-          phase = 'validate-dictionary';
-          return result;
-        }
-        if (phase === 'validate-dictionary') {
-          if (fixture === undefined) return reject('calibration_fixture_missing');
-          const result = validateStaged(fixture, fixture.dictionary.frame, 'dictionary');
+          const result = validateStaged(fixture, fixture.compressed.frame, 'compressed');
           if (result.status === 'failed') return result;
           fixtureIndex += 1;
           phase = 'validate-raw';
@@ -346,7 +260,7 @@ export function createDisplayReceiverCalibrationRun(
             phase = 'publish';
             return { status: 'pending' };
           }
-          const compressed = dictionaryClass === 0 ? fixture.plain : fixture.dictionary;
+          const compressed = fixture.compressed;
           const rawFirst = (sample & 1) === 0;
           const applyRaw = measurementOperation === (rawFirst ? 0 : 1);
           const applied = applyRaw ? measureRaw(fixture) : measureFused(compressed.frame);
@@ -359,7 +273,6 @@ export function createDisplayReceiverCalibrationRun(
           observations.push({
             rawBytes: fixture.rawWireBytes,
             wireBytes: compressed.wireBytes,
-            dictionary: dictionaryClass === 1,
             rawUs,
             fusedUs,
           });
@@ -367,9 +280,6 @@ export function createDisplayReceiverCalibrationRun(
           sample += 1;
           if (sample < CALIBRATION_SAMPLES) return { status: 'pending' };
           sample = 0;
-          dictionaryClass += 1;
-          if (dictionaryClass < 2) return { status: 'pending' };
-          dictionaryClass = 0;
           fixtureIndex += 1;
           return { status: 'pending' };
         }
@@ -377,12 +287,7 @@ export function createDisplayReceiverCalibrationRun(
         cleanup();
         for (const observation of observations) {
           writer.recordRaw(observation.rawBytes, observation.rawUs);
-          writer.recordCompressed(
-            observation.rawBytes,
-            observation.wireBytes,
-            observation.dictionary,
-            observation.fusedUs,
-          );
+          writer.recordCompressed(observation.rawBytes, observation.wireBytes, observation.fusedUs);
         }
         writer.publish(0);
         phase = 'complete';
@@ -551,16 +456,12 @@ export function createDisplayReceiverCalibrationScheduler<THandle>(
 
 function prepareCalibrationFixture(fixture: CalibrationFixture): PreparedCalibrationFixture {
   const raw = createCalibrationFrame(fixture.rows, 0);
-  const compressed = (block: string, dictionary: boolean): CompressedCalibrationFrame => {
-    const frame = createCompressedFrame(raw, decodeBase64(block), dictionary);
-    return { frame, wireBytes: encodeDisplayWireFrame(frame).byteLength };
-  };
+  const frame = createCompressedFrame(raw, decodeBase64(fixture.block));
   return {
     rows: fixture.rows,
     raw,
     rawWireBytes: encodeDisplayWireFrame(raw).byteLength,
-    plain: compressed(fixture.plainBlock, false),
-    dictionary: compressed(fixture.dictionaryBlock, true),
+    compressed: { frame, wireBytes: encodeDisplayWireFrame(frame).byteLength },
   };
 }
 
@@ -577,7 +478,7 @@ function createCalibrationFrame(encodedRows: number, patchFlags: number): Uint8A
   frame[DISPLAY_VERSION_OFFSET] = DISPLAY_PROTOCOL_VERSION;
   frame[DISPLAY_PATCH_FLAGS_OFFSET] = patchFlags;
   writeU32BE(frame, DISPLAY_SEQUENCE_OFFSET, 1);
-  writeU32BE(frame, DISPLAY_GENERATION_OFFSET, CALIBRATION_DICTIONARY_GENERATION);
+  writeU32BE(frame, DISPLAY_GENERATION_OFFSET, CALIBRATION_GENERATION);
   writeU16(frame, DISPLAY_COLUMNS_OFFSET, DISPLAY_RECEIVER_CALIBRATION_COLS);
   writeU16(frame, DISPLAY_GRID_ROWS_OFFSET, DISPLAY_RECEIVER_CALIBRATION_ROWS);
   writeU32BE(frame, DISPLAY_FRAME_ID_OFFSET, CALIBRATION_FRAME_ID);
@@ -602,31 +503,17 @@ function createCalibrationFrame(encodedRows: number, patchFlags: number): Uint8A
   return frame;
 }
 
-function createCompressedFrame(
-  raw: Uint8Array,
-  block: Uint8Array,
-  dictionary: boolean,
-): Uint8Array {
-  const payloadOffset = dictionary
-    ? DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET
-    : DISPLAY_COMPRESSED_PAYLOAD_OFFSET;
-  const wire = new Uint8Array(payloadOffset + block.byteLength);
+function createCompressedFrame(raw: Uint8Array, block: Uint8Array): Uint8Array {
+  const wire = new Uint8Array(DISPLAY_COMPRESSED_PAYLOAD_OFFSET + block.byteLength);
   wire.set(raw.subarray(0, DISPLAY_ROWS_OFFSET));
-  wire[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] =
-    DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD |
-    (dictionary ? DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT : 0);
-  if (dictionary) {
-    writeU32BE(wire, DISPLAY_GENERATION_OFFSET, CALIBRATION_DICTIONARY_GENERATION);
-    writeU32BE(wire, DISPLAY_COMPRESSED_LENGTH_OFFSET + 4, CALIBRATION_DICTIONARY_ID);
-    writeU32BE(wire, DISPLAY_COMPRESSED_LENGTH_OFFSET + 8, CALIBRATION_DICTIONARY_HASH);
-  }
+  wire[DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET] = DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
   writeU32BE(
     wire,
     DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
     wire.byteLength - DISPLAY_STREAM_HEADER_BYTES,
   );
   writeU32BE(wire, DISPLAY_COMPRESSED_LENGTH_OFFSET, raw.byteLength - DISPLAY_ROWS_OFFSET);
-  wire.set(block, payloadOffset);
+  wire.set(block, DISPLAY_COMPRESSED_PAYLOAD_OFFSET);
   return wire;
 }
 

@@ -1840,9 +1840,6 @@
   "packages/user-agent/src/index.ts": {
     "no-known-value-widening": 1
   },
-  "packages/zstd-fixture/src/main.rs": {
-    "comment-temporary": 1
-  },
   "scripts/agent-hooks/guards/authored-prose.ts": {
     "no-runtime-typeof": 1
   },

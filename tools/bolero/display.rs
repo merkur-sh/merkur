@@ -10,10 +10,20 @@ fn assert_released(terminal: &Terminal) {
     assert_eq!(terminal.staged_active_decoded_cells, 0);
     assert!(terminal.staged_frames.iter().all(Option::is_none));
     assert!(terminal.display_decoded_rows.len() <= MAX_DISPLAY_FRAME_BYTES);
-    assert!(
-        terminal.display_decoded_split.len()
-            <= MAX_DISPLAY_FRAME_BYTES + merkur_codec::SPLIT_HEADER_MAX_BYTES
-    );
+}
+
+/// Resolves no reference: a fresh terminal's history holds nothing either.
+struct NoReferences;
+
+impl merkur_codec::mz::MzResolve for NoReferences {
+    fn resolve(
+        &mut self,
+        _: u16,
+        _: merkur_codec::mz::MzReference,
+        _: &mut Vec<u8>,
+    ) -> Result<(), merkur_codec::mz::MzError> {
+        Err(merkur_codec::mz::MzError::Unresolved)
+    }
 }
 
 fn raw_seed() -> Vec<u8> {
@@ -35,10 +45,7 @@ fn fuzz_display_ingress() {
     let raw = raw_seed();
     let seeds = vec![
         ("encoder-raw-display", raw.clone()),
-        (
-            "encoder-compressed-display",
-            compressed_test_frame(&raw, None),
-        ),
+        ("encoder-compressed-display", compressed_test_frame(&raw)),
     ];
     seeds::persist(&seeds);
     let check = |bytes: &[u8]| {
@@ -72,11 +79,11 @@ fn fuzz_display_ingress() {
 }
 
 #[test]
-fn fuzz_display_zstd() {
+fn fuzz_display_mz() {
     let raw = raw_seed();
-    let seed = compressed_test_frame(&raw, None);
+    let seed = compressed_test_frame(&raw);
     let seeds = vec![(
-        "encoder-zstd-payload",
+        "encoder-mz-payload",
         seed[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..].to_vec(),
     )];
     seeds::persist(&seeds);
@@ -89,16 +96,10 @@ fn fuzz_display_zstd() {
         let handle = terminal.stage_display_frame_bytes(&wire);
         if handle != 0 {
             assert!(terminal.validate_staged_frame(handle));
-            let metadata = parse_zstd_frame_metadata(bytes).expect("accepted payload header");
-            assert_eq!(
-                zstd_frame_size(bytes, metadata.header_len),
-                Some(bytes.len())
-            );
             let rows_len = raw.len() - STREAM_HEADER_BYTES - FRAME_HEADER_BODY_BYTES;
-            let mut split = Vec::with_capacity(rows_len + merkur_codec::SPLIT_HEADER_MAX_BYTES);
-            assert!(new_display_decoder().decompress(&mut split, bytes).is_ok());
             let mut decoded = Vec::new();
-            merkur_codec::join_rows_into(&split, 1, &mut decoded).expect("accepted split payload");
+            merkur_codec::mz::decode_mz_rows(bytes, 1, rows_len, &mut NoReferences, &mut decoded)
+                .expect("an accepted payload decodes");
             assert_eq!(decoded.len(), rows_len);
             let mut plain = raw[..STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES].to_vec();
             plain.extend_from_slice(&decoded);
@@ -154,7 +155,7 @@ fn fuzz_display_roundtrip() {
                 cells: &cells,
             },
         );
-        let wire = compressed_test_frame(&raw, None);
+        let wire = compressed_test_frame(&raw);
         let mut plain = Terminal::new(cols, 1);
         let mut compressed = Terminal::new(cols, 1);
         for _ in 0..2 {

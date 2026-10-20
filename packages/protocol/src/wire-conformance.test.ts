@@ -134,7 +134,7 @@ describe('wire conformance: encoded frames', () => {
     expect(rust).toContain('const TRANSPORT_HINT_PAYLOAD_BYTES: usize = 11;');
   });
 
-  test('display_receiver_profile: a 13-byte header, then 20 bytes per bucket', () => {
+  test('display_receiver_profile: a 13-byte header, then 19 bytes per bucket', () => {
     const frame = new Uint8Array(
       encode({
         kind: 'display_receiver_profile',
@@ -143,7 +143,6 @@ describe('wire conformance: encoded frames', () => {
         serviceDebtUs: 345,
         buckets: [
           {
-            dictionaryClass: 1,
             sizeClass: 4,
             ratioClass: 0,
             sampleCount: 32,
@@ -159,19 +158,18 @@ describe('wire conformance: encoded frames', () => {
       MESSAGE_TYPE_DISPLAY_RECEIVER_PROFILE,
       0,
       0,
-      33,
+      32,
       ...[0, 0, 0, 7],
       ...[0, 0, 0, 12],
       ...[0, 0, 0x01, 0x59],
       1,
-      ...[1, 4, 0, 32],
+      ...[4, 0, 32],
       ...[0, 0x01, 0xe8, 0x48],
       ...[0, 0, 0, 6],
       ...[0, 0, 0, 4],
       ...[0, 0, 0, 10],
     ]);
-    const tooMany = Array.from({ length: 49 }, () => ({
-      dictionaryClass: 0,
+    const tooMany = Array.from({ length: 25 }, () => ({
       sizeClass: 0,
       ratioClass: 0,
       sampleCount: 0,

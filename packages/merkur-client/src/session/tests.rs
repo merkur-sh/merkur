@@ -653,11 +653,8 @@ fn display_acks_ride_the_ack_datagram_and_the_reliable_backstop_at_its_cadence()
         &mut harness.entropy,
     );
     let (mut daemon, nonce, _) = deliver_ready(&mut harness, NOW + 20);
-    // What the viewer asks at the fence waits for the carrier, in order and
-    // once each.
+    // What the viewer asks at the fence waits for the carrier, once.
     harness.session.request_display_snapshot(NOW + 50);
-    harness.session.send_display_dictionary_ready(true);
-    harness.session.send_display_dictionary_ack(9);
     harness.session.request_display_snapshot(NOW + 50);
     assert!(drain(&mut harness.session).is_empty());
     let actions = ack_hello(&mut harness, &nonce);
@@ -673,18 +670,14 @@ fn display_acks_ride_the_ack_datagram_and_the_reliable_backstop_at_its_cadence()
             _ => None,
         })
         .collect();
-    let owed: Vec<_> = control[control.len() - 3..]
+    let requests = control
         .iter()
-        .map(|frame| decode_proto_frame(frame).expect("a control frame"))
-        .collect();
-    assert_eq!(
-        owed,
-        [
-            (MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, &[][..]),
-            (MSG_TYPE_DISPLAY_DICT_READY, &[1][..]),
-            (MSG_TYPE_DISPLAY_DICT_ACK, &9u32.to_be_bytes()[..]),
-        ]
-    );
+        .filter(|frame| {
+            decode_proto_frame(frame).expect("a control frame")
+                == (MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, &[][..])
+        })
+        .count();
+    assert_eq!(requests, 1);
 
     let ack = DisplayAckPayload {
         generation: 3,
@@ -1376,7 +1369,7 @@ fn a_full_host_queue_does_not_fence_input_or_ack_io_and_keeps_host_fifo() {
         harness.session.poll_io_action(),
         Some(Action::SendDatagram { .. } | Action::SendInputDatagram { .. })
     ));
-    harness.session.send_display_dictionary_ready(true);
+    harness.session.request_display_snapshot(NOW + 21);
     assert!(matches!(
         harness.session.poll_io_action(),
         Some(Action::SendReliable { .. })

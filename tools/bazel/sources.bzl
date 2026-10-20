@@ -38,7 +38,6 @@ PACKAGES = [
     "//packages/term-wasm",
     "//packages/user-agent",
     "//packages/vte-patch",
-    "//packages/zstd-fixture",
     "//scripts",
     "//tests",
     "//tools/bazel",

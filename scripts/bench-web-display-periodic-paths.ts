@@ -61,13 +61,12 @@ function receiverProfile() {
   const sab = createDisplayReceiverProfileBuffer();
   const writer = createDisplayReceiverProfileWriter(sab);
   const reader = createDisplayReceiverProfileReader(sab);
-  // Fill every window: six size classes x four ratio classes x two dictionary classes.
+  // Fill every window: six size classes x four ratio classes.
   for (let round = 0; round < 32; round += 1) {
     for (const raw of [256, 900, 1_800, 3_600, 7_000, 12_000]) {
       writer.recordRaw(raw, 20 + round);
       for (const ratio of [0.1, 0.2, 0.4, 0.8]) {
-        writer.recordCompressed(raw, raw * ratio, round % 2 === 0, 40 + round);
-        writer.recordCompressed(raw, raw * ratio, round % 2 === 1, 40 + round);
+        writer.recordCompressed(raw, raw * ratio, 40 + round);
       }
     }
   }
@@ -114,18 +113,18 @@ function workloads(): Record<string, (ops: number) => void> {
     },
     'receiver-profile-compressed': (ops) => {
       for (let op = 0; op < ops; op += 1) {
-        profile.writer.recordCompressed(1_800, 720, false, 50 + (op % 32));
+        profile.writer.recordCompressed(1_800, 720, 50 + (op % 32));
       }
     },
     'receiver-profile-raw-compressed': (ops) => {
       for (let op = 0; op < ops; op += 1) {
         profile.writer.recordRaw(1_800, 20 + (op % 32));
-        profile.writer.recordCompressed(1_800, 720, false, 50 + (op % 32));
+        profile.writer.recordCompressed(1_800, 720, 50 + (op % 32));
       }
     },
     'receiver-profile-publish-one': (ops) => {
       for (let op = 0; op < ops; op += 1) {
-        profile.writer.recordCompressed(1_800, 720, false, 50 + (op % 32));
+        profile.writer.recordCompressed(1_800, 720, 50 + (op % 32));
         now += 250;
         profile.writer.publish(1_000, now);
       }
@@ -136,8 +135,7 @@ function workloads(): Record<string, (ops: number) => void> {
       for (let op = 0; op < ops; op += 1) {
         for (const raw of sizes) {
           for (const ratio of ratios) {
-            profile.writer.recordCompressed(raw, raw * ratio, false, 50 + (op % 32));
-            profile.writer.recordCompressed(raw, raw * ratio, true, 50 + (op % 32));
+            profile.writer.recordCompressed(raw, raw * ratio, 50 + (op % 32));
           }
         }
         now += 250;

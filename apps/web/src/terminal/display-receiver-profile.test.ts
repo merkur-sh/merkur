@@ -14,8 +14,8 @@ describe('display receiver profile mailbox', () => {
     const reader = createDisplayReceiverProfileReader(mailbox);
 
     writer.recordRaw(1_500, 4);
-    writer.recordCompressed(1_500, 500, true, 10);
-    writer.recordCompressed(1_500, 400, true, 14);
+    writer.recordCompressed(1_500, 500, 10);
+    writer.recordCompressed(1_500, 400, 14);
     writer.publish(375);
 
     const profile = reader.readIfChanged();
@@ -24,7 +24,6 @@ describe('display receiver profile mailbox', () => {
     expect(profile?.ageMs).toBeLessThan(100);
     expect(profile?.buckets).toEqual([
       {
-        dictionaryClass: 1,
         sizeClass: 2,
         ratioClass: 2,
         sampleCount: 2,
@@ -42,7 +41,7 @@ describe('display receiver profile mailbox', () => {
     const writer = createDisplayReceiverProfileWriter(mailbox);
     const reader = createDisplayReceiverProfileReader(mailbox);
     for (let value = 1; value <= 40; value += 1) {
-      writer.recordCompressed(300, 150, false, value);
+      writer.recordCompressed(300, 150, value);
     }
     writer.publish(0);
     const bucket = reader.readIfChanged()?.buckets[0];
@@ -55,7 +54,7 @@ describe('display receiver profile mailbox', () => {
     const writer = createDisplayReceiverProfileWriter(mailbox);
     const reader = createDisplayReceiverProfileReader(mailbox);
     writer.recordRaw(300, 4);
-    writer.recordCompressed(300, 150, false, 12);
+    writer.recordCompressed(300, 150, 12);
     writer.publish(5);
     const first = reader.readIfChanged();
 
@@ -67,32 +66,31 @@ describe('display receiver profile mailbox', () => {
     expect(second?.serviceDebtUs).toBe(17);
     expect(second?.sampleRevision).toBe((first?.sampleRevision ?? 0) + 1);
 
-    writer.recordCompressed(300, 150, false, 20);
+    writer.recordCompressed(300, 150, 20);
     writer.publish(0);
     expect(reader.readIfChanged()?.buckets[0]?.meanUs).toBe(8);
 
     for (let value = 1; value <= 40; value += 1) writer.recordRaw(300, value);
-    writer.recordCompressed(300, 30, true, 50);
-    writer.recordCompressed(300, 30, true, 60);
+    writer.recordCompressed(300, 30, 50);
+    writer.recordCompressed(300, 30, 60);
     writer.publish(0);
-    expect(reader.readIfChanged()?.buckets[1]?.meanUs).toBe(31);
+    expect(reader.readIfChanged()?.buckets[0]?.meanUs).toBe(31);
   });
 
   test('a replacement writer clears every old bucket on its first publication', () => {
     const mailbox = createDisplayReceiverProfileBuffer();
     const reader = createDisplayReceiverProfileReader(mailbox);
     const first = createDisplayReceiverProfileWriter(mailbox);
-    first.recordCompressed(300, 150, false, 12);
-    first.recordCompressed(12_000, 1_000, true, 25);
+    first.recordCompressed(300, 150, 12);
+    first.recordCompressed(12_000, 1_000, 25);
     first.publish(5);
     expect(reader.readIfChanged()?.buckets).toHaveLength(2);
 
     const replacement = createDisplayReceiverProfileWriter(mailbox);
-    replacement.recordCompressed(900, 300, true, 7);
+    replacement.recordCompressed(900, 300, 7);
     replacement.publish(0);
     expect(reader.readIfChanged()?.buckets).toEqual([
       {
-        dictionaryClass: 1,
         sizeClass: 1,
         ratioClass: 2,
         sampleCount: 1,
@@ -123,7 +121,7 @@ describe('display receiver profile mailbox', () => {
         const raw = sizes[sizeClass] ?? 0;
         const ratio = ratios[bucket % 4] ?? 0;
         const value = (((round * 97 + bucket * 13) % 251) + 0.123456) * 1.137;
-        writer.recordCompressed(raw, raw * ratio, bucket >= 24, value);
+        writer.recordCompressed(raw, raw * ratio, value);
         samples.push(value);
         if (samples.length > 32) samples.shift();
       }
@@ -151,8 +149,8 @@ describe('display receiver profile mailbox', () => {
     const mailbox = createDisplayReceiverProfileBuffer();
     const writer = createDisplayReceiverProfileWriter(mailbox);
     const reader = createDisplayReceiverProfileReader(mailbox);
-    writer.recordCompressed(2_000, 200, false, 3);
-    writer.recordCompressed(2_000, 1_500, false, 40);
+    writer.recordCompressed(2_000, 200, 3);
+    writer.recordCompressed(2_000, 1_500, 40);
     writer.publish(0);
     expect(
       reader.readIfChanged()?.buckets.map((bucket) => [bucket.ratioClass, bucket.meanUs]),
@@ -166,7 +164,7 @@ describe('display receiver profile mailbox', () => {
     const mailbox = createDisplayReceiverProfileBuffer();
     const writer = createDisplayReceiverProfileWriter(mailbox);
     const reader = createDisplayReceiverProfileReader(mailbox);
-    writer.recordCompressed(2_000, 200, false, 3);
+    writer.recordCompressed(2_000, 200, 3);
     writer.publish(0, Date.now() - 51 * 24 * 60 * 60 * 1_000);
     expect(reader.readIfChanged()?.ageMs).toBeGreaterThan(30 * 24 * 60 * 60 * 1_000);
   });

@@ -75,7 +75,6 @@ test('WASM viewer admits a complete snapshot atomically across reusable ingress 
   try {
     viewer.fence(0, 1);
     expect(output(viewer, 0).kind).toBe(2);
-    expect(output(viewer, 0).words[0]).toBe(1); // dictionary readiness
     for (let index = 0; index < 2; index += 1) {
       const chunk = ingressFixture(3, 2, 1, 0, false, index);
       chunk[DISPLAY_PATCH_FLAGS_OFFSET] = 1;
@@ -213,7 +212,7 @@ test('WASM ACK bytes describe applied deltas and a fence claims the retained row
       expect(hashes.getBigUint64(row * 8)).toBe(viewer.row_hash(row));
     }
     expect(viewer.presentation_viewport_rows()).toBe(shown);
-    expect(output(viewer, 3).kind).toBe(4);
+    expect(output(viewer, 3).kind).toBe(0);
   } finally {
     viewer.free();
   }

@@ -290,18 +290,6 @@ pub(crate) struct DisplaySim {
     /// harness applies synchronously, so this is false unless a test models a
     /// sustained producer.
     pty_output_pending: bool,
-    /// Dictionary prepare completions from the `merkur-display-dict` thread.
-    ///
-    /// Production drains it on the `dictionary_prepare_completion_rx` arm of
-    /// its select loop in `main.rs`. The harness waits on it explicitly after
-    /// every flush that submitted a build (`has_dictionary_prepare_in_flight`),
-    /// so the dictionary step is deterministic: a `try_recv` drain raced the
-    /// build and installed the dictionary one flush earlier or later depending
-    /// on the host. Dropping the receiver would stop only dictionary builds —
-    /// display preparation runs on its own thread — but the simulator keeps
-    /// them, because a session with dictionaries is the pipeline real
-    /// sessions run.
-    dictionary_rx: mpsc::Receiver<super::send::DictionaryPrepareCompletion>,
     /// Scratch for ACK handling, so a delivered ACK allocates nothing.
     /// Browser-side Noise transports, one per viewer.
     browsers: HashMap<String, crate::e2e::NoiseTransport>,
@@ -457,7 +445,7 @@ impl DisplaySim {
         // the compression time it measures would make every run depend on the host's load.
         let mut scratch = DisplayScratch::new(4);
         scratch.prepare.pin_sender_service(SIM_SENDER_SERVICE_US);
-        let (worker, completion_rx, snapshot_completion_rx, dictionary_rx) =
+        let (worker, completion_rx, snapshot_completion_rx) =
             super::send::with_pinned_sender_service(
                 SIM_SENDER_SERVICE_US,
                 start_display_prepare_worker,
@@ -528,7 +516,6 @@ impl DisplaySim {
             ack_drop_budget: 0,
             dropped_acks: 0,
             pty_output_pending: false,
-            dictionary_rx,
             browsers,
             clock_step_ms: 0.0,
             delta_served_last_flush: Vec::new(),
@@ -652,46 +639,6 @@ impl DisplaySim {
 
     pub(crate) fn dropped_wire(&self) -> &[SimDroppedFrame] {
         &self.dropped_wire
-    }
-
-    /// Announce dictionary support the way a real browser does, and
-    /// acknowledge whatever the daemon installs.
-    ///
-    /// `apps/web/src/transport-worker.ts` sends `display_dict_ready` once the
-    /// terminal epoch is ready, and ACKs each install by id. Until both happen
-    /// the daemon refuses to compress against a dictionary, because a successful
-    /// reliable write is not evidence the browser installed anything.
-    ///
-    /// The reason has since inverted and the gate has not. Under raw-content LZ4
-    /// a dictionary the peer lacked decoded to plausible garbage; zstd's
-    /// finalized dictionary stamps an id into every frame header, so the same
-    /// divergence is a rejected frame instead. A rejected frame is still a
-    /// broken screen, so the gate stays. A simulator that never announces
-    /// support measures a pipeline with dictionary compression permanently
-    /// disabled either way.
-    pub(crate) fn enable_display_dictionary(&mut self) {
-        for peer in self.peers.values_mut() {
-            peer.display_dictionary_ready = true;
-        }
-    }
-
-    /// Acknowledge the exact dictionary a viewer installed.
-    ///
-    /// This is what a browser does: it acknowledges the dictionary it just
-    /// stored, by id. Acknowledging whatever happens to be pending — which is
-    /// what [`Self::acknowledge_pending_dictionaries`] does — lets the daemon
-    /// compress against a dictionary no viewer holds.
-    pub(crate) fn acknowledge_dictionary(&mut self, peer_id: &str, id: u32) -> bool {
-        self.peers
-            .get_mut(peer_id)
-            .is_some_and(|peer| peer.dictionary.acknowledge(id))
-    }
-
-    pub(crate) fn active_dictionary_id(&self, peer_id: &str) -> Option<u32> {
-        self.peers
-            .get(peer_id)
-            .and_then(|peer| peer.dictionary.active())
-            .map(|dictionary| dictionary.id)
     }
 
     /// Run the heartbeat, which is what emits the display hash digest.
@@ -1978,17 +1925,6 @@ impl DisplaySim {
         // actually admitted, as opposed to the ones the encoder built, and the
         // two differ whenever pacing or a closed carrier drops work.
         let on_wire = self.drain_wire();
-        // Finish the dictionary build this flush submitted, as the daemon's
-        // `dictionary_prepare_completion_rx` select arm does — but waiting for
-        // it, so the next flush installs the dictionary deterministically. A
-        // fenced build's stale completion arrives first and is rejected by
-        // token; the loop keeps waiting for the live one.
-        while self.worker.has_dictionary_prepare_in_flight() {
-            let Some(completion) = self.dictionary_rx.recv().await else {
-                break;
-            };
-            crate::display::send::finish_dictionary_prepare(completion, &mut self.worker);
-        }
         while let Ok((channel_id, peer_id, bytes)) = self.reliable_rx.try_recv() {
             let len = bytes.len();
             self.reliable.push(SimReliableFrame {
@@ -3967,7 +3903,7 @@ mod tests {
 }
 
 /// MZ measured on recorded sessions through the production pipeline and the
-/// real browser terminal: the same replay with MZ on and off, bytes on every
+/// real browser terminal: the same replay with MZ on and off (raw frames), bytes on every
 /// lane, frames refused for an unresolvable reference, and the browser grid
 /// converging on the daemon's. Recordings are `MZPTY1` files (u16 columns and
 /// rows, then `u64 µs | u32 length | bytes` chunks) in
@@ -4034,24 +3970,18 @@ mod mz_census {
         datagram_bytes: usize,
         reliable_bytes: usize,
         datagrams: usize,
-        mz_frames: usize,
         compressed_frames: usize,
         unresolved: usize,
         dropped: usize,
         diverged_rows: usize,
-        /// Daemon CPU in zstd and MZ attempts, and browser CPU staging and
-        /// applying every delivered frame, in microseconds.
-        zstd_us: u64,
+        /// Daemon CPU in MZ attempts, and browser CPU staging and applying
+        /// every delivered frame, in microseconds.
         mz_us: u64,
         browser_us: u64,
     }
 
     async fn replay(recording: &Recording, mz: bool, loss_pct: u32) -> Replay {
         MZ_DISABLED_FOR_CENSUS.store(!mz, Relaxed);
-        crate::display::compressor::ZSTD_DISABLED_FOR_CENSUS.store(
-            mz && std::env::var("MERKUR_MZ_ALONE").is_ok(),
-            Relaxed,
-        );
         let (cols, rows) = (recording.cols, recording.rows);
         let mut sim = crate::display::send::with_pinned_sender_service(20.0, || {
             DisplaySim::new(cols, rows)
@@ -4064,8 +3994,7 @@ mod mz_census {
         for (t_us, bytes) in &recording.chunks {
             sim.schedule_pty_write(*t_us as f64 / 1000.0, bytes.clone());
         }
-        use crate::display::compressor::{CENSUS_MZ_NS, CENSUS_ZSTD_NS};
-        CENSUS_ZSTD_NS.store(0, Relaxed);
+        use crate::display::compressor::CENSUS_MZ_NS;
         CENSUS_MZ_NS.store(0, Relaxed);
         let mut browser = std::time::Duration::ZERO;
         let mut steps = 0usize;
@@ -4093,12 +4022,10 @@ mod mz_census {
             datagram_bytes: sim.wire_bytes(),
             reliable_bytes: sim.reliable().iter().map(|frame| frame.len).sum(),
             datagrams: sim.wire().len(),
-            mz_frames: viewer.mz_seen,
             compressed_frames: viewer.compressed_seen,
             unresolved: viewer.references_unresolved,
             dropped: sim.dropped_count(),
             diverged_rows,
-            zstd_us: CENSUS_ZSTD_NS.load(Relaxed) / 1000,
             mz_us: CENSUS_MZ_NS.load(Relaxed) / 1000,
             browser_us: browser.as_micros() as u64,
         };
@@ -4134,7 +4061,7 @@ mod mz_census {
             chunks,
         };
         let replayed = replay(&recording, true, 5).await;
-        assert!(replayed.mz_frames > 0, "{replayed:?}");
+        assert!(replayed.compressed_frames > 0, "{replayed:?}");
         assert_eq!(replayed.unresolved, 0, "{replayed:?}");
         assert_eq!(replayed.diverged_rows, 0, "{replayed:?}");
         assert!(
@@ -4157,18 +4084,16 @@ mod mz_census {
                 total.datagram_bytes += r.datagram_bytes;
                 total.reliable_bytes += r.reliable_bytes;
                 total.datagrams += r.datagrams;
-                total.mz_frames += r.mz_frames;
                 total.compressed_frames += r.compressed_frames;
                 total.unresolved += r.unresolved;
                 total.dropped += r.dropped;
                 total.diverged_rows += r.diverged_rows;
-                total.zstd_us += r.zstd_us;
                 total.mz_us += r.mz_us;
                 total.browser_us += r.browser_us;
             }
             let bytes = |r: &Replay| r.datagram_bytes + r.reliable_bytes;
             println!(
-                "MZ {:<24} zstd {:>8} mz {:>8} {:+6.1}%  {:?}",
+                "MZ {:<24} raw {:>8} mz {:>8} {:+6.1}%  {:?}",
                 recording.name,
                 bytes(&arms[0]),
                 bytes(&arms[1]),
@@ -4179,7 +4104,7 @@ mod mz_census {
         MZ_DISABLED_FOR_CENSUS.store(false, Relaxed);
         let bytes = |r: &Replay| r.datagram_bytes + r.reliable_bytes;
         println!(
-            "MZ TOTAL loss {loss_pct}%: zstd {} mz {} {:+.1}%\n  zstd {:?}\n  mz   {:?}",
+            "MZ TOTAL loss {loss_pct}%: raw {} mz {} {:+.1}%\n  raw {:?}\n  mz  {:?}",
             bytes(&totals[0]),
             bytes(&totals[1]),
             (bytes(&totals[1]) as f64 / bytes(&totals[0]).max(1) as f64 - 1.0) * 100.0,

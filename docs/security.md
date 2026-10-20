@@ -974,7 +974,7 @@ merges when a maintainer merges it, after the same checks as any other pull requ
 ## Parser And Ownership Assurance
 
 [`tools/bolero`](../tools/bolero/README.md) runs the actual wire and STUN parsers and the
-terminal display ingress, staging and zstd decompression boundaries.
+terminal display ingress, staging and MZ decode boundaries.
 `bun run test:fuzz:smoke` checks encoder seeds and replays a fixed seed;
 `bun run test:fuzz:campaign 10000` runs five bounded
 coverage-guided libFuzzer campaigns and retains corpus and crash artifacts. Tests check

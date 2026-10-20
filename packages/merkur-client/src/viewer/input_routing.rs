@@ -116,8 +116,8 @@ mod tests {
     fn a_word_from_a_generation_the_terminal_has_not_reached_outlasts_the_old_one() {
         let mut hold = InputRoutingHold::default();
         hold.note_applied(4, 10);
-        // A withdrawn dictionary opened generation 5 before any of its frames
-        // left, and the paused drain read the word in it.
+        // Generation 5 opened before any of its frames left, and the paused
+        // drain read the word in it.
         assert!(hold.admit(5, 0, 1, 4, 10));
         assert!(!hold.note_applied(4, 11));
         // Generation 5 never sends a frame: its snapshot opens generation 6.

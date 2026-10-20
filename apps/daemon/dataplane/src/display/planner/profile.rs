@@ -5,8 +5,8 @@
 //! flow of `send.rs::pack_captured_rows`: utility domains, the open FEC group
 //! carried into every replan, each compression attempt's achieved ratio fed
 //! into the flush-local profile, and exact raw records consuming the
-//! already-optimal suffix. Compression is real zstd at the production level over
-//! each span's real encoded cells. Sender service is a fixed deterministic
+//! already-optimal suffix. Compression is real MZ over each span's real encoded
+//! cells. Sender service is a fixed deterministic
 //! model instead of a wall-clock sample, so every run replays one call sequence
 //! and the printed fingerprint compares two builds' plans exactly.
 //!
@@ -155,7 +155,7 @@ fn peer_model(rtt_ms: f64) -> PeerDisplayPlanningModel {
 }
 
 fn profiles(model: &PeerDisplayPlanningModel) -> [PeerPlanningSnapshot; CONTENT_CLASSES] {
-    CONTENT_CLASS_BY_INDEX.map(|class| model.snapshot(class, DictionaryClass::Plain))
+    CONTENT_CLASS_BY_INDEX.map(|class| model.snapshot(class))
 }
 
 /// Deterministic sender-service sample for one attempt, in place of a clock
@@ -222,8 +222,9 @@ struct Worker {
     global: GlobalDisplayPlanningModel,
     workspace: PlannerWorkspace,
     plan: BatchPartitionPlan,
-    zstd: zstd::bulk::Compressor<'static>,
+    mz: merkur_codec::mz::MzEncoder,
     span: Vec<u8>,
+    payload: Vec<u8>,
     batches: Vec<(usize, bool)>,
     planned: Vec<PlannedRow>,
     count_work: bool,
@@ -235,8 +236,9 @@ impl Worker {
             global: GlobalDisplayPlanningModel::default(),
             workspace: PlannerWorkspace::default(),
             plan: BatchPartitionPlan::default(),
-            zstd: zstd::bulk::Compressor::new(3).expect("zstd context"),
+            mz: merkur_codec::mz::MzEncoder::default(),
             span: Vec::new(),
+            payload: Vec::new(),
             batches: Vec::new(),
             planned: Vec::new(),
             count_work,
@@ -285,12 +287,15 @@ impl Worker {
             for row in rows {
                 self.span.extend_from_slice(&row.encoded);
             }
-            let compressed = self.zstd.compress(&self.span).expect("zstd compress");
+            self.payload.clear();
+            self.mz
+                .encode(&self.span, rows.len() as u16, &[], &mut self.payload)
+                .expect("captured rows code");
+            let compressed = &self.payload;
             self.global.observe_sender_service(
                 ExecutionLane::Bulk,
                 raw_bytes,
                 class,
-                DictionaryClass::Plain,
                 modeled_sender_service_us(raw_bytes),
             );
             let compressed_bytes = HEADER_BYTES + 4 + compressed.len();
@@ -302,7 +307,6 @@ impl Worker {
                     profiles[class.index()],
                     raw_bytes,
                     compressed_bytes,
-                    DictionaryClass::Plain,
                     context,
                 ) == Representation::Compressed;
                 let wire = if used { compressed_bytes } else { raw_bytes };
@@ -353,7 +357,6 @@ impl Worker {
             &self.global,
             profiles,
             ExecutionLane::Bulk,
-            DictionaryClass::Plain,
             context,
             rows,
             HEADER_BYTES,
@@ -481,7 +484,6 @@ fn derive_work(
                     ExecutionLane::Bulk,
                     [512, 768, 1_536, 3_072, 6_144, 12_288][class],
                     CONTENT_CLASS_BY_INDEX[content],
-                    DictionaryClass::Plain,
                 )
             })
         });
@@ -652,7 +654,6 @@ fn planner_replan_sequence_profile() {
                             peer.observe_ratio(
                                 raw,
                                 class,
-                                DictionaryClass::Plain,
                                 (wire as f64 / raw as f64).clamp(0.01, 1.0),
                             );
                         }
@@ -750,7 +751,6 @@ fn planner_first_call_profile() {
                             peer.observe_ratio(
                                 raw,
                                 class,
-                                DictionaryClass::Plain,
                                 (wire as f64 / raw as f64).clamp(0.01, 1.0),
                             );
                         }
@@ -784,7 +784,6 @@ fn planner_first_call_profile() {
                             &worker.global,
                             &snapshot,
                             ExecutionLane::Bulk,
-                            DictionaryClass::Plain,
                             context,
                             &planned,
                             HEADER_BYTES,
@@ -852,7 +851,6 @@ fn planner_hot_loop_profile() {
             &worker.global,
             &snapshot,
             ExecutionLane::Bulk,
-            DictionaryClass::Plain,
             context,
             &planned,
             HEADER_BYTES,
@@ -894,7 +892,7 @@ fn warm_peer_model(rtt_ms: f64) -> PeerDisplayPlanningModel {
         }
         for class in CONTENT_CLASS_BY_INDEX {
             for bytes in [512, 768, 1_536, 3_072, 6_144, 12_288] {
-                model.observe_ratio(bytes, class, DictionaryClass::Plain, 0.2 + 0.01 * jitter);
+                model.observe_ratio(bytes, class, 0.2 + 0.01 * jitter);
             }
         }
     }
@@ -940,7 +938,6 @@ fn planner_small_plan_profile() {
                                 lane,
                                 bytes,
                                 class,
-                                DictionaryClass::Plain,
                                 modeled_sender_service_us(bytes) + (sample % 5) as f64,
                             );
                         }
@@ -972,7 +969,6 @@ fn planner_small_plan_profile() {
                         ExecutionLane::Bulk,
                         [512, 768, 1_536, 3_072, 6_144, 12_288][class],
                         CONTENT_CLASS_BY_INDEX[content],
-                        DictionaryClass::Plain,
                     )
                 })
             });
@@ -1018,7 +1014,6 @@ fn planner_small_plan_profile() {
                             &global,
                             &snapshot,
                             lane,
-                            DictionaryClass::Plain,
                             context,
                             &planned,
                             HEADER_BYTES,
@@ -1071,12 +1066,7 @@ fn planner_reliable_only_scaling_profile() {
     for _ in 0..WARMUP_JOBS {
         let job = worker.run_job(&captured, profiles(&peer), context);
         for &(raw, wire, class) in &job.attempts {
-            peer.observe_ratio(
-                raw,
-                class,
-                DictionaryClass::Plain,
-                (wire as f64 / raw as f64).clamp(0.01, 1.0),
-            );
+            peer.observe_ratio(raw, class, (wire as f64 / raw as f64).clamp(0.01, 1.0));
         }
     }
     let snapshot = profiles(&peer);
@@ -1092,7 +1082,6 @@ fn planner_reliable_only_scaling_profile() {
                 &worker.global,
                 &snapshot,
                 ExecutionLane::Bulk,
-                DictionaryClass::Plain,
                 context,
                 suffix,
                 HEADER_BYTES,
@@ -1166,7 +1155,6 @@ fn planner_posterior_read_profile() {
                         lane,
                         bytes,
                         class,
-                        DictionaryClass::Plain,
                         modeled_sender_service_us(bytes) + (sample % 5) as f64,
                     );
                 }
@@ -1205,7 +1193,6 @@ fn planner_posterior_read_profile() {
             ExecutionLane::Bulk,
             1_536,
             ContentClass::Color,
-            DictionaryClass::Plain,
             modeled_sender_service_us(1_536) + (step % 5) as f64,
         );
     }));
@@ -1217,7 +1204,6 @@ fn planner_posterior_read_profile() {
                     ExecutionLane::Bulk,
                     [512, 768, 1_536, 3_072, 6_144, 12_288][class],
                     CONTENT_CLASS_BY_INDEX[content],
-                    DictionaryClass::Plain,
                 )
             })
         });
@@ -1234,12 +1220,7 @@ fn planner_posterior_read_profile() {
             fnv(
                 &mut fingerprint,
                 global
-                    .sender_service_upper_us(
-                        ExecutionLane::Bulk,
-                        bytes,
-                        content,
-                        DictionaryClass::Plain,
-                    )
+                    .sender_service_upper_us(ExecutionLane::Bulk, bytes, content)
                     .to_bits(),
             );
         }
@@ -1271,7 +1252,6 @@ fn retained_close_prices_follow_every_quote_and_width_change() {
                             &worker.global,
                             &profiles(&peer),
                             ExecutionLane::Bulk,
-                            DictionaryClass::Plain,
                             context,
                             &planned,
                             HEADER_BYTES,
@@ -1321,7 +1301,6 @@ fn planner_close_cache_profile() {
                         &worker.global,
                         &snapshot,
                         ExecutionLane::Inline,
-                        DictionaryClass::Plain,
                         context,
                         &planned,
                         HEADER_BYTES,
@@ -1375,7 +1354,6 @@ fn planner_group_bound_profile() {
                     &worker.global,
                     &snapshot,
                     ExecutionLane::Bulk,
-                    DictionaryClass::Plain,
                     context,
                     &planned,
                     HEADER_BYTES,

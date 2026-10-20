@@ -11,7 +11,6 @@ import {
   DISPLAY_DATAGRAM_HEADER_BODY_LENGTH_OFFSET,
   DISPLAY_DATAGRAM_HEADER_FLAGS_OFFSET,
   DISPLAY_DEMAND_SERIAL_OFFSET,
-  DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET,
   DISPLAY_ECHO_HORIZON_OFFSET,
   DISPLAY_FEC_HEADER_BYTES,
   DISPLAY_FEC_MAX_DATA_SHARDS,
@@ -20,8 +19,6 @@ import {
   DISPLAY_GENERATION_OFFSET,
   DISPLAY_GRID_ROWS_OFFSET,
   DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
-  DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
   DISPLAY_HEADER_FLAG_FEC_PROTECTED,
   DISPLAY_MESSAGE_TYPE_OFFSET,
   DISPLAY_PATCH_BODY_HEADER_BYTES,
@@ -101,20 +98,11 @@ describe('display stream wire conformance', () => {
     expect(DISPLAY_SEQUENCE_OFFSET).toBe(readRustConst('DISPLAY_SEQ_OFFSET'));
     expect(DISPLAY_GENERATION_OFFSET).toBe(readRustConst('DISPLAY_GENERATION_OFFSET'));
     expect(DISPLAY_VERSION_OFFSET).toBe(readRustConst('DISPLAY_VERSION_OFFSET'));
-    expect(DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD).toBe(
-      readRustConst('DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD'),
-    );
     expect(DISPLAY_HEADER_FLAG_FEC_PROTECTED).toBe(
       readRustConst('DISPLAY_HEADER_FLAG_FEC_PROTECTED'),
     );
-    expect(DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT).toBe(
-      readRustConst('DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT'),
-    );
     expect(DISPLAY_HEADER_FLAG_COMPRESSED_MZ).toBe(
       readRustConst('DISPLAY_HEADER_FLAG_COMPRESSED_MZ'),
-    );
-    expect(DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET).toBe(
-      readRustConst('DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET'),
     );
     expect(DISPLAY_FEC_HEADER_BYTES).toBe(readRustConst('DISPLAY_FEC_HEADER_BYTES'));
     expect(DISPLAY_FEC_MAX_DATA_SHARDS).toBe(
@@ -163,7 +151,7 @@ describe('display stream wire conformance', () => {
   });
 
   test('the patch body header ends with the scroll serial and then the echo horizon', () => {
-    expect(DISPLAY_PROTOCOL_VERSION).toBe(34);
+    expect(DISPLAY_PROTOCOL_VERSION).toBe(36);
     expect(DISPLAY_PATCH_BODY_HEADER_BYTES).toBe(
       readRustConst('FRAME_HEADER_FIXED_BYTES') + readRustConst('MAX_WIRE_HEADER_BYTES'),
     );
@@ -182,7 +170,7 @@ describe('display stream wire conformance', () => {
   test('daemon encoder and compressor import the codec authority', () => {
     expect(RUST_ENCODER_SOURCE).not.toMatch(/const\s+MSG_TYPE_DISPLAY_PATCH/);
     expect(RUST_COMPRESSOR_SOURCE).not.toMatch(
-      /const\s+(?:STREAM_HEADER_BYTES|MSG_TYPE_DISPLAY_PATCH|DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD)/,
+      /const\s+(?:STREAM_HEADER_BYTES|MSG_TYPE_DISPLAY_PATCH|DISPLAY_HEADER_FLAG_COMPRESSED_MZ)/,
     );
     expect(RUST_FEC_SOURCE).not.toMatch(/const\s+FEC_HEADER_BYTES/);
     expect(RUST_DATAPLANE_SOURCE).not.toMatch(/const\s+DISPLAY_HEADER_FLAG_FEC_PROTECTED/);

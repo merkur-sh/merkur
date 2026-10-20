@@ -27,8 +27,6 @@ merkur-wire = { path = "../packages-merkur-wire", "default-features" = false, fe
 bytes = { version = "1" }
 memchr = { version = "2" }
 tokio = { version = "1", features = ["full"] }
-zstd = { version = "0.14", features = ["experimental"] }
-zstd-sys = { version = "2.0" }
 crossbeam-channel = { version = "0.5" }
 arrayvec = { version = "0.7" }
 serde = { version = "1", features = ["derive"] }

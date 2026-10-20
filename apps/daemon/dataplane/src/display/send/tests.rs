@@ -1,6 +1,5 @@
 use super::*;
 use crate::connection::PeerTransport;
-use crate::display::compressor::{DISPLAY_DICTIONARY_MAX_BYTES, DISPLAY_DICTIONARY_MIN_BYTES};
 use crate::display::encoder::wire_bound;
 use crate::network::peer::{DeliveryMode, PeerMessage};
 
@@ -560,11 +559,9 @@ mod ack_route_invariance {
         partitions: Vec<(usize, Representation)>,
     }
 
-    fn packing_decision(peer: &PeerDisplayState, dictionary: DictionaryClass) -> PackingDecision {
+    fn packing_decision(peer: &PeerDisplayState) -> PackingDecision {
         let global = GlobalDisplayPlanningModel::default();
-        let snapshot = peer
-            .display_planning
-            .snapshot(ContentClass::Text, dictionary);
+        let snapshot = peer.display_planning.snapshot(ContentClass::Text);
         let context = display_planning_context(peer, DECISION_AT_MS, 0);
         let mut workspace = PlannerWorkspace::default();
         let mut partitions = BatchPartitionPlan::default();
@@ -572,7 +569,6 @@ mod ack_route_invariance {
             &global,
             &[snapshot; 3],
             ExecutionLane::Bulk,
-            dictionary,
             context,
             &[PlannedRow::of(600, ContentClass::Text); 8],
             FRAME_HEADER_BODY_BYTES,
@@ -587,12 +583,9 @@ mod ack_route_invariance {
                 ExecutionLane::Bulk,
                 5_000,
                 ContentClass::Text,
-                dictionary,
                 context,
             ),
-            fitted_representation: choose_after_compression(
-                snapshot, 5_000, 1_000, dictionary, context,
-            ),
+            fitted_representation: choose_after_compression(snapshot, 5_000, 1_000, context),
             partitions: (0..8).filter_map(|index| partitions.get(index)).collect(),
         }
     }
@@ -603,8 +596,7 @@ mod ack_route_invariance {
         for with_quotes in [false, true] {
             let cold = peer(with_quotes);
             let expected = ranks(&cold);
-            let expected_packing = [DictionaryClass::Plain, DictionaryClass::Finalized]
-                .map(|dictionary| packing_decision(&cold, dictionary));
+            let expected_packing = packing_decision(&cold);
             for original in [PeerTransport::WebTransport, PeerTransport::Edge] {
                 for ack_path in [PeerTransport::WebTransport, PeerTransport::Edge] {
                     for count in [0, 1, 8, 32] {
@@ -627,11 +619,7 @@ mod ack_route_invariance {
                                 expected,
                                 "quotes={with_quotes} original={original:?} ack={ack_path:?} count={count} return={return_ms} cadence={cadence_ms}"
                             );
-                            assert_eq!(
-                                [DictionaryClass::Plain, DictionaryClass::Finalized]
-                                    .map(|dictionary| packing_decision(&warmed, dictionary)),
-                                expected_packing
-                            );
+                            assert_eq!(packing_decision(&warmed), expected_packing);
                             assert_eq!(warmed.display_confirm.sample_count(), count);
                             for path in [PeerTransport::WebTransport, PeerTransport::Edge] {
                                 assert_eq!(warmed.paths.get(path).network_jitter_ewma_ms, 4.0);
@@ -823,9 +811,9 @@ fn compression_policy_for_test(
         recently_interactive,
         fit_relay_critical_datagram: false,
         planning_profiles: [
-            peer.snapshot(ContentClass::Sparse, DictionaryClass::Plain),
-            peer.snapshot(ContentClass::Text, DictionaryClass::Plain),
-            peer.snapshot(ContentClass::Color, DictionaryClass::Plain),
+            peer.snapshot(ContentClass::Sparse),
+            peer.snapshot(ContentClass::Text),
+            peer.snapshot(ContentClass::Color),
         ],
         planning_context: PlanningContext::default(),
         execution_lane,
@@ -1068,14 +1056,36 @@ fn multiple_noncritical_packets_keep_distinct_frames_in_one_presentation() {
     // the real browser terminal core: each independent transformation
     // must still apply, and only the rows on the lost datagram are absent.
     let mut receiver = term_wasm::Terminal::new_headless(COLS, ROWS);
-    let unused_dictionary = DisplayDictionary::new(1, peer.generation, vec![1; 256]);
     for datagram in &prepared[..prepared.len() - 1] {
-        let frame = decode_async_dictionary_benchmark_frame(datagram, &unused_dictionary);
+        let frame = decode_prepared_frame(datagram);
         assert!(receiver.apply_delta_seq(&frame, datagram.seq));
         for row in &datagram.rows {
             assert_eq!(receiver.row_hash(row.row), row.hash);
         }
     }
+}
+
+/// A prepared datagram as the raw frame it decodes to, for a receiver that
+/// applies raw frames. Resolves no references.
+fn decode_prepared_frame(datagram: &PreparedDisplayDatagram) -> Vec<u8> {
+    use merkur_codec::{DISPLAY_HEADER_FLAG_COMPRESSED_MZ, DISPLAY_HEADER_FLAGS_OFFSET};
+    let frame = datagram.frame.bytes();
+    if frame[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_MZ == 0 {
+        assert_eq!(
+            datagram.frame.planned_wire_len(datagram.header_reserve),
+            datagram.raw_bytes
+        );
+        return frame.to_vec();
+    }
+    let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
+    let rows = crate::display::compressor::decode_display_payload(frame).expect("decodes");
+    let mut raw = frame[..rows_offset].to_vec();
+    raw[DISPLAY_HEADER_FLAGS_OFFSET] &= !DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
+    raw.extend_from_slice(&rows);
+    let body_len = (raw.len() - STREAM_HEADER_BYTES) as u32;
+    raw[merkur_codec::DISPLAY_BODY_LENGTH_OFFSET..merkur_codec::DISPLAY_BODY_LENGTH_OFFSET + 4]
+        .copy_from_slice(&body_len.to_be_bytes());
+    raw
 }
 
 #[test]
@@ -2548,7 +2558,7 @@ fn row_predecessor_is_identical_across_raw_compressed_and_recovered_members() {
                 let mut encoded = Vec::new();
                 assert!(
                     compressor
-                        .compress_display_frame_into(frame.frame.bytes(), None, &mut encoded)
+                        .compress_display_frame_into(frame.frame.bytes(), &mut encoded)
                         .is_some()
                 );
                 frame.frame = StagedFrame::new(encoded);
@@ -2884,7 +2894,6 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                                     compressor
                                         .compress_display_frame_into(
                                             frame.frame.bytes(),
-                                            None,
                                             &mut encoded
                                         )
                                         .is_some()
@@ -3382,23 +3391,6 @@ fn flush_summary_for_test(selected_count: u32) -> DisplayFlushSummary {
     }
 }
 
-fn build_and_activate_test_dictionary(
-    peer: &mut PeerDisplayState,
-    fill: u8,
-) -> Arc<DisplayDictionary> {
-    let source: Arc<[u8]> = vec![fill; DISPLAY_DICTIONARY_MIN_BYTES].into();
-    let dictionary = peer
-        .dictionary
-        .build_next_prepared(
-            peer.generation,
-            Arc::clone(&source),
-            dictionary_hash(&source),
-        )
-        .expect("test dictionary must be due");
-    assert!(peer.dictionary.acknowledge(dictionary.id));
-    dictionary
-}
-
 #[tokio::test]
 async fn changed_ack_baseline_discards_worker_result_without_consuming_sequences() {
     let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
@@ -3423,8 +3415,6 @@ async fn changed_ack_baseline_discards_worker_result_without_consuming_sequences
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
         next_seq: initial_seq + 2,
-        dictionary_class: DictionaryClass::Plain,
-        compression_dictionary: None,
         // Captured against a baseline the peer no longer holds.
         buffers: PrepareBuffers {
             rows: vec![prepare_row_for_test(0, Arc::from(vec![CellRepr::BLANK; 2]))],
@@ -3481,8 +3471,6 @@ async fn same_arc_invalidation_discards_worker_result_without_consuming_sequence
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
         next_seq: initial_seq + 2,
-        dictionary_class: DictionaryClass::Plain,
-        compression_dictionary: None,
         buffers: PrepareBuffers {
             rows: vec![prepared_row],
             ..Default::default()
@@ -3552,8 +3540,6 @@ async fn newer_ack_of_same_exact_arc_preserves_worker_result() {
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
         next_seq: initial_seq + 2,
-        dictionary_class: DictionaryClass::Plain,
-        compression_dictionary: None,
         buffers: PrepareBuffers {
             rows: vec![prepared_row],
             ..Default::default()
@@ -3595,8 +3581,6 @@ async fn input_arriving_during_worker_preparation_rearms_header_flush() {
         completed_sync_update_epoch: 0,
         start_seq: initial_seq,
         next_seq: initial_seq,
-        dictionary_class: DictionaryClass::Plain,
-        compression_dictionary: None,
         buffers: PrepareBuffers::default(),
         summary: flush_summary_for_test(8),
     };
@@ -3616,169 +3600,6 @@ async fn input_arriving_during_worker_preparation_rearms_header_flush() {
     .await;
 
     assert!(peers["browser-1"].needs_full_diff);
-}
-
-#[tokio::test]
-async fn one_dictionary_rotation_before_worker_completion_remains_decodable() {
-    let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-    peer.needs_snapshot = false;
-    peer.needs_full_diff = false;
-    peer.noise = Some(established_daemon_noise());
-    let prepared_dictionary = build_and_activate_test_dictionary(&mut peer, b'a');
-    for _ in 0..crate::display::compressor::DISPLAY_DICTIONARY_REBUILD_FLUSHES {
-        peer.dictionary.observe_flush();
-    }
-    let current_dictionary = build_and_activate_test_dictionary(&mut peer, b'b');
-    assert!(!Arc::ptr_eq(&prepared_dictionary, &current_dictionary));
-
-    peer.display_prepare_in_flight = Some(11);
-    let generation = peer.generation;
-    let initial_seq = peer.next_datagram_seq;
-    let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
-    let completion = DisplayPrepareCompletion {
-        token: 11,
-        submitted_at: Instant::now(),
-        cpu_time: Duration::ZERO,
-        perf_timing: None,
-        generation,
-        display_revision: 3,
-        completed_sync_update_epoch: 0,
-        start_seq: initial_seq,
-        next_seq: initial_seq + 2,
-        dictionary_class: DictionaryClass::Finalized,
-        compression_dictionary: Some(prepared_dictionary),
-        buffers: PrepareBuffers::default(),
-        summary: flush_summary_for_test(8),
-    };
-
-    finish_display_prepare(
-        completion,
-        3,
-        &mut peers,
-        &mut idle_prepare_worker_for_test(),
-        100.0,
-        None,
-    )
-    .await;
-
-    let peer = &peers["browser-1"];
-    assert_eq!(peer.display_prepare_in_flight, None);
-    assert_eq!(peer.next_datagram_seq, initial_seq + 2);
-    assert!(
-        peer.dictionary
-            .active()
-            .is_some_and(|active| Arc::ptr_eq(active, &current_dictionary))
-    );
-}
-
-#[tokio::test]
-async fn two_dictionary_rotations_before_worker_completion_discard_result() {
-    let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-    peer.needs_snapshot = false;
-    peer.needs_full_diff = false;
-    peer.noise = Some(established_daemon_noise());
-    let prepared_dictionary = build_and_activate_test_dictionary(&mut peer, b'a');
-    for fill in *b"bc" {
-        for _ in 0..crate::display::compressor::DISPLAY_DICTIONARY_REBUILD_FLUSHES {
-            peer.dictionary.observe_flush();
-        }
-        build_and_activate_test_dictionary(&mut peer, fill);
-    }
-
-    peer.display_prepare_in_flight = Some(13);
-    let generation = peer.generation;
-    let initial_seq = peer.next_datagram_seq;
-    let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
-    let completion = DisplayPrepareCompletion {
-        token: 13,
-        submitted_at: Instant::now(),
-        cpu_time: Duration::ZERO,
-        perf_timing: None,
-        generation,
-        display_revision: 3,
-        completed_sync_update_epoch: 0,
-        start_seq: initial_seq,
-        next_seq: initial_seq + 2,
-        dictionary_class: DictionaryClass::Finalized,
-        compression_dictionary: Some(prepared_dictionary),
-        buffers: PrepareBuffers::default(),
-        summary: flush_summary_for_test(8),
-    };
-
-    finish_display_prepare(
-        completion,
-        3,
-        &mut peers,
-        &mut idle_prepare_worker_for_test(),
-        100.0,
-        None,
-    )
-    .await;
-
-    let peer = &peers["browser-1"];
-    assert_eq!(peer.display_prepare_in_flight, None);
-    assert!(peer.needs_full_diff);
-    assert_eq!(peer.next_datagram_seq, initial_seq);
-}
-
-#[tokio::test]
-async fn dictionary_free_worker_result_survives_later_dictionary_install() {
-    let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-    peer.needs_snapshot = false;
-    peer.needs_full_diff = false;
-    peer.noise = Some(established_daemon_noise());
-    peer.display_prepare_in_flight = Some(12);
-    let generation = peer.generation;
-    let initial_seq = peer.next_datagram_seq;
-
-    // The request captured None. Installing a dictionary before completion
-    // must not invalidate frames that do not reference any dictionary.
-    let current_dictionary = build_and_activate_test_dictionary(&mut peer, b'c');
-    let mut peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
-    let completion = DisplayPrepareCompletion {
-        token: 12,
-        submitted_at: Instant::now(),
-        cpu_time: Duration::ZERO,
-        perf_timing: None,
-        generation,
-        display_revision: 3,
-        completed_sync_update_epoch: 0,
-        start_seq: initial_seq,
-        next_seq: initial_seq + 2,
-        dictionary_class: DictionaryClass::Plain,
-        compression_dictionary: None,
-        buffers: PrepareBuffers::default(),
-        summary: flush_summary_for_test(0),
-    };
-
-    finish_display_prepare(
-        completion,
-        3,
-        &mut peers,
-        &mut idle_prepare_worker_for_test(),
-        100.0,
-        None,
-    )
-    .await;
-
-    let peer = &peers["browser-1"];
-    assert_eq!(peer.display_prepare_in_flight, None);
-    assert_eq!(peer.next_datagram_seq, initial_seq + 2);
-    assert!(
-        peer.dictionary
-            .active()
-            .is_some_and(|active| Arc::ptr_eq(active, &current_dictionary))
-    );
-}
-
-fn dictionary_completion_for_test(token: u64) -> DictionaryPrepareCompletion {
-    DictionaryPrepareCompletion {
-        token,
-        display_revision: 7,
-        cpu_time: Duration::ZERO,
-        source: Arc::<[u8]>::from([]),
-        hash: 0,
-    }
 }
 
 #[tokio::test]
@@ -3847,15 +3668,11 @@ fn idle_prepare_worker_for_test() -> DisplayPrepareWorker {
     let (interactive_tx, _interactive_rx) = crossbeam_channel::bounded(1);
     let (bulk_tx, _bulk_rx) = crossbeam_channel::bounded(1);
     let (snapshot_tx, _snapshot_rx) = crossbeam_channel::bounded(1);
-    let (dictionary_tx, _dictionary_rx) = crossbeam_channel::bounded(1);
     DisplayPrepareWorker {
         interactive_tx,
         bulk_tx,
         snapshot_tx,
-        dictionary_tx,
         next_token: 0,
-        dictionary_in_flight: None,
-        dictionary_ready: None,
         spare: Vec::new(),
     }
 }
@@ -4028,57 +3845,6 @@ fn graphics_only_rows_encode_exactly_and_ack_the_retained_revision() {
     let deleted = merkur_codec::iter_rows(&frame).next().unwrap().unwrap();
     assert_eq!((deleted.left, deleted.right), (0, 0));
     assert!(deleted.graphics.is_empty());
-}
-
-#[test]
-fn last_readiness_withdrawal_fences_running_dictionary_prepare() {
-    let mut worker = idle_prepare_worker_for_test();
-    worker.dictionary_in_flight = Some(21);
-    let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-    peer.display_dictionary_ready = false;
-    let peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
-
-    fence_dictionary_preparation_without_consumers(&mut worker, &peers);
-    assert_eq!(worker.dictionary_in_flight, None);
-
-    // The CPU worker is not cancellable, but its eventual stale token can
-    // no longer republish a source after readiness is granted again.
-    finish_dictionary_prepare(dictionary_completion_for_test(21), &mut worker);
-    assert!(worker.dictionary_ready.is_none());
-}
-
-#[test]
-fn last_readiness_withdrawal_clears_ready_dictionary_completion() {
-    let mut worker = idle_prepare_worker_for_test();
-    worker.dictionary_in_flight = Some(22);
-    finish_dictionary_prepare(dictionary_completion_for_test(22), &mut worker);
-    assert!(worker.dictionary_ready.is_some());
-
-    let peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-    let peers = PeerMap::from([(Arc::clone(&peer.peer_id), peer)]);
-    fence_dictionary_preparation_without_consumers(&mut worker, &peers);
-
-    assert!(worker.dictionary_ready.is_none());
-}
-
-#[test]
-fn one_ready_peer_preserves_shared_dictionary_prepare() {
-    let mut worker = idle_prepare_worker_for_test();
-    worker.dictionary_in_flight = Some(23);
-    let withdrawn = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
-    let mut ready_peer = PeerDisplayState::new("browser-2".into(), PeerTransport::Edge);
-    ready_peer.authenticated = true;
-    ready_peer.noise = Some(established_daemon_noise());
-    ready_peer.display_dictionary_ready = true;
-    let peers = HashMap::from([
-        (withdrawn.peer_id.clone(), withdrawn),
-        (ready_peer.peer_id.clone(), ready_peer),
-    ]);
-
-    fence_dictionary_preparation_without_consumers(&mut worker, &peers);
-    assert_eq!(worker.dictionary_in_flight, Some(23));
-    finish_dictionary_prepare(dictionary_completion_for_test(23), &mut worker);
-    assert!(worker.dictionary_ready.is_some());
 }
 
 #[test]
@@ -4279,7 +4045,7 @@ fn relayed_large_interactive_critical_row_is_compressed_into_a_datagram() {
     assert!(prepared.frame.wire_bound() <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES);
     assert_ne!(
         prepared.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
-            & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+            & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
         0
     );
     assert!(uses_display_datagram(&prepared));
@@ -4302,7 +4068,7 @@ fn direct_critical_and_relayed_noncritical_interactive_rows_stay_uncompressed() 
         );
         assert_eq!(
             prepared.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
-                & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+                & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
             0
         );
         assert!(!uses_display_datagram(&prepared));
@@ -4319,7 +4085,7 @@ fn cold_interactive_origin_tui_redraw_bootstraps_cross_row_compression() {
     let mut peer = PeerDisplayState::new("browser-1".into(), PeerTransport::Edge);
     peer.display_cache.resize(COLS, ROWS);
     // The redraw answers a just-received input. That fact must keep a truly
-    // small echo out of zstd without making each packet-sized slice of this
+    // small echo out of compression without making each packet-sized slice of this
     // full presentation masquerade as a small echo too.
     peer.last_input_at_ms = 100.0;
     peer.latest_input_seq = 3;
@@ -4380,7 +4146,7 @@ fn cold_interactive_origin_tui_redraw_bootstraps_cross_row_compression() {
     );
     assert!(prepared.iter().any(|datagram| {
         datagram.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
-            & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
+            & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ
             != 0
     }));
     assert!(
@@ -4472,7 +4238,6 @@ fn pack_heterogeneous_order(compressible_prefix: bool) -> (usize, usize, Vec<(u1
         terminal.current_display_header(merkur_codec::FrameKind::Delta),
         0,
         &policy,
-        None,
         false,
         &mut compressor,
         &mut scratch,
@@ -4829,9 +4594,7 @@ fn prepared_snapshot_for_test(
             peer_id: Arc::clone(&peer.peer_id),
             prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
             prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
-            profile: peer
-                .display_planning
-                .snapshot(content_class, DictionaryClass::Plain),
+            profile: peer.display_planning.snapshot(content_class),
             context: PlanningContext {
                 fec_enabled: false,
                 ..PlanningContext::default()
@@ -5296,104 +5059,6 @@ fn display_resume_body(generation: u32, cols: u16, rows: u16) -> Vec<u8> {
     body.extend_from_slice(&cols.to_be_bytes());
     body.extend_from_slice(&rows.to_be_bytes());
     body
-}
-
-/// A resume body carrying row hashes: the browser is stating it preserved
-/// its grid, and therefore its dictionary slots too.
-fn display_resume_body_with_hashes(
-    generation: u32,
-    cols: u16,
-    rows: u16,
-    hashes: &[u64],
-) -> Vec<u8> {
-    let mut body = display_resume_body(generation, cols, rows);
-    body.push(crate::session::resume::DISPLAY_RESUME_HASHES_VERSION);
-    body.push(0);
-    body.extend_from_slice(&(hashes.len() as u16).to_be_bytes());
-    for hash in hashes {
-        body.extend_from_slice(&hash.to_be_bytes());
-    }
-    body
-}
-
-/// A carrier swap must not cost a dictionary re-install.
-///
-/// The browser keeps its dictionary exactly when it preserves its display,
-/// and it publishes row hashes under exactly the same condition — so a claim
-/// carrying hashes is the peer stating it still holds the dictionary the
-/// daemon retained across `carrier_boundary`. Discarding here would force a
-/// readiness/install/ack round trip and cold compression on precisely the
-/// repair frames the user is waiting for.
-#[test]
-fn a_resume_claim_with_hashes_keeps_the_compression_dictionary() {
-    let peer_id = "rebound";
-    let mut peer = PeerDisplayState::new(peer_id.into(), PeerTransport::Edge);
-    peer.authenticated = true;
-    peer.noise = Some(established_daemon_noise());
-    peer.generation = 7;
-    peer.display_cache.resize(2, 1);
-    peer.display_cache.initialized = true;
-    peer.awaiting_resume_until_ms = Some(500.0);
-    peer.display_dictionary_ready = true;
-    let mut peers = PeerMap::from([(peer_id.into(), peer)]);
-
-    crate::session::resume::handle_display_resume(
-        &display_resume_message(peer_id),
-        &display_resume_body_with_hashes(7, 2, 1, &[0, 0]),
-        &mut peers,
-        &[],
-        &HashMap::new(),
-    );
-
-    assert!(
-        peers[peer_id].display_dictionary_ready,
-        "a peer that published row hashes still holds its dictionary"
-    );
-}
-
-/// The converse, and the reason the retention above is safe: a claim with no
-/// hashes is the peer stating it discarded the grid, so anything the daemon
-/// still holds describes bytes that are gone.
-#[test]
-fn a_resume_claim_without_hashes_discards_the_compression_dictionary() {
-    let peer_id = "reset";
-    let mut peer = PeerDisplayState::new(peer_id.into(), PeerTransport::Edge);
-    peer.authenticated = true;
-    peer.noise = Some(established_daemon_noise());
-    peer.generation = 7;
-    peer.display_cache.resize(2, 1);
-    peer.display_cache.initialized = true;
-    peer.awaiting_resume_until_ms = Some(500.0);
-    peer.display_dictionary_ready = true;
-    let mut peers = PeerMap::from([(peer_id.into(), peer)]);
-
-    crate::session::resume::handle_display_resume(
-        &display_resume_message(peer_id),
-        &display_resume_body(7, 2, 1),
-        &mut peers,
-        &[],
-        &HashMap::new(),
-    );
-
-    assert!(
-        !peers[peer_id].display_dictionary_ready,
-        "a peer that kept no grid cannot be compressed against"
-    );
-}
-
-/// The claim never arrived, so the daemon cannot know what the peer kept and
-/// must fail closed rather than compress against a guess.
-#[test]
-fn an_expired_resume_deadline_discards_the_compression_dictionary() {
-    let peer_id = "timed-out";
-    let mut peer = PeerDisplayState::new(peer_id.into(), PeerTransport::Edge);
-    peer.authenticated = true;
-    peer.awaiting_resume_until_ms = Some(100.0);
-    peer.display_dictionary_ready = true;
-    let mut peers = PeerMap::from([(peer_id.into(), peer)]);
-
-    assert_eq!(arm_expired_resume_snapshots(&mut peers, 200.0), 1);
-    assert!(!peers[peer_id].display_dictionary_ready);
 }
 
 #[test]
@@ -6047,7 +5712,7 @@ fn classify_forces_full_from_a_numeric_max_credited_baseline() {
 
 #[test]
 fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
-    use merkur_codec::{DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD, DISPLAY_HEADER_FLAGS_OFFSET};
+    use merkur_codec::{DISPLAY_HEADER_FLAG_COMPRESSED_MZ, DISPLAY_HEADER_FLAGS_OFFSET};
 
     // Snapshots are the largest frames in the system and ride the reliable
     // lane; before this they were sent raw.
@@ -6056,7 +5721,7 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
     // Every column occupied, so the snapshot is a genuinely full screen and
     // clears `SNAPSHOT_COMPRESSION_MIN_BYTES`. Rows are rotations of one
     // glyph cycle: incompressible within a row, highly compressible across
-    // them, which is what a real screenful of text looks like to zstd.
+    // them, which is what a real screenful of text looks like to MZ.
     for row in 0..40u16 {
         terminal.apply_bytes(format!("\x1b[{};1H", row + 1).as_bytes());
         let line: Vec<u8> = (0..120u16)
@@ -6067,8 +5732,8 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
     let (snapshot, _) = terminal.encode_snapshot_into(Vec::new());
 
     let mut planner = GlobalDisplayPlanningModel::default();
-    let profile = crate::display::planner::PeerDisplayPlanningModel::default()
-        .snapshot(ContentClass::Text, DictionaryClass::Plain);
+    let profile =
+        crate::display::planner::PeerDisplayPlanningModel::default().snapshot(ContentClass::Text);
     let context = PlanningContext {
         fec_enabled: false,
         carrier: CarrierDeliveryQuote {
@@ -6123,20 +5788,14 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
         .as_ref()
         .expect("full snapshot compression must shrink");
     assert_eq!(
-        choose_after_compression(
-            profile,
-            raw.len(),
-            compressed.len(),
-            DictionaryClass::Plain,
-            context,
-        ),
+        choose_after_compression(profile, raw.len(), compressed.len(), context,),
         Representation::Compressed,
     );
     let mut frame = compressed.clone();
     patch_stream_header(&mut frame, 0, 7, 13, 53, 53, false, true, 0, 1, 0, 0).unwrap();
 
     assert_ne!(
-        frame[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD,
+        frame[DISPLAY_HEADER_FLAGS_OFFSET] & DISPLAY_HEADER_FLAG_COMPRESSED_MZ,
         0,
         "a full-size snapshot must take the compressed path"
     );
@@ -6152,7 +5811,7 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
     assert!(header.presentation_end);
 
     // The display header stays visible; only row bytes are compressed.
-    let body = crate::display::compressor::decode_display_payload(&frame, None)
+    let body = crate::display::compressor::decode_display_payload(&frame)
         .expect("compressed snapshot body must decompress");
     assert_eq!(body, raw[STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES..]);
 }
@@ -6461,180 +6120,142 @@ fn production_scroll_literal_benchmark() {
     for rtt_ms in [50.0, 120.0, 200.0] {
         for (cols, rows) in [(120, 37), (120, 80), (384, 256)] {
             for learned_peer in [false, true] {
-                for finalized_dictionary in [false, true] {
-                    let mut state = ScrollBenchmarkState::new(cols, rows, 1);
-                    let mut peer = benchmark_noise_peer();
-                    peer.display_cache = clone_display_baseline(&state.peers[0]);
-                    peer.needs_snapshot = false;
-                    peer.paths.edge.available = true;
-                    peer.paths.edge.last_ack_at_ms = 100.0;
-                    peer.paths.edge.network_rtt_ewma_ms = rtt_ms;
-                    let quote = CarrierDeliveryQuote {
-                        one_way_us: rtt_ms * 500.0,
-                        ..CarrierDeliveryQuote::default()
-                    };
-                    peer.display_planning.observe_carrier_quote(1, quote);
-                    if finalized_dictionary {
-                        // Finalize only already-ACKed baseline content.
-                        // Training on the post-scroll grid would leak the
-                        // new output into a purported before-send source.
-                        let prepared = prepare_dictionary_off_loop(
-                            DictionaryPrepareRequest {
-                                token: 1,
-                                display_revision: 0,
-                                header: state
-                                    .terminal
-                                    .current_display_header(merkur_codec::FrameKind::Snapshot),
-                                rows: peer
-                                    .display_cache
-                                    .acked_row_cells
-                                    .iter()
-                                    .enumerate()
-                                    .map(|(row, cells)| CapturedRow {
-                                        graphics: PreparedGraphics::EMPTY,
-                                        row: row as u16,
-                                        hash: peer.display_cache.acked_row_hashes[row],
-                                        cells: Arc::clone(cells),
-                                    })
-                                    .collect(),
-                            },
-                            &mut Vec::new(),
-                            &mut DictionaryScratch::default(),
-                        );
-                        let dictionary = peer
-                            .dictionary
-                            .build_next_prepared(peer.generation, prepared.source, prepared.hash)
-                            .expect("baseline dictionary is eligible");
-                        assert!(peer.dictionary.acknowledge(dictionary.id));
-                    }
-                    let mut worker = idle_prepare_worker_for_test();
-                    let mut compressor = Compressor::new();
-                    let mut fec = FecEncoder::new();
-                    let mut scratch = PrepareScratch::default();
-                    let mut capture = RowCaptureScratch::default();
-                    let mut selection = FlushRowScratch::default();
-                    let mut cpu = Vec::with_capacity(SAMPLES);
-                    let mut wire = Vec::with_capacity(SAMPLES);
-                    let mut data_records = Vec::with_capacity(SAMPLES);
-                    let mut physical_records = Vec::with_capacity(SAMPLES);
-                    let mut allocations = Vec::with_capacity(SAMPLES);
-                    let mut serialization = Vec::with_capacity(SAMPLES);
-                    for round in 0..SAMPLES + 20 {
-                        classify_flush_rows(
-                            &peer.display_cache,
-                            &state.current_hashes,
-                            100.0,
-                            &mut selection.selection,
-                        );
-                        let selected = &mut selection.selection.selected_rows;
-                        prioritize_display_rows(
-                            selected,
-                            state.cursor_row,
-                            rows,
-                            &peer.display_cache.sent_row_hashes,
-                            &state.current_hashes,
-                        );
-                        let mut buffers = worker.take_buffers();
-                        capture_prepare_rows(
-                            &state.terminal,
-                            &peer,
-                            selected,
-                            state.cursor_row,
-                            &mut capture,
-                            &mut state.flush_row_cache,
-                            &mut buffers.rows,
-                        );
-                        let compression =
-                            display_compression_policy(&peer, 100.0, true, ExecutionLane::Bulk, 0);
-                        let completion = prepare_display_off_loop(
-                            DisplayPrepareRequest {
-                                token: round as u64 + 1,
-                                prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
-                                prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
-                                submitted_at: Instant::now(),
-                                perf_flush_started_at: Some(FlushStart::now()),
-                                generation: peer.generation,
-                                display_revision: state.terminal.display_revision(),
-                                completed_sync_update_epoch: state
-                                    .terminal
-                                    .completed_sync_update_epoch(),
-                                start_seq: peer.next_datagram_seq,
-                                presentation_continues: false,
-                                causal_input_advanced: false,
-                                input_seq: 1,
-                                header_signal: state.terminal.current_display_header_signal(),
-                                header_changed: true,
-                                header: state
-                                    .terminal
-                                    .current_display_header(merkur_codec::FrameKind::Delta),
-                                buffers,
-                                compression,
-                                compression_dictionary: peer.dictionary.active().cloned(),
-                                burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
-                                summary: flush_summary_for_test(selected.len() as u32),
-                            },
-                            &mut compressor,
-                            &mut fec,
-                            &mut scratch,
-                        );
-                        if learned_peer {
-                            for datagram in &completion.buffers.datagrams {
-                                observe_display_compression_outcome(
-                                    &mut peer,
-                                    datagram.frame.wire_len(),
-                                    datagram.raw_bytes,
-                                    datagram.compression_attempted,
-                                    datagram.content_class,
-                                    completion.dictionary_class,
-                                );
-                            }
-                        }
-                        if round >= 20 {
-                            let mut bytes = 0usize;
-                            let mut count = 0usize;
-                            for datagram in &completion.buffers.datagrams {
-                                bytes += if datagram.frame.wire_bound()
-                                    <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
-                                {
-                                    display_datagram_wire_len(datagram.frame.wire_bound())
-                                } else {
-                                    display_reliable_record_wire_len(datagram.frame.wire_bound())
-                                };
-                                count += 1;
-                                if let Some(repair) = &datagram.precomputed_fec_repair {
-                                    bytes += display_datagram_wire_len(repair.len());
-                                    count += 1;
-                                }
-                            }
-                            cpu.push(completion.cpu_time.as_secs_f64() * 1e6);
-                            wire.push(bytes as f64);
-                            data_records.push(completion.buffers.datagrams.len() as f64);
-                            physical_records.push(count as f64);
-                            allocations.push(
-                                completion.perf_timing.unwrap().allocations.allocations as f64,
+                let mut state = ScrollBenchmarkState::new(cols, rows, 1);
+                let mut peer = benchmark_noise_peer();
+                peer.display_cache = clone_display_baseline(&state.peers[0]);
+                peer.needs_snapshot = false;
+                peer.paths.edge.available = true;
+                peer.paths.edge.last_ack_at_ms = 100.0;
+                peer.paths.edge.network_rtt_ewma_ms = rtt_ms;
+                let quote = CarrierDeliveryQuote {
+                    one_way_us: rtt_ms * 500.0,
+                    ..CarrierDeliveryQuote::default()
+                };
+                peer.display_planning.observe_carrier_quote(1, quote);
+                let mut worker = idle_prepare_worker_for_test();
+                let mut compressor = Compressor::new();
+                let mut fec = FecEncoder::new();
+                let mut scratch = PrepareScratch::default();
+                let mut capture = RowCaptureScratch::default();
+                let mut selection = FlushRowScratch::default();
+                let mut cpu = Vec::with_capacity(SAMPLES);
+                let mut wire = Vec::with_capacity(SAMPLES);
+                let mut data_records = Vec::with_capacity(SAMPLES);
+                let mut physical_records = Vec::with_capacity(SAMPLES);
+                let mut allocations = Vec::with_capacity(SAMPLES);
+                let mut serialization = Vec::with_capacity(SAMPLES);
+                for round in 0..SAMPLES + 20 {
+                    classify_flush_rows(
+                        &peer.display_cache,
+                        &state.current_hashes,
+                        100.0,
+                        &mut selection.selection,
+                    );
+                    let selected = &mut selection.selection.selected_rows;
+                    prioritize_display_rows(
+                        selected,
+                        state.cursor_row,
+                        rows,
+                        &peer.display_cache.sent_row_hashes,
+                        &state.current_hashes,
+                    );
+                    let mut buffers = worker.take_buffers();
+                    capture_prepare_rows(
+                        &state.terminal,
+                        &peer,
+                        selected,
+                        state.cursor_row,
+                        &mut capture,
+                        &mut state.flush_row_cache,
+                        &mut buffers.rows,
+                    );
+                    let compression =
+                        display_compression_policy(&peer, 100.0, true, ExecutionLane::Bulk, 0);
+                    let completion = prepare_display_off_loop(
+                        DisplayPrepareRequest {
+                            token: round as u64 + 1,
+                            prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
+                            prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
+                            submitted_at: Instant::now(),
+                            perf_flush_started_at: Some(FlushStart::now()),
+                            generation: peer.generation,
+                            display_revision: state.terminal.display_revision(),
+                            completed_sync_update_epoch: state
+                                .terminal
+                                .completed_sync_update_epoch(),
+                            start_seq: peer.next_datagram_seq,
+                            presentation_continues: false,
+                            causal_input_advanced: false,
+                            input_seq: 1,
+                            header_signal: state.terminal.current_display_header_signal(),
+                            header_changed: true,
+                            header: state
+                                .terminal
+                                .current_display_header(merkur_codec::FrameKind::Delta),
+                            buffers,
+                            compression,
+                            burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
+                            summary: flush_summary_for_test(selected.len() as u32),
+                        },
+                        &mut compressor,
+                        &mut fec,
+                        &mut scratch,
+                    );
+                    if learned_peer {
+                        for datagram in &completion.buffers.datagrams {
+                            observe_display_compression_outcome(
+                                &mut peer,
+                                datagram.frame.wire_len(),
+                                datagram.raw_bytes,
+                                datagram.compression_attempted,
+                                datagram.content_class,
                             );
-                            serialization.push(quote.serialization_us(bytes));
                         }
-                        worker.recycle(completion.buffers);
                     }
-                    for (stage, mut values) in [
-                        ("prepare-us", cpu),
-                        ("primary-wire-bytes", wire),
-                        ("data-records", data_records),
-                        ("data-plus-fec-records", physical_records),
-                        ("rust-allocations", allocations),
-                        ("quoted-serialization-us", serialization),
-                    ] {
-                        values.sort_by(f64::total_cmp);
-                        let at = |p: f64| values[(SAMPLES as f64 * p).ceil() as usize - 1];
-                        eprintln!(
-                            "SCROLL_AB quote_rtt_ms={rtt_ms} cols={cols} rows={rows} learned_peer={learned_peer} finalized_dictionary={finalized_dictionary} samples={SAMPLES} stage={stage} p50={:.3} p95={:.3} p99={:.3} max={:.3}",
-                            at(0.5),
-                            at(0.95),
-                            at(0.99),
-                            values[SAMPLES - 1]
-                        );
+                    if round >= 20 {
+                        let mut bytes = 0usize;
+                        let mut count = 0usize;
+                        for datagram in &completion.buffers.datagrams {
+                            bytes += if datagram.frame.wire_bound()
+                                <= DisplayPolicy::DATAGRAM_MAX_PAYLOAD_BYTES
+                            {
+                                display_datagram_wire_len(datagram.frame.wire_bound())
+                            } else {
+                                display_reliable_record_wire_len(datagram.frame.wire_bound())
+                            };
+                            count += 1;
+                            if let Some(repair) = &datagram.precomputed_fec_repair {
+                                bytes += display_datagram_wire_len(repair.len());
+                                count += 1;
+                            }
+                        }
+                        cpu.push(completion.cpu_time.as_secs_f64() * 1e6);
+                        wire.push(bytes as f64);
+                        data_records.push(completion.buffers.datagrams.len() as f64);
+                        physical_records.push(count as f64);
+                        allocations
+                            .push(completion.perf_timing.unwrap().allocations.allocations as f64);
+                        serialization.push(quote.serialization_us(bytes));
                     }
+                    worker.recycle(completion.buffers);
+                }
+                for (stage, mut values) in [
+                    ("prepare-us", cpu),
+                    ("primary-wire-bytes", wire),
+                    ("data-records", data_records),
+                    ("data-plus-fec-records", physical_records),
+                    ("rust-allocations", allocations),
+                    ("quoted-serialization-us", serialization),
+                ] {
+                    values.sort_by(f64::total_cmp);
+                    let at = |p: f64| values[(SAMPLES as f64 * p).ceil() as usize - 1];
+                    eprintln!(
+                        "SCROLL_AB quote_rtt_ms={rtt_ms} cols={cols} rows={rows} learned_peer={learned_peer} samples={SAMPLES} stage={stage} p50={:.3} p95={:.3} p99={:.3} max={:.3}",
+                        at(0.5),
+                        at(0.95),
+                        at(0.99),
+                        values[SAMPLES - 1]
+                    );
                 }
             }
         }
@@ -6777,7 +6398,6 @@ fn display_partition_domain_diagnostic() {
                         header: terminal.current_display_header(merkur_codec::FrameKind::Delta),
                         buffers,
                         compression,
-                        compression_dictionary: None,
                         burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
                         summary: flush_summary_for_test(selected.len() as u32),
                     },
@@ -6793,7 +6413,6 @@ fn display_partition_domain_diagnostic() {
                             datagram.raw_bytes,
                             datagram.compression_attempted,
                             datagram.content_class,
-                            completion.dictionary_class,
                         );
                     }
                 }
@@ -8097,7 +7716,7 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                     let mut encoded = Vec::new();
                     assert!(
                         Compressor::new()
-                            .compress_display_frame_into(datagram.frame.bytes(), None, &mut encoded)
+                            .compress_display_frame_into(datagram.frame.bytes(), &mut encoded)
                             .is_some()
                     );
                     datagram.frame = StagedFrame::new(encoded);
@@ -9535,445 +9154,6 @@ fn production_display_wire_staging_benchmark() {
     std::hint::black_box(checksum);
 }
 
-struct AsyncDictionaryBenchmarkState {
-    terminal: TerminalState,
-    compressor: Compressor,
-    worker: DisplayPrepareWorker,
-    completion_rx: mpsc::Receiver<DisplayPrepareCompletion>,
-    peers: PeerMap,
-    current_hashes: Vec<u64>,
-    flush_row_scratch: FlushRowScratch,
-    prepare_scratch: PrepareScratch,
-    flush_row_cache: HashMap<u16, CapturedRow>,
-    dictionary: Arc<DisplayDictionary>,
-}
-
-struct AsyncDictionaryBenchmarkSample {
-    owner_submit_ms: f64,
-    worker_cpu_ms: f64,
-    completion_latency_ms: f64,
-    completion: DisplayPrepareCompletion,
-}
-
-impl AsyncDictionaryBenchmarkState {
-    async fn sample(&mut self) -> AsyncDictionaryBenchmarkSample {
-        const PEER_ID: &str = "browser-bench";
-        let started = Instant::now();
-        let mut perf_timing = PerfTimingTracker::default();
-        send_peer_datagram_delta_with_worker(
-            &mut self.terminal,
-            &mut self.compressor,
-            &mut self.worker,
-            &mut self.prepare_scratch,
-            &mut self.peers,
-            PEER_ID,
-            10_000.0,
-            &self.current_hashes,
-            &mut self.flush_row_scratch,
-            &mut self.flush_row_cache,
-            true,
-            &mut perf_timing,
-            None,
-        );
-        let owner_submit_ms = started.elapsed().as_secs_f64() * 1_000.0;
-        assert!(
-            self.peers[PEER_ID].display_prepare_in_flight.is_some(),
-            "production admission must select the async worker"
-        );
-
-        let completion = self
-            .completion_rx
-            .recv()
-            .await
-            .expect("display worker completion");
-        let completion_latency_ms = completion.submitted_at.elapsed().as_secs_f64() * 1_000.0;
-        let worker_cpu_ms = completion.cpu_time.as_secs_f64() * 1_000.0;
-        let peer = self.peers.get_mut(PEER_ID).expect("benchmark peer");
-        assert_eq!(
-            peer.display_prepare_in_flight.take(),
-            Some(completion.token),
-            "completion must own the admitted request"
-        );
-        // Stop before transport admission. Keeping the immutable ACK
-        // baseline and sequence owner unchanged makes every sample the
-        // same production-shaped redraw.
-        peer.needs_full_diff = true;
-
-        AsyncDictionaryBenchmarkSample {
-            owner_submit_ms,
-            worker_cpu_ms,
-            completion_latency_ms,
-            completion,
-        }
-    }
-}
-
-struct AsyncDictionaryWireTally {
-    display_bytes: usize,
-    fec_bytes: usize,
-    datagrams: usize,
-    dictionary_frames: usize,
-}
-
-impl AsyncDictionaryWireTally {
-    fn combined_bytes(&self) -> usize {
-        self.display_bytes.saturating_add(self.fec_bytes)
-    }
-}
-
-fn async_dictionary_benchmark_state() -> AsyncDictionaryBenchmarkState {
-    const COLS: u16 = 120;
-    // Tall enough that one screen of unstyled rows still saturates
-    // `DISPLAY_DICTIONARY_MAX_BYTES`, so the dictionary source truncation
-    // path stays covered. At ~248 encoded bytes per 120-column row, 40 rows
-    // no longer reach the 16 KiB cap.
-    const ROWS: u16 = 70;
-    const PEER_ID: &str = "browser-bench";
-
-    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
-    let mut terminal = TerminalState::new(COLS, ROWS, event_tx);
-    let mut blank_grid = Vec::new();
-    let mut blank_hashes = Vec::new();
-    terminal.current_grid_into(&mut blank_grid);
-    terminal.current_row_hashes_into(&mut blank_hashes);
-
-    // Derive the active dictionary from the immediately preceding screen,
-    // then update to structurally similar content. This exercises real row
-    // capture, batching, worker compression, and FEC rather than a direct
-    // compressor microbenchmark.
-    terminal.apply_bytes(&terminal_fixture(COLS, ROWS, b'a'));
-    let requests: Vec<_> = (0..ROWS)
-        .map(|row| DisplayRowRequest::literal(row, true))
-        .collect();
-    let mut capture_scratch = RowCaptureScratch::default();
-    let mut dictionary_row_cache = HashMap::new();
-    let dictionary_rows = capture_rows(
-        &terminal,
-        requests.iter().map(|request| request.row),
-        &mut capture_scratch,
-        &mut dictionary_row_cache,
-    );
-    let mut dictionary_frame = Vec::new();
-    let prepared_dictionary = prepare_dictionary_off_loop(
-        DictionaryPrepareRequest {
-            token: 1,
-            display_revision: terminal.display_revision(),
-            header: terminal.current_display_header(merkur_codec::FrameKind::Snapshot),
-            rows: dictionary_rows,
-        },
-        &mut dictionary_frame,
-        &mut DictionaryScratch::default(),
-    );
-    assert_eq!(
-        prepared_dictionary.source.len(),
-        DISPLAY_DICTIONARY_MAX_BYTES,
-        "fixture must exercise the calibrated dictionary cap"
-    );
-
-    terminal.apply_bytes(&terminal_fixture(COLS, ROWS, b'b'));
-    let mut current_hashes = Vec::new();
-    terminal.current_row_hashes_into(&mut current_hashes);
-
-    let mut peer = benchmark_noise_peer();
-    peer.display_cache.resize(COLS, ROWS);
-    peer.display_cache
-        .prime_from_snapshot(&blank_grid, &blank_hashes, &[]);
-    peer.needs_snapshot = false;
-    peer.display_dictionary_ready = true;
-    // One confirmed keystroke ahead of the advertised high-water, so the
-    // benchmark exercises the same stale-advertisement path production does.
-    peer.latest_input_seq = 1;
-    let dictionary = peer
-        .dictionary
-        .build_next_prepared(
-            peer.generation,
-            Arc::clone(&prepared_dictionary.source),
-            prepared_dictionary.hash,
-        )
-        .expect("benchmark dictionary");
-    assert!(peer.dictionary.acknowledge(dictionary.id));
-    assert!(
-        peer.dictionary
-            .active()
-            .is_some_and(|active| Arc::ptr_eq(active, &dictionary)),
-        "benchmark dictionary must be acknowledged and active"
-    );
-
-    let (worker, completion_rx, _snapshot_completion_rx, _dictionary_completion_rx) =
-        start_display_prepare_worker();
-    AsyncDictionaryBenchmarkState {
-        terminal,
-        compressor: Compressor::new(),
-        worker,
-        completion_rx,
-        peers: PeerMap::from([(PEER_ID.into(), peer)]),
-        current_hashes,
-        flush_row_scratch: FlushRowScratch::default(),
-        prepare_scratch: PrepareScratch::default(),
-        flush_row_cache: HashMap::new(),
-        dictionary,
-    }
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn async_worker_retains_only_the_dictionary_referenced_by_output_frames() {
-    let mut dictionary_state = async_dictionary_benchmark_state();
-    let expected_dictionary = Arc::clone(&dictionary_state.dictionary);
-    let dictionary_sample = dictionary_state.sample().await;
-    assert!(
-        dictionary_sample
-            .completion
-            .buffers
-            .datagrams
-            .iter()
-            .any(|datagram| {
-                datagram.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
-                    & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT
-                    != 0
-            })
-    );
-    assert!(
-        dictionary_sample
-            .completion
-            .compression_dictionary
-            .as_ref()
-            .is_some_and(|retained| Arc::ptr_eq(retained, &expected_dictionary))
-    );
-
-    let mut plain_state = async_dictionary_benchmark_state();
-    let peer = plain_state
-        .peers
-        .get_mut("browser-bench")
-        .expect("benchmark peer");
-    // Drive the plain arm by giving the peer no dictionary to reference.
-    //
-    // This used to be manufactured by setting the link to 100 Gbit/s so the
-    // batcher's bandwidth term declined compression. That term is gone: the
-    // batcher now sizes datagrams by their compressed length, so pricing its
-    // own compression against bandwidth split a repaint into more packets on
-    // exactly the fastest links (measured 60 datagrams and 46,902 wire bytes
-    // at 250 Mbit/s against 12 and 11,037 below it). Clearing the dictionary
-    // states the property under test directly — nothing referenced it, so
-    // nothing is retained — instead of depending on a policy constant to
-    // produce that state as a side effect.
-    peer.dictionary.reset();
-    let plain_sample = plain_state.sample().await;
-    assert!(
-        plain_sample
-            .completion
-            .buffers
-            .datagrams
-            .iter()
-            .all(|datagram| {
-                datagram.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
-                    & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT
-                    == 0
-            })
-    );
-    assert!(plain_sample.completion.compression_dictionary.is_none());
-}
-
-fn decode_async_dictionary_benchmark_frame(
-    datagram: &PreparedDisplayDatagram,
-    dictionary: &DisplayDictionary,
-) -> Vec<u8> {
-    use merkur_codec::{
-        DISPLAY_COMPRESSED_LENGTH_OFFSET, DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET,
-        DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD, DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT,
-        DISPLAY_HEADER_FLAGS_OFFSET,
-    };
-
-    let frame = datagram.frame.bytes();
-    let flags = frame[DISPLAY_HEADER_FLAGS_OFFSET];
-    if flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD == 0 {
-        assert_eq!(
-            datagram.frame.planned_wire_len(datagram.header_reserve),
-            datagram.raw_bytes
-        );
-        return frame.to_vec();
-    }
-
-    let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
-    let declared_rows = u32::from_be_bytes(
-        frame[DISPLAY_COMPRESSED_LENGTH_OFFSET..DISPLAY_COMPRESSED_LENGTH_OFFSET + 4]
-            .try_into()
-            .expect("compressed length"),
-    ) as usize;
-    let uses_dictionary = flags & DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0;
-    if uses_dictionary {
-        let generation = u32::from_be_bytes(frame[10..14].try_into().expect("display generation"));
-        let id_offset = DISPLAY_DICT_COMPRESSED_PAYLOAD_OFFSET - 8;
-        let id = u32::from_be_bytes(
-            frame[id_offset..id_offset + 4]
-                .try_into()
-                .expect("dictionary id"),
-        );
-        let hash = u32::from_be_bytes(
-            frame[id_offset + 4..id_offset + 8]
-                .try_into()
-                .expect("dictionary hash"),
-        );
-        assert_eq!(
-            (generation, id, hash),
-            (dictionary.generation, dictionary.id, dictionary.hash)
-        );
-    }
-
-    let body = crate::display::compressor::decode_display_payload(
-        frame,
-        uses_dictionary.then_some(&dictionary.bytes[..]),
-    )
-    .expect("benchmark display frame must decode");
-    assert_eq!(body.len(), declared_rows);
-    let mut decoded = Vec::with_capacity(rows_offset.saturating_add(declared_rows));
-    decoded.extend_from_slice(&frame[..rows_offset]);
-    decoded.extend_from_slice(&body);
-    assert_eq!(
-        planned_wire_len(decoded.len(), datagram.header_reserve),
-        datagram.raw_bytes
-    );
-    decoded[DISPLAY_HEADER_FLAGS_OFFSET] &=
-        !(DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD | DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT);
-    decoded
-}
-
-fn preflight_async_dictionary_completion(
-    state: &mut AsyncDictionaryBenchmarkState,
-    completion: &DisplayPrepareCompletion,
-) -> AsyncDictionaryWireTally {
-    const PEER_ID: &str = "browser-bench";
-    let dictionary = Arc::clone(&state.dictionary);
-    let peer = state.peers.get_mut(PEER_ID).expect("benchmark peer");
-    let mut tally = AsyncDictionaryWireTally {
-        display_bytes: 0,
-        fec_bytes: 0,
-        datagrams: completion.buffers.datagrams.len(),
-        dictionary_frames: 0,
-    };
-    let mut decoded_checksum = 0u64;
-
-    for datagram in &completion.buffers.datagrams {
-        let flags = datagram.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET];
-        tally.dictionary_frames +=
-            usize::from(flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT != 0);
-        let decoded = decode_async_dictionary_benchmark_frame(datagram, &dictionary);
-        decoded_checksum ^= merkur_codec::hash_bytes(&decoded);
-        tally.display_bytes = tally.display_bytes.saturating_add(
-            peer.seal_datagram_wire(CHANNEL_DISPLAY_DATAGRAM, datagram.frame.bytes())
-                .expect("benchmark display Noise wire")
-                .len(),
-        );
-        if let Some(repair) = datagram.precomputed_fec_repair.as_ref() {
-            tally.fec_bytes = tally.fec_bytes.saturating_add(
-                peer.seal_datagram_wire(CHANNEL_DISPLAY_DATAGRAM, repair)
-                    .expect("benchmark FEC Noise wire")
-                    .len(),
-            );
-        }
-    }
-
-    assert!(tally.datagrams >= DISPLAY_ASYNC_PREPARE_MIN_ROWS);
-    std::hint::black_box(decoded_checksum);
-    tally
-}
-
-/// Production-path oracle for async dictionary propagation.
-///
-/// The common harness intentionally sees zero dictionary frames before the
-/// product change. It still proves both variants decode, exercises the real
-/// admission/worker/FEC path, and reports exact post-Noise bytes.
-#[tokio::test(flavor = "current_thread")]
-#[ignore = "production performance workload"]
-async fn production_async_dictionary_pipeline_benchmark() {
-    let samples = std::env::var("BENCH_SAMPLES")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(1_000);
-    let warmups = std::env::var("BENCH_WARMUPS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(100);
-    let mut state = async_dictionary_benchmark_state();
-
-    let preflight = state.sample().await;
-    let exact = preflight_async_dictionary_completion(&mut state, &preflight.completion);
-    drop(preflight);
-    for _ in 0..warmups {
-        let sample = state.sample().await;
-        std::hint::black_box(sample.completion.buffers.datagrams.len());
-    }
-
-    let mut owner_submit_samples = Vec::with_capacity(samples);
-    let mut worker_cpu_samples = Vec::with_capacity(samples);
-    let mut completion_latency_samples = Vec::with_capacity(samples);
-    let mut checksum = 0usize;
-    for _ in 0..samples {
-        let sample = state.sample().await;
-        owner_submit_samples.push(sample.owner_submit_ms);
-        worker_cpu_samples.push(sample.worker_cpu_ms);
-        completion_latency_samples.push(sample.completion_latency_ms);
-        checksum ^= sample
-            .completion
-            .buffers
-            .datagrams
-            .iter()
-            .map(|datagram| {
-                datagram.frame.wire_len()
-                    + datagram.precomputed_fec_repair.as_ref().map_or(0, Vec::len)
-            })
-            .sum::<usize>();
-    }
-
-    emit_benchmark_metric(
-        "display-async-dictionary-owner-submit",
-        &mut owner_submit_samples,
-        samples,
-    );
-    emit_benchmark_metric(
-        "display-async-dictionary-worker-cpu",
-        &mut worker_cpu_samples,
-        samples,
-    );
-    emit_benchmark_metric(
-        "display-async-dictionary-completion-latency",
-        &mut completion_latency_samples,
-        samples,
-    );
-    emit_benchmark_exact_metric(
-        "display-async-dictionary-display-wire-bytes",
-        exact.display_bytes,
-        samples,
-        "bytes/flush",
-    );
-    emit_benchmark_exact_metric(
-        "display-async-dictionary-fec-wire-bytes",
-        exact.fec_bytes,
-        samples,
-        "bytes/flush",
-    );
-    emit_benchmark_exact_metric(
-        "display-async-dictionary-combined-wire-bytes",
-        exact.combined_bytes(),
-        samples,
-        "bytes/flush",
-    );
-    emit_benchmark_exact_metric(
-        "display-async-dictionary-datagrams",
-        exact.datagrams,
-        samples,
-        "datagrams/flush",
-    );
-    emit_benchmark_exact_metric_with_direction(
-        "display-async-dictionary-frames",
-        exact.dictionary_frames,
-        samples,
-        "frames/flush",
-        "higher",
-    );
-    std::hint::black_box(checksum);
-}
-
 /// Production-shaped benchmark kept inside the binary crate so it can call
 /// the real private display pipeline instead of maintaining a benchmark-only
 /// imitation. Run through `scripts/bench-display-pipeline-rust.ts`.
@@ -10081,38 +9261,12 @@ fn production_display_pipeline_benchmark() {
     let mut captured_samples = Vec::with_capacity(samples);
     let mut snapshot_legacy_samples = Vec::with_capacity(samples);
     let mut snapshot_one_pass_samples = Vec::with_capacity(samples);
-    let mut dictionary_legacy_owner_samples = Vec::with_capacity(samples);
-    let mut dictionary_shared_owner_samples = Vec::with_capacity(samples);
     let mut interactive_direct_samples = Vec::with_capacity(samples);
     let mut interactive_enqueue_samples = Vec::with_capacity(samples);
     let mut interactive_roundtrip_samples = Vec::with_capacity(samples);
     let mut interactive_two_row_direct_samples = Vec::with_capacity(samples);
     let mut interactive_two_row_enqueue_samples = Vec::with_capacity(samples);
     let mut interactive_two_row_roundtrip_samples = Vec::with_capacity(samples);
-    flush_cache.clear();
-    let dictionary_rows = capture_rows(
-        &terminal,
-        requests.iter().map(|request| request.row),
-        &mut capture_scratch,
-        &mut flush_cache,
-    );
-    let mut dictionary_frame = Vec::new();
-    let prepared_dictionary = prepare_dictionary_off_loop(
-        DictionaryPrepareRequest {
-            token: 1,
-            display_revision: terminal.display_revision(),
-            header: terminal.current_display_header(merkur_codec::FrameKind::Snapshot),
-            rows: dictionary_rows,
-        },
-        &mut dictionary_frame,
-        &mut DictionaryScratch::default(),
-    );
-    let mut legacy_dictionary_states: Vec<_> = (0..8)
-        .map(|_| crate::display::compressor::PeerDictionaryState::default())
-        .collect();
-    let mut shared_dictionary_states: Vec<_> = (0..8)
-        .map(|_| crate::display::compressor::PeerDictionaryState::default())
-        .collect();
     let mut interactive_rows = Vec::new();
     capture_prepare_rows(
         &terminal,
@@ -10149,16 +9303,11 @@ fn production_display_pipeline_benchmark() {
             ..Default::default()
         },
         compression: compression_policy_for_test(ROWS, true, ExecutionLane::Interactive),
-        compression_dictionary: None,
         burst_group_max_size: 1,
         summary: flush_summary_for_test(1),
     };
-    let (
-        interactive_worker,
-        mut interactive_completions,
-        _snapshot_completions,
-        _dictionary_completions,
-    ) = start_display_prepare_worker();
+    let (interactive_worker, mut interactive_completions, _snapshot_completions) =
+        start_display_prepare_worker();
     for _ in 0..samples {
         flush_cache.clear();
         let started = Instant::now();
@@ -10217,34 +9366,6 @@ fn production_display_pipeline_benchmark() {
         );
         checksum ^= frame.len() ^ grid.len() ^ hashes.len();
         snapshot_one_pass_samples.push(started.elapsed().as_secs_f64() * 1_000.0);
-
-        for state in &mut legacy_dictionary_states {
-            state.reset();
-        }
-        let started = Instant::now();
-        for state in &mut legacy_dictionary_states {
-            let (snapshot, _) = terminal.encode_snapshot_into(Vec::new());
-            let source = snapshot[STREAM_HEADER_BYTES.min(snapshot.len())..].to_vec();
-            checksum ^= state
-                .build_next(1, source)
-                .map_or(0, |dictionary| dictionary.bytes.len());
-        }
-        dictionary_legacy_owner_samples.push(started.elapsed().as_secs_f64() * 1_000.0);
-
-        for state in &mut shared_dictionary_states {
-            state.reset();
-        }
-        let started = Instant::now();
-        for state in &mut shared_dictionary_states {
-            checksum ^= state
-                .build_next_prepared(
-                    1,
-                    Arc::clone(&prepared_dictionary.source),
-                    prepared_dictionary.hash,
-                )
-                .map_or(0, |dictionary| dictionary.bytes.len());
-        }
-        dictionary_shared_owner_samples.push(started.elapsed().as_secs_f64() * 1_000.0);
 
         let request = make_interactive_request(1, 1);
         let started = Instant::now();
@@ -10314,16 +9435,6 @@ fn production_display_pipeline_benchmark() {
     emit_benchmark_metric(
         "display-snapshot-one-pass",
         &mut snapshot_one_pass_samples,
-        samples,
-    );
-    emit_benchmark_metric(
-        "display-dictionary-owner-legacy-eight-peers",
-        &mut dictionary_legacy_owner_samples,
-        samples,
-    );
-    emit_benchmark_metric(
-        "display-dictionary-owner-shared-eight-peers",
-        &mut dictionary_shared_owner_samples,
         samples,
     );
     emit_benchmark_metric(
@@ -10660,80 +9771,6 @@ fn display_prepare_policy_keeps_one_row_inline_and_prioritizes_small_batches() {
     assert!(!display_prepare_is_interactive(
         DISPLAY_BULK_PREPARE_MIN_ROWS
     ));
-}
-
-#[test]
-fn prepared_dictionary_source_is_shared_across_peers() {
-    let rows: Vec<CapturedRow> = (0..24u16)
-        .map(|row| {
-            let cells: Arc<[CellRepr]> = (0..120u32)
-                .map(|column| CellRepr {
-                    codepoint: 0x21 + ((u32::from(row) * 120 + column) % 90),
-                    ..CellRepr::BLANK
-                })
-                .collect::<Vec<_>>()
-                .into();
-            CapturedRow {
-                graphics: PreparedGraphics::EMPTY,
-                row,
-                hash: merkur_codec::row_hash(&cells),
-                cells,
-            }
-        })
-        .collect();
-    let mut dictionary_frame = Vec::new();
-    let completion = prepare_dictionary_off_loop(
-        DictionaryPrepareRequest {
-            token: 1,
-            display_revision: 9,
-            header: FrameHeader {
-                memory_only: false,
-                kind: merkur_codec::FrameKind::Snapshot,
-                cols: 120,
-                rows: 24,
-                cursor_col: 0,
-                cursor_row: 0,
-                cursor_shape: 0,
-                cursor_visible: 1,
-                mode_flags: 0,
-                row_count: 0,
-                frame_id: 0,
-                presentation_id: 0,
-                presentation_member_index: 0,
-                presentation_member_count: 0,
-                row_predecessor_presentation_id: 0,
-                presentation_coherent: false,
-                presentation_end: false,
-                chunk_index: 0,
-                chunk_count: 1,
-                demand_serial: 0,
-                demand_limited: false,
-                demand_prompt: false,
-                demand_awaits_grant: false,
-                closure_digest: 0,
-                scroll_serial: 0,
-                echo_horizon: 0,
-            },
-            rows,
-        },
-        &mut dictionary_frame,
-        &mut DictionaryScratch::default(),
-    );
-    assert!(completion.source.len() >= DISPLAY_DICTIONARY_MIN_BYTES);
-    assert!(completion.source.len() <= DISPLAY_DICTIONARY_MAX_BYTES);
-    assert_eq!(completion.hash, dictionary_hash(&completion.source));
-
-    let mut first = crate::display::compressor::PeerDictionaryState::default();
-    let mut second = crate::display::compressor::PeerDictionaryState::default();
-    let first = first
-        .build_next_prepared(3, Arc::clone(&completion.source), completion.hash)
-        .expect("first dictionary");
-    let second = second
-        .build_next_prepared(7, Arc::clone(&completion.source), completion.hash)
-        .expect("second dictionary");
-    assert!(Arc::ptr_eq(&first.bytes, &second.bytes));
-    assert_eq!(first.hash, second.hash);
-    assert_ne!(first.generation, second.generation);
 }
 
 fn terminal_fixture(cols: u16, rows: u16, seed: u8) -> Vec<u8> {
@@ -11446,21 +10483,6 @@ fn emit_benchmark_metric(name: &str, samples: &mut [f64], sample_size: usize) {
     emit_benchmark_metric_with_unit(name, samples, sample_size, "ms/op");
 }
 
-fn dictionary_request_for_test(
-    token: u64,
-    terminal: &TerminalState,
-    capture_scratch: &mut RowCaptureScratch,
-    flush_cache: &mut HashMap<u16, CapturedRow>,
-) -> DictionaryPrepareRequest {
-    let rows = capture_rows(terminal, 0..terminal.rows, capture_scratch, flush_cache);
-    DictionaryPrepareRequest {
-        token,
-        display_revision: terminal.display_revision(),
-        header: terminal.current_display_header(merkur_codec::FrameKind::Snapshot),
-        rows,
-    }
-}
-
 fn interactive_request_for_test(
     token: u64,
     terminal: &TerminalState,
@@ -11500,7 +10522,6 @@ fn interactive_request_for_test(
         header: terminal.current_display_header(merkur_codec::FrameKind::Delta),
         buffers,
         compression: compression_policy_for_test(terminal.rows, true, ExecutionLane::Interactive),
-        compression_dictionary: None,
         burst_group_max_size: 1,
         summary: flush_summary_for_test(u32::from(row_count)),
     }
@@ -11688,7 +10709,7 @@ async fn full_snapshot_completion_lane_does_not_block_interactive_preparation() 
     peer.display_cache.resize(COLS, ROWS);
     let mut capture_scratch = RowCaptureScratch::default();
     let mut flush_cache = HashMap::new();
-    let (worker, mut completion_rx, snapshot_rx, _dictionary_rx) = start_display_prepare_worker();
+    let (worker, mut completion_rx, snapshot_rx) = start_display_prepare_worker();
 
     // Fill both the Tokio output channel and the worker's bounded local
     // snapshot completion backlog. The old blocking_send stopped the sole
@@ -11744,7 +10765,7 @@ async fn queued_prepare_is_cancelled_before_compression_at_peer_epoch_boundary()
     );
     peer.display_prepare_in_flight = Some(101);
     assert!(peer.cancel_display_prepare());
-    let (worker, mut completion_rx, _snapshot_rx, _dictionary_rx) = start_display_prepare_worker();
+    let (worker, mut completion_rx, _snapshot_rx) = start_display_prepare_worker();
     worker.bulk_tx.send(request).expect("bulk lane open");
     let completion = tokio::time::timeout(Duration::from_secs(5), completion_rx.recv())
         .await
@@ -11788,6 +10809,31 @@ fn maximum_prepare_fixture(cols: u16, rows: u16, entropy: bool, variant: u8) -> 
     bytes
 }
 
+/// Random printable text in one truecolor style: as dense as
+/// `maximum_prepare_fixture`'s entropy grid on the reliable lane, but text MZ
+/// codes smaller than raw. No cell repeats its predecessor, so no row codes a
+/// run and every row's raw frame is the same length.
+fn dense_text_fixture(cols: u16, rows: u16) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut random = 0x243f6a88u32;
+    for row in 0..rows {
+        bytes.extend_from_slice(format!("\x1b[{};1H\x1b[38;2;86;52;18m", row + 1).as_bytes());
+        let mut previous = 0;
+        for _ in 0..cols {
+            random ^= random << 13;
+            random ^= random >> 17;
+            random ^= random << 5;
+            let mut byte = b'!' + (random % 90) as u8;
+            if byte == previous {
+                byte = if byte == b'z' { b'!' } else { byte + 1 };
+            }
+            bytes.push(byte);
+            previous = byte;
+        }
+    }
+    bytes
+}
+
 fn with_packing_experiment<T>(experiment: PackingExperiment, run: impl FnOnce() -> T) -> T {
     struct Restore(PackingExperiment);
     impl Drop for Restore {
@@ -11814,7 +10860,7 @@ fn partition_comparison_arm(experiment: PackingExperiment) -> &'static str {
 fn print_whole_span_comparison_contract() {
     eprintln!(concat!(
         "WHOLE_SPAN_COMPARISON_CONTRACT ",
-        "coverage=plain-dictionary,single-edge,clean-loss ",
+        "coverage=mz,single-edge,clean-loss ",
         "cold=cold-planning-model,warmed-worker-and-compressor ",
         "learned=arm-specific-emitted-online-trajectory ",
         "snapshot-stage=identical-thermal-control-not-candidate-evidence ",
@@ -12005,7 +11051,6 @@ fn whole_span_fixture_for_test(
     rows: u16,
     entropy: bool,
     heterogeneous: bool,
-    finalized_dictionary: bool,
 ) -> (PeerDisplayState, DisplayPrepareCompletion) {
     let (mut terminal, baseline, _) = sized_fixture(cols, rows);
     terminal.apply_bytes(&maximum_prepare_fixture(cols, rows, entropy, 0));
@@ -12043,38 +11088,6 @@ fn whole_span_fixture_for_test(
         &mut RowCaptureScratch::default(),
         &mut HashMap::new(),
     );
-    if finalized_dictionary {
-        // Learn only acknowledged pre-update cells, never the candidate's
-        // new content. This is the same finalized/ACKed dictionary path
-        // production captures by Arc for the worker.
-        let finalized = prepare_dictionary_off_loop(
-            DictionaryPrepareRequest {
-                token: 1,
-                display_revision: 0,
-                header: request.header,
-                rows: peer
-                    .display_cache
-                    .acked_row_cells
-                    .iter()
-                    .enumerate()
-                    .map(|(row, cells)| CapturedRow {
-                        graphics: PreparedGraphics::EMPTY,
-                        row: row as u16,
-                        hash: peer.display_cache.acked_row_hashes[row],
-                        cells: Arc::clone(cells),
-                    })
-                    .collect(),
-            },
-            &mut Vec::new(),
-            &mut DictionaryScratch::default(),
-        );
-        let dictionary = peer
-            .dictionary
-            .build_next_prepared(peer.generation, finalized.source, finalized.hash)
-            .unwrap();
-        assert!(peer.dictionary.acknowledge(dictionary.id));
-        request.compression_dictionary = Some(dictionary);
-    }
     request.header_changed = true;
     request.compression = display_compression_policy(&peer, 100.0, true, ExecutionLane::Bulk, 0);
     request.burst_group_max_size = DisplayPolicy::FEC_GROUP_MAX_SIZE;
@@ -12097,7 +11110,7 @@ fn whole_span_fixture_for_test(
 
 #[test]
 fn whole_span_candidate_preserves_shared_header_promotion() {
-    let (peer, mut prepared) = whole_span_fixture_for_test(384, 256, true, false, false);
+    let (peer, mut prepared) = whole_span_fixture_for_test(384, 256, true, false);
     for row in &mut prepared.buffers.rows {
         row.utility = DisplayUtility::NonCritical;
     }
@@ -12114,7 +11127,6 @@ fn whole_span_candidate_preserves_shared_header_promotion() {
             header,
             0,
             &policy,
-            None,
             header_changed,
             &mut Compressor::new(),
             &mut scratch,
@@ -12197,8 +11209,9 @@ fn whole_span_candidate_preserves_interactive_bytes() {
 
 #[test]
 fn whole_span_candidate_actual_quote_crossover_keeps_lane_and_fec_bounds() {
-    let mut saw_fec = false;
-    let mut observed_shapes = Vec::new();
+    // A whole-span record is cut only at the body limit, and MZ codes none of
+    // these grids into a datagram, so their records ride the stream lane
+    // unprotected; repair routing is pinned by the burst tests above.
     for loss_upper in [0.0, 0.01, 0.03, 0.09] {
         for (cols, rows, entropy, expected) in [
             (120, 40, false, Some(PeerTransport::WebTransport)),
@@ -12206,7 +11219,7 @@ fn whole_span_candidate_actual_quote_crossover_keeps_lane_and_fec_bounds() {
             (384, 256, true, Some(PeerTransport::Edge)),
         ] {
             let (mut peer, mut prepared) =
-                whole_span_fixture_for_test(cols, rows, entropy, rows > 40 && !entropy, true);
+                whole_span_fixture_for_test(cols, rows, entropy, rows > 40 && !entropy);
             for (path, rtt_ms, rate) in [
                 (PeerTransport::WebTransport, 50.0, 8_000_000),
                 (PeerTransport::Edge, 53.0, 80_000_000),
@@ -12226,21 +11239,6 @@ fn whole_span_candidate_actual_quote_crossover_keeps_lane_and_fec_bounds() {
                 );
             }
             let frames = &mut prepared.buffers.datagrams;
-            observed_shapes.push((
-                cols,
-                rows,
-                entropy,
-                frames
-                    .iter()
-                    .map(|frame| {
-                        (
-                            frame.frame.planned_wire_len(frame.header_reserve),
-                            frame.raw_bytes,
-                            frame.utility,
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            ));
             let count = frames.len();
             let mut budget = DatagramPhysicalBudget::exact(2_000_000, 2_000_000, 1_024);
             let preferred = prepared_display_transport(
@@ -12293,7 +11291,6 @@ fn whole_span_candidate_actual_quote_crossover_keeps_lane_and_fec_bounds() {
             for frame in frames {
                 assert_eq!(frame.physical_plan.data_primary, Some(preferred));
                 if let Some(repair_primary) = frame.physical_plan.repair_primary {
-                    saw_fec = true;
                     assert_eq!(repair_primary, preferred);
                 }
                 if let Some(parity) = &frame.precomputed_fec_repair {
@@ -12307,24 +11304,18 @@ fn whole_span_candidate_actual_quote_crossover_keeps_lane_and_fec_bounds() {
             assert!(budget.webtransport_bytes <= 2_000_000 && budget.edge_bytes <= 2_000_000);
         }
     }
-    assert!(
-        saw_fec,
-        "the actual candidate must exercise a protected multi-record shape: {observed_shapes:?}"
-    );
 }
 
 #[test]
 fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
-    for (cols, rows, entropy, heterogeneous, finalized_dictionary) in [
-        (120, 40, false, false, false),
-        (120, 40, false, false, true),
-        (120, 40, true, false, true),
-        (384, 256, false, true, true),
-        (384, 256, true, true, false),
-        (512, 192, true, false, true),
+    for (cols, rows, entropy, heterogeneous) in [
+        (120, 40, false, false),
+        (120, 40, true, false),
+        (384, 256, false, true),
+        (384, 256, true, true),
+        (512, 192, true, false),
     ] {
-        let (peer, prepared) =
-            whole_span_fixture_for_test(cols, rows, entropy, heterogeneous, finalized_dictionary);
+        let (peer, prepared) = whole_span_fixture_for_test(cols, rows, entropy, heterogeneous);
         let frames = &prepared.buffers.datagrams;
         assert!(!frames.is_empty());
         assert!(frames.len() <= usize::from(rows));
@@ -12334,7 +11325,7 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
                     .iter()
                     .any(|frame| frame.frame.planned_wire_len(frame.header_reserve)
                         < frame.raw_bytes),
-                "known compressible rows must actually exercise zstd"
+                "known compressible rows must actually exercise MZ"
             );
         }
         let mut baseline_frames = Vec::with_capacity(usize::from(rows));
@@ -12404,14 +11395,6 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
         assert!(seen.iter().all(|seen| *seen));
         let apply_order = |order: &[usize], duplicate: bool| {
             let mut viewer = term_wasm::Terminal::new_headless(cols, rows);
-            if let Some(dictionary) = &prepared.compression_dictionary {
-                assert!(viewer.install_display_dictionary(
-                    dictionary.generation,
-                    dictionary.id,
-                    dictionary.hash,
-                    &dictionary.bytes
-                ));
-            }
             for baseline in &baseline_frames {
                 assert!(viewer.apply_delta_seq(baseline, 1));
             }
@@ -12473,7 +11456,7 @@ fn whole_span_candidate_records_are_bounded_independent_and_loss_local() {
 #[tokio::test]
 async fn whole_span_candidate_reliable_refusal_credits_only_actual_records() {
     for accepted_limit in [0, 1, usize::MAX] {
-        let (mut peer, mut prepared) = whole_span_fixture_for_test(384, 256, true, true, false);
+        let (mut peer, mut prepared) = whole_span_fixture_for_test(384, 256, true, true);
         assert!(prepared.buffers.datagrams.len() > 1);
         assert!(
             prepared
@@ -12534,7 +11517,9 @@ fn maximum_dense_prepare_reuses_frame_storage() {
 
 #[test]
 fn maximum_dense_prepare_reuses_compressed_storage_when_sender_cost_switches_to_raw() {
-    // This case sets the planner's sender cost itself, round by round.
+    // This case sets the planner's sender cost itself, round by round, over
+    // `dense_text_fixture`: the random-colour grid codes larger under MZ than
+    // raw, so it would never prepare the compressed warm-up the switch needs.
     assert_eq!(prepare_allocation_case::<true>(384, 256, true, 2, None), 0);
     assert_eq!(prepare_allocation_case::<true>(512, 192, true, 2, None), 0);
 }
@@ -12569,7 +11554,11 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
 
     let (event_tx, _event_rx) = crossbeam_channel::unbounded();
     let mut terminal = TerminalState::new(cols, rows, event_tx);
-    terminal.apply_bytes(&maximum_prepare_fixture(cols, rows, entropy, 0));
+    terminal.apply_bytes(&if SWITCH_TO_RAW {
+        dense_text_fixture(cols, rows)
+    } else {
+        maximum_prepare_fixture(cols, rows, entropy, 0)
+    });
     let mut peer = benchmark_noise_peer();
     peer.display_cache.resize(cols, rows);
     peer.paths.edge.available = true;
@@ -12608,10 +11597,10 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
     let mut raw_frames = [0usize; 2];
     for round in 0..samples + 10 {
         if SWITCH_TO_RAW {
-            // Deterministic reproduction: compressed frames have capacity for
-            // the final raw bytes, but not the encoder's former discarded
-            // indexed-color attempt. A cost step makes those same buffers
-            // become raw output instead of reusing one oversized scratch.
+            // Deterministic reproduction: a compressed frame's buffer keeps
+            // its raw frame's capacity (`Compressor::compress_mz`). A cost
+            // step makes those same buffers become raw output instead of
+            // allocating raw storage beside them.
             scratch.planner = GlobalDisplayPlanningModel::default();
             if round >= 10 {
                 for bytes in [512, 1024, 2048, 4096, 8192, 16384] {
@@ -12620,7 +11609,6 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
                             ExecutionLane::Bulk,
                             bytes,
                             ContentClass::Color,
-                            DictionaryClass::Plain,
                             1_000_000.0,
                         );
                     }
@@ -12645,7 +11633,6 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
             header,
             buffers,
             compression: display_compression_policy(&peer, 100.0, true, ExecutionLane::Bulk, 0),
-            compression_dictionary: None,
             burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
             summary: flush_summary_for_test(u32::from(rows)),
         };
@@ -12662,7 +11649,7 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
         for datagram in &buffers.datagrams {
             fingerprint.write(datagram.frame.bytes());
             if datagram.frame[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET]
-                & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
+                & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ
                 != 0
             {
                 compressed_frames[phase] += 1;
@@ -12811,7 +11798,7 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                 );
                 let mut capture = RowCaptureScratch::default();
                 let mut cache = HashMap::new();
-                let (mut worker, mut completions, _snapshots, _dictionaries) =
+                let (mut worker, mut completions, _snapshots) =
                     with_packing_experiment(experiment, start_display_prepare_worker);
                 let mut capture_us = Vec::with_capacity(samples);
                 let mut capture_allocations = Vec::with_capacity(samples);
@@ -12882,7 +11869,6 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                                     .current_display_header(merkur_codec::FrameKind::Delta),
                                 buffers,
                                 compression,
-                                compression_dictionary: None,
                                 burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
                                 summary: flush_summary_for_test(u32::from(row_count)),
                             },
@@ -12980,7 +11966,6 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                                 datagram.raw_bytes,
                                 datagram.compression_attempted,
                                 datagram.content_class,
-                                bulk.dictionary_class,
                             );
                         }
                     }
@@ -13042,9 +12027,7 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                             peer_id: Arc::clone(&peer.peer_id),
                             prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
                             prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
-                            profile: peer
-                                .display_planning
-                                .snapshot(ContentClass::Color, DictionaryClass::Plain),
+                            profile: peer.display_planning.snapshot(ContentClass::Color),
                             context: display_planning_context(&peer, 100.0, 0),
                         }],
                     };
@@ -13369,7 +12352,7 @@ async fn owner_loop_bulk_interference_comparison(arms: &[PackingExperiment]) {
                                 Some(Arc::new(crate::edge_tunnel::EdgeTunnel::new_capture(tx)));
                             let peer_id = Arc::clone(&peer.peer_id);
                             let mut peers = PeerMap::from([(Arc::clone(&peer_id), peer)]);
-                            let (mut worker, mut completions, _snapshots, _dictionaries) =
+                            let (mut worker, mut completions, _snapshots) =
                                 with_packing_experiment(experiment, start_display_prepare_worker);
                             let mut scratch = DisplayScratch::new(DISPLAY_FRAME_POOL_DEPTH);
                             scratch.prepare.experiment = experiment;
@@ -13963,136 +12946,6 @@ async fn synchronized_update_jumbo_epoch_consumes_on_first_original_not_last() {
     }
 }
 
-/// A dictionary build parked on its completion channel must not hold up an
-/// interactive delta. Deterministic: the dictionary side is driven until it
-/// is provably parked (the completion channel is full and the request slot
-/// is empty), so the only way the interactive completion arrives is a
-/// second thread. Single-threaded preparation deadlocks here.
-///
-/// The drained dictionary completions are the control: each finalized a
-/// real dictionary from a production-shaped 120x40 screen, and their
-/// `cpu_time` is the finalize cost this test reports with `--nocapture`.
-#[tokio::test(flavor = "current_thread")]
-async fn a_dictionary_prepare_does_not_block_an_interactive_delta() {
-    const COLS: u16 = 120;
-    const ROWS: u16 = 40;
-    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
-    let mut terminal = TerminalState::new(COLS, ROWS, event_tx);
-    terminal.apply_bytes(&terminal_fixture(COLS, ROWS, b'a'));
-    let mut peer = benchmark_noise_peer();
-    peer.display_cache.resize(COLS, ROWS);
-    let mut capture_scratch = RowCaptureScratch::default();
-    let mut flush_cache = HashMap::new();
-    let (mut worker, mut completion_rx, _snapshot_rx, mut dictionary_rx) =
-        start_display_prepare_worker();
-
-    // One more build than the completion channel holds: the last one parks
-    // its thread on `blocking_send`.
-    for _ in 0..=DISPLAY_PREPARE_QUEUE_DEPTH {
-        let token = worker.next_token();
-        let request =
-            dictionary_request_for_test(token, &terminal, &mut capture_scratch, &mut flush_cache);
-        worker
-            .dictionary_tx
-            .send(request)
-            .expect("dictionary lane open");
-    }
-    let mut waited = 0u32;
-    while !(dictionary_rx.len() == DISPLAY_PREPARE_QUEUE_DEPTH && worker.dictionary_tx.is_empty()) {
-        waited += 1;
-        assert!(
-            waited < 20_000,
-            "the dictionary builds never filled their completion channel"
-        );
-        std::thread::sleep(Duration::from_millis(1));
-    }
-
-    let request = interactive_request_for_test(
-        7,
-        &terminal,
-        &peer,
-        2,
-        &mut capture_scratch,
-        &mut flush_cache,
-    );
-    worker
-        .interactive_tx
-        .try_send(request)
-        .expect("interactive lane open");
-    let completion = tokio::time::timeout(Duration::from_secs(5), completion_rx.recv())
-        .await
-        .expect("an interactive delta must not wait behind a parked dictionary build")
-        .expect("display preparation alive");
-    assert_eq!(completion.token, 7);
-    assert!(!completion.buffers.datagrams.is_empty());
-
-    let mut dictionary_cpu = Vec::new();
-    for _ in 0..=DISPLAY_PREPARE_QUEUE_DEPTH {
-        let prepared = dictionary_rx.recv().await.expect("dictionary completion");
-        assert!(prepared.source.len() >= DISPLAY_DICTIONARY_MIN_BYTES);
-        dictionary_cpu.push(prepared.cpu_time);
-    }
-    println!(
-        "interactive two-row prepare cpu_time={:?}; {}x{} dictionary finalize cpu_time={:?}",
-        completion.cpu_time, COLS, ROWS, dictionary_cpu
-    );
-}
-
-/// Losing the dictionary consumer stops dictionary builds and nothing else.
-/// Bounded: the request loop ends exactly when the dictionary thread has
-/// observed its dead consumer and exited, which disconnects its lane.
-#[tokio::test(flavor = "current_thread")]
-async fn a_dead_dictionary_consumer_does_not_stop_display_preparation() {
-    const COLS: u16 = 8;
-    const ROWS: u16 = 2;
-    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
-    let mut terminal = TerminalState::new(COLS, ROWS, event_tx);
-    terminal.apply_bytes(&terminal_fixture(COLS, ROWS, b'a'));
-    let mut peer = benchmark_noise_peer();
-    peer.display_cache.resize(COLS, ROWS);
-    let mut capture_scratch = RowCaptureScratch::default();
-    let mut flush_cache = HashMap::new();
-    let (mut worker, mut completion_rx, _snapshot_rx, dictionary_rx) =
-        start_display_prepare_worker();
-    drop(dictionary_rx);
-
-    let mut attempts = 0u32;
-    loop {
-        let token = worker.next_token();
-        let request =
-            dictionary_request_for_test(token, &terminal, &mut capture_scratch, &mut flush_cache);
-        match worker.dictionary_tx.try_send(request) {
-            Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
-            Ok(()) | Err(crossbeam_channel::TrySendError::Full(_)) => {
-                attempts += 1;
-                assert!(
-                    attempts < 20_000,
-                    "the dictionary thread never observed its dead consumer"
-                );
-                std::thread::yield_now();
-            }
-        }
-    }
-
-    let request = interactive_request_for_test(
-        7,
-        &terminal,
-        &peer,
-        2,
-        &mut capture_scratch,
-        &mut flush_cache,
-    );
-    worker
-        .interactive_tx
-        .try_send(request)
-        .expect("the display lane must outlive the dictionary consumer");
-    let completion = tokio::time::timeout(Duration::from_secs(5), completion_rx.recv())
-        .await
-        .expect("display preparation must continue without a dictionary consumer")
-        .expect("display preparation alive");
-    assert_eq!(completion.token, 7);
-}
-
 /// A selection whose rows all encode to zero bytes must still carry a
 /// stale `input_seq` advertisement out as a header-only delta.
 ///
@@ -14333,8 +13186,7 @@ fn display_prepare_handoff_allocates_only_the_frames() {
     // fresh pair of bounded VecDeques inside the counted display turn would
     // measure test-fixture setup as two hot-path allocations.
     let mut perf_timing = PerfTimingTracker::default();
-    let (mut worker, mut completion_rx, _snapshot_rx, _dictionary_rx) =
-        start_display_prepare_worker();
+    let (mut worker, mut completion_rx, _snapshot_rx) = start_display_prepare_worker();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("test runtime");
@@ -14407,7 +13259,6 @@ fn display_prepare_handoff_allocates_only_the_frames() {
                 header: terminal.current_display_header(merkur_codec::FrameKind::Delta),
                 buffers,
                 compression,
-                compression_dictionary: peer.dictionary.active().cloned(),
                 burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
                 summary: flush_summary_for_test(0),
             };

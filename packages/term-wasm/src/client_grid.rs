@@ -135,13 +135,8 @@ impl DisplayGrid for ClientGrid {
         self.terminal.display_row_version(row)
     }
 
-    fn install_dictionary(&mut self, generation: u32, id: u32, hash: u32, bytes: &[u8]) -> bool {
-        self.terminal
-            .install_display_dictionary(generation, id, hash, bytes)
-    }
-
-    fn clear_dictionaries(&mut self) {
-        self.terminal.clear_display_dictionaries();
+    fn clear_history(&mut self) {
+        self.terminal.clear_display_history();
     }
 
     fn cols(&self) -> u16 {

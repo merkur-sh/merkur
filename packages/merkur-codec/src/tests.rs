@@ -462,7 +462,7 @@ fn an_unknown_color_mode_is_rejected() {
 
 /// A row of default-coloured cells never reads a colour, so the cell iterator
 /// never looks at its mode byte. The validator refuses an unknown mode all the
-/// same: the stream splitter cannot represent the row, and a frame one path
+/// same: MZ cannot carry the row, and a frame one path
 /// accepts and the other cannot carry is two formats.
 #[test]
 fn an_unknown_color_mode_is_refused_even_when_no_cell_reads_a_color() {

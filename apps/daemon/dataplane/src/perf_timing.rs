@@ -242,8 +242,8 @@ pub struct PerfTimingRecord {
     pub prepare_queue_us: u32,
     /// Encode, batching, framing and FEC CPU, excluding the compression stage.
     pub encode_us: u32,
-    /// Validation, dictionary selection, capacity preparation, zstd, and
-    /// rejected compression candidates. Zero when compression was not attempted.
+    /// Envelope checks, MZ coding, and rejected compression candidates. Zero
+    /// when compression was not attempted.
     pub compression_us: u32,
     /// Prepared worker completion waiting for the daemon owner loop. Zero for
     /// inline preparation.

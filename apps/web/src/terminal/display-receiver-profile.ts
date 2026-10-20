@@ -1,12 +1,9 @@
 import type { DisplayReceiverProfileBucket, DisplayReceiverProfileMessage } from '@merkur/protocol';
 
 export const DISPLAY_RECEIVER_SIZE_CLASSES = 6;
-export const DISPLAY_RECEIVER_DICTIONARY_CLASSES = 2;
 export const DISPLAY_RECEIVER_RATIO_CLASSES = 4;
 export const DISPLAY_RECEIVER_PROFILE_BUCKETS =
-  DISPLAY_RECEIVER_SIZE_CLASSES *
-  DISPLAY_RECEIVER_RATIO_CLASSES *
-  DISPLAY_RECEIVER_DICTIONARY_CLASSES;
+  DISPLAY_RECEIVER_SIZE_CLASSES * DISPLAY_RECEIVER_RATIO_CLASSES;
 
 const HEADER_WORDS = 4;
 const BUCKET_WORDS = 5;
@@ -65,12 +62,7 @@ function ageU32(nowMs: number, thenSeconds: number): number {
  */
 export interface DisplayReceiverProfileWriter {
   recordRaw(rawBytes: number, validationApplyUs: number): void;
-  recordCompressed(
-    rawBytes: number,
-    wireBytes: number,
-    dictionary: boolean,
-    fusedValidationApplyUs: number,
-  ): void;
+  recordCompressed(rawBytes: number, wireBytes: number, fusedValidationApplyUs: number): void;
   publish(serviceDebtUs: number, nowMs?: number): void;
 }
 
@@ -126,13 +118,10 @@ export function createDisplayReceiverProfileWriter(
       rawMeans[sizeClass] = -1;
     },
 
-    recordCompressed(rawBytes, wireBytes, dictionary, fusedValidationApplyUs): void {
+    recordCompressed(rawBytes, wireBytes, fusedValidationApplyUs): void {
       const sizeClass = displayReceiverSizeClass(rawBytes);
       const ratioClass = displayReceiverRatioClass(rawBytes, wireBytes);
-      const bucket =
-        ((dictionary ? 1 : 0) * DISPLAY_RECEIVER_SIZE_CLASSES + sizeClass) *
-          DISPLAY_RECEIVER_RATIO_CLASSES +
-        ratioClass;
+      const bucket = sizeClass * DISPLAY_RECEIVER_RATIO_CLASSES + ratioClass;
       // Until a same-size raw sample exists, the full compressed service cost
       // is the safe upper bound. As raw evidence arrives, subtract only its
       // empirical mean; negative representation cost is clamped to zero.
@@ -213,11 +202,7 @@ export function createDisplayReceiverProfileReader(
           const sampleCount = Atomics.load(words, at) >>> 0;
           if (sampleCount === 0) continue;
           buckets.push({
-            dictionaryClass: Math.floor(
-              bucket / (DISPLAY_RECEIVER_SIZE_CLASSES * DISPLAY_RECEIVER_RATIO_CLASSES),
-            ),
-            sizeClass:
-              Math.floor(bucket / DISPLAY_RECEIVER_RATIO_CLASSES) % DISPLAY_RECEIVER_SIZE_CLASSES,
+            sizeClass: Math.floor(bucket / DISPLAY_RECEIVER_RATIO_CLASSES),
             ratioClass: bucket % DISPLAY_RECEIVER_RATIO_CLASSES,
             sampleCount,
             wireRatioPpm: Atomics.load(words, at + 1) >>> 0,

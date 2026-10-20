@@ -479,15 +479,15 @@ mod tests {
     fn patch_stream_header_preserves_the_compression_flag() {
         let mut payload = vec![0u8; STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES];
         payload[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET] =
-            merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
-                | merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT;
+            merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ
+                | merkur_codec::DISPLAY_HEADER_FLAG_FEC_PROTECTED;
 
         patch_stream_header(&mut payload, 7, 3, 2, 42, 0, false, false, 1, 4, 0, 0).unwrap();
 
         assert_eq!(
             payload[merkur_codec::DISPLAY_HEADER_FLAGS_OFFSET],
-            merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD
-                | merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_ZSTD_DICT
+            merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ
+                | merkur_codec::DISPLAY_HEADER_FLAG_FEC_PROTECTED
         );
         assert_eq!(payload[0], MSG_TYPE_DISPLAY_PATCH);
         assert_eq!(u32::from_be_bytes(payload[6..10].try_into().unwrap()), 7);
@@ -635,12 +635,12 @@ mod tests {
         );
         assert_eq!(CODEC_HEADER, STREAM_HEADER_BYTES);
         assert!(snapshot.len() > SNAPSHOT_PACKING_BYTES);
-        assert!(
-            zstd::bulk::compress(&snapshot[STREAM_HEADER_BYTES..], 3)
-                .expect("compress")
-                .len()
-                > u16::MAX as usize
-        );
+        let rows_offset = STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES;
+        let mut compressed = Vec::new();
+        merkur_codec::mz::MzEncoder::default()
+            .encode(&snapshot[rows_offset..], ROWS as u16, &[], &mut compressed)
+            .expect("rows code");
+        assert!(compressed.len() > u16::MAX as usize);
         let (_, original_rows_offset) = parse_frame_header_and_rows_start(&snapshot).unwrap();
 
         let mut chunks = chunk_snapshot_frame(&snapshot).unwrap();
