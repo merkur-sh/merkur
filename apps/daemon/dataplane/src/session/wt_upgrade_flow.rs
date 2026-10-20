@@ -917,6 +917,7 @@ mod tests {
             row: 0,
             hash: 101,
             cells: vec![CellRepr::BLANK].into(),
+            complete: false,
         };
         peer.display_cache.record_reliable_sent_rows_on_path(
             10,
@@ -942,6 +943,7 @@ mod tests {
             row: 1,
             hash: 202,
             cells: vec![CellRepr::BLANK].into(),
+            complete: false,
         };
         let edge_paths = SentPaths::single(PeerTransport::Edge);
         peer.display_cache.record_sent_rows_on_paths(
@@ -968,6 +970,7 @@ mod tests {
             row: 2,
             hash: 303,
             cells: vec![CellRepr::BLANK].into(),
+            complete: false,
         };
         let dual_paths = SentPaths {
             webtransport: true,

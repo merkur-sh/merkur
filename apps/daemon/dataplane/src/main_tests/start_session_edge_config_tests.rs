@@ -1595,6 +1595,7 @@ async fn current_interactive_close_detaches_conn1_and_schedules_one_immediate_re
         row: 0,
         hash: 101,
         cells: vec![CellRepr::BLANK].into(),
+        complete: false,
     };
     let edge_paths = SentPaths::single(PeerTransport::Edge);
     peer.display_cache.record_sent_rows_on_paths(
@@ -1621,6 +1622,7 @@ async fn current_interactive_close_detaches_conn1_and_schedules_one_immediate_re
         row: 1,
         hash: 202,
         cells: vec![CellRepr::BLANK].into(),
+        complete: false,
     };
     let direct_paths = SentPaths::single(PeerTransport::WebTransport);
     peer.display_cache.record_sent_rows_on_paths(
@@ -1647,6 +1649,7 @@ async fn current_interactive_close_detaches_conn1_and_schedules_one_immediate_re
         row: 2,
         hash: 303,
         cells: vec![CellRepr::BLANK].into(),
+        complete: false,
     };
     let dual_paths = SentPaths {
         webtransport: true,

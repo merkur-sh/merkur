@@ -40,9 +40,9 @@ grid, and the datagram lane never carries a multi-chunk frame. Every batch is
 independently compressed and self-describing. Entries carry literal cell spans and never
 read another mutable receiver row: a conditional source-hash check cannot make a
 cross-row copy commute with its source's writer. An MZ reference is not such a copy: it
-names a row as one acknowledged datagram left it, which the receiver rebuilds from its own
-immutable history of applied entries, never from the grid as it stands, so no later writer
-can change what it reads (see [Compression](#compression)). `chunk_index`/`chunk_count` survive only
+names a complete row exactly as one acknowledged datagram carried it, which the receiver keeps
+in its own immutable history of received rows, never reading the grid as it stands, so no
+later writer can change what it reads (see [Compression](#compression)). `chunk_index`/`chunk_count` survive only
 for the reliable lane's snapshots, where loss cannot occur. Losing one datagram must cost
 the rows it carried and nothing more; a barrier above the unit of loss turns modest
 datagram loss into a full-screen resync storm.
@@ -469,38 +469,40 @@ test's grids (`display-mz-grids.json`) are generated from it, and `packages/disp
 fails when either drifts from the model (prevents a retrained model failing the browser's
 calibration).
 
-An MZ entry may stand in for a literal with a reference: datagram `presentation_id - delta`,
-source row, 32-bit row hash, written by the receiver as a complete row for the target. The
-encoder takes a reference only when it codes smaller than the literal.
+An MZ entry may stand in for a literal with a reference: datagram `presentation_id - delta` and
+source row, written by the receiver as that complete row for the target. A run of references
+for consecutive rows from consecutive rows of one datagram is one range. The encoder takes a
+reference only when it codes smaller than the literal, and a range only when it codes smaller
+than its entries one by one.
 
-- **The receiver rebuilds, never reads the grid.** The browser records every entry it wrote
-  whole, chained per row in application order, back to a complete row; a reference rebuilds the
-  source row as that datagram left it and checks the hash. A row with no chain is recorded
-  whole, read back from the grid right after the entry that starts it, exactly as the row hash
-  reads it; an entry written only partly breaks the chain. A chain holds at most 32 spans past
-  its complete row, so a reference costs a bounded rebuild. History clears with the ordering
-  epoch, the geometry and a session boundary that kept no grid, the boundary at which the
-  daemon's resume answer is a snapshot that clears its index; a row drops a whole chain once
-  every record in it is older than the history window, keeping the chain its next span applies
-  over (prevents a reference reading content a later writer changed, and a quiet row losing its
-  chain).
-- **The window fits a cell budget.** A reference reaches back `mz_reference_datagrams(cols,
-  rows)` datagrams and the browser keeps twice that: the most whose history fits
-  `MZ_HISTORY_CELLS` (32 MiB of cells) when every datagram rewrites every row, at most 512. Both
-  ends compute it from the grid, so a large grid trades reach for memory (prevents a scrolling
-  session growing WASM memory without bound).
-- **A source is acknowledged and was not skipped.** The daemon indexes a row a datagram carried
-  only when that datagram's ACK arrived before any newer send of the row: every later send then
-  reached the browser after it, so the browser applied that entry rather than skipping it as
-  stale. Rows with links or graphics are never sources (prevents naming an entry the browser
-  never applied).
+- **The receiver keeps what the frame carried, never the grid.** The browser records every
+  complete row of every delta it decodes, applied or skipped as stale, as the frame carried it:
+  each distinct row once (`RowHistory`, keyed by its row hash, stored as its full-row entry), and
+  for each datagram which row it carried where. A reference copies the stored entry and needs no
+  check: what it names is exactly what the daemon sent. Rows with links are never recorded
+  (prevents a reference reading content a later writer changed).
+- **A change from a row's leading blanks sends the whole row.** A span whose cells before it are
+  all blank is widened to the full row; the added cells are runs MZ codes in about a byte, and
+  the row becomes a source. An edit after other text stays a span (prevents scrolled and
+  rewritten lines going out as spans no reference can name).
+- **A source is any acknowledged complete row.** The daemon indexes the complete rows of every
+  acknowledged delta, whatever was sent to those rows after, because the browser recorded them
+  whether or not its grid took them. Rows with graphics are never sources (prevents a scrolling
+  flood resending every line as a literal for as long as it moves faster than one ACK).
+- **Both ends keep the same ledger.** History reaches 512 datagrams, keeps 1024, and holds at
+  most `MZ_HISTORY_BYTES` (8 MiB) of distinct rows, retiring the oldest datagram first
+  (`MzLedger`). The daemon runs the same ledger over every complete row it sends, a superset
+  under the same keys and retirement, so it never names a datagram the browser retired. History
+  clears with the ordering epoch, the geometry and a session boundary that kept no grid; the
+  daemon's ledger clears only with the geometry, and losing trust in a source never clears it
+  (prevents memory growing with the session, and a reference to a retired row).
 - **Presentation id, not sequence, is the base.** Header promotion reorders a flush's batches
   after they are coded; the presentation id is fixed at capture (prevents a reordered frame
   naming the wrong datagram).
-- **Refusal is loss.** A reference the browser cannot rebuild exactly refuses the frame as
+- **Refusal is loss.** A reference the browser does not hold refuses the frame as
   `display_reference_unresolved`: never acknowledged, its rows re-sent, never a snapshot. A
-  frame that carried references and is lost or unresolved clears the daemon's index, as does any
-  reset of its sent-row state (prevents a refused source looping).
+  frame that carried references and is lost or unresolved clears the daemon's source index, as
+  does any reset of its sent-row state (prevents a refused source looping).
 
 When the edge is the primary display carrier, an eligible critical datagram gets one bounded
 compression attempt, taken only when it saves enough bytes or keeps the frame out of the reliable

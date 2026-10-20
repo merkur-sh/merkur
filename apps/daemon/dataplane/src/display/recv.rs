@@ -559,10 +559,7 @@ pub(crate) fn handle_display_ack(
             sent.reliable,
             true,
         );
-        let cache = &mut peer.display_cache;
-        cache
-            .references
-            .note_applied(seq, &sent.rows, &cache.sent_row_latest_seq);
+        peer.display_cache.references.note_applied(seq, &sent.rows);
         // Every newly-applied row-bearing datagram is one uncensored sample of
         // the quantity the duplicate deadline predicts. Header-only frames are
         // dual-pathed control updates and reliable frames include stream HOL;
@@ -977,6 +974,7 @@ mod tests {
                 row,
                 hash: 100 + u64::from(row),
                 cells: glyph_cells(b'a' + row as u8),
+                complete: false,
             };
             let seq = u32::from(row) + 1;
             let sent_at_ms = 10.0 * f64::from(seq);
@@ -1004,6 +1002,7 @@ mod tests {
                 row,
                 hash: 100 + u64::from(row),
                 cells: glyph_cells(b'a' + row as u8),
+                complete: false,
             })
             .collect();
         peer.display_cache.record_sent_rows(
@@ -1280,6 +1279,7 @@ mod tests {
                 row: 0,
                 hash: 11,
                 cells: vec![lost_cell].into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -1291,6 +1291,7 @@ mod tests {
                 row: 1,
                 hash: 22,
                 cells: vec![applied_cell].into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -1345,6 +1346,7 @@ mod tests {
                 ..CellRepr::BLANK
             }]
             .into(),
+            complete: false,
         };
         // Sent at 1, then CHANGED and sent again at 9 before any
         // acknowledgement arrived. `record_sent_rows` pins the sequence to the
@@ -1423,6 +1425,7 @@ mod tests {
             row: 0,
             hash: 77,
             cells: glyph_cells(b'x'),
+            complete: false,
         };
         for seq in [1, 5] {
             peer.display_cache.record_sent_rows(
@@ -1478,6 +1481,7 @@ mod tests {
             row: 0,
             hash: 88,
             cells: glyph_cells(b'y'),
+            complete: false,
         };
         for seq in [1, 3, 5] {
             peer.display_cache.record_sent_rows(
@@ -1513,6 +1517,7 @@ mod tests {
             row: 0,
             hash: 20,
             cells: glyph_cells(b'z'),
+            complete: false,
         };
         peer.display_cache.record_sent_rows(
             1,
@@ -1560,6 +1565,7 @@ mod tests {
             row: 0,
             hash: 99,
             cells: glyph_cells(b'r'),
+            complete: false,
         };
         peer.display_cache.record_reliable_sent_rows(
             1,
@@ -1707,6 +1713,7 @@ mod tests {
                 row: 0,
                 hash: 33,
                 cells: vec![CellRepr::BLANK].into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -1794,6 +1801,7 @@ mod tests {
                 row: 0,
                 hash: 44,
                 cells: vec![CellRepr::BLANK].into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -1838,6 +1846,7 @@ mod tests {
                 row: 0,
                 hash: 7,
                 cells: vec![expected_cell].into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -1881,6 +1890,7 @@ mod tests {
                 ..CellRepr::BLANK
             }]
             .into(),
+            complete: false,
         };
         let after_wrap = SentRow {
             graphics: None,
@@ -1891,6 +1901,7 @@ mod tests {
                 ..CellRepr::BLANK
             }]
             .into(),
+            complete: false,
         };
         let expected_after_wrap = Arc::clone(&after_wrap.cells);
         for (seq, row, sent_at_ms) in [(u32::MAX, before_wrap, 0.0), (1, after_wrap, 10.0)] {
@@ -1959,6 +1970,7 @@ mod tests {
                 row: 0,
                 hash: 5,
                 cells: vec![old_cell].into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -2003,12 +2015,14 @@ mod tests {
                     row: 0,
                     hash: 41,
                     cells: vec![cell].into(),
+                    complete: false,
                 },
                 SentRow {
                     graphics: None,
                     row: 1,
                     hash: 42,
                     cells: vec![cell].into(),
+                    complete: false,
                 },
             ],
             0.0,
@@ -2045,6 +2059,7 @@ mod tests {
                 row: 1,
                 hash: 42,
                 cells: vec![cell].into(),
+                complete: false,
             }],
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -2071,6 +2086,7 @@ mod tests {
                     row: 0,
                     hash: 7,
                     cells: vec![CellRepr::BLANK].into(),
+                    complete: false,
                 }]),
                 sent_via,
                 header_only: false,
@@ -2159,6 +2175,7 @@ mod tests {
                 ..CellRepr::BLANK
             }]
             .into(),
+            complete: false,
         };
         peer.display_cache.record_sent_rows(
             1,
@@ -2412,6 +2429,7 @@ mod tests {
                             row: 0,
                             hash: 9,
                             cells: glyph_cells(b'x'),
+                            complete: false,
                         };
                         let original_paths = if dual_original {
                             SentPaths {
@@ -2601,6 +2619,7 @@ mod tests {
                 ..CellRepr::BLANK
             }]
             .into(),
+            complete: false,
         };
         let latest = SentRow {
             graphics: None,
@@ -2611,6 +2630,7 @@ mod tests {
                 ..CellRepr::BLANK
             }]
             .into(),
+            complete: false,
         };
         for (seq, row, sent_at_ms) in [(1, first, 0.0), (2, latest, 10.0)] {
             peer.display_cache.record_sent_rows(
@@ -2683,6 +2703,7 @@ mod tests {
                     row,
                     hash: u64::from(seq),
                     cells: vec![cell].into(),
+                    complete: false,
                 }],
                 0.0,
                 DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
@@ -2782,6 +2803,7 @@ mod tests {
                             row,
                             hash,
                             cells: capture_scratch.cells.as_slice().into(),
+                            complete: false,
                         }
                     })
                     .collect()

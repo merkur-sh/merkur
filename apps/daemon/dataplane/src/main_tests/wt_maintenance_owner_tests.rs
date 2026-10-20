@@ -21,12 +21,14 @@ fn seed_display_attempts_across_both_paths(peer: &mut PeerDisplayState) {
     peer.display_cache
         .prime_from_snapshot(&[CellRepr::BLANK; 3], &[1, 2, 3], &[]);
 
-    let direct_row = SentRow {
+    let blank_row = |row, hash| SentRow {
         graphics: None,
-        row: 0,
-        hash: 101,
+        row,
+        hash,
         cells: vec![CellRepr::BLANK].into(),
+        complete: false,
     };
+    let direct_row = blank_row(0, 101);
     peer.display_cache.record_reliable_sent_rows_on_path(
         10,
         std::slice::from_ref(&direct_row),
@@ -46,12 +48,7 @@ fn seed_display_attempts_across_both_paths(peer: &mut PeerDisplayState) {
         },
     );
 
-    let edge_row = SentRow {
-        graphics: None,
-        row: 1,
-        hash: 202,
-        cells: vec![CellRepr::BLANK].into(),
-    };
+    let edge_row = blank_row(1, 202);
     let edge_paths = SentPaths::single(PeerTransport::Edge);
     peer.display_cache.record_sent_rows_on_paths(
         11,
@@ -72,12 +69,7 @@ fn seed_display_attempts_across_both_paths(peer: &mut PeerDisplayState) {
         },
     );
 
-    let dual_row = SentRow {
-        graphics: None,
-        row: 2,
-        hash: 303,
-        cells: vec![CellRepr::BLANK].into(),
-    };
+    let dual_row = blank_row(2, 303);
     let dual_paths = SentPaths {
         webtransport: true,
         edge: true,

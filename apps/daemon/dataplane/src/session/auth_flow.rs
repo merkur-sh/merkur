@@ -1924,6 +1924,7 @@ mod tests {
                 row: 0,
                 hash: 0xfeed,
                 cells: Arc::from(vec![CellRepr::BLANK; usize::from(terminal.cols)]),
+                complete: false,
             }),
             500.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,

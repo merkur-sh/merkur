@@ -1063,9 +1063,9 @@ compressed on its own, so it is complete on arrival and can be decrypted, applie
 lost, or recovered without any other datagram. Each flush ranks rows into `Critical` (cursor rows
 and changed cursor/mode headers, sent redundantly across live direct and relay paths) and
 `NonCritical` (one admitted carrier, chosen by the prepared burst's complete delivery cost). Row
-text is literal cell spans, or in an MZ payload a reference to a row as an acknowledged earlier
-datagram left it, which the browser rebuilds from its own history of applied entries; there are
-no mutable-grid row copies.
+text is literal cell spans, or in an MZ payload a reference to a complete row exactly as an
+acknowledged earlier datagram carried it, which the browser keeps in its own history of received
+rows; there are no mutable-grid row copies.
 
 Three boundaries are deliberately separate: each datagram stands alone on the wire, the terminal
 worker applies each accepted datagram to the authoritative WASM grid at once, and one bounded
@@ -1116,12 +1116,12 @@ boundaries reopen the free delivery window until the replacement flight is ackno
 A frame that MZ (`merkur_codec::mz`) shrinks travels compressed, any other raw. MZ is one rANS
 stream over the row layout, every field coded in its own context against a static model
 compiled into both ends and trained on recorded sessions through this pipeline, so it needs no
-install and no model state on the wire. An MZ entry may instead name an acknowledged row with
-exactly its cells: the datagram, counted back from the frame's presentation id, the source row,
-and a 32-bit row hash. The browser rebuilds that row from its history of the entries it applied,
-checks the hash, and writes it whole to the target row. A reference it cannot rebuild refuses the
-frame like a lost datagram: it is never acknowledged, its rows come again, and it never calls for
-a snapshot.
+install and no model state on the wire. An MZ entry may instead name a complete row an
+acknowledged datagram carried with exactly its cells: the datagram, counted back from the frame's
+presentation id, and the source row; a range names consecutive rows at once. The browser keeps
+every complete row it received, applied or stale, and writes the named one whole to the target
+row. A reference to a row it no longer holds refuses the frame like a lost datagram: it is never
+acknowledged, its rows come again, and it never calls for a snapshot.
 
 A carrier swap keeps the display generation, the sequence space, the browser's grid, and the
 row history MZ references read: it is the same screen over a different pipe. The daemon retires only what the dead

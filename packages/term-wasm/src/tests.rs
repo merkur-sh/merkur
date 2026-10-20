@@ -421,7 +421,7 @@ fn display_receiver_calibration_terminal_is_headless_and_isolated() {
     assert_eq!(terminal.cols(), 120);
     assert_eq!(terminal.rows(), 29);
     assert!(terminal.atlas.is_none());
-    assert_eq!(terminal.display_row_history.held_cells(), 0);
+    assert_eq!(terminal.display_row_history.held_bytes(), 0);
     assert!(!terminal.has_predictions());
 }
 

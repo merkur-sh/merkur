@@ -208,43 +208,39 @@ fn graphics_rows_round_trip_with_their_sections() {
 }
 
 #[test]
-fn references_rebuild_the_row_the_receiver_applied_and_are_taken_only_when_smaller() {
+fn references_name_rows_the_receiver_received_and_are_taken_only_when_smaller() {
     let mut history = RowHistory::default();
     let original = text_row(
         "fn main() { println!(\"hello, world\"); }",
         [0xa6, 0xe3, 0xa1],
     );
-    // Seq 10 wrote the full row at row 5; seq 11 changed a span of it.
-    history.record(10, 5, 0, &original, COLS, ROWS);
-    let mut edited = original.clone();
-    for (offset, c) in "goodbye".chars().enumerate() {
-        edited[22 + offset].codepoint = u32::from(c);
-    }
-    history.record(11, 5, 22, &edited[22..29], COLS, ROWS);
-    // Seq 12 moves the edited row to row 4: a reference to (11, 5).
-    let rows = rows_of(&[(4, 0, &edited)]);
+    let mut newer = original.clone();
+    newer[3].codepoint = u32::from(b'X');
+    // Seq 11 rewrote row 5 before seq 10's copy arrived: the grid skips the
+    // older one, the history still holds it as seq 10 carried it.
+    history.record(11, 5, &newer, COLS, ROWS);
+    history.record(10, 5, &original, COLS, ROWS);
+    // Seq 12 writes the original at row 4: a reference to (10, 5).
+    let rows = rows_of(&[(4, 0, &original)]);
     let reference = MzReference {
-        seq_delta: 1,
+        seq_delta: 2,
         source_row: 5,
-        hash: reference_hash(&edited),
-        full_row_bytes: u32::try_from(full_row_entry_bytes(&edited)).expect("a row"),
+        full_row_bytes: u32::try_from(full_row_entry_bytes(&original)).expect("a row"),
     };
+    let mut encoder = MzEncoder::default();
     let mut payload = Vec::new();
-    let rows_len = MzEncoder::default()
+    let rows_len = encoder
         .encode(&rows, 1, &[Some(reference)], &mut payload)
         .expect("encodes");
+    assert_eq!(encoder.taken(), [true]);
     assert_eq!(
         rows_len,
         rows.len(),
         "the reference is a full row, as the literal is"
     );
-    let literal_only = MzEncoder::default()
-        .encode(&rows, 1, &[], &mut Vec::new())
-        .expect("encodes");
-    assert_eq!(literal_only, rows.len());
     assert!(
-        payload.len() < 12,
-        "a reference codes in a handful of bytes: {}",
+        payload.len() < 8,
+        "a reference codes in a few bytes: {}",
         payload.len()
     );
     let mut decoded = Vec::new();
@@ -261,220 +257,217 @@ fn references_rebuild_the_row_the_receiver_applied_and_are_taken_only_when_small
     .expect("resolves");
     assert_eq!(decoded, rows);
 
-    // A short literal is cheaper than any reference, and is kept.
-    let short = rows_of(&[(4, 0, &edited[..1])]);
-    let mut payload = Vec::new();
-    let rows_len = MzEncoder::default()
+    // A one-cell literal is cheaper than a reference far back and far away,
+    // and is kept.
+    let short = rows_of(&[(4, 0, &original[..1])]);
+    let rows_len = encoder
         .encode(
             &short,
             1,
             &[Some(MzReference {
+                seq_delta: MZ_REFERENCE_DATAGRAMS - 3,
+                source_row: 300,
                 full_row_bytes: 999,
-                ..reference
             })],
-            &mut payload,
+            &mut Vec::new(),
         )
         .expect("encodes");
     assert_eq!(rows_len, short.len());
+    assert_eq!(encoder.taken(), [false]);
 }
 
 #[test]
-fn a_reference_the_receiver_cannot_rebuild_exactly_is_refused() {
+fn a_reference_to_a_row_the_receiver_does_not_hold_is_refused() {
     let mut history = RowHistory::default();
     let row = text_row(
         "the daemon believes this row arrived",
         crate::DEFAULT_FOREGROUND,
     );
-    history.record(20, 2, 0, &row, COLS, ROWS);
-    let reference = |hash, seq_delta| MzReference {
+    history.record(20, 2, &row, COLS, ROWS);
+    let reference = |seq_delta, source_row| MzReference {
         seq_delta,
-        source_row: 2,
-        hash,
-        full_row_bytes: u32::try_from(full_row_entry_bytes(&row)).expect("a row"),
-    };
-    let rows = rows_of(&[(3, 0, &row)]);
-    let mut out = Vec::new();
-    for (bad, seq) in [
-        (reference(reference_hash(&row) ^ 1, 1), 21),
-        (reference(reference_hash(&row), 2), 21),
-    ] {
-        let mut payload = Vec::new();
-        let rows_len = MzEncoder::default()
-            .encode(&rows, 1, &[Some(bad)], &mut payload)
-            .expect("encodes");
-        assert_eq!(
-            decode_mz_rows(
-                &payload,
-                1,
-                rows_len,
-                &mut Resolver {
-                    history: &mut history,
-                    seq,
-                },
-                &mut out,
-            ),
-            Err(MzError::Unresolved)
-        );
-    }
-}
-
-#[test]
-fn history_rebuilds_rows_in_apply_order_across_retirement() {
-    let mut history = RowHistory::default();
-    let mut expected = text_row("0123456789", crate::DEFAULT_FOREGROUND);
-    history.record(1, 0, 0, &expected, COLS, ROWS);
-    // Many span updates, enough to retire the anchor and every early record.
-    let updates = mz_history_datagrams(COLS, ROWS) + 300;
-    for seq in 2..updates {
-        let column = (seq % 30) as usize;
-        expected[column].codepoint = u32::from(b'a' + (seq % 26) as u8);
-        history.record(
-            seq,
-            0,
-            u16::try_from(column).expect("a column"),
-            &expected[column..column + 1],
-            COLS,
-            ROWS,
-        );
-    }
-    let last = updates - 1;
-    let mut out = Vec::new();
-    history
-        .resolve(
-            last + 1,
-            7,
-            MzReference {
-                seq_delta: 1,
-                source_row: 0,
-                hash: reference_hash(&expected),
-                full_row_bytes: 0,
-            },
-            &mut out,
-        )
-        .expect("the newest version rebuilds after its anchor retired");
-    let mut want = Vec::new();
-    encode_full_row_entry(&mut want, 7, &expected);
-    assert_eq!(out, want);
-    // A span per datagram, and a complete row at most every 33 spans.
-    assert!(history.held_cells() <= 3 * mz_history_datagrams(COLS, ROWS) as usize);
-    // A retired record no longer resolves.
-    assert_eq!(
-        history.resolve(
-            last + 1,
-            7,
-            MzReference {
-                seq_delta: MZ_REFERENCE_DATAGRAMS,
-                source_row: 0,
-                hash: 0,
-                full_row_bytes: 0,
-            },
-            &mut Vec::new(),
-        ),
-        Err(MzError::Unresolved)
-    );
-}
-
-#[test]
-fn an_invalidated_row_does_not_resolve_until_it_is_written_whole() {
-    let mut history = RowHistory::default();
-    let row = text_row("abc", crate::DEFAULT_FOREGROUND);
-    history.record(1, 0, 0, &row, COLS, ROWS);
-    history.invalidate_row(0);
-    history.record(2, 0, 1, &row[1..2], COLS, ROWS);
-    let reference = MzReference {
-        seq_delta: 1,
-        source_row: 0,
-        hash: reference_hash(&row),
+        source_row,
         full_row_bytes: 0,
     };
+    let mut out = Vec::new();
+    assert_eq!(history.resolve(21, 3, reference(1, 2), &mut out), Ok(()));
     assert_eq!(
-        history.resolve(3, 1, reference, &mut Vec::new()),
+        history.resolve(21, 3, reference(2, 2), &mut out),
         Err(MzError::Unresolved)
     );
-    history.record(3, 0, 0, &row, COLS, ROWS);
-    assert_eq!(history.resolve(4, 1, reference, &mut Vec::new()), Ok(()));
+    assert_eq!(
+        history.resolve(21, 3, reference(1, 1), &mut out),
+        Err(MzError::Unresolved)
+    );
+    assert_eq!(
+        history.resolve(21, 3, reference(MZ_REFERENCE_DATAGRAMS + 1, 2), &mut out),
+        Err(MzError::Corrupt)
+    );
+    // A row with a link is never a source.
+    let mut linked = row.clone();
+    linked[0].link = 4;
+    history.record(22, 6, &linked, COLS, ROWS);
+    assert_eq!(
+        history.resolve(23, 3, reference(1, 6), &mut out),
+        Err(MzError::Unresolved)
+    );
 }
 
 #[test]
-fn a_span_on_an_unchained_row_leaves_it_unchained() {
+fn a_range_codes_consecutive_references_as_one_op() {
     let mut history = RowHistory::default();
-    let row = text_row("abc", crate::DEFAULT_FOREGROUND);
-    history.record(1, 0, 0, &row, COLS, ROWS);
-    history.invalidate_row(0);
-    history.record(2, 0, 1, &row[1..2], COLS, ROWS);
-    assert!(!history.row_chained(0));
-}
-
-#[test]
-fn a_row_quiet_past_the_window_still_rebuilds_its_next_span() {
-    let mut history = RowHistory::default();
-    let mut quiet = text_row("$ prompt", crate::DEFAULT_FOREGROUND);
-    let busy = text_row("spinner", crate::DEFAULT_FOREGROUND);
-    history.record(1, 0, 0, &quiet, COLS, ROWS);
-    // Another row keeps the sequence moving until row 0's only record is
-    // older than the window.
-    let last_busy = mz_history_datagrams(COLS, ROWS) + 100;
-    for seq in 2..=last_busy {
-        history.record(seq, 1, 0, &busy, COLS, ROWS);
+    let lines: Vec<Vec<CellRepr>> = (0..6)
+        .map(|line| text_row(&format!("log line {line} of a scrolling build"), [9, 9, 9]))
+        .collect();
+    for (row, cells) in (0u16..).zip(&lines) {
+        history.record(30, row, cells, COLS, ROWS);
     }
-    assert!(history.row_chained(0));
-    quiet[2].codepoint = u32::from(b'l');
-    history.record(last_busy + 1, 0, 2, &quiet[2..3], COLS, ROWS);
-    let mut out = Vec::new();
-    history
-        .resolve(
-            last_busy + 2,
-            5,
-            MzReference {
+    // Seq 31 scrolls every line up two rows.
+    let entries: Vec<(u16, u16, &[CellRepr])> = (0u16..)
+        .zip(&lines[2..])
+        .map(|(row, cells)| (row, 0, cells.as_slice()))
+        .collect();
+    let rows = rows_of(&entries);
+    let references: Vec<Option<MzReference>> = (2u16..)
+        .zip(&lines[2..])
+        .map(|(source_row, cells)| {
+            Some(MzReference {
                 seq_delta: 1,
-                source_row: 0,
-                hash: reference_hash(&quiet),
-                full_row_bytes: 0,
+                source_row,
+                full_row_bytes: u32::try_from(full_row_entry_bytes(cells)).expect("a row"),
+            })
+        })
+        .collect();
+    let mut encoder = MzEncoder::default();
+    let mut payload = Vec::new();
+    let rows_len = encoder
+        .encode(&rows, 4, &references, &mut payload)
+        .expect("encodes");
+    assert_eq!(encoder.taken(), [true; 4]);
+    let mut literals = Vec::new();
+    encoder
+        .encode(&rows, 4, &[], &mut literals)
+        .expect("encodes");
+    assert!(
+        payload.len() * 4 < literals.len(),
+        "four rows by reference: {} bytes, as literals {}",
+        payload.len(),
+        literals.len()
+    );
+    let mut decoded = Vec::new();
+    decode_mz_rows(
+        &payload,
+        4,
+        rows_len,
+        &mut Resolver {
+            history: &mut history,
+            seq: 31,
+        },
+        &mut decoded,
+    )
+    .expect("resolves");
+    assert_eq!(decoded, rows);
+    // A range past the frame's rows is corrupt.
+    assert_eq!(
+        decode_mz_rows(
+            &payload,
+            3,
+            rows_len,
+            &mut Resolver {
+                history: &mut history,
+                seq: 31,
             },
-            &mut out,
-        )
-        .expect("the span applies over the row the grid still holds");
-    let mut want = Vec::new();
-    encode_full_row_entry(&mut want, 5, &quiet);
-    assert_eq!(out, want);
+            &mut decoded,
+        ),
+        Err(MzError::Corrupt)
+    );
+}
+
+/// A store that sizes each row from its key, as the sender's does.
+struct Sizes {
+    released: usize,
+}
+
+impl MzStore for Sizes {
+    fn insert(&mut self, key: u64) -> usize {
+        usize::try_from(key % 7 + 1).expect("small") << 18
+    }
+
+    fn release(&mut self, _: u64) {
+        self.released += 1;
+    }
 }
 
 #[test]
-fn history_holds_at_most_its_cell_budget_whatever_the_grid() {
-    // Every datagram rewrites every row whole: the most a window can hold.
-    let (cols, rows) = (200u16, 60u16);
-    let mut history = RowHistory::default();
-    let mut row = text_row("", crate::DEFAULT_FOREGROUND);
-    row.resize(usize::from(cols), row[0]);
-    let datagrams = 3 * mz_history_datagrams(cols, rows);
-    for seq in 1..=datagrams {
-        row[0].codepoint = seq;
-        for index in 0..rows {
-            history.record(seq, index, 0, &row, cols, rows);
+fn a_ledger_retires_past_its_window_and_past_its_budget_oldest_first() {
+    let mut ledger = MzLedger::default();
+    let mut store = Sizes { released: 0 };
+    ledger.record(1, 0, 3, &mut store);
+    assert!(ledger.holds(1));
+    ledger.record(1 + 2 * MZ_REFERENCE_DATAGRAMS, 0, 4, &mut store);
+    assert!(!ledger.holds(1), "past the window");
+    assert_eq!(store.released, 1);
+    // Distinct rows past the budget retire the oldest datagrams first; one
+    // row named twice is held once.
+    let mut ledger = MzLedger::default();
+    let mut seq = 100u32;
+    while ledger.bytes() <= MZ_HISTORY_BYTES - (1 << 20) {
+        ledger.record(seq, 0, u64::from(seq), &mut store);
+        ledger.record(seq, 1, 6, &mut store);
+        seq += 1;
+    }
+    ledger.record(seq, 0, u64::from(seq) + 3, &mut store);
+    assert!(ledger.bytes() <= MZ_HISTORY_BYTES);
+    assert!(!ledger.holds(100));
+    assert!(ledger.holds(seq));
+    assert_eq!(ledger.key(seq - 1, 1), Some(6));
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// The sender records every datagram it sends, the receiver those that
+    /// arrive, late or never: whatever the sender's ledger still holds of a
+    /// datagram that arrived, the receiver's holds too.
+    #[test]
+    fn the_senders_ledger_never_holds_a_row_the_receivers_retired(
+        datagrams in proptest::collection::vec(
+            (proptest::collection::vec(0u64..40, 1..6), 0u8..10, 0u32..4),
+            1..1500,
+        ),
+    ) {
+        let mut sender = MzLedger::default();
+        let mut receiver = MzLedger::default();
+        let mut store = Sizes { released: 0 };
+        let mut in_flight: Vec<(u32, u32, &[u64])> = Vec::new();
+        let mut arrived = std::collections::HashSet::new();
+        for (seq, (keys, fate, delay)) in (1u32..).zip(&datagrams) {
+            for (row, &key) in (0u16..).zip(keys) {
+                sender.record(seq, row, key, &mut store);
+            }
+            // Fates 0..2 are lost; the rest arrive after `delay` sends.
+            if *fate > 1 {
+                in_flight.push((seq, *delay, keys));
+            }
+            in_flight.retain(|&(sent, delay, keys)| {
+                if seq - sent < delay {
+                    return true;
+                }
+                for (row, &key) in (0u16..).zip(keys) {
+                    receiver.record(sent, row, key, &mut store);
+                }
+                arrived.insert(sent);
+                false
+            });
+            for &held in &arrived {
+                for (row, _) in (0u16..).zip(&datagrams[(held - 1) as usize].0) {
+                    if sender.key(held, row).is_some() {
+                        prop_assert!(receiver.key(held, row).is_some(), "seq {held} row {row}");
+                    }
+                }
+            }
         }
     }
-    let grid = u64::from(cols) * u64::from(rows);
-    assert!(mz_reference_datagrams(cols, rows) < MZ_REFERENCE_DATAGRAMS);
-    assert!(
-        history.held_cells() as u64 <= MZ_HISTORY_CELLS + grid,
-        "{} cells held",
-        history.held_cells()
-    );
-    // A reference past this grid's window is refused, never read.
-    assert_eq!(
-        history.resolve(
-            datagrams + 1,
-            0,
-            MzReference {
-                seq_delta: mz_reference_datagrams(cols, rows) + 1,
-                source_row: 0,
-                hash: 0,
-                full_row_bytes: 0,
-            },
-            &mut Vec::new(),
-        ),
-        Err(MzError::Unresolved)
-    );
 }
 
 #[test]
