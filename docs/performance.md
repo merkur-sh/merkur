@@ -1338,14 +1338,12 @@ irregular population is never pooled with regular typing. The driver makes no pe
 presentation waits, telemetry dumps, or network-control requests.
 
 Every typing phase and TUI loop also receives a cold native recorder drain immediately
-before its observation setup and after its retained browser evidence. SIGUSR2 requests
-the ordinary final transport sample followed by the bounded native trace export. The
-Direct harness requires `MERKUR_E2E_FINAL_TRANSPORT_CAPTURE=1` before daemon launch;
-the fixture refuses to signal a daemon that did not install this existing test listener.
-The fixture waits at most 20 seconds and validates exact daemon/command identity, chunk order,
-metadata, record ordinals and completion counts through the shared IPC validator. Both
-raw compressed logs and decoded records remain durable artifacts, including partial or
-failed exports. A completed export with dropped current-owner records is not complete
+before its observation setup and after its retained browser evidence. The fixture requests
+it over the daemon's profile socket; the dataplane writes the `.mtrace` file and the daemon
+logs its path. The fixture waits at most 20 seconds, matches the exact daemon and command
+identity, and decodes the file through `@merkur/profile`, which rejects any malformed or
+unsafe value. Both raw compressed logs and decoded records remain durable artifacts,
+including failed exports. A completed export with dropped current-owner records is not complete
 timing evidence: `recordCoverageEligible` stays false and the measured after-capture fails.
 `stale` counts records discarded from a previous observation, not current-owner loss;
 it remains visible but does not automatically disqualify the following measured phase.

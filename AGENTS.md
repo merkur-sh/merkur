@@ -48,7 +48,7 @@ is that same daemon inside a container on a box host, which the server reaches a
 | Display encoding, ACK, presentation, compression | `docs/display-invariants.md` | `display` |
 | Crypto, delegation, rebind, identity custody, speculative echo | `docs/security.md` | `crypto-bootstrap`, `daemon-identity`, `speculative-echo` |
 | Process lifecycle, supervision, IPC | `docs/processes.md` | `ipc` |
-| Hot-path design, benchmark methodology | `docs/performance.md` | `dataplane` |
+| Hot-path design, benchmark methodology | `docs/performance.md` | `dataplane`; skill `profile` |
 | Where prose lives: `docs/` is undated reference; this tree holds no dated records, open-item lists or proposals | `docs/` | `check:docs` |
 | Health, signals, metrics, exporters | `docs/observability.md` | `no-otel-sdk` |
 | Releases, signing, rollout | `docs/releases.md` | skill `release` |

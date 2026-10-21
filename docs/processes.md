@@ -262,7 +262,9 @@ merkur daemon (Bun)
 The Bun process loads linked config, acquires the single-instance lock, starts the dataplane, and
 owns the persistent daemon-to-server WSS control connection, ping liveness, reconnect,
 and command dispatch. It also supervises terminal-bell reporting and a 30-second structured
-health/metric reporter; an unexpected failure in any critical owner terminates the runtime. The
+health/metric reporter, and serves `merkur profile` on the owner-only socket
+`~/.merkur/profile.sock` (see [Native boundary capture](./observability.md#native-boundary-capture));
+an unexpected failure in any critical owner terminates the runtime. The
 Rust dataplane owns PTY state, server-capability/control-offer validation, user-root daemon-binding
 and browser-delegation verification, revocation enforcement, permanent daemon-identity response
 signing, one-use ML-KEM/Noise bootstrap, edge/direct WebTransport, input sequencing, display
@@ -632,7 +634,10 @@ The project-wide harness records repeated hot-path metrics plus wall time, CPU t
 variance, and baseline regressions. Use `bun run bench:all` for the fast benchmark set,
 `bun run profile:services` for every service, and `bun run profile:full` for the complete release
 profile. The methodology and profiler/soak options are documented in
-[`docs/performance.md`](./performance.md).
+[`docs/performance.md`](./performance.md). Where the dataplane's time goes is a native trace:
+`merkur profile record` captures a live session, `bun run profile:sim` the simulated display
+pipeline, and `bun run profile:query` answers from either in SQL
+([Native span profiling](./performance.md#native-span-profiling)).
 
 Repeatable benchmark sources live under `scripts/`. A root script without a package command or a
 reachable command dependency fails `bun run check:files`.
