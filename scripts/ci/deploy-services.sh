@@ -6,6 +6,8 @@ bun run deployment:verify -- --directory deployment --commit "$COMMIT"
 : "${SERVICE_HOSTS_SSH_KEY:?}" "${SERVER_ORIGIN:?}"
 mkdir -p dist/service-proofs
 python3 scripts/ci/service-proof.py record
+# Before the server of this release: the running server's daemons stage it from the store.
+bash scripts/ci/stage-daemon-release.sh
 bash scripts/ci/deploy-app-host.sh
 bun run deployment:check-server -- --directory deployment --commit "$COMMIT" --origin "$SERVER_ORIGIN"
 bash scripts/ci/deploy-service-hosts.sh

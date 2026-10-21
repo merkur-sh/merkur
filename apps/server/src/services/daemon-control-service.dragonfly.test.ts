@@ -10,7 +10,6 @@ import {
 } from '@merkur/daemon-control-protocol';
 import { RedisClient } from 'bun';
 import { Context, Effect, Fiber, Layer, Queue, Redacted } from 'effect';
-
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
 import { createMigratedKyselyDatabase } from '../db/migrate';
@@ -20,6 +19,7 @@ import {
   DaemonControlServiceTag,
   type DaemonControlSocket,
 } from './daemon-control-service';
+import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { type DeviceService, DeviceServiceTag } from './device-service';
 import { EdgeRegistryServiceLive } from './edge-registry-service';
 import {
@@ -306,6 +306,10 @@ function createReplicaLayer(redisUrl: string) {
     // directly rather than only through the Redis layer.
     configLayer,
     EdgeRegistryServiceLive.pipe(Layer.provide(redisLayer)),
+    Layer.succeed(DaemonReleaseStoreTag, {
+      staged: Effect.succeed(null),
+      announcements: Effect.runSync(Queue.sliding<string>(1)),
+    }),
   );
   return DaemonControlServiceLive.pipe(Layer.provideMerge(dependencies));
 }

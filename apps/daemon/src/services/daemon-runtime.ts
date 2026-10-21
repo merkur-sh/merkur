@@ -1,3 +1,4 @@
+import { spawnFramedSidecarProcess } from '@merkur/shared/node-sidecar';
 import { waitForProcessSignal } from '@merkur/shared/node-signals';
 import { Clock, type Deferred, Effect, Fiber, Metric, Queue, Redacted, type Scope } from 'effect';
 import { ensureOpenUrlCommandsEffect } from '../cli/open';
@@ -8,11 +9,8 @@ import {
   shellTokenPath as shellTokenPathValue,
 } from '../config';
 import { type Logger, logEffect } from '../logger';
-import {
-  type DaemonControlPathSignal,
-  type DaemonControlSuperseded,
-  runDaemonControlClientEffect,
-} from './daemon-control-client';
+import type { DaemonControlPathSignal, DaemonControlSuperseded } from './daemon-control-client';
+import { type ConvergenceContext, runConvergingControlEffect } from './daemon-convergence';
 import {
   DaemonHealthServiceTag,
   daemonIpv6Reachability,
@@ -22,6 +20,7 @@ import {
 } from './daemon-metrics';
 import { createDaemonPerfSender, runDaemonPerfReporterEffect } from './daemon-perf-reporter';
 import type { createDaemonProofSigner, DaemonProofSigningClient } from './daemon-proof-signer';
+import { adoptingSpawnSidecar, type DataplaneAdoption } from './dataplane-adoption';
 import {
   createDataplaneClientLayer,
   type DataplaneClient,
@@ -34,7 +33,6 @@ import { createTerminalBellReporterScoped } from './terminal-bell-reporter';
 
 const FINAL_TRANSPORT_CAPTURE_TIMEOUT_MS = 5_000;
 const FINAL_TRANSPORT_CAPTURE_POLL_MS = 5;
-
 export interface DaemonRuntimeOptions {
   /** See `DaemonControlClientOptions.shutdownIntent`. */
   readonly shutdownIntent?: Deferred.Deferred<void>;
@@ -45,6 +43,10 @@ export interface DaemonRuntimeOptions {
    * dataplane, since every export is signed; afterwards an export could only fail and retry.
    */
   readonly retireTelemetry?: Effect.Effect<void>;
+  /** The dataplane this process took over at an upgrade, when it was started for one. */
+  readonly adoption?: DataplaneAdoption | null;
+  /** `~/.merkur`, where releases are staged and the handover socket is bound. */
+  readonly installRoot: string;
 }
 
 /**
@@ -69,7 +71,7 @@ export function runDaemonRuntimeEffect(
   config: DaemonConfig,
   logger: Logger,
   signer: ReturnType<typeof createDaemonProofSigner>,
-  options: DaemonRuntimeOptions = {},
+  options: DaemonRuntimeOptions,
 ): Effect.Effect<never, Error, DaemonHealthServiceTag> {
   return Effect.scoped(
     Effect.gen(function* () {
@@ -146,12 +148,14 @@ export function runDaemonRuntimeEffect(
             // the typed superseded outcome closes the dataplane scope before
             // the process becomes dormant. Joining the reporter makes an
             // unexpected observability defect equally visible.
+            const context = {
+              config,
+              logger,
+              installRoot: options.installRoot,
+              dataplane: dataplaneClient,
+            } satisfies ConvergenceContext;
             return yield* superviseCriticalDaemonEffects(
-              runDaemonControlClientEffect(config, dataplaneClient, {
-                health,
-                pathSignals,
-                shutdownIntent: options.shutdownIntent,
-              }),
+              runConvergingControlEffect(context, health, pathSignals, options.shutdownIntent),
               dataplaneClient.awaitCriticalFailure().pipe(
                 Effect.tapError((error) =>
                   logEffect(
@@ -196,6 +200,10 @@ export function runDaemonRuntimeEffect(
                 dataplaneHandlers(logger, terminalBellReporter.reportBell, pathSignals),
                 {
                   updateHealth: health.updateDataplane,
+                  spawnSidecar:
+                    options.adoption === undefined || options.adoption === null
+                      ? spawnFramedSidecarProcess
+                      : adoptingSpawnSidecar(options.adoption, spawnFramedSidecarProcess),
                 },
               ),
             ),

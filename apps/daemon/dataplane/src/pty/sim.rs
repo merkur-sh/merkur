@@ -70,6 +70,8 @@ impl Pty {
             writer: Box::new(ProgramInput(self.input)),
             master: Box::new(Master(self.size)),
             child: Box::new(Program(exited)),
+            // No reader thread: the program's output reaches the owner loop directly.
+            reader: Arc::new(super::ReaderStop::default()),
         }
     }
 }

@@ -3,7 +3,7 @@ import type { Device, MachineUsage } from '@merkur/shared';
 import { Effect } from 'effect';
 import { type Accessor, createSignal, onCleanup, useContext } from 'solid-js';
 
-import { createLinkTokenEffect, deleteDevice, fetchServerVersion, renameDevice } from '../api';
+import { createLinkTokenEffect, deleteDevice, fetchServerRelease, renameDevice } from '../api';
 import type { DeviceListStatus } from '../hooks/device-events-atoms';
 import {
   applyLocalDeviceChange,
@@ -69,7 +69,7 @@ export interface DeviceListController {
   readonly linkCommand: Accessor<string>;
   readonly machineUsage: Accessor<MachineUsage | null>;
   readonly linkCommandStatus: Accessor<LinkCommandStatus>;
-  readonly serverVersion: Accessor<string | null>;
+  readonly serverRelease: Accessor<string | null>;
   start(token: string, userId: string, opts?: StartDeviceListOptions): Promise<void>;
   stop(): void;
   pauseLinkRefresh(): void;
@@ -125,7 +125,7 @@ export function createDeviceListController(
   let linkAccessToken: string | null = null;
   let machineIds = '';
   const [linkCommandStatus, setLinkCommandStatus] = createSignal<LinkCommandStatus>('loading');
-  const [serverVersion, setServerVersion] = createSignal<string | null>(null);
+  const [serverRelease, setServerRelease] = createSignal<string | null>(null);
   let startGeneration = 0;
   // Solid 2 defers a setter's visibility to the next flush, so a signal read is
   // not a safe guard for control flow that writes and re-reads within a tick.
@@ -207,12 +207,12 @@ export function createDeviceListController(
       publishLinkCommand('');
       setLinkCommandStatus('loading');
       const ready = startDeviceEvents(registry, token, userId);
-      if (serverVersion() === null) {
+      if (serverRelease() === null) {
         // Best-effort: the update badge is suppressed without it.
-        fetchServerVersion()
-          .then((version) => setServerVersion(version))
+        fetchServerRelease()
+          .then((release) => setServerRelease(release))
           .catch((error: unknown) => {
-            logger.warn('server_version_fetch_failed', { error: String(error) });
+            logger.warn('server_release_fetch_failed', { error: String(error) });
           });
       }
       if (opts.refreshLink !== false) {
@@ -356,7 +356,7 @@ export function createDeviceListController(
     linkCommand,
     machineUsage,
     linkCommandStatus,
-    serverVersion,
+    serverRelease,
     start,
     stop,
     pauseLinkRefresh,

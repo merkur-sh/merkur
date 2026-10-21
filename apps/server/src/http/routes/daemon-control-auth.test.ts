@@ -99,6 +99,42 @@ async function waitFor(condition: () => boolean, timeoutMs = 2_000): Promise<voi
 }
 
 describe('daemon control proof boundary', () => {
+  test('refuses a daemon on another release before any rate limit, challenge or proof', async () => {
+    const checks: string[] = [];
+    const f = daemonAuthFixture({
+      rateLimit: {
+        consume: (rule) =>
+          Effect.sync(() => {
+            checks.push(rule.key);
+            return { allowed: true as const };
+          }),
+      },
+    });
+    const app = daemonControlRoutesPlugin({
+      runServerProgram: f.runProgram,
+      logger: f.logger,
+      publicOrigin: f.origin,
+      trustedProxyHops: 0,
+    }).listen(0);
+    try {
+      // The test process is a source build, so its release is `dev`.
+      const response = await fetch(`http://127.0.0.1:${app.server?.port}/api/daemon/control`, {
+        headers: {
+          connection: 'Upgrade',
+          upgrade: 'websocket',
+          'sec-websocket-version': '13',
+          'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+          'x-merkur-daemon-id': 'daemon-1',
+          'x-merkur-version': 'v9.9.9',
+        },
+      });
+      expect(response.status).toBe(426);
+      expect(checks).toEqual([]);
+    } finally {
+      await app.stop(true);
+    }
+  });
+
   test('charges upgrade rate limits once, never for proof or command messages', async () => {
     const checks: string[] = [];
     const received: unknown[] = [];

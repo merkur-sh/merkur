@@ -62,12 +62,15 @@ export function releaseIdentity(
 
 /** The `bun build` arguments that compile the CLI with `identity` stamped in. */
 export function compileArguments(identity: ReleaseIdentity, outfile: string): string[] {
-  // The origin and OPAQUE pin are the terminal client's (`apps/tui`), which Bazel compiles with
-  // them; the CLI is validated against the same identity and embeds only its own.
+  // The OPAQUE pin is the terminal client's (`apps/tui`), which Bazel compiles with it. The CLI
+  // embeds the origin too: `merkur update` on a machine with no daemon config asks it which
+  // release to run.
   const defines = {
     MERKUR_VERSION: identity.version,
+    MERKUR_RELEASE: identity.version,
     MERKUR_RELEASE_SEQUENCE: String(identity.sequence),
     MERKUR_RELEASE_MLDSA87_PUBLIC_KEY: identity.publicKey,
+    MERKUR_PUBLIC_ORIGIN: identity.origin,
   };
   return [
     'build',

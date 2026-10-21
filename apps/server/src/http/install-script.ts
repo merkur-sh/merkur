@@ -1,12 +1,13 @@
-import { RELEASE_DOWNLOAD_BASE_URL } from '@merkur/shared';
+import { RELEASE_FILES_PATH } from '@merkur/shared';
 
 export const INSTALL_SCRIPT_CONTENT_TYPE = 'text/x-shellscript; charset=utf-8';
 
 /**
  * `curl -fsSL <origin>/install | sh`: the daemon installer.
  *
- * The script is deliberately thin. It picks the platform, downloads the newest
- * release's archive, manifest, and signature from GitHub, and hands all three to
+ * The script is deliberately thin. It picks the platform, downloads this server's
+ * release's archive, manifest, and signature from the server's own release store
+ * (the files every daemon of this server converges to), and hands all three to
  * the `merkur` binary inside the archive. `merkur setup` then verifies the
  * ML-DSA-87 manifest signature and the archive against it with the updater's own
  * code, installs into `~/.merkur`, and puts `merkur` on `PATH`.
@@ -25,19 +26,20 @@ export const INSTALL_SCRIPT_CONTENT_TYPE = 'text/x-shellscript; charset=utf-8';
  * `MERKUR_RELEASE_BASE` points the downloads at another directory of release
  * assets; the installer test serves test-signed artifacts through it.
  */
-export function renderInstallScript(publicOrigin: string): string {
+export function renderInstallScript(publicOrigin: string, release: string): string {
+  const releaseBase = `${publicOrigin}${RELEASE_FILES_PATH}/${release}`;
   return `#!/bin/sh
 # Merkur installer for ${publicOrigin}
 #
 #   curl -fsSL ${publicOrigin}/install | sh
 #
-# Downloads the newest signed Merkur release for this machine and installs it
+# Downloads this server's signed Merkur release for this machine and installs it
 # into ~/.merkur. The first install trusts HTTPS: compare the release-key
 # fingerprint it prints with the one in Merkur's README. Every later update is
 # verified against that key.
 set -eu
 
-release_base="\${MERKUR_RELEASE_BASE:-${RELEASE_DOWNLOAD_BASE_URL}/latest/download}"
+release_base="\${MERKUR_RELEASE_BASE:-${releaseBase}}"
 
 fail() {
   printf 'merkur install: %s\\n' "$1" >&2

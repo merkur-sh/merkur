@@ -38,7 +38,7 @@ test('a release refuses missing or noncanonical pins before compiling', () => {
   }
 });
 
-test('the CLI stamps in its version, sequence and release key, and nothing else', () => {
+test('the CLI stamps in its release identity and origin, and nothing else', () => {
   const args = compileArguments(releaseIdentity(release), '/out/merkur');
   expect(args.slice(0, 5)).toEqual([
     'build',
@@ -49,7 +49,9 @@ test('the CLI stamps in its version, sequence and release key, and nothing else'
   ]);
   expect(args.filter((arg) => arg.startsWith('process.env.'))).toEqual([
     'process.env.MERKUR_VERSION="v1.0.0"',
+    'process.env.MERKUR_RELEASE="v1.0.0"',
     'process.env.MERKUR_RELEASE_SEQUENCE="1"',
     `process.env.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY="${'A'.repeat(3456)}"`,
+    `process.env.MERKUR_PUBLIC_ORIGIN="${release.MERKUR_PUBLIC_ORIGIN}"`,
   ]);
 });

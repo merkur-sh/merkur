@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { deriveSessionAuthorizationKeyPair } from '@merkur/auth';
-import { ServerVersionResponse } from '@merkur/shared/api-schema';
+import { ReleaseResponse } from '@merkur/shared/api-schema';
 import { Effect, Layer, Redacted } from 'effect';
 import { Value } from 'typebox/value';
 import { type ServerConfig, ServerConfigService } from '../config';
@@ -145,13 +148,41 @@ describe('server app error contract', () => {
     }
   });
 
-  test('answers the version probe with exactly the response the browser checks it against', async () => {
-    const response = await handle(new Request('https://merkur.test/api/version'));
+  test('names its release in the frozen shape, uncached', async () => {
+    const response = await handle(new Request('https://merkur.test/api/release'));
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(Value.Check(ServerVersionResponse, body)).toBe(true);
-    expect(Object.keys(body)).toEqual(['version']);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(Value.Check(ReleaseResponse, body)).toBe(true);
+    expect(body).toEqual({ release: 'dev' });
+  });
+
+  test('serves exactly the signed files of a stored release, and nothing else', async () => {
+    const manifest = await handle(
+      new Request('https://merkur.test/api/releases/v1.2.3/merkur-release.json'),
+    );
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers.get('content-type')).toBe('application/json');
+    expect(manifest.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(await manifest.text()).toBe('{"manifest":true}\n');
+
+    const archive = await handle(
+      new Request('https://merkur.test/api/releases/v1.2.3/merkur-daemon-linux-x64.tar.gz'),
+    );
+    expect(archive.status).toBe(200);
+    expect(archive.headers.get('content-type')).toBe('application/octet-stream');
+
+    for (const missing of [
+      '/api/releases/v1.2.4/merkur-release.json',
+      '/api/releases/v1.2.3/merkur-release.sig',
+      '/api/releases/v1.2.3/secret.txt',
+      '/api/releases/dev/merkur-release.json',
+      '/api/releases/v1.2.3/..%2Fmerkur-release.json',
+    ]) {
+      const response = await handle(new Request(`https://merkur.test${missing}`));
+      expect(response.status).toBe(404);
+    }
   });
 
   test('answers an unknown API path with the documented 404 shape', async () => {
@@ -200,10 +231,10 @@ describe('server app error contract', () => {
   });
 
   test('serves an unauthenticated route without an auth challenge', async () => {
-    const response = await handle(new Request('https://merkur.test/api/version'));
+    const response = await handle(new Request('https://merkur.test/api/release'));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toHaveProperty('version');
+    expect(await response.json()).toHaveProperty('release');
     expectSecurityHeaders(response);
     expect(response.headers.get('access-control-allow-origin')).toBeNull();
   });
@@ -273,6 +304,15 @@ function expectSecurityHeaders(response: Response): void {
   expect(response.headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
 }
 
+const RELEASE_STORE = (() => {
+  const store = mkdtempSync(path.join(tmpdir(), 'merkur-release-store-'));
+  mkdirSync(path.join(store, 'v1.2.3'));
+  writeFileSync(path.join(store, 'v1.2.3', 'merkur-release.json'), '{"manifest":true}\n');
+  writeFileSync(path.join(store, 'v1.2.3', 'merkur-daemon-linux-x64.tar.gz'), 'archive');
+  writeFileSync(path.join(store, 'secret.txt'), 'outside any release');
+  return store;
+})();
+
 function handle(
   request: Request,
   deviceOverrides: Partial<DeviceService> = {},
@@ -288,6 +328,7 @@ function handle(
     logger: createLogger('server-app-test'),
     webIndexFile: '/nonexistent/index.html',
     webDistDirectory: '/nonexistent',
+    daemonReleaseStoreDirectory: RELEASE_STORE,
   });
   return app.handle(request);
 }

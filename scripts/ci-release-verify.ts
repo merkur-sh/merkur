@@ -22,7 +22,7 @@ import {
   readReleaseTrustFloorEffect,
   validateReleaseTarballEffect,
   verifyReleaseCandidateEffect,
-} from '../apps/daemon/src/cli/update';
+} from '../apps/daemon/src/services/daemon-release';
 import { parseCanonicalReleaseManifest, RELEASE_PLATFORMS } from '../packages/shared/src/release';
 
 const EXECUTABLES = ['merkur', 'merkur-dataplane', 'merkur-image-worker', 'merkur-tui'];

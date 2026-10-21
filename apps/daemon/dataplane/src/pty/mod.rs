@@ -2,6 +2,8 @@
 // the timer calls this denies.
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
+#[cfg(not(merkur_sim))]
+mod adopted;
 mod dimensions;
 pub mod input_encoder;
 pub mod links;
@@ -22,6 +24,8 @@ use tokio::sync::mpsc::Sender;
 
 use crate::perf_trace;
 
+#[cfg(not(merkur_sim))]
+pub use adopted::adopt_pty;
 pub use dimensions::{Viewport, validate_terminal_dimensions};
 pub use terminal::{
     CapturedRow, DisplayRowRequest, PendingDisplayDamage, PendingRowDamage, RowCaptureScratch,
@@ -82,6 +86,9 @@ pub enum TerminalEvent {
     PtyWrite(Vec<u8>),
     PtyReadClosed,
     PtyReadError(String),
+    /// The reader thread stopped at an upgrade's request (`ReaderStop`); every byte it read
+    /// is ahead of this in the queue.
+    PtyReaderStopped,
 }
 
 /// A bounded LIFO of emptied byte buffers.
@@ -167,6 +174,57 @@ pub struct PtyHandle {
     pub writer: Box<dyn Write + Send>,
     pub master: Box<dyn MasterPty + Send>,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
+    pub reader: std::sync::Arc<ReaderStop>,
+}
+
+/// Stops the reader thread so an upgrade hands every byte it read to the terminal before
+/// the process is replaced; what it has not read stays in the kernel for the successor.
+///
+/// The thread blocks in `read`, so a flag alone would wait for the shell's next output. A
+/// `SIGURG` sent to the thread itself, with a handler installed without `SA_RESTART`, ends
+/// that `read` with `EINTR`, and the thread checks the flag before every read. A signal that
+/// lands between that check and the `read` is not lost for good: `request` is repeated until
+/// the thread reports `PtyReaderStopped`.
+#[derive(Default)]
+pub struct ReaderStop {
+    stop: std::sync::atomic::AtomicBool,
+    thread: std::sync::OnceLock<libc::pthread_t>,
+}
+
+impl ReaderStop {
+    pub fn request(&self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        if let Some(thread) = self.thread.get() {
+            // SAFETY: `pthread_kill` reads no pointer; the reader thread runs until it has
+            // reported `PtyReaderStopped`, which the caller has not yet seen, so `thread`
+            // names a live thread.
+            unsafe { libc::pthread_kill(*thread, libc::SIGURG) };
+        }
+    }
+
+    fn stopping(&self) -> bool {
+        self.stop.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+extern "C" fn interrupt_read(_: libc::c_int) {}
+
+fn install_read_interrupt() -> io::Result<()> {
+    static INSTALLED: std::sync::OnceLock<Result<(), i32>> = std::sync::OnceLock::new();
+    (*INSTALLED.get_or_init(|| {
+        // SAFETY: a zeroed `sigaction` is a valid empty action.
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = interrupt_read as extern "C" fn(libc::c_int) as usize;
+        // SAFETY: `sa_mask` is a live `sigset_t` inside `action`.
+        unsafe { libc::sigemptyset(&mut action.sa_mask) };
+        // SAFETY: `action` is a complete action whose handler does nothing and is
+        // async-signal-safe; `SA_RESTART` is deliberately absent so `read` ends with EINTR.
+        if unsafe { libc::sigaction(libc::SIGURG, &action, std::ptr::null_mut()) } == -1 {
+            return Err(io::Error::last_os_error().raw_os_error().unwrap_or(0));
+        }
+        Ok(())
+    }))
+    .map_err(io::Error::from_raw_os_error)
 }
 
 /// Route a program's request for a browser to the browser viewing this
@@ -260,12 +318,19 @@ pub fn spawn_pty(
         .take_writer()
         .map_err(|e| io::Error::other(e.to_string()))?;
 
-    start_pty_reader(reader, event_tx, buffer_return_rx)?;
+    let stop = std::sync::Arc::new(ReaderStop::default());
+    start_pty_reader(
+        reader,
+        event_tx,
+        buffer_return_rx,
+        std::sync::Arc::clone(&stop),
+    )?;
 
     Ok(PtyHandle {
         writer,
         master: pty_pair.master,
         child,
+        reader: stop,
     })
 }
 
@@ -453,13 +518,21 @@ fn start_pty_reader(
     mut reader: Box<dyn Read + Send>,
     event_tx: Sender<TerminalEvent>,
     buffer_return_rx: crossbeam_channel::Receiver<Vec<u8>>,
+    stop: std::sync::Arc<ReaderStop>,
 ) -> io::Result<()> {
+    install_read_interrupt()?;
     thread::Builder::new()
         .name("merkur-pty-reader".to_string())
         .spawn(move || {
+            // SAFETY: `pthread_self` takes no argument and names the calling thread.
+            let _ = stop.thread.set(unsafe { libc::pthread_self() });
             let mut buf = vec![0u8; PTY_READ_BYTES];
             let mut read_ordinal = 0u64;
             loop {
+                if stop.stopping() {
+                    let _ = event_tx.blocking_send(TerminalEvent::PtyReaderStopped);
+                    break;
+                }
                 // The last read's buffer went to the owner. Take back one it has
                 // finished with; only a pipeline deeper than before allocates.
                 if buf.len() != PTY_READ_BYTES {
@@ -735,6 +808,7 @@ mod tests {
                 }
                 Ok(TerminalEvent::PtyReadClosed) => panic!("PTY closed before marker"),
                 Ok(TerminalEvent::PtyReadError(error)) => panic!("PTY read failed: {error}"),
+                Ok(TerminalEvent::PtyReaderStopped) => panic!("PTY reader stopped before marker"),
                 Ok(TerminalEvent::PtyWrite(_)) => {
                     unreachable!("reader emits only output events")
                 }
@@ -755,7 +829,8 @@ mod tests {
                 TerminalEvent::PtyWrite(reply) => writer.write_all(&reply).unwrap(),
                 TerminalEvent::PtyBytes(_, _)
                 | TerminalEvent::PtyReadClosed
-                | TerminalEvent::PtyReadError(_) => {
+                | TerminalEvent::PtyReadError(_)
+                | TerminalEvent::PtyReaderStopped => {
                     panic!("terminal emulator emitted a PTY reader event")
                 }
             }
@@ -797,6 +872,7 @@ mod tests {
                 }
                 Ok(TerminalEvent::PtyReadClosed) => panic!("PTY closed before marker"),
                 Ok(TerminalEvent::PtyReadError(error)) => panic!("PTY read failed: {error}"),
+                Ok(TerminalEvent::PtyReaderStopped) => panic!("PTY reader stopped before marker"),
                 Ok(TerminalEvent::PtyWrite(_)) => {
                     unreachable!("reader emits only output events")
                 }
@@ -1019,7 +1095,7 @@ mod tests {
         let mut writer = pair.master.take_writer().unwrap();
         let (event_tx, event_rx) = pty_event_channel(8);
         let (_buffer_return_tx, buffer_return_rx) = unbounded();
-        start_pty_reader(reader, event_tx, buffer_return_rx).unwrap();
+        start_pty_reader(reader, event_tx, buffer_return_rx, Default::default()).unwrap();
 
         receive_until_pty_marker(&event_rx, ECHO_OFF_MARKER, 1);
         assert!(
@@ -1083,7 +1159,7 @@ mod tests {
         let mut writer = pair.master.take_writer().unwrap();
         let (event_tx, event_rx) = pty_event_channel(8);
         let (_buffer_return_tx, buffer_return_rx) = unbounded();
-        start_pty_reader(reader, event_tx, buffer_return_rx).unwrap();
+        start_pty_reader(reader, event_tx, buffer_return_rx, Default::default()).unwrap();
         let (terminal_event_tx, terminal_event_rx) = unbounded();
         let mut terminal = TerminalState::new(80, 24, terminal_event_tx);
 
@@ -1230,7 +1306,7 @@ mod tests {
         let mut writer = pair.master.take_writer().unwrap();
         let (event_tx, event_rx) = pty_event_channel(8);
         let (_buffer_return_tx, buffer_return_rx) = unbounded();
-        start_pty_reader(reader, event_tx, buffer_return_rx).unwrap();
+        start_pty_reader(reader, event_tx, buffer_return_rx, Default::default()).unwrap();
         let (terminal_event_tx, terminal_event_rx) = unbounded();
         let mut terminal = TerminalState::new(80, 24, terminal_event_tx);
 
@@ -1437,7 +1513,11 @@ mod tests {
                     writer.as_mut(),
                     &bytes,
                 ),
-                Ok(TerminalEvent::PtyReadClosed | TerminalEvent::PtyReadError(_))
+                Ok(
+                    TerminalEvent::PtyReadClosed
+                    | TerminalEvent::PtyReadError(_)
+                    | TerminalEvent::PtyReaderStopped,
+                )
                 | Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
                 Ok(TerminalEvent::PtyWrite(_)) => {
                     unreachable!("reader emits only output events")
@@ -1496,6 +1576,9 @@ mod tests {
                     Ok(TerminalEvent::PtyReadError(error)) => {
                         panic!("fish PTY failed: {error}")
                     }
+                    Ok(TerminalEvent::PtyReaderStopped) => {
+                        panic!("fish PTY reader stopped before the editor boundary")
+                    }
                     Ok(TerminalEvent::PtyWrite(_)) => {
                         unreachable!("reader emits only output events")
                     }
@@ -1542,7 +1625,7 @@ mod tests {
         let mut writer = pair.master.take_writer().unwrap();
         let (event_tx, event_rx) = pty_event_channel(16);
         let (_buffer_return_tx, buffer_return_rx) = unbounded();
-        start_pty_reader(reader, event_tx, buffer_return_rx).unwrap();
+        start_pty_reader(reader, event_tx, buffer_return_rx, Default::default()).unwrap();
         let (terminal_event_tx, terminal_event_rx) = unbounded();
         let mut terminal = TerminalState::new(80, 24, terminal_event_tx);
 
@@ -1615,7 +1698,11 @@ mod tests {
                     writer.as_mut(),
                     &bytes,
                 ),
-                Ok(TerminalEvent::PtyReadClosed | TerminalEvent::PtyReadError(_))
+                Ok(
+                    TerminalEvent::PtyReadClosed
+                    | TerminalEvent::PtyReadError(_)
+                    | TerminalEvent::PtyReaderStopped,
+                )
                 | Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
                 Ok(TerminalEvent::PtyWrite(_)) => {
                     unreachable!("reader emits only output events")
@@ -1926,7 +2013,7 @@ mod tests {
         let mut writer = pair.master.take_writer().unwrap();
         let (event_tx, event_rx) = pty_event_channel(8);
         let (_buffer_return_tx, buffer_return_rx) = unbounded();
-        start_pty_reader(reader, event_tx, buffer_return_rx).unwrap();
+        start_pty_reader(reader, event_tx, buffer_return_rx, Default::default()).unwrap();
         receive_until_pty_marker(&event_rx, READY_MARKER, 1);
         assert!(pty_prediction_safe(
             pair.master.as_ref(),
@@ -1983,7 +2070,13 @@ mod tests {
     fn pty_reader_rotates_its_returned_buffers_at_full_length() {
         let (event_tx, event_rx) = pty_event_channel(1);
         let (return_tx, return_rx) = unbounded();
-        start_pty_reader(Box::new(SteadyOutput { reads: 0 }), event_tx, return_rx).unwrap();
+        start_pty_reader(
+            Box::new(SteadyOutput { reads: 0 }),
+            event_tx,
+            return_rx,
+            Default::default(),
+        )
+        .unwrap();
 
         let mut buffers = std::collections::BTreeSet::new();
         let mut reads = 0;
@@ -2020,6 +2113,7 @@ mod tests {
             Box::new(InterruptedThenData { step: 0 }),
             event_tx,
             return_rx,
+            Default::default(),
         )
         .unwrap();
 
@@ -2027,5 +2121,49 @@ mod tests {
         assert!(matches!(first, TerminalEvent::PtyBytes(ref bytes, _) if **bytes == *b"pty"));
         let second = event_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(second, TerminalEvent::PtyReadClosed));
+    }
+
+    /// The upgrade's stop: a reader blocked on a silent shell reports `PtyReaderStopped`
+    /// once interrupted, having lost nothing, and leaves the PTY open for a successor.
+    #[test]
+    fn a_reader_blocked_on_a_silent_shell_stops_when_asked() {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "printf ready; sleep 30"]);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let (event_tx, event_rx) = pty_event_channel(8);
+        let (_return_tx, return_rx) = unbounded();
+        let stop = std::sync::Arc::new(ReaderStop::default());
+        start_pty_reader(
+            pair.master.try_clone_reader().unwrap(),
+            event_tx,
+            return_rx,
+            std::sync::Arc::clone(&stop),
+        )
+        .unwrap();
+        receive_until_pty_marker(&event_rx, b"ready", 1);
+        loop {
+            stop.request();
+            match event_rx.recv_timeout(Duration::from_millis(5)) {
+                Ok(TerminalEvent::PtyReaderStopped) => break,
+                Ok(TerminalEvent::PtyBytes(bytes, _)) => panic!("unexpected output {:?}", &*bytes),
+                Ok(_) => panic!("unexpected reader event"),
+                Err(_) => {}
+            }
+        }
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "the shell outlives its reader"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

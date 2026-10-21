@@ -16,230 +16,152 @@ import {
 } from '@merkur/shared/release-signature';
 import { Effect } from 'effect';
 
-import { buildDaemonServiceProgramArguments } from './install';
+import { buildDaemonServiceProgramArguments } from '../cli/install';
+import { createLogger } from '../logger';
 import {
-  activateVersionedDaemonEffect,
-  type DaemonUpdateActivationDependencies,
+  activateReleaseEffect,
   type DaemonUpdateFetch,
   DaemonUpdateHttpError,
   downloadEffect,
   downloadReleaseArtifactToFileEffect,
-  fetchLatestVersionEffect,
+  fetchServerReleaseEffect,
   persistReleaseTrustFloorEffect,
   readReleaseTrustFloorEffect,
+  releaseVersionDirectory,
   resolveVersionedDaemonExecutables,
+  stageVerifiedReleaseEffect,
   validateReleaseTarballEffect,
   verifyReleaseCandidateEffect,
-} from './update';
+} from './daemon-release';
 
-const installRoot = '/home/user/.merkur';
-const previousTarget = 'versions/v0.1.9';
-const previousExecutable = '/home/user/.merkur/versions/v0.1.9/merkur';
-const versionDirectory = '/home/user/.merkur/versions/v0.2.0';
-const newExecutable = '/home/user/.merkur/versions/v0.2.0/merkur';
+const logger = createLogger('daemon-release-test');
 
-describe('updated daemon service target', () => {
-  test('targets the new version beside its dataplane instead of the stale executable', () => {
-    const executables = resolveVersionedDaemonExecutables(versionDirectory);
-    const programArguments = buildDaemonServiceProgramArguments(executables.daemon);
-
-    expect(programArguments).toEqual([newExecutable, 'daemon']);
-    expect(programArguments).not.toContain(previousExecutable);
+describe('the service unit', () => {
+  test('runs current, which every update moves, beside its dataplane', () => {
+    const current = '/home/user/.merkur/current/merkur';
+    expect(buildDaemonServiceProgramArguments(current)).toEqual([current, 'daemon']);
+    const executables = resolveVersionedDaemonExecutables('/home/user/.merkur/versions/v0.2.0');
     expect(path.dirname(executables.daemon)).toBe(path.dirname(executables.dataplane));
-    expect(path.basename(executables.dataplane)).toBe('merkur-dataplane');
-    expect(executables.imageWorker).toBe(path.join(versionDirectory, 'merkur-image-worker'));
-  });
-
-  test('verifies the release and activates it only after the current symlink moves', async () => {
-    const actions: string[] = [];
-    const dependencies: DaemonUpdateActivationDependencies = {
-      verifyExecutables: (executables) =>
-        Effect.sync(() => {
-          actions.push(
-            `verify:${executables.daemon}:${executables.dataplane}:${executables.imageWorker}:${executables.tui}`,
-          );
-        }),
-      readCurrentSymlinkTarget: () =>
-        Effect.sync(() => {
-          actions.push('read-current');
-          return previousTarget;
-        }),
-      swapCurrentSymlinkTarget: (_root, target) =>
-        Effect.sync(() => {
-          actions.push(`swap:${target}`);
-        }),
-      removeCurrentSymlink: () => Effect.void,
-      activateDaemonService: (executablePath) =>
-        Effect.sync(() => {
-          actions.push(`activate:${executablePath}`);
-          return 0;
-        }),
-    };
-
-    await Effect.runPromise(
-      activateVersionedDaemonEffect(installRoot, versionDirectory, dependencies),
-    );
-
-    expect(actions).toEqual([
-      `verify:${newExecutable}:${versionDirectory}/merkur-dataplane:${versionDirectory}/merkur-image-worker:${versionDirectory}/merkur-tui`,
-      'read-current',
-      `swap:${versionDirectory}`,
-      `activate:${newExecutable}`,
-    ]);
-  });
-
-  test('restores the exact relative symlink and reactivates the previous daemon on nonzero exit', async () => {
-    const actions: string[] = [];
-    const dependencies: DaemonUpdateActivationDependencies = {
-      verifyExecutables: () => Effect.void,
-      readCurrentSymlinkTarget: () => Effect.succeed(previousTarget),
-      swapCurrentSymlinkTarget: (_root, target) =>
-        Effect.sync(() => {
-          actions.push(`swap:${target}`);
-        }),
-      removeCurrentSymlink: () => Effect.void,
-      activateDaemonService: (executablePath) =>
-        Effect.sync(() => {
-          actions.push(`activate:${executablePath}`);
-          return executablePath === newExecutable ? 17 : 0;
-        }),
-    };
-
-    const error = await Effect.runPromise(
-      activateVersionedDaemonEffect(installRoot, versionDirectory, dependencies),
-    ).then(
-      () => null,
-      (failure: unknown) => failure,
-    );
-
-    expect(error).toBeInstanceOf(Error);
-    if (!(error instanceof Error)) {
-      throw new Error('activation failure was not an Error');
-    }
-    expect(error.message).toContain('activation exited with code 17');
-    expect(actions).toEqual([
-      `swap:${versionDirectory}`,
-      `activate:${newExecutable}`,
-      `swap:${previousTarget}`,
-      `activate:${previousExecutable}`,
-    ]);
-  });
-
-  test('preserves an Effect failure and reports every rollback failure', async () => {
-    const actions: string[] = [];
-    const primaryError = new Error('new activation exploded');
-    const restoreError = new Error('restore exploded');
-    const previousActivationError = new Error('previous activation exploded');
-    const dependencies: DaemonUpdateActivationDependencies = {
-      verifyExecutables: () => Effect.void,
-      readCurrentSymlinkTarget: () => Effect.succeed(previousTarget),
-      swapCurrentSymlinkTarget: (_root, target) =>
-        Effect.gen(function* () {
-          actions.push(`swap:${target}`);
-          if (target === previousTarget) {
-            return yield* Effect.fail(restoreError);
-          }
-        }),
-      removeCurrentSymlink: () => Effect.void,
-      activateDaemonService: (executablePath) =>
-        Effect.gen(function* () {
-          actions.push(`activate:${executablePath}`);
-          return yield* Effect.fail(
-            executablePath === newExecutable ? primaryError : previousActivationError,
-          );
-        }),
-    };
-
-    const error = await Effect.runPromise(
-      activateVersionedDaemonEffect(installRoot, versionDirectory, dependencies),
-    ).then(
-      () => null,
-      (failure: unknown) => failure,
-    );
-
-    expect(error).toBeInstanceOf(Error);
-    if (!(error instanceof Error)) {
-      throw new Error('rollback failure was not an Error');
-    }
-    expect(error.cause).toBe(primaryError);
-    expect(error.message).toContain(primaryError.message);
-    expect(error.message).toContain(restoreError.message);
-    expect(error.message).toContain(previousActivationError.message);
-    expect(actions).toEqual([
-      `swap:${versionDirectory}`,
-      `activate:${newExecutable}`,
-      `swap:${previousTarget}`,
-      `activate:${previousExecutable}`,
-    ]);
+    expect(path.basename(executables.imageWorker)).toBe('merkur-image-worker');
   });
 });
 
-describe('first install activation', () => {
-  test('withdraws the current link when a first install cannot activate', async () => {
-    const actions: string[] = [];
-    const dependencies: DaemonUpdateActivationDependencies = {
-      verifyExecutables: () => Effect.void,
-      readCurrentSymlinkTarget: () => Effect.succeed(null),
-      swapCurrentSymlinkTarget: (_root, target) =>
-        Effect.sync(() => {
-          actions.push(`swap:${target}`);
-        }),
-      removeCurrentSymlink: () =>
-        Effect.sync(() => {
-          actions.push('remove-current');
-        }),
-      activateDaemonService: (executablePath) =>
-        Effect.sync(() => {
-          actions.push(`activate:${executablePath}`);
-          return 1;
-        }),
-    };
-
-    const error = await Effect.runPromise(
-      activateVersionedDaemonEffect(installRoot, versionDirectory, dependencies).pipe(Effect.flip),
-    );
-
-    expect(error.message).toContain('activation exited with code 1');
-    expect(actions).toEqual([
-      `swap:${versionDirectory}`,
-      `activate:${newExecutable}`,
-      'remove-current',
-    ]);
-  });
-});
-
-describe('daemon updater HTTP reliability', () => {
-  test('reads the latest version from the latest manifest after a transient failure', async () => {
-    const fixture = signedReleaseFixture(4, 1);
+describe('release convergence', () => {
+  test("reads the server's release, retrying a transient failure", async () => {
     const requested: string[] = [];
     const fetchImpl: DaemonUpdateFetch = (input) => {
       requested.push(String(input));
       return Promise.resolve(
         requested.length === 1
           ? new Response('temporary', { status: 503 })
-          : new Response(fixture.manifestBytes.slice(), { status: 200 }),
+          : Response.json({ release: 'v9.8.7' }),
       );
     };
+    expect(
+      await Effect.runPromise(fetchServerReleaseEffect('https://merkur.test', fetchImpl)),
+    ).toBe('v9.8.7');
+    expect(requested).toEqual([
+      'https://merkur.test/api/release',
+      'https://merkur.test/api/release',
+    ]);
+  });
 
-    try {
-      expect(await Effect.runPromise(fetchLatestVersionEffect(fetchImpl))).toBe('v9.8.7');
-      expect(requested).toEqual([
-        'https://github.com/merkur-sh/merkur/releases/latest/download/merkur-release.json',
-        'https://github.com/merkur-sh/merkur/releases/latest/download/merkur-release.json',
-      ]);
-    } finally {
-      fixture.dispose();
+  test('refuses a release answer of any other shape', async () => {
+    for (const body of [
+      'v0.2.0',
+      '{"version":"v0.2.0"}',
+      '{"release":""}',
+      '{"release":"a\\nb"}',
+    ]) {
+      const fetchImpl: DaemonUpdateFetch = () => Promise.resolve(new Response(body));
+      const error = await Effect.runPromise(
+        fetchServerReleaseEffect('https://merkur.test', fetchImpl).pipe(Effect.flip),
+      );
+      expect(error._tag).toBe('DaemonUpdatePayloadError');
     }
   });
 
-  test('refuses a latest manifest that is not canonical', async () => {
-    const fetchImpl: DaemonUpdateFetch = () =>
-      Promise.resolve(new Response('v0.2.0\n', { status: 200 }));
+  test('stages a release whole, once, and activation keeps only it and the running one', async () => {
+    const installRoot = await mkdtemp(path.join(os.tmpdir(), 'merkur-stage-'));
+    const archive = Uint8Array.from(
+      Bun.gzipSync(
+        makeTarArchive(
+          ['merkur', 'merkur-dataplane', 'merkur-image-worker', 'merkur-tui'].map((name) => ({
+            name,
+            type: 0x30,
+          })),
+        ),
+      ),
+    );
+    const archivePath = path.join(installRoot, 'archive.tar.gz');
+    try {
+      await Bun.write(archivePath, archive);
+      const hasher = new Bun.CryptoHasher('sha512');
+      hasher.update(archive);
+      const candidate = (version: string, sequence: number) => ({
+        artifact: {
+          name: daemonArtifactName('linux-x64'),
+          size: archive.byteLength,
+          sha512: hasher.copy().digest('hex'),
+        },
+        manifest: {
+          sequence,
+          version,
+          expiresAt: 1,
+          minimumSequence: 1,
+          artifacts: [],
+        },
+        manifestSha512: 'ab'.repeat(64),
+      });
+      const artifactUrl = Bun.pathToFileURL(archivePath).href;
+      for (const [version, sequence] of [
+        ['v1.0.0', 1],
+        ['v1.1.0', 2],
+        ['v1.2.0', 3],
+      ] as const) {
+        await Effect.runPromise(
+          stageVerifiedReleaseEffect({
+            installRoot,
+            candidate: candidate(version, sequence),
+            artifactUrl,
+          }),
+        );
+      }
+      // A second stager of a staged release finds it complete and changes nothing.
+      await Effect.runPromise(
+        stageVerifiedReleaseEffect({ installRoot, candidate: candidate('v1.2.0', 3), artifactUrl }),
+      );
+      // Another stager's directory, still being filled.
+      await Bun.write(path.join(installRoot, 'versions', '.staging-other', 'merkur'), 'partial');
 
-    const error = await Effect.runPromise(fetchLatestVersionEffect(fetchImpl).pipe(Effect.flip));
-    expect(error._tag).toBe('DaemonUpdatePayloadError');
+      await Effect.runPromise(
+        activateReleaseEffect({
+          logger,
+          installRoot,
+          versionDirectory: releaseVersionDirectory(installRoot, 'v1.2.0'),
+          running: 'v1.1.0',
+        }),
+      );
+
+      expect((await readdir(path.join(installRoot, 'versions'))).sort()).toEqual([
+        '.staging-other',
+        'v1.1.0',
+        'v1.2.0',
+      ]);
+      expect(await Bun.file(path.join(installRoot, 'current', 'merkur-tui')).exists()).toBe(true);
+      expect(await Effect.runPromise(readReleaseTrustFloorEffect(installRoot, 1))).toEqual({
+        manifestSha512: 'ab'.repeat(64),
+        sequence: 3,
+      });
+      expect(await readdir(path.join(installRoot, 'tmp'))).toEqual([]);
+    } finally {
+      archive.fill(0);
+      await rm(installRoot, { recursive: true, force: true });
+    }
   });
+});
 
+describe('daemon updater HTTP reliability', () => {
   test('does not retry a permanent download response', async () => {
     let calls = 0;
     const fetchImpl: DaemonUpdateFetch = () => {

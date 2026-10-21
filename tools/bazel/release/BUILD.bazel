@@ -149,6 +149,7 @@ bun_compile(
         ":commit": "MERKUR_BUILD_COMMIT",
         ":opaque_pin": "VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY",
         ":release_public_key": "MERKUR_RELEASE_MLDSA87_PUBLIC_KEY",
+        ":version": "MERKUR_RELEASE",
     },
     tags = _RELEASE,
     target_compatible_with = [

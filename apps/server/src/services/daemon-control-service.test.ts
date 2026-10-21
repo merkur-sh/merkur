@@ -7,8 +7,7 @@ import {
   parseDaemonControlServerMessage,
 } from '@merkur/daemon-control-protocol';
 import type { DeviceEventDelta } from '@merkur/shared';
-import { Deferred, Effect, Fiber, Layer } from 'effect';
-
+import { Deferred, Effect, Fiber, Layer, Queue } from 'effect';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
 import { createMigratedKyselyDatabase } from '../db/migrate';
@@ -32,6 +31,7 @@ import {
   type DaemonUnavailable,
   StaleDaemonPresence,
 } from './daemon-control-service';
+import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { type DeviceService, DeviceServiceTag } from './device-service';
 import { type EdgeRegistryService, EdgeRegistryServiceTag } from './edge-registry-service';
 import {
@@ -101,6 +101,24 @@ void _carrierLostReasonsAreExact;
 void _leaseInvalidatedReasonsAreExact;
 
 describe('DaemonControlService', () => {
+  test('names the staged release on registration and announces a newer one to registered daemons', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const coordination = createFakeCoordination('instance-a', state);
+    const socket = new TestSocket();
+    const service = createService(coordination, bus.redis, {
+      stagedRelease: Effect.succeed('v2.0.0'),
+    });
+
+    await registerHandle(service, socket);
+    expect(socket.messagesOfType('registered')[0]).toMatchObject({ stagedRelease: 'v2.0.0' });
+
+    await Effect.runPromise(service.announceStagedRelease('v2.1.0'));
+    expect(socket.messagesOfType('release_staged')).toEqual([
+      { type: 'release_staged', version: 1, release: 'v2.1.0' },
+    ]);
+  });
+
   test('registers ping policy and renews the lease on the ticker with a lease frame', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
@@ -126,6 +144,7 @@ describe('DaemonControlService', () => {
         stunTicketLifetimeMs: 4_000,
         edgeAttachTicket: EDGE_TICKET,
         edges: EDGES,
+        stagedRelease: null,
       },
     ]);
     // Registration renewed the lease once; nothing is due yet.
@@ -507,6 +526,7 @@ describe('DaemonControlService', () => {
       // The Live layer mints STUN tickets, so it reads the server config.
       Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
       Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
     );
     const controlLayer = DaemonControlServiceLive.pipe(Layer.provide(dependencies));
 
@@ -1007,6 +1027,7 @@ describe('DaemonControlService', () => {
       testDatabaseLayer(),
       Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
       Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
     );
     const controlLayer = DaemonControlServiceLive.pipe(Layer.provide(dependencies));
     const socket = new TestSocket();
@@ -1067,6 +1088,7 @@ describe('DaemonControlService', () => {
       testDatabaseLayer(),
       Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
       Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
     );
     const controlLayer = DaemonControlServiceLive.pipe(Layer.provide(dependencies));
 
@@ -2384,6 +2406,12 @@ const EDGES = [
     certHashes: [Buffer.alloc(32, 1).toString('base64'), Buffer.alloc(32, 2).toString('base64')],
   },
 ];
+/** A store holding nothing past this server's release, as a source run's does. */
+const TEST_RELEASE_STORE = {
+  staged: Effect.succeed(null),
+  announcements: Effect.runSync(Queue.sliding<string>(1)),
+};
+
 const TEST_EDGE_REGISTRY: EdgeRegistryService = {
   claimRegistrationNonce: () => Effect.void,
   registerEdge: () => Effect.void,
@@ -2418,6 +2446,7 @@ function createService(
       | 'monotonicNow'
       | 'touchDaemon'
       | 'touchDaemonsSeen'
+      | 'stagedRelease'
       | 'revocationOutbox'
       | 'edges'
     >

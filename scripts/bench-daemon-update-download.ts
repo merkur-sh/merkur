@@ -8,7 +8,7 @@ import {
   type DaemonUpdateFetch,
   downloadEffect,
   downloadReleaseArtifactToFileEffect,
-} from '../apps/daemon/src/cli/update';
+} from '../apps/daemon/src/services/daemon-release';
 import { emitPerfMetric, perfEnvInteger } from './perf/harness';
 
 const mode = process.argv[2] === 'memory' ? 'memory' : 'stream';

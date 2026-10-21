@@ -26,7 +26,7 @@ import {
   DevicePlatform,
   OkResponse,
   PushVapidPublicKeyResponse,
-  ServerVersionResponse,
+  ReleaseResponse,
 } from '@merkur/shared/api-schema';
 import { t, validationDetail } from 'elysia';
 import { Type } from 'typebox';
@@ -661,5 +661,5 @@ export const ApiModels = {
     }),
   }),
   LogoutResponse: OkResponse,
-  ServerVersionResponse,
+  ReleaseResponse,
 } as const;

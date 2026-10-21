@@ -22,7 +22,8 @@ export type DaemonControlHealthState =
   | 'registering'
   | 'registered'
   | 'backoff'
-  | 'superseded';
+  | 'superseded'
+  | 'updating';
 
 export type DaemonDataplaneHealthState = 'starting' | 'ready' | 'down' | 'fatal';
 

@@ -78,9 +78,10 @@ const SENTENCES: Readonly<Record<string, Render>> = {
   daemon_command_failed: (c) => field(c, 'error'),
   // update
   daemon_update_unsupported: (c) => `merkur update: ${field(c, 'reason')}`,
-  daemon_update_up_to_date: (c) => `Merkur ${field(c, 'version')} is up to date.`,
-  daemon_update_started: (c) => `Updating Merkur ${field(c, 'from')} to ${field(c, 'to')}.`,
-  daemon_update_success: (c) => `Updated Merkur to ${field(c, 'to')}.`,
+  daemon_update_up_to_date: (c) => `Merkur ${field(c, 'release')} is the server's release.`,
+  daemon_update_success: (c) =>
+    `Installed Merkur ${field(c, 'to')}. A running daemon takes it over on its own; new terminals use it.`,
+  daemon_release_staged: () => null,
   daemon_update_pruned_version: () => null,
 };
 

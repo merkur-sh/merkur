@@ -1,3 +1,4 @@
+import { merkurRelease } from '@merkur/shared';
 import { Elysia, status } from 'elysia';
 
 import type { Logger } from '../../logger';
@@ -35,7 +36,7 @@ export function webRoutesPlugin({
   return new Elysia({ name: 'web-routes' })
     .get('/install', ({ set }) => {
       set.headers['content-type'] = INSTALL_SCRIPT_CONTENT_TYPE;
-      return renderInstallScript(publicOrigin);
+      return renderInstallScript(publicOrigin, merkurRelease());
     })
     .get('/', ({ request }) => serveWebIndex(webIndexFile, logger, request))
     .get('/privacy', ({ request }) => serveLegalPage(request, '/privacy', webDistDirectory))

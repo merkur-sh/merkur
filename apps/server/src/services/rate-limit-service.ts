@@ -296,3 +296,19 @@ export function refundRateLimit(
     { discard: true },
   );
 }
+
+/**
+ * Whether every check admits one more request, consuming each: `false` once any is over its
+ * limit. A Redis failure fails the effect, so a caller refuses rather than admits.
+ */
+export function withinRateLimitsEffect(
+  checks: ReadonlyArray<RateLimitCheck>,
+): Effect.Effect<boolean, RedisError, RateLimitServiceTag> {
+  return Effect.gen(function* () {
+    const limits = yield* RateLimitServiceTag;
+    return yield* enforceRateLimitFailClosed(limits, checks).pipe(
+      Effect.as(true),
+      Effect.catchTag('RateLimitedError', () => Effect.succeed(false)),
+    );
+  });
+}

@@ -1,4 +1,3 @@
-import { merkurVersion } from '@merkur/shared';
 import { Elysia } from 'elysia';
 
 import type { ServerConfig } from '../config';
@@ -7,7 +6,6 @@ import { readInlineStyleHashes, securityHeadersPlugin } from '../middleware/secu
 import type { runServerProgram } from '../runtime';
 import type { AuthenticatedBrowser } from '../services/auth-service';
 import { apiErrorPlugin } from './api-errors';
-import { ApiModels } from './api-models';
 import { readSignedBuildIdentity } from './build-identity';
 import { accountRoutesPlugin } from './routes/account-routes';
 import { authRoutesPlugin } from './routes/auth-routes';
@@ -21,6 +19,7 @@ import { edgeRoutesPlugin } from './routes/edge-routes';
 import { healthRoutesPlugin } from './routes/health-routes';
 import { keyboardSettingsRoutesPlugin } from './routes/keyboard-settings-routes';
 import { notificationRoutesPlugin } from './routes/notification-routes';
+import { releaseRoutesPlugin } from './routes/release-routes';
 import { sessionRoutesPlugin } from './routes/session-routes';
 import { telemetryRoutesPlugin } from './routes/telemetry-routes';
 import { webRoutesPlugin } from './routes/web-routes';
@@ -34,6 +33,7 @@ export interface ServerAppOptions {
   readonly logger: Logger;
   readonly webIndexFile: string;
   readonly webDistDirectory: string;
+  readonly daemonReleaseStoreDirectory: string;
 }
 
 export function createServerApp({
@@ -44,6 +44,7 @@ export function createServerApp({
   logger,
   webIndexFile,
   webDistDirectory,
+  daemonReleaseStoreDirectory,
 }: ServerAppOptions) {
   const buildId = process.env.MERKUR_BUILD_ID ?? '';
   const buildIdentity =
@@ -77,9 +78,13 @@ export function createServerApp({
   const api = app
     // Register the shared error contract before the routes that inherit it.
     .use(apiErrorPlugin)
-    .get('/api/version', { response: { 200: ApiModels.ServerVersionResponse } }, () => ({
-      version: merkurVersion(),
-    }))
+    .use(
+      releaseRoutesPlugin({
+        runServerProgram,
+        storeDirectory: daemonReleaseStoreDirectory,
+        trustedProxyHops: config.trustedProxyHops,
+      }),
+    )
     .get('/api/build-identity', ({ set }) => {
       set.headers['cache-control'] = 'no-store';
       return buildIdentity;

@@ -11,6 +11,7 @@ import {
   createDaemonControlDelegationRevokeMessage,
   createDaemonControlLeaseMessage,
   createDaemonControlRegisteredMessage,
+  createDaemonControlReleaseStagedMessage,
   createDaemonControlRevocationMessage,
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
@@ -117,6 +118,84 @@ describe('daemon control WebSocket URL', () => {
 });
 
 describe('daemon control connection', () => {
+  test('ends with the release the server runs instead of dialing a server it cannot read', async () => {
+    const harness = createHarness({ serverRelease: () => Effect.succeed('v9.9.9') });
+    const states: string[] = [];
+    const required = await Effect.runPromise(
+      runHarnessControlClient(harness, {
+        updateControl: (update) =>
+          Effect.sync(() => {
+            states.push(update.state);
+          }),
+      }).pipe(Effect.flip, Effect.provide(TestClock.layer())),
+    );
+    expect(required._tag).toBe('DaemonReleaseRequired');
+    expect(required.release).toBe('v9.9.9');
+    expect(harness.sockets).toHaveLength(0);
+    expect(states.at(-1)).toBe('updating');
+  });
+
+  test('an unanswered release lookup is a failed dial that backs off', async () => {
+    const harness = createHarness({
+      serverRelease: () => Effect.fail(new Error('server unreachable')),
+    });
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* runHarnessControlClient(harness).pipe(Effect.forkScoped);
+          yield* Effect.promise(() =>
+            waitFor(() =>
+              harness.logs.some((entry) => entry.message === 'daemon_control_reconnect_scheduled'),
+            ),
+          );
+          expect(
+            harness.logs.some((entry) => entry.message === 'daemon_release_lookup_failed'),
+          ).toBe(true);
+          expect(harness.sockets).toHaveLength(0);
+        }),
+      ).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
+  test('stages the release the server names on registration and the ones it announces', async () => {
+    const harness = createHarness();
+    const staged: string[] = [];
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* runHarnessControlClient(harness, undefined, harness.dataplane, {
+            stageRelease: (release) =>
+              Effect.sync(() => {
+                staged.push(release);
+              }),
+          }).pipe(Effect.forkScoped);
+          yield* Effect.promise(() => waitFor(() => harness.sockets.length === 1));
+          const socket = required(harness.sockets[0]);
+          socket.emitMessage(
+            createDaemonControlRegisteredMessage(
+              'connection-1',
+              'presence-1',
+              1,
+              0,
+              1_000,
+              3_000,
+              ['stun.test:3478'],
+              'ticket',
+              'secret',
+              4_000,
+              'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              EDGES,
+              'v2.0.0',
+            ),
+          );
+          socket.emitMessage(createDaemonControlReleaseStagedMessage('v2.1.0'));
+          yield* Effect.promise(() => waitFor(() => staged.length === 2));
+          expect(staged).toEqual(['v2.0.0', 'v2.1.0']);
+        }),
+      ).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
   test('reports a resume instead of a ping timeout after the process was suspended', async () => {
     const harness = createHarness();
     await Effect.runPromise(
@@ -139,6 +218,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -196,6 +276,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -310,6 +391,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -349,6 +431,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -393,6 +476,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -433,6 +517,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -495,6 +580,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -560,6 +646,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -621,6 +708,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -663,6 +751,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => harness.revocations.length === 1);
@@ -824,6 +913,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -887,6 +977,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -932,6 +1023,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -1005,6 +1097,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => updates.some((update) => update.state === 'registered'));
@@ -1092,6 +1185,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() =>
@@ -1136,6 +1230,7 @@ describe('daemon control connection', () => {
               4_000,
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
+              null,
             ),
           );
           yield* Effect.promise(() =>
@@ -1200,6 +1295,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     for (let generation = 1; generation <= 8; generation += 1) {
@@ -1241,6 +1337,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1317,6 +1414,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1365,6 +1463,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1435,6 +1534,7 @@ describe('daemon control connection', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1620,6 +1720,8 @@ function createHarness(
   let wallClockMs = 0;
 
   const dependencies: DaemonControlClientDependencies = {
+    // The test process is a source build: its release, and its server's, is `dev`.
+    serverRelease: () => Effect.succeed('dev'),
     createSocket(url, headers) {
       connectionUrl = url;
       connectionHeaders = headers;

@@ -330,6 +330,27 @@ impl Account {
         &self.origin
     }
 
+    /// The release this origin's daemons and clients run (`GET /api/release`, a frozen
+    /// contract: docs/releases.md, Convergence). A client of another release cannot read
+    /// what that server's machines send.
+    pub async fn release(&self) -> Result<String, AccountError> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Release {
+            release: String,
+        }
+        let response = self
+            .request(reqwest::Method::GET, "/api/release", None, None, None)
+            .await?;
+        let body = response.bytes().await?;
+        let release: Release =
+            serde_json::from_slice(&body).map_err(|_| AccountError::Invalid("/api/release"))?;
+        if release.release.is_empty() || release.release.chars().any(char::is_control) {
+            return Err(AccountError::Invalid("/api/release"));
+        }
+        Ok(release.release)
+    }
+
     /// Unlock the stored account's exact root using OPAQUE. Management cannot
     /// change the pinned user, epoch or root while asking for its password.
     pub async fn unlock_root(

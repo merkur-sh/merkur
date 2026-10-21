@@ -17,6 +17,8 @@ test -s /etc/merkur/backup.env
 install -m 0644 "$src/compose.yaml" /srv/app/compose.yaml
 docker compose --project-directory /srv/app up --detach --remove-orphans --quiet-pull
 
+# The unit binds the daemon release store; stage-daemon-release.sh filled it before this.
+install -d -m 0755 /usr/local/lib/merkur/daemon-releases
 root=/usr/local/lib/merkur/server
 release="$root/$version"
 staging="$root/.staging"

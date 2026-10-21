@@ -14,7 +14,7 @@ import {
   BoxAccessResponse,
   BoxCreatedResponse,
   PushVapidPublicKeyResponse,
-  ServerVersionResponse,
+  ReleaseResponse,
 } from '@merkur/shared/api-schema';
 import { compileCheck, compileRequire } from '@merkur/shared/schema-check';
 import { Effect } from 'effect';
@@ -48,7 +48,7 @@ export type LinkTokenResponse = DeviceLinkTokenResponse;
 
 export type { PushVapidPublicKeyResponse } from '@merkur/shared/api-schema';
 
-const isServerVersion = compileCheck(ServerVersionResponse);
+const isRelease = compileCheck(ReleaseResponse);
 
 const asCreatedBox = compileRequire(BoxCreatedResponse, 'Invalid box creation response');
 
@@ -225,10 +225,11 @@ export function retireAccountRefreshCredential(): void {
   }
 }
 
-export async function fetchServerVersion(): Promise<string | null> {
+/** The release this server's daemons run (`/api/release`). */
+export async function fetchServerRelease(): Promise<string | null> {
   return Effect.runPromise(
-    edenEffect((signal) => api.api.version.get({ fetch: { signal } })).pipe(
-      Effect.map((response) => (isServerVersion(response) ? response.version : null)),
+    edenEffect((signal) => api.api.release.get({ fetch: { signal } })).pipe(
+      Effect.map((response) => (isRelease(response) ? response.release : null)),
     ),
   );
 }
@@ -718,7 +719,7 @@ function edenEffect<A>(
  * rooting one of its own. Everything else gets a fresh id per call, which is the correct
  * default — a shared id across unrelated requests is what makes a trace view useless.
  *
- * Note this covers authenticated calls only. `GET /api/version` is unauthenticated and
+ * Note this covers authenticated calls only. `GET /api/release` is unauthenticated and
  * carries no trace context; it is a single unauthenticated read with nothing to correlate.
  */
 function authenticatedRequestOptions(

@@ -20,7 +20,7 @@ import {
   signReleaseManifest,
 } from '@merkur/shared/release-signature';
 import { Effect } from 'effect';
-import { persistReleaseTrustFloorEffect } from '../apps/daemon/src/cli/update';
+import { persistReleaseTrustFloorEffect } from '../apps/daemon/src/services/daemon-release';
 import { verifyCIRelease } from './ci-release-verify';
 
 async function fixture() {

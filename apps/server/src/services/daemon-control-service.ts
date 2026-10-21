@@ -2,6 +2,7 @@ import {
   createDaemonControlDelegationRevokeMessage,
   createDaemonControlLeaseMessage,
   createDaemonControlRegisteredMessage,
+  createDaemonControlReleaseStagedMessage,
   createDaemonControlRevocationMessage,
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
@@ -52,6 +53,7 @@ import {
   daemonControlSilentTransitionFrequency,
 } from '../observability/metrics';
 import { currentTraceparent } from '../observability/traceparent';
+import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { DeviceServiceTag } from './device-service';
 import { createEdgeAttachTicketIssuer, type EdgeAttachTicketIssuer } from './edge-attach-ticket';
 import { EdgeRegistryServiceTag } from './edge-registry-service';
@@ -571,6 +573,11 @@ type BrokerEnvelope =
 interface DaemonControlRuntime extends DaemonControlService {
   readonly processBrokerFrame: (frame: string) => Effect.Effect<void, RedisError>;
   /**
+   * Tells every registered daemon on this instance that the store now holds `release`, so
+   * each stages it before the server of that release replaces this one.
+   */
+  readonly announceStagedRelease: (release: string) => Effect.Effect<void>;
+  /**
    * One liveness walk: silent marks, ping timeouts, and due lease renewals.
    * Returns how long to sleep before the next walk, or null when there is no
    * connection to watch.
@@ -618,6 +625,8 @@ export interface DaemonControlServiceDependencies {
    * and a restarted dataplane states its incarnation to each.
    */
   readonly edges: Effect.Effect<readonly DaemonControlEdge[], RedisError>;
+  /** The next release the store holds, stated on `registered` (`DaemonReleaseStore`). */
+  readonly stagedRelease?: Effect.Effect<string | null>;
   /** Wall clock, for timestamps that leave the process. */
   readonly now?: () => number;
   /**
@@ -661,6 +670,7 @@ export const DaemonControlServiceLive = Layer.effect(
     const logger = createLogger('daemon-control');
     const brokerInbox = yield* Queue.bounded<string>(BROKER_INBOX_CAPACITY);
     const criticalFailure = yield* Deferred.make<never>();
+    const releaseStore = yield* DaemonReleaseStoreTag;
     const service = createDaemonControlService({
       coordination,
       redis,
@@ -683,6 +693,7 @@ export const DaemonControlServiceLive = Layer.effect(
             registrations.map(({ edgeWtUrl, certHashes }) => ({ edgeWtUrl, certHashes })),
           ),
         ),
+      stagedRelease: releaseStore.staged,
       criticalFailure,
     });
     yield* Metric.update(daemonControlActiveConnectionsGauge, 0);
@@ -719,6 +730,9 @@ export const DaemonControlServiceLive = Layer.effect(
       'livenessTickerHealthy',
       service.runLivenessTicker,
       service,
+    ).pipe(Effect.forkScoped);
+    yield* Effect.forever(
+      Queue.take(releaseStore.announcements).pipe(Effect.flatMap(service.announceStagedRelease)),
     ).pipe(Effect.forkScoped);
     return service;
   }),
@@ -1008,6 +1022,7 @@ export function createDaemonControlService(
           Effect.forkIn(connection.scope),
         );
         const edges = yield* dependencies.edges;
+        const stagedRelease = yield* dependencies.stagedRelease ?? Effect.succeed(null);
         yield* sendFrame(
           connection,
           (() => {
@@ -1025,6 +1040,7 @@ export function createDaemonControlService(
               ticket.lifetimeMs,
               edgeAttach.forDaemon(input.daemonId, now()),
               edges,
+              stagedRelease,
             );
           })(),
         );
@@ -1137,6 +1153,17 @@ export function createDaemonControlService(
         closeCode === DAEMON_SHUTDOWN_CLOSE_CODE
           ? { kind: 'lease_invalidated', reason: 'peer_shutdown' }
           : { kind: 'carrier_lost', reason: 'peer_disconnected' },
+      );
+    },
+
+    announceStagedRelease(release) {
+      const message = createDaemonControlReleaseStagedMessage(release);
+      return Effect.forEach(
+        [...connections.values()].filter((connection) => connection.sessionReady),
+        // A daemon this misses learns the release on its next registration, or stages it at
+        // the cutover; the send failure is that connection's own teardown.
+        (connection) => sendFrame(connection, message).pipe(Effect.ignore({ log: 'Debug' })),
+        { discard: true },
       );
     },
 

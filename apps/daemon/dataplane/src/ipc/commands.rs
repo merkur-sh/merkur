@@ -38,6 +38,31 @@ pub const CMD_PROFILE_SESSIONS: u8 = 0x12;
 pub const CMD_PROFILE_START: u8 = 0x13;
 /// End the observation `CMD_PROFILE_START` began; `CMD_CAPTURE_PERF_TRACE` drains it first.
 pub const CMD_PROFILE_END: u8 = 0x14;
+/// Hand the terminal to the release at `executable` and replace this process with it
+/// (`crate::handoff`). Accepted once the handoff is written, just before `execve`; the owner
+/// replaces itself on that acknowledgement and connects to `socket_path` as the new owner.
+pub const CMD_UPGRADE: u8 = 0x15;
+/// The first frame on an adopted owner socket: the arguments a spawned dataplane takes on its
+/// command line, which a process started by `execve` from its predecessor did not get.
+pub const CMD_ADOPT: u8 = 0x16;
+
+/// Payload of [`CMD_UPGRADE`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpgradeCmd {
+    pub command_id: String,
+    /// Absolute path of the new release's `merkur-dataplane`.
+    pub executable: String,
+    /// Absolute path, in the owner's private directory, of the socket to bind for it.
+    pub socket_path: String,
+}
+
+/// Payload of [`CMD_ADOPT`].
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdoptCmd {
+    pub args: Vec<String>,
+}
 
 /// Payload of [`CMD_UPDATE_EDGE_ADMISSION`].
 #[derive(Debug, Deserialize)]
@@ -292,14 +317,30 @@ mod tests {
         )
         .expect("exact profile start command");
         assert_eq!(start.session_id, "session-a");
+        assert!(serde_json::from_str::<ProfileStartCmd>(r#"{"command_id":"profile-1"}"#).is_err());
         assert!(
-            serde_json::from_str::<ProfileStartCmd>(r#"{"command_id":"profile-1"}"#).is_err()
-        );
-        assert!(
-            serde_json::from_str::<ProfileSessionsCmd>(r#"{"command_id":"p","all":true}"#)
-                .is_err()
+            serde_json::from_str::<ProfileSessionsCmd>(r#"{"command_id":"p","all":true}"#).is_err()
         );
         assert!(serde_json::from_str::<ProfileEndCmd>(r#"{"command_id":"p"}"#).is_ok());
+    }
+
+    #[test]
+    fn upgrade_and_adopt_command_shapes_are_exact() {
+        let upgrade = serde_json::from_str::<UpgradeCmd>(
+            r#"{"command_id":"upgrade-1","executable":"/x/merkur-dataplane","socket_path":"/x/run/o.sock"}"#,
+        )
+        .expect("exact upgrade command");
+        assert_eq!(upgrade.executable, "/x/merkur-dataplane");
+        assert!(
+            serde_json::from_str::<UpgradeCmd>(
+                r#"{"command_id":"u","executable":"/x","socketPath":"/y"}"#
+            )
+            .is_err()
+        );
+        let adopt = serde_json::from_str::<AdoptCmd>(r#"{"args":["--shell","/bin/sh"]}"#)
+            .expect("exact adopt command");
+        assert_eq!(adopt.args, ["--shell", "/bin/sh"]);
+        assert!(serde_json::from_str::<AdoptCmd>(r#"{"args":[],"cols":1}"#).is_err());
     }
 
     #[test]

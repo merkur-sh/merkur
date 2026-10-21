@@ -67,6 +67,38 @@ async fn wrong_terminal_credential_cannot_reach_descriptor_admission() {
     broker.shutdown().await;
 }
 
+/// An upgrade's handover keeps the socket at its path with its credential, and the adopting
+/// broker answers exactly what the old one would: a wrong credential is still refused, and
+/// nothing is unlinked until the adopter itself shuts down.
+#[tokio::test]
+async fn a_handed_over_socket_keeps_its_path_and_credential_for_the_adopter() {
+    let executable = PathBuf::from("/merkur-test-nonexistent-image-worker");
+    let (broker, endpoint) = broker(executable.clone());
+    let handover = broker.hand_over().await.unwrap();
+    assert_eq!(handover.path, endpoint.path);
+    assert_eq!(hex(handover.credential.as_ref()), *endpoint.credential);
+    assert!(endpoint.path.exists(), "a handover leaves the socket bound");
+
+    let adopted = Broker::adopt(
+        Budget::new(Usage {
+            bytes: super::super::STORAGE_BYTES,
+            objects: 8192,
+        }),
+        Budget::new(Usage {
+            bytes: WORKSPACE_BYTES,
+            objects: 1,
+        }),
+        executable,
+        handover,
+    )
+    .unwrap();
+    let mut stream = UnixStream::connect(&endpoint.path).await.unwrap();
+    stream.write_all(&[0; 33]).await.unwrap();
+    assert_eq!(stream.read(&mut [0]).await.unwrap(), 0);
+    adopted.shutdown().await;
+    assert!(!endpoint.path.exists(), "the adopter's shutdown removes the socket");
+}
+
 fn send_rights(stream: i32, marker: u8, descriptors: &[i32]) {
     let mut control = vec![0usize; 512];
     let mut marker = marker;

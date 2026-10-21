@@ -24,6 +24,7 @@ import {
   DaemonLinkClaimServiceLive,
   type DaemonLinkClaimServiceTag,
 } from './services/daemon-link-claim-service';
+import { DaemonReleaseStoreLive } from './services/daemon-release-store';
 import {
   DeviceEventsServiceLive,
   type DeviceEventsServiceTag,
@@ -95,6 +96,7 @@ const DeviceEventsServiceResolvedLive = DeviceEventsServiceLive.pipe(
 );
 
 const DaemonControlServiceResolvedLive = DaemonControlServiceLive.pipe(
+  Layer.provideMerge(DaemonReleaseStoreLive),
   Layer.provideMerge(RealtimeCoordinationResolvedLive),
   Layer.provideMerge(EdgeRegistryResolvedLive),
   Layer.provideMerge(CoreServicesLive),

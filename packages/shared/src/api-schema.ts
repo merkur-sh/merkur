@@ -309,8 +309,6 @@ export const BoxCreatedResponse = Type.Object(
 
 export type BoxCreatedResponse = Static<typeof BoxCreatedResponse>;
 
-// The build's version, whatever the build was stamped with; a tag, a commit or `dev`.
-export const ServerVersionResponse = Type.Object(
-  { version: Text(0) },
-  { additionalProperties: false },
-);
+// The release every daemon of this server runs: a `vX.Y.Z` tag, or `dev` from source. A frozen
+// cross-release contract (docs/releases.md, Convergence): its shape never changes.
+export const ReleaseResponse = Type.Object({ release: Text(1) }, { additionalProperties: false });

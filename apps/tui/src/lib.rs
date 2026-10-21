@@ -18,3 +18,4 @@ mod sensitive;
 mod ui;
 
 pub mod password_line;
+pub mod release;
