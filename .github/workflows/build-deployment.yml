@@ -31,8 +31,11 @@ jobs:
           RELEASE_PIN: ${{ vars.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY }}
           OPAQUE_PIN: ${{ vars.MERKUR_OPAQUE_SERVER_PUBLIC_KEY }}
         run: |
+          # A deployment names the release its daemons must run; main has none, so this
+          # build proves the deployment with the placeholder the release build uses untagged.
           identity=(
             "--//tools/bazel/release:commit=$GITHUB_SHA"
+            "--//tools/bazel/release:version=v0.0.0"
             "--//tools/bazel/release:release_public_key=$RELEASE_PIN"
             "--//tools/bazel/release:opaque_pin=$OPAQUE_PIN"
           )

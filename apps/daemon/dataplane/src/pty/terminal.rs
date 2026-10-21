@@ -1,5 +1,7 @@
 mod graphics;
 
+pub(crate) use graphics::NativeHandover;
+
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::Line;
@@ -967,6 +969,20 @@ impl TerminalState {
         self.graphics.enable_native()
     }
 
+    /// See `Graphics::hand_over_native`; taken before `shutdown_graphics` at an upgrade.
+    pub(crate) async fn hand_over_native_graphics(
+        &mut self,
+    ) -> std::io::Result<Option<graphics::NativeHandover>> {
+        self.graphics.hand_over_native().await
+    }
+
+    pub(crate) fn adopt_native_graphics(
+        &mut self,
+        handover: graphics::NativeHandover,
+    ) -> std::io::Result<()> {
+        self.graphics.adopt_native(handover)
+    }
+
     pub fn display_commit_pending(&self) -> bool {
         self.parser.sync_drain_pending()
     }
@@ -1063,6 +1079,29 @@ impl TerminalState {
         self.set_prediction_safe(false);
         self.record_damage();
         true
+    }
+
+    /// The screen as the escape sequences a fresh terminal of this size rebuilds it from
+    /// (`Term::write_replay`), for the process that takes this terminal over at an upgrade.
+    /// A held synchronized update is released first, so what the shell already wrote is in.
+    pub fn write_replay(&mut self, out: &mut Vec<u8>) {
+        self.stop_synchronized_update();
+        self.term.write_replay(out);
+    }
+
+    /// Rebuilds the screen a predecessor process described with `write_replay`, followed by
+    /// any PTY output it had read but not applied. Those bytes are that process's account,
+    /// not output this terminal watched the shell write, so they establish no shell-editor
+    /// boundary: speculative echo returns at the shell's next prompt. Returns how many bytes
+    /// were applied; the rest wait behind an image, as a retained PTY read does.
+    pub fn apply_replay(&mut self, bytes: &[u8]) -> usize {
+        self.term.event_listener_mut().ignored_shell_evidence_bytes = bytes.len();
+        let accepted = self.apply_bytes(bytes);
+        self.term.event_listener_mut().terminal_control_cancelled();
+        self.clear_editor_anchor();
+        self.set_prediction_safe(false);
+        self.record_damage();
+        accepted
     }
 
     /// Revoke editor evidence before unmodelled input can reach the PTY.

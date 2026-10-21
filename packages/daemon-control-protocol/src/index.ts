@@ -75,6 +75,12 @@ export interface DaemonControlRegisteredMessage {
    * retires every session its predecessor left there.
    */
   readonly edges: readonly DaemonControlEdge[];
+  /**
+   * The next release, when the server's release store already holds it: the daemon
+   * downloads and verifies it now, so the cutover only swaps binaries. See
+   * `DaemonControlReleaseStagedMessage`.
+   */
+  readonly stagedRelease: string | null;
 }
 
 /**
@@ -206,6 +212,18 @@ export interface DaemonControlSupersededMessage {
   readonly version: typeof DAEMON_CONTROL_PROTOCOL_VERSION;
 }
 
+/**
+ * Sent when the release workflow puts the next release into the server's store, ahead of
+ * deploying it. The daemon stages it (downloads, verifies, extracts) without running it; when
+ * the new server comes up and names it, the daemon only has to swap. A server and daemon of
+ * the same release exchange this, so it is not a cross-release contract.
+ */
+export interface DaemonControlReleaseStagedMessage {
+  readonly type: 'release_staged';
+  readonly version: typeof DAEMON_CONTROL_PROTOCOL_VERSION;
+  readonly release: string;
+}
+
 export type DaemonControlServerMessage =
   | DaemonControlRegisteredMessage
   | DaemonControlLeaseMessage
@@ -213,7 +231,8 @@ export type DaemonControlServerMessage =
   | DaemonControlSessionStartMessage
   | DaemonControlSessionCancelMessage
   | DaemonControlDelegationRevokeMessage
-  | DaemonControlSupersededMessage;
+  | DaemonControlSupersededMessage
+  | DaemonControlReleaseStagedMessage;
 
 export type DaemonControlCommandMessage =
   | DaemonControlSessionStartMessage
@@ -260,7 +279,10 @@ const REGISTERED_KEYS = [
   'stunTicketLifetimeMs',
   'edgeAttachTicket',
   'edges',
+  'stagedRelease',
 ] as const;
+const RELEASE_STAGED_KEYS = ['type', 'version', 'release'] as const;
+const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const LEASE_KEYS = [
   'type',
   'version',
@@ -350,6 +372,12 @@ export function parseDaemonControlServerMessage(raw: unknown): DaemonControlServ
       return parseSessionCancel(decoded);
     case 'delegation_revoke':
       return parseDelegationRevoke(decoded);
+    case 'release_staged': {
+      const release = hasExactKeys(decoded, RELEASE_STAGED_KEYS)
+        ? readReleaseTag(readIdentifier(decoded.release))
+        : null;
+      return release === null ? null : createDaemonControlReleaseStagedMessage(release);
+    }
     case 'superseded':
       return hasExactKeys(decoded, SUPERSEDED_KEYS)
         ? {
@@ -412,6 +440,7 @@ export function createDaemonControlRegisteredMessage(
   stunTicketLifetimeMs: number,
   edgeAttachTicket: string,
   edges: readonly DaemonControlEdge[],
+  stagedRelease: string | null,
 ): DaemonControlRegisteredMessage {
   return {
     type: 'registered',
@@ -428,7 +457,14 @@ export function createDaemonControlRegisteredMessage(
     stunTicketLifetimeMs,
     edgeAttachTicket,
     edges,
+    stagedRelease,
   };
+}
+
+export function createDaemonControlReleaseStagedMessage(
+  release: string,
+): DaemonControlReleaseStagedMessage {
+  return { type: 'release_staged', version: DAEMON_CONTROL_PROTOCOL_VERSION, release };
 }
 
 export function createDaemonControlLeaseMessage(
@@ -562,7 +598,10 @@ function parseRegistered(value: Record<string, unknown>): DaemonControlRegistere
   const stunTicketLifetimeMs = readPositiveSafeInteger(value.stunTicketLifetimeMs);
   const edgeAttachTicket = readEdgeAttachTicket(value.edgeAttachTicket);
   const edges = readEdges(value.edges);
+  const stagedRelease =
+    value.stagedRelease === null ? null : readReleaseTag(readIdentifier(value.stagedRelease));
   if (
+    (value.stagedRelease !== null && stagedRelease === null) ||
     connectionId === null ||
     presenceId === null ||
     claimSeq === null ||
@@ -596,7 +635,13 @@ function parseRegistered(value: Record<string, unknown>): DaemonControlRegistere
     stunTicketLifetimeMs,
     edgeAttachTicket,
     edges,
+    stagedRelease,
   };
+}
+
+/** A `vMAJOR.MINOR.PATCH` release tag, the only thing a staged release is named by. */
+function readReleaseTag(identifier: string | null): string | null {
+  return identifier !== null && RELEASE_TAG_PATTERN.test(identifier) ? identifier : null;
 }
 
 function parseLease(value: Record<string, unknown>): DaemonControlLeaseMessage | null {

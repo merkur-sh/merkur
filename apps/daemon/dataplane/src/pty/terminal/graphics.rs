@@ -35,6 +35,7 @@ mod projector;
 mod visibility;
 
 pub(crate) use native::Endpoint as NativeEndpoint;
+pub(crate) use native::Handover as NativeHandover;
 
 /// Storage resource bound, including admission for output, live image roots,
 /// retired images a reader still holds, and the projector's own rows; a display
@@ -397,6 +398,29 @@ impl Graphics {
         Ok(endpoint)
     }
 
+    /// Detaches the native broker for an upgrade: its clients are reaped, and its socket
+    /// and credential go to the next process (`native::Broker::hand_over`).
+    pub(super) async fn hand_over_native(&mut self) -> std::io::Result<Option<NativeHandover>> {
+        match self.native.take() {
+            Some(broker) => broker.hand_over().await.map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Serves the broker socket a predecessor handed over in place of starting one.
+    pub(super) fn adopt_native(&mut self, handover: NativeHandover) -> std::io::Result<()> {
+        if self.native.is_some() {
+            return Err(std::io::Error::other("native ingress already installed"));
+        }
+        self.native = Some(native::Broker::adopt(
+            self.storage.clone(),
+            self.processing.clone(),
+            self.executable.clone(),
+            handover,
+        )?);
+        Ok(())
+    }
+
     /// Kitty's frame numbering: `r` naming an existing frame edits it; zero or
     /// any later number appends the next frame. Once the image resolves, every
     /// reply to the frame command names this frame, including failures.
@@ -688,7 +712,12 @@ impl Graphics {
                                 return false;
                             }
                             result => {
-                                respond(term, &control, None, result.map(|_| ()).map_err(Refused::reply));
+                                respond(
+                                    term,
+                                    &control,
+                                    None,
+                                    result.map(|_| ()).map_err(Refused::reply),
+                                );
                                 term.event_listener_mut().graphics.acknowledge();
                             }
                         }
@@ -2131,7 +2160,8 @@ mod tests {
                 }
                 // A documented upstream deviation keeps Kitty's observation and
                 // names the explicit normative oracle Merkur is held to.
-                let normative = |key: &str| step.get(format!("normative_{key}")).unwrap_or(&step[key]);
+                let normative =
+                    |key: &str| step.get(format!("normative_{key}")).unwrap_or(&step[key]);
                 // Error descriptions are implementation-specific; protocol selectors
                 // and success/error codes are the interoperable response contract.
                 let normalize = |bytes: &[u8]| {
@@ -2729,14 +2759,18 @@ mod tests {
             let first = b"\x1b_Ga=T,f=24,s=1,v=1,i=71,c=2,r=2,C=1;AAAA\x1b\\";
             let accepted = terminal.apply_bytes(first);
             resume(&mut terminal, first, accepted).await;
-            let before: Vec<_> = (0..8).map(|row| terminal.graphics.row(row).version()).collect();
+            let before: Vec<_> = (0..8)
+                .map(|row| terminal.graphics.row(row).version())
+                .collect();
             assert!(before[0].is_some() && before[1].is_some());
             // A second placement: the workspace sized for one is rebuilt for two.
             let second = b"\x1b[5;1H\x1b_Ga=T,f=24,s=1,v=1,i=72,c=2,r=2,C=1;AQEB\x1b\\";
             let accepted = terminal.apply_bytes(second);
             resume(&mut terminal, second, accepted).await;
             assert_eq!(replies(&rx).len(), 2);
-            let after: Vec<_> = (0..8).map(|row| terminal.graphics.row(row).version()).collect();
+            let after: Vec<_> = (0..8)
+                .map(|row| terminal.graphics.row(row).version())
+                .collect();
             assert_eq!(after[..4], before[..4]);
             assert!(after[4].is_some() && after[5].is_some());
             assert_eq!(after[6..], before[6..]);
@@ -2781,7 +2815,13 @@ mod tests {
             assert_eq!(replies(&rx).len(), 3);
             let oldest = terminal.graphics.scene.resolve_id(81).unwrap();
             let held = Arc::clone(terminal.graphics.scene.image(oldest).unwrap());
-            assert!(terminal.graphics.projected.iter().all(|row| !row.is_empty()));
+            assert!(
+                terminal
+                    .graphics
+                    .projected
+                    .iter()
+                    .all(|row| !row.is_empty())
+            );
             merkur_image_worker::retirement::drain();
             terminal.apply_bytes(b"\x1b[?1049h");
             assert!(terminal.graphics.projected.iter().all(|row| row.is_empty()));
@@ -3538,8 +3578,7 @@ mod tests {
         /// delete's release is in flight: it may be what the release covers. Once
         /// it lands the projection fits, and the other original stays.
         #[tokio::test]
-        async fn a_projection_right_after_a_delete_evicts_nothing_while_its_release_is_in_flight()
-        {
+        async fn a_projection_right_after_a_delete_evicts_nothing_while_its_release_is_in_flight() {
             let (mut terminal, rx) = terminal();
             terminal.resize_viewport(crate::pty::Viewport {
                 geometry_generation: 1,

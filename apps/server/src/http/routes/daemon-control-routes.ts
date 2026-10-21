@@ -4,6 +4,7 @@ import {
   parseDaemonControlSignature,
 } from '@merkur/auth';
 import { MAX_DAEMON_CONTROL_FRAME_BYTES } from '@merkur/daemon-control-protocol';
+import { merkurRelease } from '@merkur/shared';
 import { Effect } from 'effect';
 import { Elysia, status } from 'elysia';
 import { websocket } from 'elysia/websocket';
@@ -19,7 +20,7 @@ import {
 } from '../../services/daemon-control-service';
 import { DeviceServiceTag } from '../../services/device-service';
 import { type IpZone, zoneForIp } from '../../services/ip-region';
-import { enforceRateLimitFailClosed, RateLimitServiceTag } from '../../services/rate-limit-service';
+import { withinRateLimitsEffect } from '../../services/rate-limit-service';
 import { resolveRateLimitSource } from '../client-ip';
 
 const DAEMON_CONTROL_PATH = '/api/daemon/control';
@@ -103,29 +104,28 @@ export function daemonControlRoutesPlugin({
         if (!secureControlOrigin) return status(STATUS_UPGRADE_REQUIRED, '');
         const credentials = parseDaemonControlUpgradeCredentials(request);
         if (credentials === null) return status(STATUS_UNAUTHORIZED, '');
+        // A daemon runs exactly this server's release. One on any other cannot read what this
+        // server sends, so it never registers: it reads `/api/release` before each dial and
+        // converges first (docs/releases.md, Convergence).
+        if (credentials.daemonVersion !== merkurRelease())
+          return status(STATUS_UPGRADE_REQUIRED, '');
         if (pending.size >= MAX_PENDING_AUTHENTICATIONS)
           return status(STATUS_SERVICE_UNAVAILABLE, '');
         const clientIp = resolveRateLimitSource(request, server, trustedProxyHops);
         try {
           const allowed = await runServerProgram(
-            Effect.gen(function* () {
-              const limits = yield* RateLimitServiceTag;
-              return yield* enforceRateLimitFailClosed(limits, [
-                {
-                  key: `daemon-control:ip:${clientIp}`,
-                  limit: UPGRADE_IP_LIMIT,
-                  windowMs: UPGRADE_RATE_LIMIT_WINDOW_MS,
-                },
-                {
-                  key: `daemon-control:daemon:${credentials.daemonId}`,
-                  limit: UPGRADE_DAEMON_LIMIT,
-                  windowMs: UPGRADE_RATE_LIMIT_WINDOW_MS,
-                },
-              ]).pipe(
-                Effect.as(true),
-                Effect.catchTag('RateLimitedError', () => Effect.succeed(false)),
-              );
-            }),
+            withinRateLimitsEffect([
+              {
+                key: `daemon-control:ip:${clientIp}`,
+                limit: UPGRADE_IP_LIMIT,
+                windowMs: UPGRADE_RATE_LIMIT_WINDOW_MS,
+              },
+              {
+                key: `daemon-control:daemon:${credentials.daemonId}`,
+                limit: UPGRADE_DAEMON_LIMIT,
+                windowMs: UPGRADE_RATE_LIMIT_WINDOW_MS,
+              },
+            ]),
             { signal: request.signal },
           );
           if (!allowed) return status(STATUS_TOO_MANY_REQUESTS, '');

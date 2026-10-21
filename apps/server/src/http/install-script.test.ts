@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import { renderInstallScript } from './install-script';
 
 describe('install script', () => {
-  const script = renderInstallScript('https://merkur.test');
+  const script = renderInstallScript('https://merkur.test', 'v1.2.3');
 
   test('is a syntactically valid POSIX shell script', async () => {
     const proc = Bun.spawn(['sh', '-n'], { stdin: 'pipe', stderr: 'pipe' });
@@ -14,10 +14,8 @@ describe('install script', () => {
     expect(exitCode).toBe(0);
   });
 
-  test('downloads from public GitHub releases and hands verification to merkur setup', () => {
-    expect(script).toContain(
-      'MERKUR_RELEASE_BASE:-https://github.com/merkur-sh/merkur/releases/latest/download}"',
-    );
+  test("downloads this server's release from its store and hands verification to merkur setup", () => {
+    expect(script).toContain('MERKUR_RELEASE_BASE:-https://merkur.test/api/releases/v1.2.3}"');
     expect(script).toContain('for file in "$artifact" merkur-release.json merkur-release.sig; do');
     expect(script).toContain('"$work/unpacked/merkur" setup \\');
     // The script itself verifies nothing: one verifier, the updater's, in the binary.
@@ -28,7 +26,7 @@ describe('install script', () => {
   test('links to the serving origin only when the link command supplied a token', () => {
     expect(script).toContain('MERKUR_LINK_TOKEN:-}" ]; then');
     expect(script).toContain('set -- --link \'https://merkur.test\' "$@"');
-    expect(renderInstallScript("https://it's.test")).toContain(
+    expect(renderInstallScript("https://it's.test", 'v1.2.3')).toContain(
       `set -- --link 'https://it'\\''s.test' "$@"`,
     );
   });

@@ -23,6 +23,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 interface DeploymentInputs {
   readonly commit: string;
+  readonly release: string;
   readonly releasePublicKey: string;
   readonly opaquePin: string;
 }
@@ -32,6 +33,10 @@ export function deploymentInputs(
 ): DeploymentInputs {
   const commit = env.MERKUR_BUILD_COMMIT ?? '';
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('MERKUR_BUILD_COMMIT is required');
+  // The release every daemon of this deployment must run; a deployment is only built for one.
+  const release = env.MERKUR_RELEASE ?? '';
+  if (!/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(release))
+    throw new Error('MERKUR_RELEASE must be the exact vMAJOR.MINOR.PATCH tag');
   const releasePublicKey = env.MERKUR_RELEASE_MLDSA87_PUBLIC_KEY ?? '';
   decodeReleasePublicKey(releasePublicKey);
   const opaquePin = env.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY ?? '';
@@ -40,7 +45,7 @@ export function deploymentInputs(
     throw new Error(
       'VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY must be canonical base64url for 32 bytes',
     );
-  return { commit, releasePublicKey, opaquePin };
+  return { commit, release, releasePublicKey, opaquePin };
 }
 
 async function run(command: readonly string[], env: Record<string, string>): Promise<void> {
@@ -111,6 +116,7 @@ async function build(output: string, inputs: DeploymentInputs): Promise<void> {
     MERKUR_BUILD_ID: buildId,
     MERKUR_RELEASE_MLDSA87_PUBLIC_KEY: inputs.releasePublicKey,
     MERKUR_VERSION: inputs.commit,
+    MERKUR_RELEASE: inputs.release,
     MERKUR_OPAQUE_WEB_BUILD_PUBLIC_KEY: inputs.opaquePin,
   };
   await run(

@@ -6,11 +6,13 @@
  */
 
 /**
- * Public GitHub releases. Daemons download straight from here with no token and
- * no API call; authenticity comes only from the pinned manifest signature, so
- * the host and every byte it serves are untrusted inputs.
+ * The daemon release endpoints every server serves, and the only surfaces one release reads
+ * from another (docs/releases.md, Convergence). They never change shape: a daemon on the
+ * previous release reads them from the server that replaced it. Authenticity comes only from
+ * the pinned manifest signature, so the server and every byte it serves are untrusted inputs.
  */
-export const RELEASE_DOWNLOAD_BASE_URL = 'https://github.com/merkur-sh/merkur/releases';
+export const RELEASE_ENDPOINT_PATH = '/api/release';
+export const RELEASE_FILES_PATH = '/api/releases';
 
 export const RELEASE_MANIFEST_FILE = 'merkur-release.json';
 export const RELEASE_MANIFEST_SIGNATURE_FILE = 'merkur-release.sig';
@@ -192,16 +194,26 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return true;
 }
 
-/**
- * The newest published release's copy of an asset. GitHub resolves `latest`
- * server-side, so this is how the updater learns the newest version: it reads
- * the version out of the latest manifest, then fetches the manifest and its
- * signature again by tag, as a pair that cannot straddle two releases.
- */
-export function latestReleaseAssetUrl(assetName: string): string {
-  return `${RELEASE_DOWNLOAD_BASE_URL}/latest/download/${encodeURIComponent(assetName)}`;
+/** The file of one release in the origin's daemon release store. */
+export function releaseFileUrl(origin: string, version: string, file: string): string {
+  return new URL(
+    `${RELEASE_FILES_PATH}/${encodeURIComponent(version)}/${encodeURIComponent(file)}`,
+    origin,
+  ).href;
 }
 
-export function releaseAssetUrl(version: string, assetName: string): string {
-  return `${RELEASE_DOWNLOAD_BASE_URL}/download/${encodeURIComponent(version)}/${encodeURIComponent(assetName)}`;
+/**
+ * The files the daemon release store serves for one release: the manifest, its signature and
+ * one archive per platform, exactly what the release workflow signs and publishes.
+ */
+export function isReleaseStoreFile(file: string): boolean {
+  return (
+    file === RELEASE_MANIFEST_FILE ||
+    file === RELEASE_MANIFEST_SIGNATURE_FILE ||
+    RELEASE_PLATFORMS.some((platform) => daemonArtifactName(platform) === file)
+  );
+}
+
+export function isReleaseVersion(value: string): boolean {
+  return RELEASE_VERSION_PATTERN.test(value);
 }

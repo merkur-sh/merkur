@@ -124,7 +124,7 @@ const App: Component = () => {
                 linkCommandStatus={controller.linkCommandStatus()}
                 operation={controller.deviceOperation()}
                 selectedDeviceId={controller.selectedDeviceId()}
-                serverVersion={controller.serverVersion()}
+                serverRelease={controller.serverRelease()}
                 onSelect={controller.onDeviceSelected}
                 onLogout={controller.onLogout}
                 onOpenCreateBox={controller.onOpenCreateBox}

@@ -76,7 +76,8 @@ older clients, no migration window.
   in their old shape.
 - No versioning: no protocol version fields, capability negotiation, rollout flags,
   schema version columns, `v2` names, or version-gated branches. A build identifier stays
-  informational; never branch on it.
+  informational, except a daemon's release picks which binary runs (not protocol
+  behavior); only `docs/releases.md`'s frozen contracts cross releases.
 - No compatibility gates: no shims, dual-read/dual-write, deprecation periods,
   old-to-new adapters, optional-field bridges, or "keep the old handler for now".
 - Infrastructure too: obsolete volumes, env vars and units go once the cutover works;

@@ -135,6 +135,11 @@ pub async fn connect(mut options: Connect) -> io::Result<u8> {
     let account = Arc::new(
         Account::new(&origin, pin).map_err(|error| io::Error::other(format!("{error:?}")))?,
     );
+    if let Some(successor) = crate::release::converged_client(&account).await? {
+        // Restores the host terminal before the converged client takes it.
+        drop(host);
+        return Err(crate::release::replace(&successor));
+    }
     let mut password_prompt = "Password";
     loop {
         let (delegation, delegate, credentials, store) = if let Some(resumed) = resumed.take() {

@@ -16,12 +16,13 @@ import { runStartCommand } from './cli/start';
 import { runStopCommand } from './cli/stop';
 import { runTuiCommand } from './cli/tui';
 import { runUpdateCommand } from './cli/update';
-import { daemonInstanceLockPath, requireDaemonConfigEffect } from './config';
+import { daemonInstanceLockPath, merkurInstallRootPath, requireDaemonConfigEffect } from './config';
 import { createLogger, logEffect, MerkurLoggerLayer } from './logger';
 import { daemonTracerLayer } from './observability/telemetry';
 import { DaemonHealthServiceLive } from './services/daemon-metrics';
 import { createDaemonProofSigner } from './services/daemon-proof-signer';
 import { runDaemonRuntimeEffect } from './services/daemon-runtime';
+import { takeDataplaneAdoption } from './services/dataplane-adoption';
 import { acquireDaemonInstanceLockEffect, DaemonAlreadyRunningError } from './single-instance';
 
 const logger = createLogger('daemon');
@@ -137,6 +138,10 @@ if (cliCommand !== undefined) {
   }
 }
 
+// Read before anything can spawn a child that would inherit it. Set only when the previous
+// release replaced itself with this one, and then the dataplane is already running.
+const adoption = command === 'daemon' ? takeDataplaneAdoption() : null;
+
 const daemonProgram = Effect.scoped(
   Effect.gen(function* () {
     const config = yield* requireDaemonConfigEffect();
@@ -164,6 +169,8 @@ const daemonProgram = Effect.scoped(
       shutdownIntent,
       retireTelemetry,
       enableFinalTransportCapture: process.env.MERKUR_E2E_FINAL_TRANSPORT_CAPTURE === '1',
+      adoption,
+      installRoot: merkurInstallRootPath(),
     }).pipe(Effect.provide(telemetry), Effect.forkScoped);
     const shutdownFiber = yield* waitForProcessSignal().pipe(
       Effect.tap((signal) => logEffect('info', 'daemon', 'daemon_shutdown_requested', { signal })),

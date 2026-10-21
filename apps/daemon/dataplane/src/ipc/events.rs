@@ -404,6 +404,15 @@ pub fn start_stdout_event_output()
     start_event_output(io::stdout(), EVENT_QUEUE_DEPTH)
 }
 
+/// The event sink of a dataplane that took over from its predecessor: its owner reads events
+/// from the socket it connected on, not from this process's stdout.
+#[cfg(not(merkur_sim))]
+pub fn start_owner_socket_event_output(
+    socket: std::os::unix::net::UnixStream,
+) -> io::Result<(EventSink, mpsc::Receiver<EventSinkFailure>, EventOutput)> {
+    start_event_output(socket, EVENT_QUEUE_DEPTH)
+}
+
 #[cfg(test)]
 pub(crate) fn test_event_sink() -> (EventSink, EventOutput) {
     let (sink, _failure_rx, output) =

@@ -1,7 +1,7 @@
 {
   "apps/daemon/src/services/daemon-control-client.ts::<anonymous>": {
-    "cyclomatic": 52,
-    "cognitive": 119
+    "cyclomatic": 51,
+    "cognitive": 117
   },
   "apps/daemon/src/services/dataplane-client.ts::handleTransportStats": {
     "cyclomatic": 40,

@@ -83,9 +83,9 @@ OPTIONS
     body: 'Active terminals on this machine disconnect. Run merkur start to resume service.',
   },
   update: {
-    description: 'Install the newest signed Merkur release.',
+    description: "Install the release this machine's server runs.",
     usage: 'merkur update',
-    body: 'The release signature is verified before installation.',
+    body: 'A linked daemon updates itself before it connects and keeps its terminal running across the update. This installs the same release now, verified against the release key, for a machine that only signs in or before the daemon next connects.',
   },
   open: {
     description: 'Request a URL in the browser or terminal client viewing this session.',

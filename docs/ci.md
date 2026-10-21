@@ -159,7 +159,8 @@ create without creating one.
 
 A release is one annotated tag on a commit that `main`-push CI has already passed. There is
 no second dispatch, no local signer, no manual approval stage. Creating the protected tag is
-the release decision. Personal machines pick the release up through `merkur update`.
+the release decision. Every daemon converges to the release on its own as its server switches
+([Convergence](releases.md#convergence)).
 
 ```sh
 git tag -a vMAJOR.MINOR.PATCH -m 'vMAJOR.MINOR.PATCH'

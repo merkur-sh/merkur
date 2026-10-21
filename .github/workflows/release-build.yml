@@ -117,6 +117,7 @@ jobs:
           mkdir -p dist/ci-release
           identity=(
             "--//tools/bazel/release:commit=$COMMIT"
+            "--//tools/bazel/release:version=$VERSION"
             "--//tools/bazel/release:release_public_key=$MERKUR_RELEASE_MLDSA87_PUBLIC_KEY"
             "--//tools/bazel/release:opaque_pin=$OPAQUE_PIN"
           )

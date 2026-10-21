@@ -16,15 +16,16 @@ import { Clock, Effect } from 'effect';
 
 import { merkurInstallRootPath, readLoginShellEffect } from '../config';
 import type { Logger } from '../logger';
-import { installDaemonServiceForExecutableEffect } from './install';
-import { runLinkCommandEffect } from './link';
 import {
-  installVerifiedReleaseEffect,
+  activateReleaseEffect,
   persistReleaseTrustFloorEffect,
   readReleaseTrustFloorEffect,
-  resolveVersionedDaemonExecutables,
+  releaseVersionDirectory,
+  stageVerifiedReleaseEffect,
   verifyReleaseCandidateEffect,
-} from './update';
+} from '../services/daemon-release';
+import { installDaemonServiceForExecutableEffect } from './install';
+import { runLinkCommandEffect } from './link';
 
 /** Marks the lines setup appends to a shell startup file, so a re-run adds nothing. */
 export const PATH_BLOCK_MARKER = '# Added by the Merkur installer';
@@ -124,7 +125,7 @@ function runSetupCommandEffect(args: string[], logger: Logger): Effect.Effect<nu
       ),
     );
 
-    const versionDirectory = path.join(installRoot, 'versions', version);
+    const versionDirectory = releaseVersionDirectory(installRoot, version);
     const currentTarget = yield* readCurrentTargetEffect(installRoot);
     if (currentTarget !== null && path.resolve(installRoot, currentTarget) === versionDirectory) {
       yield* persistReleaseTrustFloorEffect(installRoot, {
@@ -133,18 +134,19 @@ function runSetupCommandEffect(args: string[], logger: Logger): Effect.Effect<nu
       });
       logger.info('daemon_setup_already_installed', { version });
     } else {
-      // A directory for this version that `current` does not point at is the
-      // remains of an earlier attempt, not an install to preserve.
-      yield* Effect.tryPromise({
-        try: () => rm(versionDirectory, { recursive: true, force: true }),
-        catch: normalizeUnknownError,
-      });
-      yield* installVerifiedReleaseEffect({
-        logger,
+      // A version directory exists only complete, so one already there is staged.
+      yield* stageVerifiedReleaseEffect({
         installRoot,
         candidate,
         artifactUrl: pathToFileURL(path.resolve(parsed.artifactPath)).href,
-        previousVersion: currentTarget === null ? null : path.basename(currentTarget),
+      });
+      // A running daemon on another release keeps running from its own directory until
+      // its server tells it to converge; nothing here stops or restarts it.
+      yield* activateReleaseEffect({
+        logger,
+        installRoot,
+        versionDirectory,
+        running: currentTarget === null ? null : path.basename(currentTarget),
       });
       logger.info('daemon_setup_installed', { version, path: versionDirectory });
     }
@@ -172,10 +174,11 @@ function runSetupCommandEffect(args: string[], logger: Logger): Effect.Effect<nu
     const linked = yield* runLinkCommandEffect([...parsed.linkArguments], logger);
     if (linked !== 0) return linked;
     // Installed only now: until a config exists the daemon has nothing to run
-    // with, and a supervised unit would restart it in a loop.
+    // with, and a supervised unit would restart it in a loop. The unit runs
+    // `current`, so no update ever rewrites or restarts it.
     return yield* installDaemonServiceForExecutableEffect(
       logger,
-      resolveVersionedDaemonExecutables(versionDirectory).daemon,
+      path.join(installRoot, 'current', 'merkur'),
     );
   });
 }

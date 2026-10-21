@@ -3,11 +3,12 @@ import {
   createDaemonControlCommandAckMessage,
   type DaemonControlCommandMessage,
   type DaemonControlRegisteredMessage,
+  type DaemonControlServerMessage,
   encodeDaemonControlMessage,
   MAX_DAEMON_CONTROL_FRAME_BYTES,
   parseDaemonControlServerMessage,
 } from '@merkur/daemon-control-protocol';
-import { merkurVersion, parseTraceparent, spanAttributes } from '@merkur/shared';
+import { merkurRelease, parseTraceparent, spanAttributes } from '@merkur/shared';
 import type { DelegationRevocationTarget } from '@merkur/shared/user-authorization';
 import {
   Cause,
@@ -33,6 +34,7 @@ import {
   recordControlRegistrationOutcome,
   recordSuspensionGapMs,
 } from './daemon-metrics';
+import { fetchServerReleaseEffect } from './daemon-release';
 import type { DataplaneClient, DataplaneCommandResult } from './dataplane-client';
 
 const DAEMON_CONTROL_PATH = '/api/daemon/control';
@@ -110,6 +112,11 @@ export interface DaemonControlClientOptions {
    * carrier so the server holds the lease through its resume grace window.
    */
   readonly shutdownIntent?: Deferred.Deferred<void>;
+  /**
+   * Stages a release the server's store holds ahead of its deployment (`stagedRelease` on
+   * `registered`, and `release_staged`). Called inline, so it must return at once.
+   */
+  readonly stageRelease?: (release: string) => Effect.Effect<void>;
 }
 
 const NOOP_HEALTH_REPORTER: DaemonControlHealthReporter = {
@@ -133,6 +140,8 @@ export interface DaemonControlSocket {
 }
 
 export interface DaemonControlClientDependencies {
+  /** The release the server runs (`GET /api/release`), read before every dial. */
+  readonly serverRelease: (origin: string) => Effect.Effect<string, Error>;
   readonly createSocket: (
     url: string,
     headers: Readonly<Record<string, string>>,
@@ -181,6 +190,14 @@ interface AppliedCommandMemo {
   readonly remember: (commandId: string, result: DataplaneCommandResult) => Effect.Effect<void>;
 }
 
+/**
+ * The server runs another release. This daemon cannot read what it sends, and the server
+ * refuses it, so the control client stops and the runtime converges to `release`.
+ */
+export class DaemonReleaseRequired extends Data.TaggedError('DaemonReleaseRequired')<{
+  readonly release: string;
+}> {}
+
 export interface DaemonControlSuperseded {
   readonly _tag: 'DaemonControlSuperseded';
 }
@@ -214,7 +231,7 @@ interface ControlSocketAdapter {
 }
 
 class DaemonControlConnectionError extends Data.TaggedError('DaemonControlConnectionError')<{
-  readonly reason: 'socket_create_failed';
+  readonly reason: 'socket_create_failed' | 'release_lookup_failed';
 }> {}
 
 class DaemonControlSocketSendError extends Data.TaggedError('DaemonControlSocketSendError')<{
@@ -286,6 +303,7 @@ class BunControlSocket implements DaemonControlSocket {
 }
 
 const defaultDependencies: DaemonControlClientDependencies = {
+  serverRelease: (origin) => fetchServerReleaseEffect(origin),
   createSocket(url, headers) {
     // `bun-types` defers to lib.dom's constructor when both are loaded, which
     // hides Bun's runtime-supported header overload and its ping/terminate
@@ -339,14 +357,15 @@ export function runDaemonControlClientEffect(
     | 'updateEdgeAdmission'
   >,
   options: DaemonControlClientOptions = {},
-): Effect.Effect<DaemonControlSuperseded, never> {
+): Effect.Effect<DaemonControlSuperseded, DaemonReleaseRequired> {
   const dependencies = options.dependencies ?? defaultDependencies;
   const health = options.health ?? NOOP_HEALTH_REPORTER;
   const controlUrl = daemonControlWebSocketUrl(config.server_origin);
   const baseHeaders = {
     [DAEMON_ID_HEADER]: config.daemon_id,
-    [DAEMON_VERSION_HEADER]: merkurVersion(),
+    [DAEMON_VERSION_HEADER]: merkurRelease(),
   };
+  const stageRelease = options.stageRelease ?? (() => Effect.void);
 
   return Effect.gen(function* () {
     const currentConfig = yield* Ref.make(config);
@@ -484,6 +503,7 @@ export function runDaemonControlClientEffect(
         options.shutdownIntent,
         dependencies,
         health,
+        stageRelease,
       ).pipe(
         Effect.withSpan('daemon.control.connection', {
           attributes: spanAttributes({
@@ -600,9 +620,11 @@ function runControlConnection(
   shutdownIntent: Deferred.Deferred<void> | undefined,
   dependencies: DaemonControlClientDependencies,
   health: DaemonControlHealthReporter,
-): Effect.Effect<ConnectionOutcome, DaemonControlConnectionError> {
+  stageRelease: (release: string) => Effect.Effect<void>,
+): Effect.Effect<ConnectionOutcome, DaemonControlConnectionError | DaemonReleaseRequired> {
   return Effect.scoped(
     Effect.gen(function* () {
+      yield* requireServerReleaseEffect(config.server_origin, dependencies, health);
       const eventQueueCapacity = normalizeEventQueueCapacity(dependencies.eventQueueCapacity);
       const events = yield* Queue.dropping<ControlEvent>(eventQueueCapacity);
       const fatal = yield* Deferred.make<ControlEvent>();
@@ -675,11 +697,94 @@ function runControlConnection(
           health,
           config,
           headers,
+          stageRelease,
         ),
         Deferred.await(childFailure),
       );
     }),
   );
+}
+
+type DaemonControlStateMessage = Extract<
+  DaemonControlServerMessage,
+  { readonly type: 'lease' | 'revocation' | 'release_staged' }
+>;
+
+/** A message that only updates state: the lease, the revoke-all push, a staged release. */
+function isStateMessage(message: DaemonControlServerMessage): message is DaemonControlStateMessage {
+  return (
+    message.type === 'lease' || message.type === 'revocation' || message.type === 'release_staged'
+  );
+}
+
+function applyStateMessageEffect(
+  message: DaemonControlStateMessage,
+  registration: DaemonControlRegisteredMessage,
+  dataplane: Pick<DataplaneClient, 'updateStunCredential' | 'updateEdgeAdmission'>,
+  pushRevocationGeneration: (generation: number) => Effect.Effect<void>,
+  stageRelease: (release: string) => Effect.Effect<void>,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    switch (message.type) {
+      case 'lease':
+        yield* pushRevocationGeneration(message.revocationGeneration);
+        // The servers do not change between leases, so the registered list is
+        // reused; only the ticket and its key are replaced.
+        dataplane.updateStunCredential({
+          servers: registration.stunServers,
+          ticket: message.stunTicket,
+          secret: message.stunTicketSecret,
+          lifetime_ms: message.stunTicketLifetimeMs,
+        });
+        dataplane.updateEdgeAdmission({ ticket: message.edgeAttachTicket, edges: message.edges });
+        return;
+      case 'revocation':
+        yield* pushRevocationGeneration(message.revocationGeneration);
+        return;
+      case 'release_staged':
+        yield* stageRelease(message.release);
+        return;
+    }
+  });
+}
+
+function stageAnnouncedRelease(
+  stageRelease: (release: string) => Effect.Effect<void>,
+  release: string | null,
+): Effect.Effect<void> {
+  return release === null ? Effect.void : stageRelease(release);
+}
+
+/**
+ * A daemon runs exactly its server's release; the server refuses any other at the upgrade,
+ * so the release is read before every dial and a difference ends the control client
+ * (docs/releases.md, Convergence). An unanswered lookup is a failed dial.
+ */
+function requireServerReleaseEffect(
+  origin: string,
+  dependencies: DaemonControlClientDependencies,
+  health: DaemonControlHealthReporter,
+): Effect.Effect<void, DaemonControlConnectionError | DaemonReleaseRequired> {
+  return Effect.gen(function* () {
+    const release = yield* dependencies.serverRelease(origin).pipe(
+      Effect.catch((error) =>
+        logEffect('warn', 'daemon', 'daemon_release_lookup_failed', {
+          error: String(error),
+        }).pipe(
+          Effect.andThen(
+            Effect.fail(new DaemonControlConnectionError({ reason: 'release_lookup_failed' })),
+          ),
+        ),
+      ),
+    );
+    if (release === merkurRelease()) return;
+    yield* health.updateControl({ state: 'updating', lastFailure: null });
+    yield* logEffect('info', 'daemon', 'daemon_release_required', {
+      running: merkurRelease(),
+      release,
+    });
+    return yield* new DaemonReleaseRequired({ release });
+  });
 }
 
 function runControlEventLoop(
@@ -711,6 +816,7 @@ function runControlEventLoop(
   health: DaemonControlHealthReporter,
   config: DaemonConfig,
   headers: Readonly<Record<string, string>>,
+  stageRelease: (release: string) => Effect.Effect<void>,
 ): Effect.Effect<ConnectionOutcome, never, Scope.Scope> {
   return Effect.gen(function* () {
     let registration = Option.none<DaemonControlRegisteredMessage>();
@@ -1058,6 +1164,7 @@ function runControlEventLoop(
         // edge dial already holds a ticket and current pins, and a dataplane
         // that just started states its incarnation to every edge.
         dataplane.updateEdgeAdmission({ ticket: message.edgeAttachTicket, edges: message.edges });
+        yield* stageAnnouncedRelease(stageRelease, message.stagedRelease);
         // The first ping goes out immediately: the server's silence window
         // starts at registration, and the producer below only fires after a
         // full interval.
@@ -1088,21 +1195,14 @@ function runControlEventLoop(
       if (Option.isNone(registration)) {
         return yield* protocolViolation;
       }
-      if (message.type === 'lease') {
-        yield* pushRevocationGeneration(message.revocationGeneration);
-        // The servers do not change between leases, so the registered list is
-        // reused; only the ticket and its key are replaced.
-        dataplane.updateStunCredential({
-          servers: registration.value.stunServers,
-          ticket: message.stunTicket,
-          secret: message.stunTicketSecret,
-          lifetime_ms: message.stunTicketLifetimeMs,
-        });
-        dataplane.updateEdgeAdmission({ ticket: message.edgeAttachTicket, edges: message.edges });
-        continue;
-      }
-      if (message.type === 'revocation') {
-        yield* pushRevocationGeneration(message.revocationGeneration);
+      if (isStateMessage(message)) {
+        yield* applyStateMessageEffect(
+          message,
+          registration.value,
+          dataplane,
+          pushRevocationGeneration,
+          stageRelease,
+        );
         continue;
       }
 

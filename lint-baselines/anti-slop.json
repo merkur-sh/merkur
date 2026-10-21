@@ -116,22 +116,6 @@
     "no-literal-timer-delay": 1,
     "no-swallowed-error": 3
   },
-  "apps/daemon/src/cli/update.test.ts": {
-    "no-known-value-widening": 3,
-    "no-literal-timer-delay": 1,
-    "no-swallowed-error": 2,
-    "no-unknown-parameters": 2
-  },
-  "apps/daemon/src/cli/update.ts": {
-    "comment-temporary": 1,
-    "no-known-value-widening": 3,
-    "no-literal-timer-delay": 2,
-    "no-manual-tag-comparison": 2,
-    "no-runtime-typeof": 3,
-    "no-swallowed-error": 4,
-    "no-unknown-parameters": 1,
-    "no-unsafe-dictionary-type": 1
-  },
   "apps/daemon/src/index.ts": {
     "no-known-value-widening": 1
   },
@@ -171,6 +155,21 @@
     "no-manual-tag-comparison": 1,
     "no-manual-tagged-construction": 3,
     "no-swallowed-error": 1
+  },
+  "apps/daemon/src/services/daemon-release.test.ts": {
+    "no-known-value-widening": 3,
+    "no-literal-timer-delay": 1,
+    "no-swallowed-error": 2
+  },
+  "apps/daemon/src/services/daemon-release.ts": {
+    "comment-temporary": 1,
+    "no-known-value-widening": 3,
+    "no-literal-timer-delay": 2,
+    "no-manual-tag-comparison": 2,
+    "no-runtime-typeof": 3,
+    "no-swallowed-error": 4,
+    "no-unknown-parameters": 1,
+    "no-unsafe-dictionary-type": 1
   },
   "apps/daemon/src/services/daemon-runtime.test.ts": {
     "no-manual-tagged-construction": 2

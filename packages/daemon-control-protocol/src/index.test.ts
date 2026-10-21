@@ -5,6 +5,7 @@ import {
   createDaemonControlDelegationRevokeMessage,
   createDaemonControlLeaseMessage,
   createDaemonControlRegisteredMessage,
+  createDaemonControlReleaseStagedMessage,
   createDaemonControlRevocationMessage,
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
@@ -96,7 +97,24 @@ describe('daemon control protocol v1', () => {
         4_000,
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
+        null,
       ),
+      createDaemonControlRegisteredMessage(
+        'connection-1',
+        'presence-1',
+        1,
+        0,
+        2_000,
+        5_000,
+        ['stun.test:3478'],
+        'ticket',
+        'secret',
+        4_000,
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        EDGES,
+        'v2.0.0',
+      ),
+      createDaemonControlReleaseStagedMessage('v2.1.0'),
       createDaemonControlLeaseMessage(
         3,
         'ticket',
@@ -127,6 +145,20 @@ describe('daemon control protocol v1', () => {
         parseDaemonControlServerMessage(new TextEncoder().encode(JSON.stringify(message))),
       ).toEqual(message);
     }
+  });
+
+  test('names a staged release only by an exact release tag', () => {
+    for (const release of ['dev', 'v2.0', '2.0.0', 'v2.0.0 ', 7]) {
+      expect(
+        parseDaemonControlServerMessage({ type: 'release_staged', version: 1, release }),
+      ).toBeNull();
+    }
+    expect(
+      parseDaemonControlServerMessage({
+        ...createDaemonControlReleaseStagedMessage('v2.0.0'),
+        sequence: 3,
+      }),
+    ).toBeNull();
   });
 
   test('rejects legacy versions, aliases, extra fields, and inexact ack variants', () => {

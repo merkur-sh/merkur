@@ -356,6 +356,17 @@ cycle reports a different egress interface and aborted at shutdown with the netw
 
 The daemon owns the dataplane; the dataplane owns the shell. Shutdown proceeds in that order.
 
+An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). On `upgrade`,
+the dataplane binds an owner socket, stops its PTY reader with a `SIGURG` that ends its blocking
+`read` and applies every byte it had read, writes the handoff (`handoff.rs`), and `execve`s the
+new release's dataplane with the PTY master, the owner listener and the image broker's listener
+inherited. The new dataplane rebuilds the screen from the replay, adopts the master and reaps
+the shell as its own child, serves the inherited broker socket, and accepts one owner
+connection whose peer pid is its parent's. The Bun owner `execve`s the new release's owner after
+the acknowledgement; it reclaims the single-instance lock that holds its own pid, connects to
+the socket, states the arguments a spawn would pass (`CMD_ADOPT`), and supervises the adopted
+dataplane over the socket. A later crash restarts it with a fresh spawn.
+
 ## Hosted Processes Outside The Session Path
 
 Two deployed processes are neither started by `scripts/dev.ts` nor part of the terminal data path.
@@ -398,7 +409,8 @@ output (`apps/daemon/src/cli/cli-output.test.ts` pins it); the daemon's publishe
 endpoint setting and `MERKUR_WEBTRANSPORT_PORT` (`packages/config/src/daemon-config.ts`); the
 shell-integration snippet it installs in each box, without which the daemon sees no
 authenticated `OSC 133;B` and grants no speculative local echo; and the signed release assets
-with `merkur setup` and `merkur update`. Personal daemons remain owner-managed.
+with `merkur setup`. A box's daemon converges to its server's release like any other
+([Convergence](./releases.md#convergence)).
 
 ## Browser Realms
 
@@ -612,8 +624,8 @@ when any component is `unhealthy`. The server marks every component unhealthy be
 HTTP listener during orderly shutdown.
 
 The daemon is ready only while its control state is `registered` and its dataplane state is
-`ready`. Control moves through `starting`, `connecting`, `registering`, `registered`, `backoff`, or
-`superseded`; dataplane health is `starting`, `ready`, `down`, or `fatal`. A superseded daemon
+`ready`. Control moves through `starting`, `connecting`, `registering`, `registered`, `backoff`,
+`superseded`, or `updating` (the server runs another release and the daemon is converging); dataplane health is `starting`, `ready`, `down`, or `fatal`. A superseded daemon
 closes its dataplane scope and remains dormant so launchd/systemd cannot restart it into a
 replacement loop; process signals can still stop it normally.
 

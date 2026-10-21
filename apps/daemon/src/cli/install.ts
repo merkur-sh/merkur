@@ -5,7 +5,7 @@ import path from 'node:path';
 import { normalizeUnknownError } from '@merkur/shared';
 import { Effect } from 'effect';
 
-import { launchAgentPath, systemdUserUnitPath } from '../config';
+import { launchAgentPath, merkurInstallRootPath, systemdUserUnitPath } from '../config';
 import type { Logger } from '../logger';
 import { resolveLaunchctlUserId, runLaunchctlEffect } from './launchctl';
 import { DAEMON_LAUNCHD_LABEL, DAEMON_SYSTEMD_UNIT_NAME } from './service-identity';
@@ -203,9 +203,14 @@ export function resolveProgramArguments(): string[] {
 
   // Compiled binary: when not running under `bun`, execPath is the real
   // on-disk merkur executable (import.meta paths point into the embedded
-  // virtual filesystem and cannot be re-executed).
+  // virtual filesystem and cannot be re-executed). An installed release runs
+  // from `versions/<tag>`, and the unit names `current` instead, which every
+  // update moves without touching the unit.
   if (path.basename(process.execPath) !== 'bun') {
-    return [process.execPath];
+    const installRoot = merkurInstallRootPath();
+    return path.dirname(path.dirname(process.execPath)) === path.join(installRoot, 'versions')
+      ? [path.join(installRoot, 'current', 'merkur')]
+      : [process.execPath];
   }
 
   const bunPath = Bun.which('bun');

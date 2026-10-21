@@ -1,7 +1,7 @@
 {
   "apps/daemon/src/cli/open.ts": 1,
-  "apps/daemon/src/cli/update.ts": 2,
   "apps/daemon/src/services/daemon-control-client.ts": 1,
+  "apps/daemon/src/services/daemon-release.ts": 2,
   "apps/server/scripts/auth-continue-rate-limit-benchmark.ts": 6,
   "apps/server/scripts/bench-sqlite-query-compile.ts": 4,
   "apps/server/scripts/bench-sqlite-statements.ts": 5,

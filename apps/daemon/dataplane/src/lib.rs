@@ -11,6 +11,8 @@ mod connection;
 mod display;
 mod edge_candidate;
 mod geometry;
+#[cfg(not(merkur_sim))]
+mod handoff;
 // Mandatory Noise E2E framing for every browser-facing terminal channel. The
 // implementation lives in `packages/merkur-e2e` so the browser can compile the
 // same code to WebAssembly instead of maintaining a second one in TypeScript.
@@ -1075,12 +1077,20 @@ struct Host {
     events: (EventSink, mpsc::Receiver<EventSinkFailure>, EventOutput),
     #[cfg(merkur_sim)]
     pty: pty::sim::Pty,
+    /// The terminal a predecessor handed over at an upgrade, when this process was started
+    /// by its `execve` rather than spawned by the owner (`handoff`).
+    #[cfg(not(merkur_sim))]
+    adoption: Option<handoff::Adoption>,
 }
 
 #[cfg(not(merkur_sim))]
 impl Host {
-    /// Command-line arguments, stdin read on its own thread, and stdout.
+    /// Command-line arguments, stdin read on its own thread, and stdout; or, after an
+    /// upgrade, the predecessor's terminal and the owner socket it bound.
     fn process() -> Result<Self, Box<dyn std::error::Error>> {
+        if let Some((adoption, owner)) = handoff::incoming()? {
+            return Self::adopted(adoption, owner);
+        }
         let args = parse_args(std::env::args().skip(1))?;
         let (ipc_tx, ipc) = mpsc::channel::<IpcInput>(IPC_COMMAND_QUEUE_DEPTH);
         std::thread::Builder::new()
@@ -1093,8 +1103,68 @@ impl Host {
             args,
             ipc,
             events: start_stdout_event_output()?,
+            adoption: None,
         })
     }
+
+    /// The owner replaced itself too: it connects as this process's parent and states the
+    /// arguments a spawn would have passed. Its commands and this process's events then
+    /// travel on that socket; the stdin and stdout pipes led to the image it replaced.
+    fn adopted(
+        adoption: handoff::Adoption,
+        owner: std::os::unix::net::UnixListener,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let Some(mut socket) = handoff::accept_owner(&owner)? else {
+            return Err("the owner exited before it took the terminal over".into());
+        };
+        if let Ok(address) = owner.local_addr()
+            && let Some(path) = address.as_pathname()
+        {
+            let _ = std::fs::remove_file(path);
+        }
+        drop(owner);
+        let (kind, payload) =
+            ipc::read_frame(&mut socket)?.ok_or("the owner closed before adopting")?;
+        if kind != CMD_ADOPT {
+            return Err(format!("expected the adopt frame, got 0x{kind:02x}").into());
+        }
+        let adopt: AdoptCmd = serde_json::from_slice(&payload)?;
+        let mut args = parse_args(adopt.args.into_iter())?;
+        args.cols = adoption.cols;
+        args.rows = adoption.rows;
+        for (fd, flags) in [(0, libc::O_RDONLY), (1, libc::O_WRONLY)] {
+            redirect_to_null(fd, flags)?;
+        }
+        let (ipc_tx, ipc) = mpsc::channel::<IpcInput>(IPC_COMMAND_QUEUE_DEPTH);
+        let mut reader = socket.try_clone()?;
+        std::thread::Builder::new()
+            .name("merkur-ipc-reader".to_string())
+            .spawn(move || read_ipc_commands(&mut reader, &ipc_tx))?;
+        Ok(Self {
+            args,
+            ipc,
+            events: ipc::events::start_owner_socket_event_output(socket)?,
+            adoption: Some(adoption),
+        })
+    }
+}
+
+/// Points `fd` at `/dev/null`, so nothing reads or writes a pipe whose other end is gone.
+#[cfg(not(merkur_sim))]
+fn redirect_to_null(fd: libc::c_int, flags: libc::c_int) -> io::Result<()> {
+    // SAFETY: the path is a NUL-terminated literal; `open` returns a new descriptor or -1.
+    let null = unsafe { libc::open(c"/dev/null".as_ptr(), flags | libc::O_CLOEXEC) };
+    if null == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `dup2` takes two descriptors and no pointer.
+    let result = unsafe { libc::dup2(null, fd) };
+    // SAFETY: `null` is this function's own descriptor, closed once.
+    unsafe { libc::close(null) };
+    if result == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
@@ -1104,6 +1174,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
         events: (event_tx, mut event_failure_rx, mut event_output),
         #[cfg(merkur_sim)]
             pty: simulated_pty,
+        #[cfg(not(merkur_sim))]
+        adoption,
     } = host;
     let (identity_completion_tx, mut identity_completion_rx) =
         mpsc::channel::<session::auth_flow::IdentitySignDone>(32);
@@ -1153,23 +1225,52 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     let (terminal_event_tx, terminal_event_rx) = unbounded::<TerminalEvent>();
     let mut terminal = TerminalState::new(args.cols, args.rows, terminal_event_tx);
     #[cfg(not(merkur_sim))]
-    let pty_handle = {
-        let native_images = terminal.enable_native_graphics()?;
-        let pty_handle = pty::spawn_pty(
-            &args.shell,
-            args.cols,
-            args.rows,
-            &pty::PtyEnvironment {
-                shell_token: shell_token.as_deref(),
-                open_url_bin_dir: args.open_url_bin_dir.as_deref(),
-                image_endpoint: &native_images.path,
-                image_credential: &native_images.credential,
-            },
-            pty_event_tx,
-            buffer_return_rx,
-        )?;
-        drop(native_images);
-        pty_handle
+    let pty_handle = match adoption {
+        None => {
+            let native_images = terminal.enable_native_graphics()?;
+            let pty_handle = pty::spawn_pty(
+                &args.shell,
+                args.cols,
+                args.rows,
+                &pty::PtyEnvironment {
+                    shell_token: shell_token.as_deref(),
+                    open_url_bin_dir: args.open_url_bin_dir.as_deref(),
+                    image_endpoint: &native_images.path,
+                    image_credential: &native_images.credential,
+                },
+                pty_event_tx,
+                buffer_return_rx,
+            )?;
+            drop(native_images);
+            pty_handle
+        }
+        Some(adoption) => {
+            // The shell's environment already names this broker and the token file.
+            terminal.adopt_native_graphics(adoption.image)?;
+            let applied = terminal.apply_replay(&adoption.replay);
+            if applied != adoption.replay.len() {
+                warn!(
+                    unapplied = adoption.replay.len() - applied,
+                    "predecessor output behind an image was not applied"
+                );
+            }
+            let pty_handle = pty::adopt_pty(
+                adoption.pty,
+                adoption.child_pid,
+                pty_event_tx,
+                buffer_return_rx,
+            )?;
+            // Full-screen programs redraw what the replay could not carry, such as images.
+            if let Some(group) = pty_handle.master.process_group_leader() {
+                // SAFETY: `kill` reads no pointer; a negative pid names the process group.
+                unsafe { libc::kill(-group, libc::SIGWINCH) };
+            }
+            info!(
+                pid = adoption.child_pid,
+                "took over the terminal from the previous release"
+            );
+            pty_handle
+        }
     };
     // The simulated program is a task on this host; it reads no environment
     // and sends no images.
@@ -1182,6 +1283,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     let (mut pty_writer, mut pty_write_completion_rx) = PtyWriter::new(pty_handle.writer)?;
     let pty_master = pty_handle.master;
     let mut pty_child = pty_handle.child;
+    #[cfg_attr(merkur_sim, allow(unused_variables))]
+    let pty_reader_stop = pty_handle.reader;
 
     let pid = pty_child
         .process_id()
@@ -1370,6 +1473,10 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     let mut wt_start_awaiting_credential = false;
 
     let mut running = true;
+    // An accepted `CMD_UPGRADE` and the owner socket bound for it: the loop ends, and the
+    // terminal goes to the next release instead of being shut down.
+    #[cfg(not(merkur_sim))]
+    let mut pending_upgrade: Option<(UpgradeCmd, std::os::unix::net::UnixListener)> = None;
     let mut fatal_event_failure: Option<EventSinkFailure> = None;
     let mut fatal_ipc_failure: Option<io::Error> = None;
     let start_instant = Instant::now();
@@ -2165,6 +2272,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 warn!("PTY read error: {e}");
                                 running = false;
                             }
+                            // Requested only after this loop has ended, at an upgrade.
+                            Some(TerminalEvent::PtyReaderStopped) => {}
                         }
                     };
                 }
@@ -2727,6 +2836,35 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             accept_command(&event_tx, &cmd.command_id);
                         } else {
                             reject_command(&event_tx, &cmd.command_id, "telemetry_backpressure");
+                        }
+                    }
+                    #[cfg(not(merkur_sim))]
+                    CMD_UPGRADE => {
+                        let cmd: UpgradeCmd = match serde_json::from_slice(&payload) {
+                            Ok(command) => command,
+                            Err(error) => {
+                                warn!(%error, "invalid upgrade command");
+                                reject_command_from_payload(&event_tx, &payload, "invalid_command");
+                                continue;
+                            }
+                        };
+                        if !is_valid_command_id(&cmd.command_id) {
+                            reject_command(&event_tx, &cmd.command_id, "invalid_command");
+                            continue;
+                        }
+                        match handoff::prepare(
+                            std::path::Path::new(&cmd.executable),
+                            std::path::Path::new(&cmd.socket_path),
+                        ) {
+                            Ok(listener) => {
+                                info!(executable = %cmd.executable, "upgrade requested");
+                                pending_upgrade = Some((cmd, listener));
+                                running = false;
+                            }
+                            Err(error) => {
+                                warn!(%error, "upgrade refused");
+                                reject_command(&event_tx, &cmd.command_id, "upgrade_unavailable");
+                            }
                         }
                     }
                     CMD_SHUTDOWN => {
@@ -3864,6 +4002,14 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // An upgrade keeps the native broker's socket bound for the next process; its clients
+    // are reaped like any other image work.
+    #[cfg(not(merkur_sim))]
+    let native_handover = match &pending_upgrade {
+        Some(_) => terminal.hand_over_native_graphics().await,
+        None => Ok(None),
+    };
+
     // Retire publication authority and reap image workers before the runtime or
     // the terminal's reservations disappear, including IPC/read-error exits.
     terminal.shutdown_graphics().await;
@@ -3909,6 +4055,32 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     while edge_lane_closed_rx.try_recv().is_ok() {}
     network::remove_all_edge_connections(&network_state).await;
 
+    // An upgrade hands the shell over instead of ending it; this returns only if it failed,
+    // and the process then ends as a crash would.
+    #[cfg(not(merkur_sim))]
+    if let Some((upgrade, owner_listener)) = pending_upgrade.take() {
+        if let Some(mut server) = wt_server.take() {
+            let _ = server.shutdown().await;
+        }
+        management_signatures.abort_all();
+        let error = hand_over_terminal(
+            &upgrade,
+            &owner_listener,
+            native_handover,
+            &mut terminal,
+            pty_master.as_ref(),
+            pty_child.process_id(),
+            &pty_reader_stop,
+            &mut pty_async_rx,
+            pending_pty_read.take(),
+            &event_tx,
+            &mut event_output,
+        )
+        .await;
+        let _ = std::fs::remove_file(&upgrade.socket_path);
+        return Err(Box::new(error));
+    }
+
     // Every exit path must release an interactive shell before the blocking
     // wait. `kill` is idempotent for an already-exited child and prevents
     // CMD_SHUTDOWN, IPC EOF, or a supervised subsystem failure from hanging
@@ -3948,6 +4120,91 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     }
     pty_wait_result?;
     Ok(())
+}
+
+/// The upgrade's last steps, after every peer and transport is gone: take the reader's
+/// last reads into the terminal, write the handoff, acknowledge the upgrade and replace this
+/// process (`handoff`). Returns only on failure, having refused the upgrade when it still can.
+#[cfg(not(merkur_sim))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the owner loop's locals, borrowed once at exit"
+)]
+async fn hand_over_terminal(
+    upgrade: &UpgradeCmd,
+    owner_listener: &std::os::unix::net::UnixListener,
+    native_handover: io::Result<Option<pty::terminal::NativeHandover>>,
+    terminal: &mut TerminalState,
+    pty_master: &(dyn portable_pty::MasterPty + Send),
+    child_pid: Option<u32>,
+    reader: &pty::ReaderStop,
+    pty_async_rx: &mut mpsc::Receiver<TerminalEvent>,
+    pending_pty_read: Option<(pty::PtyRead, usize, Option<pty::PtyTraceStamp>)>,
+    event_tx: &EventSink,
+    event_output: &mut EventOutput,
+) -> io::Error {
+    /// How long one interrupt waits for the reader to report before it is sent again; see
+    /// `pty::ReaderStop`. Only liveness depends on it: a byte is never lost to a resend.
+    const READER_STOP_RESEND_MS: u64 = 5;
+
+    let refuse = |error: io::Error| {
+        reject_command(event_tx, &upgrade.command_id, "upgrade_failed");
+        error
+    };
+    let image = match native_handover {
+        Ok(Some(image)) => image,
+        Ok(None) => return refuse(io::Error::other("no native image broker to hand over")),
+        Err(error) => return refuse(error),
+    };
+    let (Some(pty_fd), Some(child_pid)) = (pty_master.as_raw_fd(), child_pid) else {
+        return refuse(io::Error::other(
+            "the PTY has no descriptor or shell to hand over",
+        ));
+    };
+    if let Some((bytes, offset, _)) = &pending_pty_read {
+        terminal.apply_bytes(&bytes[*offset..]);
+    }
+    loop {
+        reader.request();
+        match tokio::time::timeout(
+            Duration::from_millis(READER_STOP_RESEND_MS),
+            pty_async_rx.recv(),
+        )
+        .await
+        {
+            Ok(Some(TerminalEvent::PtyBytes(read, _))) => {
+                terminal.apply_bytes(&read);
+            }
+            Ok(Some(TerminalEvent::PtyWrite(_))) => {}
+            Ok(Some(
+                TerminalEvent::PtyReaderStopped
+                | TerminalEvent::PtyReadClosed
+                | TerminalEvent::PtyReadError(_),
+            ))
+            | Ok(None) => break,
+            Err(_) => {}
+        }
+    }
+    let mut replay = zeroize::Zeroizing::new(Vec::new());
+    terminal.write_replay(&mut replay);
+    let staged = match handoff::stage(
+        handoff::Outgoing {
+            socket_path: std::path::Path::new(&upgrade.socket_path),
+            pty_fd,
+            child_pid,
+            cols: terminal.cols,
+            rows: terminal.rows,
+            image,
+            replay: &replay,
+        },
+        owner_listener,
+    ) {
+        Ok(staged) => staged,
+        Err(error) => return refuse(error),
+    };
+    accept_command(event_tx, &upgrade.command_id);
+    let _ = event_output.shutdown().await;
+    staged.exec(std::path::Path::new(&upgrade.executable))
 }
 
 fn capture_pending_event_failure(
@@ -5386,7 +5643,8 @@ fn enqueue_terminal_events(
             }
             TerminalEvent::PtyBytes(_, _)
             | TerminalEvent::PtyReadClosed
-            | TerminalEvent::PtyReadError(_) => {
+            | TerminalEvent::PtyReadError(_)
+            | TerminalEvent::PtyReaderStopped => {
                 error!("unexpected PTY reader event from terminal emulator");
                 return false;
             }

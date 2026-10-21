@@ -15,8 +15,8 @@ import {
 import {
   currentReleasePlatform,
   daemonArtifactName,
-  latestReleaseAssetUrl,
-  releaseAssetUrl,
+  isReleaseStoreFile,
+  releaseFileUrl,
 } from './release';
 import {
   canTransitionTerminalLifecycle,
@@ -121,14 +121,16 @@ describe('terminal lifecycle', () => {
 });
 
 describe('release and build metadata', () => {
-  test('builds encoded public GitHub release download URLs', () => {
+  test('builds encoded release store URLs on the origin and names exactly its files', () => {
     expect(daemonArtifactName('darwin-x64')).toBe('merkur-daemon-darwin-x64.tar.gz');
-    expect(releaseAssetUrl('v1.0 beta', 'asset name.tar.gz')).toBe(
-      'https://github.com/merkur-sh/merkur/releases/download/v1.0%20beta/asset%20name.tar.gz',
+    expect(releaseFileUrl('https://merkur.test', 'v1.0 beta', 'asset name.tar.gz')).toBe(
+      'https://merkur.test/api/releases/v1.0%20beta/asset%20name.tar.gz',
     );
-    expect(latestReleaseAssetUrl('merkur-release.json')).toBe(
-      'https://github.com/merkur-sh/merkur/releases/latest/download/merkur-release.json',
-    );
+    expect(isReleaseStoreFile('merkur-release.json')).toBe(true);
+    expect(isReleaseStoreFile('merkur-release.sig')).toBe(true);
+    expect(isReleaseStoreFile('merkur-daemon-linux-arm64.tar.gz')).toBe(true);
+    expect(isReleaseStoreFile('merkur-daemon-windows-x64.tar.gz')).toBe(false);
+    expect(isReleaseStoreFile('../merkur-release.json')).toBe(false);
     const candidate = `${process.platform}-${process.arch}`;
     const expectedPlatform =
       candidate === 'darwin-arm64' ||

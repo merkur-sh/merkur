@@ -553,6 +553,7 @@ daemon id, the control and dataplane state, and a bounded metric snapshot. The d
 | `registered` | Registered; `stable` says whether the connection has crossed its stability threshold |
 | `backoff` | Waiting before the next attempt |
 | `superseded` | A replacement daemon connection owns the registration |
+| `updating` | The server runs another release; the daemon is converging to it (`daemon_release_required`, `daemon_update_blocked`) |
 
 Dataplane states are `starting`, `ready`, `down`, and `fatal`. `ready` means the Rust
 dataplane reached a serving PTY; it does not require the direct path, because terminal

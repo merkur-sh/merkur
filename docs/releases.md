@@ -186,8 +186,9 @@ server. The server checks the signed proofs before opening HTTP and exposes them
 an uncached `/api/build-identity` response. Source development serves `null`.
 
 The deployment build sets `MERKUR_VERSION` to the required `MERKUR_BUILD_COMMIT`
-for both server and browser. `/api/version`, health version, and telemetry therefore
-identify the deployment commit; source runs report `dev`.
+for both server and browser. Health version and telemetry therefore identify the
+deployment commit; source runs report `dev`. It also stamps the server with the release tag,
+`MERKUR_RELEASE`, which `/api/release` names (see [Convergence](#convergence)).
 
 Opening account settings automatically verifies both ML-DSA-87 signatures, their commit
 and manifest bindings, and the loaded client's embedded marker. The Build card's header
@@ -209,12 +210,9 @@ checkmark. Independent provisioning remains necessary for first-load trust.
 
 ## Daemon Release Manifest
 
-Releases are public GitHub release assets, and GitHub is an untrusted distribution transport.
-The updater downloads directly from `github.com/merkur-sh/merkur/releases` with no token and no
-API call: it reads the newest version out of `releases/latest/download/merkur-release.json`,
-then fetches the manifest and its signature again by that tag, so the verified pair cannot
-straddle two releases. A daemon accepts a release only after its compiled public-key pin
-verifies the exact manifest bytes. The manifest binds:
+Release files are untrusted distribution: the app server serves them from its release store,
+and GitHub keeps them as the public archive. A daemon accepts a release only after its compiled
+public-key pin verifies the exact manifest bytes for the tag it asked for. The manifest binds:
 
 - a monotonically increasing release `sequence`;
 - the exact `vMAJOR.MINOR.PATCH` tag;
@@ -235,19 +233,71 @@ exact size and SHA-512 digest, flushes the file, and publishes it with one atomi
 timed-out, retried, or interrupted attempt removes its uniquely named temporary file. Metadata
 requests retain their short fixed deadline; archive downloads instead use separate header and
 reset-on-progress inactivity deadlines plus a whole-attempt deadline derived from the signed size,
-so a healthy large transfer is not treated like a hung metadata lookup.
+so a healthy large transfer is not treated like a hung metadata lookup. The archive is extracted
+into a sibling directory and renamed into `versions/<tag>`, so a version directory exists only
+complete.
+
+## Convergence
+
+A daemon runs exactly its server's release. Releases are hard cutovers, so a daemon on any
+other release cannot read what the server sends; the server refuses its control upgrade with
+`426` before rate limiting or authentication, and the daemon never registers.
+
+Before every control dial the daemon reads `GET /api/release`. The same release connects. Any
+other ends the control client, and the daemon converges:
+
+1. **Stage.** Fetch the manifest and signature for that exact tag from
+   `/api/releases/<tag>/`, verify them, download the archive, raise the rollback floor and
+   extract it into `versions/<tag>`. This usually happened already: the release workflow puts
+   the next release into the store before deploying its server, the running server watches the
+   store and announces it (`release_staged`, and `stagedRelease` on `registered`), and every
+   registered daemon stages it then.
+2. **Activate.** Point `current` at the release and remove every version but it and the running
+   one. The service unit, `bin/merkur` and the shell integration all run `current`, so no update
+   rewrites or restarts the unit.
+3. **Hand over.** The dataplane closes its peers and transports, takes every byte its PTY reader
+   has read into the terminal, writes the handoff, and `execve`s the new dataplane in its own
+   pid, so the shell stays its child. The Bun owner then `execve`s the new owner in its own pid,
+   so it stays the dataplane's parent, and adopts the dataplane over a socket only its parent may
+   connect to. launchd and systemd see no exit.
+
+A staging failure leaves the running release serving; the daemon reads the release again after a
+doubling delay. A release it refuses for good (signature, rollback floor, minimum sequence,
+expiry) is not fetched again until the server names another. An `execve` that fails after the
+handoff ends the process as a crash does, and the service restarts it from `current`.
+
+What survives an upgrade: the shell and everything it runs, the screen and scrollback with their
+attributes, links, modes and keyboard stacks (`Term::write_replay`, as the escape sequences that
+rebuild them), and the image broker's socket and credential the shell's environment names. What
+does not: image placements, which full-screen programs redraw on the `SIGWINCH` the new dataplane
+sends; speculative echo, until the shell's next prompt; queued input the shell had not read; and
+browser sessions, which reconnect.
+
+### Frozen contracts
+
+Everything else is a hard cutover, changed on every side in one commit. These four are read by
+one release from another and never change shape; each is pinned by a test:
+
+| Contract | Shape | Pinned by |
+| --- | --- | --- |
+| Release identity | `GET /api/release` → `{"release":"vX.Y.Z"}` (`dev` from source) | `server-app.test.ts` |
+| Release files | `GET /api/releases/<tag>/<file>`: `merkur-release.json`, `merkur-release.sig`, `merkur-daemon-<platform>.tar.gz` | `server-app.test.ts`, `foundation.test.ts` |
+| Dataplane handoff | `MERKUR_DATAPLANE_HANDOFF_FD` names an unlinked file: one JSON header line `{pty_fd, child_pid, cols, rows, owner_listener_fd, image_listener_fd, image_path, image_credential}`, then the replay bytes | `handoff.rs` frozen header |
+| Owner adoption | `execve(versions/<tag>/merkur, [merkur, daemon])` with `MERKUR_DATAPLANE_ADOPT=<pid>:<socket>`; the first frame on the socket is `CMD_ADOPT {args}` | `dataplane-adoption.test.ts`, `apps/daemon/dataplane/tests/handoff.rs` |
+
+A release identity decides which binary runs and never how a protocol behaves.
 
 ## First Install: Trust On First Use
 
 `curl -fsSL <origin>/install | sh` installs the daemon. The script the server renders is thin: it
-picks the platform, downloads the newest archive, `merkur-release.json`, and `merkur-release.sig`
-from `releases/latest/download/` into `~/.merkur/install.*` (not `/tmp`, which hardened hosts
-mount `noexec`), extracts only the `merkur` binary, and runs
+picks the platform, downloads the server's release archive, `merkur-release.json`, and
+`merkur-release.sig` from `<origin>/api/releases/<tag>/` into `~/.merkur/install.*` (not `/tmp`,
+which hardened hosts mount `noexec`), extracts only the `merkur` binary, and runs
 `merkur setup <archive> <manifest> <signature>`. The script verifies nothing itself; there is one
 verifier. Setup requires the manifest to name its own version and sequence, verifies the ML-DSA-87
 signature against its compiled pin, and then installs through the updater's own pipeline: the same
 streamed size and SHA-512 check (read through a `file:` URL), rollback floor, `versions/<version>`
-extraction, and atomic `current` swap. It links `~/.merkur/bin/merkur -> ../current/merkur`,
+staging, and atomic `current` swap. It links `~/.merkur/bin/merkur -> ../current/merkur`,
 appends one marked `PATH` block to the startup file of the account's login shell, read from the
 password database (fish gets `conf.d/merkur.fish`), and prints the release key's fingerprint. Re-running it is idempotent, and
 the rollback floor still refuses a downgrade. With no daemon config the service is not installed:
@@ -343,7 +393,9 @@ above: the updater rejects PAX metadata, AppleDouble files, links, devices, extr
 unsafe modes, and expansion beyond its fixed bound before invoking `tar`.
 
 After publication, CI downloads the public assets without a token and holds them to the
-retained digests. Personal computers update separately, through `merkur update`.
+retained digests. Daemons do not read GitHub: before deploying the server, CI stages the release in
+the app host's store (`scripts/ci/stage-daemon-release.sh`), and every daemon converges to it
+([Convergence](#convergence)).
 
 Hardware identity builds on macOS require Xcode Command Line Tools (`xcrun`, `swiftc`) with the
 macOS 26 SDK, whose CryptoKit declares the enclave's ML-DSA-87 keys; the binary still runs on

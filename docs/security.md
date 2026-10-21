@@ -914,8 +914,22 @@ updater verifies manifest shape, signature, context, expiry, minimum consumer se
 name, size, and hash, and a durable rollback floor before activation. There is no unsigned checksum
 or "skip verification" mode.
 
+Daemons update themselves to the release their server names (`/api/release`), from the server's
+own store ([Convergence](releases.md#convergence)). The server chooses which release, never which
+bytes: a compromised server can move a daemon forward to a properly signed release no older than its
+rollback floor, or hold it back by naming a release it refuses, and nothing else. Because every
+daemon converges as soon as its server switches, a stolen signing key reaches every machine at
+once rather than the ones someone updates by hand; the custody that protects the key is the
+custody that protects the fleet.
+
+The upgrade passes the terminal across `execve` inside one process tree: the dataplane accepts
+only its own parent as the new owner (`LOCAL_PEERPID` / `SO_PEERCRED`), the handoff file is created
+exclusively in the owner-only `~/.merkur/run` and unlinked before anything is written to it, and the
+replayed screen establishes no shell-editor boundary, so speculative echo stays closed until the
+shell's next prompt.
+
 A script downloaded from the origin it verifies cannot establish its own trust root, so `/install`
-trusts HTTPS to the server and to GitHub for the initial binary and its compiled pin. The installer
+trusts HTTPS to the server for the initial binary and its compiled pin. The installer
 prints the pin's SHA-256 fingerprint (`merkur release-key` repeats it), published in `README.md` and
 `SECURITY.md` for comparison over a channel the server does not control. Losing or compromising the
 release key requires an explicit out-of-band trust-root replacement.

@@ -3,7 +3,9 @@
 # `scripts/ci/install-app-release.sh` unpacks each release's signed deployment into
 # /usr/local/lib/merkur/server/<version> and points `current` at it. The compiled
 # server reads its signed build at /deployment and its migrations at /migrations,
-# which this unit binds read-only from `current`. /etc/merkur/server.env is
+# which this unit binds read-only from `current`, and the daemon releases it serves
+# at /daemon-releases, which `scripts/ci/stage-daemon-release.sh` fills before each
+# deployment. /etc/merkur/server.env is
 # provisioned once on the host and never leaves it.
 #
 # Only Caddy reaches it, on loopback; sqld and Dragonfly are the compose project's
@@ -22,6 +24,7 @@ Environment=HOST=127.0.0.1 PORT=3000 HOME=/nonexistent
 ExecStart=/deployment/server/server
 BindReadOnlyPaths=/usr/local/lib/merkur/server/current:/deployment
 BindReadOnlyPaths=/usr/local/lib/merkur/server/current/migrations:/migrations
+BindReadOnlyPaths=/usr/local/lib/merkur/daemon-releases:/daemon-releases
 Restart=always
 RestartSec=2s
 UMask=0077

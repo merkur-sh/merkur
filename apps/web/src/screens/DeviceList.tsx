@@ -37,7 +37,6 @@ import {
 } from '../lib/motion';
 import { createOwnedTimeout } from '../lib/owned-scheduled-callback';
 import { formatExactTime, formatLastSeenCompact } from '../lib/relative-time';
-import { isReleaseVersionBehind } from '../lib/release-version';
 
 /** Per-row entrance step, and the total the whole cascade may occupy. */
 const ROW_STAGGER_MAX_S = 0.03;
@@ -70,7 +69,7 @@ interface Props {
   linkCommandStatus: LinkCommandStatus;
   operation: DeviceOperation | null;
   selectedDeviceId: string | null;
-  serverVersion: string | null;
+  serverRelease: string | null;
   onSelect: (device: Device) => void;
   onLogout: () => void;
   onOpenCreateBox: () => void;
@@ -302,8 +301,12 @@ const DeviceList: Component<Props> = (props) => {
   const hasDuplicate = (device: Device): boolean =>
     (duplicateCounts().get(deviceKey(device)) ?? 0) > 1;
 
+  // A daemon runs exactly the server's release and converges on its next connection, so any
+  // difference is an update that machine has not taken yet (offline, or mid-swap).
   const hasUpdateAvailable = (device: Device): boolean =>
-    isReleaseVersionBehind(device.version, props.serverVersion);
+    device.version !== null &&
+    props.serverRelease !== null &&
+    device.version !== props.serverRelease;
 
   createEffect(
     () => openMenuDeviceId(),
@@ -1038,12 +1041,12 @@ const DeviceList: Component<Props> = (props) => {
                             <span
                               ref={tooltip(
                                 () =>
-                                  `Daemon ${device.version} · server ${props.serverVersion}. Run "merkur update" on the machine.`,
+                                  `Runs ${device.version}. It updates to ${props.serverRelease} on its next connection.`,
                                 { describe: true },
                               )}
                               class="chip-accent h-[17px] shrink-0 px-[6px] text-[10px]"
                             >
-                              ↑ {props.serverVersion}
+                              ↑ {props.serverRelease}
                             </span>
                           </Show>
                         </span>

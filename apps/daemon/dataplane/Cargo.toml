@@ -65,11 +65,8 @@ base64 = "0.23"
 sha2 = { version = "=0.10.9", default-features = false }
 tokio-stream = "0.1"
 futures = "0.3"
-
-# The simulated PTY (`src/pty/sim.rs`) implements portable-pty's traits, whose
-# methods return `anyhow::Error`. Only the simulator's generated workspace sets
-# `merkur_sim`, so no production build links it.
-[target.'cfg(merkur_sim)'.dependencies]
+# The adopted PTY (`src/pty/adopted.rs`) and the simulated one (`src/pty/sim.rs`) implement
+# portable-pty's traits, whose methods return `anyhow::Error`.
 anyhow = "1"
 
 [dev-dependencies]

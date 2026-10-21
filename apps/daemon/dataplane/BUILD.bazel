@@ -135,6 +135,18 @@ rust_e2e_testing_test(
     deps = _DEV_DEPS + all_crate_deps(normal_dev = True),
 )
 
+# The upgrade end to end (`tests/handoff.rs`): the shipped binary hands a live shell to its
+# successor across `execve`, the test playing the owner that replaced itself.
+rust_test(
+    name = "handoff",
+    srcs = ["tests/handoff.rs"],
+    data = [":merkur-dataplane"],
+    lint_config = ":lints",
+    rustc_env = {"MERKUR_DATAPLANE_BIN": "$(rootpath :merkur-dataplane)"},
+    tags = ["no-sandbox"],
+    deps = all_crate_deps(normal = True),
+)
+
 [rust_binary(
     name = "bench_" + bench,
     srcs = ["benches/%s.rs" % bench],

@@ -24,6 +24,7 @@ import {
 } from './services/account-deletion-sweep';
 import { BOX_REMOVAL_INTERVAL, drainBoxRemovalsEffect } from './services/box-removal';
 import { DaemonControlServiceTag } from './services/daemon-control-service';
+import { DAEMON_RELEASE_STORE_DIRECTORY } from './services/daemon-release-store';
 import { DATA_RETENTION_INTERVAL, enforceDataRetentionEffect } from './services/data-retention';
 import { HealthServiceTag, SERVER_HEALTH_COMPONENTS } from './services/health-service';
 import { NotificationOutboxServiceTag } from './services/notification-outbox-service';
@@ -84,6 +85,7 @@ export async function startServer(webDistDirectory: string): Promise<void> {
         logger,
         webIndexFile,
         webDistDirectory,
+        daemonReleaseStoreDirectory: DAEMON_RELEASE_STORE_DIRECTORY,
       });
       yield* runMigrationsEffect(logger);
       const notificationOutbox = yield* NotificationOutboxServiceTag;

@@ -64,6 +64,9 @@ const CMD_UPDATE_EDGE_ADMISSION = 0x11;
 const CMD_PROFILE_SESSIONS = 0x12;
 const CMD_PROFILE_START = 0x13;
 const CMD_PROFILE_END = 0x14;
+const CMD_UPGRADE = 0x15;
+/** The adopted dataplane's first frame; written by `dataplane-adoption.ts`. */
+export const CMD_ADOPT = 0x16;
 
 const EVT_PTY_READY = 0x82;
 const EVT_PTY_CLOSED = 0x83;
@@ -418,6 +421,16 @@ export interface DataplaneClient {
    * the dataplane has written it (`@merkur/profile` reads it).
    */
   capturePerfTraceEffect(commandId: string, path: string): Effect.Effect<DataplaneCommandResult>;
+  /**
+   * Hand the terminal to the release whose dataplane is `executable` (`handoff.rs`). Accepted
+   * once the handoff is written, just before the dataplane replaces itself: the owner then
+   * replaces itself too and adopts it on `socketPath` (`dataplane-adoption.ts`).
+   */
+  upgradeEffect(
+    commandId: string,
+    executable: string,
+    socketPath: string,
+  ): Effect.Effect<DataplaneCommandResult>;
   updateRevocation(generation: number): void;
   /**
    * Replace the STUN credential used for NAT discovery.
@@ -763,6 +776,18 @@ function makeDataplaneClient(
       });
     },
 
+    upgradeEffect(
+      commandId: string,
+      executable: string,
+      socketPath: string,
+    ): Effect.Effect<DataplaneCommandResult> {
+      return requestAcknowledgedCommandEffect(commandId, CMD_UPGRADE, {
+        command_id: commandId,
+        executable,
+        socket_path: socketPath,
+      });
+    },
+
     captureTransportStatsEffect(commandId: string): Effect.Effect<DataplaneCommandResult> {
       return requestAcknowledgedCommandEffect(commandId, CMD_CAPTURE_TRANSPORT_STATS, {
         command_id: commandId,
@@ -875,7 +900,8 @@ function makeDataplaneClient(
       | typeof CMD_SIGN_DAEMON_PROOF
       | typeof CMD_PROFILE_SESSIONS
       | typeof CMD_PROFILE_START
-      | typeof CMD_PROFILE_END,
+      | typeof CMD_PROFILE_END
+      | typeof CMD_UPGRADE,
     payload: object,
     onDaemonProof?: (proof: DataplaneProof) => void,
     onProfileSessions?: (sessions: readonly DataplaneProfileSession[]) => void,

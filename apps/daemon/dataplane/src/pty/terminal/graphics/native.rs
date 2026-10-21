@@ -42,6 +42,15 @@ pub(crate) struct Endpoint {
     pub(crate) credential: Zeroizing<String>,
 }
 
+/// A broker's listening socket and credential, taken across an upgrade so the shell's
+/// `MERKUR_IMAGE_SOCKET` and `MERKUR_IMAGE_CREDENTIAL` keep naming a live broker. The
+/// socket never leaves its path: connections made meanwhile wait in its backlog.
+pub(crate) struct Handover {
+    pub(crate) listener: OwnedFd,
+    pub(crate) path: PathBuf,
+    pub(crate) credential: Zeroizing<[u8; 32]>,
+}
+
 struct Ready {
     token: [u8; 32],
     image: DecodedImage,
@@ -69,7 +78,11 @@ struct Shared {
 pub(super) struct Broker {
     shared: Arc<Shared>,
     stop: watch::Sender<bool>,
-    task: Option<JoinHandle<()>>,
+    /// Set before a handover's stop, so the serving task returns its socket instead of
+    /// removing it.
+    keep: Arc<std::sync::atomic::AtomicBool>,
+    task: Option<JoinHandle<Option<UnixListener>>>,
+    path: PathBuf,
 }
 
 impl Broker {
@@ -105,6 +118,48 @@ impl Broker {
             path: path.clone(),
             credential: Zeroizing::new(hex(credential.as_ref())),
         };
+        Ok((
+            Self::serve(
+                listener, charge, storage, processing, executable, credential, path,
+            ),
+            endpoint,
+        ))
+    }
+
+    /// Serves the socket a predecessor process handed over, at its path and with its
+    /// credential, which the shell's environment already names.
+    pub(super) fn adopt(
+        storage: Budget,
+        processing: Budget,
+        executable: PathBuf,
+        handover: Handover,
+    ) -> io::Result<Self> {
+        let charge = storage
+            .reserve(BROKER_CHARGE)
+            .ok_or_else(|| io::Error::other("native ingress quota"))?;
+        let listener = std::os::unix::net::UnixListener::from(handover.listener);
+        listener.set_nonblocking(true)?;
+        let listener = UnixListener::from_std(listener)?;
+        Ok(Self::serve(
+            listener,
+            charge,
+            storage,
+            processing,
+            executable,
+            handover.credential,
+            handover.path,
+        ))
+    }
+
+    fn serve(
+        listener: UnixListener,
+        charge: Lease,
+        storage: Budget,
+        processing: Budget,
+        executable: PathBuf,
+        credential: Zeroizing<[u8; 32]>,
+        path: PathBuf,
+    ) -> Self {
         let shared = Arc::new(Shared {
             entries: Mutex::new(Entries::default()),
             storage,
@@ -115,22 +170,40 @@ impl Broker {
             _charge: charge,
         });
         let (stop, stopped) = watch::channel(false);
+        let keep = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let task = tokio::spawn(serve(
             listener,
             Arc::clone(&shared),
             stopped,
             stop.clone(),
-            path,
-            directory,
+            Arc::clone(&keep),
+            path.clone(),
         ));
-        Ok((
-            Self {
-                shared,
-                stop,
-                task: Some(task),
-            },
-            endpoint,
-        ))
+        Self {
+            shared,
+            stop,
+            keep,
+            task: Some(task),
+            path,
+        }
+    }
+
+    /// Stops serving like `shutdown`, reaping every client's helper, but keeps the socket
+    /// bound at its path and returns it with the credential for the next process.
+    pub(super) async fn hand_over(mut self) -> io::Result<Handover> {
+        self.keep.store(true, std::sync::atomic::Ordering::Release);
+        self.retire();
+        let listener = match self.task.take() {
+            Some(task) => task.await.map_err(io::Error::other)?,
+            None => None,
+        }
+        .ok_or_else(|| io::Error::other("native broker stopped before its handover"))?;
+        let listener = OwnedFd::from(listener.into_std()?);
+        Ok(Handover {
+            listener,
+            path: self.path.clone(),
+            credential: self.shared.credential.clone(),
+        })
     }
 
     pub(super) fn consume(&self, encoded: &[u8]) -> Option<DecodedImage> {
@@ -192,9 +265,9 @@ async fn serve(
     shared: Arc<Shared>,
     mut stop: watch::Receiver<bool>,
     stopping: watch::Sender<bool>,
+    keep: Arc<std::sync::atomic::AtomicBool>,
     path: PathBuf,
-    directory: PathBuf,
-) {
+) -> Option<UnixListener> {
     let mut clients = JoinSet::new();
     // SAFETY: geteuid takes no pointers and identifies this local broker's owner.
     let uid = unsafe { libc::geteuid() };
@@ -212,12 +285,18 @@ async fn serve(
         }
     }
     stopping.send_replace(true);
-    drop(listener);
     // Cancellation is observed by each client; it reaps its own helper before
     // returning. Aborting the tasks would release their bookkeeping too early.
     while clients.join_next().await.is_some() {}
-    let _ = std::fs::remove_file(path);
-    let _ = std::fs::remove_dir(directory);
+    if keep.load(std::sync::atomic::Ordering::Acquire) {
+        return Some(listener);
+    }
+    drop(listener);
+    let _ = std::fs::remove_file(&path);
+    if let Some(directory) = path.parent() {
+        let _ = std::fs::remove_dir(directory);
+    }
+    None
 }
 
 async fn client(mut stream: UnixStream, shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {

@@ -175,7 +175,7 @@ export interface AppController {
   readonly phase: Accessor<AppPhase>;
   readonly selectedDeviceId: Accessor<string | null>;
   readonly selectedDeviceName: Accessor<string>;
-  readonly serverVersion: Accessor<string | null>;
+  readonly serverRelease: Accessor<string | null>;
   readonly session: Accessor<TerminalSession | null>;
   readonly swUpdate: Accessor<SwUpdateState>;
   /** URLs programs in the terminal asked to open while the user was idle, oldest first. */
@@ -706,7 +706,7 @@ export function createAppController(): AppController {
     phase: nav.phase,
     selectedDeviceId: () => selectedDevice()?.id ?? null,
     selectedDeviceName,
-    serverVersion: deviceList.serverVersion,
+    serverRelease: deviceList.serverRelease,
     session,
     swUpdate,
     openUrlRequests,
