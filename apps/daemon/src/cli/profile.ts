@@ -135,8 +135,16 @@ async function record(options: RecordOptions): Promise<number> {
     samply?.kill('SIGINT');
     return fail(started);
   }
-  process.stderr.write(`Recording session ${session.sessionId} for ${options.seconds} s…\n`);
-  await Bun.sleep(options.seconds * 1000);
+  process.stderr.write(
+    `Recording session ${session.sessionId} for ${options.seconds} s (Ctrl-C stops it now)…\n`,
+  );
+  // An interrupt closes the window early; the capture and the end still run, so no
+  // observation outlives the command and keeps filling the dataplane's rings.
+  const interrupted = Promise.withResolvers<void>();
+  const onInterrupt = () => interrupted.resolve();
+  process.once('SIGINT', onInterrupt);
+  await Promise.race([Bun.sleep(options.seconds * 1000), interrupted.promise]);
+  process.off('SIGINT', onInterrupt);
   const captured = await request({ op: 'capture' });
   const ended = await request({ op: 'end' });
   // samply saves its profile when interrupted while its target still runs.
