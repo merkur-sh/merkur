@@ -70,6 +70,8 @@ export type WheelDirection =
   | typeof WHEEL_DOWN
   | typeof WHEEL_LEFT
   | typeof WHEEL_RIGHT;
+/** A wire fact: the most notches one wheel record carries, its count being a `u8`. */
+export const WHEEL_RECORD_MAX_COUNT = 0xff;
 
 /** Pointer records carry Shift, Alt and Ctrl in these bits. */
 export const POINTER_MOD_MASK = KEY_MOD_SHIFT | KEY_MOD_ALT | KEY_MOD_CTRL;

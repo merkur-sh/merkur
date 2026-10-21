@@ -16,6 +16,7 @@ import {
   MOUSE_RECORD_MAX_BYTES,
   type MouseButton,
   WHEEL_DOWN,
+  WHEEL_RECORD_MAX_COUNT,
   WHEEL_UP,
 } from '@merkur/protocol';
 import {
@@ -82,6 +83,7 @@ import { createSelectionLayer } from './terminal/selection-layer';
 import { createSessionEpochCommandGate } from './terminal/session-epoch-command';
 import { wakeFrameRingReader } from './terminal/shared-ring';
 import { DEFAULT_TERMINAL_THEME, rgbCss, type TerminalTheme } from './terminal/themes';
+import { createTouchScroll } from './terminal/touch-scroll';
 import {
   type PerfDisplayRingBoundarySnapshot,
   type PerfGridConvergenceResult,
@@ -548,8 +550,10 @@ export function createTerminalWorkerClient(
 
   const mouseMotionDeduper = createPointerMotionDeduper();
 
-  // Touch scroll
-  let touchScrollLastY = 0;
+  // Touch scroll: two fingers on the content, then their glide once lifted.
+  const touchScroll = createTouchScroll();
+  let touchScrolling = false;
+  let touchGlideFrame = 0;
 
   function recordFirstDisplayGate(
     accepted: boolean,
@@ -628,13 +632,41 @@ export function createTerminalWorkerClient(
    * whether the wheel belongs to the application at all.
    */
   function sendScrollInput(deltaY: number, clientX: number, clientY: number): void {
+    sendScrollNotches(deltaY < 0 ? -1 : 1, clientX, clientY);
+  }
+
+  /** `notches` wheel notches, negative upward, in as few records as their count field holds. */
+  function sendScrollNotches(notches: number, clientX: number, clientY: number): void {
     // Wheel events arrive at display rate while a shell owns the screen, so
     // only one the application asked for hit-tests, into a reused cell.
-    if (!(mouseMode & MM_WHEEL)) return;
+    if (notches === 0 || !(mouseMode & MM_WHEEL)) return;
     terminalCellAtPointInto(clientX, clientY, syncPointerGeometry(), wheelCell);
-    callbacks.onMouseInput(
-      encodeWheelRecord(deltaY < 0 ? WHEEL_UP : WHEEL_DOWN, 0, 1, wheelCell.col, wheelCell.row),
+    const direction = notches < 0 ? WHEEL_UP : WHEEL_DOWN;
+    for (let remaining = Math.abs(notches); remaining > 0; remaining -= WHEEL_RECORD_MAX_COUNT) {
+      const count = Math.min(remaining, WHEEL_RECORD_MAX_COUNT);
+      callbacks.onMouseInput(encodeWheelRecord(direction, 0, count, wheelCell.col, wheelCell.row));
+    }
+  }
+
+  function stopTouchGlide(): void {
+    touchScroll.stop();
+    if (touchGlideFrame !== 0) cancelAnimationFrame(touchGlideFrame);
+    touchGlideFrame = 0;
+  }
+
+  /** One frame of a lifted two-finger scroll's glide, aimed at the content's centre. */
+  function stepTouchGlide(timeMs: number): void {
+    touchGlideFrame = 0;
+    if (selectionLayer.isVisible()) {
+      touchScroll.stop();
+      return;
+    }
+    sendScrollNotches(
+      touchScroll.glide(timeMs, lastCharHeight),
+      containerLeft + containerWidth / 2,
+      containerTop + containerHeight / 2,
     );
+    if (touchScroll.gliding) touchGlideFrame = requestAnimationFrame(stepTouchGlide);
   }
 
   // ── Viewport reads (worker answers strictly in FIFO order) ─────────────────
@@ -1120,12 +1152,16 @@ export function createTerminalWorkerClient(
       if (selectionLayer.isVisible()) return;
       e.preventDefault();
       refreshContainerBounds();
+      // A finger on the content catches a glide where it is, as on any
+      // scroll view.
+      stopTouchGlide();
 
       if (e.touches.length === 2) {
         const firstTouch = e.touches.item(0);
         const secondTouch = e.touches.item(1);
         if (!firstTouch || !secondTouch) return;
-        touchScrollLastY = (firstTouch.clientY + secondTouch.clientY) / 2;
+        touchScroll.begin((firstTouch.clientY + secondTouch.clientY) / 2, e.timeStamp);
+        touchScrolling = true;
       } else if (e.touches.length === 1) {
         const touch = e.touches.item(0);
         if (!touch) return;
@@ -1156,20 +1192,21 @@ export function createTerminalWorkerClient(
     (e: TouchEvent) => {
       if (selectionLayer.isVisible()) return;
       e.preventDefault();
-      if (e.touches.length === 2) {
+      if (touchScrolling && e.touches.length === 2) {
         const firstTouch = e.touches.item(0);
         const secondTouch = e.touches.item(1);
         if (!firstTouch || !secondTouch) return;
-        const midY = (firstTouch.clientY + secondTouch.clientY) / 2;
-        const deltaY = touchScrollLastY - midY;
-        touchScrollLastY = midY;
-        if (Math.abs(deltaY) > 1) {
-          sendScrollInput(
-            deltaY,
-            containerLeft + containerWidth / 2,
-            containerTop + containerHeight / 2,
-          );
-        }
+        // One notch per cell height of travel: the content keeps pace with
+        // the fingers however fast or slowly they move.
+        sendScrollNotches(
+          touchScroll.move(
+            (firstTouch.clientY + secondTouch.clientY) / 2,
+            e.timeStamp,
+            lastCharHeight,
+          ),
+          containerLeft + containerWidth / 2,
+          containerTop + containerHeight / 2,
+        );
       }
     },
     { passive: false },
@@ -1180,6 +1217,12 @@ export function createTerminalWorkerClient(
     (e: TouchEvent) => {
       if (selectionLayer.isVisible()) return;
       e.preventDefault();
+      if (touchScrolling && e.touches.length < 2) {
+        touchScrolling = false;
+        if (touchScroll.release(e.timeStamp, lastCharHeight)) {
+          touchGlideFrame = requestAnimationFrame(stepTouchGlide);
+        }
+      }
       const tap = linkTouch;
       if (tap === null) return;
       for (const touch of Array.from(e.changedTouches)) {
@@ -1193,6 +1236,13 @@ export function createTerminalWorkerClient(
     },
     { passive: false },
   );
+
+  // The system took the touches (a call, a gesture of its own): the scroll
+  // ends where the fingers left it, without a glide.
+  container.addEventListener('touchcancel', () => {
+    touchScrolling = false;
+    stopTouchGlide();
+  });
 
   // ── CSS dimension management ───────────────────────────────────────────────
   function updateCanvasCssDimensions(
@@ -1601,6 +1651,7 @@ export function createTerminalWorkerClient(
     window.removeEventListener('pointerup', onWindowPointerRelease);
     window.removeEventListener('pointercancel', onWindowPointerRelease);
     selectionEnabled = false;
+    stopTouchGlide();
     unmountSelectionLayer();
     selectionLayer.destroy();
     // Nothing will answer these now; leaving them queued strands their callers
