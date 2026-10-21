@@ -70,7 +70,13 @@ export function releaseRoutesPlugin({
       } catch {
         return status(STATUS_SERVICE_UNAVAILABLE, { error: 'unavailable' as const });
       }
-      const source = Bun.file(path.join(storeDirectory, version, file));
+      // The allowlist above already confines both names; the store is still the boundary.
+      const storeRoot = path.resolve(storeDirectory);
+      const sourcePath = path.resolve(storeRoot, version, file);
+      if (!sourcePath.startsWith(`${storeRoot}${path.sep}`)) {
+        return status(STATUS_NOT_FOUND, { error: 'not_found' as const });
+      }
+      const source = Bun.file(sourcePath);
       if (!(await source.exists())) {
         return status(STATUS_NOT_FOUND, { error: 'not_found' as const });
       }
