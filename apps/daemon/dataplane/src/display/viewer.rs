@@ -1768,11 +1768,12 @@ impl SimViewers {
         }
     }
 
-    /// Rows where a viewer disagrees with the daemon's current grid.
+    /// Rows where a viewer disagrees with the daemon's current grid, over the
+    /// taller of the two: a row only one of them has disagrees.
     pub(crate) fn diverged_rows(&mut self, peer_id: &str, daemon: &[u64]) -> Vec<u16> {
-        let rows = self.rows;
         let viewer = self.viewer(peer_id);
-        let theirs = viewer.row_hashes(rows);
+        let theirs = viewer.row_hashes(viewer.terminal.rows());
+        let rows = u16::try_from(theirs.len().max(daemon.len())).expect("a grid's rows fit u16");
         (0..rows)
             .filter(|row| {
                 let index = usize::from(*row);
