@@ -142,14 +142,21 @@ pub fn entry_items(entry: &[u8], items: &mut Vec<MzItem>) -> Option<(u16, u8)> {
     while covered < cells {
         let tag = *entry.get(at)?;
         at += 1;
-        decode_varint_u32(entry, &mut at).ok()?;
+        let cp = decode_varint_u32(entry, &mut at).ok()?;
+        if cp > 0x10ffff {
+            return None;
+        }
         for flag in [HAS_FG, HAS_BG] {
             if tag & flag != 0 {
                 at += color_width(mode, *entry.get(at)?);
             }
         }
         covered += if tag & RLE != 0 {
-            decode_varint_u32(entry, &mut at).ok()? as usize
+            let run = decode_varint_u32(entry, &mut at).ok()? as usize;
+            if run == 0 || run > MAX_TERMINAL_COLUMNS {
+                return None;
+            }
+            run
         } else {
             1
         };
@@ -854,7 +861,7 @@ impl MzEncoder {
         }
         let mut trial = std::mem::take(&mut self.trial);
         trial.clear();
-        let session_trace = std::mem::take(&mut self.trace);
+        let session_trace = std::mem::replace(&mut self.trace, std::mem::take(&mut self.trial_trace));
         let result = self.encode_with(rows, row_count, history, model, 0, &mut trial);
         let chosen = match result {
             Some((_, copies, _)) if trial.len() < out.len() - base => {
@@ -902,7 +909,7 @@ impl MzEncoder {
         let mut walk = Walk::new();
         let mut at = 0usize;
         let mut history_copies = false;
-        for _ in 0..row_count {
+        for row_index in 0..row_count {
             let start = at;
             let entry_rest = rows.get(start..)?;
             let (first, mode) = entry_items(entry_rest, &mut self.entry_items)?;
@@ -948,6 +955,11 @@ impl MzEncoder {
                 history,
                 &mut self.candidates,
             )?;
+            at = start + len;
+            // The last entry has no later target to index it for.
+            if row_index + 1 == row_count {
+                break;
+            }
             // This entry becomes a source for the rest of the frame.
             let index = u32::try_from(self.frame.entries.len()).ok()?;
             self.frame.entries.push((start, first, mode, self.frame.items.len()));
@@ -961,7 +973,6 @@ impl MzEncoder {
                 self.links.push((index, pair, *head));
                 *head = u32::try_from(self.links.len()).ok()?;
             }
-            at = start + len;
         }
         if at != rows.len() {
             return None;
@@ -991,6 +1002,15 @@ fn consider(best: &mut Option<(Seg, usize)>, target: &MzRow<'_>, index: usize, s
     let (Some(source_hashes), Some(target_hashes)) = (source.hashes.get(from..), target.hashes.get(index..)) else {
         return;
     };
+    // Ties keep the first source. A tail no longer than that source, or
+    // differing at its next item, cannot improve the chosen run.
+    if let Some((_, best_len)) = *best
+        && (source_hashes.len().min(target_hashes.len()) <= best_len
+            || source_hashes.get(best_len) != target_hashes.get(best_len))
+    {
+        return;
+    }
+    // Equal hashes still require the full prefix and byte comparison below.
     let mut len = source_hashes
         .iter()
         .zip(target_hashes)
@@ -1044,6 +1064,10 @@ fn best_copy(
         if let Some(source) = sources.frame.row(sources.rows, back) {
             consider(&mut best, target, index, Seg::Copy { kind: SRC_FRAME, back, row: 0, item, count: 0 }, &source, usize::from(item));
         }
+        // No source can beat a verified copy of the entire remaining row.
+        if best.is_some_and(|(_, len)| len == target.items.len() - index) {
+            return best;
+        }
         link = previous;
     }
     candidates.clear();
@@ -1059,6 +1083,9 @@ fn best_copy(
                 &source,
                 usize::from(candidate.item),
             );
+            if best.is_some_and(|(_, len)| len == target.items.len() - index) {
+                break;
+            }
         }
     }
     best
@@ -1119,13 +1146,18 @@ fn encode_entry<P: Prior>(
                 let mut literal = EstimateIo { coder: &mut *io.coder, bits: 0 };
                 let mut lit_walk = *walk;
                 let mut cur = Cursor { src: bytes, at: 0 };
-                (0..len)
-                    .all(|_| {
-                        literal.nibble(key(F_SEG, lit_walk.prev_seg | u32::from(lit_walk.last_copy.is_some()) << 2), SEG_ITEM);
-                        lit_walk.prev_seg = u32::from(SEG_ITEM);
-                        item(&mut literal, &mut lit_walk, mode, &mut cur, &mut sink).is_ok()
-                    })
-                    .then_some(literal.bits)
+                // The entry parser validated every item. Once the literal
+                // price exceeds the copy's, the remaining nonnegative costs
+                // cannot affect this decision or its unchanged walk.
+                for _ in 0..len {
+                    literal.nibble(key(F_SEG, lit_walk.prev_seg | u32::from(lit_walk.last_copy.is_some()) << 2), SEG_ITEM);
+                    lit_walk.prev_seg = u32::from(SEG_ITEM);
+                    item(&mut literal, &mut lit_walk, mode, &mut cur, &mut sink).ok()?;
+                    if copy_bits.is_some_and(|bits| literal.bits > bits) {
+                        break;
+                    }
+                }
+                Some(literal.bits)
             });
             if let (Some(copy_bits), Some(literal_bits)) = (copy_bits, literal_bits)
                 && copy_bits < literal_bits

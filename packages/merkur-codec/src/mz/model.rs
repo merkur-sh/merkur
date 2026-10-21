@@ -57,6 +57,8 @@ pub(super) const fn field_of(key: u32) -> usize {
 
 /// Where a frame's tables start.
 pub(super) trait Prior {
+    /// Whether the forward encode needs a price for prior selection.
+    const PRICE_ENCODE: bool;
     fn hi(&self, key: u32) -> &Cdf;
     fn lo(&self, key: u32, h: usize) -> &Cdf;
     fn rate(&self, key: u32) -> u8;
@@ -80,6 +82,8 @@ pub(super) struct StaticModel {
 }
 
 impl Prior for StaticModel {
+    const PRICE_ENCODE: bool = false;
+
     #[inline(always)]
     fn hi(&self, key: u32) -> &Cdf {
         &self.set(key).hi

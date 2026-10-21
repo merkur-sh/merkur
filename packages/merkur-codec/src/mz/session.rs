@@ -105,6 +105,8 @@ pub(super) struct Layered<'a> {
               tables the session's fold pushed"
 )]
 impl Prior for Layered<'_> {
+    const PRICE_ENCODE: bool = true;
+
     #[inline]
     fn hi(&self, key: u32) -> &Cdf {
         match self.session.index[key as usize] {
