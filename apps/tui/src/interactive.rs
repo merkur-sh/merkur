@@ -15,7 +15,7 @@ use crate::account_store::Store;
 use crate::chrome::Chrome;
 use crate::host::{Host, HostRead, HostSize};
 use crate::host_input::{HostEvent, HostInput, Reply};
-use crate::sensitive::{append_text, push_char};
+use crate::sensitive::push_char;
 use crate::session_view::HostFrames;
 use crate::ui::{self, OrbAnimation};
 
@@ -566,14 +566,18 @@ async fn field(
                                         if key.key == keys::ENTER { done = Some(true); }
                                         else if key.key == keys::BACKSPACE { erase_last(&mut secret); }
                                         else { match key.text {
-                                            KeyText::Implied(c) => push_char(&mut secret, c),
-                                            KeyText::Explicit(text) => append_text(&mut secret, text),
-                                            KeyText::None => {},
+                                            KeyText::Implied(c) if !c.is_control() => push_char(&mut secret, c),
+                                            KeyText::Explicit(text) => {
+                                                for c in text.chars().filter(|c| !c.is_control()) { push_char(&mut secret, c); }
+                                            }
+                                            KeyText::Implied(_) | KeyText::None => {},
                                         }}
                                         dirty = true;
                                     }
+                                    // A copied line's break is not part of the value, as in the browser's fields.
                                     Some(InputRecord::Text(text) | InputRecord::Paste(text)) => {
-                                        append_text(&mut secret, text); dirty = true;
+                                        for c in text.chars().filter(|c| !c.is_control()) { push_char(&mut secret, c); }
+                                        dirty = true;
                                     }
                                     _ => {}
                                 }
