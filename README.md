@@ -285,6 +285,7 @@ Bun and TypeScript handle the application and orchestration; Rust owns the termi
 | `packages/keyboard`                 | Configurable touch terminal keyboard.                                        |
 | `packages/quicksilver`              | Quicksilver design system: tokens, UnoCSS preset, UI faces, Vite plugins.    |
 | `packages/user-agent`               | Bounded browser and OS identification.                                       |
+| `packages/profile`                  | Native trace capture reader for profiling and the e2e oracles.               |
 | `packages/term-wasm`                | Browser terminal state, display decoding, fonts, and rendering data.         |
 | `packages/merkur-authorization`     | Delegations, daemon bindings, revocations, link approval, root envelope.     |
 | `packages/merkur-client`            | Sans-IO client core: issuance, authentication, lanes, input.                 |
@@ -299,6 +300,7 @@ Bun and TypeScript handle the application and orchestration; Rust owns the termi
 | `packages/graphics-wasm`            | Browser graphics verification.                                               |
 | `packages/graphics-codec-probe`     | Benchmark-only graphics decoder.                                             |
 | `packages/merkur-fec`               | Display forward error correction.                                            |
+| `packages/merkur-trace`             | Bounded native trace recorder: spans, boundary evidence, capture files.      |
 | `packages/merkur-graphics`          | Kitty graphics ingestion, placement, and resource ownership.                 |
 | `packages/merkur-image-worker`      | Isolated image decoding and tile encoding.                                   |
 | `packages/display-fixture`          | Native MZ fixtures for browser compression benchmarks and calibration.       |

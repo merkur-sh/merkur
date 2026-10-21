@@ -114,7 +114,7 @@ def sim_crates():
         tags = ["noclippy"],
         target_compatible_with = SIMULATING,
         version = "0.1.0",
-        deps = [":alacritty_terminal", ":merkur_authorization", ":merkur_codec", ":merkur_e2e", ":merkur_edge_protocol", ":merkur_fec", ":merkur_graphics", ":merkur_identity_seal", ":merkur_image_worker", ":merkur_stun_protocol", ":merkur_wire"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/apps-daemon-dataplane") + ["//apps/daemon/dataplane:build_script"],
+        deps = [":alacritty_terminal", ":merkur_authorization", ":merkur_codec", ":merkur_e2e", ":merkur_edge_protocol", ":merkur_fec", ":merkur_graphics", ":merkur_identity_seal", ":merkur_image_worker", ":merkur_stun_protocol", ":merkur_trace", ":merkur_wire"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/apps-daemon-dataplane") + ["//apps/daemon/dataplane:build_script"],
     )
     rust_library(
         name = "merkur_e2e",
@@ -235,6 +235,21 @@ def sim_crates():
         target_compatible_with = SIMULATING,
         version = "0.1.0",
         deps = [] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-stun-protocol"),
+    )
+    rust_library(
+        name = "merkur_trace",
+        srcs = ["//packages/merkur-trace:srcs"],
+        aliases = aliases(package_name = "tools/bazel/sim/crates/packages-merkur-trace"),
+        compile_data = ["//packages/merkur-trace:files"],
+        crate_features = [],
+        crate_root = "//packages/merkur-trace:src/lib.rs",
+        edition = "2024",
+        proc_macro_deps = all_crate_deps(proc_macro = True, package_name = "tools/bazel/sim/crates/packages-merkur-trace"),
+        rustc_env = {"CARGO_MANIFEST_DIR": "$${pwd}/packages/merkur-trace"},
+        tags = ["noclippy"],
+        target_compatible_with = SIMULATING,
+        version = "0.1.0",
+        deps = [] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-trace"),
     )
     rust_library(
         name = "merkur_wire",

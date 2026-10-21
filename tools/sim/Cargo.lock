@@ -1889,6 +1889,7 @@ dependencies = [
  "merkur-identity-seal",
  "merkur-image-worker",
  "merkur-stun-protocol",
+ "merkur-trace",
  "merkur-wire",
  "netdev",
  "portable-pty",
@@ -2026,6 +2027,13 @@ name = "merkur-stun-protocol"
 version = "0.1.0"
 dependencies = [
  "ring",
+]
+
+[[package]]
+name = "merkur-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

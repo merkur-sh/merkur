@@ -116,7 +116,7 @@ for (const profiling of [false, true] as const) {
       if (measuresNative) {
         const capture = await linkedDaemon.capturePerfTrace();
         nativeErrors = capture.errors;
-        daemonLeg = daemonLegPackets(capture.chunks.flatMap((chunk) => chunk.records));
+        daemonLeg = daemonLegPackets(capture.trace?.records ?? []);
       }
     }
 

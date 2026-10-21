@@ -186,7 +186,6 @@
     "no-object-parameters": 1,
     "no-runtime-typeof": 2,
     "no-unsafe-dictionary-type": 5,
-    "prefer-effect-match": 1,
     "require-safety-comment-for-type-assertion": 6
   },
   "apps/daemon/src/services/dataplane-client.ts": {
@@ -196,7 +195,7 @@
     "no-object-parameters": 2,
     "no-runtime-typeof": 3,
     "no-swallowed-error": 8,
-    "no-unknown-parameters": 19,
+    "no-unknown-parameters": 18,
     "no-unknown-returns": 1,
     "prefer-effect-match": 1,
     "require-safety-comment-for-type-assertion": 2
@@ -1761,10 +1760,6 @@
     "no-runtime-typeof": 8,
     "no-unsafe-dictionary-type": 1
   },
-  "packages/shared/src/native-perf-trace.ts": {
-    "no-known-value-widening": 1,
-    "no-runtime-typeof": 2
-  },
   "packages/shared/src/node-sidecar.ts": {
     "no-object-parameters": 2,
     "no-runtime-typeof": 1,
@@ -2451,7 +2446,7 @@
     "no-object-parameters": 2
   },
   "tests/e2e/fixtures/daemon-perf-trace-capture.ts": {
-    "no-runtime-typeof": 4,
+    "no-runtime-typeof": 2,
     "no-unsafe-dictionary-type": 1
   },
   "tests/e2e/fixtures/daemon-process.ts": {

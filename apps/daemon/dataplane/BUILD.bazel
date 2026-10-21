@@ -45,6 +45,7 @@ _DEPS = [
     "//packages/merkur-identity-seal:merkur_identity_seal",
     "//packages/merkur-image-worker:merkur_image_worker",
     "//packages/merkur-stun-protocol:merkur_stun_protocol",
+    "//packages/merkur-trace:merkur_trace",
     "//packages/merkur-wire:merkur_wire",
 ]
 

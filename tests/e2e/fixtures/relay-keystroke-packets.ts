@@ -1,4 +1,4 @@
-import type { NativePerfTraceRecord } from '../../../packages/shared/src/native-perf-trace';
+import type { NativePerfTraceRecord } from '../../../packages/profile/src/mtrace';
 import { TRANSPORT_CHANNEL_ID } from '../../../packages/shared/src/transport';
 import type { ProxyImpairmentStats } from '../../../scripts/edge-network-stats';
 

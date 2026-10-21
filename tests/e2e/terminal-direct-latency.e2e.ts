@@ -313,10 +313,10 @@ test('direct input cadences and fast redraws retain exact GPU-fence evidence', a
     const raw = gzipSync(Buffer.from(rawLog));
     const recordCoverageEligible =
       evidence.status === 'complete' &&
-      evidence.chunks.length > 0 &&
+      evidence.trace !== null &&
       browserSessionBinding !== null &&
-      evidence.chunks.every((chunk) => chunk.session_id === browserSessionBinding?.sessionId) &&
-      evidence.chunks.every((chunk) => chunk.dropped === 0);
+      evidence.trace.sessionId === browserSessionBinding.sessionId &&
+      evidence.trace.dropped === 0;
     await attachDirectArtifact(testInfo, rawArtifact, {
       body: raw,
       contentType: 'application/gzip',
@@ -3291,7 +3291,7 @@ function sourceProvenance(externalTools: DirectTuiExternalToolsEvidence): {
         'tests/e2e/fixtures/direct-workload-plan.ts',
         'tests/e2e/fixtures/daemon-perf-trace-capture.ts',
         'tests/e2e/fixtures/native-display-boundaries.ts',
-        'packages/shared/src/native-perf-trace.ts',
+        'packages/profile/src/mtrace.ts',
         'tests/e2e/fixtures/presentation-measurement-boundary.ts',
         'apps/web/src/terminal/profiling-viewport-read.ts',
         'playwright.edge.config.mjs',

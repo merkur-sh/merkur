@@ -41,8 +41,6 @@ pub const EVT_NAT_MAPPING_OUTCOME: u8 = 0x91;
 /// would let an unauthenticated caller flood the event channel this process
 /// depends on. See `session::rebind_flow::RebindEventBudget`.
 pub const EVT_SESSION_REBIND: u8 = 0x92;
-/// Explicit cold native trace capture chunk. Diagnostic and droppable.
-pub const EVT_PERF_TRACE: u8 = 0x93;
 pub const EVT_DAEMON_PROOF: u8 = 0x94;
 
 #[derive(Serialize)]
@@ -899,7 +897,6 @@ fn should_flush(kind: u8) -> bool {
         // after the window it explains has closed.
         || kind == EVT_SESSION_REBIND
         || kind == EVT_DAEMON_PROOF
-        || kind == EVT_PERF_TRACE
 }
 
 #[cfg(test)]

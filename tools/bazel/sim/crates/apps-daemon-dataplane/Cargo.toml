@@ -23,6 +23,7 @@ merkur-edge-protocol = { path = "../packages-merkur-edge-protocol", "default-fea
 merkur-fec = { path = "../packages-merkur-fec", "default-features" = false, features = [] }
 merkur-graphics = { path = "../packages-merkur-graphics", "default-features" = false, features = [] }
 merkur-image-worker = { path = "../packages-merkur-image-worker", "default-features" = false, features = [] }
+merkur-trace = { path = "../packages-merkur-trace", "default-features" = false, features = [] }
 merkur-wire = { path = "../packages-merkur-wire", "default-features" = false, features = ["std"] }
 bytes = { version = "1" }
 memchr = { version = "2" }

@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 import type { TerminalPerfEvent } from '../../../apps/web/src/perf/terminal-latency';
-import type { NativePerfTraceRecord } from '../../../packages/shared/src/native-perf-trace';
+import type {
+  NativePerfTraceRecord,
+  NativeTraceCapture,
+} from '../../../packages/profile/src/mtrace';
 import type { DaemonPerfTraceCapture } from './daemon-perf-trace-capture';
 import {
   resolveNativeBrowserSessionBinding,
@@ -60,39 +63,40 @@ function quic(phase: number, at: number, tag: number, connection = 1, packet = 1
     4,
   ]);
 }
+function trace(records: readonly Record[], dropped = 0): NativeTraceCapture {
+  return {
+    owner: 1,
+    peerId: 'peer',
+    sessionId: 'session',
+    observationEpoch: 1,
+    dropped,
+    stale: 0,
+    discontinuous: false,
+    clock: 'mach-uptime-raw',
+    originAnchorNs: 0n,
+    clockErrorNs: 0,
+    records,
+    spans: [],
+  };
+}
+function capture(commandId: string, value: NativeTraceCapture): DaemonPerfTraceCapture {
+  return {
+    status: 'complete',
+    terminalMarkerSeen: true,
+    daemonId: 'daemon',
+    requestedAfterMs: 100,
+    commandId,
+    captureRequestedAtMs: 100,
+    captureCompletedAtMs: 101,
+    path: `/profiles/${commandId}.mtrace`,
+    trace: value,
+    errors: [],
+    rawLog: '',
+  };
+}
 function native(input: readonly Record[], dropped = 0): [DaemonPerfTraceCapture] {
   const records = input.map((value, index) => ({ ...value, ordinal: index + 1 }));
-  return [
-    {
-      status: 'complete',
-      terminalMarkerSeen: true,
-      daemonId: 'daemon',
-      requestedAfterMs: 100,
-      commandId: 'capture',
-      captureRequestedAtMs: 100,
-      captureCompletedAtMs: 101,
-      errors: [],
-      rawLog: '',
-      chunks: [
-        {
-          command_id: 'capture',
-          owner: 1,
-          peer_id: 'peer',
-          session_id: 'session',
-          observation_epoch: 1,
-          attempted: records.length + dropped,
-          dropped,
-          stale: 0,
-          record_count: records.length,
-          first_ordinal: records.length === 0 ? 0 : 1,
-          last_ordinal: records.length,
-          chunk_index: 0,
-          chunk_count: 1,
-          records,
-        },
-      ],
-    },
-  ];
+  return [capture('capture', trace(records, dropped))];
 }
 function received(seq: number, atMs: number): Receipt {
   return {
@@ -400,9 +404,11 @@ test('one exact transaction shared by both mutations has zero submission exposur
 });
 
 test('stale previous-observation discards do not disqualify lossless current-owner records', () => {
-  const capture = native(twoMembers(11, 13))[0];
+  const [only] = native(twoMembers(11, 13));
+  const value = only.trace;
+  if (value === null) throw new Error('missing fixture trace');
   const result = summarizeNativeDisplayBoundaries(
-    [{ ...capture, chunks: capture.chunks.map((chunk) => ({ ...chunk, stale: 7 })) }],
+    [capture('capture', { ...value, stale: 7 })],
     browser([1_000, 1_001], [1_008, 1_009]),
     'session',
   );
@@ -411,30 +417,17 @@ test('stale previous-observation discards do not disqualify lossless current-own
 });
 
 test('merges late-published ordinals and queue predecessors across exact-owner drains', () => {
-  const capture = native(twoMembers(11, 13))[0];
-  const chunk = capture.chunks[0];
-  if (chunk === undefined) throw new Error('missing fixture chunk');
-  const drain = (records: readonly Record[], commandId: string): DaemonPerfTraceCapture => ({
-    ...capture,
-    commandId,
-    chunks: [
-      {
-        ...chunk,
-        command_id: commandId,
-        records,
-        record_count: records.length,
-        attempted: records.length,
-        first_ordinal: records[0]?.ordinal ?? 0,
-        last_ordinal: records.at(-1)?.ordinal ?? 0,
-      },
-    ],
-  });
+  const [whole] = native(twoMembers(11, 13));
+  const value = whole.trace;
+  if (value === null) throw new Error('missing fixture trace');
+  const drain = (records: readonly Record[], commandId: string) =>
+    capture(commandId, { ...value, records });
   const early = drain(
-    chunk.records.filter((record) => record.ordinal !== 1 && record.ordinal !== 5),
+    value.records.filter((record) => record.ordinal !== 1 && record.ordinal !== 5),
     'early',
   );
   const late = drain(
-    chunk.records.filter((record) => record.ordinal === 1 || record.ordinal === 5),
+    value.records.filter((record) => record.ordinal === 1 || record.ordinal === 5),
     'late',
   );
   const result = summarizeNativeDisplayBoundaries(
@@ -445,31 +438,30 @@ test('merges late-published ordinals and queue predecessors across exact-owner d
   expect(result.exactJoinEligible).toBe(true);
   expect(result.nativeRecords.map((record) => record.ordinal)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   const split = summarizeNativeDisplayBoundaries(
-    [drain(chunk.records.slice(0, 3), 'before'), drain(chunk.records.slice(3), 'after')],
+    [drain(value.records.slice(0, 3), 'before'), drain(value.records.slice(3), 'after')],
     browser([1_000, 1_001], [1_008, 1_009]),
     'session',
   );
   expect(split.exactJoinEligible).toBe(true);
   expect(split.attempts[0]?.queueToPacketizedUs).toBe(2);
   const conflicting = drain(
-    chunk.records.map((record) => ({ ...record, at_us: record.at_us + 1 })),
+    value.records.map((record) => ({ ...record, at_us: record.at_us + 1 })),
     'conflicting',
   );
   expect(
-    summarizeNativeDisplayBoundaries([capture, conflicting], [], 'session').exactJoinEligible,
+    summarizeNativeDisplayBoundaries([whole, conflicting], [], 'session').exactJoinEligible,
   ).toBe(false);
+  const lateTrace = late.trace;
+  if (lateTrace === null) throw new Error('missing late trace');
   expect(
     summarizeNativeDisplayBoundaries(
       [
-        capture,
-        {
-          ...late,
-          chunks: late.chunks.map((value) => ({
-            ...value,
-            owner: 2,
-            records: value.records.map((record) => ({ ...record, owner: 2 })),
-          })),
-        },
+        whole,
+        capture('late', {
+          ...lateTrace,
+          owner: 2,
+          records: lateTrace.records.map((record) => ({ ...record, owner: 2 })),
+        }),
       ],
       [],
       'session',

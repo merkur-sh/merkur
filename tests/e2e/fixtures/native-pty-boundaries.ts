@@ -1,4 +1,4 @@
-import type { NativePerfTraceRecord } from '../../../packages/shared/src/native-perf-trace';
+import type { NativePerfTraceRecord } from '../../../packages/profile/src/mtrace';
 import type { summarizeNativeDisplayBoundaries } from './native-display-boundaries';
 
 type NativeRecord = NativePerfTraceRecord;

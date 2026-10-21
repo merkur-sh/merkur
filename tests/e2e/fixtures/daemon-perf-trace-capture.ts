@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { Predicate } from 'effect';
 import {
-  createNativePerfTraceValidator,
-  isNativePerfTraceChunk,
-  type NativePerfTraceChunk,
-} from '../../../packages/shared/src/native-perf-trace';
+  decodeNativeTrace,
+  type NativeTraceCapture,
+  NativeTraceDecodeError,
+} from '../../../packages/profile/src/mtrace';
 
 export interface DaemonPerfTraceCapture {
   readonly status: 'pending' | 'complete' | 'invalid' | 'failed';
@@ -12,7 +14,10 @@ export interface DaemonPerfTraceCapture {
   readonly commandId: string | null;
   readonly captureRequestedAtMs: number | null;
   readonly captureCompletedAtMs: number | null;
-  readonly chunks: readonly NativePerfTraceChunk[];
+  /** The file the dataplane wrote, as the daemon logged it. */
+  readonly path: string | null;
+  /** The decoded capture, once complete. */
+  readonly trace: NativeTraceCapture | null;
   readonly errors: readonly string[];
   readonly rawLog: string;
 }
@@ -22,15 +27,16 @@ export function collectDaemonPerfTraceCapture(
   rawLog: string,
   daemonId: string,
   requestedAfterMs: number,
+  readCapture: (path: string) => Uint8Array = readFileSync,
 ): DaemonPerfTraceCapture {
-  const chunks: NativePerfTraceChunk[] = [];
   const errors: string[] = [];
   let status: DaemonPerfTraceCapture['status'] = 'pending';
   let terminalMarkerSeen = false;
   let commandId: string | null = null;
   let captureRequestedAtMs: number | null = null;
   let captureCompletedAtMs: number | null = null;
-  let validator: ReturnType<typeof createNativePerfTraceValidator> | null = null;
+  let capturePath: string | null = null;
+  let trace: NativeTraceCapture | null = null;
   for (const line of rawLog.split(/\r?\n/u)) {
     let value: unknown;
     try {
@@ -38,7 +44,7 @@ export function collectDaemonPerfTraceCapture(
     } catch {
       continue;
     }
-    if (!isRecord(value) || typeof value.message !== 'string') continue;
+    if (!isRecord(value) || !Predicate.isString(value.message)) continue;
     const context = value.context;
     if (
       !isRecord(context) ||
@@ -49,61 +55,49 @@ export function collectDaemonPerfTraceCapture(
       continue;
     }
     if (
-      value.message !== 'daemon_perf_trace_chunk' &&
       value.message !== 'daemon_perf_trace_capture_complete' &&
       value.message !== 'daemon_perf_trace_capture_failed'
     ) {
       continue;
     }
-    const chunk = context.chunk;
-    const id =
-      value.message === 'daemon_perf_trace_chunk' && isRecord(chunk)
-        ? chunk.command_id
-        : context.commandId;
-    if (typeof id !== 'string' || id.length === 0) {
+    const id = context.commandId;
+    if (!Predicate.isString(id) || id.length === 0) {
       errors.push('native capture omitted its exact command identity');
       continue;
     }
-    if (commandId === null) {
-      commandId = id;
-      captureRequestedAtMs = context.captureRequestedAtMs;
-      validator = createNativePerfTraceValidator(id);
-    }
-    if (id !== commandId || context.captureRequestedAtMs !== captureRequestedAtMs) {
+    if (terminalMarkerSeen) {
       errors.push('multiple native capture identities in one requested boundary');
       continue;
     }
-    if (status !== 'pending') errors.push('native capture records arrived after completion');
-    if (value.message === 'daemon_perf_trace_chunk') {
-      if (!isNativePerfTraceChunk(chunk)) {
-        errors.push('malformed native capture chunk');
-      } else {
-        chunks.push(chunk);
-        if (validator === null || !validator.accept(chunk))
-          errors.push('invalid native chunk sequence');
-      }
-      continue;
-    }
+    terminalMarkerSeen = true;
+    commandId = id;
+    captureRequestedAtMs = context.captureRequestedAtMs;
     if (value.message === 'daemon_perf_trace_capture_failed') {
-      terminalMarkerSeen = true;
       errors.push(`native capture failed: ${String(context.reason)}`);
       status = 'failed';
       continue;
     }
-    terminalMarkerSeen = true;
+    status = 'complete';
     if (
       !safeTime(context.captureCompletedAtMs) ||
       context.captureCompletedAtMs < context.captureRequestedAtMs ||
-      validator === null ||
-      !validator.complete ||
-      context.chunkCount !== validator.chunkCount ||
-      context.recordCount !== validator.recordCount
+      !Predicate.isString(context.path) ||
+      context.path.length === 0
     ) {
-      errors.push('native capture completion does not cover its exact ordered chunks');
-    } else {
-      captureCompletedAtMs = context.captureCompletedAtMs;
+      errors.push('native capture completion does not name its file and completion time');
+      continue;
     }
-    status = 'complete';
+    captureCompletedAtMs = context.captureCompletedAtMs;
+    capturePath = context.path;
+    try {
+      trace = decodeNativeTrace(readCapture(context.path));
+    } catch (error) {
+      errors.push(
+        error instanceof NativeTraceDecodeError
+          ? `malformed native capture: ${error.message}`
+          : `native capture file unreadable: ${String(error)}`,
+      );
+    }
   }
   if (errors.length > 0 && status !== 'failed') status = 'invalid';
   return {
@@ -114,7 +108,8 @@ export function collectDaemonPerfTraceCapture(
     commandId,
     captureRequestedAtMs,
     captureCompletedAtMs,
-    chunks,
+    path: capturePath,
+    trace: status === 'complete' ? trace : null,
     errors,
     rawLog,
   };

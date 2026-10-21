@@ -1,13 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 import type { DaemonIdentitySeal } from '@merkur/config';
 import type { DaemonControlEdge } from '@merkur/daemon-control-protocol';
-import {
-  createNativePerfTraceValidator,
-  hasExactKeys,
-  isNativePerfTraceChunk,
-  isRecord,
-  type NativePerfTraceChunk,
-} from '@merkur/shared';
+import { hasExactKeys, isRecord } from '@merkur/shared';
 import {
   createSidecarFrame,
   encodeSidecarCommand,
@@ -68,7 +62,6 @@ const EVT_PEER_AUTHENTICATED = 0x8e;
 const EVT_COMMAND_ACK = 0x8f;
 const EVT_TRANSPORT_STATS = 0x90;
 const EVT_SESSION_REBIND = 0x92;
-const EVT_PERF_TRACE = 0x93;
 const EVT_DAEMON_PROOF = 0x94;
 
 const UTF8_DECODER = new TextDecoder();
@@ -364,11 +357,11 @@ export interface DataplaneClient {
    * accepted result proves the complete sample was emitted before it.
    */
   captureTransportStatsEffect(commandId: string): Effect.Effect<DataplaneCommandResult>;
-  /** Cold capture; accepted only after every exact FIFO chunk and the native acknowledgement. */
-  capturePerfTraceEffect(
-    commandId: string,
-    onChunk: (chunk: NativePerfTraceChunk) => void,
-  ): Effect.Effect<DataplaneCommandResult>;
+  /**
+   * Cold capture into a new file at the absolute `path`, which must not exist. Accepted once
+   * the dataplane has written it (`@merkur/profile` reads it).
+   */
+  capturePerfTraceEffect(commandId: string, path: string): Effect.Effect<DataplaneCommandResult>;
   updateRevocation(generation: number): void;
   /**
    * Replace the STUN credential used for NAT discovery.
@@ -474,10 +467,6 @@ interface PendingDataplaneCommand {
     received: boolean;
   } | null;
   readonly deferred: Deferred.Deferred<DataplaneCommandResult>;
-  readonly perfTrace: {
-    readonly validator: ReturnType<typeof createNativePerfTraceValidator>;
-    readonly onChunk: (chunk: NativePerfTraceChunk) => void;
-  } | null;
   timer: DataplaneTimerHandle | null;
 }
 
@@ -719,15 +708,11 @@ function makeDataplaneClient(
       });
     },
 
-    capturePerfTraceEffect(commandId, onChunk): Effect.Effect<DataplaneCommandResult> {
-      return requestAcknowledgedCommandEffect(
-        commandId,
-        CMD_CAPTURE_PERF_TRACE,
-        {
-          command_id: commandId,
-        },
-        onChunk,
-      );
+    capturePerfTraceEffect(commandId, path): Effect.Effect<DataplaneCommandResult> {
+      return requestAcknowledgedCommandEffect(commandId, CMD_CAPTURE_PERF_TRACE, {
+        command_id: commandId,
+        path,
+      });
     },
 
     signDaemonProofEffect(commandId, purpose, transcript) {
@@ -743,7 +728,6 @@ function makeDataplaneClient(
             purpose,
             transcript: Buffer.from(transcript).toString('base64url'),
           },
-          undefined,
           (value) => {
             proof.value = value;
           },
@@ -793,7 +777,6 @@ function makeDataplaneClient(
       | typeof CMD_CAPTURE_PERF_TRACE
       | typeof CMD_SIGN_DAEMON_PROOF,
     payload: object,
-    onPerfTraceChunk?: (chunk: NativePerfTraceChunk) => void,
     onDaemonProof?: (proof: DataplaneProof) => void,
   ): Effect.Effect<DataplaneCommandResult> {
     return Effect.uninterruptibleMask((restore) =>
@@ -810,13 +793,6 @@ function makeDataplaneClient(
           daemonProof:
             onDaemonProof === undefined ? null : { onProof: onDaemonProof, received: false },
           deferred,
-          perfTrace:
-            onPerfTraceChunk === undefined
-              ? null
-              : {
-                  validator: createNativePerfTraceValidator(commandId),
-                  onChunk: onPerfTraceChunk,
-                },
           timer: null,
         };
         pendingCommands.set(commandId, pending);
@@ -1974,9 +1950,6 @@ function makeDataplaneClient(
       case EVT_SESSION_REBIND:
         valid = handleSessionRebind(json);
         break;
-      case EVT_PERF_TRACE:
-        handlePerfTraceChunk(json);
-        break;
       default:
         logger.error('dataplane_unknown_event', { kind });
         publishFatalFailure('protocol_error', new Error(`unknown dataplane event kind ${kind}`));
@@ -2290,22 +2263,6 @@ function makeDataplaneClient(
     return true;
   }
 
-  function handlePerfTraceChunk(json: unknown): void {
-    const commandId = isRecord(json) ? readNonEmptyString(json.command_id) : null;
-    const pending = commandId === null ? undefined : pendingCommands.get(commandId);
-    // Late/unsolicited diagnostics never affect terminal lifecycle or retain data.
-    if (commandId === null || pending?.perfTrace == null) return;
-    if (!isNativePerfTraceChunk(json) || !pending.perfTrace.validator.accept(json)) {
-      settlePendingCommand(commandId, { status: 'rejected', reason: 'invalid_perf_trace' });
-      return;
-    }
-    try {
-      pending.perfTrace.onChunk(json);
-    } catch {
-      settlePendingCommand(commandId, { status: 'rejected', reason: 'perf_trace_consumer_failed' });
-    }
-  }
-
   function handleDaemonProof(json: unknown): boolean {
     if (!isRecord(json) || !hasExactKeys(json, ['command_id', 'signature', 'p256_signature']))
       return false;
@@ -2336,13 +2293,7 @@ function makeDataplaneClient(
         settlePendingCommand(commandId, { status: 'rejected', reason: 'incomplete_daemon_proof' });
         return true;
       }
-      const trace = pending?.perfTrace;
-      settlePendingCommand(
-        commandId,
-        trace != null && !trace.validator.complete
-          ? { status: 'rejected', reason: 'incomplete_perf_trace' }
-          : { status: 'accepted' },
-      );
+      settlePendingCommand(commandId, { status: 'accepted' });
       return true;
     }
     if (json.status === 'rejected' && hasExactKeys(json, ['command_id', 'status', 'reason'])) {

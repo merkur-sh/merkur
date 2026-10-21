@@ -293,7 +293,7 @@ function countReasons(events: readonly unknown[]): Record<string, number> {
 }
 
 function nativeRecords(native: DaemonPerfTraceCapture) {
-  return native.chunks.flatMap((chunk) => chunk.records);
+  return native.trace?.records ?? [];
 }
 
 function writeCursorArtifacts(

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import type { NativePerfTraceRecord } from '../../../packages/shared/src/native-perf-trace';
+import type { NativePerfTraceRecord } from '../../../packages/profile/src/mtrace';
 import { summarizeNativePtyBoundaries } from './native-pty-boundaries';
 
 type NativeRecord = NativePerfTraceRecord;

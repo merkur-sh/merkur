@@ -15,7 +15,6 @@ export * from './errors';
 export * from './ip-address';
 export * from './keyboard-settings';
 export * from './math';
-export * from './native-perf-trace';
 export * from './parsing';
 export * from './presence';
 export * from './recovery-outcome';

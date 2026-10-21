@@ -21,7 +21,7 @@ pub const CMD_UPDATE_STUN: u8 = 0x0C;
 /// Close and emit the current positive transport-telemetry window immediately.
 /// Used by the deterministic performance harness before daemon teardown.
 pub const CMD_CAPTURE_TRANSPORT_STATS: u8 = 0x0D;
-/// Export one bounded native profiling observation over diagnostic IPC.
+/// Write the current native trace observation to one new `.mtrace` file.
 pub const CMD_CAPTURE_PERF_TRACE: u8 = 0x0E;
 pub const CMD_SHUTDOWN: u8 = 0x0F;
 pub const CMD_SIGN_DAEMON_PROOF: u8 = 0x10;
@@ -140,6 +140,8 @@ pub struct CaptureTransportStatsCmd {
 #[serde(deny_unknown_fields)]
 pub struct CapturePerfTraceCmd {
     pub command_id: String,
+    /// Absolute path of a file that must not exist yet; the capture never overwrites.
+    pub path: String,
 }
 
 #[cfg(test)]
@@ -259,14 +261,19 @@ mod tests {
 
     #[test]
     fn perf_trace_capture_command_shape_is_exact() {
-        let command =
-            serde_json::from_str::<CapturePerfTraceCmd>(r#"{"command_id":"perf-final-1"}"#)
-                .expect("exact trace capture command");
+        let command = serde_json::from_str::<CapturePerfTraceCmd>(
+            r#"{"command_id":"perf-final-1","path":"/tmp/capture.mtrace"}"#,
+        )
+        .expect("exact trace capture command");
         assert_eq!(command.command_id, "perf-final-1");
-        assert!(serde_json::from_str::<CapturePerfTraceCmd>(r#"{}"#).is_err());
+        assert_eq!(command.path, "/tmp/capture.mtrace");
+        assert!(
+            serde_json::from_str::<CapturePerfTraceCmd>(r#"{"command_id":"perf-final-1"}"#)
+                .is_err()
+        );
         assert!(
             serde_json::from_str::<CapturePerfTraceCmd>(
-                r#"{"command_id":"perf-final-1","output_path":"/tmp/untrusted"}"#,
+                r#"{"command_id":"perf-final-1","path":"/tmp/a","overwrite":true}"#,
             )
             .is_err()
         );

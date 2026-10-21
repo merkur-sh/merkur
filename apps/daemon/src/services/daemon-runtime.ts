@@ -1,8 +1,11 @@
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { waitForProcessSignal } from '@merkur/shared/node-signals';
 import { Clock, type Deferred, Effect, Fiber, Metric, Queue, Redacted, type Scope } from 'effect';
 import { ensureOpenUrlCommandsEffect } from '../cli/open';
 import {
   type DaemonConfig,
+  daemonProfilesPath,
   ensureShellTokenEffect,
   publicWebtransportEndpoint,
   shellTokenPath as shellTokenPathValue,
@@ -132,7 +135,7 @@ export function runDaemonRuntimeEffect(
                   Effect.flatMap(() =>
                     captureFinalTransportEvidence(config.daemon_id, dataplaneClient).pipe(
                       Effect.flatMap(() =>
-                        captureNativePerfTrace(config.daemon_id, dataplaneClient, logger),
+                        captureNativePerfTrace(config.daemon_id, dataplaneClient),
                       ),
                     ),
                   ),
@@ -283,21 +286,17 @@ export function captureFinalTransportEvidence(
   });
 }
 
-/** Cold SIGUSR2 capture only. Validated chunks are logged without retaining the full trace. */
+/** Cold SIGUSR2 capture only: the dataplane writes the file, the log names it. */
 const captureNativePerfTrace = Effect.fn('daemon.capture_native_perf_trace')(function* (
   daemonId: string,
   dataplaneClient: DataplaneClient,
-  logger: Logger,
 ) {
   const captureRequestedAtMs = yield* Clock.currentTimeMillis;
   const commandId = `perf-trace-${captureRequestedAtMs}-${++nativePerfCaptureSequence}`;
-  let chunkCount = 0;
-  let recordCount = 0;
-  const result = yield* dataplaneClient.capturePerfTraceEffect(commandId, (chunk) => {
-    logger.info('daemon_perf_trace_chunk', { daemonId, captureRequestedAtMs, chunk });
-    chunkCount += 1;
-    recordCount += chunk.records.length;
-  });
+  const directory = daemonProfilesPath();
+  const capturePath = path.join(directory, `${commandId}.mtrace`);
+  yield* Effect.tryPromise(() => mkdir(directory, { recursive: true, mode: 0o700 }));
+  const result = yield* dataplaneClient.capturePerfTraceEffect(commandId, capturePath);
   const captureCompletedAtMs = yield* Clock.currentTimeMillis;
   if (result.status !== 'accepted') {
     yield* logEffect('error', 'daemon', 'daemon_perf_trace_capture_failed', {
@@ -305,8 +304,6 @@ const captureNativePerfTrace = Effect.fn('daemon.capture_native_perf_trace')(fun
       commandId,
       captureRequestedAtMs,
       captureCompletedAtMs,
-      chunkCount,
-      recordCount,
       reason: result.reason,
     });
     return;
@@ -316,8 +313,7 @@ const captureNativePerfTrace = Effect.fn('daemon.capture_native_perf_trace')(fun
     commandId,
     captureRequestedAtMs,
     captureCompletedAtMs,
-    chunkCount,
-    recordCount,
+    path: capturePath,
   });
 });
 

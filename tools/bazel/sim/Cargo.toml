@@ -29,7 +29,7 @@ serde_json = { version = "1" }
 
 [workspace]
 resolver = "3"
-members = ["crates/apps-daemon-dataplane", "crates/apps-edge", "crates/packages-alacritty-terminal-patch", "crates/packages-fontdue-patch", "crates/packages-merkur-authorization", "crates/packages-merkur-client", "crates/packages-merkur-client-native", "crates/packages-merkur-codec", "crates/packages-merkur-e2e", "crates/packages-merkur-edge-protocol", "crates/packages-merkur-fec", "crates/packages-merkur-graphics", "crates/packages-merkur-identity-seal", "crates/packages-merkur-image-worker", "crates/packages-merkur-stun-protocol", "crates/packages-merkur-wire", "crates/packages-term-wasm", "crates/packages-vte-patch"]
+members = ["crates/apps-daemon-dataplane", "crates/apps-edge", "crates/packages-alacritty-terminal-patch", "crates/packages-fontdue-patch", "crates/packages-merkur-authorization", "crates/packages-merkur-client", "crates/packages-merkur-client-native", "crates/packages-merkur-codec", "crates/packages-merkur-e2e", "crates/packages-merkur-edge-protocol", "crates/packages-merkur-fec", "crates/packages-merkur-graphics", "crates/packages-merkur-identity-seal", "crates/packages-merkur-image-worker", "crates/packages-merkur-stun-protocol", "crates/packages-merkur-trace", "crates/packages-merkur-wire", "crates/packages-term-wasm", "crates/packages-vte-patch"]
 
 [workspace.lints.rust.unexpected_cfgs]
 level = "warn"

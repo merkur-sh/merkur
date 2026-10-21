@@ -95,10 +95,6 @@
     "cyclomatic": 51,
     "cognitive": 77
   },
-  "packages/shared/src/native-perf-trace.ts::isNativePerfTraceChunk": {
-    "cyclomatic": 42,
-    "cognitive": 13
-  },
   "scripts/agent-hooks/guards/source-grep.ts::parseWithSpec": {
     "cyclomatic": 34,
     "cognitive": 63
@@ -280,8 +276,8 @@
     "cognitive": 40
   },
   "tests/e2e/fixtures/native-display-boundaries.ts::summarizeNativeDisplayBoundaries": {
-    "cyclomatic": 71,
-    "cognitive": 102
+    "cyclomatic": 68,
+    "cognitive": 92
   },
   "tests/e2e/fixtures/presentation-measurement-settle.ts::waitForPresentationDrain": {
     "cyclomatic": 49,

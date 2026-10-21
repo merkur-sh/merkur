@@ -1,8 +1,5 @@
 import type { TerminalPerfEvent } from '../../../apps/web/src/perf/terminal-latency';
-import {
-  createNativePerfTraceValidator,
-  type NativePerfTraceRecord,
-} from '../../../packages/shared/src/native-perf-trace';
+import type { NativePerfTraceRecord } from '../../../packages/profile/src/mtrace';
 import type { DaemonPerfTraceCapture } from './daemon-perf-trace-capture';
 
 type NativeRecord = NativePerfTraceRecord;
@@ -53,46 +50,40 @@ export function summarizeNativeDisplayBoundaries(
   const errors: string[] = [];
   if (nativeCaptures.length === 0 || nativeCaptures.length > 4)
     throw new Error('native join requires one to four explicitly selected captures');
-  const owner = nativeCaptures[0]?.chunks[0];
-  if (owner === undefined) throw new Error('native capture has no owner metadata');
+  const owner = nativeCaptures[0]?.trace;
+  if (owner == null) throw new Error('native capture has no owner metadata');
   const recordsByOrdinal = new Map<number, NativeRecord>();
   for (const native of nativeCaptures) {
-    const validator = createNativePerfTraceValidator(native.commandId ?? '');
-    if (!native.chunks.every((chunk) => validator.accept(chunk)) || !validator.complete) {
-      errors.push('native chunks fail complete ordered export validation');
+    const trace = native.trace;
+    if (native.status !== 'complete' || trace === null) {
+      errors.push('native export is incomplete');
+      continue;
     }
-    if (native.status !== 'complete') errors.push('native export is incomplete');
-    if (native.chunks.length === 0) errors.push('native capture has no owner metadata');
-    if (native.chunks.some((chunk) => chunk.dropped !== 0))
+    if (trace.dropped !== 0)
       errors.push('native collection contains dropped current-owner records');
-    if (
-      browserSessionId.length === 0 ||
-      native.chunks.some((chunk) => chunk.session_id !== browserSessionId)
-    ) {
+    if (browserSessionId.length === 0 || trace.sessionId !== browserSessionId) {
       errors.push('browser/native session binding is absent or mismatched');
     }
-    for (const chunk of native.chunks) {
+    if (
+      trace.owner !== owner.owner ||
+      trace.sessionId !== owner.sessionId ||
+      trace.peerId !== owner.peerId ||
+      trace.observationEpoch !== owner.observationEpoch
+    ) {
+      errors.push('native captures cross owner/session/observation identity');
+      continue;
+    }
+    for (const record of trace.records) {
+      const previous = recordsByOrdinal.get(record.ordinal);
       if (
-        chunk.owner !== owner.owner ||
-        chunk.session_id !== owner.session_id ||
-        chunk.peer_id !== owner.peer_id ||
-        chunk.observation_epoch !== owner.observation_epoch
+        previous !== undefined &&
+        (previous.kind !== record.kind ||
+          previous.at_us !== record.at_us ||
+          previous.owner !== record.owner ||
+          previous.fields.some((value, index) => value !== record.fields[index]))
       ) {
-        errors.push('native captures cross owner/session/observation identity');
-        continue;
-      }
-      for (const record of chunk.records) {
-        const previous = recordsByOrdinal.get(record.ordinal);
-        if (
-          previous !== undefined &&
-          (previous.kind !== record.kind ||
-            previous.at_us !== record.at_us ||
-            previous.owner !== record.owner ||
-            previous.fields.some((value, index) => value !== record.fields[index]))
-        ) {
-          errors.push(`conflicting duplicate native ordinal ${record.ordinal}`);
-        } else recordsByOrdinal.set(record.ordinal, record);
-      }
+        errors.push(`conflicting duplicate native ordinal ${record.ordinal}`);
+      } else recordsByOrdinal.set(record.ordinal, record);
     }
   }
   const records = [...recordsByOrdinal.values()].sort((a, b) => a.ordinal - b.ordinal);
@@ -371,16 +362,16 @@ export function summarizeNativeDisplayBoundaries(
       'Native call/admission/packet construction and browser receipt/submission spans are separate clocks. No physical send, one-way transit, compositor or photon claim. Earliest physical copies do not identify the browser winning replica.',
     nativeOwner: {
       owner: owner.owner,
-      peerId: owner.peer_id,
-      sessionId: owner.session_id,
-      observationEpoch: owner.observation_epoch,
+      peerId: owner.peerId,
+      sessionId: owner.sessionId,
+      observationEpoch: owner.observationEpoch,
     },
     nativeCaptures: nativeCaptures.map((capture) => ({
       commandId: capture.commandId,
-      firstOrdinal: capture.chunks[0]?.first_ordinal,
-      lastOrdinal: capture.chunks[0]?.last_ordinal,
-      dropped: capture.chunks[0]?.dropped,
-      stalePreviousObservationRecords: capture.chunks[0]?.stale,
+      firstOrdinal: capture.trace?.records[0]?.ordinal ?? 0,
+      lastOrdinal: capture.trace?.records.at(-1)?.ordinal ?? 0,
+      dropped: capture.trace?.dropped,
+      stalePreviousObservationRecords: capture.trace?.stale,
     })),
     browserSessionId,
     attempts,

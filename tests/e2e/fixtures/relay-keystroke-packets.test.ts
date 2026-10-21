@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { NativePerfTraceRecord } from '../../../packages/shared/src/native-perf-trace';
+import type { NativePerfTraceRecord } from '../../../packages/profile/src/mtrace';
 import type { ProxyRelayStatus } from '../../../scripts/edge-network-stats';
 import { daemonLegPackets, proxyWindowCounts } from './relay-keystroke-packets';
 

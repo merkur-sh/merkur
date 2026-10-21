@@ -611,9 +611,9 @@ mod tests {
             events[2].1.duration_since(events[1].1),
             Duration::from_millis(40)
         );
-        assert_eq!(events[1].2.0, "pty_read");
+        assert_eq!(events[1].2.0.name(), "pty_read");
         assert_eq!(&events[1].2.1[..3], &[1, 9, 123]);
-        assert_eq!(events[2].2.0, "pty_read_handled");
+        assert_eq!(events[2].2.0.name(), "pty_read_handled");
     }
 
     #[test]
@@ -637,7 +637,7 @@ mod tests {
             );
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].0.token, new);
-            assert_eq!(events[0].2.0, "pty_boundary_discard");
+            assert_eq!(events[0].2.0.name(), "pty_boundary_discard");
             assert_eq!(
                 &events[0].2.1[..4],
                 &[0, 9, u64::from(before.is_some()), 123]

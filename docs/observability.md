@@ -698,11 +698,15 @@ handshake reason `egress_budget`.
 Authenticated browser profiling also arms a bounded recorder inside the dataplane that
 timestamps the PTY and QUIC boundaries a keystroke crosses, so daemon queueing can be told
 apart from shell and kernel time without inventing a causal join. It adds nothing to the
-display or control lanes. An explicit `CMD_CAPTURE_PERF_TRACE` (`0x0e`) drains it through
-`EVT_PERF_TRACE` (`0x93`) chunks of at most 128 records, from a retained set of 16,384
-(`packages/shared/src/native-perf-trace.ts`). A malformed capture rejects the capture, not
-the terminal session. The test-only `SIGUSR2` listener enabled by
-`MERKUR_E2E_FINAL_TRANSPORT_CAPTURE=1` requests transport statistics and then this capture.
+display or control lanes. The recorder is `packages/merkur-trace`: each recording thread
+writes its own ring from a fixed pool, and a full ring or an exhausted pool refuses the record
+and counts it as dropped. An explicit `CMD_CAPTURE_PERF_TRACE` (`0x0e`) names an absolute
+path that must not exist; a cold thread, never the owner loop, drains every ring into that one
+owner-only `.mtrace` file and the command is accepted once it is written. The daemon writes
+captures under `~/.merkur/profiles/`, and `@merkur/profile` (`packages/profile/src/mtrace.ts`)
+reads them. A malformed capture rejects the capture, not the terminal session. The test-only
+`SIGUSR2` listener enabled by `MERKUR_E2E_FINAL_TRANSPORT_CAPTURE=1` requests transport
+statistics and then this capture, and logs the file's path.
 
 Each record has an owner, an ordinal, a process-monotonic `at_us`, a closed `kind`, and
 sixteen integer words. Kinds are `pty_enqueue`, `pty_write`, `pty_read`, `pty_read_handled`,

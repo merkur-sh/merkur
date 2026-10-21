@@ -179,9 +179,6 @@
       "clippy::cast_possible_truncation": 22,
       "clippy::let_underscore_must_use": 1
     },
-    "apps/daemon/dataplane/src/perf_trace.rs": {
-      "clippy::cast_possible_truncation": 6
-    },
     "apps/daemon/dataplane/src/pty/dimensions.rs": {
       "clippy::cast_possible_truncation": 1
     },

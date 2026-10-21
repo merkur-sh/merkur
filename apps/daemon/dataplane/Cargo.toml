@@ -30,6 +30,7 @@ merkur-edge-protocol = { path = "../../../packages/merkur-edge-protocol" }
 merkur-fec = { path = "../../../packages/merkur-fec" }
 merkur-graphics = { path = "../../../packages/merkur-graphics" }
 merkur-image-worker = { path = "../../../packages/merkur-image-worker" }
+merkur-trace = { path = "../../../packages/merkur-trace" }
 merkur-wire = { path = "../../../packages/merkur-wire" }
 bytes = "1"
 # Vectorized byte search for the two scans the PTY path runs over every read

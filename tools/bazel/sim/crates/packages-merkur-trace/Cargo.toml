@@ -1,0 +1,16 @@
+# Generated from packages/merkur-trace/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-trace"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/merkur-trace/src/lib.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2" }
+
+[lints]
+workspace = true

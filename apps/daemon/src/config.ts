@@ -125,6 +125,11 @@ export function merkurInstallRootPath(): string {
   return path.dirname(daemonConfigPath());
 }
 
+/** ~/.merkur/profiles — native trace captures, readable only by this user. */
+export function daemonProfilesPath(): string {
+  return path.join(merkurInstallRootPath(), 'profiles');
+}
+
 export function currentMachineName(): string {
   return os.hostname();
 }

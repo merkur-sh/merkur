@@ -5,8 +5,6 @@ import { fileURLToPath } from 'node:url';
 const DAEMON_CLIENT_SOURCE = readSource('../../../apps/daemon/src/services/dataplane-client.ts');
 const DAEMON_COMMAND_SOURCE = readSource('../../../apps/daemon/dataplane/src/ipc/commands.rs');
 const DAEMON_EVENT_SOURCE = readSource('../../../apps/daemon/dataplane/src/ipc/events.rs');
-const PERF_TRACE_SOURCE = readSource('../../../apps/daemon/dataplane/src/perf_trace.rs');
-const PERF_TRACE_VALIDATOR_SOURCE = readSource('./native-perf-trace.ts');
 const DAEMON_PORTMAP_SOURCE = readSource(
   '../../../apps/daemon/dataplane/src/webtransport/portmap/mod.rs',
 );
@@ -48,7 +46,6 @@ const DAEMON_EVENT_GOLDEN = {
   // additionally rate-bounded at the emitter because an `unknown_peer` refusal
   // is drivable by anyone holding the rendezvous id.
   EVT_SESSION_REBIND: 0x92,
-  EVT_PERF_TRACE: 0x93,
   EVT_DAEMON_PROOF: 0x94,
 } as const;
 
@@ -138,27 +135,13 @@ describe('daemon dataplane IPC wire conformance', () => {
     ]);
   });
 
-  test('native trace command and flattened export keys match the closed consumer schema', () => {
+  test('the native trace capture command is the exact key set the client sends', () => {
+    // The file it writes is pinned by `packages/merkur-trace/testdata/capture.mtrace`,
+    // which both its Rust writer and `@merkur/profile`'s reader test against.
     expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'CapturePerfTraceCmd')).toEqual([
       'command_id',
+      'path',
     ]);
-    const fields = readRustStructFields(PERF_TRACE_SOURCE, "TraceChunk<'a>").filter(
-      (field) => field !== 'owner',
-    );
-    fields.push(...readRustStructFields(PERF_TRACE_SOURCE, 'TraceOwner'));
-    const literalKeys = (name: string): string[] => {
-      const start = PERF_TRACE_VALIDATOR_SOURCE.indexOf(`const ${name} = [`);
-      if (start < 0) throw new Error(`${name} not found`);
-      const end = PERF_TRACE_VALIDATOR_SOURCE.indexOf('] as const;', start);
-      if (end < 0) throw new Error(`${name} not terminated`);
-      return [...PERF_TRACE_VALIDATOR_SOURCE.slice(start, end).matchAll(/'([^']+)'/g)]
-        .map((match) => match[1] ?? '')
-        .sort();
-    };
-    expect(fields.sort()).toEqual(literalKeys('CHUNK_KEYS'));
-    expect(readRustStructFields(PERF_TRACE_SOURCE, 'TraceRecord')).toEqual(
-      literalKeys('RECORD_KEYS'),
-    );
   });
 
   test('the rebind outcome vocabulary is the same list on both sides', () => {

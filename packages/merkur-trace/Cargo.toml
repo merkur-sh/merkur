@@ -1,0 +1,17 @@
+[package]
+name = "merkur-trace"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+# The capture's monotonic anchor: `clock_gettime(CLOCK_MONOTONIC)`, the clock Linux `Instant`
+# and samply's perf sampling both read. Already in the lock file.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

@@ -23,6 +23,7 @@ members = [
   "packages/merkur-graphics",
   "packages/merkur-image-worker",
   "packages/merkur-identity-seal",
+  "packages/merkur-trace",
   "packages/term-wasm",
   "packages/vte-patch"
 ]

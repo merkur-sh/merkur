@@ -2571,28 +2571,34 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 continue;
                             }
                         };
-                        if !is_valid_command_id(&cmd.command_id) {
+                        if !is_valid_command_id(&cmd.command_id)
+                            || !std::path::Path::new(&cmd.path).is_absolute()
+                        {
                             reject_command(&event_tx, &cmd.command_id, "invalid_command");
                             continue;
                         }
-                        let Some(snapshot) = perf_trace::capture() else {
-                            reject_command(&event_tx, &cmd.command_id, "profiling_not_started");
-                            continue;
-                        };
-                        let mut complete = true;
-                        for index in 0..snapshot.chunk_count() {
-                            if event_tx.send_diagnostic_json(
-                                EVT_PERF_TRACE,
-                                &snapshot.chunk(&cmd.command_id, index),
-                            ).is_err() {
-                                complete = false;
-                                break;
-                            }
-                        }
-                        if complete {
-                            accept_command(&event_tx, &cmd.command_id);
-                        } else {
-                            reject_command(&event_tx, &cmd.command_id, "telemetry_backpressure");
+                        // Draining the rings and writing megabytes are cold work: neither
+                        // runs on the owner loop, which only hands the command over.
+                        let writer_tx = event_tx.clone();
+                        let command_id = cmd.command_id.clone();
+                        let spawned = std::thread::Builder::new()
+                            .name("perf-trace-capture".to_owned())
+                            .spawn(move || {
+                                match perf_trace::write_capture(std::path::Path::new(&cmd.path)) {
+                                    Ok(true) => accept_command(&writer_tx, &cmd.command_id),
+                                    Ok(false) => reject_command(
+                                        &writer_tx,
+                                        &cmd.command_id,
+                                        "profiling_not_started",
+                                    ),
+                                    Err(error) => {
+                                        warn!(%error, "native trace capture write failed");
+                                        reject_command(&writer_tx, &cmd.command_id, "write_failed");
+                                    }
+                                }
+                            });
+                        if spawned.is_err() {
+                            reject_command(&event_tx, &command_id, "write_failed");
                         }
                     }
                     CMD_CAPTURE_TRANSPORT_STATS => {

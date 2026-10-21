@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
-import { writeMerkurLog } from '@merkur/logger';
-import { isNativePerfTraceChunk, type NativePerfTraceChunk } from '@merkur/shared';
 import { SidecarFrameReader } from '@merkur/shared/node-sidecar';
 import { Effect, Fiber, Metric } from 'effect';
 import { TestClock } from 'effect/testing';
@@ -41,7 +39,6 @@ const EVT_PEER_AUTHENTICATED = 0x8e;
 const EVT_COMMAND_ACK = 0x8f;
 const EVT_TRANSPORT_STATS = 0x90;
 const EVT_SESSION_REBIND = 0x92;
-const EVT_PERF_TRACE = 0x93;
 const EVT_DAEMON_PROOF = 0x94;
 const CMD_SIGN_DAEMON_PROOF = 0x10;
 
@@ -854,133 +851,40 @@ describe('DataplaneClient lifecycle', () => {
 });
 
 describe('DataplaneClient acknowledged commands', () => {
-  function traceChunk(commandId: string): NativePerfTraceChunk {
-    return {
-      command_id: commandId,
-      owner: 1,
-      peer_id: 'peer-1',
-      session_id: 'session-1',
-      observation_epoch: 1,
-      attempted: 1,
-      dropped: 0,
-      stale: 0,
-      record_count: 1,
-      first_ordinal: 1,
-      last_ordinal: 1,
-      chunk_index: 0,
-      chunk_count: 1,
-      records: [
-        { ordinal: 1, owner: 1, at_us: 10, kind: 'pty_enqueue', fields: Array(16).fill(0) },
-      ],
-    };
-  }
-
-  test('cold structured logging preserves all 128 records and their 16 fields', () => {
-    const chunk: NativePerfTraceChunk = {
-      ...traceChunk('trace-log-1'),
-      attempted: 128,
-      record_count: 128,
-      last_ordinal: 128,
-      records: Array.from({ length: 128 }, (_, index) => ({
-        ordinal: index + 1,
-        owner: 1,
-        at_us: index,
-        kind: 'quic_datagram',
-        fields: Array.from({ length: 16 }, (_, field) => field),
-      })),
-    };
-    const context = { daemonId: 'daemon-1', captureRequestedAtMs: 123, chunk };
-    const written: string[] = [];
-    const originalWrite = process.stdout.write;
-    const originalLevel = process.env.LOG_LEVEL;
-    Object.defineProperty(process.stdout, 'write', {
-      configurable: true,
-      value: (value: string) => {
-        written.push(value);
-        return true;
-      },
-    });
-    try {
-      process.env.LOG_LEVEL = 'info';
-      writeMerkurLog({
-        ts: '2026-09-06T00:00:00.000Z',
-        level: 'info',
-        scope: 'daemon',
-        message: 'daemon_perf_trace_chunk',
-        context,
-      });
-    } finally {
-      Object.defineProperty(process.stdout, 'write', { configurable: true, value: originalWrite });
-      if (originalLevel === undefined) delete process.env.LOG_LEVEL;
-      else process.env.LOG_LEVEL = originalLevel;
-    }
-    expect(written).toHaveLength(1);
-    const decoded: unknown = JSON.parse(required(written[0]));
-    expect(decoded).toMatchObject({ context });
-    expect(isNativePerfTraceChunk(chunk)).toBe(true);
-  });
-
-  test('streams an exact bounded native trace before accepting its correlated ACK', async () => {
+  test('asks for one exact file capture and accepts its correlated ACK', async () => {
     const sidecars: FakeSidecar[] = [];
     const client = createClient(logger, createHandlers(), createDependencies(sidecars));
     client.start();
     const sidecar = required(sidecars[0]);
-    const received: NativePerfTraceChunk[] = [];
     const capture = Effect.runPromise(
-      client.capturePerfTraceEffect('trace-1', (chunk) => {
-        received.push(chunk);
-      }),
+      client.capturePerfTraceEffect('trace-1', '/tmp/profiles/trace-1.mtrace'),
     );
     const frame = required(
       readFrames(sidecar.inputChunks).find((entry) => entry.kind === CMD_CAPTURE_PERF_TRACE),
     );
-    expect(JSON.parse(new TextDecoder().decode(frame.payload))).toEqual({ command_id: 'trace-1' });
-    sidecar.emitFrame(EVT_PERF_TRACE, traceChunk('unrelated'));
-    expect(received).toEqual([]);
-    sidecar.emitFrame(EVT_PERF_TRACE, traceChunk('trace-1'));
-    expect(received).toEqual([traceChunk('trace-1')]);
+    expect(JSON.parse(new TextDecoder().decode(frame.payload))).toEqual({
+      command_id: 'trace-1',
+      path: '/tmp/profiles/trace-1.mtrace',
+    });
     sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'trace-1', status: 'accepted' });
     await expect(capture).resolves.toEqual({ status: 'accepted' });
-    sidecar.emitFrame(EVT_PERF_TRACE, traceChunk('trace-1'));
-    expect(received).toHaveLength(1);
     client.stop();
   });
 
-  test('rejects incomplete or malformed diagnostic captures without restarting terminal work', async () => {
-    for (const failure of ['missing', 'malformed', 'duplicate', 'consumer'] as const) {
+  test('a refused capture leaves terminal work running', async () => {
+    for (const reason of ['profiling_not_started', 'write_failed'] as const) {
       const sidecars: FakeSidecar[] = [];
       const exitReasons: string[] = [];
       const client = createClient(
         logger,
-        createHandlers((reason) => exitReasons.push(reason)),
+        createHandlers((exit) => exitReasons.push(exit)),
         createDependencies(sidecars),
       );
       client.start();
       const sidecar = required(sidecars[0]);
-      let delivered = 0;
-      const capture = Effect.runPromise(
-        client.capturePerfTraceEffect('trace-1', () => {
-          delivered += 1;
-          if (failure === 'consumer') throw new Error('capture output unavailable');
-        }),
-      );
-      if (failure === 'malformed') {
-        sidecar.emitFrame(EVT_PERF_TRACE, { ...traceChunk('trace-1'), extra: 'not allowed' });
-      } else if (failure !== 'missing') {
-        sidecar.emitFrame(EVT_PERF_TRACE, traceChunk('trace-1'));
-        if (failure === 'duplicate') sidecar.emitFrame(EVT_PERF_TRACE, traceChunk('trace-1'));
-      }
-      sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'trace-1', status: 'accepted' });
-      await expect(capture).resolves.toEqual({
-        status: 'rejected',
-        reason:
-          failure === 'missing'
-            ? 'incomplete_perf_trace'
-            : failure === 'consumer'
-              ? 'perf_trace_consumer_failed'
-              : 'invalid_perf_trace',
-      });
-      expect(delivered).toBe(failure === 'consumer' || failure === 'duplicate' ? 1 : 0);
+      const capture = Effect.runPromise(client.capturePerfTraceEffect('trace-1', '/tmp/a.mtrace'));
+      sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'trace-1', status: 'rejected', reason });
+      await expect(capture).resolves.toEqual({ status: 'rejected', reason });
       expect(exitReasons).toEqual([]);
       expect(sidecar.killSignals).toEqual([]);
       const normal = Effect.runPromise(client.captureTransportStatsEffect('normal-1'));
@@ -990,7 +894,7 @@ describe('DataplaneClient acknowledged commands', () => {
     }
   });
 
-  test('expires native trace captures and discards late chunks without invoking consumers', async () => {
+  test('expires a native trace capture the dataplane never acknowledges', async () => {
     const sidecars: FakeSidecar[] = [];
     const timers: ScheduledTimer[] = [];
     const client = createClient(logger, createHandlers(), {
@@ -999,16 +903,9 @@ describe('DataplaneClient acknowledged commands', () => {
       scheduleTimer: (delayMs, callback) => scheduleCallback(timers, delayMs, callback),
     });
     client.start();
-    let delivered = 0;
-    const capture = Effect.runPromise(
-      client.capturePerfTraceEffect('trace-1', () => {
-        delivered += 1;
-      }),
-    );
+    const capture = Effect.runPromise(client.capturePerfTraceEffect('trace-1', '/tmp/a.mtrace'));
     required(timers.find((timer) => timer.delayMs === 25)).run();
     await expect(capture).resolves.toEqual({ status: 'rejected', reason: 'dataplane_ack_timeout' });
-    required(sidecars[0]).emitFrame(EVT_PERF_TRACE, traceChunk('trace-1'));
-    expect(delivered).toBe(0);
     client.stop();
   });
 

@@ -7,6 +7,8 @@ use crossbeam_channel::{Sender, TrySendError, bounded};
 use tokio::sync::mpsc;
 
 use crate::connection::PeerTransport;
+use merkur_trace::Site;
+
 use crate::perf_trace::{self, TraceEvent, TraceToken};
 use crate::pty::input_encoder::Sink;
 
@@ -89,7 +91,7 @@ impl PtyTraceEvent {
     /// pty_boundary_discard: 0; prior owner present, bytes.
     /// All other slots are zero. These are a closed diagnostic vocabulary,
     /// not a browser/display wire contract.
-    pub(crate) fn trace_fields(self) -> (&'static str, [u64; 16]) {
+    pub(crate) fn trace_fields(self) -> (&'static Site, [u64; 16]) {
         let mut fields = [0; 16];
         let kind = match self {
             Self::WriteQueued {
@@ -109,15 +111,15 @@ impl PtyTraceEvent {
                     queued_writes as u64,
                     queued_bytes as u64,
                 ]);
-                "pty_enqueue"
+                &perf_trace::PTY_ENQUEUE
             }
             Self::WriteDequeued { write_ordinal } => {
                 fields[1] = write_ordinal;
-                "pty_write"
+                &perf_trace::PTY_WRITE
             }
             Self::WriteSyscallStarted { write_ordinal } => {
                 fields[..2].copy_from_slice(&[1, write_ordinal]);
-                "pty_write"
+                &perf_trace::PTY_WRITE
             }
             Self::WriteCompleted {
                 write_ordinal,
@@ -134,30 +136,30 @@ impl PtyTraceEvent {
                     syscall_us,
                     u64::from(success),
                 ]);
-                "pty_write"
+                &perf_trace::PTY_WRITE
             }
             Self::WriteOwnerHandled { write_ordinal } => {
                 fields[..2].copy_from_slice(&[3, write_ordinal]);
-                "pty_write"
+                &perf_trace::PTY_WRITE
             }
             Self::ReadStarted { read_ordinal } => {
                 fields[1] = read_ordinal;
-                "pty_read"
+                &perf_trace::PTY_READ
             }
             Self::ReadCompleted {
                 read_ordinal,
                 byte_len,
             } => {
                 fields[..3].copy_from_slice(&[1, read_ordinal, byte_len as u64]);
-                "pty_read"
+                &perf_trace::PTY_READ
             }
             Self::ReadOwnerHandled { read_ordinal } => {
                 fields[1] = read_ordinal;
-                "pty_read_handled"
+                &perf_trace::PTY_READ_HANDLED
             }
             Self::ReadGridApplied { read_ordinal } => {
                 fields[..2].copy_from_slice(&[1, read_ordinal]);
-                "pty_read_handled"
+                &perf_trace::PTY_READ_HANDLED
             }
             Self::ReadBoundaryDiscard {
                 read_ordinal,
@@ -170,7 +172,7 @@ impl PtyTraceEvent {
                     u64::from(had_prior_owner),
                     byte_len as u64,
                 ]);
-                "pty_boundary_discard"
+                &perf_trace::PTY_BOUNDARY_DISCARD
             }
         };
         (kind, fields)
@@ -835,7 +837,7 @@ mod tests {
             queued_bytes: 3,
         }
         .trace_fields();
-        assert_eq!(kind, "pty_enqueue");
+        assert_eq!(kind.name(), "pty_enqueue");
         assert_eq!(&fields[..7], &[0, 8, 9, 0, 1, 2, 3]);
         assert!(fields[7..].iter().all(|field| *field == 0));
         for (event, subkind) in [
@@ -844,7 +846,7 @@ mod tests {
             (PtyTraceEvent::WriteOwnerHandled { write_ordinal: 8 }, 3),
         ] {
             let (kind, fields) = event.trace_fields();
-            assert_eq!(kind, "pty_write");
+            assert_eq!(kind.name(), "pty_write");
             assert_eq!(&fields[..2], &[subkind, 8]);
         }
         let (kind, fields) = PtyTraceEvent::WriteCompleted {
@@ -855,7 +857,7 @@ mod tests {
             success: false,
         }
         .trace_fields();
-        assert_eq!(kind, "pty_write");
+        assert_eq!(kind.name(), "pty_write");
         assert_eq!(&fields[..6], &[2, 8, 2, 3, 17, 0]);
     }
 

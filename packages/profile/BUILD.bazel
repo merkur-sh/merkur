@@ -1,0 +1,29 @@
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("//tools/bazel:files.bzl", "IGNORED", "package_files")
+load("//tools/bazel/bun:bun.bzl", "bun_tests")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+npm_link_all_packages(name = "node_modules")
+
+# The workspace package as pnpm links it into its dependents: every file it ships beside its
+# `package.json`, with its own dependencies.
+js_library(
+    name = "pkg",
+    srcs = glob(
+        ["**"],
+        exclude = IGNORED + ["BUILD.bazel"],
+    ),
+    visibility = ["//visibility:public"],
+    deps = [":node_modules"],
+)
+
+bun_tests(
+    tests = glob(
+        ["**/*.test.ts"],
+        exclude = IGNORED,
+    ),
+)
