@@ -53,7 +53,7 @@ fn row_count(body: &[u8]) -> Result<u16, String> {
 fn compress(body: &[u8]) -> Result<Vec<u8>, String> {
     let mut payload = Vec::new();
     merkur_codec::mz::MzEncoder::default()
-        .encode(body, row_count(body)?, &[], &mut payload)
+        .encode(body, row_count(body)?, &merkur_codec::mz::NoHistory, None, None, &mut payload)
         .ok_or("the rows do not code")?;
     Ok(payload)
 }
@@ -125,26 +125,14 @@ mod tests {
         frame[merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES..].to_vec()
     }
 
-    struct NoReferences;
-
-    impl merkur_codec::mz::MzResolve for NoReferences {
-        fn resolve(
-            &mut self,
-            _: u16,
-            _: merkur_codec::mz::MzReference,
-            _: &mut Vec<u8>,
-        ) -> Result<(), merkur_codec::mz::MzError> {
-            Err(merkur_codec::mz::MzError::Unresolved)
-        }
-    }
-
     #[test]
     fn payloads_round_trip_and_shrink() {
         let rows = body(32);
         let payload = compress(&rows).unwrap();
         assert!(payload.len() < rows.len());
         let mut decoded = Vec::new();
-        merkur_codec::mz::decode_mz_rows(&payload, 32, rows.len(), &mut NoReferences, &mut decoded)
+        merkur_codec::mz::MzReceiver::default()
+            .decode(1, 1, &payload, 32, rows.len(), &mut decoded)
             .unwrap();
         assert_eq!(decoded, rows);
     }

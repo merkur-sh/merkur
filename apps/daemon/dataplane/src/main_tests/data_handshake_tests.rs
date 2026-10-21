@@ -391,6 +391,7 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
     peer.display_cache.insert_sent_datagram(
         10,
         SentDatagram {
+            mz: crate::connection::SentMz::default(),
             sent_at_ms: 10.0,
             rows: SentRows::from_iter([direct_row]),
             sent_via: SentPaths::single(PeerTransport::WebTransport),
@@ -418,6 +419,7 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
     peer.display_cache.insert_sent_datagram(
         11,
         SentDatagram {
+            mz: crate::connection::SentMz::default(),
             sent_at_ms: 11.0,
             rows: SentRows::from_iter([edge_row]),
             sent_via: edge_paths,
@@ -448,6 +450,7 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
     peer.display_cache.insert_sent_datagram(
         12,
         SentDatagram {
+            mz: crate::connection::SentMz::default(),
             sent_at_ms: 12.0,
             rows: SentRows::from_iter([dual_row]),
             sent_via: dual_paths,
@@ -459,6 +462,7 @@ async fn current_direct_disconnect_requeues_only_its_attempts_before_edge_reoffe
     peer.display_cache.insert_sent_datagram(
         13,
         SentDatagram {
+            mz: crate::connection::SentMz::default(),
             sent_at_ms: 13.0,
             rows: SentRows::default(),
             sent_via: dual_paths,

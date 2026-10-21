@@ -578,6 +578,16 @@ pub struct SentRow {
 // The inline record size below is this.
 const _: () = assert!(size_of::<SentRow>() == 40);
 
+/// A sent datagram's MZ facts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SentMz {
+    /// The frame was MZ: once acknowledged, its trace folds into the peer's
+    /// next session epoch.
+    pub coded: bool,
+    /// The session epoch its payload declared.
+    pub declared: Option<u8>,
+}
+
 impl From<&crate::pty::CapturedRow> for SentRow {
     fn from(captured: &crate::pty::CapturedRow) -> Self {
         Self {
@@ -760,6 +770,8 @@ impl<'a> Iterator for SentRowsIter<'a> {
 pub struct SentDatagram {
     pub sent_at_ms: f64,
     pub rows: SentRows,
+    /// What the datagram's MZ frame owes the peer's session fold.
+    pub mz: SentMz,
     /// Path(s) that carried this datagram; drives RTT-sample attribution
     /// in the ACK handler (see `SentPaths`). Empty only for a refused original
     /// made reconstructible by admitted FEC: its ACK still owns an exact row
@@ -4677,6 +4689,7 @@ mod tests {
         cache.sent_datagrams.insert(
             10,
             SentDatagram {
+                mz: SentMz::default(),
                 sent_at_ms: 0.0,
                 rows: SentRows::from_iter([
                     SentRow {
@@ -4727,6 +4740,7 @@ mod tests {
         cache.sent_datagrams.insert(
             10,
             SentDatagram {
+                mz: SentMz::default(),
                 sent_at_ms: 0.0,
                 rows: SentRows::from_iter([
                     SentRow {
@@ -4863,6 +4877,7 @@ mod tests {
         cache.sent_datagrams.insert(
             1,
             SentDatagram {
+                mz: SentMz::default(),
                 sent_at_ms: 0.0,
                 rows: SentRows::from_iter([shared.clone()]),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -4874,6 +4889,7 @@ mod tests {
         cache.sent_datagrams.insert(
             2,
             SentDatagram {
+                mz: SentMz::default(),
                 sent_at_ms: 1.0,
                 rows: SentRows::from_iter([shared.clone()]),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -4919,6 +4935,7 @@ mod tests {
             cache.insert_sent_datagram(
                 seq,
                 SentDatagram {
+                    mz: SentMz::default(),
                     sent_at_ms: f64::from(seq),
                     rows: SentRows::default(),
                     sent_via: SentPaths::single(PeerTransport::Edge),
@@ -4954,6 +4971,7 @@ mod tests {
             complete: true,
         };
         let sent = |sent_at_ms| SentDatagram {
+            mz: SentMz::default(),
             sent_at_ms,
             rows: SentRows::default(),
             sent_via: SentPaths::single(PeerTransport::Edge),
@@ -4967,7 +4985,7 @@ mod tests {
             let mut cache = PerPeerDisplayCache::new();
             cache.resize(4, 2);
             cache.references.note_sent(1, [&source]);
-            cache.references.note_applied(1, [&source]);
+            cache.references.note_applied(1, [&source], true, None);
             cache.references.note_referencing(2);
             cache.insert_sent_datagram(2, sent(1.0));
             assert_eq!(cache.references.len(), 1);
@@ -5007,6 +5025,7 @@ mod tests {
             cache.insert_sent_datagram(
                 seq,
                 SentDatagram {
+                    mz: SentMz::default(),
                     sent_at_ms: 1.0,
                     rows: SentRows::default(),
                     sent_via,
@@ -5025,6 +5044,7 @@ mod tests {
         cache.insert_sent_datagram(
             5,
             SentDatagram {
+                mz: SentMz::default(),
                 sent_at_ms: 2.0,
                 rows: SentRows::default(),
                 sent_via: SentPaths::single(PeerTransport::WebTransport),
@@ -5043,6 +5063,7 @@ mod tests {
     fn sent_history_capacity_uses_admission_age_across_wrap_and_replacement() {
         let mut cache = PerPeerDisplayCache::new();
         let sent = |at| SentDatagram {
+            mz: SentMz::default(),
             sent_at_ms: at,
             rows: SentRows::default(),
             sent_via: SentPaths::single(PeerTransport::Edge),
@@ -5085,6 +5106,7 @@ mod tests {
             cache.insert_sent_datagram(
                 seq,
                 SentDatagram {
+                    mz: SentMz::default(),
                     sent_at_ms: at,
                     rows: SentRows::default(),
                     sent_via: SentPaths::single(PeerTransport::Edge),
@@ -5118,6 +5140,7 @@ mod tests {
         const SAMPLES: usize = 1000;
         const BATCH: usize = 32;
         let sent = |at| SentDatagram {
+            mz: SentMz::default(),
             sent_at_ms: at,
             rows: SentRows::default(),
             sent_via: SentPaths::single(PeerTransport::Edge),
@@ -6476,6 +6499,7 @@ mod tests {
         );
 
         let dual = SentDatagram {
+            mz: SentMz::default(),
             sent_at_ms: 1.0,
             rows: SentRows::default(),
             sent_via: SentPaths {

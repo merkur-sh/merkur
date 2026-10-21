@@ -29,11 +29,13 @@ health. The one-line versions:
   actually applied successors, never from sequence distance.
 - A flush is bounded by the carrier's measured free datagram-buffer space, never a byte
   constant, with no inter-group pacing.
-- MZ is the one payload codec: a frame it would not shrink travels raw. A static model
-  compiled into both ends, no install; a retrained model regenerates the browser
-  calibration fixtures and test grids (`packages/display-fixture`). References name a
-  complete row of an acknowledged delta (counted from the presentation id), which the browser
-  kept as the frame carried it, applied or stale; both ends run the same `MzLedger`, the
-  daemon's over a superset, so it never names a retired row; an unresolvable reference is a
-  lost datagram, never a resync.
+- MZ is the one payload codec: a frame it would not shrink travels raw. Every context adapts
+  within its frame from a prior: the static model compiled into both ends, or a session epoch
+  both ends fold from acknowledged frames' symbol traces; a retrained model regenerates the
+  browser calibration fixtures and test grids (`packages/display-fixture`). An epoch is used
+  only after a datagram declaring it is acknowledged, and a browser refuses a declaration it
+  cannot build. Copies name item runs of an earlier entry of the frame or of a complete row of
+  an acknowledged delta (counted from the presentation id), which the browser kept as the frame
+  carried it; both ends run the same `MzLedger`, the daemon's over a superset, so it never
+  names a retired row; an unresolvable copy or epoch is a lost datagram, never a resync.
 - One wrap bit per row on the row's final cell; `row_hash` digests it.

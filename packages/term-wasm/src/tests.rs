@@ -421,7 +421,7 @@ fn display_receiver_calibration_terminal_is_headless_and_isolated() {
     assert_eq!(terminal.cols(), 120);
     assert_eq!(terminal.rows(), 29);
     assert!(terminal.atlas.is_none());
-    assert_eq!(terminal.display_row_history.held_bytes(), 0);
+    assert_eq!(terminal.display_mz.held_bytes(), 0);
     assert!(!terminal.has_predictions());
 }
 
@@ -1076,15 +1076,17 @@ fn compressed_test_frame(frame: &[u8]) -> Vec<u8> {
     wire[DISPLAY_SEQ_OFFSET..DISPLAY_SEQ_OFFSET + 4].copy_from_slice(&seq.to_be_bytes());
     wire[DISPLAY_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
     wire.extend_from_slice(&(rows.len() as u32).to_be_bytes());
-    let rows_len = merkur_codec::mz::MzEncoder::default()
+    let encoded = merkur_codec::mz::MzEncoder::default()
         .encode(
             rows,
             parse_frame_header(frame).unwrap().row_count,
-            &[],
+            &merkur_codec::mz::NoHistory,
+            None,
+            None,
             &mut wire,
         )
         .expect("MZ codes the rows");
-    assert_eq!(rows_len, rows.len());
+    assert_eq!(encoded.rows_len, rows.len());
     restamp_test_body_len(&mut wire);
     wire
 }

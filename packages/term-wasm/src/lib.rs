@@ -650,7 +650,7 @@ pub struct Terminal {
     display_decoded_rows: Vec<u8>,
     /// Every complete row a delta carried, which MZ references read. Cleared
     /// with the ordering epoch, the geometry and the session's codec state.
-    display_row_history: merkur_codec::mz::RowHistory,
+    display_mz: merkur_codec::mz::MzReceiver,
     full_damage: bool,
     display_mode: u32,
     // The routing bits of `display_mode` are the daemon's input-routing word,
@@ -1300,7 +1300,7 @@ impl Terminal {
             staged_active_decoded_cells: 0,
             staged_frame_input: Vec::new(),
             display_decoded_rows: Vec::new(),
-            display_row_history: merkur_codec::mz::RowHistory::default(),
+            display_mz: merkur_codec::mz::MzReceiver::default(),
             full_damage: true,
             display_mode: 0,
             input_routing_held: false,
@@ -1431,11 +1431,13 @@ impl Terminal {
         self.apply_frame(data, false, seq)
     }
 
-    /// Drop the row history MZ references read at an authenticated-session
-    /// boundary that kept no grid, without touching the grid or font atlas.
+    /// Drop the rows and session epochs MZ frames read at an
+    /// authenticated-session boundary that kept no grid, without touching the
+    /// grid or font atlas.
     pub fn clear_display_history(&mut self) {
-        self.display_row_history.clear();
+        self.display_mz.clear();
     }
+
 
     /// Reserve the one reusable JS -> WASM ingress buffer. JS caches this
     /// pointer and calls this again only when a larger frame arrives.
@@ -1588,41 +1590,27 @@ impl Terminal {
         })
     }
 
-    /// Decode an MZ payload into the reusable rows buffer, resolving its
-    /// references against this grid's own row history.
+    /// Decode an MZ payload into the reusable rows buffer, its copies and
+    /// session epoch resolved against this grid's own MZ state.
     fn decode_mz_frame(
         &mut self,
         data: &[u8],
         header: FrameHeader,
         rows_len: usize,
     ) -> Option<StagedDisplayValidation> {
-        struct History<'a> {
-            history: &'a mut merkur_codec::mz::RowHistory,
-            presentation_id: u32,
-        }
-        impl merkur_codec::mz::MzResolve for History<'_> {
-            fn resolve(
-                &mut self,
-                target_row: u16,
-                reference: merkur_codec::mz::MzReference,
-                out: &mut Vec<u8>,
-            ) -> Result<(), merkur_codec::mz::MzError> {
-                self.history
-                    .resolve(self.presentation_id, target_row, reference, out)
-            }
-        }
         #[cfg(test)]
         {
             self.display_frame_decode_count = self.display_frame_decode_count.saturating_add(1);
         }
-        let decoded = merkur_codec::mz::decode_mz_rows(
+        // The datagram's sequence names its trace, as the daemon's session
+        // fold names it.
+        let seq = merkur_codec::parse_stream_header(data).map_or(0, |stream| stream.seq);
+        let decoded = self.display_mz.decode(
+            seq,
+            header.presentation_id,
             &data[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
             header.row_count,
             rows_len,
-            &mut History {
-                history: &mut self.display_row_history,
-                presentation_id: header.presentation_id,
-            },
             &mut self.display_decoded_rows,
         );
         match decoded {
@@ -2041,7 +2029,7 @@ impl Terminal {
             // Every complete row a delta carries is history a reference may
             // name, as the frame carried it, whether or not the grid takes it.
             if !snapshot && row.left == 0 && cells.len() == cols {
-                self.display_row_history.record(
+                self.display_mz.history.record(
                     seq,
                     row.row_index,
                     cells,
@@ -2245,7 +2233,7 @@ impl Terminal {
         self.damaged_row_set.clear();
         self.damaged_row_set.resize(usize::from(rows.max(1)), false);
         self.row_geometry.clear();
-        self.display_row_history.clear();
+        self.display_mz.clear();
         self.display_row_versions.clear();
         self.display_row_versions
             .resize(usize::from(rows.max(1)), 0);
@@ -2286,7 +2274,7 @@ impl Terminal {
     }
 
     pub fn reset_display_ordering(&mut self) {
-        self.display_row_history.clear();
+        self.display_mz.reset_ordering();
         self.display_row_versions.fill(0);
         self.display_cell_versions.fill(0);
         self.display_header_version = 0;
@@ -3873,6 +3861,14 @@ impl Terminal {
     /// The caller owns presentation eligibility; decode and ACK never wait here.
     /// A steady sparse commit copies only changed rows into retained cell storage.
     pub fn commit_presentation_state(&mut self) -> u32 {
+        let revision = self.commit_presentation();
+        // A presentation just committed, so the decode path is idle: build one
+        // declared MZ session epoch, if one waits.
+        self.display_mz.build_pending();
+        revision
+    }
+
+    fn commit_presentation(&mut self) -> u32 {
         let rows = self.term.grid().screen_lines();
         let cols = self.term.grid().columns();
         if let Some(graphics) = self.graphics.as_mut() {

@@ -1,30 +1,24 @@
-//! The daemon's half of MZ row references: which complete rows a peer's
-//! history holds as an acknowledged datagram carried them, by content.
+//! The owner loop's half of MZ copies: which complete rows a peer's history
+//! holds as an acknowledged datagram carried them, and whether the browser may
+//! have refused a frame that copied from them.
 //!
 //! The browser records every complete row of every delta it decodes, as the
 //! frame carried it, whether or not its grid applied the row; so a row that
 //! datagram `X` carried whole is a source once `X`'s ACK arrives, whatever was
 //! sent to that row after it. A [`MzLedger`] here records every complete row
 //! sent, a superset of the browser's under the same retirement, so a source the
-//! ledger still holds the browser holds too, and the reference names it by
-//! datagram and row alone.
+//! ledger still holds the browser holds too. What this side learns goes to the
+//! peer's [`PeerMz`] as facts its encoder applies before the next frame.
 
 use crate::connection::SentRow;
+use crate::display::mz_peer::{MzFact, SharedPeerMz, recorded_rows};
+#[cfg(test)]
+use crate::display::mz_peer::PeerMz;
 use crate::display::policy::DisplayPolicy;
-use crate::display::recv::display_seq_is_older;
-use crate::pty::CapturedRow;
 use merkur_codec::CellRepr;
-use merkur_codec::mz::{
-    MZ_REFERENCE_DATAGRAMS, MzLedger, MzReference, MzStore, full_row_entry_bytes,
-};
-use std::collections::{HashMap, VecDeque};
+use merkur_codec::mz::{MzLedger, MzStore, full_row_entry_bytes};
+use std::collections::VecDeque;
 use std::sync::Arc;
-
-struct Source {
-    seq: u32,
-    row: u16,
-    cells: Arc<[CellRepr]>,
-}
 
 /// The ledger's store on this side: the bytes the browser stores for a row,
 /// never the row.
@@ -45,33 +39,37 @@ fn recorded(sent: &SentRow) -> bool {
 
 #[derive(Default)]
 pub struct ReferenceIndex {
-    /// Newest acknowledged source of each row content, by its capture hash.
-    by_hash: HashMap<u64, Source>,
-    /// `(seq, hash)` in insertion order, so sources retire oldest first.
-    order: VecDeque<(u32, u64)>,
-    /// Datagrams sent with references whose outcome is not yet known. Each
-    /// has a sent-datagram record until its outcome is noted here.
+    /// Datagrams sent with history copies whose outcome is not yet known.
+    /// Each has a sent-datagram record until its outcome is noted here.
     referencing: VecDeque<u32>,
     /// What the browser's history holds at most.
     ledger: MzLedger,
-    /// Every datagram that went out with a reference.
+    mz: SharedPeerMz,
+    /// Every datagram that went out with a history copy.
     #[cfg(test)]
     pub(crate) frames_referencing: usize,
 }
 
 impl ReferenceIndex {
+    /// The peer's MZ state, which its encoder locks.
+    pub(crate) fn shared(&self) -> SharedPeerMz {
+        Arc::clone(&self.mz)
+    }
+
     /// Trust no source again: the browser may have refused one. The ledger
     /// stays, since what the browser stores does not change with trust.
     pub fn clear(&mut self) {
-        self.by_hash.clear();
-        self.order.clear();
         self.referencing.clear();
+        self.mz.push(MzFact::Untrusted);
     }
 
-    /// The grid changed geometry, and the browser's history with it.
+    /// The grid changed geometry, and the browser's history and epochs with
+    /// it.
     pub fn resize(&mut self) {
-        self.clear();
+        self.referencing.clear();
         self.ledger.clear();
+        self.mz.set_floor(None);
+        self.mz.push(MzFact::Reset);
     }
 
     /// Datagram `seq` went out carrying `rows`: every one the browser will
@@ -83,34 +81,31 @@ impl ReferenceIndex {
                     .record(seq, sent.row, sent.hash, &mut Sizes(&sent.cells));
             }
         }
+        self.mz.set_floor(self.ledger.floor());
     }
 
-    /// The browser acknowledged datagram `seq`, which carried `rows`.
-    pub fn note_applied<'a>(&mut self, seq: u32, rows: impl IntoIterator<Item = &'a SentRow>) {
+    /// The browser acknowledged datagram `seq`, which carried `rows`; `coded`
+    /// when it was an MZ frame, `declared` the epoch it declared.
+    pub fn note_applied<'a>(
+        &mut self,
+        seq: u32,
+        rows: impl IntoIterator<Item = &'a SentRow>,
+        coded: bool,
+        declared: Option<u8>,
+    ) {
         if let Some(position) = self.referencing.iter().position(|&sent| sent == seq) {
             self.referencing.remove(position);
         }
-        for sent in rows {
-            // A graphics section belongs to its own row and is never written
-            // through a reference.
-            if !recorded(sent) || sent.graphics.is_some() {
-                continue;
-            }
-            self.by_hash.insert(
-                sent.hash,
-                Source {
-                    seq,
-                    row: sent.row,
-                    cells: Arc::clone(&sent.cells),
-                },
-            );
-            self.order.push_back((seq, sent.hash));
-        }
-        self.retire(seq);
+        self.mz.push(MzFact::Applied {
+            seq,
+            rows: recorded_rows(rows),
+            coded,
+            declared,
+        });
     }
 
     /// Datagram `seq` was declared lost, or its record ended with its outcome
-    /// unknown. If it carried references, a browser may have refused it, so
+    /// unknown. If it copied from history, a browser may have refused it, so
     /// none of the sources is trusted again.
     pub fn note_unresolved(&mut self, seq: u32) {
         if self.referencing.contains(&seq) {
@@ -118,7 +113,7 @@ impl ReferenceIndex {
         }
     }
 
-    /// Datagram `seq` went out carrying references.
+    /// Datagram `seq` went out copying from history.
     pub fn note_referencing(&mut self, seq: u32) {
         #[cfg(test)]
         {
@@ -132,56 +127,24 @@ impl ReferenceIndex {
         self.referencing.push_back(seq);
     }
 
-    /// Drop sources a frame sent after `newest` could no longer name.
-    fn retire(&mut self, newest: u32) {
-        let floor = newest.wrapping_sub(MZ_REFERENCE_DATAGRAMS);
-        while let Some(&(seq, hash)) = self.order.front() {
-            if !display_seq_is_older(seq, floor) && self.ledger.holds(seq) {
-                break;
-            }
-            self.order.pop_front();
-            if self
-                .by_hash
-                .get(&hash)
-                .is_some_and(|source| source.seq == seq)
-            {
-                self.by_hash.remove(&hash);
-            }
-        }
+    /// The peer's MZ state with every fact applied, for tests.
+    #[cfg(test)]
+    pub(crate) fn peer(&self) -> &PeerMz {
+        &self.mz
     }
 
-    /// A reference for `captured` from a frame of presentation
-    /// `presentation_id`, when an acknowledged row held exactly its cells.
-    pub fn find(&self, captured: &CapturedRow, presentation_id: u32) -> Option<MzReference> {
-        if captured.graphics.version().is_some() {
-            return None;
-        }
-        let source = self.by_hash.get(&captured.hash)?;
-        let seq_delta = presentation_id.wrapping_sub(source.seq);
-        if seq_delta == 0
-            || seq_delta > MZ_REFERENCE_DATAGRAMS
-            || !self.ledger.holds(source.seq)
-            || (!Arc::ptr_eq(&source.cells, &captured.cells) && *source.cells != *captured.cells)
-        {
-            return None;
-        }
-        Some(MzReference {
-            seq_delta,
-            source_row: source.row,
-            full_row_bytes: u32::try_from(full_row_entry_bytes(&captured.cells)).ok()?,
-        })
-    }
-
+    /// Acknowledged rows the peer's frames may copy from, for tests.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
-        self.by_hash.len()
+        self.mz.lock().sources()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use merkur_codec::CellAttrs;
+    use merkur_codec::mz::{MZ_REFERENCE_DATAGRAMS, MzCandidate, MzMatches};
+    use merkur_codec::{CellAttrs, mz::{entry_items, item_hash, pair_hash, encode_full_row_entry}};
 
     fn cells(text: &str) -> Arc<[CellRepr]> {
         text.chars()
@@ -207,43 +170,40 @@ mod tests {
         }
     }
 
-    fn captured(row: u16, cells: &Arc<[CellRepr]>) -> CapturedRow {
-        CapturedRow {
-            row,
-            hash: merkur_codec::row_hash(cells),
-            cells: Arc::clone(cells),
-            graphics: Default::default(),
-        }
-    }
-
     /// Datagram `seq` carried `rows` and was acknowledged.
     fn acknowledged(index: &mut ReferenceIndex, seq: u32, rows: &[SentRow]) {
         index.note_sent(seq, rows);
-        index.note_applied(seq, rows);
+        index.note_applied(seq, rows, true, None);
+    }
+
+    /// The history candidates a frame of `presentation_id` sees for the first
+    /// item pair of `line`.
+    fn candidates(index: &ReferenceIndex, line: &Arc<[CellRepr]>, presentation_id: u32) -> Vec<MzCandidate> {
+        let mut entry = Vec::new();
+        encode_full_row_entry(&mut entry, 0, line);
+        let mut items = Vec::new();
+        let (first, _) = entry_items(&entry, &mut items).expect("a row");
+        let item = |i: usize| {
+            let start = if i == 0 { usize::from(first) } else { usize::from(items[i - 1].end) };
+            item_hash(&entry[start..usize::from(items[i].end)])
+        };
+        let state = index.peer().lock();
+        let mut out = Vec::new();
+        state.history(presentation_id).candidates(pair_hash(item(0), item(1)), &mut out);
+        out
     }
 
     #[test]
-    fn an_acknowledged_complete_row_is_named_by_datagram_and_row() {
+    fn an_acknowledged_complete_row_is_found_by_datagram_and_row() {
         let mut index = ReferenceIndex::default();
         let line = cells("cargo test --release");
         acknowledged(&mut index, 40, &[sent(3, &line)]);
-        let reference = index
-            .find(&captured(2, &line), 45)
-            .expect("the scrolled line is referable");
-        assert_eq!(reference.seq_delta, 5);
-        assert_eq!(reference.source_row, 3);
-        assert_eq!(
-            reference.full_row_bytes as usize,
-            full_row_entry_bytes(&line)
-        );
+        let found = candidates(&index, &line, 45);
+        assert_eq!(found.first().map(|c| (c.seq_delta, c.row, c.item)), Some((5, 3, 0)));
         // Other content, or a presentation outside the reach, has none.
-        assert!(index.find(&captured(2, &cells("other")), 45).is_none());
-        assert!(index.find(&captured(2, &line), 40).is_none());
-        assert!(
-            index
-                .find(&captured(2, &line), 41 + MZ_REFERENCE_DATAGRAMS)
-                .is_none()
-        );
+        assert!(candidates(&index, &cells("other"), 45).is_empty());
+        assert!(candidates(&index, &line, 40).is_empty());
+        assert!(candidates(&index, &line, 41 + MZ_REFERENCE_DATAGRAMS).is_empty());
     }
 
     #[test]
@@ -254,11 +214,8 @@ mod tests {
         let line = cells("scrolled away at once");
         index.note_sent(40, &[sent(1, &line)]);
         index.note_sent(41, &[sent(1, &cells("next line"))]);
-        index.note_applied(40, &[sent(1, &line)]);
-        assert_eq!(
-            index.find(&captured(0, &line), 42).map(|r| r.source_row),
-            Some(1)
-        );
+        index.note_applied(40, &[sent(1, &line)], true, None);
+        assert_eq!(candidates(&index, &line, 42).first().map(|c| c.row), Some(1));
     }
 
     #[test]
@@ -273,7 +230,8 @@ mod tests {
         linked[0].link = 3;
         let linked: Arc<[CellRepr]> = linked.into();
         acknowledged(&mut index, 7, &[span, sent(1, &linked)]);
-        assert_eq!(index.len(), 0);
+        assert!(candidates(&index, &line, 9).is_empty());
+        assert!(candidates(&index, &linked, 9).is_empty());
     }
 
     #[test]
@@ -282,50 +240,47 @@ mod tests {
         let line = cells("an old line");
         acknowledged(&mut index, 1, &[sent(0, &line)]);
         index.note_sent(600, &[sent(0, &cells("busy"))]);
-        assert!(index.find(&captured(5, &line), 400).is_some());
+        assert!(!candidates(&index, &line, 400).is_empty());
         // Sending datagram 1100 retires everything before 77 from the
         // browser's window, so datagram 1 is gone there.
         index.note_sent(1100, &[sent(0, &cells("busier"))]);
-        assert!(index.find(&captured(5, &line), 400).is_none());
+        assert!(candidates(&index, &line, 400).is_empty());
     }
 
     #[test]
-    fn a_referencing_datagram_whose_outcome_never_arrives_retires_every_source() {
-        let mut index = ReferenceIndex::default();
-        acknowledged(&mut index, 1, &[sent(0, &cells("source"))]);
-        let mut seqs = 2u32..;
-        for seq in seqs.by_ref().take(DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES) {
-            index.note_referencing(seq);
-        }
-        assert_eq!(index.len(), 1);
-        // More referencing datagrams than records: one record ended unnoted.
-        index.note_referencing(seqs.next().expect("unbounded"));
-        assert_eq!(index.len(), 0);
-    }
-
-    #[test]
-    fn losing_a_frame_that_carried_references_retires_every_source() {
+    fn losing_a_frame_that_copied_from_history_retires_every_source() {
         let mut index = ReferenceIndex::default();
         let line = cells("source");
         acknowledged(&mut index, 10, &[sent(0, &line)]);
         index.note_referencing(12);
         // An unrelated loss changes nothing.
         index.note_unresolved(11);
-        assert_eq!(index.len(), 1);
+        assert!(!candidates(&index, &line, 13).is_empty());
         index.note_unresolved(12);
-        assert_eq!(index.len(), 0);
-        assert!(index.find(&captured(1, &line), 13).is_none());
+        assert!(candidates(&index, &line, 13).is_empty());
+    }
+
+    #[test]
+    fn a_referencing_datagram_whose_outcome_never_arrives_retires_every_source() {
+        let mut index = ReferenceIndex::default();
+        let line = cells("source");
+        acknowledged(&mut index, 1, &[sent(0, &line)]);
+        let mut seqs = 2u32..;
+        for seq in seqs.by_ref().take(DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES) {
+            index.note_referencing(seq);
+        }
+        assert!(!candidates(&index, &line, 3).is_empty());
+        // More referencing datagrams than records: one record ended unnoted.
+        index.note_referencing(seqs.next().expect("unbounded"));
+        assert!(candidates(&index, &line, 3).is_empty());
     }
 
     #[test]
     fn sources_retire_once_no_frame_can_name_them() {
         let mut index = ReferenceIndex::default();
-        acknowledged(&mut index, 1, &[sent(0, &cells("old"))]);
-        acknowledged(
-            &mut index,
-            2 + MZ_REFERENCE_DATAGRAMS,
-            &[sent(1, &cells("new"))],
-        );
-        assert_eq!(index.len(), 1);
+        let old = cells("old");
+        acknowledged(&mut index, 1, &[sent(0, &old)]);
+        acknowledged(&mut index, 2 + MZ_REFERENCE_DATAGRAMS, &[sent(1, &cells("new"))]);
+        assert!(candidates(&index, &old, 2 + MZ_REFERENCE_DATAGRAMS).is_empty());
     }
 }

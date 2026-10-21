@@ -410,6 +410,7 @@ mod ack_route_invariance {
         peer.display_cache.sent_datagrams.insert(
             seq,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms,
                 rows,
                 sent_via: paths,
@@ -831,7 +832,8 @@ fn batch_compression_preserves_attempted_rejection() {
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: false,
             achieved_ratio: Some(1.0),
-            references: false,
+            history: false,
+            declared: None,
         }),
         BatchCompression::AttemptedRejected,
     );
@@ -839,7 +841,8 @@ fn batch_compression_preserves_attempted_rejection() {
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: false,
             achieved_ratio: Some(0.97),
-            references: false,
+            history: false,
+            declared: None,
         }),
         BatchCompression::AttemptedRejected,
     );
@@ -847,7 +850,8 @@ fn batch_compression_preserves_attempted_rejection() {
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: true,
             achieved_ratio: Some(0.25),
-            references: false,
+            history: false,
+            declared: None,
         }),
         BatchCompression::Compressed,
     );
@@ -2122,7 +2126,9 @@ fn prepared_with_utility_for_test(
         content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
-        references: false,
+        history_copies: false,
+        mz_coded: false,
+        mz_declared: None,
     }
 }
 
@@ -2198,7 +2204,9 @@ pub(super) fn valid_header_only_prepared_with_presentation_for_test(
         content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
-        references: false,
+        history_copies: false,
+        mz_coded: false,
+        mz_declared: None,
     }
 }
 
@@ -3702,7 +3710,6 @@ fn prepare_row_for_test(row: u16, baseline: Arc<[CellRepr]>) -> DisplayPrepareRo
         encoding: CellEncoding::default(),
         content: ContentEvidence::default(),
         span: RowSpan::default(),
-        reference: None,
     }
 }
 
@@ -4216,7 +4223,6 @@ fn heterogeneous_prepare_row(row: u16, compressible: bool) -> DisplayPrepareRow 
         encoding,
         content,
         span,
-        reference: None,
     }
 }
 
@@ -4249,6 +4255,7 @@ fn pack_heterogeneous_order(compressible_prefix: bool) -> (usize, usize, Vec<(u1
         &mut compressor,
         &mut scratch,
         &mut frames,
+        None,
     );
     let attempts = compressor.display_frame_compression_attempts();
     let raw_bytes = scratch
@@ -5180,7 +5187,9 @@ fn fence_horizon_tracks_only_datagram_sends() {
         content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
-        references: false,
+        history_copies: false,
+        mz_coded: false,
+        mz_declared: None,
     };
     record_sent_datagram(
         &mut peer,
@@ -6183,6 +6192,7 @@ fn production_scroll_literal_benchmark() {
                         display_compression_policy(&peer, 100.0, true, ExecutionLane::Bulk, 0);
                     let completion = prepare_display_off_loop(
                         DisplayPrepareRequest {
+                            mz: Default::default(),
                             token: round as u64 + 1,
                             prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
                             prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
@@ -6391,6 +6401,7 @@ fn display_partition_domain_diagnostic() {
                     display_compression_policy(&peer, 100.0, true, ExecutionLane::Bulk, 0);
                 let completion = prepare_display_off_loop(
                     DisplayPrepareRequest {
+                        mz: Default::default(),
                         token: round as u64 + 1,
                         prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
                         prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
@@ -9293,6 +9304,7 @@ fn production_display_pipeline_benchmark() {
     let interactive_prepare_epoch = peer.display_prepare_epoch.load(Ordering::Acquire);
     let interactive_prepare_epoch_fence = Arc::clone(&peer.display_prepare_epoch);
     let make_interactive_request = |token, row_count: usize| DisplayPrepareRequest {
+        mz: Default::default(),
         token,
         prepare_epoch: interactive_prepare_epoch,
         prepare_epoch_fence: Arc::clone(&interactive_prepare_epoch_fence),
@@ -10515,6 +10527,7 @@ fn interactive_request_for_test(
         &mut buffers.rows,
     );
     DisplayPrepareRequest {
+        mz: Default::default(),
         token,
         prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
         prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
@@ -11141,6 +11154,7 @@ fn whole_span_candidate_preserves_shared_header_promotion() {
             &mut Compressor::new(),
             &mut scratch,
             &mut frame_pool_for_test(),
+            None,
         );
         assert!(scratch.batches.len() > 1);
         assert_eq!(
@@ -11599,6 +11613,9 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
         scratch.pin_sender_service(service_us);
     }
     let mut observations = Vec::with_capacity(samples);
+    // The peer's MZ state lives as long as the peer, as in production: every
+    // round's request names the same one.
+    let mz = peer.display_cache.references.shared();
     // Prepared frames by the compression flag the receiver decodes them by,
     // as `[warm-up, measured]`. The switching case exists only if the cost
     // step really turned warm compressed output into measured raw output;
@@ -11610,9 +11627,13 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
             // Deterministic reproduction: a compressed frame's buffer keeps
             // its raw frame's capacity (`Compressor::compress_mz`). A cost
             // step makes those same buffers become raw output instead of
-            // allocating raw storage beside them.
+            // allocating raw storage beside them. MZ packs this grid into
+            // about half the datagrams raw takes, so the last warm-up round
+            // prepares raw too: it adds the buffers raw needs beyond the
+            // compressed rounds', and the measured raw rounds must reuse them
+            // all.
             scratch.planner = GlobalDisplayPlanningModel::default();
-            if round >= 10 {
+            if round >= 9 {
                 for bytes in [512, 1024, 2048, 4096, 8192, 16384] {
                     for _ in 0..32 {
                         scratch.planner.observe_sender_service(
@@ -11626,6 +11647,7 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
             }
         }
         let request = DisplayPrepareRequest {
+            mz: Arc::clone(&mz),
             token: 1,
             prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
             prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
@@ -11861,6 +11883,7 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                         let compression = display_compression_policy(peer, 100.0, true, lane, 0);
                         (
                             DisplayPrepareRequest {
+                                mz: Default::default(),
                                 token,
                                 prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
                                 prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
@@ -13252,6 +13275,7 @@ fn display_prepare_handoff_allocates_only_the_frames() {
             let compression =
                 display_compression_policy(peer, now_ms, relayed, ExecutionLane::Bulk, 0);
             let request = DisplayPrepareRequest {
+                mz: Default::default(),
                 token,
                 prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
                 prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),

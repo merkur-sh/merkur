@@ -311,7 +311,7 @@ signaling connection the browser's network move left behind. A send that fails o
 through to the other, and redundancy is only for explicitly redundant frames or a primary whose
 sends are failing. Direct admission adds a
 path to the existing authenticated session and preserves the display generation, row baselines,
-and the acknowledged rows MZ references name. The daemon's direct-WebTransport certificate is
+and the acknowledged rows MZ copies read and its session epochs. The daemon's direct-WebTransport certificate is
 self-signed and short-lived; rotation swaps the TLS configuration on the live socket, and a
 manifest carrying the new hash is the whole handoff.
 
@@ -1036,7 +1036,7 @@ This section is a summary. The normative rules (idempotent datagrams, advisory p
 selective ACK, the no-coalescing owner loop, compression, the wrap bit) are in
 [`docs/display-invariants.md`](display-invariants.md).
 
-The codec version is 36; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
+The codec version is 37; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
 
 Display frames use `merkur-codec` with a 1100-byte application datagram ceiling. A frame has two
 forms. Staged, in memory on both ends, it has an 18-byte stream envelope (type and flags, a
@@ -1063,9 +1063,9 @@ compressed on its own, so it is complete on arrival and can be decrypted, applie
 lost, or recovered without any other datagram. Each flush ranks rows into `Critical` (cursor rows
 and changed cursor/mode headers, sent redundantly across live direct and relay paths) and
 `NonCritical` (one admitted carrier, chosen by the prepared burst's complete delivery cost). Row
-text is literal cell spans, or in an MZ payload a reference to a complete row exactly as an
-acknowledged earlier datagram carried it, which the browser keeps in its own history of received
-rows; there are no mutable-grid row copies.
+text is literal cell spans, whose items an MZ payload may copy from earlier in its own frame or
+from a complete row exactly as an acknowledged earlier datagram carried it, which the browser keeps
+in its own history of received rows; there are no mutable-grid row copies.
 
 Three boundaries are deliberately separate: each datagram stands alone on the wire, the terminal
 worker applies each accepted datagram to the authoritative WASM grid at once, and one bounded
@@ -1114,17 +1114,18 @@ having rewritten the row. Generation and carrier
 boundaries reopen the free delivery window until the replacement flight is acknowledged.
 
 A frame that MZ (`merkur_codec::mz`) shrinks travels compressed, any other raw. MZ is one rANS
-stream over the row layout, every field coded in its own context against a static model
-compiled into both ends and trained on recorded sessions through this pipeline, so it needs no
-install and no model state on the wire. An MZ entry may instead name a complete row an
-acknowledged datagram carried with exactly its cells: the datagram, counted back from the frame's
-presentation id, and the source row; a range names consecutive rows at once. The browser keeps
-every complete row it received, applied or stale, and writes the named one whole to the target
-row. A reference to a row it no longer holds refuses the frame like a lost datagram: it is never
-acknowledged, its rows come again, and it never calls for a snapshot.
+stream over the row layout, every field coded in its own context, each context adapting within
+the frame from a prior: the static model compiled into both ends and trained on recorded sessions
+through this pipeline, or a session epoch both ends fold from the symbols of acknowledged frames.
+An epoch is declared inside a payload and used only once a datagram carrying the declaration is
+acknowledged, so no model crosses the wire. A row's items may be copied, from earlier in the
+frame or from a complete row an acknowledged datagram carried, counted back from the frame's
+presentation id; the browser keeps every complete row it received, applied or stale. A copy or
+epoch the browser does not hold refuses the frame like a lost datagram: it is never acknowledged,
+its rows come again, and it never calls for a snapshot.
 
 A carrier swap keeps the display generation, the sequence space, the browser's grid, and the
-row history MZ references read: it is the same screen over a different pipe. The daemon retires only what the dead
+row history and session epochs MZ frames read: it is the same screen over a different pipe. The daemon retires only what the dead
 carrier held and disowns every outstanding send at the boundary rather than waiting for an
 acknowledgement that cannot arrive. What does not survive is the Noise keys: rebind is a
 transactional key cut committed at the successor's final Noise message.

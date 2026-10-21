@@ -1,14 +1,14 @@
-//! The receiver's history of the complete rows it received, which MZ
-//! references read, and the ledger both ends keep of what it holds.
+//! The receiver's history of the complete rows it received, which MZ copies
+//! read, and the ledger both ends keep of what it holds.
 
-use super::frame::{MzError, MzReference, encode_full_row_entry};
+use super::frame::{MzError, MzItem, MzRow, encode_full_row_entry, entry_items};
 use crate::CellRepr;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::{BuildHasherDefault, Hasher};
 
-/// The most datagrams, by sequence, a reference reaches back from the frame
-/// carrying it. A wire fact: a reference past it is corrupt.
+/// The most datagrams, by sequence, a copy reaches back from the frame
+/// carrying it. A wire fact: a copy past it is corrupt.
 pub const MZ_REFERENCE_DATAGRAMS: u32 = 512;
 
 /// The datagrams a ledger keeps rows from: twice the reach, so a frame that
@@ -246,20 +246,33 @@ impl MzLedger {
     pub fn bytes(&self) -> usize {
         self.bytes
     }
+
+    /// The oldest datagram still held, once any is.
+    pub fn floor(&self) -> Option<u32> {
+        self.newest.map(|_| self.floor)
+    }
 }
 
 /// The receiver's stored rows: each distinct complete row once, as the
-/// full-row entry a reference to it writes, row number zeroed.
+/// full-row entry it was carried as (row number zeroed), with its items.
 #[derive(Default)]
 struct StoredRows {
-    by_key: KeyMap<Vec<u8>>,
-    spare: Vec<Vec<u8>>,
+    by_key: KeyMap<Stored>,
+    spare: Vec<Stored>,
+}
+
+#[derive(Default)]
+struct Stored {
+    entry: Vec<u8>,
+    items: Vec<MzItem>,
+    first: u16,
+    mode: u8,
 }
 
 impl StoredRows {
-    fn recycle(&mut self, buffer: Vec<u8>) {
+    fn recycle(&mut self, stored: Stored) {
         if self.spare.len() < SPARE_ROWS {
-            self.spare.push(buffer);
+            self.spare.push(stored);
         }
     }
 }
@@ -271,24 +284,29 @@ struct Storing<'a> {
 
 impl MzStore for Storing<'_> {
     fn insert(&mut self, key: u64) -> usize {
-        let mut entry = self.rows.spare.pop().unwrap_or_default();
-        entry.clear();
-        encode_full_row_entry(&mut entry, 0, self.cells);
-        let bytes = entry.len();
-        self.rows.by_key.insert(key, entry);
+        let mut stored = self.rows.spare.pop().unwrap_or_default();
+        stored.entry.clear();
+        encode_full_row_entry(&mut stored.entry, 0, self.cells);
+        let bytes = stored.entry.len();
+        // A full-row entry always parses: it is the row layout's own.
+        if let Some((first, mode)) = entry_items(&stored.entry, &mut stored.items) {
+            stored.first = first;
+            stored.mode = mode;
+            self.rows.by_key.insert(key, stored);
+        }
         bytes
     }
 
     fn release(&mut self, key: u64) {
-        if let Some(entry) = self.rows.by_key.remove(&key) {
-            self.rows.recycle(entry);
+        if let Some(stored) = self.rows.by_key.remove(&key) {
+            self.rows.recycle(stored);
         }
     }
 }
 
-/// What a receiver received of each row, kept so a reference to a complete
-/// row a datagram carried writes exactly those cells, whatever the grid did
-/// with them since.
+/// What a receiver received of each row, kept so a copy out of a complete row
+/// a datagram carried reads exactly those cells, whatever the grid did with
+/// them since.
 ///
 /// A record is the frame's own content, never the grid's: a row the grid
 /// skipped as stale is recorded as the datagram carried it, so every
@@ -338,30 +356,25 @@ impl RowHistory {
         );
     }
 
-    /// Append the full-row entry for `target_row` that `reference`, carried by
-    /// the frame with presentation id `presentation_id`, names.
-    pub fn resolve(
-        &self,
-        presentation_id: u32,
-        target_row: u16,
-        reference: MzReference,
-        out: &mut Vec<u8>,
-    ) -> Result<(), MzError> {
-        if reference.seq_delta == 0 || reference.seq_delta > MZ_REFERENCE_DATAGRAMS {
+    /// The complete row the datagram `seq_delta` before `presentation_id`
+    /// carried at `row`, as items.
+    pub fn row(&self, presentation_id: u32, seq_delta: u32, row: u16) -> Result<MzRow<'_>, MzError> {
+        if seq_delta == 0 || seq_delta > MZ_REFERENCE_DATAGRAMS {
             return Err(MzError::Corrupt);
         }
-        let seq = presentation_id.wrapping_sub(reference.seq_delta);
-        let entry = self
+        let seq = presentation_id.wrapping_sub(seq_delta);
+        let stored = self
             .ledger
-            .key(seq, reference.source_row)
+            .key(seq, row)
             .and_then(|key| self.rows.by_key.get(&key))
             .ok_or(MzError::Unresolved)?;
-        let start = out.len();
-        out.extend_from_slice(entry);
-        out.get_mut(start..start + 2)
-            .ok_or(MzError::Corrupt)?
-            .copy_from_slice(&target_row.to_be_bytes());
-        Ok(())
+        Ok(MzRow {
+            entry: &stored.entry,
+            first: stored.first,
+            items: &stored.items,
+            mode: stored.mode,
+            hashes: &[],
+        })
     }
 
     /// Bytes of the distinct rows held, for tests and memory accounting.

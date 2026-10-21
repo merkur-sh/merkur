@@ -175,7 +175,7 @@ export const DISPLAY_COMPRESSED_PAYLOAD_OFFSET = DISPLAY_COMPRESSED_LENGTH_OFFSE
 /// Version 35 adds MZ payloads (`DISPLAY_HEADER_FLAG_COMPRESSED_MZ`).
 /// Version 36 makes MZ the only payload codec: zstd, its dictionaries and the
 /// stream-split layout are gone, and the compressed flag moves to bit 0.
-export const DISPLAY_PROTOCOL_VERSION = 36;
+export const DISPLAY_PROTOCOL_VERSION = 37;
 export const DISPLAY_FEC_HEADER_BYTES = 16;
 /**
  * Bytes of the length stripe at the head of every recovery shard: the frames

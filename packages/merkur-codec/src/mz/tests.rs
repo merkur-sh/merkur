@@ -78,47 +78,96 @@ fn rows_of(entries: &[(u16, u16, &[CellRepr])]) -> Vec<u8> {
     frame[crate::STREAM_HEADER_BYTES + crate::FRAME_HEADER_BODY_BYTES..].to_vec()
 }
 
-struct NoReferences;
+/// What a receiver holds: its row history at a frame's presentation id, and
+/// its session epochs.
+struct Held<'a> {
+    history: &'a RowHistory,
+    presentation_id: u32,
+    session: Option<&'a MzSession>,
+}
 
-impl MzResolve for NoReferences {
-    fn resolve(&mut self, _: u16, _: MzReference, _: &mut Vec<u8>) -> Result<(), MzError> {
-        Err(MzError::Unresolved)
+impl MzSources for Held<'_> {
+    fn row(&self, seq_delta: u32, row: u16) -> Result<MzRow<'_>, MzError> {
+        self.history.row(self.presentation_id, seq_delta, row)
+    }
+
+    fn epoch(&self, id: u8) -> Option<&SessionModel> {
+        self.session?.epoch(id)
     }
 }
 
-struct Resolver<'a> {
-    history: &'a mut RowHistory,
-    seq: u32,
+/// A row the sender recorded: datagram, row, entry, items, first item offset,
+/// mode and item hashes.
+type SentEntry = (u32, u16, Vec<u8>, Vec<MzItem>, u16, u8, Vec<u64>);
+
+/// The sender's view of the same rows: every recorded complete row, found by
+/// brute force.
+#[derive(Default)]
+struct Sent {
+    rows: Vec<SentEntry>,
+    presentation_id: u32,
 }
 
-impl MzResolve for Resolver<'_> {
-    fn resolve(
-        &mut self,
-        target_row: u16,
-        reference: MzReference,
-        out: &mut Vec<u8>,
-    ) -> Result<(), MzError> {
-        self.history.resolve(self.seq, target_row, reference, out)
+impl Sent {
+    fn record(&mut self, seq: u32, row: u16, cells: &[CellRepr]) {
+        let mut entry = Vec::new();
+        encode_full_row_entry(&mut entry, 0, cells);
+        let mut items = Vec::new();
+        let (first, mode) = entry_items(&entry, &mut items).expect("a full row");
+        let hashes = (0..items.len())
+            .map(|i| {
+                let start = if i == 0 { usize::from(first) } else { usize::from(items[i - 1].end) };
+                item_hash(&entry[start..usize::from(items[i].end)])
+            })
+            .collect();
+        self.rows.push((seq, row, entry, items, first, mode, hashes));
+    }
+}
+
+impl MzMatches for Sent {
+    fn candidates(&self, pair: u64, out: &mut Vec<MzCandidate>) {
+        for (seq, row, entry, items, first, mode, _) in self.rows.iter().rev() {
+            let source = MzRow { entry, first: *first, items, mode: *mode, hashes: &[] };
+            for index in 0..items.len().saturating_sub(1) {
+                let bytes = |i: usize| {
+                    let start = if i == 0 { usize::from(source.first) } else { usize::from(items[i - 1].end) };
+                    &entry[start..usize::from(items[i].end)]
+                };
+                if pair_hash(item_hash(bytes(index)), item_hash(bytes(index + 1))) == pair {
+                    out.push(MzCandidate {
+                        seq_delta: self.presentation_id.wrapping_sub(*seq),
+                        row: *row,
+                        item: u16::try_from(index).expect("an item"),
+                    });
+                }
+            }
+        }
+    }
+
+    fn row(&self, seq_delta: u32, row: u16) -> Option<MzRow<'_>> {
+        let seq = self.presentation_id.wrapping_sub(seq_delta);
+        self.rows
+            .iter()
+            .find(|held| held.0 == seq && held.1 == row)
+            .map(|(_, _, entry, items, first, mode, hashes)| MzRow { entry, first: *first, items, mode: *mode, hashes })
     }
 }
 
 fn round_trip(rows: &[u8], row_count: u16) -> usize {
     let mut encoder = MzEncoder::default();
     let mut payload = Vec::new();
-    let rows_len = encoder
-        .encode(rows, row_count, &[], &mut payload)
+    let encoded = encoder
+        .encode(rows, row_count, &NoHistory, None, None, &mut payload)
         .expect("encodes");
-    assert_eq!(rows_len, rows.len());
+    assert_eq!(encoded.rows_len, rows.len());
+    assert_eq!(encoded.prior, 0);
+    let history = RowHistory::default();
+    let held = Held { history: &history, presentation_id: 1, session: None };
+    let mut decoder = MzDecoder::default();
     let mut decoded = Vec::new();
-    decode_mz_rows(
-        &payload,
-        row_count,
-        rows_len,
-        &mut NoReferences,
-        &mut decoded,
-    )
-    .expect("decodes");
+    decoder.decode(&payload, row_count, encoded.rows_len, &held, &mut decoded).expect("decodes");
     assert_eq!(decoded, rows);
+    assert_eq!(decoder.trace(), encoder.trace(), "both ends traced the same symbols");
     payload.len()
 }
 
@@ -141,13 +190,39 @@ fn literal_frames_round_trip_and_code_smaller_than_their_rows() {
     let text = rows_of(&[(3, 0, &prompt), (4, 0, &log)]);
     let coded = round_trip(&text, 2);
     assert!(coded < text.len() * 2 / 3, "{coded} of {}", text.len());
-    // Per-cell truecolor carries little the model can predict, but still codes.
+    // A gradient codes as small differences.
     let rows = rows_of(&[(3, 0, &prompt), (4, 0, &log), (5, 7, &colored[7..30])]);
     let coded = round_trip(&rows, 3);
-    assert!(coded < rows.len(), "{coded} of {}", rows.len());
+    assert!(coded < rows.len() / 2, "{coded} of {}", rows.len());
     // A single short row codes with one state.
     let one = rows_of(&[(0, 2, &prompt[2..5])]);
     round_trip(&one, 1);
+}
+
+#[test]
+fn foreign_scripts_round_trip() {
+    for text in [
+        "Привет, мир — это строка на русском языке",
+        "日本語のテキストと中文的文字混在している行です",
+        "안녕하세요 세계, 한국어 문장입니다",
+        "مرحبا بالعالم هذه جملة عربية",
+        "⠁⠃⠉⠙ ╔══╗ ║ok║ ╚══╝ 🎉🚀✨",
+    ] {
+        let row = text_row(text, [200, 100, 50]);
+        let rows = rows_of(&[(0, 0, &row), (1, 0, &row)]);
+        let coded = round_trip(&rows, 2);
+        assert!(coded < rows.len() / 2, "{text}: {coded} of {}", rows.len());
+    }
+}
+
+#[test]
+fn a_repeated_row_copies_from_earlier_in_the_frame() {
+    let row = text_row("the same line, scrolled into view twice in one frame", [10, 20, 30]);
+    let other = text_row("something else between them", crate::DEFAULT_FOREGROUND);
+    let once = round_trip(&rows_of(&[(0, 0, &row)]), 1);
+    let twice = round_trip(&rows_of(&[(0, 0, &row), (1, 0, &other), (2, 0, &row)]), 3);
+    let other_alone = round_trip(&rows_of(&[(1, 0, &other)]), 1);
+    assert!(twice < once + other_alone, "the second copy of the row costs a copy: {twice} vs {once} + {other_alone}");
 }
 
 #[test]
@@ -201,186 +276,145 @@ fn graphics_rows_round_trip_with_their_sections() {
     section_only.push(9);
     for rows in [flag_only, empty_section, section_only] {
         assert_eq!(
-            MzEncoder::default().encode(&rows, 1, &[], &mut Vec::new()),
+            MzEncoder::default().encode(&rows, 1, &NoHistory, None, None, &mut Vec::new()),
             None
         );
     }
 }
 
+/// Rows a datagram carried whole are copied from the receiver's history; a
+/// receiver that does not hold the source refuses the frame.
 #[test]
-fn references_name_rows_the_receiver_received_and_are_taken_only_when_smaller() {
-    let mut history = RowHistory::default();
-    let original = text_row(
+fn history_copies_read_rows_the_receiver_holds() {
+    let lines: Vec<Vec<CellRepr>> = [
         "fn main() { println!(\"hello, world\"); }",
-        [0xa6, 0xe3, 0xa1],
-    );
-    let mut newer = original.clone();
-    newer[3].codepoint = u32::from(b'X');
-    // Seq 11 rewrote row 5 before seq 10's copy arrived: the grid skips the
-    // older one, the history still holds it as seq 10 carried it.
-    history.record(11, 5, &newer, COLS, ROWS);
-    history.record(10, 5, &original, COLS, ROWS);
-    // Seq 12 writes the original at row 4: a reference to (10, 5).
-    let rows = rows_of(&[(4, 0, &original)]);
-    let reference = MzReference {
-        seq_delta: 2,
-        source_row: 5,
-        full_row_bytes: u32::try_from(full_row_entry_bytes(&original)).expect("a row"),
-    };
-    let mut encoder = MzEncoder::default();
-    let mut payload = Vec::new();
-    let rows_len = encoder
-        .encode(&rows, 1, &[Some(reference)], &mut payload)
-        .expect("encodes");
-    assert_eq!(encoder.taken(), [true]);
-    assert_eq!(
-        rows_len,
-        rows.len(),
-        "the reference is a full row, as the literal is"
-    );
-    assert!(
-        payload.len() < 8,
-        "a reference codes in a few bytes: {}",
-        payload.len()
-    );
-    let mut decoded = Vec::new();
-    decode_mz_rows(
-        &payload,
-        1,
-        rows_len,
-        &mut Resolver {
-            history: &mut history,
-            seq: 12,
-        },
-        &mut decoded,
-    )
-    .expect("resolves");
-    assert_eq!(decoded, rows);
-
-    // A one-cell literal is cheaper than a reference far back and far away,
-    // and is kept.
-    let short = rows_of(&[(4, 0, &original[..1])]);
-    let rows_len = encoder
-        .encode(
-            &short,
-            1,
-            &[Some(MzReference {
-                seq_delta: MZ_REFERENCE_DATAGRAMS - 3,
-                source_row: 300,
-                full_row_bytes: 999,
-            })],
-            &mut Vec::new(),
-        )
-        .expect("encodes");
-    assert_eq!(rows_len, short.len());
-    assert_eq!(encoder.taken(), [false]);
-}
-
-#[test]
-fn a_reference_to_a_row_the_receiver_does_not_hold_is_refused() {
+        "    let rows = rows_of(&[(0, 0, &row)]);",
+        "// a comment that scrolls up the screen",
+    ]
+    .iter()
+    .map(|text| text_row(text, [0xa6, 0xe3, 0xa1]))
+    .collect();
     let mut history = RowHistory::default();
-    let row = text_row(
-        "the daemon believes this row arrived",
-        crate::DEFAULT_FOREGROUND,
-    );
-    history.record(20, 2, &row, COLS, ROWS);
-    let reference = |seq_delta, source_row| MzReference {
-        seq_delta,
-        source_row,
-        full_row_bytes: 0,
-    };
-    let mut out = Vec::new();
-    assert_eq!(history.resolve(21, 3, reference(1, 2), &mut out), Ok(()));
-    assert_eq!(
-        history.resolve(21, 3, reference(2, 2), &mut out),
-        Err(MzError::Unresolved)
-    );
-    assert_eq!(
-        history.resolve(21, 3, reference(1, 1), &mut out),
-        Err(MzError::Unresolved)
-    );
-    assert_eq!(
-        history.resolve(21, 3, reference(MZ_REFERENCE_DATAGRAMS + 1, 2), &mut out),
-        Err(MzError::Corrupt)
-    );
-    // A row with a link is never a source.
-    let mut linked = row.clone();
-    linked[0].link = 4;
-    history.record(22, 6, &linked, COLS, ROWS);
-    assert_eq!(
-        history.resolve(23, 3, reference(1, 6), &mut out),
-        Err(MzError::Unresolved)
-    );
-}
-
-#[test]
-fn a_range_codes_consecutive_references_as_one_op() {
-    let mut history = RowHistory::default();
-    let lines: Vec<Vec<CellRepr>> = (0..6)
-        .map(|line| text_row(&format!("log line {line} of a scrolling build"), [9, 9, 9]))
-        .collect();
-    for (row, cells) in (0u16..).zip(&lines) {
-        history.record(30, row, cells, COLS, ROWS);
+    let mut sent = Sent::default();
+    for (row, line) in (0u16..).zip(&lines) {
+        history.record(40, row, line, COLS, ROWS);
+        sent.record(40, row, line);
     }
-    // Seq 31 scrolls every line up two rows.
-    let entries: Vec<(u16, u16, &[CellRepr])> = (0u16..)
-        .zip(&lines[2..])
-        .map(|(row, cells)| (row, 0, cells.as_slice()))
-        .collect();
-    let rows = rows_of(&entries);
-    let references: Vec<Option<MzReference>> = (2u16..)
-        .zip(&lines[2..])
-        .map(|(source_row, cells)| {
-            Some(MzReference {
-                seq_delta: 1,
-                source_row,
-                full_row_bytes: u32::try_from(full_row_entry_bytes(cells)).expect("a row"),
-            })
-        })
-        .collect();
+    // Datagram 45 scrolls them up a row.
+    sent.presentation_id = 45;
+    let rows = rows_of(&[(0, 0, &lines[1]), (1, 0, &lines[2])]);
     let mut encoder = MzEncoder::default();
     let mut payload = Vec::new();
-    let rows_len = encoder
-        .encode(&rows, 4, &references, &mut payload)
-        .expect("encodes");
-    assert_eq!(encoder.taken(), [true; 4]);
-    let mut literals = Vec::new();
-    encoder
-        .encode(&rows, 4, &[], &mut literals)
-        .expect("encodes");
-    assert!(
-        payload.len() * 4 < literals.len(),
-        "four rows by reference: {} bytes, as literals {}",
-        payload.len(),
-        literals.len()
-    );
+    let encoded = encoder.encode(&rows, 2, &sent, None, None, &mut payload).expect("encodes");
+    assert!(encoded.history_copies);
+    let plain = round_trip(&rows, 2);
+    assert!(payload.len() * 2 < plain, "copies: {} of {plain}", payload.len());
+    let held = Held { history: &history, presentation_id: 45, session: None };
+    let mut decoder = MzDecoder::default();
     let mut decoded = Vec::new();
-    decode_mz_rows(
-        &payload,
-        4,
-        rows_len,
-        &mut Resolver {
-            history: &mut history,
-            seq: 31,
-        },
-        &mut decoded,
-    )
-    .expect("resolves");
+    decoder.decode(&payload, 2, encoded.rows_len, &held, &mut decoded).expect("decodes");
     assert_eq!(decoded, rows);
-    // A range past the frame's rows is corrupt.
+    // A receiver without the source refuses it as unresolved, never as corrupt.
+    let empty = RowHistory::default();
+    let missing = Held { history: &empty, presentation_id: 45, session: None };
     assert_eq!(
-        decode_mz_rows(
-            &payload,
-            3,
-            rows_len,
-            &mut Resolver {
-                history: &mut history,
-                seq: 31,
-            },
-            &mut decoded,
-        ),
-        Err(MzError::Corrupt)
+        decoder.decode(&payload, 2, encoded.rows_len, &missing, &mut decoded),
+        Err(MzError::Unresolved)
     );
+}
+
+/// A session epoch built from the traces of earlier frames codes a frame like
+/// them in fewer bytes, both ends building the same tables; a receiver
+/// without the epoch refuses the frame.
+#[test]
+fn session_epochs_learn_the_sessions_screens() {
+    let mut sender = MzSession::default();
+    let mut receiver = MzSession::default();
+    let mut encoder = MzEncoder::default();
+    let mut decoder = MzDecoder::default();
+    let history = RowHistory::default();
+    let text = |n: usize| text_row(&format!("Строка номер {n} с кириллицей и цифрами {}", n * 7), [180, 190, 254]);
+    let mut payload = Vec::new();
+    let mut decoded = Vec::new();
+    for seq in 1..=20u32 {
+        let row = text(seq as usize);
+        let rows = rows_of(&[(0, 0, &row)]);
+        payload.clear();
+        let encoded = encoder.encode(&rows, 1, &NoHistory, None, None, &mut payload).expect("encodes");
+        sender.keep(seq, encoder.trace());
+        let held = Held { history: &history, presentation_id: seq, session: Some(&receiver) };
+        decoder.decode(&payload, 1, encoded.rows_len, &held, &mut decoded).expect("decodes");
+        receiver.keep(seq, decoder.trace());
+    }
+    let declaration = MzEpochDeclaration { id: 1, base: 0, first: 1, datagrams: (1 << 20) - 1 };
+    sender.build(&declaration).expect("sender builds");
+    receiver.build(&declaration).expect("receiver builds");
+    let rows = rows_of(&[(0, 0, &text(99))]);
+    let mut without = Vec::new();
+    let plain = encoder.encode(&rows, 1, &NoHistory, None, None, &mut without).expect("encodes");
+    let (id, model) = sender.current().expect("an epoch");
+    payload.clear();
+    let encoded = encoder.encode(&rows, 1, &NoHistory, Some((id, model)), None, &mut payload).expect("encodes");
+    assert_eq!(encoded.prior, 1);
+    assert!(payload.len() < without.len(), "session {} vs static {}", payload.len(), without.len());
+    let held = Held { history: &history, presentation_id: 30, session: Some(&receiver) };
+    decoder.decode(&payload, 1, plain.rows_len, &held, &mut decoded).expect("decodes");
+    assert_eq!(decoded, rows);
+    let none = Held { history: &history, presentation_id: 30, session: None };
+    assert_eq!(decoder.decode(&payload, 1, plain.rows_len, &none, &mut decoded), Err(MzError::Unresolved));
+    // An epoch over a trace the receiver never kept cannot be built.
+    let missing = MzEpochDeclaration { id: 2, base: 1, first: 500, datagrams: 1 };
+    assert_eq!(receiver.build(&missing), Err(MzEpochError::Trace));
+}
+
+/// Traces retire by sequence distance, whatever arrived between: a
+/// declaration within its reach of the frame carrying it always finds them.
+#[test]
+fn traces_retire_by_sequence_distance() {
+    let mut session = MzSession::default();
+    session.keep(10, &[1, 2, 3]);
+    // Few traces arrived since, but the sequence moved a whole window.
+    session.keep(10 + 2 * MZ_REFERENCE_DATAGRAMS, &[4]);
+    assert!(!session.holds_trace(10));
+    session.keep(20 + 2 * MZ_REFERENCE_DATAGRAMS, &[5]);
+    assert!(session.holds_trace(10 + 2 * MZ_REFERENCE_DATAGRAMS));
+    // Within the declaration reach of the newest, every trace is held.
+    let newest = 30 + 2 * MZ_REFERENCE_DATAGRAMS;
+    for seq in newest - MZ_DECLARATION_REACH..=newest {
+        session.keep(seq, &[6]);
+    }
+    assert!((newest - MZ_DECLARATION_REACH..=newest).all(|seq| session.holds_trace(seq)));
+}
+
+/// A receiver refuses a frame declaring an epoch it cannot build, so the
+/// sender never takes that epoch for held.
+#[test]
+fn an_unbuildable_declaration_refuses_its_frame() {
+    let row = text_row("a frame that declares an epoch", [7, 7, 7]);
+    let rows = rows_of(&[(0, 0, &row)]);
+    let declaration = MzEpochDeclaration { id: 1, base: 0, first: 900, datagrams: 0b11 };
+    let mut payload = Vec::new();
+    let encoded = MzEncoder::default()
+        .encode(&rows, 1, &NoHistory, None, Some(&declaration), &mut payload)
+        .expect("encodes");
+    let mut receiver = MzReceiver::default();
+    let mut out = Vec::new();
+    assert_eq!(
+        receiver.decode(1000, 1000, &payload, 1, encoded.rows_len, &mut out),
+        Err(MzError::Unresolved),
+        "the receiver holds no trace of datagram 900"
+    );
+    // With both traces held it accepts the declaration and builds the epoch.
+    let mut sender = MzEncoder::default();
+    for seq in [900u32, 901] {
+        let mut frame = Vec::new();
+        let plain = sender.encode(&rows, 1, &NoHistory, None, None, &mut frame).expect("encodes");
+        receiver.decode(seq, seq, &frame, 1, plain.rows_len, &mut out).expect("decodes");
+    }
+    receiver.decode(1000, 1000, &payload, 1, encoded.rows_len, &mut out).expect("decodes");
+    assert_eq!(out, rows);
+    receiver.build_pending();
+    assert_eq!(receiver.epoch(), Some(1));
 }
 
 /// A store that sizes each row from its key, as the sender's does.
@@ -475,11 +509,13 @@ fn decoded_frames_pass_the_row_validator() {
     let row = text_row("validated", [1, 2, 3]);
     let rows = rows_of(&[(0, 0, &row), (1, 4, &row[4..9])]);
     let mut payload = Vec::new();
-    let rows_len = MzEncoder::default()
-        .encode(&rows, 2, &[], &mut payload)
+    let encoded = MzEncoder::default()
+        .encode(&rows, 2, &NoHistory, None, None, &mut payload)
         .expect("encodes");
+    let history = RowHistory::default();
+    let held = Held { history: &history, presentation_id: 1, session: None };
     let mut decoded = Vec::new();
-    decode_mz_rows(&payload, 2, rows_len, &mut NoReferences, &mut decoded).expect("decodes");
+    MzDecoder::default().decode(&payload, 2, encoded.rows_len, &held, &mut decoded).expect("decodes");
     let mut frame = Vec::new();
     encode_frame_into(&mut frame, &header(2), std::iter::empty());
     frame.truncate(crate::STREAM_HEADER_BYTES + crate::FRAME_HEADER_BODY_BYTES);
@@ -510,8 +546,10 @@ proptest! {
         row_count in 0u16..8,
         rows_len in 0usize..2048,
     ) {
+        let history = RowHistory::default();
+        let held = Held { history: &history, presentation_id: 1, session: None };
         let mut out = Vec::new();
-        if decode_mz_rows(&payload, row_count, rows_len, &mut NoReferences, &mut out).is_ok() {
+        if MzDecoder::default().decode(&payload, row_count, rows_len, &held, &mut out).is_ok() {
             prop_assert_eq!(out.len(), rows_len);
         }
     }
@@ -521,17 +559,145 @@ proptest! {
     #[test]
     fn corrupted_payloads_are_refused(at in 0usize..64, flip in 1u8..=255) {
         let row = text_row("corruption must not decode quietly", [9, 9, 9]);
-        let rows = rows_of(&[(2, 0, &row), (3, 5, &row[5..20])]);
+        let rows = rows_of(&[(2, 0, &row), (3, 5, &row[5..20]), (4, 0, &row)]);
         let mut payload = Vec::new();
-        let rows_len = MzEncoder::default().encode(&rows, 2, &[], &mut payload).expect("encodes");
+        let encoded = MzEncoder::default().encode(&rows, 3, &NoHistory, None, None, &mut payload).expect("encodes");
+        let history = RowHistory::default();
+        let held = Held { history: &history, presentation_id: 1, session: None };
+        let mut decoder = MzDecoder::default();
         let mut out = Vec::new();
         let truncated = &payload[..at.min(payload.len().saturating_sub(1))];
-        prop_assert!(decode_mz_rows(truncated, 2, rows_len, &mut NoReferences, &mut out).is_err());
+        prop_assert!(decoder.decode(truncated, 3, encoded.rows_len, &held, &mut out).is_err());
         let mut changed = payload.clone();
         let index = at % changed.len();
         changed[index] ^= flip;
-        if decode_mz_rows(&changed, 2, rows_len, &mut NoReferences, &mut out).is_ok() {
-            prop_assert_eq!(out.len(), rows_len);
+        if decoder.decode(&changed, 3, encoded.rows_len, &held, &mut out).is_ok() {
+            prop_assert_eq!(out.len(), encoded.rows_len);
         }
+    }
+
+    /// Random rows of text, colour, runs and wide characters round-trip.
+    #[test]
+    fn random_rows_round_trip(
+        rows in proptest::collection::vec(
+            proptest::collection::vec((0u32..0x3_0000, 0u8..4, 0u8..3), 1..40),
+            1..6,
+        ),
+    ) {
+        let built: Vec<Vec<CellRepr>> = rows
+            .iter()
+            .map(|cells| {
+                cells
+                    .iter()
+                    .map(|&(cp, fg, bg)| {
+                        let cp = char::from_u32(cp).map_or(u32::from('?'), u32::from);
+                        cell(
+                            char::from_u32(cp).unwrap_or('?'),
+                            [[1, 2, 3], [200, 100, 50], crate::DEFAULT_FOREGROUND, [cp.to_le_bytes()[0], 9, 9]][usize::from(fg)],
+                            [crate::DEFAULT_BACKGROUND, [5, 5, 5], [cp.to_le_bytes()[0], 0, 0]][usize::from(bg)],
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+        let entries: Vec<(u16, u16, &[CellRepr])> = built
+            .iter()
+            .enumerate()
+            .map(|(row, cells)| (u16::try_from(row).expect("a row"), 0, cells.as_slice()))
+            .collect();
+        let bytes = rows_of(&entries);
+        round_trip(&bytes, u16::try_from(entries.len()).expect("rows"));
+    }
+}
+
+/// Offline checkpoint over frames the production pipeline offered MZ
+/// (`u16 row_count | u32 len | rows` dumps): v2 bytes with the static model
+/// alone, and with session epochs every 32 frames lagging 64, every frame
+/// round-tripped through a receiver that builds the same epochs. With
+/// `MERKUR_MZ_TRAIN_OUT`, the static encodes' traces of the recordings whose
+/// names contain `MERKUR_MZ_TRAIN_ONLY` train a model written there.
+#[test]
+#[ignore = "reads MERKUR_MZ_FRAMES"]
+fn v2_checkpoint() {
+    let dir = std::env::var("MERKUR_MZ_FRAMES").expect("MERKUR_MZ_FRAMES");
+    let train_out = std::env::var("MERKUR_MZ_TRAIN_OUT").ok();
+    let train_only = std::env::var("MERKUR_MZ_TRAIN_ONLY").ok();
+    let mut trainer = train::MzTrainer::default();
+    let mut paths: Vec<_> = std::fs::read_dir(&dir).expect("dir").map(|e| e.expect("entry").path()).collect();
+    paths.sort();
+    let (mut total_raw, mut total_static, mut total_session) = (0usize, 0usize, 0usize);
+    println!("V2 {:<26} {:>6} {:>9} {:>9} {:>9}", "recording", "frames", "raw", "static", "session");
+    for path in paths {
+        let name = path.file_stem().expect("stem").to_string_lossy().into_owned();
+        let data = std::fs::read(&path).expect("dump");
+        let mut frames = Vec::new();
+        let mut at = 0;
+        while at + 6 <= data.len() {
+            let rows = u16::from_le_bytes([data[at], data[at + 1]]);
+            let len = u32::from_le_bytes(data[at + 2..at + 6].try_into().expect("len")) as usize;
+            frames.push((rows, &data[at + 6..at + 6 + len]));
+            at += 6 + len;
+        }
+        let train = train_out.is_some() && train_only.as_deref().is_none_or(|only| name.contains(only));
+        let mut encoder = MzEncoder::default();
+        let mut decoder = MzDecoder::default();
+        let mut sender = MzSession::default();
+        let mut receiver = MzSession::default();
+        let history = RowHistory::default();
+        let (mut raw, mut plain, mut with_session) = (0usize, 0usize, 0usize);
+        let mut folded = 1u32;
+        let mut held: Option<u8> = None;
+        let mut epoch = 0u8;
+        let (mut payload, mut decoded) = (Vec::new(), Vec::new());
+        for (index, &(row_count, rows)) in frames.iter().enumerate() {
+            let seq = u32::try_from(index).expect("a frame index") + 1;
+            payload.clear();
+            let Some(_) = encoder.encode(rows, row_count, &NoHistory, None, None, &mut payload) else {
+                continue;
+            };
+            raw += rows.len();
+            plain += payload.len().min(rows.len());
+            if train {
+                trainer.add_trace(encoder.trace());
+            }
+            // Epochs: every 32 frames, fold what is 64 frames old.
+            if index % 32 == 0 && seq > 64 && folded + 64 <= seq {
+                let first = folded;
+                let count = (seq - 64 - first).min(MZ_EPOCH_DATAGRAMS);
+                if count > 0 {
+                    let next = next_epoch_id(epoch);
+                    let declaration = MzEpochDeclaration {
+                        id: next,
+                        base: held.unwrap_or(0),
+                        first,
+                        datagrams: if count == 64 { u64::MAX } else { (1u64 << count) - 1 },
+                    };
+                    sender.build(&declaration).expect("sender builds");
+                    receiver.build(&declaration).expect("receiver builds");
+                    folded = first + count;
+                    epoch = next;
+                    held = Some(next);
+                }
+            }
+            payload.clear();
+            let session = held.and_then(|id| sender.epoch(id).map(|model| (id, model)));
+            let encoded = encoder.encode(rows, row_count, &NoHistory, session, None, &mut payload).expect("encodes");
+            with_session += payload.len().min(rows.len());
+            sender.keep(seq, encoder.trace());
+            let sources = Held { history: &history, presentation_id: seq, session: Some(&receiver) };
+            decoder.decode(&payload, row_count, encoded.rows_len, &sources, &mut decoded).expect("decodes");
+            assert_eq!(decoded, rows, "{name} frame {index}");
+            receiver.keep(seq, decoder.trace());
+        }
+        total_raw += raw;
+        total_static += plain;
+        total_session += with_session;
+        println!("V2 {name:<26} {:>6} {raw:>9} {plain:>9} {with_session:>9}", frames.len());
+    }
+    println!("V2 TOTAL raw {total_raw} static {total_static} session {total_session}");
+    if let Some(out) = train_out {
+        let data = trainer.model_data(256 * 1024);
+        std::fs::write(&out, train::MzTrainer::model_source(&data)).expect("write model");
+        println!("V2 wrote {} bytes of model data to {out}", data.len());
     }
 }

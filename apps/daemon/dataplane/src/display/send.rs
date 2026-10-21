@@ -8,7 +8,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use arrayvec::ArrayVec;
-use merkur_codec::mz::MzReference;
 #[cfg(test)]
 use merkur_codec::{RowRef, encoded_cells_size};
 
@@ -33,7 +32,9 @@ use crate::connection::{
 #[cfg(test)]
 use crate::connection::{SimDatagramMetadata, SimDatagramRole};
 use crate::display::clock::FlushClock;
-use crate::display::compressor::Compressor;
+use crate::display::compressor::{Compressor, MzContext};
+use crate::connection::SentMz;
+use crate::display::mz_peer::SharedPeerMz;
 
 use crate::DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES;
 use crate::display::credit::{DemandStamp, DisplayAdmission, PreparedDemand};
@@ -126,8 +127,13 @@ pub(crate) struct PreparedDisplayDatagram {
     /// Exact post-encode physical admission, embedded in the pooled prepared
     /// record rather than allocated as a parallel per-burst plan vector.
     physical_plan: PreparedPhysicalDatagramPlan,
-    /// An MZ frame that took a reference. Its loss retires the peer's sources.
-    references: bool,
+    /// An MZ frame that copied from history. Its loss retires the peer's
+    /// sources.
+    history_copies: bool,
+    /// An MZ frame, whose trace the peer folds once it is acknowledged.
+    mz_coded: bool,
+    /// The session epoch the frame's payload declares.
+    mz_declared: Option<u8>,
 }
 // One complete owner-loop cohort fits without pushing planning/compression
 // back onto that loop. Each peer owns at most one in-flight request.
@@ -175,8 +181,6 @@ struct DisplayPrepareRow {
     content: ContentEvidence,
     /// The columns this row's entry carries, found once at capture.
     span: RowSpan,
-    /// An acknowledged row with exactly these cells, which MZ may name instead.
-    reference: Option<MzReference>,
 }
 
 /// Where a row entry starts and how many cells it carries; no cells is a row
@@ -365,6 +369,8 @@ struct DisplayPrepareRequest {
     compression: DisplayCompressionPolicy,
     burst_group_max_size: usize,
     summary: DisplayFlushSummary,
+    /// The peer's MZ state: what its frames copy from and code against.
+    mz: SharedPeerMz,
 }
 
 struct SnapshotPeerPlan {
@@ -1066,6 +1072,14 @@ fn presentation_is_coherent(
             .is_some_and(|row| row.row == cursor_row))
 }
 
+/// The presentation a flush starting at sequence `start_seq` names: its first
+/// member's sequence, the base its copies count back from.
+#[inline]
+fn presentation_id_from(start_seq: u32) -> u32 {
+    let mut cursor = start_seq;
+    take_wrapping_nonzero(&mut cursor)
+}
+
 #[inline]
 fn take_wrapping_nonzero(cursor: &mut u32) -> u32 {
     let value = *cursor;
@@ -1239,7 +1253,9 @@ fn prepare_captured_frame(
         header_reserve,
         compression,
         content_class,
-        references,
+        history_copies,
+        declared,
+        trace: _,
     } = payload;
     patch_stream_header(
         &mut frame,
@@ -1280,8 +1296,20 @@ fn prepare_captured_frame(
         content_class,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
-        references,
+        history_copies,
+        mz_coded: compression == BatchCompression::Compressed,
+        mz_declared: declared,
     }
+}
+
+/// Datagram `seq` carries `payload`: keep the trace of its MZ frame for the
+/// peer's session fold, and return the buffer to the peer's pool.
+fn keep_mz_trace(state: &mut crate::display::mz_peer::MzPeerState, seq: u32, payload: &mut BatchPayload) {
+    let trace = std::mem::take(&mut payload.trace);
+    if !trace.is_empty() {
+        state.keep_trace(seq, &trace);
+    }
+    state.return_trace_buffer(trace);
 }
 
 /// Fold one attempted datagram's achieved `compressed / raw` into the peer's
@@ -1322,8 +1350,13 @@ struct BatchPayload {
     /// Class of the rows the frame carries, from their summed census; the
     /// class whose ratio posterior this frame's achieved compression feeds.
     content_class: ContentClass,
-    /// See [`PreparedDisplayDatagram::references`].
-    references: bool,
+    /// See [`PreparedDisplayDatagram::history_copies`].
+    history_copies: bool,
+    /// See [`PreparedDisplayDatagram::mz_declared`].
+    declared: Option<u8>,
+    /// The symbols the MZ payload coded, from the peer's pool; empty for a raw
+    /// frame.
+    trace: Vec<u32>,
 }
 
 /// What the batch-sizing pass already learned about this payload.
@@ -1351,7 +1384,9 @@ impl BatchPayload {
             header_reserve,
             compression: BatchCompression::NotAttempted,
             content_class,
-            references: false,
+            history_copies: false,
+            declared: None,
+            trace: Vec::new(),
         }
     }
 
@@ -1389,7 +1424,7 @@ fn compress_batch_candidate(
     interactive_compression_allowed: bool,
     policy: &DisplayCompressionPolicy,
     presentation_workload: DisplayWorkload,
-    references: impl IntoIterator<Item = Option<MzReference>>,
+    mz: Option<&mut MzContext<'_>>,
     planned_representation: Representation,
     content_class: ContentClass,
     profile: PeerPlanningSnapshot,
@@ -1427,7 +1462,7 @@ fn compress_batch_candidate(
         return DisplayCompressionOutcome::NOTHING;
     }
     let started = Instant::now();
-    let Some(compressed) = compressor.compress_display_rows_into(frame, references, out)
+    let Some(compressed) = compressor.compress_display_rows_into(frame, mz, out)
     else {
         let service_us = started.elapsed().as_secs_f64() * 1_000_000.0;
         planner.observe_sender_service(
@@ -1439,7 +1474,8 @@ fn compress_batch_candidate(
         return DisplayCompressionOutcome {
             used: false,
             achieved_ratio: Some(1.0),
-            references: false,
+            history: false,
+            declared: None,
         };
     };
     let saved_bytes = compressed.saved_bytes;
@@ -1460,7 +1496,8 @@ fn compress_batch_candidate(
         achieved_ratio: Some(
             planned_wire_len(out.len(), header_reserve) as f64 / raw_bytes.max(1) as f64,
         ),
-        references: compressed.references,
+        history: compressed.history,
+        declared: compressed.declared,
     }
 }
 
@@ -1491,6 +1528,7 @@ fn emit_fitted_batches(
     wire_cap: usize,
     header_reserve: usize,
     planned_representation: Representation,
+    mut mz: Option<&mut MzContext<'_>>,
 ) -> Option<f64> {
     if rows.is_empty() {
         return None;
@@ -1503,7 +1541,7 @@ fn emit_fitted_batches(
     let content_class = classify_captured_content(rows);
     let profile = profiles[content_class.index()];
     let mut frame = frames.take(0);
-    let mut sent_rows = encode_captured_rows(header, rows.iter(), &mut frame);
+    let sent_rows = encode_captured_rows(header, rows.iter(), &mut frame);
     if frame.is_empty() {
         frames.put(frame);
         return None;
@@ -1524,7 +1562,7 @@ fn emit_fitted_batches(
         policy.fit_relay_critical_datagram && utility == DisplayUtility::Critical,
         policy,
         presentation_workload,
-        rows.iter().map(|row| row.reference),
+        mz.as_deref_mut(),
         planned_representation,
         content_class,
         profile,
@@ -1538,16 +1576,23 @@ fn emit_fitted_batches(
     };
 
     if wire_bytes <= wire_cap || rows.len() == 1 {
-        if outcome.used {
-            sent_rows.mark_referenced(compressor.referenced_rows());
-        }
+        let trace = match mz.as_deref_mut() {
+            Some(peer) if outcome.used => {
+                let mut trace = peer.state.take_trace_buffer(compressor.trace().len());
+                trace.extend_from_slice(compressor.trace());
+                trace
+            }
+            _ => Vec::new(),
+        };
         let payload = BatchPayload {
             frame: choose_compressed_frame(frame, compressed, outcome.used, frames),
             raw_bytes,
             header_reserve,
             compression: BatchCompression::from_outcome(&outcome),
             content_class,
-            references: outcome.used && outcome.references,
+            history_copies: outcome.used && outcome.history,
+            declared: outcome.declared.filter(|_| outcome.used),
+            trace,
         };
         out.push((payload, sent_rows, encoded_rows, utility));
         return outcome.achieved_ratio;
@@ -1571,6 +1616,7 @@ fn emit_fitted_batches(
         wire_cap,
         header_reserve,
         planned_representation,
+        mz.as_deref_mut(),
     );
     let second = emit_fitted_batches(
         header,
@@ -1586,6 +1632,7 @@ fn emit_fitted_batches(
         wire_cap,
         header_reserve,
         planned_representation,
+        mz,
     );
     second.or(first).or(outcome.achieved_ratio)
 }
@@ -1806,6 +1853,7 @@ fn pack_captured_rows(
     compressor: &mut Compressor,
     scratch: &mut PrepareScratch,
     frames: &mut BufferPool,
+    mut mz: Option<&mut MzContext<'_>>,
 ) {
     let header_reserve = packed_header_reserve(&header, input_seq, rows.len());
     let presentation_workload = captured_presentation_workload(rows, policy, header_reserve);
@@ -1944,6 +1992,7 @@ fn pack_captured_rows(
                 cap,
                 header_reserve,
                 planned_representation,
+                mz.as_deref_mut(),
             );
             let predicted_raw_bytes = header_reserve
                 + planned_rows[planned_start..planned_end]
@@ -2043,7 +2092,9 @@ fn pack_whole_span_candidate(
                     BatchCompression::AttemptedRejected
                 },
                 content_class: classify_captured_content(&rows[start..end]),
-                references: false,
+                history_copies: false,
+                declared: None,
+                trace: Vec::new(),
             },
             sent,
             (end - start) as u16,
@@ -2084,6 +2135,7 @@ fn prepare_display_off_loop(
         compression,
         burst_group_max_size,
         mut summary,
+        mz,
     } = request;
     compressor.begin_timing(perf_flush_started_at.is_some());
     let mut next_seq = start_seq;
@@ -2093,6 +2145,12 @@ fn prepare_display_off_loop(
         frames,
         ..
     } = &mut buffers;
+    let presentation_id = presentation_id_from(start_seq);
+    let mut mz_state = mz.lock();
+    let mut mz_context = MzContext {
+        state: &mut mz_state,
+        presentation_id,
+    };
     pack_captured_rows(
         rows,
         header,
@@ -2102,6 +2160,7 @@ fn prepare_display_off_loop(
         compressor,
         scratch,
         frames,
+        Some(&mut mz_context),
     );
 
     // One datagram, one independently applicable frame. Presentation identity
@@ -2110,11 +2169,6 @@ fn prepare_display_off_loop(
     // ACK, loss, or repair depend on the group.
     let batch_count = scratch.batches.len();
     assert!(batch_count <= merkur_codec::MAX_TERMINAL_ROWS);
-    // A presentation is named by its first member's sequence number.
-    let presentation_id = {
-        let mut cursor = start_seq;
-        take_wrapping_nonzero(&mut cursor)
-    };
     let presentation_coherent = header.presentation_coherent
         || presentation_is_coherent(
             &scratch.batches,
@@ -2122,8 +2176,9 @@ fn prepare_display_off_loop(
             causal_input_advanced,
             presentation_continues,
         );
-    for (index, (payload, sent_rows, _, utility)) in scratch.batches.drain(..).enumerate() {
+    for (index, (mut payload, sent_rows, _, utility)) in scratch.batches.drain(..).enumerate() {
         let seq = take_wrapping_nonzero(&mut next_seq);
+        keep_mz_trace(mz_context.state, seq, &mut payload);
         datagrams.push(prepare_captured_frame(
             payload,
             sent_rows,
@@ -2219,6 +2274,7 @@ fn cancelled_display_prepare(request: DisplayPrepareRequest) -> DisplayPrepareCo
         compression: _,
         burst_group_max_size: _,
         summary,
+        mz: _,
     } = request;
     DisplayPrepareCompletion {
         token,
@@ -3912,6 +3968,13 @@ fn build_captured_datagram_batches(
     let mut header = head.header;
     header.closure_digest = closure_digest;
     header.echo_horizon = peer.echo_horizon;
+    let presentation_id = presentation_id_from(peer.next_datagram_seq);
+    let mz = peer.display_cache.references.shared();
+    let mut mz_state = mz.lock();
+    let mut mz_context = MzContext {
+        state: &mut mz_state,
+        presentation_id,
+    };
     pack_captured_rows(
         captured_rows,
         header,
@@ -3921,6 +3984,7 @@ fn build_captured_datagram_batches(
         compressor,
         scratch,
         frames,
+        Some(&mut mz_context),
     );
 
     // One datagram, one frame.
@@ -3943,11 +4007,6 @@ fn build_captured_datagram_batches(
     // another datagram's transformation.
     let batch_count = scratch.batches.len();
     assert!(batch_count <= merkur_codec::MAX_TERMINAL_ROWS);
-    // A presentation is named by its first member's sequence number.
-    let presentation_id = {
-        let mut cursor = peer.next_datagram_seq;
-        take_wrapping_nonzero(&mut cursor)
-    };
     let presentation_coherent = peer.presentation_end_owed
         || presentation_is_coherent(
             &scratch.batches,
@@ -3955,10 +4014,11 @@ fn build_captured_datagram_batches(
             causal_input_advanced,
             presentation_continues,
         );
-    for (index, (payload, sent_rows, encoded_rows, utility)) in
+    for (index, (mut payload, sent_rows, encoded_rows, utility)) in
         scratch.batches.drain(..).enumerate()
     {
         let seq = peer.next_datagram_seq();
+        keep_mz_trace(mz_context.state, seq, &mut payload);
         out.push(prepare_display_datagram(
             payload,
             sent_rows,
@@ -5549,6 +5609,7 @@ pub(crate) fn send_peer_datagram_delta_with_worker(
             compression,
             burst_group_max_size: DisplayPolicy::FEC_GROUP_MAX_SIZE,
             summary,
+            mz: peer.display_cache.references.shared(),
         };
         let send_result = match execution_lane {
             ExecutionLane::Interactive => prepare_worker.interactive_tx.try_send(request),
@@ -6526,7 +6587,9 @@ fn prepare_display_datagram(
         header_reserve,
         compression,
         content_class,
-        references,
+        history_copies,
+        declared,
+        trace: _,
     } = payload;
     patch_stream_header(
         &mut frame,
@@ -6612,7 +6675,9 @@ fn prepare_display_datagram(
         content_class,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
-        references,
+        history_copies,
+        mz_coded: compression == BatchCompression::Compressed,
+        mz_declared: declared,
     }
 }
 
@@ -6660,12 +6725,6 @@ fn capture_prepare_rows(
 ) {
     out.clear();
     let cols = usize::from(terminal.cols);
-    // Every frame of this capture belongs to the presentation its first
-    // datagram names, the base its references count back from.
-    let presentation_id = {
-        let mut cursor = peer.next_datagram_seq;
-        take_wrapping_nonzero(&mut cursor)
-    };
     for request in rows {
         let Some((baseline, &baseline_revision)) = peer
             .display_cache
@@ -6694,7 +6753,6 @@ fn capture_prepare_rows(
         if encoded_size == 0 {
             continue;
         }
-        let reference = peer.display_cache.references.find(sent, presentation_id);
         out.push(DisplayPrepareRow {
             request: *request,
             sent: sent.clone(),
@@ -6705,7 +6763,6 @@ fn capture_prepare_rows(
             encoding,
             content,
             span,
-            reference,
         });
     }
 }
@@ -6825,6 +6882,7 @@ fn send_reserved_k1_probe(
         peer.display_cache.insert_sent_datagram(
             seq,
             SentDatagram {
+                mz: SentMz::default(),
                 sent_at_ms: now_ms,
                 rows: SentRows::default(),
                 sent_via: SentPaths::single(path),
@@ -7225,6 +7283,7 @@ fn record_reliable_display_send(
     peer.display_cache.insert_sent_datagram(
         seq,
         SentDatagram {
+            mz: SentMz::default(),
             sent_at_ms: now_ms,
             rows: sent_rows,
             sent_via: SentPaths::single(sent_path),
@@ -7355,7 +7414,7 @@ fn record_display_datagram_snapshot(
 ) {
     let resend_interval_ms = peer_row_resend_interval_ms(peer, now_ms);
     let header_only = datagram.rows.is_empty();
-    if datagram.references {
+    if datagram.history_copies {
         peer.display_cache
             .references
             .note_referencing(datagram.seq);
@@ -7379,6 +7438,10 @@ fn record_display_datagram_snapshot(
             header_only,
             rows,
             sent_via,
+            mz: SentMz {
+                coded: datagram.mz_coded,
+                declared: datagram.mz_declared,
+            },
             reliable: false,
             protection,
         },
@@ -7399,8 +7462,10 @@ struct DisplayCompressionOutcome {
     /// to be worth sending, the ratio never leaves 1.0, and the batcher never
     /// packs the larger unit that would have compressed well.
     achieved_ratio: Option<f64>,
-    /// The compressed frame is MZ and took a reference.
-    references: bool,
+    /// The compressed frame is MZ and copied from history.
+    history: bool,
+    /// The session epoch the compressed frame declares.
+    declared: Option<u8>,
 }
 
 impl DisplayCompressionOutcome {
@@ -7408,7 +7473,8 @@ impl DisplayCompressionOutcome {
     const NOTHING: Self = Self {
         used: false,
         achieved_ratio: None,
-        references: false,
+        history: false,
+        declared: None,
     };
 }
 

@@ -1,7 +1,7 @@
 //! MZ, the display codec for row payloads: one rANS stream over the row
-//! layout, every field coded in its own context against a static model trained
-//! on real sessions, and references to complete rows the receiver already
-//! received.
+//! layout, every field coded in its own adaptive context, starting each frame
+//! from a trained prior or from the session's own tables, with copies of items
+//! the receiver already holds.
 //!
 //! The decoder writes row-layout bytes, so the one row validator reads an MZ
 //! frame exactly as it reads a raw one.
@@ -10,15 +10,22 @@ mod frame;
 mod history;
 mod model;
 mod model_data;
-mod rans;
+mod nibble;
+mod session;
 #[doc(hidden)]
 pub mod train;
 
 pub use frame::{
-    MZ_TWO_STATE_MIN_ROW_BYTES, MzEncoder, MzError, MzReference, MzResolve, decode_mz_rows,
-    encode_full_row_entry, full_row_entry_bytes, mz_literal_entries,
+    MZ_TWO_STATE_MIN_ROW_BYTES, MzCandidate, MzDecoder, MzEncoded, MzEncoder, MzError, MzItem,
+    MzMatches, MzRow, MzSources, NoHistory, encode_full_row_entry, entry_items,
+    full_row_entry_bytes, item_hash, pair_hash,
 };
 pub use history::{MZ_HISTORY_BYTES, MZ_REFERENCE_DATAGRAMS, MzLedger, MzStore, RowHistory};
+pub use session::{
+    MZ_DECLARATION_REACH, MZ_EPOCH_DATAGRAMS, MzEpochDeclaration, MzEpochError, MzReceiver, MzSession,
+    MzTracePool, SessionModel,
+    next_epoch_id,
+};
 
 #[cfg(test)]
 mod tests;

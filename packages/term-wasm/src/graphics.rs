@@ -603,7 +603,9 @@ mod tests {
                 .encode(
                     &raw[rows_offset..],
                     parse_frame_header(raw).unwrap().row_count,
-                    &[],
+                    &merkur_codec::mz::NoHistory,
+                    None,
+                    None,
                     &mut wire,
                 )
                 .unwrap();

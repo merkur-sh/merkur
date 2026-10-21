@@ -16,6 +16,7 @@ mod graphics_convergence;
 pub(crate) mod planner;
 pub mod policy;
 pub(crate) mod recv;
+pub(crate) mod mz_peer;
 pub(crate) mod references;
 pub(crate) mod send;
 pub(crate) mod wire;

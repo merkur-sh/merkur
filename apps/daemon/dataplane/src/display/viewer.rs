@@ -284,6 +284,10 @@ pub(crate) struct SimViewer {
     /// The graphics section the latest opened unit carried for each
     /// `(generation, row)`, which is what classifies a disturbed unit's rows.
     unit_graphics: HashMap<(u32, u16), Vec<u8>>,
+    /// MZ state as of every unit that arrived, delivered or not: a superset of
+    /// what the terminal holds, so every copy a unit makes resolves when its
+    /// shape is judged.
+    unit_mz: merkur_codec::mz::MzReceiver,
     /// Input-routing words the daemon sent on the control lane. A word the
     /// viewer takes goes straight into the terminal's mode word, as
     /// `handleInputRouting` does.
@@ -771,6 +775,7 @@ impl SimViewers {
                     held: Vec::new(),
                     disturbed: UnitDisturbanceTally::default(),
                     unit_graphics: HashMap::new(),
+                    unit_mz: Default::default(),
                     input_routing_seen: 0,
                     input_routing: InputRoutingHold::default(),
                     demand: SimDemandObservation::default(),
@@ -1050,42 +1055,60 @@ impl SimViewers {
         }
         let (header, rows_start) = parse_frame_header_and_rows_start(plain)
             .unwrap_or_else(|error| panic!("a unit with an unreadable frame header: {error:?}"));
-        let mut literals = Vec::new();
-        let (rows, start, literal_count) = if stream.flags
-            & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ
-            != 0
-        {
+        let mut decoded = Vec::new();
+        let (rows, start) = if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
             let rows_len = u32::from_be_bytes(
                 plain[merkur_codec::DISPLAY_COMPRESSED_LENGTH_OFFSET
                     ..merkur_codec::DISPLAY_COMPRESSED_LENGTH_OFFSET + 4]
                     .try_into()
                     .expect("compressed length"),
             ) as usize;
-            let mut references = Vec::new();
-            merkur_codec::mz::mz_literal_entries(
-                &plain[merkur_codec::DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
-                header.row_count,
-                rows_len,
-                &mut references,
-                &mut literals,
-            )
-            .expect("the daemon codes well-formed MZ payloads");
-            // A reference stands for a whole row the browser already holds,
-            // and never one with graphics: an empty replacement.
-            for row in &references {
-                let key = (stream.generation, *row);
-                shape.empty_replacement |= viewer
-                    .unit_graphics
-                    .get(&key)
-                    .is_some_and(|graphics| !graphics.is_empty());
-                viewer.unit_graphics.insert(key, Vec::new());
-            }
-            let count = header.row_count
-                - u16::try_from(references.len()).expect("references stand in for rows");
-            (literals.as_slice(), 0, count)
+            viewer
+                .unit_mz
+                .decode(
+                    stream.seq,
+                    header.presentation_id,
+                    &plain[merkur_codec::DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
+                    header.row_count,
+                    rows_len,
+                    &mut decoded,
+                )
+                .expect("every unit's copies resolve against every earlier unit");
+            (decoded.as_slice(), 0)
         } else {
-            (plain, rows_start, header.row_count)
+            (plain, rows_start)
         };
+        // Record the unit's complete rows, as the terminal records those of
+        // every delta it decodes.
+        if matches!(header.kind, FrameKind::Delta) {
+            let (mut validated, mut cells, mut seen, mut graphics, mut table) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            if merkur_codec::validate_display_rows(
+                header,
+                &rows[start..],
+                &mut validated,
+                &mut cells,
+                &mut seen,
+                &mut graphics,
+                &mut table,
+            )
+            .is_ok()
+            {
+                for row in &validated {
+                    let row_cells = &cells[row.cells_start..row.cells_end];
+                    if row.left == 0 && row_cells.len() == usize::from(header.cols) {
+                        viewer.unit_mz.history.record(
+                            stream.seq,
+                            row.row_index,
+                            row_cells,
+                            header.cols,
+                            header.rows,
+                        );
+                    }
+                }
+            }
+        }
+        let literal_count = header.row_count;
         for entry in merkur_codec::iter_rows_at(rows, start, literal_count) {
             let entry = entry.expect("the daemon encodes well-formed rows");
             let key = (stream.generation, entry.row_index);

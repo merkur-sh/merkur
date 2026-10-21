@@ -559,7 +559,7 @@ pub(crate) fn handle_display_ack(
             sent.reliable,
             true,
         );
-        peer.display_cache.references.note_applied(seq, &sent.rows);
+        peer.display_cache.references.note_applied(seq, &sent.rows, sent.mz.coded, sent.mz.declared);
         // Every newly-applied row-bearing datagram is one uncensored sample of
         // the quantity the duplicate deadline predicts. Header-only frames are
         // dual-pathed control updates and reliable frames include stream HOL;
@@ -949,6 +949,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             seq,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms,
                 rows: SentRows::default(),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -987,6 +988,7 @@ mod tests {
             peer.display_cache.insert_sent_datagram(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms,
                     rows: SentRows::from_iter([sent]),
                     sent_via: SentPaths::single(PeerTransport::Edge),
@@ -1014,6 +1016,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             9,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 95.0,
                 rows: SentRows::from_iter(resend),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -1367,6 +1370,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             1,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 0.0,
                 rows: SentRows::from_iter([row(11, 'a')]),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -1437,6 +1441,7 @@ mod tests {
             peer.display_cache.insert_sent_datagram(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms: 0.0,
                     rows: SentRows::from_iter([sent.clone()]),
                     sent_via: SentPaths::single(PeerTransport::Edge),
@@ -1603,6 +1608,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             3,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 0.0,
                 rows: SentRows::default(),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -1914,6 +1920,7 @@ mod tests {
             peer.display_cache.sent_datagrams.insert(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms,
                     rows: SentRows::from_iter([row]),
                     sent_via: SentPaths::single(PeerTransport::Edge),
@@ -2080,6 +2087,7 @@ mod tests {
         peer.display_cache.sent_datagrams.insert(
             1,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 0.0,
                 rows: SentRows::from_iter([SentRow {
                     graphics: None,
@@ -2109,6 +2117,7 @@ mod tests {
             peer.display_cache.sent_datagrams.insert(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms: f64::from(seq),
                     rows: SentRows::default(),
                     sent_via: SentPaths::single(PeerTransport::Edge),
@@ -2137,6 +2146,7 @@ mod tests {
             peer.display_cache.sent_datagrams.insert(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms: f64::from(seq),
                     rows: SentRows::default(),
                     sent_via: SentPaths::single(PeerTransport::Edge),
@@ -2297,6 +2307,7 @@ mod tests {
             peer.display_cache.sent_datagrams.insert(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms: f64::from(seq),
                     // An invalidated row-bearing record can have no rows left,
                     // but remains a valid confirmation-delay sample. Only the
@@ -2370,6 +2381,7 @@ mod tests {
             peer.display_cache.insert_sent_datagram(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms: 1.0,
                     rows: SentRows::default(),
                     sent_via,
@@ -2449,6 +2461,7 @@ mod tests {
                         peer.display_cache.insert_sent_datagram(
                             first,
                             SentDatagram {
+                                mz: crate::connection::SentMz::default(),
                                 sent_at_ms: 1.0,
                                 rows: SentRows::from_iter([original]),
                                 sent_via: original_paths,
@@ -2474,6 +2487,7 @@ mod tests {
                             peer.display_cache.insert_sent_datagram(
                                 seq,
                                 SentDatagram {
+                                    mz: crate::connection::SentMz::default(),
                                     sent_at_ms: 2.0 + index as f64,
                                     rows: SentRows::default(),
                                     sent_via,
@@ -2572,6 +2586,7 @@ mod tests {
             peer.display_cache.insert_sent_datagram(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms: 1.0,
                     rows: SentRows::default(),
                     sent_via,
@@ -2642,6 +2657,7 @@ mod tests {
             peer.display_cache.sent_datagrams.insert(
                 seq,
                 SentDatagram {
+                    mz: crate::connection::SentMz::default(),
                     sent_at_ms,
                     rows: SentRows::from_iter([row]),
                     sent_via: SentPaths::single(PeerTransport::Edge),

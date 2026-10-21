@@ -264,7 +264,15 @@ pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
 /// zstd bit), the dictionary READY, ACK and INSTALL control messages are
 /// deleted, and the receiver-profile bucket drops its dictionary class. A
 /// version-35 receiver would hand an MZ payload to its zstd decoder.
-pub const VERSION: u8 = 36;
+///
+/// Version 37 codes MZ adaptively: every context adapts within its frame from
+/// a trained prior, or from a session epoch both ends fold from the symbols of
+/// acknowledged frames; characters, colours and copies of item runs from the
+/// frame itself or from held rows replace whole-row references, and a
+/// payload opens with the prior it names and any epoch it declares. The
+/// envelope is byte-identical, so a version-36 receiver would decode the
+/// payload against the wrong model.
+pub const VERSION: u8 = 37;
 pub const PATCH_FLAG_RESET: u8 = 1 << 0;
 pub const PATCH_FLAG_PRESENTATION_COHERENT: u8 = 1 << 1;
 pub const PATCH_FLAG_PRESENTATION_END: u8 = 1 << 2;

@@ -1,39 +1,49 @@
-//! The static model: one frequency table per field, and context tables for the
-//! (field, context) pairs that earn their bytes.
+//! The trained prior every frame's tables start from: one table set per field,
+//! and table sets for the contexts that earn their bytes. A table set is a
+//! high-nibble CDF, a low-nibble CDF per high nibble, and the rate the context
+//! adapts at.
 
+use super::nibble::Cdf;
 use std::sync::OnceLock;
 
-/// Frequency precision of the field tables, and the most any context table
-/// uses. Eleven bits is the most a packed decode slot can hold (below).
-pub(super) const PROB_BITS: u32 = 11;
-/// The escape symbol of a context table: the symbol is coded again with its
-/// field's table.
-pub(super) const ESC: usize = 256;
 /// Bits of context per field. Every context a field takes fits twelve bits.
 const AUX_BITS: u32 = 12;
 /// Context values per field.
 pub(super) const AUX: usize = 1 << AUX_BITS;
 
-pub(super) const F_OP: u32 = 0;
-pub(super) const F_ROW: u32 = 1;
-pub(super) const F_LEFT: u32 = 2;
-pub(super) const F_COUNT: u32 = 3;
-pub(super) const F_MODE: u32 = 4;
-pub(super) const F_LINK: u32 = 5;
-pub(super) const F_TAG: u32 = 6;
-pub(super) const F_CODEPOINT: u32 = 7;
-pub(super) const F_FG: u32 = 8;
-pub(super) const F_BG: u32 = 9;
-pub(super) const F_RUN: u32 = 10;
+pub(super) const F_ROW: u32 = 0;
+pub(super) const F_LEFT: u32 = 1;
+pub(super) const F_COUNT: u32 = 2;
+pub(super) const F_MODE: u32 = 3;
+pub(super) const F_LINK: u32 = 4;
+pub(super) const F_SEG: u32 = 5;
+pub(super) const F_SRC_KIND: u32 = 6;
+pub(super) const F_BACK: u32 = 7;
+pub(super) const F_SEQ: u32 = 8;
+pub(super) const F_SRC_ROW: u32 = 9;
+pub(super) const F_SRC_ITEM: u32 = 10;
+pub(super) const F_ITEMS: u32 = 11;
+pub(super) const F_TAG: u32 = 12;
+/// Whether a character stays in its predecessor's 128-character block.
+pub(super) const F_SAME_BLOCK: u32 = 13;
+/// A character's low seven bits.
+pub(super) const F_LOW7: u32 = 14;
+/// A new block's position in the recent blocks, or a miss.
+pub(super) const F_BLOCK_MTF: u32 = 15;
+/// A missed block, as a varint.
+pub(super) const F_BLOCK: u32 = 16;
+/// A colour's position in its slot's recent colours, or the kind of miss.
+pub(super) const F_COLOR_MTF: u32 = 17;
+/// A missed palette colour.
+pub(super) const F_PALETTE: u32 = 18;
+/// A missed 24-bit colour, channel by channel, against the slot's last one.
+pub(super) const F_DCOLOR: u32 = 19;
+pub(super) const F_RUN: u32 = 20;
 /// A graphics row's section: its four length bytes, then its bytes.
-pub(super) const F_GRAPHICS: u32 = 11;
-pub(super) const F_SEQ: u32 = 12;
-pub(super) const F_SOURCE: u32 = 13;
-/// How many rows past two a range of references covers.
-pub(super) const F_RANGE: u32 = 14;
-/// Whether a cell's colour repeats its slot's previous colour.
-pub(super) const F_SAME_COLOR: u32 = 15;
-pub(super) const FIELDS: usize = 16;
+pub(super) const F_GRAPHICS: u32 = 21;
+pub(super) const FIELDS: usize = 22;
+/// Every key a walk codes in.
+pub(super) const KEYS: usize = FIELDS * AUX;
 
 #[inline]
 pub(super) const fn key(field: u32, aux: u32) -> u32 {
@@ -45,277 +55,175 @@ pub(super) const fn field_of(key: u32) -> usize {
     (key >> AUX_BITS) as usize
 }
 
-/// Normalized frequencies of one table, as the model data stores them.
-struct Frequencies {
-    bits: u32,
-    /// `(symbol, frequency)`, ascending by symbol, every frequency nonzero.
-    symbols: Vec<(u16, u16)>,
+/// Where a frame's tables start.
+pub(super) trait Prior {
+    fn hi(&self, key: u32) -> &Cdf;
+    fn lo(&self, key: u32, h: usize) -> &Cdf;
+    fn rate(&self, key: u32) -> u8;
 }
 
-/// Parse the model data. It is compiled in, so a malformed table is a build
-/// defect and panics; `the_model_data_is_well_formed` runs this in the tests.
-#[expect(
-    clippy::indexing_slicing,
-    clippy::expect_used,
-    reason = "the model data is compiled in, and a malformed table is a build defect"
-)]
-fn parse(data: &[u8]) -> (Vec<Frequencies>, Vec<(u32, Frequencies)>) {
-    let mut at = 0usize;
-    let u16_at = |at: &mut usize| {
-        let value = u16::from_le_bytes([data[*at], data[*at + 1]]);
-        *at += 2;
-        value
-    };
-    let mut fields = Vec::with_capacity(FIELDS);
-    for _ in 0..FIELDS {
-        let symbols = (0..256u16)
-            .map(|symbol| (symbol, u16_at(&mut at)))
-            .collect::<Vec<_>>();
-        fields.push(Frequencies {
-            bits: PROB_BITS,
-            symbols,
-        });
-    }
-    let count = u32::from_le_bytes(data[at..at + 4].try_into().expect("context count")) as usize;
-    at += 4;
-    let mut contexts = Vec::with_capacity(count);
-    for _ in 0..count {
-        let key = u32::from_le_bytes(data[at..at + 4].try_into().expect("context key"));
-        let bits = u32::from(data[at + 4]);
-        at += 5;
-        let symbols = u16_at(&mut at);
-        let symbols = (0..symbols)
-            .map(|_| (u16_at(&mut at), u16_at(&mut at)))
-            .collect();
-        contexts.push((key, Frequencies { bits, symbols }));
-    }
-    assert_eq!(at, data.len(), "the model data has trailing bytes");
-    for table in fields.iter().chain(contexts.iter().map(|(_, table)| table)) {
-        let total: u32 = table.symbols.iter().map(|&(_, freq)| u32::from(freq)).sum();
-        assert_eq!(
-            total,
-            1 << table.bits,
-            "a model table does not sum to its scale"
-        );
-        assert!((6..=PROB_BITS).contains(&table.bits));
-        assert!(
-            table
-                .symbols
-                .iter()
-                .all(|&(symbol, freq)| freq > 0 && usize::from(symbol) <= ESC)
-        );
-    }
-    for window in contexts.windows(2) {
-        assert!(
-            window[0].0 < window[1].0,
-            "model contexts are not in key order"
-        );
-    }
-    for (key, table) in &contexts {
-        assert!(field_of(*key) < FIELDS);
-        assert!(
-            table
-                .symbols
-                .iter()
-                .any(|&(symbol, _)| usize::from(symbol) == ESC),
-            "a context table cannot escape"
-        );
-    }
-    (fields, contexts)
+/// One table set: what a context starts each frame with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct TableSet {
+    pub(super) rate: u8,
+    pub(super) hi: Cdf,
+    /// The low tables, those the context has; the rest are its field's.
+    pub(super) lo: [Option<Cdf>; 16],
 }
 
-/// The decode model: every table's slots in one arena, so a decode step is
-/// one dependent load from the context to its slot. `slot[state & mask]`
-/// packs the symbol (9 bits), its frequency less one (11 bits) and the slot's
-/// offset within the symbol's range (11 bits). A table is named by a handle,
-/// `offset << 4 | bits`, which is never zero because `bits` is at least 6.
-pub(super) struct DecodeModel {
-    pub(super) slots: Box<[u32]>,
-    /// The handle of each `key`'s context table, zero for none.
+/// The compiled-in prior.
+pub(super) struct StaticModel {
+    /// Field table sets first, every low table present, then the contexts'.
+    sets: Vec<TableSet>,
+    /// The table set of each key.
     index: Box<[u32]>,
-    fields: [u32; FIELDS],
 }
 
-impl DecodeModel {
+impl Prior for StaticModel {
+    #[inline(always)]
+    fn hi(&self, key: u32) -> &Cdf {
+        &self.set(key).hi
+    }
+
+    #[inline(always)]
     #[expect(
         clippy::indexing_slicing,
         clippy::expect_used,
-        clippy::cast_possible_truncation,
-        reason = "`parse` checked the compiled-in tables: every symbol lies in its \
-                  table's scale, every key below `FIELDS * AUX`, the arena far below 4 Gi"
+        reason = "field table sets hold every low table, checked when parsed"
     )]
-    fn build() -> Self {
-        let (fields, contexts) = parse(super::model_data::MODEL);
-        let mut slots = Vec::new();
-        let mut table = |frequencies: &Frequencies| {
-            let offset = slots.len() as u32;
-            let mut cum = 0u32;
-            slots.resize(slots.len() + (1 << frequencies.bits), 0);
-            for &(symbol, freq) in &frequencies.symbols {
-                let freq = u32::from(freq);
-                for at in 0..freq {
-                    slots[(offset + cum + at) as usize] =
-                        u32::from(symbol) | (freq - 1) << 9 | at << 20;
-                }
-                cum += freq;
-            }
-            offset << 4 | frequencies.bits
-        };
-        let fields: Vec<u32> = fields.iter().map(&mut table).collect();
-        let mut index = vec![0u32; FIELDS * AUX].into_boxed_slice();
-        for (key, frequencies) in &contexts {
-            index[*key as usize] = table(frequencies);
-        }
-        Self {
-            slots: slots.into_boxed_slice(),
-            index,
-            fields: fields.try_into().expect("a table per field"),
+    fn lo(&self, key: u32, h: usize) -> &Cdf {
+        match &self.set(key).lo[h & 15] {
+            Some(lo) => lo,
+            None => self.sets[field_of(key)].lo[h & 15]
+                .as_ref()
+                .expect("a field holds every low table"),
         }
     }
 
-    /// The handle of `key`'s context table, zero when the model has none.
     #[inline(always)]
-    pub(super) fn context(&self, key: u32) -> u32 {
-        debug_assert!((key as usize) < self.index.len());
+    fn rate(&self, key: u32) -> u8 {
+        self.set(key).rate
+    }
+}
+
+impl StaticModel {
+    #[inline(always)]
+    fn set(&self, key: u32) -> &TableSet {
         // SAFETY: every key is `key(field, aux)` with a field below `FIELDS`
-        // and `aux` masked to `AUX`, so it indexes the `FIELDS * AUX` index.
-        unsafe { *self.index.get_unchecked(key as usize) }
+        // and `aux` masked, so it indexes the `KEYS` index.
+        let at = unsafe { *self.index.get_unchecked(key as usize) };
+        // SAFETY: every index entry is a table set `parse` built.
+        unsafe { self.sets.get_unchecked(at as usize) }
     }
 
-    #[inline(always)]
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "every key is `key(field, aux)` with a field below `FIELDS`"
-    )]
-    pub(super) fn field(&self, key: u32) -> u32 {
-        self.fields[field_of(key)]
-    }
-
-    #[cfg(test)]
-    pub(super) fn contexts(&self) -> usize {
-        self.index.iter().filter(|&&handle| handle != 0).count()
-    }
-}
-
-/// One symbol of one encode table, with what a reciprocal rANS step needs
-/// (Giesen's `RansEncSymbol`): the state bound past which it renormalizes, and
-/// the reciprocal that replaces the division. Absent symbols have `x_max` zero.
-#[derive(Clone, Copy, Default)]
-pub(super) struct EncodeSymbol {
-    pub(super) x_max: u32,
-    pub(super) rcp_freq: u32,
-    pub(super) bias: u32,
-    pub(super) cmpl_freq: u16,
-    /// What coding the symbol costs, in 1/256 bit.
-    pub(super) cost: u16,
-    pub(super) rcp_shift: u32,
-}
-
-impl EncodeSymbol {
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "`freq` is in 1..scale with scale at most 2^11, so the reciprocal is \
-                  below 2^32 and the complement and cost fit 16 bits"
-    )]
-    fn new(start: u32, freq: u32, bits: u32) -> Self {
-        let scale = 1u32 << bits;
-        let (rcp_freq, rcp_shift, bias) = if freq < 2 {
-            // `x * !0 >> 32` is `x - 1`, which the bias's extra `scale - 1`
-            // turns back into the exact step.
-            (u32::MAX, 0, start + scale - 1)
-        } else {
-            let shift = 32 - (freq - 1).leading_zeros();
-            let rcp = ((1u64 << (shift + 31)) + u64::from(freq) - 1) / u64::from(freq);
-            (rcp as u32, shift - 1, start)
+    /// The model the data describes; `None` for data the format does not
+    /// allow, which for the compiled-in data is a build defect.
+    pub(super) fn parse(data: &[u8]) -> Option<Self> {
+        let mut at = 0usize;
+        let u16_at = |at: &mut usize| -> Option<u16> {
+            let value = u16::from_le_bytes(data.get(*at..*at + 2)?.try_into().ok()?);
+            *at += 2;
+            Some(value)
         };
-        Self {
-            x_max: ((super::rans::RANS_L >> bits) << 8) * freq,
-            rcp_freq,
-            bias,
-            cmpl_freq: (scale - freq) as u16,
-            cost: (-(f64::from(freq) / f64::from(scale)).log2() * 256.0).round() as u16,
-            rcp_shift,
-        }
-    }
-}
-
-/// The encode model: every table's symbols in one arena of `ESC + 1` entries
-/// a table, found from a key through one dense index.
-pub(super) struct EncodeModel {
-    pub(super) symbols: Box<[EncodeSymbol]>,
-    /// One more than the arena table of each `key`'s context, zero for none.
-    index: Box<[u32]>,
-    fields: [u32; FIELDS],
-}
-
-impl EncodeModel {
-    #[expect(
-        clippy::indexing_slicing,
-        clippy::expect_used,
-        clippy::cast_possible_truncation,
-        reason = "`parse` checked the compiled-in tables: every symbol is at most `ESC`, \
-                  every key below `FIELDS * AUX`, the arena far below 4 Gi tables"
-    )]
-    fn build() -> Self {
-        let (fields, contexts) = parse(super::model_data::MODEL);
-        let mut symbols = Vec::new();
-        let mut table = |frequencies: &Frequencies| {
-            let first = symbols.len();
-            symbols.resize(first + ESC + 1, EncodeSymbol::default());
-            let mut cum = 0u32;
-            for &(symbol, freq) in &frequencies.symbols {
-                symbols[first + usize::from(symbol)] =
-                    EncodeSymbol::new(cum, u32::from(freq), frequencies.bits);
-                cum += u32::from(freq);
+        let count = u32::from(u16_at(&mut at)?) | u32::from(u16_at(&mut at)?) << 16;
+        let table = |at: &mut usize| -> Option<Cdf> {
+            let mut freqs = [0u16; 16];
+            for freq in &mut freqs {
+                *freq = u16_at(at)?;
             }
-            (first / (ESC + 1)) as u32
+            let sum: u32 = freqs.iter().map(|&f| u32::from(f)).sum();
+            (sum == super::nibble::PROB_SCALE && freqs.iter().all(|&f| f > 0))
+                .then(|| Cdf::from_freqs(&freqs))
         };
-        let fields: Vec<u32> = fields.iter().map(&mut table).collect();
-        let mut index = vec![0u32; FIELDS * AUX].into_boxed_slice();
-        for (key, frequencies) in &contexts {
-            index[*key as usize] = table(frequencies) + 1;
+        let set = |at: &mut usize| -> Option<TableSet> {
+            let rate = *data.get(*at)?;
+            *at += 1;
+            if !(1..=8).contains(&rate) {
+                return None;
+            }
+            let hi = table(at)?;
+            let mask = u16::from_le_bytes(data.get(*at..*at + 2)?.try_into().ok()?);
+            *at += 2;
+            let mut lo = [None; 16];
+            for (h, slot) in lo.iter_mut().enumerate() {
+                if mask & 1 << h != 0 {
+                    *slot = Some(table(at)?);
+                }
+            }
+            Some(TableSet { rate, hi, lo })
+        };
+        let mut sets = Vec::with_capacity(FIELDS + count as usize);
+        for _ in 0..FIELDS {
+            let field = set(&mut at)?;
+            if field.lo.iter().any(Option::is_none) {
+                return None;
+            }
+            sets.push(field);
         }
-        Self {
-            symbols: symbols.into_boxed_slice(),
-            index,
-            fields: fields.try_into().expect("a table per field"),
+        let keys = u32::try_from(KEYS).ok()?;
+        let mut index = (0..keys)
+            .map(|key| u32::try_from(field_of(key)).ok())
+            .collect::<Option<Box<[u32]>>>()?;
+        let mut previous = None;
+        for _ in 0..count {
+            let key = u32::from_le_bytes(data.get(at..at + 4)?.try_into().ok()?);
+            at += 4;
+            if key as usize >= KEYS || previous.is_some_and(|previous| previous >= key) {
+                return None;
+            }
+            previous = Some(key);
+            *index.get_mut(key as usize)? = u32::try_from(sets.len()).ok()?;
+            sets.push(set(&mut at)?);
         }
+        (at == data.len()).then_some(Self { sets, index })
     }
 
-    /// The arena position of `symbol` in `key`'s context table, if the model
-    /// has that table.
-    #[inline(always)]
-    pub(super) fn context(&self, key: u32, symbol: usize) -> Option<usize> {
-        let table = *self.index.get(key as usize)?;
-        (table != 0).then(|| (table as usize - 1) * (ESC + 1) + symbol)
+    /// The bytes [`Self::parse`] reads: field sets, then `(key, set)` in key
+    /// order.
+    pub(super) fn write(fields: &[TableSet], contexts: &[(u32, TableSet)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let count = u32::try_from(contexts.len()).unwrap_or(u32::MAX);
+        out.extend_from_slice(&count.to_le_bytes());
+        let write_set = |out: &mut Vec<u8>, set: &TableSet| {
+            out.push(set.rate);
+            for freq in set.hi.freqs() {
+                out.extend_from_slice(&freq.to_le_bytes());
+            }
+            let mask = set
+                .lo
+                .iter()
+                .enumerate()
+                .filter(|(_, lo)| lo.is_some())
+                .fold(0u16, |mask, (h, _)| mask | 1 << h);
+            out.extend_from_slice(&mask.to_le_bytes());
+            for lo in set.lo.iter().flatten() {
+                for freq in lo.freqs() {
+                    out.extend_from_slice(&freq.to_le_bytes());
+                }
+            }
+        };
+        for field in fields {
+            write_set(&mut out, field);
+        }
+        for (key, set) in contexts {
+            out.extend_from_slice(&key.to_le_bytes());
+            write_set(&mut out, set);
+        }
+        out
     }
 
-    #[inline(always)]
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "every key is `key(field, aux)` with a field below `FIELDS`"
-    )]
-    pub(super) fn field(&self, key: u32, symbol: usize) -> usize {
-        self.fields[field_of(key)] as usize * (ESC + 1) + symbol
-    }
-
+    /// Every context key the model has a table set for.
     #[cfg(test)]
     pub(super) fn contexts(&self) -> usize {
-        self.index.iter().filter(|&&table| table != 0).count()
+        self.sets.len() - FIELDS
     }
 }
 
-/// The decode model, built once per process from the compiled-in data.
-pub(super) fn decode_model() -> &'static DecodeModel {
-    static MODEL: OnceLock<DecodeModel> = OnceLock::new();
-    MODEL.get_or_init(DecodeModel::build)
-}
-
-/// The encode model, built once per process from the compiled-in data.
-pub(super) fn encode_model() -> &'static EncodeModel {
-    static MODEL: OnceLock<EncodeModel> = OnceLock::new();
-    MODEL.get_or_init(EncodeModel::build)
+/// The compiled-in prior, parsed once per process.
+#[expect(clippy::expect_used, reason = "the model data is compiled in; a malformed one is a build defect")]
+pub(super) fn static_model() -> &'static StaticModel {
+    static MODEL: OnceLock<StaticModel> = OnceLock::new();
+    MODEL.get_or_init(|| StaticModel::parse(super::model_data::MODEL).expect("the compiled-in MZ model"))
 }
 
 #[cfg(test)]
@@ -324,15 +232,8 @@ mod tests {
 
     #[test]
     fn the_model_data_is_well_formed() {
-        let (fields, contexts) = parse(super::super::model_data::MODEL);
-        assert_eq!(fields.len(), FIELDS);
-        assert!(!contexts.is_empty());
-        // Every byte value is codable in every field, so a literal never fails.
-        for field in &fields {
-            assert!(field.symbols.iter().all(|&(_, freq)| freq > 0));
-        }
-        let decode = decode_model();
-        let encode = encode_model();
-        assert_eq!(decode.contexts(), encode.contexts());
+        let model = StaticModel::parse(super::super::model_data::MODEL).expect("model data");
+        assert!(model.sets.len() >= FIELDS);
+        let _ = model.contexts();
     }
 }

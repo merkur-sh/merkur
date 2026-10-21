@@ -794,6 +794,7 @@ mod tests {
         peer.display_cache.sent_datagrams.insert(
             41,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 90.0,
                 rows: SentRows::default(),
                 sent_via: SentPaths::single(PeerTransport::Edge),
@@ -929,6 +930,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             10,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 10.0,
                 rows: SentRows::from_iter([direct_row]),
                 sent_via: SentPaths::single(PeerTransport::WebTransport),
@@ -956,6 +958,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             11,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 11.0,
                 rows: SentRows::from_iter([edge_row]),
                 sent_via: edge_paths,
@@ -986,6 +989,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             12,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 12.0,
                 rows: SentRows::from_iter([dual_row]),
                 sent_via: dual_paths,
@@ -1037,6 +1041,7 @@ mod tests {
         peer.display_cache.insert_sent_datagram(
             7,
             SentDatagram {
+                mz: crate::connection::SentMz::default(),
                 sent_at_ms: 7.0,
                 rows: SentRows::default(),
                 sent_via: SentPaths::single(PeerTransport::WebTransport),

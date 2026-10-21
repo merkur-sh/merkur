@@ -12,19 +12,6 @@ fn assert_released(terminal: &Terminal) {
     assert!(terminal.display_decoded_rows.len() <= MAX_DISPLAY_FRAME_BYTES);
 }
 
-/// Resolves no reference: a fresh terminal's history holds nothing either.
-struct NoReferences;
-
-impl merkur_codec::mz::MzResolve for NoReferences {
-    fn resolve(
-        &mut self,
-        _: u16,
-        _: merkur_codec::mz::MzReference,
-        _: &mut Vec<u8>,
-    ) -> Result<(), merkur_codec::mz::MzError> {
-        Err(merkur_codec::mz::MzError::Unresolved)
-    }
-}
 
 fn raw_seed() -> Vec<u8> {
     let cells = [test_cell('a'); 8];
@@ -98,7 +85,10 @@ fn fuzz_display_mz() {
             assert!(terminal.validate_staged_frame(handle));
             let rows_len = raw.len() - STREAM_HEADER_BYTES - FRAME_HEADER_BODY_BYTES;
             let mut decoded = Vec::new();
-            merkur_codec::mz::decode_mz_rows(bytes, 1, rows_len, &mut NoReferences, &mut decoded)
+            // A fresh receiver holds no rows and no epochs, as a fresh
+            // terminal does.
+            merkur_codec::mz::MzReceiver::default()
+                .decode(1, 1, bytes, 1, rows_len, &mut decoded)
                 .expect("an accepted payload decodes");
             assert_eq!(decoded.len(), rows_len);
             let mut plain = raw[..STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES].to_vec();

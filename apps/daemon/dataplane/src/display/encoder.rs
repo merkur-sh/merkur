@@ -641,7 +641,9 @@ mod tests {
             .encode(
                 &snapshot[rows_offset..],
                 u16::try_from(ROWS).expect("a grid of rows"),
-                &[],
+                &merkur_codec::mz::NoHistory,
+                None,
+                None,
                 &mut compressed,
             )
             .expect("rows code");
