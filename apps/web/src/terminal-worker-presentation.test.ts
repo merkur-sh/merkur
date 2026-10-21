@@ -134,6 +134,10 @@ describe('terminal worker presentation host adapter', () => {
       controls.indexOf('controlQueue.shift()'),
     );
     expect(body('installPublishedFence')).toContain('applyLineageFence(fence)');
+    // A grant held for a fence the starting runtime could not install
+    // survives that runtime's installation, which disposes the one before.
+    expect(body('disposeInstalledRuntime')).not.toContain('heldGeometry');
+    expect(body('disposeInstalledRuntime')).not.toContain('heldGraphicsClock');
   });
 
   test('bounded control slices yield to data work without overtaking ownership barriers', () => {

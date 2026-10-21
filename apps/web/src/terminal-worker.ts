@@ -1760,8 +1760,6 @@ function disposeInstalledRuntime(): void {
   workerReady = false;
   activeSessionEpoch = 0;
   activeFrameFenceToken = 0;
-  heldGeometry = null;
-  heldGraphicsClock = null;
   predictionModelThroughInputSeq = 0;
   localPresentationPending = false;
   provisionalPreview.clear();
@@ -3262,7 +3260,9 @@ function viewWasmU8(buffer: ArrayBufferLike, ptr: number, len: number): Uint8Arr
 /**
  * The latest geometry state and graphics clock the transport published under a
  * fence this worker had not installed: one that arrives while the runtime the
- * fence needs is still starting, which the transport does not wait for.
+ * fence needs is still starting, which the transport does not wait for. They
+ * belong to the transport's lineage, not to a runtime, so installing the
+ * runtime (which disposes the one before) keeps them.
  */
 let heldGeometry: ClientGeometry | null = null;
 

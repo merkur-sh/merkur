@@ -482,20 +482,26 @@ export function createFrameRingReader(
    * yet taken, every entry ahead of it: they belong to a lineage that ended.
    */
   function nextEntryOffset(): number {
-    let readOff = Atomics.load(meta, 1);
-    const writeOff = Atomics.load(meta, 0);
-    if (readOff === writeOff) return -1;
-    if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
-      readOff = 0;
-      Atomics.store(meta, 1, 0);
-      if (readOff === writeOff) return -1;
-    }
+    const readOff = entryAt(Atomics.load(meta, 1));
+    if (readOff < 0) return -1;
     // The writer announces a fence before it publishes the fence's entry, so
     // reading the entry's cursor first and the announcement second sees the
     // announcement of every fence entry already readable. Steady state is one
     // load and one compare: no fence is waiting.
     if (Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) === takenFence) return readOff;
     return discardToAnnouncedFence(readOff);
+  }
+
+  /**
+   * The published entry at the read cursor `readOff`, past a skip marker, or
+   * -1 when the ring holds nothing there.
+   */
+  function entryAt(readOff: number): number {
+    const writeOff = Atomics.load(meta, 0);
+    if (readOff === writeOff) return -1;
+    if (dataView.getUint32(readOff, true) !== FRAME_SKIP_MARKER) return readOff;
+    Atomics.store(meta, 1, 0);
+    return writeOff === 0 ? -1 : 0;
   }
 
   /**
@@ -517,15 +523,10 @@ export function createFrameRingReader(
         }
         skippedNewSession ||= (flags & FRAME_FENCE_NEW_SESSION) !== 0;
       }
-      readOff = entryEnd(readOff);
-      Atomics.store(meta, 1, readOff);
-      const writeOff = Atomics.load(meta, 0);
-      if (readOff === writeOff) return -1;
-      if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
-        readOff = 0;
-        Atomics.store(meta, 1, 0);
-        if (readOff === writeOff) return -1;
-      }
+      const end = entryEnd(readOff);
+      Atomics.store(meta, 1, end);
+      readOff = entryAt(end);
+      if (readOff < 0) return -1;
     }
   }
 
