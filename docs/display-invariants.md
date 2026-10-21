@@ -448,10 +448,11 @@ it handles a peer message or a control command; a geometry state or graphics clo
 a fence it cannot install yet (its runtime still starting) waits for that fence. Nothing made
 under a lineage reaches a viewer still on the one before. The transport never waits for the viewer to take a fence;
 the viewer records the fence it installed in the ring, which is how the transport learns the
-lineage is confirmed. A terminal worker that stops reading costs display and nothing else:
-while the transport's display lane is parked on it (a full ring, an unanswered asset), display
-datagrams are dropped like network loss, and the carrier reader keeps delivering pongs and
-input ACKs.
+lineage is confirmed. A terminal worker that stops reading costs display and nothing else: no
+carrier reader waits on the transport's display lane, so pongs and input ACKs keep arriving
+while the lane is parked on the terminal (a full ring, an unanswered asset). What queues behind
+the parked lane is bounded by flow control, not by dropping: a terminal that stops presenting
+mints no grants, and sustained output stops at its free window without one.
 
 ## Row priority classes
 

@@ -43,7 +43,6 @@ function host(ringBytes: number) {
     lineage: 0,
     frameToken: 0,
     newViewerSession: true,
-    hostLaneParked: false,
     resumeSpace: null,
     spacePromise: null,
     rxBytes: 0,
@@ -84,7 +83,6 @@ test('a new lineage is fenced in the frame ring without waiting for the terminal
   expect(session.context.lineage).toBe(2);
   expect(session.context.frameToken).not.toBe(0);
   expect(session.context.newViewerSession).toBe(false);
-  expect(session.context.hostLaneParked).toBe(false);
   expect(session.posted).toEqual([]);
 
   const entry = createFrameRingReader(session.ring).tryRead();
@@ -96,7 +94,7 @@ test('a new lineage is fenced in the frame ring without waiting for the terminal
   });
 });
 
-test('a full ring parks the display lane, not the carrier reader', async () => {
+test('a full ring parks the display lane, never the carrier reader', async () => {
   const session = host(4 * 1024);
   const writer = createFrameRingWriter(session.ring);
   while (writer.write(new Uint8Array(256), FRAME_KIND_DISPLAY, false)) {}
@@ -108,14 +106,14 @@ test('a full ring parks the display lane, not the carrier reader', async () => {
   });
   await Promise.resolve();
   expect(fenced).toBe(false);
-  expect(session.context.hostLaneParked).toBe(true);
 
-  // While parked, the display datagram is lost and the pong and ACK lanes
-  // are delivered, each in its own turn with nothing awaited.
+  // The lane is parked and its drain never settles (`drive` here never
+  // resolves), yet every datagram, display, pong and ACK alike, reaches the
+  // session in the turn it arrives: nothing is awaited and nothing is lost.
   for (const channel of [3, 2, 1, 3]) {
     session.run<void>(`deliverDatagram(1, 7n, Uint8Array.of(${channel}, 0, 0))`);
   }
-  expect(session.received).toEqual([1, 1]);
+  expect(session.received).toEqual([1, 1, 1, 1]);
 
   // The reader discards the ended lineage the announcement fenced off; its
   // space edge lets the fence in.
@@ -124,8 +122,4 @@ test('a full ring parks the display lane, not the carrier reader', async () => {
   await Promise.resolve();
   await Promise.resolve();
   expect(fenced).toBe(true);
-  expect(session.context.hostLaneParked).toBe(false);
-
-  session.run<void>('deliverDatagram(1, 7n, Uint8Array.of(3, 0, 0))');
-  expect(session.received).toEqual([1, 1, 1]);
 });
