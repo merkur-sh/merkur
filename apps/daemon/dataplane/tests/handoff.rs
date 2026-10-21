@@ -79,15 +79,20 @@ struct Running(Child);
 
 impl Drop for Running {
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        // A test that already ended the dataplane leaves nothing to kill or reap.
+        if self.0.try_wait().is_ok_and(|status| status.is_none()) {
+            self.0.kill().expect("end the dataplane");
+            self.0.wait().expect("reap the dataplane");
+        }
     }
 }
 
 #[test]
 fn a_live_shell_survives_its_dataplane_replacing_itself() {
     let directory = std::env::temp_dir().join(format!("merkur-handoff-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
+    if directory.exists() {
+        std::fs::remove_dir_all(&directory).expect("remove a stale directory");
+    }
     std::fs::create_dir_all(&directory).expect("directory");
     let script = shell_script(&directory);
     let args = [
@@ -173,5 +178,5 @@ fn a_live_shell_survives_its_dataplane_replacing_itself() {
     wait_for("the shell to end with its terminal", || {
         !alive(u32::try_from(shell_pid).expect("pid"))
     });
-    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::remove_dir_all(&directory).expect("remove the test directory");
 }

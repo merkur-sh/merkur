@@ -343,8 +343,9 @@ impl Account {
             .request(reqwest::Method::GET, "/api/release", None, None, None)
             .await?;
         let body = response.bytes().await?;
-        let release: Release =
-            serde_json::from_slice(&body).map_err(|_| AccountError::Invalid("/api/release"))?;
+        let release = serde_json::from_slice::<Release>(&body)
+            .ok()
+            .ok_or(AccountError::Invalid("/api/release"))?;
         if release.release.is_empty() || release.release.chars().any(char::is_control) {
             return Err(AccountError::Invalid("/api/release"));
         }

@@ -155,7 +155,9 @@ impl Staged {
             .env(HANDOFF_FD_ENV, self.file.as_raw_fd().to_string())
             .exec();
         for fd in self.fds {
-            let _ = close_on_exec(fd);
+            if let Err(error) = close_on_exec(fd) {
+                tracing::warn!(%error, fd, "a descriptor kept for the next image stays inheritable");
+            }
         }
         error
     }
@@ -198,7 +200,7 @@ pub fn incoming() -> io::Result<Option<(Adoption, UnixListener)>> {
     };
     let fd: RawFd = text
         .parse()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "handoff descriptor"))?;
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     // SAFETY: the predecessor passed this descriptor open across `execve` for this process
     // alone; nothing else in this process knows its number.
     let mut file = unsafe { File::from_raw_fd(fd) };
@@ -253,7 +255,7 @@ fn decode_credential(text: &str) -> io::Result<Zeroizing<[u8; 32]>> {
     for (index, [high, low]) in bytes.as_chunks::<2>().0.iter().enumerate() {
         let digit = |byte: u8| char::from(byte).to_digit(16).ok_or_else(invalid);
         credential[index] =
-            u8::try_from(digit(*high)? * 16 + digit(*low)?).map_err(|_| invalid())?;
+            u8::try_from(digit(*high)? * 16 + digit(*low)?).map_err(io::Error::other)?;
     }
     Ok(credential)
 }
@@ -287,7 +289,8 @@ pub fn accept_owner(listener: &UnixListener) -> io::Result<Option<UnixStream>> {
 #[cfg(target_os = "linux")]
 fn peer_pid(stream: &UnixStream) -> io::Result<libc::pid_t> {
     let mut credentials = std::mem::MaybeUninit::<libc::ucred>::uninit();
-    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let mut length =
+        libc::socklen_t::try_from(std::mem::size_of::<libc::ucred>()).map_err(io::Error::other)?;
     // SAFETY: `SO_PEERCRED` writes one `ucred` and its length through the pointers, both
     // live slots of those types on this frame.
     let result = unsafe {
@@ -309,7 +312,8 @@ fn peer_pid(stream: &UnixStream) -> io::Result<libc::pid_t> {
 #[cfg(target_os = "macos")]
 fn peer_pid(stream: &UnixStream) -> io::Result<libc::pid_t> {
     let mut pid: libc::pid_t = 0;
-    let mut length = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    let mut length =
+        libc::socklen_t::try_from(std::mem::size_of::<libc::pid_t>()).map_err(io::Error::other)?;
     // SAFETY: `LOCAL_PEERPID` writes one `pid_t` and its length through the pointers, both
     // live locals.
     let result = unsafe {
@@ -386,7 +390,7 @@ impl ParentExit {
         // SAFETY: `kqueue` returned a new descriptor this process owns.
         let queue = unsafe { OwnedFd::from_raw_fd(queue) };
         let change = libc::kevent {
-            ident: parent as libc::uintptr_t,
+            ident: libc::uintptr_t::try_from(parent).map_err(io::Error::other)?,
             filter: libc::EVFILT_PROC,
             flags: libc::EV_ADD | libc::EV_ONESHOT,
             fflags: libc::NOTE_EXIT,
@@ -413,7 +417,7 @@ impl ParentExit {
     #[cfg(target_os = "macos")]
     fn wait_readable(&self, listener: RawFd) -> io::Result<bool> {
         let change = libc::kevent {
-            ident: listener as libc::uintptr_t,
+            ident: libc::uintptr_t::try_from(listener).map_err(io::Error::other)?,
             filter: libc::EVFILT_READ,
             flags: libc::EV_ADD | libc::EV_ONESHOT,
             fflags: 0,
@@ -492,7 +496,9 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("merkur-handoff-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("directory");
         let path = directory.join("owner.sock");
-        let _ = std::fs::remove_file(&path);
+        if path.exists() {
+            std::fs::remove_file(&path).expect("remove a stale socket");
+        }
         let listener = UnixListener::bind(&path).expect("bind");
         // This test process is not its own parent, so a connection from it is refused and
         // the wait would go on: prove the refusal by checking the peer directly.
@@ -505,6 +511,6 @@ mod tests {
         assert_eq!(peer_pid(&accepted).expect("peer pid"), own);
         assert_ne!(own, parent);
         drop(client);
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).expect("remove the socket");
     }
 }
