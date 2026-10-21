@@ -1000,6 +1000,7 @@ impl PrepareLanes {
             self.completed_snapshots.len() < DISPLAY_PREPARE_QUEUE_DEPTH,
         );
         if let Some(PrepareSelection::Snapshot(index)) = selection {
+            let _span = merkur_trace::span!("display.prepare_snapshot");
             let completion = prepare_snapshot_off_loop(
                 self.pending_snapshots.swap_remove(index),
                 &mut self.compressor,
@@ -1011,6 +1012,7 @@ impl PrepareLanes {
         }
         if let Some(PrepareSelection::Delta(index)) = selection {
             let mut request = self.pending.swap_remove(index);
+            merkur_trace::mark!("prepare.take", request.token);
             let lane = request.compression.execution_lane;
             // The queued higher-utility work is the opportunity cost of
             // occupying this single preparation lane with compression.
@@ -2177,6 +2179,7 @@ fn prepare_display_off_loop(
         frames,
         ..
     } = &mut buffers;
+    let _span = merkur_trace::span!("display.prepare", rows.len() as u64);
     let presentation_id = presentation_id_from(start_seq);
     let mut mz_state = mz.lock();
     let mut mz_context = MzContext {
@@ -2184,6 +2187,7 @@ fn prepare_display_off_loop(
         presentation_id,
         snapshot: false,
     };
+    let pack_span = merkur_trace::span!("display.pack");
     pack_captured_rows(
         rows,
         header,
@@ -2195,6 +2199,7 @@ fn prepare_display_off_loop(
         frames,
         Some(&mut mz_context),
     );
+    drop(pack_span);
 
     // One datagram, one independently applicable frame. Presentation identity
     // is deliberately separate: all transport units prepared by this flush
@@ -2229,6 +2234,7 @@ fn prepare_display_off_loop(
             header_signal,
         ));
     }
+    let fec_span = merkur_trace::span!("display.fec");
     precompute_fec_repairs(
         datagrams,
         burst_group_max_size,
@@ -2236,6 +2242,7 @@ fn prepare_display_off_loop(
         fec_encoder,
         frames,
     );
+    drop(fec_span);
 
     let prepare_finished_at = Instant::now();
     let compression_time = compressor.take_timed_compression();
@@ -2679,6 +2686,7 @@ pub(crate) async fn flush_display(
     cursor: &mut DisplayFlushCursor,
     perf_timing: &mut PerfTimingTracker,
 ) {
+    let _span = merkur_trace::span!("display.flush");
     // A parser pause within a synchronized drain leaves a partial grid. Input
     // ACKs and reliable editor revocation still run in the owner; no snapshot,
     // repair, hash baseline or row capture may publish that partial transaction.
@@ -5652,6 +5660,7 @@ pub(crate) fn send_peer_datagram_delta_with_worker(
             summary,
             mz: peer.display_cache.references.shared(),
         };
+        merkur_trace::mark!("prepare.submit", token);
         let send_result = match execution_lane {
             ExecutionLane::Interactive => prepare_worker.interactive_tx.try_send(request),
             ExecutionLane::Bulk => prepare_worker.bulk_tx.try_send(request),
@@ -5934,6 +5943,7 @@ pub(crate) async fn finish_display_prepare(
     now_ms: f64,
     perf_timing_tracker: Option<&mut PerfTimingTracker>,
 ) {
+    merkur_trace::mark!("prepare.receive", completion.token);
     let completion_started_at = completion.perf_timing.map(|_| Instant::now());
     let DisplayPrepareCompletion {
         token,
@@ -6965,6 +6975,7 @@ fn send_prepared_datagram_group_inner(
     now_ms: f64,
     budget: &mut DatagramPhysicalBudget,
 ) -> GroupSendOutcome {
+    let _span = merkur_trace::span!("display.send", group.len() as u64);
     if group.is_empty() {
         return GroupSendOutcome {
             all_sent: true,

@@ -379,6 +379,7 @@ pub(crate) fn handle_display_ack(
     current_row_hashes: &[u64],
     terminal_dirty: bool,
 ) {
+    let _span = merkur_trace::span!("display.ack");
     if peer.generation != ack.generation {
         // Stale ACK from a superseded generation (e.g. an in-flight ACK for the
         // pre-resize/pre-resume grid); nothing to advance.

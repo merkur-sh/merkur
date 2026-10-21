@@ -480,6 +480,7 @@ fn start_pty_reader(
                         break;
                     }
                     Ok(size) => {
+                        merkur_trace::mark!("pty.read", size as u64);
                         let trace = observe_pty_read(
                             read_ordinal,
                             size,

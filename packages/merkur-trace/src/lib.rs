@@ -66,6 +66,20 @@ macro_rules! span {
     }};
 }
 
+/// Records an instant named `$name` carrying one value: `mark!("prepare.submit", token)`.
+/// Two marks sharing a value are the ends of one hop between threads.
+#[macro_export]
+macro_rules! mark {
+    ($name:literal, $arg:expr) => {{
+        static SITE: $crate::Site = $crate::Site::new($name);
+        $crate::mark(&SITE, $arg)
+    }};
+}
+
+#[cfg(target_arch = "wasm32")]
+#[inline(always)]
+pub fn mark(_site: &'static Site, _arg: u64) {}
+
 #[cfg(target_arch = "wasm32")]
 pub struct SpanGuard;
 

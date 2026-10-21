@@ -577,6 +577,7 @@ fn write_queued(
     completion_tx: &mpsc::UnboundedSender<PtyWriteCompletion>,
 ) -> bool {
     let byte_len = write.payload.len();
+    let write_span = merkur_trace::span!("pty.write");
     let result = if let Some(trace) = write.trace {
         trace.record(
             Instant::now(),
@@ -591,6 +592,7 @@ fn write_queued(
     } else {
         perform_queued_write(writer, &write, input_pacer)
     };
+    drop(write_span);
     match result {
         Ok(()) => completion_tx
             .send(PtyWriteCompletion::Delivered {

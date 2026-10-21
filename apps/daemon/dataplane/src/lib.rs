@@ -1597,6 +1597,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                     running = false;
                     continue;
                 };
+                let finish_span = merkur_trace::span!("display.finish");
                 finish_display_prepare(
                     completion,
                     terminal.display_revision(),
@@ -1605,6 +1606,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                     now_ms_since(start_instant),
                     Some(&mut perf_timing),
                 ).await;
+                drop(finish_span);
                 // The prepare that just completed was what held its peer out
                 // of scheduling. Re-enter through the same scheduling decision
                 // as a PTY read; with nothing left to coalesce against, a
@@ -1629,6 +1631,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                     running = false;
                     continue;
                 };
+                let _span = merkur_trace::span!("display.finish_snapshot");
                 finish_snapshot_prepare(
                     completion,
                     terminal.display_revision(),
@@ -2077,6 +2080,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         if let Some((bytes, offset, _)) = &mut pending_pty_read {
+                            let _span = merkur_trace::span!("pty.apply", (bytes.len() - *offset) as u64);
                             *offset += terminal.apply_bytes(&bytes[*offset..]);
                         } else {
                             // A forced synchronized-output drain can pause on an
@@ -4997,6 +5001,7 @@ async fn handle_peer_message(
     plaintext_scratch: &mut Vec<u8>,
     perf_timing: &mut PerfTimingTracker,
 ) -> bool {
+    let _span = merkur_trace::span!("peer.message");
     // One lookup serves the authentication check, the open and the activity
     // update below: the id is a ~45-byte string, hashed once per inbound frame.
     let Some(peer) = registry
@@ -5367,6 +5372,7 @@ fn admit_user_record(
     shadow_modelled: bool,
     trace_token: Option<perf_trace::TraceToken>,
 ) -> Option<bool> {
+    let _span = merkur_trace::span!("input.admit", u64::from(seq));
     let decoded = input_record::decode(record);
     debug_assert!(
         decoded.is_some(),
