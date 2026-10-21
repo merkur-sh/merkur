@@ -461,9 +461,10 @@ export function createFrameRingReader(
   };
   // Refusals before this reader existed were answered by whoever read then.
   let refusalsTaken = Atomics.load(meta, 2);
-  // The token of the last fence this ring handed to a reader. A fresh reader
-  // starts from the last one a viewer installed.
-  let takenFence = Atomics.load(meta, FRAME_RING_INSTALLED_FENCE_INDEX) >>> 0;
+  // The token of the last fence this ring handed to a reader, as the int32 the
+  // metadata word holds, so the steady-state check compares a raw load. A
+  // fresh reader starts from the last one a viewer installed.
+  let takenFence = Atomics.load(meta, FRAME_RING_INSTALLED_FENCE_INDEX);
   // A fence skipped for a later one may have begun a new session, which the
   // later fence then carries: the viewer still has to start over.
   let skippedNewSession = false;
@@ -481,24 +482,34 @@ export function createFrameRingReader(
    * yet taken, every entry ahead of it: they belong to a lineage that ended.
    */
   function nextEntryOffset(): number {
-    for (;;) {
-      let readOff = Atomics.load(meta, 1);
-      const writeOff = Atomics.load(meta, 0);
+    let readOff = Atomics.load(meta, 1);
+    const writeOff = Atomics.load(meta, 0);
+    if (readOff === writeOff) return -1;
+    if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
+      readOff = 0;
+      Atomics.store(meta, 1, 0);
       if (readOff === writeOff) return -1;
-      if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
-        readOff = 0;
-        Atomics.store(meta, 1, 0);
-        if (readOff === writeOff) return -1;
-      }
-      // The writer announces a fence before it publishes the fence's entry, so
-      // reading the entry's cursor first and the announcement second sees the
-      // announcement of every fence entry already readable.
-      const announced = Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) >>> 0;
-      if (announced === takenFence) return readOff;
+    }
+    // The writer announces a fence before it publishes the fence's entry, so
+    // reading the entry's cursor first and the announcement second sees the
+    // announcement of every fence entry already readable. Steady state is one
+    // load and one compare: no fence is waiting.
+    if (Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) === takenFence) return readOff;
+    return discardToAnnouncedFence(readOff);
+  }
+
+  /**
+   * A fence is announced and not yet taken: discard what precedes its entry,
+   * folding a skipped fence's new session into it. -1 until it is published.
+   */
+  function discardToAnnouncedFence(start: number): number {
+    const announced = Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX);
+    let readOff = start;
+    for (;;) {
       if (dataView.getUint8(readOff + 4) === FRAME_KIND_LINEAGE_FENCE) {
         const payload = readOff + FRAME_ENTRY_HEADER_BYTES;
         const flags = dataView.getUint32(payload + 8, true);
-        if (dataView.getUint32(payload, true) === announced) {
+        if (dataView.getInt32(payload, true) === announced) {
           if (skippedNewSession)
             dataView.setUint32(payload + 8, flags | FRAME_FENCE_NEW_SESSION, true);
           skippedNewSession = false;
@@ -506,14 +517,16 @@ export function createFrameRingReader(
         }
         skippedNewSession ||= (flags & FRAME_FENCE_NEW_SESSION) !== 0;
       }
-      Atomics.store(meta, 1, entryEnd(readOff));
+      readOff = entryEnd(readOff);
+      Atomics.store(meta, 1, readOff);
+      const writeOff = Atomics.load(meta, 0);
+      if (readOff === writeOff) return -1;
+      if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
+        readOff = 0;
+        Atomics.store(meta, 1, 0);
+        if (readOff === writeOff) return -1;
+      }
     }
-  }
-
-  /** An entry is being handed out: a fence among them is taken with it. */
-  function noteTaken(readOff: number): void {
-    if (dataView.getUint8(readOff + 4) !== FRAME_KIND_LINEAGE_FENCE) return;
-    takenFence = dataView.getUint32(readOff + FRAME_ENTRY_HEADER_BYTES, true);
   }
 
   return {
@@ -521,15 +534,18 @@ export function createFrameRingReader(
       if (leaseOutstanding) return null;
       const readOff = nextEntryOffset();
       if (readOff < 0) return null;
-      noteTaken(readOff);
       const payloadLen = dataView.getUint32(readOff, true);
+      const kind = dataView.getUint8(readOff + 4);
+      // A fence is taken as it is handed out.
+      if (kind === FRAME_KIND_LINEAGE_FENCE)
+        takenFence = dataView.getInt32(readOff + FRAME_ENTRY_HEADER_BYTES, true);
       const entry: FrameRingEntry = {
         payload: new Uint8Array(
           sab,
           FRAME_RING_META_BYTES + readOff + FRAME_ENTRY_HEADER_BYTES,
           payloadLen,
         ).slice(),
-        kind: dataView.getUint8(readOff + 4),
+        kind,
         allowLarge: (dataView.getUint8(readOff + 5) & 1) !== 0,
         inputSequenceMapping: {
           epoch: dataView.getUint32(readOff + 8, true),
@@ -550,14 +566,17 @@ export function createFrameRingReader(
       if (leaseOutstanding) return null;
       const readOff = nextEntryOffset();
       if (readOff < 0) return null;
-      noteTaken(readOff);
       const payloadLen = dataView.getUint32(readOff, true);
       lease.payload = new Uint8Array(
         sab,
         FRAME_RING_META_BYTES + readOff + FRAME_ENTRY_HEADER_BYTES,
         payloadLen,
       );
-      lease.kind = dataView.getUint8(readOff + 4);
+      const kind = dataView.getUint8(readOff + 4);
+      // A fence is taken as it is handed out.
+      if (kind === FRAME_KIND_LINEAGE_FENCE)
+        takenFence = dataView.getInt32(readOff + FRAME_ENTRY_HEADER_BYTES, true);
+      lease.kind = kind;
       lease.allowLarge = (dataView.getUint8(readOff + 5) & 1) !== 0;
       const mapping = lease.inputSequenceMapping;
       mapping.epoch = dataView.getUint32(readOff + 8, true);
@@ -599,7 +618,7 @@ export function createFrameRingReader(
       lease.payload = EMPTY_PAYLOAD;
       // Everything published so far goes, except a fence not yet taken: the
       // lineage it begins is the one whose entries follow.
-      const announced = Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) >>> 0;
+      const announced = Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX);
       while (readOff !== writeOff) {
         if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
           readOff = 0;
@@ -608,7 +627,7 @@ export function createFrameRingReader(
         if (
           announced !== takenFence &&
           dataView.getUint8(readOff + 4) === FRAME_KIND_LINEAGE_FENCE &&
-          dataView.getUint32(readOff + FRAME_ENTRY_HEADER_BYTES, true) === announced
+          dataView.getInt32(readOff + FRAME_ENTRY_HEADER_BYTES, true) === announced
         )
           break;
         readOff = entryEnd(readOff);
@@ -618,7 +637,7 @@ export function createFrameRingReader(
     },
 
     fencePending(): boolean {
-      return Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) >>> 0 !== takenFence;
+      return Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) !== takenFence;
     },
 
     installFence(token): void {

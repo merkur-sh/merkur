@@ -155,13 +155,6 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
   let pendingViewport = false;
   let pendingFocus = false;
   let pendingGeometry = false;
-  /**
-   * The host lane is parked on the terminal worker: a full frame ring, or an
-   * asset the terminal has not answered for. Display datagrams that arrive
-   * meanwhile are dropped, as the network drops them, so the carrier reader
-   * that also brings pongs and input ACKs never waits on the terminal.
-   */
-  let hostLaneParked = false;
   /** `job` is the session's job for the asset when this host records it, else zero. */
   let assetCredit: { lineage: number; key: string; job: number; release: () => void } | null = null;
 
@@ -436,13 +429,14 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
   /**
    * A datagram never waits for the host lane: the reader that delivers it
    * delivers the pongs and input ACKs liveness stands on, and a stalled
-   * terminal worker must not read as a dead carrier. A display datagram the
-   * parked lane could not take is lost, which the display ACK repairs.
+   * terminal worker must not read as a dead carrier. What a parked lane leaves
+   * queued in the session is bounded by display flow control: a terminal that
+   * stops presenting mints no grants, and the daemon sends no sustained output
+   * past its free window without one.
    */
   function deliverDatagram(owner: number, conn: bigint, bytes: Uint8Array): void {
     if (!active || owner !== generation || !carriers.has(conn) || session === null) return;
     const channel = bytes[0] ?? null;
-    if (hostLaneParked && channel !== 1 && channel !== 2) return;
     rxBytes += bytes.byteLength;
     if (isTerminalTrafficChannel(channel)) activity.record(0, bytes.byteLength, session.is_ready());
     session.receive(performance.now(), 1, conn, 0n, 0, ingress(bytes));
@@ -777,17 +771,12 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     ) {
       const mapping = { ...frameMapping };
       const payload = actionBytes().slice();
-      hostLaneParked = true;
-      try {
-        do {
-          await waitSpace();
-          if (!active || owner !== generation) break;
-        } while (
-          !host.frames.write(payload, FRAME_KIND_CLIENT_INGRESS_BASE + channel, allowLarge, mapping)
-        );
-      } finally {
-        hostLaneParked = false;
-      }
+      do {
+        await waitSpace();
+        if (!active || owner !== generation) break;
+      } while (
+        !host.frames.write(payload, FRAME_KIND_CLIENT_INGRESS_BASE + channel, allowLarge, mapping)
+      );
       payload.fill(0);
     }
   }
@@ -802,15 +791,11 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     host.input.revokeShadowProvenance();
     frameToken = host.frames.fenceSessionLineage(lineage, newViewerSession);
     newViewerSession = false;
-    if (host.frames.publishFence()) return;
-    hostLaneParked = true;
-    try {
-      do {
-        await waitSpace();
-        if (!active || owner !== generation) return;
-      } while (!host.frames.publishFence());
-    } finally {
-      hostLaneParked = false;
+    // A full ring holds only the ended lineage, which the announcement lets the
+    // reader discard; its space edge says when the fence fits.
+    while (!host.frames.publishFence()) {
+      await waitSpace();
+      if (!active || owner !== generation) return;
     }
   }
 
@@ -861,12 +846,7 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
           } satisfies TransportToTerminalPeer,
           [bytes.buffer],
         );
-        hostLaneParked = true;
-        try {
-          await acknowledged;
-        } finally {
-          hostLaneParked = false;
-        }
+        await acknowledged;
         break;
       }
     }
@@ -1001,8 +981,12 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
       if (pointer === 0) throw new Error('input record exceeds Session ingress');
       host.input.copyPayload(ordinal, heapView(memory), pointer);
       // The viewer confirms a lineage by installing its fence, which it
-      // records in the frame ring.
-      if (frameToken !== 0 && host.frames.installedFence() === frameToken)
+      // records in the frame ring; once confirmed, a keystroke reads nothing.
+      if (
+        confirmedViewerLineage !== lineage &&
+        frameToken !== 0 &&
+        host.frames.installedFence() === frameToken
+      )
         confirmedViewerLineage = lineage;
       session.input(
         performance.now(),
