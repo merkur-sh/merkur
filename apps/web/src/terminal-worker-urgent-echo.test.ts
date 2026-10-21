@@ -22,6 +22,7 @@ import {
   createFrameRingReader,
   createFrameRingWriter,
   FRAME_KIND_CLIENT_INGRESS_BASE,
+  FRAME_KIND_LINEAGE_FENCE,
   FRAME_RING_SIZE,
   FRAME_RING_SPACE_EDGE,
 } from './terminal/shared-ring';
@@ -100,6 +101,7 @@ async function harness() {
     wasmTerminal: terminal,
     frameRingReader: reader,
     FRAME_KIND_CLIENT_INGRESS_BASE,
+    FRAME_KIND_LINEAGE_FENCE,
     FRAME_RING_SPACE_EDGE,
     ringWakePort: { postMessage() {} },
     performance,

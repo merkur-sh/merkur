@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { isCurrentViewerPublication, isCurrentViewerStamp } from './client-viewer-publication';
 
 describe('viewer mailbox custody across Session replacement', () => {
-  test.each(['client_viewer_fenced', 'client_link_definitions', 'client_graphics_consumed'])(
+  test.each(['client_link_definitions', 'client_graphics_consumed'])(
     '%s from retired same-lineage Session cannot enter the new owner',
     (kind) => {
       const retired = { kind, lineage: 1, frameFenceToken: 7 };

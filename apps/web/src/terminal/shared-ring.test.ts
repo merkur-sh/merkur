@@ -6,7 +6,10 @@ import {
   createFrameRingWriter,
   FRAME_KIND_DISPLAY,
   FRAME_KIND_HASH_DIGEST,
+  FRAME_KIND_LINEAGE_FENCE,
   FRAME_RING_SIZE,
+  type FrameRingEntry,
+  readFrameRingFence,
   wakeFrameRingReader,
 } from './shared-ring';
 
@@ -267,14 +270,17 @@ describe('frame ring', () => {
     expect(reader.hasPending()).toBe(false);
     expect(reader.pendingBytes()).toBe(0);
     expect(writer.write(Uint8Array.of(2), FRAME_KIND_DISPLAY, false)).toBe(true);
-    const fence = writer.fenceSessionLineage();
-    expect(reader.hasPending()).toBe(false);
-    expect(reader.pendingBytes()).toBe(32);
-    expect(reader.releaseSessionLineageFence(fence)).toBe(true);
+    writer.fenceSessionLineage(2, false);
+    // The old lineage's entry is still backlog: the reader has to run to
+    // discard it.
     expect(reader.hasPending()).toBe(true);
-    expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(2));
+    expect(reader.tryRead()).toBeNull();
     expect(reader.hasPending()).toBe(false);
     expect(reader.pendingBytes()).toBe(0);
+    expect(writer.publishFence()).toBe(true);
+    expect(reader.hasPending()).toBe(true);
+    expect(reader.tryRead()?.kind).toBe(FRAME_KIND_LINEAGE_FENCE);
+    expect(reader.hasPending()).toBe(false);
   });
 
   test('a re-entrant read while a lease is live yields nothing and moves no record', () => {
@@ -296,7 +302,7 @@ describe('frame ring', () => {
     expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(2));
   });
 
-  test('discardPending invalidates a lease without letting a late release rewind the fence', () => {
+  test('discardPending invalidates a lease without letting a late release rewind the cursor', () => {
     const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
     const writer = createFrameRingWriter(sab);
     const reader = createFrameRingReader(sab);
@@ -367,79 +373,119 @@ describe('frame ring', () => {
     expect(writer.droppedCount()).toBeGreaterThanOrEqual(1);
   });
 
-  test('a lineage fence halts an active drain until it is released', () => {
+  test('a lineage fence discards the old lineage unread and orders the new one behind it', () => {
     const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
     const writer = createFrameRingWriter(sab);
     const reader = createFrameRingReader(sab);
     const first = randomPayload(128, 10);
     const second = randomPayload(128, 11);
+    const third = randomPayload(128, 12);
 
     expect(writer.write(first, FRAME_KIND_DISPLAY, true)).toBe(true);
     expect(writer.write(second, FRAME_KIND_DISPLAY, false)).toBe(true);
     expect(reader.tryRead()?.payload).toEqual(first);
 
-    const fenceToken = writer.fenceSessionLineage();
-    expect(reader.tryRead()).toBeNull();
-    expect(reader.tryReadLeased()).toBeNull();
+    const token = writer.fenceSessionLineage(2, false);
+    expect(writer.publishFence()).toBe(true);
+    // The new lineage's frame is written with no word from the reader.
+    expect(writer.write(third, FRAME_KIND_DISPLAY, false)).toBe(true);
 
-    expect(reader.releaseSessionLineageFence(fenceToken)).toBe(true);
-    expect(reader.tryRead()?.payload).toEqual(second);
+    expect(fenceOf(reader.tryRead())).toEqual({ token, lineage: 2, newSession: false });
+    expect(reader.tryRead()?.payload).toEqual(third);
     expect(reader.tryRead()).toBeNull();
   });
 
-  test('the epoch discard cuts fenced publication at an exact cursor boundary', () => {
-    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
-    const meta = new Int32Array(sab, 0, 4);
+  test('an announced fence frees a full ring of the old lineage for its own entry', () => {
+    const sab = new SharedArrayBuffer(4 * 1024);
     const writer = createFrameRingWriter(sab);
     const reader = createFrameRingReader(sab);
-    const priorEpochSnapshot = randomPayload(128, 20);
-    const racedSnapshot = randomPayload(128, 21);
-    const postDiscardSnapshot = randomPayload(128, 22);
+    while (writer.write(new Uint8Array(512), FRAME_KIND_DISPLAY, false)) {}
+    while (writer.write(Uint8Array.of(0), FRAME_KIND_DISPLAY, false)) {}
 
-    expect(writer.write(priorEpochSnapshot, FRAME_KIND_DISPLAY, true)).toBe(true);
-    const preFenceWakeState = Atomics.load(meta, 3);
-    const fenceToken = writer.fenceSessionLineage();
-    const fencedWakeState = Atomics.load(meta, 3);
-    expect(fencedWakeState).not.toBe(preFenceWakeState);
-    expect(fencedWakeState & 1).toBe(1);
-    expect(writer.write(racedSnapshot, FRAME_KIND_DISPLAY, true)).toBe(true);
+    const token = writer.fenceSessionLineage(3, false);
+    expect(writer.publishFence()).toBe(false);
+    // The reader discards the ended lineage and records the refusal it owes
+    // the producer a space edge for.
     expect(reader.tryRead()).toBeNull();
-
-    expect(reader.discardPending()).toBe(true);
-    expect(writer.write(postDiscardSnapshot, FRAME_KIND_DISPLAY, true)).toBe(true);
-    expect(reader.tryRead()).toBeNull();
-
-    expect(reader.releaseSessionLineageFence(fenceToken)).toBe(true);
-    // A full fence cycle must not restore the captured futex value: otherwise
-    // a reader racing the transition could park despite the surviving frame.
-    const releasedWakeState = Atomics.load(meta, 3);
-    expect(releasedWakeState & 1).toBe(0);
-    expect((releasedWakeState - preFenceWakeState) >>> 0).toBe(4);
-    expect(reader.waitAsync()).toBe('not-equal');
-    expect(reader.tryRead()?.payload).toEqual(postDiscardSnapshot);
+    expect(reader.takeRefusal()).toBe(true);
+    expect(writer.publishFence()).toBe(true);
+    expect(writer.publishFence()).toBe(true);
+    expect(fenceOf(reader.tryRead())).toEqual({ token, lineage: 3, newSession: false });
     expect(reader.tryRead()).toBeNull();
   });
 
-  test('a fenced native reader wakes only when the terminal releases its epoch', async () => {
+  test('a fence superseded before it was read hands its new session to the next', () => {
     const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
-    const meta = new Int32Array(sab, 0, 4);
+    const writer = createFrameRingWriter(sab);
+    const reader = createFrameRingReader(sab);
+
+    writer.fenceSessionLineage(1, true);
+    expect(writer.publishFence()).toBe(true);
+    expect(writer.write(Uint8Array.of(1), FRAME_KIND_DISPLAY, false)).toBe(true);
+    const latest = writer.fenceSessionLineage(2, false);
+    expect(writer.publishFence()).toBe(true);
+    expect(writer.write(Uint8Array.of(2), FRAME_KIND_DISPLAY, false)).toBe(true);
+
+    expect(fenceOf(reader.tryRead())).toEqual({ token: latest, lineage: 2, newSession: true });
+    expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(2));
+    expect(reader.tryRead()).toBeNull();
+  });
+
+  test('the writer reads the fence the viewer installed and never waits for it', () => {
+    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
+    const writer = createFrameRingWriter(sab);
+    const reader = createFrameRingReader(sab);
+    expect(writer.installedFence()).toBe(0);
+
+    const token = writer.fenceSessionLineage(1, true);
+    expect(writer.publishFence()).toBe(true);
+    expect(writer.write(Uint8Array.of(5), FRAME_KIND_DISPLAY, false)).toBe(true);
+    expect(writer.installedFence()).toBe(0);
+
+    const fence = fenceOf(reader.tryRead());
+    reader.installFence(fence.token);
+    expect(writer.installedFence()).toBe(token);
+    // A reader built later over the same ring starts after the installed fence.
+    const successor = createFrameRingReader(sab);
+    expect(successor.tryRead()?.payload).toEqual(Uint8Array.of(5));
+  });
+
+  test('fence tokens skip zero across the uint32 wrap', () => {
+    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
+    Atomics.store(new Int32Array(sab, 0, 6), 4, 0xffff_ffff | 0);
+    const writer = createFrameRingWriter(sab);
+    expect(writer.fenceSessionLineage(1, false)).toBe(1);
+    expect(writer.fenceSessionLineage(2, false)).toBe(2);
+  });
+
+  test('discardPending keeps an announced fence and the lineage behind it', () => {
+    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
+    const writer = createFrameRingWriter(sab);
+    const reader = createFrameRingReader(sab);
+
+    expect(writer.write(randomPayload(128, 20), FRAME_KIND_DISPLAY, true)).toBe(true);
+    const token = writer.fenceSessionLineage(4, false);
+    expect(writer.publishFence()).toBe(true);
+    expect(writer.write(Uint8Array.of(6), FRAME_KIND_DISPLAY, false)).toBe(true);
+
+    expect(reader.discardPending()).toBe(true);
+    expect(fenceOf(reader.tryRead())).toEqual({ token, lineage: 4, newSession: false });
+    expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(6));
+    expect(reader.discardPending()).toBe(false);
+  });
+
+  test('an announcement wakes a parked native reader', async () => {
+    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
     const writer = createFrameRingWriter(sab);
     const reader = createFrameRingReader(sab, 60_000);
 
-    const fenceToken = writer.fenceSessionLineage();
-    const fencedWakeState = Atomics.load(meta, 3);
-    expect(fencedWakeState & 1).toBe(1);
     const parked = reader.waitAsync();
-    if (parked === 'not-equal') throw new Error('fenced frame reader did not park');
-    expect(writer.write(Uint8Array.of(9), FRAME_KIND_DISPLAY, false)).toBe(true);
-    // Publication keeps the fence bit and suppresses the native wake sequence.
-    expect(Atomics.load(meta, 3)).toBe(fencedWakeState);
-
-    expect(reader.releaseSessionLineageFence(fenceToken)).toBe(true);
+    if (parked === 'not-equal') throw new Error('empty frame reader did not park');
+    writer.fenceSessionLineage(1, true);
     await parked;
-    expect(Atomics.load(meta, 3) & 1).toBe(0);
-    expect(Atomics.load(meta, 3)).not.toBe(fencedWakeState);
-    expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(9));
+    expect(writer.publishFence()).toBe(true);
+    expect(reader.waitAsync()).toBe('not-equal');
+    expect(reader.tryRead()?.kind).toBe(FRAME_KIND_LINEAGE_FENCE);
   });
 
   test('periodically wakes an empty reader without a producer notification', async () => {
@@ -487,7 +533,7 @@ describe('frame ring', () => {
     expect(edges).toBe(2);
   });
 
-  test('the task fallback honors the lineage fence and ordered release wake', async () => {
+  test('the task fallback wakes for an announcement as for an entry', async () => {
     const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
     const taskWake = createTaskWake();
     let edges = 0;
@@ -497,76 +543,15 @@ describe('frame ring', () => {
     });
     const reader = createFrameRingReader(sab, 60_000, (watchdogMs) => taskWake.wait(watchdogMs));
 
-    const fenceToken = writer.fenceSessionLineage();
-    const publicationWake = reader.waitAsync();
-    if (publicationWake === 'not-equal') throw new Error('fenced task reader did not park');
-    expect(writer.write(Uint8Array.of(8), FRAME_KIND_DISPLAY, false)).toBe(true);
-    await publicationWake;
+    const announced = reader.waitAsync();
+    if (announced === 'not-equal') throw new Error('empty task reader did not park');
+    const token = writer.fenceSessionLineage(5, false);
+    await announced;
     expect(edges).toBe(1);
-    expect(reader.tryRead()).toBeNull();
-
-    const epochWake = reader.waitAsync();
-    if (epochWake === 'not-equal') throw new Error('fenced task reader did not repark');
-    expect(reader.releaseSessionLineageFence(fenceToken)).toBe(true);
-    taskWake.wake();
-    await epochWake;
+    expect(writer.publishFence()).toBe(true);
+    expect(writer.write(Uint8Array.of(8), FRAME_KIND_DISPLAY, false)).toBe(true);
+    expect(fenceOf(reader.tryRead())).toEqual({ token, lineage: 5, newSession: false });
     expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(8));
-  });
-
-  test('only the latest overlapping session fence token can release the reader', () => {
-    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
-    const meta = new Int32Array(sab, 0, 4);
-    const writer = createFrameRingWriter(sab);
-    const reader = createFrameRingReader(sab);
-    const payload = Uint8Array.of(7, 8, 9);
-
-    const firstFenceToken = writer.fenceSessionLineage();
-    const secondFenceToken = writer.fenceSessionLineage();
-    expect(firstFenceToken).not.toBe(secondFenceToken);
-    expect(secondFenceToken & 1).toBe(1);
-    expect(Atomics.load(meta, 3) >>> 0).toBe(secondFenceToken);
-    expect(writer.write(payload, FRAME_KIND_DISPLAY, false)).toBe(true);
-
-    expect(reader.releaseSessionLineageFence(firstFenceToken)).toBe(false);
-    expect(Atomics.load(meta, 3) >>> 0).toBe(secondFenceToken);
-    expect(reader.tryRead()).toBeNull();
-
-    expect(reader.releaseSessionLineageFence(secondFenceToken)).toBe(true);
-    expect(Atomics.load(meta, 3) & 1).toBe(0);
-    expect(reader.tryRead()?.payload).toEqual(payload);
-    expect(reader.releaseSessionLineageFence(secondFenceToken)).toBe(false);
-  });
-
-  test('a completed epoch cannot release a later fence', () => {
-    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
-    const meta = new Int32Array(sab, 0, 4);
-    const writer = createFrameRingWriter(sab);
-    const reader = createFrameRingReader(sab);
-
-    const firstFenceToken = writer.fenceSessionLineage();
-    expect(reader.releaseSessionLineageFence(firstFenceToken)).toBe(true);
-    const secondFenceToken = writer.fenceSessionLineage();
-
-    expect(secondFenceToken & 1).toBe(1);
-    expect((secondFenceToken - firstFenceToken) >>> 0).toBe(4);
-    expect(Atomics.load(meta, 3) >>> 0).toBe(secondFenceToken);
-    expect(reader.releaseSessionLineageFence(firstFenceToken)).toBe(false);
-    expect(Atomics.load(meta, 3) >>> 0).toBe(secondFenceToken);
-  });
-
-  test('fence ownership tokens preserve exact uint32 wrap semantics', () => {
-    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
-    const meta = new Int32Array(sab, 0, 4);
-    const writer = createFrameRingWriter(sab);
-    const reader = createFrameRingReader(sab);
-
-    Atomics.store(meta, 3, 0xffff_fffc);
-    const wrappedFenceToken = writer.fenceSessionLineage();
-    expect(wrappedFenceToken).toBe(0xffff_ffff);
-    expect(reader.releaseSessionLineageFence(wrappedFenceToken)).toBe(true);
-    expect(Atomics.load(meta, 3) >>> 0).toBe(0);
-    expect(reader.releaseSessionLineageFence(wrappedFenceToken)).toBe(false);
-    expect(writer.fenceSessionLineage()).toBe(3);
   });
 
   test('keeps a published frame readable if its task notifier throws', () => {
@@ -581,6 +566,12 @@ describe('frame ring', () => {
   });
 });
 
+function fenceOf(entry: FrameRingEntry | null | undefined) {
+  const fence = must(entry);
+  expect(fence.kind).toBe(FRAME_KIND_LINEAGE_FENCE);
+  return readFrameRingFence(fence.payload);
+}
+
 function must<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) throw new Error('expected a published ring entry');
   return value;
@@ -588,7 +579,7 @@ function must<T>(value: T | null | undefined): T {
 
 test('a maximum display frame fits every empty-ring wrap boundary with one contiguous lease', () => {
   const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
-  const meta = new Int32Array(sab, 0, 4);
+  const meta = new Int32Array(sab, 0, 6);
   const capacity = sab.byteLength - meta.byteLength;
   const half = capacity / 2;
   const writer = createFrameRingWriter(sab);

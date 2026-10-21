@@ -439,6 +439,16 @@ The browser frame ring reserves two maximum aligned slots plus sentinel and meta
 space, ensuring a maximum frame fits at any empty-ring cursor without a wrapped payload
 copy or an intermediate buffer.
 
+An authenticated display lineage reaches the terminal worker inside the frame ring, as an
+ordered fence entry the transport worker announces before it publishes: until the viewer
+takes the announced fence, the ring discards every entry ahead of it unread, and the new
+lineage's frames queue behind it. The transport never waits for the viewer to take a fence;
+the viewer records the fence it installed in the ring, which is how the transport learns the
+lineage is confirmed. A terminal worker that stops reading costs display and nothing else:
+while the transport's display lane is parked on it (a full ring, an unanswered asset), display
+datagrams are dropped like network loss, and the carrier reader keeps delivering pongs and
+input ACKs.
+
 ## Row priority classes
 
 The cursor row and a changed cursor/mode header are critical: they are encoded in their own

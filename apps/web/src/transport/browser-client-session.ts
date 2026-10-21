@@ -155,7 +155,13 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
   let pendingViewport = false;
   let pendingFocus = false;
   let pendingGeometry = false;
-  let fenceCredit: { lineage: number; release: () => void } | null = null;
+  /**
+   * The host lane is parked on the terminal worker: a full frame ring, or an
+   * asset the terminal has not answered for. Display datagrams that arrive
+   * meanwhile are dropped, as the network drops them, so the carrier reader
+   * that also brings pongs and input ACKs never waits on the terminal.
+   */
+  let hostLaneParked = false;
   /** `job` is the session's job for the asset when this host records it, else zero. */
   let assetCredit: { lineage: number; key: string; job: number; release: () => void } | null = null;
 
@@ -427,6 +433,23 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     } else await drive();
   }
 
+  /**
+   * A datagram never waits for the host lane: the reader that delivers it
+   * delivers the pongs and input ACKs liveness stands on, and a stalled
+   * terminal worker must not read as a dead carrier. A display datagram the
+   * parked lane could not take is lost, which the display ACK repairs.
+   */
+  function deliverDatagram(owner: number, conn: bigint, bytes: Uint8Array): void {
+    if (!active || owner !== generation || !carriers.has(conn) || session === null) return;
+    const channel = bytes[0] ?? null;
+    if (hostLaneParked && channel !== 1 && channel !== 2) return;
+    rxBytes += bytes.byteLength;
+    if (isTerminalTrafficChannel(channel)) activity.record(0, bytes.byteLength, session.is_ready());
+    session.receive(performance.now(), 1, conn, 0n, 0, ingress(bytes));
+    releaseInput();
+    void drive().catch(failed);
+  }
+
   const pendingDials = new Map<bigint, AbortController>();
 
   async function dial(
@@ -483,16 +506,10 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
               channel === 0 || channel === 1 || channel === 2 || channel === 6,
             );
           },
-          datagram: (bytes) =>
-            receive(
-              (value) => {
-                rxBytes += bytes.byteLength;
-                if (isTerminalTrafficChannel(bytes[0] ?? null))
-                  activity.record(0, bytes.byteLength, value.is_ready());
-                value.receive(performance.now(), 1, conn, 0n, 0, ingress(bytes));
-              },
-              bytes[0] === 1 || bytes[0] === 2,
-            ),
+          datagram: async (bytes) => {
+            await admitted.promise;
+            deliverDatagram(owner, conn, bytes);
+          },
           proof: (bytes) =>
             receive((value) => {
               value.receive(performance.now(), 2, conn, 0n, 0, ingress(bytes));
@@ -760,13 +777,40 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     ) {
       const mapping = { ...frameMapping };
       const payload = actionBytes().slice();
+      hostLaneParked = true;
+      try {
+        do {
+          await waitSpace();
+          if (!active || owner !== generation) break;
+        } while (
+          !host.frames.write(payload, FRAME_KIND_CLIENT_INGRESS_BASE + channel, allowLarge, mapping)
+        );
+      } finally {
+        hostLaneParked = false;
+      }
+      payload.fill(0);
+    }
+  }
+
+  /**
+   * A new display lineage. Its fence goes into the frame ring ahead of the
+   * lineage's frames; the viewer installs it when it reads that far, and
+   * nothing here waits for that.
+   */
+  async function fenceLineage(owner: number, nextLineage: number): Promise<void> {
+    lineage = nextLineage;
+    host.input.revokeShadowProvenance();
+    frameToken = host.frames.fenceSessionLineage(lineage, newViewerSession);
+    newViewerSession = false;
+    if (host.frames.publishFence()) return;
+    hostLaneParked = true;
+    try {
       do {
         await waitSpace();
-        if (!active || owner !== generation) break;
-      } while (
-        !host.frames.write(payload, FRAME_KIND_CLIENT_INGRESS_BASE + channel, allowLarge, mapping)
-      );
-      payload.fill(0);
+        if (!active || owner !== generation) return;
+      } while (!host.frames.publishFence());
+    } finally {
+      hostLaneParked = false;
     }
   }
 
@@ -817,7 +861,12 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
           } satisfies TransportToTerminalPeer,
           [bytes.buffer],
         );
-        await acknowledged;
+        hostLaneParked = true;
+        try {
+          await acknowledged;
+        } finally {
+          hostLaneParked = false;
+        }
         break;
       }
     }
@@ -838,23 +887,9 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
         case 9:
           await deliverFrame(owner, w);
           break;
-        case 10: {
-          lineage = w[0] ?? 0;
-          host.input.revokeShadowProvenance();
-          frameToken = host.frames.fenceSessionLineage();
-          const fenced = new Promise<void>((resolve) => {
-            fenceCredit = { lineage, release: resolve };
-          });
-          host.peer.postMessage({
-            kind: 'client_session_fence',
-            lineage,
-            frameFenceToken: frameToken,
-            newSession: newViewerSession,
-          } satisfies TransportToTerminalPeer);
-          newViewerSession = false;
-          await fenced;
+        case 10:
+          await fenceLineage(owner, w[0] ?? 0);
           break;
-        }
         case 11:
           applyStatus(w);
           break;
@@ -921,15 +956,6 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
   }
 
   function drive(): Promise<void> {
-    if (
-      fenceCredit !== null &&
-      session !== null &&
-      fenceCredit.lineage !== session.display_lineage()
-    ) {
-      const credit = fenceCredit;
-      fenceCredit = null;
-      credit.release();
-    }
     if (active && session !== null) {
       for (;;) {
         const conn = session.poll_close(performance.now());
@@ -974,6 +1000,10 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
       const pointer = session.reserve_ingress(length);
       if (pointer === 0) throw new Error('input record exceeds Session ingress');
       host.input.copyPayload(ordinal, heapView(memory), pointer);
+      // The viewer confirms a lineage by installing its fence, which it
+      // records in the frame ring.
+      if (frameToken !== 0 && host.frames.installedFence() === frameToken)
+        confirmedViewerLineage = lineage;
       session.input(
         performance.now(),
         host.input.localSeq(ordinal),
@@ -1057,9 +1087,6 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     session?.suspend();
     signalSpace();
     signalHostCredit();
-    const fence = fenceCredit;
-    fenceCredit = null;
-    fence?.release();
     settleAsset('cancelled');
     host.endRequests();
     signalControlCredit();
@@ -1141,14 +1168,6 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
       if (!active || session === null) return;
       if (!isCurrentViewerPublication(message, lineage, frameToken)) return;
       switch (message.kind) {
-        case 'client_viewer_fenced': {
-          if (lineage !== session.display_lineage()) return;
-          confirmedViewerLineage = lineage;
-          const credit = fenceCredit;
-          fenceCredit = null;
-          credit?.release();
-          return;
-        }
         case 'client_graphics_consumed': {
           if (
             assetCredit === null ||

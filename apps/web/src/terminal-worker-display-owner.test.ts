@@ -44,6 +44,7 @@ import {
   createFrameRingReader,
   createFrameRingWriter,
   FRAME_KIND_CLIENT_INGRESS_BASE,
+  FRAME_KIND_LINEAGE_FENCE,
   FRAME_RING_SIZE,
   FRAME_RING_SPACE_EDGE,
 } from './terminal/shared-ring';
@@ -136,6 +137,7 @@ function createHarness(terminal: WasmClientViewerHandle, costMs = 0) {
     },
     frameRingReader: reader,
     FRAME_KIND_CLIENT_INGRESS_BASE,
+    FRAME_KIND_LINEAGE_FENCE,
     FRAME_RING_SPACE_EDGE,
     ringWakePort: { postMessage() {} },
     displayOwnerActive: false,
@@ -832,24 +834,18 @@ test('account replacement discards the old Viewer and admits a fresh lineage one
       graphicsResidents: new Set<string>(),
       crypto,
       applyGeometryAuthority() {},
+      applyGraphicsClock() {},
+      heldGeometry: null,
+      heldGraphicsClock: null,
       publishViewerLinks() {},
-      displayAvailableWake: { wake() {} },
     };
-    runInNewContext(productionFunctions(['applyPeerFence', 'drainViewerOutputs']), context);
-    runInNewContext(
-      "applyPeerFence({kind:'client_session_fence',newSession:true,lineage:1,frameFenceToken:4})",
-      context,
-    );
+    runInNewContext(productionFunctions(['applyLineageFence', 'drainViewerOutputs']), context);
+    runInNewContext('applyLineageFence({token:4,lineage:1,newSession:true})', context);
     expect(context.activeSessionEpoch).toBe(1);
     expect(context.activeFrameFenceToken).toBe(4);
-    expect(
-      messages.some(
-        (message) =>
-          message.kind === 'client_viewer_fenced' &&
-          message.lineage === 1 &&
-          message.frameFenceToken === 4,
-      ),
-    ).toBe(true);
+    // The viewer confirms the lineage in the ring the transport reads, not on
+    // the port.
+    expect(harness.writer.installedFence()).toBe(4);
     expect(
       messages.every((message) => message.lineage === 1 && message.frameFenceToken === 4),
     ).toBe(true);

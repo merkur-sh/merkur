@@ -11,9 +11,8 @@ import type { InputSequenceMapping } from '../transport/input-sequence-domain';
  *
  * Each ring owns one wake word, and its reader parks on that word — never on a
  * cursor — because not every edge that must wake a reader moves a cursor: the
- * frame ring's lineage fence and release,
- * change no cursor at all. The frame ring's word is `meta[3]` (a wake sequence
- * carrying the fence bit).
+ * frame ring's lineage announcement moves none. The frame ring's word is
+ * `meta[3]`, a wake sequence.
  *
  * Wake proof. Every producer edge stores its state (an entry cursor
  * or a lineage), then bumps the wake word, then notifies. A reader snapshots the
@@ -23,9 +22,18 @@ import type { InputSequenceMapping } from '../transport/input-sequence-domain';
  * `'not-equal'` synchronously; between the recheck and the park, where
  * `Atomics.waitAsync` sees the moved word and returns synchronously; or after
  * the park, where the notify resolves it. Boundedness: each `'not-equal'` is
- * charged to one producer edge — an entry, a fence transition, or a lineage
- * advance — so a drain loop that `continue`s without yielding on `'not-equal'`
- * cannot spin.
+ * charged to one producer edge — an entry or a lineage announcement — so a
+ * drain loop that `continue`s without yielding on `'not-equal'` cannot spin.
+ *
+ * Lineage fence. An authenticated session boundary travels in the ring as an
+ * ordered entry, not as a message to the reader's realm: the producer announces
+ * the fence's token in `meta[4]`, then publishes the fence entry. Until the
+ * reader takes the announced fence, every entry ahead of it belongs to a
+ * lineage that has ended and is discarded unread; entries behind it are the new
+ * lineage's. The producer never waits for the reader to take a fence: frames it
+ * writes after the fence are already ordered behind it. The reader records the
+ * token of the fence its viewer installed in `meta[5]`, which the producer reads
+ * as the viewer's confirmation of the lineage.
  *
  * The frame ring notifies only when their reader may be parked. A producer may also
  * carry a task edge (`onReadableEdge`) for a reader that parks on a task wait
@@ -39,7 +47,9 @@ import type { InputSequenceMapping } from '../transport/input-sequence-domain';
 //   [0]: writeOffset (bytes into data area; writer-owned, in [0, capacity))
 //   [1]: readOffset  (bytes into data area; reader-owned, in [0, capacity))
 //   [2]: dropped     (count of writes rejected due to ring full)
-//   [3]: native wake sequence (bits 1-31) | authenticated-lineage fence (bit 0)
+//   [3]: native wake sequence
+//   [4]: announced lineage fence token (writer-owned; 0 = none yet)
+//   [5]: installed lineage fence token (reader-owned; 0 = none yet)
 //
 // Each entry occupies an 8-byte-aligned slot. The slot length is implied by
 // `payloadLen` (entry slot = alignUp(24 + payloadLen, 8)). The production
@@ -56,15 +66,21 @@ import type { InputSequenceMapping } from '../transport/input-sequence-domain';
 //   [16-19]: proven wire input seq minimum (u32; 0 = inactive)
 //   [20-23]: proven wire input seq maximum (u32)
 //   [24..]: payload
+//
+// A lineage fence entry (kind `FRAME_KIND_LINEAGE_FENCE`) carries a 12-byte
+// payload: fence token (u32), display lineage (u32), flags (u32; bit 0 = the
+// viewer's session is new).
 
-const FRAME_RING_META_WORDS = 4;
+const FRAME_RING_META_WORDS = 6;
 const FRAME_RING_META_BYTES = FRAME_RING_META_WORDS * 4;
 const FRAME_ENTRY_HEADER_BYTES = 24;
 const FRAME_ENTRY_ALIGN = 8;
 const FRAME_SKIP_MARKER = 0;
 const FRAME_RING_WAKE_INDEX = 3;
-const FRAME_RING_LINEAGE_FENCED = 1;
-const FRAME_RING_WAKE_SEQUENCE_INCREMENT = 2;
+const FRAME_RING_ANNOUNCED_FENCE_INDEX = 4;
+const FRAME_RING_INSTALLED_FENCE_INDEX = 5;
+const FRAME_FENCE_PAYLOAD_BYTES = 12;
+const FRAME_FENCE_NEW_SESSION = 1;
 
 // Two maximum slots plus their empty-sentinel space guarantee that a maximum
 // frame fits at every empty-ring cursor, including either side of wraparound.
@@ -79,6 +95,30 @@ export const FRAME_RING_SIZE =
 export const FRAME_KIND_CLIENT_INGRESS_BASE = 16;
 export const FRAME_KIND_DISPLAY = 0;
 export const FRAME_KIND_HASH_DIGEST = 1;
+/** An authenticated display lineage boundary; see the lineage fence above. */
+export const FRAME_KIND_LINEAGE_FENCE = 2;
+
+/** One lineage boundary, as the reader hands it to the viewer. */
+export interface FrameRingFence {
+  /** The writer's token for this fence; never 0. */
+  readonly token: number;
+  readonly lineage: number;
+  /** The viewer's session is new: it resets rather than continues. */
+  readonly newSession: boolean;
+}
+
+/** The fence a `FRAME_KIND_LINEAGE_FENCE` entry's payload carries. */
+export function readFrameRingFence(payload: Uint8Array): FrameRingFence {
+  if (payload.byteLength !== FRAME_FENCE_PAYLOAD_BYTES) {
+    throw new Error('frame ring lineage fence has the wrong length');
+  }
+  const view = new DataView(payload.buffer, payload.byteOffset, FRAME_FENCE_PAYLOAD_BYTES);
+  return {
+    token: view.getUint32(0, true),
+    lineage: view.getUint32(4, true),
+    newSession: (view.getUint32(8, true) & FRAME_FENCE_NEW_SESSION) !== 0,
+  };
+}
 /**
  * The terminal worker's wake-port edge after it drained a frame ring that had
  * refused an entry. Numeric like the other port edges (zero is the task-mode
@@ -102,28 +142,9 @@ function alignUp(n: number, align: number): number {
   return (n + align - 1) & ~(align - 1);
 }
 
-function transitionFrameRingWakeState(meta: Int32Array, fenced: boolean): number {
-  let observed = Atomics.load(meta, FRAME_RING_WAKE_INDEX);
-  for (;;) {
-    const advanced = (observed + FRAME_RING_WAKE_SEQUENCE_INCREMENT) & ~FRAME_RING_LINEAGE_FENCED;
-    const next = advanced | (fenced ? FRAME_RING_LINEAGE_FENCED : 0) | 0;
-    const actual = Atomics.compareExchange(meta, FRAME_RING_WAKE_INDEX, observed, next);
-    if (actual === observed) return next >>> 0;
-    observed = actual;
-  }
-}
-
-function wakeNativeFrameReaderIfReadable(meta: Int32Array): void {
-  let observed = Atomics.load(meta, FRAME_RING_WAKE_INDEX);
-  while ((observed & FRAME_RING_LINEAGE_FENCED) === 0) {
-    const next = (observed + FRAME_RING_WAKE_SEQUENCE_INCREMENT) | 0;
-    const actual = Atomics.compareExchange(meta, FRAME_RING_WAKE_INDEX, observed, next);
-    if (actual === observed) {
-      Atomics.notify(meta, FRAME_RING_WAKE_INDEX);
-      return;
-    }
-    observed = actual;
-  }
+function wakeNativeFrameReader(meta: Int32Array): void {
+  Atomics.add(meta, FRAME_RING_WAKE_INDEX, 1);
+  Atomics.notify(meta, FRAME_RING_WAKE_INDEX);
 }
 
 export interface FrameRingWriter {
@@ -140,8 +161,20 @@ export interface FrameRingWriter {
     allowLarge: boolean,
     inputSequenceMapping?: InputSequenceMapping,
   ): boolean;
-  /** Fence native draining and return the exact uint32 state token that owns it. */
-  fenceSessionLineage(): number;
+  /**
+   * Announce a new display lineage and return its fence token. From here the
+   * reader discards every entry published before this fence's entry, which
+   * `publishFence` writes; nothing waits for the reader to take it.
+   */
+  fenceSessionLineage(lineage: number, newSession: boolean): number;
+  /**
+   * Publish the announced fence's entry. False while the ring has no room for
+   * it: the announcement already lets the reader discard what precedes the
+   * fence, and its space edge says when to publish again.
+   */
+  publishFence(): boolean;
+  /** The token of the last fence the reader's viewer installed; 0 before any. */
+  installedFence(): number;
   droppedCount(): number;
 }
 
@@ -154,6 +187,11 @@ export function createFrameRingWriter(
   const dataBytes = new Uint8Array(sab, FRAME_RING_META_BYTES);
   const capacity = sab.byteLength - FRAME_RING_META_BYTES;
   let writeActive = false;
+  // The fence entry's payload, reused for every fence this writer publishes.
+  const fencePayload = new Uint8Array(FRAME_FENCE_PAYLOAD_BYTES);
+  const fenceView = new DataView(fencePayload.buffer);
+  let fenceToken = Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) >>> 0;
+  let fencePending = false;
 
   // Exactly one of `bytes` and `source` is the payload; branching on it, not a
   // copier closure, keeps a frame write from allocating.
@@ -217,19 +255,18 @@ export function createFrameRingWriter(
     // old tail and parked while this producer was copying the new entry even
     // though the initial snapshot was nonempty.
     const readerNeedsWake = readerNeedsWakeAfterPublish(writeOff, readOff, Atomics.load(meta, 1));
-    if (readerNeedsWake) {
-      // The task edge remains available while fenced so WebKit can preserve
-      // worker-message ordering. Native readers are released only after the
-      // terminal worker has installed the corresponding session epoch.
-      wakeNativeFrameReaderIfReadable(meta);
-      try {
-        onReadableEdge?.();
-      } catch {
-        // The entry is already published and cannot be rolled back. The
-        // reader's watchdog remains the fail-safe if task delivery fails.
-      }
-    }
+    if (readerNeedsWake) wakeReader();
     return true;
+  }
+
+  function wakeReader(): void {
+    wakeNativeFrameReader(meta);
+    try {
+      onReadableEdge?.();
+    } catch {
+      // What woke the reader is already published and cannot be rolled back.
+      // The reader's watchdog remains the fail-safe if task delivery fails.
+    }
   }
 
   return {
@@ -263,10 +300,35 @@ export function createFrameRingWriter(
         inputSequenceMapping,
       );
     },
-    fenceSessionLineage(): number {
-      const token = transitionFrameRingWakeState(meta, true);
-      Atomics.notify(meta, FRAME_RING_WAKE_INDEX);
-      return token;
+    fenceSessionLineage(lineage: number, newSession: boolean): number {
+      fenceToken = (fenceToken + 1) >>> 0 || 1;
+      fenceView.setUint32(0, fenceToken, true);
+      fenceView.setUint32(4, lineage, true);
+      fenceView.setUint32(8, newSession ? FRAME_FENCE_NEW_SESSION : 0, true);
+      fencePending = true;
+      Atomics.store(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX, fenceToken | 0);
+      // The announcement alone frees the reader to discard what precedes the
+      // fence, which a full ring needs before the fence entry fits.
+      wakeReader();
+      return fenceToken;
+    },
+    publishFence(): boolean {
+      if (!fencePending) return true;
+      if (
+        !writePayload(
+          FRAME_FENCE_PAYLOAD_BYTES,
+          fencePayload,
+          null,
+          FRAME_KIND_LINEAGE_FENCE,
+          false,
+        )
+      )
+        return false;
+      fencePending = false;
+      return true;
+    },
+    installedFence(): number {
+      return Atomics.load(meta, FRAME_RING_INSTALLED_FENCE_INDEX) >>> 0;
     },
     droppedCount(): number {
       return Atomics.load(meta, 2) >>> 0;
@@ -342,18 +404,19 @@ export interface FrameRingReader {
    */
   takeRefusal(): boolean;
   /**
-   * Fence everything the producer published before this call.
+   * Discard everything the producer published before this call, except an
+   * announced fence not yet taken, which stays next to read.
    *
    * The writer publishes an entry by storing writeOffset only after its bytes
-   * are complete, so copying that offset to readOffset atomically discards
-   * exactly the fully-published prefix. Entries published afterwards remain
-   * readable. Used at authenticated session boundaries where bytes from the
-   * previous daemon lineage must not consume the new epoch's snapshot gate.
-   * Returns true when unread bytes or an outstanding lease were discarded.
+   * are complete, so the walk to that offset discards exactly the
+   * fully-published prefix. Entries published afterwards remain readable. Used
+   * when a replacement runtime takes over a ring whose entries the previous one
+   * left half-applied. Returns true when unread bytes or an outstanding lease
+   * were discarded.
    */
   discardPending(): boolean;
-  /** Resume reads only if this epoch still owns the producer's exact fence. */
-  releaseSessionLineageFence(expectedToken: number): boolean;
+  /** Record that the viewer installed the lineage of the fence with `token`. */
+  installFence(token: number): void;
   /**
    * `'not-equal'` when the ring can be read now; otherwise the park promise,
    * resolved by a producer edge or the watchdog. Its resolved value is not the
@@ -393,26 +456,59 @@ export function createFrameRingReader(
   };
   // Refusals before this reader existed were answered by whoever read then.
   let refusalsTaken = Atomics.load(meta, 2);
+  // The token of the last fence this ring handed to a reader. A fresh reader
+  // starts from the last one a viewer installed.
+  let takenFence = Atomics.load(meta, FRAME_RING_INSTALLED_FENCE_INDEX) >>> 0;
+  // A fence skipped for a later one may have begun a new session, which the
+  // later fence then carries: the viewer still has to start over.
+  let skippedNewSession = false;
+
+  function entryEnd(readOff: number): number {
+    return (
+      readOff +
+      alignUp(FRAME_ENTRY_HEADER_BYTES + dataView.getUint32(readOff, true), FRAME_ENTRY_ALIGN)
+    );
+  }
 
   /**
-   * Offset of the next published entry, or -1 when the ring is fenced or
-   * empty. Consumes a skip marker on the way.
+   * Offset of the next entry to hand out, or -1 when the ring is empty.
+   * Consumes skip markers on the way, and, while a fence is announced but not
+   * yet taken, every entry ahead of it: they belong to a lineage that ended.
    */
   function nextEntryOffset(): number {
-    let readOff = Atomics.load(meta, 1);
-    const writeOff = Atomics.load(meta, 0);
-    // The producer fences before it can publish a new lineage. Load its cursor
-    // first, then the fence, so observing new bytes also observes that fence.
-    if ((Atomics.load(meta, FRAME_RING_WAKE_INDEX) & FRAME_RING_LINEAGE_FENCED) !== 0) {
-      return -1;
-    }
-    if (readOff === writeOff) return -1;
-    if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
-      readOff = 0;
-      Atomics.store(meta, 1, 0);
+    for (;;) {
+      let readOff = Atomics.load(meta, 1);
+      const writeOff = Atomics.load(meta, 0);
       if (readOff === writeOff) return -1;
+      if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
+        readOff = 0;
+        Atomics.store(meta, 1, 0);
+        if (readOff === writeOff) return -1;
+      }
+      // The writer announces a fence before it publishes the fence's entry, so
+      // reading the entry's cursor first and the announcement second sees the
+      // announcement of every fence entry already readable.
+      const announced = Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) >>> 0;
+      if (announced === takenFence) return readOff;
+      if (dataView.getUint8(readOff + 4) === FRAME_KIND_LINEAGE_FENCE) {
+        const payload = readOff + FRAME_ENTRY_HEADER_BYTES;
+        const flags = dataView.getUint32(payload + 8, true);
+        if (dataView.getUint32(payload, true) === announced) {
+          if (skippedNewSession)
+            dataView.setUint32(payload + 8, flags | FRAME_FENCE_NEW_SESSION, true);
+          skippedNewSession = false;
+          return readOff;
+        }
+        skippedNewSession ||= (flags & FRAME_FENCE_NEW_SESSION) !== 0;
+      }
+      Atomics.store(meta, 1, entryEnd(readOff));
     }
-    return readOff;
+  }
+
+  /** An entry is being handed out: a fence among them is taken with it. */
+  function noteTaken(readOff: number): void {
+    if (dataView.getUint8(readOff + 4) !== FRAME_KIND_LINEAGE_FENCE) return;
+    takenFence = dataView.getUint32(readOff + FRAME_ENTRY_HEADER_BYTES, true);
   }
 
   return {
@@ -420,6 +516,7 @@ export function createFrameRingReader(
       if (leaseOutstanding) return null;
       const readOff = nextEntryOffset();
       if (readOff < 0) return null;
+      noteTaken(readOff);
       const payloadLen = dataView.getUint32(readOff, true);
       const entry: FrameRingEntry = {
         payload: new Uint8Array(
@@ -448,6 +545,7 @@ export function createFrameRingReader(
       if (leaseOutstanding) return null;
       const readOff = nextEntryOffset();
       if (readOff < 0) return null;
+      noteTaken(readOff);
       const payloadLen = dataView.getUint32(readOff, true);
       lease.payload = new Uint8Array(
         sab,
@@ -485,50 +583,46 @@ export function createFrameRingReader(
     },
 
     hasPending(): boolean {
-      const readOff = Atomics.load(meta, 1);
-      const writeOff = Atomics.load(meta, 0);
-      return (
-        readOff !== writeOff &&
-        (Atomics.load(meta, FRAME_RING_WAKE_INDEX) & FRAME_RING_LINEAGE_FENCED) === 0
-      );
+      return Atomics.load(meta, 1) !== Atomics.load(meta, 0);
     },
 
     discardPending(): boolean {
       const writeOff = Atomics.load(meta, 0);
-      const readOff = Atomics.load(meta, 1);
+      let readOff = Atomics.load(meta, 1);
       const discarded = leaseOutstanding || readOff !== writeOff;
       leaseOutstanding = false;
       lease.payload = EMPTY_PAYLOAD;
-      Atomics.store(meta, 1, writeOff);
+      // Everything published so far goes, except a fence not yet taken: the
+      // lineage it begins is the one whose entries follow.
+      const announced = Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) >>> 0;
+      while (readOff !== writeOff) {
+        if (dataView.getUint32(readOff, true) === FRAME_SKIP_MARKER) {
+          readOff = 0;
+          continue;
+        }
+        if (
+          announced !== takenFence &&
+          dataView.getUint8(readOff + 4) === FRAME_KIND_LINEAGE_FENCE &&
+          dataView.getUint32(readOff + FRAME_ENTRY_HEADER_BYTES, true) === announced
+        )
+          break;
+        readOff = entryEnd(readOff);
+      }
+      Atomics.store(meta, 1, readOff);
       return discarded;
     },
 
-    releaseSessionLineageFence(expectedToken): boolean {
-      const expected = expectedToken | 0;
-      if (expectedToken !== expected >>> 0 || (expected & FRAME_RING_LINEAGE_FENCED) === 0) {
-        return false;
-      }
-      const next =
-        ((expected + FRAME_RING_WAKE_SEQUENCE_INCREMENT) & ~FRAME_RING_LINEAGE_FENCED) | 0;
-      if (Atomics.compareExchange(meta, FRAME_RING_WAKE_INDEX, expected, next) !== expected) {
-        return false;
-      }
-      Atomics.notify(meta, FRAME_RING_WAKE_INDEX);
-      return true;
+    installFence(token): void {
+      Atomics.store(meta, FRAME_RING_INSTALLED_FENCE_INDEX, token | 0);
     },
 
     waitAsync(): Promise<unknown> | 'not-equal' {
       const wakeState = Atomics.load(meta, FRAME_RING_WAKE_INDEX);
-      const lineageFenced = (wakeState & FRAME_RING_LINEAGE_FENCED) !== 0;
-      if (!lineageFenced) {
-        const writeOff = Atomics.load(meta, 0);
-        const readOff = Atomics.load(meta, 1);
-        if (readOff !== writeOff) return 'not-equal';
-        // Publication may land between the first state/cursor snapshots. The
-        // second state read turns that race into a synchronous retry; a later
-        // publication changes the futex before Atomics.waitAsync can park.
-        if (Atomics.load(meta, FRAME_RING_WAKE_INDEX) !== wakeState) return 'not-equal';
-      }
+      if (Atomics.load(meta, 1) !== Atomics.load(meta, 0)) return 'not-equal';
+      // Publication may land between the first state/cursor snapshots. The
+      // second state read turns that race into a synchronous retry; a later
+      // publication changes the futex before Atomics.waitAsync can park.
+      if (Atomics.load(meta, FRAME_RING_WAKE_INDEX) !== wakeState) return 'not-equal';
       if (waitForReadableTask !== undefined) return waitForReadableTask(waitTimeoutMs);
       const result = Atomics.waitAsync(meta, FRAME_RING_WAKE_INDEX, wakeState, waitTimeoutMs);
       return result.async ? result.value : 'not-equal';

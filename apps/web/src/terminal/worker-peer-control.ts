@@ -4,7 +4,10 @@ import type { DisplayLinkDefinition } from '@merkur/protocol';
  * The transport and terminal workers' private port. Numbers on it are the
  * allocation-free hot-path wake edges; everything else is one of the messages
  * below. Each publication names the session lineage and the display-ring
- * fence it was made under, which its receiver compares against its own.
+ * fence it was made under, which its receiver compares against its own. The
+ * fence itself never crosses this port: it travels in the frame ring, ordered
+ * with the frames, and nothing on either side waits for a message here to
+ * learn of it.
  */
 interface PeerPublication {
   readonly lineage: number;
@@ -50,15 +53,6 @@ export interface ClientGraphicsAsset extends PeerPublication {
   readonly bytes: Uint8Array;
 }
 
-export interface ClientSessionFence extends PeerPublication {
-  readonly kind: 'client_session_fence';
-  readonly newSession: boolean;
-}
-
-export interface ClientViewerFenced extends PeerPublication {
-  readonly kind: 'client_viewer_fenced';
-}
-
 /** The delivered asset's credit returns; `taken` is false for one dropped as stale. */
 export interface ClientGraphicsConsumed extends PeerPublication {
   readonly kind: 'client_graphics_consumed';
@@ -76,7 +70,6 @@ export type TransportToTerminalPeer =
   | ClientGeometry
   | ClientGraphicsClock
   | ClientGraphicsAsset
-  | ClientSessionFence
   | PerfGridConvergenceResponseEdge;
 
 /**
@@ -84,7 +77,6 @@ export type TransportToTerminalPeer =
  * session to send is not here: those cross on the viewer-output ring.
  */
 export type TerminalToTransportPeer =
-  | ClientViewerFenced
   | ClientGraphicsConsumed
   | ClientLinkDefinitions
   | PerfGridConvergenceRequestEdge;
