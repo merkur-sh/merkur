@@ -833,16 +833,33 @@ test('account replacement discards the old Viewer and admits a fresh lineage one
       retireWaitingGraphicsAsset() {},
       graphicsResidents: new Set<string>(),
       crypto,
-      applyGeometryAuthority() {},
+      applyGeometryAuthority() {
+        geometryAuthority.push(context.receivedGeometryState);
+      },
       applyGraphicsClock() {},
       heldGeometry: null,
       heldGraphicsClock: null,
       publishViewerLinks() {},
+      installPublishedFence() {},
+      VIEWER_OUTPUT_SPACE_EDGE: 2,
     };
-    runInNewContext(productionFunctions(['applyLineageFence', 'drainViewerOutputs']), context);
+    const geometryAuthority: ({ epoch: number; status: number } | null)[] = [];
+    runInNewContext(
+      productionFunctions(['handleRingWakeEdge', 'applyLineageFence', 'drainViewerOutputs']),
+      context,
+    );
+    // The transport's grant for the new lineage reaches this worker before it
+    // can install that lineage's fence (its runtime may still be starting):
+    // the grant waits for the fence instead of being judged against the old one.
+    runInNewContext(
+      "handleRingWakeEdge({data:{kind:'client_geometry',lineage:1,frameFenceToken:4,status:1}})",
+      context,
+    );
+    expect(context.receivedGeometryState).toBeNull();
     runInNewContext('applyLineageFence({token:4,lineage:1,newSession:true})', context);
     expect(context.activeSessionEpoch).toBe(1);
     expect(context.activeFrameFenceToken).toBe(4);
+    expect(geometryAuthority).toEqual([{ epoch: 1, status: 1 }]);
     // The viewer confirms the lineage in the ring the transport reads, not on
     // the port.
     expect(harness.writer.installedFence()).toBe(4);
