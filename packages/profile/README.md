@@ -14,7 +14,8 @@
 
 ```sh
 bun run profile:setup                                # once per machine
-merkur profile record --seconds 10 --cpu             # prints the capture directory
+merkur profile record --seconds 10 --cpu             # a live session; prints the directory
+bun run profile:sim --rounds 2000 [--cpu]            # the simulated display pipeline
 bun run profile:query <dir> span-percentiles
 bun run profile:query <dir> flush-breakdown
 bun run profile:query <dir> cpu-in-slow-spans --span display.pack --threshold-us 100

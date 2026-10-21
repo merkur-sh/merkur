@@ -1935,10 +1935,15 @@ samples are both on the anchor clock (`CLOCK_UPTIME_RAW` on macOS, `CLOCK_MONOTO
 mapped exactly: no alignment estimate joins them. A capture that spans a sleep is marked
 discontinuous and proves nothing about timing.
 
-For an edit loop on one component, the ignored
-`display::sim::trace_fixture::write_native_trace_capture` test drives full-screen writes
-through the production flush and preparation worker under an observation. Run it under
-`samply record` and the CPU profile shares the capture's process and threads.
+For an edit loop on one component, `bun run profile:sim [--rounds <n>] [--cpu]` builds the
+dataplane's tests with Cargo's incremental `profiling` profile and runs the ignored
+`display::sim::trace_fixture::write_native_trace_capture` test. That test drives full-screen
+writes through the production flush and preparation worker under an observation, and writes
+a directory the queries read. A one-file edit rebuilds and reruns in seconds, where Bazel
+recompiles the whole dataplane crate. With `--cpu` samply samples the run; without it, macOS
+records the run's instructions retired in `run.json`. Two runs of one build differ there by
+about 0.01%, against the ±12–20% that code placement moves release timings. An A/B that
+decides a change still runs on the Bazel release build.
 
 ## Authenticated Linux edge profiling
 

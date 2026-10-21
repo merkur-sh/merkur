@@ -108,6 +108,7 @@
     "profile:full": "bun run scripts/profile-project.ts --mode=full",
     "profile:soak": "bun run scripts/profile-project.ts --mode=soak",
     "profile:setup": "bun run packages/profile/src/cli.ts setup",
+    "profile:sim": "bun run packages/profile/src/cli.ts sim",
     "profile:perfetto": "bun run packages/profile/src/cli.ts perfetto",
     "profile:query": "bun run packages/profile/src/cli.ts query",
     "profile:diff": "bun run packages/profile/src/cli.ts diff",

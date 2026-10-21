@@ -108,6 +108,15 @@ debug = false
 # are cheaper to emit than full debuginfo. Assertions and overflow checks stay on: they are
 # part of what the tests check. Release, which the edge harness and shipped binaries use,
 # is untouched.
+# `bun run profile:sim`'s edit loop: release code generation with the line tables a sampler
+# symbolicates and incremental compilation, so a one-file edit rebuilds in seconds rather than
+# the whole dataplane crate. Bazel builds every test and release; a timing that decides an A/B
+# comes from its release build, not this one.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+incremental = true
+
 [profile.test]
 opt-level = 1
 debug = "line-tables-only"

@@ -4,6 +4,7 @@
  * recorded events, so the same capture gives the same answer.
  *
  *   profile:setup                          install the pinned trace_processor and samply
+ *   profile:sim [--rounds <n>] [--cpu] [--out <dir>]   capture the simulated display pipeline
  *   profile:perfetto <dir>                 write <dir>/trace.perfetto-trace
  *   profile:query <dir|trace> <query> [--span <name>] [--threshold-us <n>] [--limit <n>] [--json]
  *   profile:diff <dir|trace> <dir|trace> <query> [options]
@@ -14,6 +15,7 @@ import { Predicate } from 'effect';
 import { decodeNativeTrace } from './mtrace';
 import { writePerfettoTrace } from './perfetto';
 import { decodeSamplyProfile } from './samply';
+import { parseSimOptions, runSim } from './sim';
 import { setupTools, traceProcessorPath } from './tools';
 
 const QUERIES = path.join(import.meta.dir, '..', 'queries');
@@ -208,6 +210,12 @@ async function main(args: readonly string[]): Promise<number> {
     await setupTools();
     return 0;
   }
+  if (command === 'sim') {
+    const options = parseSimOptions(rest);
+    if (options === null) return usage();
+    process.stdout.write(`${await runSim(options)}\n`);
+    return 0;
+  }
   if (command === 'perfetto' && rest.length === 1 && rest[0] !== undefined) {
     process.stdout.write(`${await buildTrace(rest[0])}\n`);
     return 0;
@@ -234,7 +242,7 @@ async function main(args: readonly string[]): Promise<number> {
 
 function usage(): number {
   process.stderr.write(
-    'usage: profile:setup | profile:perfetto <dir> | profile:query <dir|trace> <query> [options] | profile:diff <a> <b> <query> [options]\n',
+    'usage: profile:setup | profile:sim [--rounds <n>] [--cpu] [--out <dir>] | profile:perfetto <dir> | profile:query <dir|trace> <query> [options] | profile:diff <a> <b> <query> [options]\n',
   );
   return 2;
 }
