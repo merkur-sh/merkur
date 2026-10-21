@@ -444,8 +444,9 @@ ordered fence entry the transport worker announces before it publishes: until th
 takes the announced fence, the ring discards every entry ahead of it unread, and the new
 lineage's frames queue behind it. The transport publishes a lineage's fence before it posts or
 reports anything under that lineage, and the terminal worker installs a published fence before
-it handles a peer message or a control slice, so nothing made under a lineage reaches a viewer
-still on the one before. The transport never waits for the viewer to take a fence;
+it handles a peer message or a control command; a geometry state or graphics clock stamped with
+a fence it cannot install yet (its runtime still starting) waits for that fence. Nothing made
+under a lineage reaches a viewer still on the one before. The transport never waits for the viewer to take a fence;
 the viewer records the fence it installed in the ring, which is how the transport learns the
 lineage is confirmed. A terminal worker that stops reading costs display and nothing else:
 while the transport's display lane is parked on it (a full ring, an unanswered asset), display

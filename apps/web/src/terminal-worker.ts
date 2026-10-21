@@ -117,7 +117,9 @@ import {
 } from './terminal/worker-control-queue';
 
 import type {
+  ClientGeometry,
   ClientGraphicsAsset,
+  ClientGraphicsClock,
   PerfGridConvergenceResponseEdge,
   TerminalToTransportPeer,
   TransportToTerminalPeer,
@@ -593,16 +595,20 @@ function handleRingWakeEdge(event: MessageEvent<number | TransportToTerminalPeer
       void acceptClientGraphicsAsset(data).catch(reportFatal);
       return;
     case 'client_graphics_clock':
-      if (data.lineage === activeSessionEpoch && data.frameFenceToken === activeFrameFenceToken) {
-        wasmTerminal?.viewer.graphics_clock(viewerNowMs(), data.monotonicUs, data.rttMs);
-        observeViewerPresentation();
-        drainViewerOutputs();
-        armViewerDeadline();
-        wakeGraphics();
+      // A fence this worker cannot install yet (its runtime is still starting)
+      // takes the clock with it when it installs.
+      if (data.frameFenceToken !== activeFrameFenceToken) {
+        heldGraphicsClock = data;
+        return;
       }
+      if (data.lineage === activeSessionEpoch) applyGraphicsClock(data);
       return;
     case 'client_geometry':
-      if (data.lineage === activeSessionEpoch && data.frameFenceToken === activeFrameFenceToken) {
+      if (data.frameFenceToken !== activeFrameFenceToken) {
+        heldGeometry = data;
+        return;
+      }
+      if (data.lineage === activeSessionEpoch) {
         receivedGeometryState = { epoch: data.lineage, status: data.status };
         applyGeometryAuthority();
       }
@@ -630,6 +636,14 @@ function installPublishedFence(): void {
   const fence = readFrameRingFence(entry.payload);
   entry.release();
   applyLineageFence(fence);
+}
+
+function applyGraphicsClock(clock: ClientGraphicsClock): void {
+  wasmTerminal?.viewer.graphics_clock(viewerNowMs(), clock.monotonicUs, clock.rttMs);
+  observeViewerPresentation();
+  drainViewerOutputs();
+  armViewerDeadline();
+  wakeGraphics();
 }
 
 function installRingWakePort(port: MessagePort): void {
@@ -1173,8 +1187,10 @@ async function runControlPump(): Promise<void> {
   controlPumpActive = true;
   let processed = 0;
   try {
-    installPublishedFence();
     while (controlQueueSize() > 0 && processed < CONTROL_COMMANDS_PER_SLICE) {
+      // Per command, not per slice: the runtime a fence needs may have just
+      // been installed by the command before.
+      installPublishedFence();
       const cmd = controlQueue.shift();
       if (cmd === undefined) {
         continue;
@@ -1744,6 +1760,8 @@ function disposeInstalledRuntime(): void {
   workerReady = false;
   activeSessionEpoch = 0;
   activeFrameFenceToken = 0;
+  heldGeometry = null;
+  heldGraphicsClock = null;
   predictionModelThroughInputSeq = 0;
   localPresentationPending = false;
   provisionalPreview.clear();
@@ -3241,6 +3259,15 @@ function viewWasmU8(buffer: ArrayBufferLike, ptr: number, len: number): Uint8Arr
   return atlasPixelsView;
 }
 
+/**
+ * The latest geometry state and graphics clock the transport published under a
+ * fence this worker had not installed: one that arrives while the runtime the
+ * fence needs is still starting, which the transport does not wait for.
+ */
+let heldGeometry: ClientGeometry | null = null;
+
+let heldGraphicsClock: ClientGraphicsClock | null = null;
+
 let observedViewerFrames = 0;
 
 let observedViewerSnapshots = 0;
@@ -3521,6 +3548,10 @@ function applyLineageFence(fence: FrameRingFence): void {
   graphicsEpoch = fence.lineage;
   controlsGeometry = false;
   resizeRequestedAtMs = 0;
+  const geometry = heldGeometry;
+  heldGeometry = null;
+  if (geometry?.frameFenceToken === fence.token && geometry.lineage === fence.lineage)
+    receivedGeometryState = { epoch: fence.lineage, status: geometry.status };
   if (receivedGeometryState?.epoch !== fence.lineage) receivedGeometryState = null;
   graphicsOwner = crypto.randomUUID();
   observedLinkRevision = -1;
@@ -3529,6 +3560,10 @@ function applyLineageFence(fence: FrameRingFence): void {
   renderer?.clearGraphics();
   terminal.viewer.fence(viewerNowMs(), fence.lineage);
   applyGeometryAuthority();
+  const clock = heldGraphicsClock;
+  heldGraphicsClock = null;
+  if (clock?.frameFenceToken === fence.token && clock.lineage === fence.lineage)
+    applyGraphicsClock(clock);
   publishViewerLinks();
   drainViewerOutputs();
   frameRingReader?.installFence(fence.token);
