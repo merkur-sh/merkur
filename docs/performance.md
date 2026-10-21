@@ -1910,6 +1910,36 @@ route handles survive. Reliable watches and budgets stay slot-owned, and all exp
 retirement. The cold cost is one routing-cell allocation per session, and the 256-frame mailbox
 remains in place.
 
+## Native span profiling
+
+The dataplane marks each stage of a flush and a keystroke with a span from
+`packages/merkur-trace`:
+
+- The owner loop spans `peer.message`, `input.admit`, `pty.apply`, `display.flush`,
+  `display.finish`, `display.ack` and `display.send`.
+- The preparation worker spans `display.prepare`, with `display.pack` (MZ encode and
+  compression) and `display.fec` inside it.
+- The PTY threads span each `pty.write` and mark each `pty.read` with its size.
+- The `prepare.submit`, `prepare.take` and `prepare.receive` marks carry the request token,
+  so a capture joins the hop between threads.
+
+While no observation runs, a span is one relaxed load and a branch (+0.25 ns, 2 instructions
+on Apple silicon). While one runs, it costs two counter reads and two stores into the
+calling thread's ring (1.4 ns), against 1.3 µs for the smallest display prepare. A capture
+taken with the recorder on is diagnostic only, never acceptance timing.
+
+`merkur profile record [--session <id>] [--seconds <n>] [--cpu]` captures a live session
+on the running daemon; `bun run profile:query <dir> <query>` answers from it in SQL
+(`packages/profile/README.md` lists the queries and the pinned tools). Span times and samply's
+samples are both on the anchor clock (`CLOCK_UPTIME_RAW` on macOS, `CLOCK_MONOTONIC` on Linux),
+mapped exactly: no alignment estimate joins them. A capture that spans a sleep is marked
+discontinuous and proves nothing about timing.
+
+For an edit loop on one component, the ignored
+`display::sim::trace_fixture::write_native_trace_capture` test drives full-screen writes
+through the production flush and preparation worker under an observation. Run it under
+`samply record` and the CPU profile shares the capture's process and threads.
+
 ## Authenticated Linux edge profiling
 
 `bun run profile:edge:prepare -- --output /tmp/merkur-edge-profile-build` prepares the

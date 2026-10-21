@@ -4,7 +4,7 @@
 //! 1. `MRKTRACE`
 //! 2. owner, observation epoch, dropped, stale, discontinuous (0 or 1), clock domain
 //!    (1 = macOS `CLOCK_UPTIME_RAW`, 2 = Linux `CLOCK_MONOTONIC`), the origin on that
-//!    clock in nanoseconds, the clock mapping's error bound in nanoseconds
+//!    clock in nanoseconds, the clock mapping's error bound in nanoseconds, the process id
 //! 3. peer id, session id
 //! 4. site count, then each site's name by id from 1 (empty for an unclaimed id)
 //! 5. evidence count, then per record: ordinal, nanoseconds since origin, site, 16 fields
@@ -33,6 +33,7 @@ impl Snapshot {
             clock::DOMAIN,
             self.origin_anchor_ns,
             self.clock_error_ns,
+            u64::from(self.pid),
         ] {
             write_word(out, word)?;
         }
@@ -142,6 +143,7 @@ mod tests {
             ],
             origin_anchor_ns: 235_904_375_849_958,
             clock_error_ns: 84,
+            pid: 4_242,
         }
     }
 

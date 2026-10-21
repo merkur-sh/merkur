@@ -75,6 +75,7 @@ function trace(records: readonly Record[], dropped = 0): NativeTraceCapture {
     clock: 'mach-uptime-raw',
     originAnchorNs: 0n,
     clockErrorNs: 0,
+    pid: 1,
     records,
     spans: [],
   };

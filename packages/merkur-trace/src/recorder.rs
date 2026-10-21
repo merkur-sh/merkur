@@ -114,6 +114,8 @@ pub struct Snapshot {
     /// The origin `Instant` on the anchor clock, within `clock_error_ns`.
     pub(crate) origin_anchor_ns: u64,
     pub(crate) clock_error_ns: u64,
+    /// The recording process, which a CPU profile of it names too.
+    pub(crate) pid: u32,
 }
 
 impl Snapshot {
@@ -563,6 +565,7 @@ impl Recorder {
             clock_error_ns: self
                 .origin_error_ns
                 .saturating_add(started.error_ns.max(ended.error_ns)),
+            pid: std::process::id(),
         })
     }
 }

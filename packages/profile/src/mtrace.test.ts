@@ -22,6 +22,7 @@ describe('decodeNativeTrace', () => {
       clock: 'mach-uptime-raw',
       originAnchorNs: 235_904_375_849_958n,
       clockErrorNs: 84,
+      pid: 4_242,
       records: [
         {
           ordinal: 11,

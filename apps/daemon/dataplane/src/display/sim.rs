@@ -4253,3 +4253,29 @@ mod mz_census {
         println!("wrote {} bytes of model data to {path:?}", data.len());
     }
 }
+
+/// One native trace capture of a simulated session: full-screen writes flushed through the
+/// production owner path and preparation worker while an observation runs, written to the
+/// file `MERKUR_TRACE_OUT` names, over `MERKUR_TRACE_ROUNDS` writes (64 unless set; a few
+/// thousand give a 1 kHz CPU sampler something to see). Run it alone, because the recorder
+/// is process-wide:
+/// `--ignored --exact display::sim::trace_fixture::write_native_trace_capture`.
+#[cfg(test)]
+mod trace_fixture {
+    use super::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "writes a capture for @merkur/profile's converter"]
+    async fn write_native_trace_capture() {
+        let out = std::env::var("MERKUR_TRACE_OUT").expect("MERKUR_TRACE_OUT names the capture");
+        let token = crate::perf_trace::begin("sim-peer", "sim-session", 1).expect("a non-zero epoch");
+        let rounds = std::env::var("MERKUR_TRACE_ROUNDS").map_or(64, |rounds| rounds.parse().unwrap());
+        let mut sim = DisplaySim::new(120, 40);
+        for round in 0..rounds {
+            sim.write_full_screen(u8::try_from(round % 26).unwrap());
+            assert!(sim.step_until_emit(64).await.is_some(), "every write emits a frame");
+        }
+        assert!(crate::perf_trace::write_capture(std::path::Path::new(&out)).unwrap());
+        crate::perf_trace::end(token);
+    }
+}

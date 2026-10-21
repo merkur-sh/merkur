@@ -292,7 +292,11 @@ importers:
         specifier: 'catalog:'
         version: 4.0.2
 
-  packages/profile: {}
+  packages/profile:
+    dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.2
 
   packages/protocol: {}
 

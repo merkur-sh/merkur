@@ -8,7 +8,7 @@
  */
 
 const MAGIC = 'MRKTRACE';
-const HEADER_WORDS = 8;
+const HEADER_WORDS = 9;
 const EVIDENCE_WORDS = 19;
 const SPAN_WORDS = 4;
 
@@ -50,6 +50,8 @@ export interface NativeTraceCapture {
   readonly originAnchorNs: bigint;
   /** Bound on the error mapping spans and the origin onto the anchor clock. */
   readonly clockErrorNs: number;
+  /** The recording process, which a CPU profile of it names too. */
+  readonly pid: number;
   /** Evidence, sorted by ordinal. */
   readonly records: readonly NativePerfTraceRecord[];
   /** Spans grouped by thread, each thread's in the order it wrote them. */
@@ -153,6 +155,7 @@ export function decodeNativeTrace(bytes: Uint8Array): NativeTraceCapture {
   const clock = clockOf(reader.word('clock domain'));
   const originAnchorNs = reader.big();
   const clockErrorNs = reader.word('clock error');
+  const pid = reader.word('process id');
   if (owner === 0 || owner > 0xffff_ffff) throw new NativeTraceDecodeError('invalid owner');
   if (observationEpoch === 0 || observationEpoch > 0xffff_ffff) {
     throw new NativeTraceDecodeError('invalid observation epoch');
@@ -214,6 +217,7 @@ export function decodeNativeTrace(bytes: Uint8Array): NativeTraceCapture {
     clock,
     originAnchorNs,
     clockErrorNs,
+    pid,
     records,
     spans,
   };
