@@ -685,6 +685,7 @@ fn display_acks_ride_the_ack_datagram_and_the_reliable_backstop_at_its_cadence()
         received: [0b101, 0, 0, 0],
         recovered: [0; 4],
         grant: 2,
+        mz_refusals: 0,
     };
     harness.session.send_display_ack(NOW + 40, &ack, false);
     let actions = drain(&mut harness.session);
@@ -1568,6 +1569,7 @@ fn stalled_control_keeps_latest_reliable_display_ack_and_datagrams_flowing() {
             received: [1, 0, 0, 0],
             recovered: [0; 4],
             grant: 2,
+            mz_refusals: 0,
         };
         h.session.send_display_ack(NOW + seq as u64, &ack, true);
         let actions: Vec<_> = std::iter::from_fn(|| h.session.poll_available_io_action()).collect();

@@ -49,6 +49,8 @@ pub struct CompressedFrame {
 pub(crate) struct MzContext<'a> {
     pub(crate) state: &'a mut MzPeerState,
     pub(crate) presentation_id: u32,
+    /// A chunk of the snapshot that opens the next generation.
+    pub(crate) snapshot: bool,
 }
 
 impl Compressor {
@@ -78,7 +80,8 @@ impl Compressor {
 
     /// Code `frame` as MZ into `out`, copying only from the frame itself, and
     /// return the bytes saved. `None` when the frame is not one to compress or
-    /// MZ would not shrink it.
+    /// MZ would not shrink it. Every production frame is coded for its peer.
+    #[cfg(test)]
     pub fn compress_display_frame_into(
         &mut self,
         frame: &[u8],
@@ -88,9 +91,11 @@ impl Compressor {
             .map(|compressed| compressed.saved_bytes)
     }
 
-    /// [`Self::compress_display_frame_into`] for `peer`'s frame: copies from
-    /// the rows it acknowledged, against its usable session epoch, carrying any
-    /// epoch declaration it owes.
+    /// Code `frame` as MZ into `out` for `peer`: copies from the rows it
+    /// acknowledged, against its usable session epoch, carrying any epoch
+    /// declaration it owes; a snapshot copies from the generation it closes
+    /// and declares nothing. Without a peer, copies come only from the frame.
+    /// `None` when the frame is not one to compress or MZ would not shrink it.
     pub(crate) fn compress_display_rows_into(
         &mut self,
         frame: &[u8],
@@ -155,6 +160,13 @@ impl Compressor {
         out.extend_from_slice(&[0; 4]);
         let rows = frame.get(rows_offset..)?;
         let encoded = match peer {
+            // A snapshot declares nothing: it opens a generation whose traces
+            // start with its own.
+            Some(peer) if peer.snapshot => {
+                let history = peer.state.snapshot_history();
+                let session = peer.state.session();
+                self.mz.encode(rows, row_count, &history, session, None, out)?
+            }
             Some(peer) => {
                 let declaration = peer.state.declaration(peer.presentation_id);
                 let history = peer.state.history(peer.presentation_id);
@@ -221,6 +233,7 @@ pub(crate) fn decode_display_payload(frame: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut rows = Vec::new();
     receiver
         .decode(
+            1,
             presentation_id,
             presentation_id,
             &frame[merkur_codec::DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],

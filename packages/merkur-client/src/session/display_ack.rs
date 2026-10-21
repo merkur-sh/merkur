@@ -98,6 +98,7 @@ mod tests {
             received: [1, 0, 0, 0],
             recovered: [recovered0, 0, 0, 0],
             grant,
+            mz_refusals: 0,
         }
     }
 

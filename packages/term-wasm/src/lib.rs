@@ -530,6 +530,9 @@ struct StagedDisplayFrame {
     data: Vec<u8>,
     validation: Option<StagedDisplayValidation>,
     budget: StagedDisplayBudget,
+    /// The display generation the frame belongs to, whose MZ history its
+    /// rows are recorded in.
+    generation: u32,
 }
 
 impl Dimensions for TerminalDimensions {
@@ -1438,6 +1441,11 @@ impl Terminal {
         self.display_mz.clear();
     }
 
+    /// Frames of the current generation refused for naming an MZ row or
+    /// epoch this terminal does not hold, as every display ACK reports it.
+    pub(crate) fn display_mz_refusals(&self) -> u32 {
+        self.display_mz.refusals()
+    }
 
     /// Reserve the one reusable JS -> WASM ingress buffer. JS caches this
     /// pointer and calls this again only when a larger frame arrives.
@@ -1482,6 +1490,10 @@ impl Terminal {
             return 0;
         };
         let input = std::mem::take(&mut self.staged_frame_input);
+        // Every frame, raw or MZ, tells the MZ receiver its generation, so a
+        // raw snapshot opens its generation as an MZ one does.
+        let generation = merkur_codec::parse_stream_header(&input[..len]).map_or(0, |stream| stream.generation);
+        self.display_mz.observe_generation(generation);
         let (data, validation) = if admission.compressed {
             let Some(validation) = self.decode_mz_frame(
                 &input[..len],
@@ -1503,6 +1515,7 @@ impl Terminal {
             data,
             validation,
             budget: admission.budget,
+            generation,
         };
         if slot == self.staged_frames.len() {
             self.staged_frames.push(Some(staged));
@@ -1602,10 +1615,13 @@ impl Terminal {
         {
             self.display_frame_decode_count = self.display_frame_decode_count.saturating_add(1);
         }
-        // The datagram's sequence names its trace, as the daemon's session
-        // fold names it.
-        let seq = merkur_codec::parse_stream_header(data).map_or(0, |stream| stream.seq);
+        // The datagram's generation and sequence name its trace and the rows
+        // its copies read, as the daemon's names them; a snapshot is
+        // datagram 0 of its generation.
+        let (generation, seq) = merkur_codec::parse_stream_header(data)
+            .map_or((0, 0), |stream| (stream.generation, stream.seq));
         let decoded = self.display_mz.decode(
+            generation,
             seq,
             header.presentation_id,
             &data[DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
@@ -1734,6 +1750,7 @@ impl Terminal {
             );
             let applied = self.apply_validated_frame(
                 validation.header,
+                staged.generation,
                 snapshot,
                 seq,
                 validation.graphics.as_mut(),
@@ -1945,12 +1962,14 @@ impl Terminal {
                 return false;
             }
         };
-        self.apply_validated_frame(header, snapshot, seq, None)
+        let generation = merkur_codec::parse_stream_header(data).map_or(0, |stream| stream.generation);
+        self.apply_validated_frame(header, generation, snapshot, seq, None)
     }
 
     fn apply_validated_frame(
         &mut self,
         header: FrameHeader,
+        generation: u32,
         snapshot: bool,
         seq: u32,
         reserved: Option<&mut Vec<(u16, merkur_graphics::projection::RowFragments)>>,
@@ -2026,15 +2045,16 @@ impl Terminal {
         for row in self.frame_rows_scratch.iter().copied() {
             let row_index = usize::from(row.row_index);
             let cells = &self.frame_cells_scratch[row.cells_start..row.cells_end];
-            // Every complete row a delta carries is history a reference may
-            // name, as the frame carried it, whether or not the grid takes it.
-            if !snapshot && row.left == 0 && cells.len() == cols {
+            // Every complete row a frame carries is history a reference may
+            // name, as the frame carried it, whether or not the grid takes it;
+            // a snapshot is datagram 0 of its generation.
+            if row.left == 0 && cells.len() == cols {
                 self.display_mz.history.record(
-                    seq,
+                    generation,
+                    if snapshot { 0 } else { seq },
                     row.row_index,
                     cells,
                     header.cols,
-                    header.rows,
                 );
             }
             // ACK-baseline deltas can contain disjoint cells from a shared
@@ -2233,7 +2253,8 @@ impl Terminal {
         self.damaged_row_set.clear();
         self.damaged_row_set.resize(usize::from(rows.max(1)), false);
         self.row_geometry.clear();
-        self.display_mz.clear();
+        // The MZ rows and epochs outlive the resize: the generation its
+        // snapshot opens copies the rows the old size held.
         self.display_row_versions.clear();
         self.display_row_versions
             .resize(usize::from(rows.max(1)), 0);
@@ -2274,7 +2295,6 @@ impl Terminal {
     }
 
     pub fn reset_display_ordering(&mut self) {
-        self.display_mz.reset_ordering();
         self.display_row_versions.fill(0);
         self.display_cell_versions.fill(0);
         self.display_header_version = 0;

@@ -251,6 +251,116 @@ impl MzLedger {
     pub fn floor(&self) -> Option<u32> {
         self.newest.map(|_| self.floor)
     }
+
+    /// Retire every datagram, releasing their rows.
+    fn retire_all(&mut self, store: &mut impl MzStore) {
+        for slot in &mut self.slots {
+            if slot.live {
+                slot.live = false;
+                release_rows(&mut slot.rows, &mut self.held, &mut self.bytes, store);
+            }
+        }
+        self.newest = None;
+    }
+}
+
+/// Whether generation `a` is older than `b`: generations wrap like sequences.
+#[inline]
+fn older_generation(a: u32, b: u32) -> bool {
+    older(a, b)
+}
+
+/// The generation before `generation`, which skips 0 as generations do.
+#[inline]
+pub fn previous_generation(generation: u32) -> u32 {
+    match generation.wrapping_sub(1) {
+        0 => u32::MAX,
+        previous => previous,
+    }
+}
+
+/// A ledger per display generation: the current generation's, and the one
+/// before it, frozen when the current began, so a frame of the new generation
+/// copies rows the old one established.
+///
+/// Both ends begin a generation before recording or naming anything of it:
+/// the sender when it opens the generation, the receiver at the generation's
+/// first frame. The sender's frozen ledger saw a superset of the records the
+/// receiver's did, so it holds no row the receiver retired, and it retires
+/// the generation before it no later than the receiver does.
+#[derive(Default)]
+pub struct MzGenerations {
+    current: u32,
+    ledger: MzLedger,
+    previous: u32,
+    previous_ledger: MzLedger,
+}
+
+impl MzGenerations {
+    /// Make `generation` current, the current one previous, and retire the
+    /// one before that. A generation not newer than the current changes
+    /// nothing.
+    pub fn begin(&mut self, generation: u32, store: &mut impl MzStore) {
+        if generation == self.current || (self.current != 0 && older_generation(generation, self.current)) {
+            return;
+        }
+        self.previous_ledger.retire_all(store);
+        std::mem::swap(&mut self.ledger, &mut self.previous_ledger);
+        self.previous = if previous_generation(generation) == self.current { self.current } else { 0 };
+        if self.previous == 0 {
+            self.previous_ledger.retire_all(store);
+        }
+        self.current = generation;
+    }
+
+    /// Datagram `seq` of `generation` carried the complete row `key` at
+    /// `row`. A generation newer than the current begins first; an older one
+    /// is frozen and records nothing.
+    pub fn record(&mut self, generation: u32, seq: u32, row: u16, key: u64, store: &mut impl MzStore) {
+        self.begin(generation, store);
+        if generation == self.current {
+            self.ledger.record(seq, row, key, store);
+        }
+    }
+
+    fn ledger(&self, generation: u32) -> Option<&MzLedger> {
+        if generation == self.current {
+            Some(&self.ledger)
+        } else if self.previous != 0 && generation == self.previous {
+            Some(&self.previous_ledger)
+        } else {
+            None
+        }
+    }
+
+    /// The key of the complete row datagram `seq` of `generation` carried at
+    /// `row`, if held.
+    pub fn key(&self, generation: u32, seq: u32, row: u16) -> Option<u64> {
+        self.ledger(generation)?.key(seq, row)
+    }
+
+    /// The oldest datagram of `generation` still held, once any is.
+    pub fn floor(&self, generation: u32) -> Option<u32> {
+        self.ledger(generation)?.floor()
+    }
+
+    /// The current generation, 0 before any.
+    pub fn current(&self) -> u32 {
+        self.current
+    }
+
+    /// Forget every generation.
+    pub fn clear(&mut self, store: &mut impl MzStore) {
+        self.ledger.retire_all(store);
+        self.previous_ledger.retire_all(store);
+        self.current = 0;
+        self.previous = 0;
+    }
+
+    /// Bytes of the distinct rows each generation holds, summed.
+    pub fn bytes(&self) -> usize {
+        self.ledger.bytes() + self.previous_ledger.bytes()
+    }
 }
 
 /// The receiver's stored rows: each distinct complete row once, as the
@@ -267,6 +377,8 @@ struct Stored {
     items: Vec<MzItem>,
     first: u16,
     mode: u8,
+    /// The generations' ledgers that hold it: one or both.
+    ledgers: u8,
 }
 
 impl StoredRows {
@@ -277,6 +389,8 @@ impl StoredRows {
     }
 }
 
+/// The receiver's store for one record: the cells it names. A row both
+/// generations' ledgers hold is stored once.
 struct Storing<'a> {
     rows: &'a mut StoredRows,
     cells: &'a [CellRepr],
@@ -284,6 +398,10 @@ struct Storing<'a> {
 
 impl MzStore for Storing<'_> {
     fn insert(&mut self, key: u64) -> usize {
+        if let Some(held) = self.rows.by_key.get_mut(&key) {
+            held.ledgers += 1;
+            return held.entry.len();
+        }
         let mut stored = self.rows.spare.pop().unwrap_or_default();
         stored.entry.clear();
         encode_full_row_entry(&mut stored.entry, 0, self.cells);
@@ -292,15 +410,37 @@ impl MzStore for Storing<'_> {
         if let Some((first, mode)) = entry_items(&stored.entry, &mut stored.items) {
             stored.first = first;
             stored.mode = mode;
+            stored.ledgers = 1;
             self.rows.by_key.insert(key, stored);
         }
         bytes
     }
 
     fn release(&mut self, key: u64) {
-        if let Some(stored) = self.rows.by_key.remove(&key) {
-            self.rows.recycle(stored);
+        release_stored(self.rows, key);
+    }
+}
+
+fn release_stored(rows: &mut StoredRows, key: u64) {
+    if let Entry::Occupied(mut held) = rows.by_key.entry(key) {
+        held.get_mut().ledgers -= 1;
+        if held.get().ledgers == 0 {
+            let stored = held.remove();
+            rows.recycle(stored);
         }
+    }
+}
+
+/// The receiver's store when a generation retires: it only releases.
+struct Releasing<'a>(&'a mut StoredRows);
+
+impl MzStore for Releasing<'_> {
+    fn insert(&mut self, _: u64) -> usize {
+        0
+    }
+
+    fn release(&mut self, key: u64) {
+        release_stored(self.0, key);
     }
 }
 
@@ -313,39 +453,41 @@ impl MzStore for Storing<'_> {
 /// acknowledged complete row is a source whatever was sent to that row after
 /// it. Rows with links are never recorded, since a link id resolves through a
 /// table only the row's own datagram delivered.
+///
+/// A row keeps its bytes whatever the grid's size became since: a copy is a
+/// byte-exact run of items, so a row of another width is as good a source.
 #[derive(Default)]
 pub struct RowHistory {
-    ledger: MzLedger,
+    generations: MzGenerations,
     rows: StoredRows,
-    cols: u16,
-    grid_rows: u16,
 }
 
 impl RowHistory {
     /// Forget everything: the grid these records describe is gone.
     pub fn clear(&mut self) {
-        self.ledger.clear();
+        self.generations.clear(&mut Releasing(&mut self.rows));
         let stored = std::mem::take(&mut self.rows.by_key);
         for (_, entry) in stored {
             self.rows.recycle(entry);
         }
-        self.cols = 0;
-        self.grid_rows = 0;
     }
 
-    /// The delta frame with sequence `seq`, on a grid `cols` by `rows`, carried
-    /// `cells` as the complete row `row`, whether or not the grid applied it.
-    pub fn record(&mut self, seq: u32, row: u16, cells: &[CellRepr], cols: u16, rows: u16) {
-        if cols != self.cols || rows != self.grid_rows {
-            self.clear();
-            self.cols = cols;
-            self.grid_rows = rows;
-        }
+    /// Display generation `generation` began: the current one's rows stay
+    /// for its frames to copy, and the one before it retires.
+    pub fn begin_generation(&mut self, generation: u32) {
+        self.generations.begin(generation, &mut Releasing(&mut self.rows));
+    }
+
+    /// Datagram `seq` of `generation` (0: its snapshot), on a grid `cols`
+    /// wide, carried `cells` as the complete row `row`, whether or not the
+    /// grid applied it.
+    pub fn record(&mut self, generation: u32, seq: u32, row: u16, cells: &[CellRepr], cols: u16) {
         if cells.len() != usize::from(cols) || cells.iter().any(|cell| cell.link != 0) {
             return;
         }
         let key = crate::row_hash(cells);
-        self.ledger.record(
+        self.generations.record(
+            generation,
             seq,
             row,
             key,
@@ -356,16 +498,28 @@ impl RowHistory {
         );
     }
 
-    /// The complete row the datagram `seq_delta` before `presentation_id`
-    /// carried at `row`, as items.
-    pub fn row(&self, presentation_id: u32, seq_delta: u32, row: u16) -> Result<MzRow<'_>, MzError> {
-        if seq_delta == 0 || seq_delta > MZ_REFERENCE_DATAGRAMS {
-            return Err(MzError::Corrupt);
-        }
-        let seq = presentation_id.wrapping_sub(seq_delta);
+    /// The complete row a frame of `generation` presented as
+    /// `presentation_id` names at `row`, as items: `back` datagrams before
+    /// it, or with `previous`, datagram `back` of the generation before.
+    pub fn row(
+        &self,
+        generation: u32,
+        presentation_id: u32,
+        previous: bool,
+        back: u32,
+        row: u16,
+    ) -> Result<MzRow<'_>, MzError> {
+        let (generation, seq) = if previous {
+            (previous_generation(generation), back)
+        } else {
+            if back == 0 || back > MZ_REFERENCE_DATAGRAMS {
+                return Err(MzError::Corrupt);
+            }
+            (generation, presentation_id.wrapping_sub(back))
+        };
         let stored = self
-            .ledger
-            .key(seq, row)
+            .generations
+            .key(generation, seq, row)
             .and_then(|key| self.rows.by_key.get(&key))
             .ok_or(MzError::Unresolved)?;
         Ok(MzRow {
@@ -379,6 +533,6 @@ impl RowHistory {
 
     /// Bytes of the distinct rows held, for tests and memory accounting.
     pub fn held_bytes(&self) -> usize {
-        self.ledger.bytes()
+        self.generations.bytes()
     }
 }

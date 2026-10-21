@@ -377,6 +377,11 @@ pub(crate) fn handle_display_resume(
         && peer.generation == requested_gen
         && peer.display_cache.cols == requested_cols
         && peer.display_cache.rows == requested_rows;
+    // A browser that kept no grid kept no MZ rows or epochs either: it claims
+    // row hashes exactly when it kept both.
+    if client_row_hashes.is_none() {
+        peer.display_cache.references.clear();
+    }
 
     if cache_usable {
         // Incremental resume: the daemon's acknowledged row state is the client's

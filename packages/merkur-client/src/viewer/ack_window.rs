@@ -85,14 +85,16 @@ impl AckWindow {
         *self = Self::default();
     }
 
-    /// The acknowledgement for `generation` carrying `grant`.
-    pub fn payload(&self, generation: u32, grant: u32) -> DisplayAckPayload {
+    /// The acknowledgement for `generation` carrying `grant` and the MZ
+    /// refusal count.
+    pub fn payload(&self, generation: u32, grant: u32, mz_refusals: u32) -> DisplayAckPayload {
         DisplayAckPayload {
             generation,
             largest_seq: self.largest,
             received: self.received,
             recovered: self.recovered,
             grant,
+            mz_refusals,
         }
     }
 }
@@ -211,10 +213,10 @@ mod tests {
         assert!(!window.has_applied());
         window.note(5, true);
         assert!(window.has_applied());
-        let payload = window.payload(3, 2);
+        let payload = window.payload(3, 2, 4);
         assert_eq!(
-            (payload.generation, payload.largest_seq, payload.grant),
-            (3, 5, 2)
+            (payload.generation, payload.largest_seq, payload.grant, payload.mz_refusals),
+            (3, 5, 2, 4)
         );
         window.reset();
         assert!(!window.has_applied());

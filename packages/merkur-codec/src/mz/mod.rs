@@ -20,7 +20,10 @@ pub use frame::{
     MzMatches, MzRow, MzSources, NoHistory, encode_full_row_entry, entry_items,
     full_row_entry_bytes, item_hash, pair_hash,
 };
-pub use history::{MZ_HISTORY_BYTES, MZ_REFERENCE_DATAGRAMS, MzLedger, MzStore, RowHistory};
+pub use history::{
+    MZ_HISTORY_BYTES, MZ_REFERENCE_DATAGRAMS, MzGenerations, MzLedger, MzStore, RowHistory,
+    previous_generation,
+};
 pub use session::{
     MZ_DECLARATION_REACH, MZ_EPOCH_DATAGRAMS, MzEpochDeclaration, MzEpochError, MzReceiver, MzSession,
     MzTracePool, SessionModel,

@@ -159,6 +159,10 @@ impl DisplayGrid for FakeGrid {
         self.history_clears += 1;
     }
 
+    fn mz_refusals(&self) -> u32 {
+        0
+    }
+
     fn cols(&self) -> u16 {
         self.cols
     }

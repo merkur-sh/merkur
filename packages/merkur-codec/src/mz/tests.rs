@@ -78,8 +78,11 @@ fn rows_of(entries: &[(u16, u16, &[CellRepr])]) -> Vec<u8> {
     frame[crate::STREAM_HEADER_BYTES + crate::FRAME_HEADER_BODY_BYTES..].to_vec()
 }
 
-/// What a receiver holds: its row history at a frame's presentation id, and
-/// its session epochs.
+/// The display generation the tests' frames belong to.
+const GENERATION: u32 = 1;
+
+/// What a receiver holds: its row history at a frame's generation and
+/// presentation id, and its session epochs.
 struct Held<'a> {
     history: &'a RowHistory,
     presentation_id: u32,
@@ -87,8 +90,8 @@ struct Held<'a> {
 }
 
 impl MzSources for Held<'_> {
-    fn row(&self, seq_delta: u32, row: u16) -> Result<MzRow<'_>, MzError> {
-        self.history.row(self.presentation_id, seq_delta, row)
+    fn row(&self, previous: bool, back: u32, row: u16) -> Result<MzRow<'_>, MzError> {
+        self.history.row(GENERATION, self.presentation_id, previous, back, row)
     }
 
     fn epoch(&self, id: u8) -> Option<&SessionModel> {
@@ -101,11 +104,13 @@ impl MzSources for Held<'_> {
 type SentEntry = (u32, u16, Vec<u8>, Vec<MzItem>, u16, u8, Vec<u64>);
 
 /// The sender's view of the same rows: every recorded complete row, found by
-/// brute force.
+/// brute force, named from the frame's presentation id, or with `previous`,
+/// as rows of the generation before the frame's.
 #[derive(Default)]
 struct Sent {
     rows: Vec<SentEntry>,
     presentation_id: u32,
+    previous: bool,
 }
 
 impl Sent {
@@ -135,7 +140,8 @@ impl MzMatches for Sent {
                 };
                 if pair_hash(item_hash(bytes(index)), item_hash(bytes(index + 1))) == pair {
                     out.push(MzCandidate {
-                        seq_delta: self.presentation_id.wrapping_sub(*seq),
+                        previous: self.previous,
+                        back: if self.previous { *seq } else { self.presentation_id.wrapping_sub(*seq) },
                         row: *row,
                         item: u16::try_from(index).expect("an item"),
                     });
@@ -144,8 +150,11 @@ impl MzMatches for Sent {
         }
     }
 
-    fn row(&self, seq_delta: u32, row: u16) -> Option<MzRow<'_>> {
-        let seq = self.presentation_id.wrapping_sub(seq_delta);
+    fn row(&self, previous: bool, back: u32, row: u16) -> Option<MzRow<'_>> {
+        if previous != self.previous {
+            return None;
+        }
+        let seq = if previous { back } else { self.presentation_id.wrapping_sub(back) };
         self.rows
             .iter()
             .find(|held| held.0 == seq && held.1 == row)
@@ -297,7 +306,7 @@ fn history_copies_read_rows_the_receiver_holds() {
     let mut history = RowHistory::default();
     let mut sent = Sent::default();
     for (row, line) in (0u16..).zip(&lines) {
-        history.record(40, row, line, COLS, ROWS);
+        history.record(GENERATION, 40, row, line, COLS);
         sent.record(40, row, line);
     }
     // Datagram 45 scrolls them up a row.
@@ -400,7 +409,7 @@ fn an_unbuildable_declaration_refuses_its_frame() {
     let mut receiver = MzReceiver::default();
     let mut out = Vec::new();
     assert_eq!(
-        receiver.decode(1000, 1000, &payload, 1, encoded.rows_len, &mut out),
+        receiver.decode(GENERATION, 1000, 1000, &payload, 1, encoded.rows_len, &mut out),
         Err(MzError::Unresolved),
         "the receiver holds no trace of datagram 900"
     );
@@ -409,12 +418,177 @@ fn an_unbuildable_declaration_refuses_its_frame() {
     for seq in [900u32, 901] {
         let mut frame = Vec::new();
         let plain = sender.encode(&rows, 1, &NoHistory, None, None, &mut frame).expect("encodes");
-        receiver.decode(seq, seq, &frame, 1, plain.rows_len, &mut out).expect("decodes");
+        receiver.decode(GENERATION, seq, seq, &frame, 1, plain.rows_len, &mut out).expect("decodes");
     }
-    receiver.decode(1000, 1000, &payload, 1, encoded.rows_len, &mut out).expect("decodes");
+    receiver.decode(GENERATION, 1000, 1000, &payload, 1, encoded.rows_len, &mut out).expect("decodes");
     assert_eq!(out, rows);
     receiver.build_pending();
     assert_eq!(receiver.epoch(), Some(1));
+}
+
+/// One row of `n`, in a script the static model codes poorly, so a session
+/// epoch built over such rows codes the next one smaller.
+fn session_row(n: usize) -> Vec<CellRepr> {
+    text_row(&format!("Строка номер {n} с кириллицей и цифрами {}", n * 7), [180, 190, 254])
+}
+
+/// Code `rows` (`row_count` entries) against `session` and `history`,
+/// carrying `declaration`: the payload and its row-layout length.
+fn coded(
+    encoder: &mut MzEncoder,
+    rows: &[u8],
+    row_count: u16,
+    history: &impl MzMatches,
+    session: Option<(u8, &SessionModel)>,
+    declaration: Option<&MzEpochDeclaration>,
+) -> (Vec<u8>, usize) {
+    let mut payload = Vec::new();
+    let encoded = encoder
+        .encode(rows, row_count, history, session, declaration, &mut payload)
+        .expect("encodes");
+    (payload, encoded.rows_len)
+}
+
+/// Sequences restart at every generation: both ends drop their traces there,
+/// so a declaration can only name the generation it travels in. Before, a
+/// lost datagram of the new generation left the receiver folding the old
+/// trace its sequence named and the sender the new one, and every frame
+/// coded against that epoch failed as corrupt.
+#[test]
+fn a_generation_change_drops_both_ends_traces() {
+    let mut sender = MzSession::default();
+    let mut receiver = MzReceiver::default();
+    let mut encoder = MzEncoder::default();
+    let mut out = Vec::new();
+    for seq in 1..=20u32 {
+        let rows = rows_of(&[(0, 0, &session_row(seq as usize))]);
+        let (payload, rows_len) = coded(&mut encoder, &rows, 1, &NoHistory, None, None);
+        sender.keep(seq, encoder.trace());
+        receiver.decode(1, seq, seq, &payload, 1, rows_len, &mut out).expect("decodes");
+    }
+    let old = MzEpochDeclaration { id: 1, base: 0, first: 1, datagrams: (1 << 20) - 1 };
+    assert!(sender.can_build(&old));
+    sender.begin_generation();
+    assert!(!sender.can_build(&old), "the sender keeps no trace across the boundary");
+    // The new generation's first frame begins it at the receiver too.
+    let rows = rows_of(&[(0, 0, &session_row(5))]);
+    let (payload, rows_len) = coded(&mut encoder, &rows, 1, &NoHistory, None, None);
+    receiver.decode(2, 1, 1, &payload, 1, rows_len, &mut out).expect("decodes");
+    assert_eq!(receiver.refusals(), 0);
+    let (carrier, rows_len) = coded(&mut encoder, &rows, 1, &NoHistory, None, Some(&old));
+    assert_eq!(
+        receiver.decode(2, 2, 2, &carrier, 1, rows_len, &mut out),
+        Err(MzError::Unresolved),
+        "a declaration of the old generation's datagrams cannot build"
+    );
+    assert_eq!(receiver.refusals(), 1, "a refused frame of the current generation is counted");
+    // A late frame of the old generation is refused without counting.
+    assert_eq!(
+        receiver.decode(1, 21, 21, &carrier, 1, rows_len, &mut out),
+        Err(MzError::Unresolved)
+    );
+    assert_eq!(receiver.refusals(), 1);
+}
+
+/// The epochs survive a generation; a declaration the receiver took but had
+/// not built is built at the boundary, since the sender may already count it
+/// held.
+#[test]
+fn epochs_survive_a_generation_and_pending_ones_are_built_at_its_boundary() {
+    let mut sender = MzSession::default();
+    let mut receiver = MzReceiver::default();
+    let mut encoder = MzEncoder::default();
+    let mut out = Vec::new();
+    for seq in 1..=20u32 {
+        let rows = rows_of(&[(0, 0, &session_row(seq as usize))]);
+        let (payload, rows_len) = coded(&mut encoder, &rows, 1, &NoHistory, None, None);
+        sender.keep(seq, encoder.trace());
+        receiver.decode(1, seq, seq, &payload, 1, rows_len, &mut out).expect("decodes");
+    }
+    let declaration = MzEpochDeclaration { id: 1, base: 0, first: 1, datagrams: (1 << 20) - 1 };
+    sender.build(&declaration).expect("sender builds");
+    let rows = rows_of(&[(0, 0, &session_row(21))]);
+    let (carrier, rows_len) = coded(&mut encoder, &rows, 1, &NoHistory, None, Some(&declaration));
+    receiver.decode(1, 21, 21, &carrier, 1, rows_len, &mut out).expect("takes the declaration");
+    assert_eq!(receiver.epoch(), None, "taken, not yet built");
+    sender.begin_generation();
+    // The new generation's snapshot, coded against the epoch.
+    let snapshot = rows_of(&[(0, 0, &session_row(22)), (1, 0, &session_row(23))]);
+    let (payload, rows_len) = coded(&mut encoder, &snapshot, 2, &NoHistory, sender.current(), None);
+    assert_eq!(payload[0], 1, "coded against epoch 1");
+    receiver.decode(2, 0, 0, &payload, 2, rows_len, &mut out).expect("decodes against the built epoch");
+    assert_eq!(out, snapshot);
+    assert_eq!(receiver.epoch(), Some(1));
+}
+
+/// Building an epoch keeps exactly its base beside it: an epoch the sender
+/// declared and then abandoned is never a base, and the next build drops it
+/// instead of the base frames are still coded against.
+#[test]
+fn a_built_epoch_the_sender_abandoned_never_evicts_its_base() {
+    let mut session = MzSession::default();
+    for seq in 1..=3 {
+        session.keep(seq, &[seq << 9]);
+    }
+    let declare = |id, base, first| MzEpochDeclaration { id, base, first, datagrams: 1 };
+    session.build(&declare(1, 0, 1)).expect("builds 1");
+    // Epoch 2 is declared over 1 and built, but the sender abandons it.
+    session.build(&declare(2, 1, 2)).expect("builds 2");
+    // Epoch 3 is declared over 1 again.
+    session.build(&declare(3, 1, 3)).expect("builds 3");
+    assert!(session.epoch(1).is_some(), "the base frames still name");
+    assert!(session.epoch(3).is_some());
+    assert!(session.epoch(2).is_none());
+}
+
+/// A snapshot copies the rows the generation before it established, its own
+/// rows are then copied by the frames that follow, and two generations back
+/// retires. A row keeps its bytes whatever the grid's width became since.
+#[test]
+fn a_snapshot_copies_the_previous_generation_and_is_copied_in_its_own() {
+    let lines: Vec<Vec<CellRepr>> = [
+        "fn main() { println!(\"hello, world\"); }",
+        "    let rows = rows_of(&[(0, 0, &row)]);",
+        "// a comment that scrolls up the screen",
+    ]
+    .iter()
+    .map(|text| text_row(text, [0xa6, 0xe3, 0xa1]))
+    .collect();
+    let mut receiver = MzReceiver::default();
+    let mut sent = Sent::default();
+    for (row, line) in (0u16..).zip(&lines) {
+        receiver.history.record(1, 40, row, line, COLS);
+        sent.record(40, row, line);
+    }
+    // A row of another width, recorded after them, retires nothing.
+    let wide: Vec<CellRepr> = text_row("wider", [1, 2, 3]).into_iter().chain(text_row("", [1, 2, 3])).collect();
+    receiver.history.record(1, 41, 0, &wide, 2 * COLS);
+    // Generation 2's snapshot names generation 1's rows by sequence.
+    sent.previous = true;
+    let snapshot = rows_of(&[(0, 0, &lines[1]), (1, 0, &lines[2]), (2, 0, &lines[0])]);
+    let mut encoder = MzEncoder::default();
+    let (payload, rows_len) = coded(&mut encoder, &snapshot, 3, &sent, None, None);
+    let mut out = Vec::new();
+    receiver.decode(2, 0, 0, &payload, 3, rows_len, &mut out).expect("decodes");
+    assert_eq!(out, snapshot);
+    let plain = round_trip(&snapshot, 3);
+    assert!(payload.len() * 2 < plain, "copies: {} of {plain}", payload.len());
+    // Its rows are generation 2's datagram 0, which its frames copy.
+    for (row, line) in (0u16..).zip([&lines[1], &lines[2], &lines[0]]) {
+        receiver.history.record(2, 0, row, line, COLS);
+    }
+    let mut own = Sent { presentation_id: 3, ..Sent::default() };
+    for (row, line) in (0u16..).zip([&lines[1], &lines[2], &lines[0]]) {
+        own.record(0, row, line);
+    }
+    let delta = rows_of(&[(0, 0, &lines[2]), (1, 0, &lines[0])]);
+    let (payload, rows_len) = coded(&mut encoder, &delta, 2, &own, None, None);
+    receiver.decode(2, 3, 3, &payload, 2, rows_len, &mut out).expect("decodes");
+    assert_eq!(out, delta);
+    // Generation 3 begins: generation 2 is its previous, generation 1 is gone.
+    receiver.history.begin_generation(3);
+    assert!(receiver.history.row(3, 0, true, 0, 0).is_ok());
+    assert_eq!(receiver.history.row(2, 0, true, 40, 0).err(), Some(MzError::Unresolved));
 }
 
 /// A store that sizes each row from its key, as the sender's does.

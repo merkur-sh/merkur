@@ -271,8 +271,11 @@ pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
 /// frame itself or from held rows replace whole-row references, and a
 /// payload opens with the prior it names and any epoch it declares. The
 /// envelope is byte-identical, so a version-36 receiver would decode the
-/// payload against the wrong model.
-pub const VERSION: u8 = 37;
+/// payload against the wrong model. Version 38 keeps MZ rows and epochs across
+/// display generations and resizes, names the previous generation's rows by
+/// sequence (a snapshot is datagram 0), codes snapshots for their peer, and
+/// adds the MZ refusal count to the display ACK.
+pub const VERSION: u8 = 38;
 pub const PATCH_FLAG_RESET: u8 = 1 << 0;
 pub const PATCH_FLAG_PRESENTATION_COHERENT: u8 = 1 << 1;
 pub const PATCH_FLAG_PRESENTATION_END: u8 = 1 << 2;

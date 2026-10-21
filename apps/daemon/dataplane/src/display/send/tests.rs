@@ -4604,15 +4604,18 @@ fn prepared_snapshot_for_test(
     let content_class = classify_snapshot_content(&snapshot_grid);
     let plans = peers
         .iter()
-        .map(|peer| SnapshotPeerPlan {
-            peer_id: Arc::clone(&peer.peer_id),
-            prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
-            prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
-            profile: peer.display_planning.snapshot(content_class),
-            context: PlanningContext {
-                fec_enabled: false,
-                ..PlanningContext::default()
-            },
+        .map(|peer| {
+            SnapshotPeerPlan::new(
+                Arc::clone(&peer.peer_id),
+                peer.display_prepare_epoch.load(Ordering::Acquire),
+                Arc::clone(&peer.display_prepare_epoch),
+                peer.display_planning.snapshot(content_class),
+                PlanningContext {
+                    fec_enabled: false,
+                    ..PlanningContext::default()
+                },
+                peer.display_cache.references.shared(),
+            )
         })
         .collect();
     prepare_snapshot_off_loop(
@@ -5776,20 +5779,22 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
             snapshot_graphics: Vec::new(),
             row_hashes: Vec::new(),
             peers: vec![
-                SnapshotPeerPlan {
-                    peer_id: Arc::from("browser-1"),
-                    prepare_epoch: 1,
-                    prepare_epoch_fence: Arc::new(AtomicU64::new(1)),
+                SnapshotPeerPlan::new(
+                    Arc::from("browser-1"),
+                    1,
+                    Arc::new(AtomicU64::new(1)),
                     profile,
                     context,
-                },
-                SnapshotPeerPlan {
-                    peer_id: Arc::from("browser-2"),
-                    prepare_epoch: 1,
-                    prepare_epoch_fence: Arc::new(AtomicU64::new(1)),
+                    Default::default(),
+                ),
+                SnapshotPeerPlan::new(
+                    Arc::from("browser-2"),
+                    1,
+                    Arc::new(AtomicU64::new(1)),
                     profile,
                     context,
-                },
+                    Default::default(),
+                ),
             ],
         },
         &mut Compressor::new(),
@@ -5797,13 +5802,14 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
     );
     assert_eq!(completion.peers.len(), 2);
     assert_eq!(completion.raw_chunks.len(), 1);
-    assert_eq!(completion.compressed_chunks.len(), 1);
+    // Each peer's chunks are coded for that peer's MZ state.
+    assert!(completion.peers.iter().all(|peer| peer.compressed_chunks.len() == 1));
     let raw = &completion.raw_chunks[0];
     assert!(
-        completion.compression_attempted[0],
+        completion.peers[0].compression_attempted[0],
         "full snapshot must be selected for a compression attempt"
     );
-    let compressed = completion.compressed_chunks[0]
+    let compressed = completion.peers[0].compressed_chunks[0]
         .as_ref()
         .expect("full snapshot compression must shrink");
     assert_eq!(
@@ -12056,13 +12062,14 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                         snapshot_grid: snapshot_grid.clone(),
                         snapshot_graphics: Vec::new(),
                         row_hashes: snapshot_hashes.clone(),
-                        peers: vec![SnapshotPeerPlan {
-                            peer_id: Arc::clone(&peer.peer_id),
-                            prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
-                            prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
-                            profile: peer.display_planning.snapshot(ContentClass::Color),
-                            context: display_planning_context(&peer, 100.0, 0),
-                        }],
+                        peers: vec![SnapshotPeerPlan::new(
+                            Arc::clone(&peer.peer_id),
+                            peer.display_prepare_epoch.load(Ordering::Acquire),
+                            Arc::clone(&peer.display_prepare_epoch),
+                            peer.display_planning.snapshot(ContentClass::Color),
+                            display_planning_context(&peer, 100.0, 0),
+                            peer.display_cache.references.shared(),
+                        )],
                     };
                     crate::edge_tunnel::test_allocations::begin_thread();
                     let completion = prepare_snapshot_off_loop(

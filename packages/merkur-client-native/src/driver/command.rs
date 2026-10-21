@@ -115,6 +115,7 @@ mod tests {
                     received: [1, 0, 0, 0],
                     recovered: [0; 4],
                     grant: 2,
+                    mz_refusals: 0,
                 },
                 durable: true,
             })

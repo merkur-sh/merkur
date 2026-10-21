@@ -145,7 +145,8 @@ pub const MSG_TYPE_DISPLAY_HASH_DIGEST: u8 = 0x25;
 pub const MSG_TYPE_DISPLAY_RESYNC_ROWS: u8 = 0x26;
 /// Reliable selective display ACK (browser -> daemon, CTRL lane). Loss-proof
 /// backstop to the datagram displayAck; body = generation:u32 | largest_seq:u32 |
-/// received_mask:[u32;4] | recovered_mask:[u32;4] | grant:u32 (44 bytes exactly).
+/// received_mask:[u32;4] | recovered_mask:[u32;4] | grant:u32 | mz_refusals:u32
+/// (48 bytes exactly).
 /// `merkur_codec::VERSION` is bumped whenever this control-message shape changes.
 pub const MSG_TYPE_DISPLAY_ACK: u8 = 0x29;
 /// Words in the display-ACK received bitmap.
@@ -157,10 +158,11 @@ pub const DISPLAY_ACK_MASK_WORDS: usize = 4;
 /// Sequences one acknowledgement can describe, `largest_seq` inclusive.
 pub const DISPLAY_ACK_MASK_WINDOW: u32 = (DISPLAY_ACK_MASK_WORDS as u32) * 32;
 /// generation | largest applied seq | received-bitmap words | FEC-recovered
-/// bitmap words | cumulative display grant. The sealed display-ACK datagram
-/// carries this body bare and the reliable CTRL backstop frames it, so one
-/// parser serves both lanes. The daemon drops a body of any other length.
-pub const DISPLAY_ACK_PAYLOAD_BYTES: usize = 4 * (3 + 2 * DISPLAY_ACK_MASK_WORDS);
+/// bitmap words | cumulative display grant | MZ refusals. The sealed
+/// display-ACK datagram carries this body bare and the reliable CTRL backstop
+/// frames it, so one parser serves both lanes. The daemon drops a body of any
+/// other length.
+pub const DISPLAY_ACK_PAYLOAD_BYTES: usize = 4 * (4 + 2 * DISPLAY_ACK_MASK_WORDS);
 
 /// The largest grant window a viewer may hold open, and the daemon's bound on
 /// the grants it accepts: a window past it is refused as malformed, and
@@ -169,7 +171,9 @@ pub const DISPLAY_DEMAND_MAX_WINDOW: u32 = 255;
 
 /// One selective display acknowledgement. Bit `n` of word `w` reports
 /// `largest_seq - (w * 32 + n)`; the recovered bitmap marks the sequences FEC
-/// reconstructed, with the same anchor.
+/// reconstructed, with the same anchor. `mz_refusals` is the browser's running
+/// count of frames it refused because they named an MZ row or epoch it does
+/// not hold: a change tells the daemon its view of the browser was wrong.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisplayAckPayload {
     pub generation: u32,
@@ -177,6 +181,7 @@ pub struct DisplayAckPayload {
     pub received: [u32; DISPLAY_ACK_MASK_WORDS],
     pub recovered: [u32; DISPLAY_ACK_MASK_WORDS],
     pub grant: u32,
+    pub mz_refusals: u32,
 }
 
 impl DisplayAckPayload {
@@ -186,7 +191,7 @@ impl DisplayAckPayload {
             .into_iter()
             .chain(self.received)
             .chain(self.recovered)
-            .chain([self.grant]);
+            .chain([self.grant, self.mz_refusals]);
         for (slot, word) in body.as_chunks_mut::<4>().0.iter_mut().zip(words) {
             slot.copy_from_slice(&word.to_be_bytes());
         }
@@ -201,7 +206,8 @@ impl DisplayAckPayload {
         let (largest_seq, rest) = rest.split_first_chunk::<4>()?;
         let (received, rest) = rest.split_first_chunk::<MASK_BYTES>()?;
         let (recovered, rest) = rest.split_first_chunk::<MASK_BYTES>()?;
-        let grant: &[u8; 4] = rest.try_into().ok()?;
+        let (grant, rest) = rest.split_first_chunk::<4>()?;
+        let mz_refusals: &[u8; 4] = rest.try_into().ok()?;
         let words = |mask: &[u8; MASK_BYTES]| {
             let mut words = [0u32; DISPLAY_ACK_MASK_WORDS];
             for (word, bytes) in words.iter_mut().zip(mask.as_chunks::<4>().0) {
@@ -215,6 +221,7 @@ impl DisplayAckPayload {
             received: words(received),
             recovered: words(recovered),
             grant: u32::from_be_bytes(*grant),
+            mz_refusals: u32::from_be_bytes(*mz_refusals),
         })
     }
 }
@@ -832,22 +839,24 @@ mod tests {
     }
 
     #[test]
-    fn a_display_ack_is_eleven_big_endian_words_and_nothing_else() {
+    fn a_display_ack_is_twelve_big_endian_words_and_nothing_else() {
         let ack = DisplayAckPayload {
             generation: 7,
             largest_seq: 99,
             received: [1, 2, 3, 0x8000_0000],
             recovered: [4, 0, 0, 5],
             grant: 0x0102_0304,
+            mz_refusals: 0x0506_0708,
         };
         let body = ack.encode();
-        assert_eq!(body.len(), 44);
+        assert_eq!(body.len(), 48);
         assert_eq!(&body[..8], &[0, 0, 0, 7, 0, 0, 0, 99]);
         assert_eq!(&body[20..24], &[0x80, 0, 0, 0], "received word 3");
         assert_eq!(&body[24..28], &[0, 0, 0, 4], "recovered word 0");
-        assert_eq!(&body[40..], &[1, 2, 3, 4], "the grant follows both masks");
+        assert_eq!(&body[40..44], &[1, 2, 3, 4], "the grant follows both masks");
+        assert_eq!(&body[44..], &[5, 6, 7, 8], "the MZ refusals close it");
         assert_eq!(DisplayAckPayload::parse(&body), Some(ack));
-        assert_eq!(DisplayAckPayload::parse(&body[..43]), None);
+        assert_eq!(DisplayAckPayload::parse(&body[..47]), None);
         let mut long = body.to_vec();
         long.push(0);
         assert_eq!(DisplayAckPayload::parse(&long), None);

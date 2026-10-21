@@ -40,7 +40,12 @@ const SEG_START: u32 = 3;
 /// The prior byte's flag: an epoch declaration follows it.
 const DECLARATION: u8 = 0x80;
 const SRC_FRAME: u8 = 0;
+/// A complete row of an acknowledged datagram of the frame's generation, named
+/// by its sequence distance back from the frame's presentation id.
 const SRC_HISTORY: u8 = 1;
+/// A complete row of an acknowledged datagram of the generation before the
+/// frame's, named by its sequence: a snapshot's own sequence is 0.
+const SRC_PREVIOUS: u8 = 2;
 /// A colour's recency hit is its position; these are its misses.
 const COLOR_RECENT: usize = 8;
 const COLOR_MISS_PALETTE: u8 = 8;
@@ -203,18 +208,21 @@ pub fn pair_hash(first: u64, second: u64) -> u64 {
 
 /// What a receiver holds for copies and priors.
 pub trait MzSources {
-    /// The complete row datagram `presentation_id - seq_delta` carried at
-    /// `row`, as items; `Unresolved` when it is not held.
-    fn row(&self, seq_delta: u32, row: u16) -> Result<MzRow<'_>, MzError>;
+    /// The complete row a datagram carried at `row`, as items: of the frame's
+    /// generation `back` datagrams before its presentation id, or with
+    /// `previous`, of the generation before it, datagram `back`.
+    /// `Unresolved` when it is not held.
+    fn row(&self, previous: bool, back: u32, row: u16) -> Result<MzRow<'_>, MzError>;
     /// Session epoch `id`, when held.
     fn epoch(&self, id: u8) -> Option<&SessionModel>;
 }
 
 /// A place a run of items might be copied from: item `item` of the complete
-/// row datagram `seq_delta` back carried at `row`.
+/// row a datagram carried at `row`, named as [`MzSources::row`] names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MzCandidate {
-    pub seq_delta: u32,
+    pub previous: bool,
+    pub back: u32,
     pub row: u16,
     pub item: u16,
 }
@@ -223,7 +231,7 @@ pub struct MzCandidate {
 /// receiver holds, found by the pair hash of the items a copy starts with.
 pub trait MzMatches {
     fn candidates(&self, pair: u64, out: &mut Vec<MzCandidate>);
-    fn row(&self, seq_delta: u32, row: u16) -> Option<MzRow<'_>>;
+    fn row(&self, previous: bool, back: u32, row: u16) -> Option<MzRow<'_>>;
 }
 
 /// No history: copies come only from the frame itself.
@@ -231,7 +239,7 @@ pub struct NoHistory;
 
 impl MzMatches for NoHistory {
     fn candidates(&self, _: u64, _: &mut Vec<MzCandidate>) {}
-    fn row(&self, _: u32, _: u16) -> Option<MzRow<'_>> {
+    fn row(&self, _: bool, _: u32, _: u16) -> Option<MzRow<'_>> {
         None
     }
 }
@@ -324,7 +332,8 @@ impl Slot {
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Displacement {
     kind: u8,
-    /// Entries back within the frame, or datagrams back.
+    /// Entries back within the frame, datagrams back, or the previous
+    /// generation's datagram.
     back: u32,
     /// Source row minus target row (history only).
     row_offset: i32,
@@ -693,7 +702,7 @@ fn copy_fields<I: Io>(
     let displacement = Displacement {
         kind,
         back,
-        row_offset: if kind == SRC_HISTORY { i32::from(row) - i32::from(target_row) } else { 0 },
+        row_offset: if kind == SRC_FRAME { 0 } else { i32::from(row) - i32::from(target_row) },
         item_offset,
     };
     let repeat = I::ENCODE && walk.last_copy == Some(displacement);
@@ -717,8 +726,8 @@ fn copy_after_seg<I: Io>(io: &mut I, walk: &mut Walk, seg: u8, planned: Displace
                 let item_offset = unzigzag(varint(io, F_SRC_ITEM, 0, zigzag(planned.item_offset))?);
                 Displacement { kind, back, row_offset: 0, item_offset }
             }
-            SRC_HISTORY => {
-                let back = varint(io, F_SEQ, 0, planned.back)?;
+            SRC_HISTORY | SRC_PREVIOUS => {
+                let back = varint(io, F_SEQ, u32::from(kind == SRC_PREVIOUS) << 3, planned.back)?;
                 let row_offset = unzigzag(varint(io, F_SRC_ROW, 0, zigzag(planned.row_offset))?);
                 let item_offset = unzigzag(varint(io, F_SRC_ITEM, 8, zigzag(planned.item_offset))?);
                 Displacement { kind, back, row_offset, item_offset }
@@ -726,7 +735,8 @@ fn copy_after_seg<I: Io>(io: &mut I, walk: &mut Walk, seg: u8, planned: Displace
             _ => return Err(MzError::Corrupt),
         }
     };
-    if displacement.back == 0 {
+    // Only the previous generation's snapshot is datagram 0.
+    if displacement.back == 0 && displacement.kind != SRC_PREVIOUS {
         return Err(MzError::Corrupt);
     }
     let count = varint(
@@ -1039,12 +1049,13 @@ fn best_copy(
     candidates.clear();
     history.candidates(pair, candidates);
     for candidate in candidates.iter().take(8) {
-        if let Some(source) = history.row(candidate.seq_delta, candidate.row) {
+        if let Some(source) = history.row(candidate.previous, candidate.back, candidate.row) {
+            let kind = if candidate.previous { SRC_PREVIOUS } else { SRC_HISTORY };
             consider(
                 &mut best,
                 target,
                 index,
-                Seg::Copy { kind: SRC_HISTORY, back: candidate.seq_delta, row: candidate.row, item: candidate.item, count: 0 },
+                Seg::Copy { kind, back: candidate.back, row: candidate.row, item: candidate.item, count: 0 },
                 &source,
                 usize::from(candidate.item),
             );
@@ -1120,7 +1131,7 @@ fn encode_entry<P: Prior>(
                 && copy_bits < literal_bits
             {
                 copy_fields(io, walk, row, index, fields).ok()?;
-                copied_history |= kind == SRC_HISTORY;
+                copied_history |= kind != SRC_FRAME;
                 index += len;
                 continue;
             }
@@ -1370,7 +1381,7 @@ fn decode_entry<P: Prior>(
                     cells
                 } else {
                     let source_row = u16::try_from(i32::from(row) + displacement.row_offset).ok().ok_or(MzError::Corrupt)?;
-                    let source = sources.row(displacement.back, source_row)?;
+                    let source = sources.row(displacement.kind == SRC_PREVIOUS, displacement.back, source_row)?;
                     let (range, cells) = copy_items(&source, mode, source_item, count, &mut frame.scratch)?;
                     out.extend_from_slice(source.entry.get(range).ok_or(MzError::Corrupt)?);
                     cells

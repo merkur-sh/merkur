@@ -1,23 +1,22 @@
 //! The owner loop's half of MZ copies: which complete rows a peer's history
-//! holds as an acknowledged datagram carried them, and whether the browser may
-//! have refused a frame that copied from them.
+//! holds as an acknowledged datagram carried them, by display generation.
 //!
-//! The browser records every complete row of every delta it decodes, as the
+//! The browser records every complete row of every frame it decodes, as the
 //! frame carried it, whether or not its grid applied the row; so a row that
 //! datagram `X` carried whole is a source once `X`'s ACK arrives, whatever was
-//! sent to that row after it. A [`MzLedger`] here records every complete row
-//! sent, a superset of the browser's under the same retirement, so a source the
-//! ledger still holds the browser holds too. What this side learns goes to the
-//! peer's [`PeerMz`] as facts its encoder applies before the next frame.
+//! sent to that row after it. A snapshot is datagram 0 of its generation, a
+//! source once the browser acknowledges anything of that generation. The
+//! [`MzGenerations`] here records every complete row sent, a superset of the
+//! browser's under the same retirement, so a source the ledger still holds the
+//! browser holds too. What this side learns goes to the peer's [`PeerMz`] as
+//! facts its encoder applies before the next frame.
 
 use crate::connection::SentRow;
 use crate::display::mz_peer::{MzFact, SharedPeerMz, recorded_rows};
 #[cfg(test)]
 use crate::display::mz_peer::PeerMz;
-use crate::display::policy::DisplayPolicy;
 use merkur_codec::CellRepr;
-use merkur_codec::mz::{MzLedger, MzStore, full_row_entry_bytes};
-use std::collections::VecDeque;
+use merkur_codec::mz::{MzGenerations, MzStore, full_row_entry_bytes};
 use std::sync::Arc;
 
 /// The ledger's store on this side: the bytes the browser stores for a row,
@@ -37,13 +36,19 @@ fn recorded(sent: &SentRow) -> bool {
     sent.complete && sent.cells.iter().all(|cell| cell.link == 0)
 }
 
+/// The complete rows the browser records of one datagram.
+type RecordedRows = Vec<(u16, Arc<[CellRepr]>)>;
+
 #[derive(Default)]
 pub struct ReferenceIndex {
-    /// Datagrams sent with history copies whose outcome is not yet known.
-    /// Each has a sent-datagram record until its outcome is noted here.
-    referencing: VecDeque<u32>,
-    /// What the browser's history holds at most.
-    ledger: MzLedger,
+    /// What the browser's history holds at most, by generation.
+    ledger: MzGenerations,
+    /// The current generation's snapshot rows, and whether it was MZ, until
+    /// the browser acknowledges anything of the generation: it applies a
+    /// generation's deltas only over its snapshot.
+    snapshot: Option<(RecordedRows, bool)>,
+    /// The browser's count of frames it refused as unresolved, as last read.
+    refusals: u32,
     mz: SharedPeerMz,
     /// Every datagram that went out with a history copy.
     #[cfg(test)]
@@ -56,36 +61,81 @@ impl ReferenceIndex {
         Arc::clone(&self.mz)
     }
 
-    /// Trust no source again: the browser may have refused one. The ledger
-    /// stays, since what the browser stores does not change with trust.
-    pub fn clear(&mut self) {
-        self.referencing.clear();
-        self.mz.push(MzFact::Untrusted);
+    /// Display generation `generation` began: the current generation's rows
+    /// stay as the previous one's, the one before retires, and its sequences
+    /// start over.
+    pub fn begin_generation(&mut self, generation: u32) {
+        let previous_floor = self.ledger.floor(self.ledger.current());
+        self.ledger.begin(generation, &mut Sizes(&[]));
+        self.snapshot = None;
+        self.mz.push(MzFact::Generation { generation, previous_floor });
+        self.mz.set_floor(None);
     }
 
-    /// The grid changed geometry, and the browser's history and epochs with
-    /// it.
-    pub fn resize(&mut self) {
-        self.referencing.clear();
-        self.ledger.clear();
+    /// The browser discarded every row and epoch, and its count of refusals
+    /// started over: its resume claimed no grid.
+    pub fn clear(&mut self) {
+        self.ledger.clear(&mut Sizes(&[]));
+        self.snapshot = None;
+        self.refusals = 0;
+        self.mz.push(MzFact::Cleared);
         self.mz.set_floor(None);
-        self.mz.push(MzFact::Reset);
+    }
+
+    /// The browser's ACK reported `refusals`, its running count of frames it
+    /// refused as unresolved. A count newer than the last proves this side
+    /// named something the browser does not hold; an older one is a
+    /// reordered ACK.
+    pub fn note_refusals(&mut self, refusals: u32) {
+        if matches!(refusals.wrapping_sub(self.refusals), 1..0x8000_0000) {
+            self.refusals = refusals;
+            self.mz.push(MzFact::Refused);
+        }
     }
 
     /// Datagram `seq` went out carrying `rows`: every one the browser will
     /// record enters the ledger.
     pub fn note_sent<'a>(&mut self, seq: u32, rows: impl IntoIterator<Item = &'a SentRow>) {
+        let generation = self.ledger.current();
         for sent in rows {
             if recorded(sent) {
                 self.ledger
-                    .record(seq, sent.row, sent.hash, &mut Sizes(&sent.cells));
+                    .record(generation, seq, sent.row, sent.hash, &mut Sizes(&sent.cells));
             }
         }
-        self.mz.set_floor(self.ledger.floor());
+        self.mz.set_floor(self.ledger.floor(generation));
+    }
+
+    /// The current generation's snapshot went out as datagram 0, carrying
+    /// every row of `grid`, `cols` wide, with `graphics` per row; `coded`
+    /// when it was MZ.
+    pub fn note_snapshot_sent(
+        &mut self,
+        grid: &[CellRepr],
+        cols: u16,
+        graphics: &[Option<merkur_codec::GraphicsVersion>],
+        coded: bool,
+    ) {
+        let generation = self.ledger.current();
+        let mut rows = Vec::new();
+        for (row, cells) in (0u16..).zip(grid.chunks_exact(usize::from(cols.max(1)))) {
+            if cells.iter().any(|cell| cell.link != 0) {
+                continue;
+            }
+            let hash = merkur_codec::row_hash(cells);
+            self.ledger.record(generation, 0, row, hash, &mut Sizes(cells));
+            // As `recorded_rows`: a row with graphics is never a source.
+            if graphics.get(usize::from(row)).is_none_or(Option::is_none) {
+                rows.push((row, Arc::from(cells)));
+            }
+        }
+        self.mz.set_floor(self.ledger.floor(generation));
+        self.snapshot = Some((rows, coded));
     }
 
     /// The browser acknowledged datagram `seq`, which carried `rows`; `coded`
-    /// when it was an MZ frame, `declared` the epoch it declared.
+    /// when it was an MZ frame, `declared` the epoch it declared. The first
+    /// of a generation also proves its snapshot applied.
     pub fn note_applied<'a>(
         &mut self,
         seq: u32,
@@ -93,8 +143,8 @@ impl ReferenceIndex {
         coded: bool,
         declared: Option<u8>,
     ) {
-        if let Some(position) = self.referencing.iter().position(|&sent| sent == seq) {
-            self.referencing.remove(position);
+        if let Some((rows, coded)) = self.snapshot.take() {
+            self.mz.push(MzFact::Applied { seq: 0, rows, coded, declared: None });
         }
         self.mz.push(MzFact::Applied {
             seq,
@@ -104,27 +154,12 @@ impl ReferenceIndex {
         });
     }
 
-    /// Datagram `seq` was declared lost, or its record ended with its outcome
-    /// unknown. If it copied from history, a browser may have refused it, so
-    /// none of the sources is trusted again.
-    pub fn note_unresolved(&mut self, seq: u32) {
-        if self.referencing.contains(&seq) {
-            self.clear();
-        }
-    }
-
-    /// Datagram `seq` went out copying from history.
-    pub fn note_referencing(&mut self, seq: u32) {
+    /// Datagram `seq` went out copying from history; the census counts them.
+    pub fn note_referencing(&mut self, _seq: u32) {
         #[cfg(test)]
         {
             self.frames_referencing += 1;
         }
-        // Every entry has a record, so this holds only when a record ended
-        // without its outcome reaching here; that outcome is then unknown.
-        if self.referencing.len() == DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES {
-            self.clear();
-        }
-        self.referencing.push_back(seq);
     }
 
     /// The peer's MZ state with every fact applied, for tests.
@@ -199,7 +234,7 @@ mod tests {
         let line = cells("cargo test --release");
         acknowledged(&mut index, 40, &[sent(3, &line)]);
         let found = candidates(&index, &line, 45);
-        assert_eq!(found.first().map(|c| (c.seq_delta, c.row, c.item)), Some((5, 3, 0)));
+        assert_eq!(found.first().map(|c| (c.previous, c.back, c.row, c.item)), Some((false, 5, 3, 0)));
         // Other content, or a presentation outside the reach, has none.
         assert!(candidates(&index, &cells("other"), 45).is_empty());
         assert!(candidates(&index, &line, 40).is_empty());
@@ -247,32 +282,74 @@ mod tests {
         assert!(candidates(&index, &line, 400).is_empty());
     }
 
+    /// The candidates the snapshot opening the next generation sees for the
+    /// first item pair of `line`.
+    fn snapshot_candidates(index: &ReferenceIndex, line: &Arc<[CellRepr]>) -> Vec<MzCandidate> {
+        let mut entry = Vec::new();
+        encode_full_row_entry(&mut entry, 0, line);
+        let mut items = Vec::new();
+        let (first, _) = entry_items(&entry, &mut items).expect("a row");
+        let item = |i: usize| {
+            let start = if i == 0 { usize::from(first) } else { usize::from(items[i - 1].end) };
+            item_hash(&entry[start..usize::from(items[i].end)])
+        };
+        let state = index.peer().lock();
+        let mut out = Vec::new();
+        state.snapshot_history().candidates(pair_hash(item(0), item(1)), &mut out);
+        out
+    }
+
     #[test]
-    fn losing_a_frame_that_copied_from_history_retires_every_source() {
+    fn only_a_reported_refusal_retires_every_source() {
         let mut index = ReferenceIndex::default();
         let line = cells("source");
         acknowledged(&mut index, 10, &[sent(0, &line)]);
+        // A lost frame that copied proves nothing: the browser's ledger holds
+        // whatever this one's does.
         index.note_referencing(12);
-        // An unrelated loss changes nothing.
-        index.note_unresolved(11);
         assert!(!candidates(&index, &line, 13).is_empty());
-        index.note_unresolved(12);
+        index.note_refusals(0);
+        assert!(!candidates(&index, &line, 13).is_empty());
+        index.note_refusals(1);
         assert!(candidates(&index, &line, 13).is_empty());
     }
 
     #[test]
-    fn a_referencing_datagram_whose_outcome_never_arrives_retires_every_source() {
+    fn a_generation_names_the_previous_ones_rows_by_sequence() {
         let mut index = ReferenceIndex::default();
-        let line = cells("source");
-        acknowledged(&mut index, 1, &[sent(0, &line)]);
-        let mut seqs = 2u32..;
-        for seq in seqs.by_ref().take(DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES) {
-            index.note_referencing(seq);
-        }
-        assert!(!candidates(&index, &line, 3).is_empty());
-        // More referencing datagrams than records: one record ended unnoted.
-        index.note_referencing(seqs.next().expect("unbounded"));
-        assert!(candidates(&index, &line, 3).is_empty());
+        index.begin_generation(1);
+        let line = cells("before the resize");
+        acknowledged(&mut index, 40, &[sent(3, &line)]);
+        // The snapshot opening generation 2 is coded before it begins.
+        assert_eq!(
+            snapshot_candidates(&index, &line).first().map(|c| (c.previous, c.back, c.row)),
+            Some((true, 40, 3))
+        );
+        index.begin_generation(2);
+        assert_eq!(
+            candidates(&index, &line, 5).first().map(|c| (c.previous, c.back, c.row)),
+            Some((true, 40, 3)),
+            "generation 2's frames name it as the previous generation's"
+        );
+        index.begin_generation(3);
+        assert!(candidates(&index, &line, 5).is_empty(), "two generations back retired");
+    }
+
+    #[test]
+    fn a_snapshot_is_a_source_once_its_generation_is_acknowledged() {
+        let mut index = ReferenceIndex::default();
+        index.begin_generation(1);
+        let line = cells("on the snapshot");
+        let blank = cells("");
+        let grid: Vec<CellRepr> = line.iter().chain(blank.iter()).copied().collect();
+        index.note_snapshot_sent(&grid, 20, &[None, None], true);
+        assert!(candidates(&index, &line, 3).is_empty(), "not before the generation is acknowledged");
+        acknowledged(&mut index, 2, &[sent(1, &cells("a delta"))]);
+        assert_eq!(
+            candidates(&index, &line, 3).first().map(|c| (c.previous, c.back, c.row)),
+            Some((false, 3, 0)),
+            "datagram 0, three back from presentation 3"
+        );
     }
 
     #[test]

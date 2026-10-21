@@ -68,6 +68,9 @@ pub(crate) struct DisplayAck {
     /// (`display::credit`). Independent of the applied window: a grant-only
     /// ACK repeats the window unchanged.
     grant: u32,
+    /// The browser's running count of frames it refused for naming an MZ row
+    /// or epoch it does not hold.
+    mz_refusals: u32,
 }
 
 impl DisplayAck {
@@ -98,6 +101,7 @@ impl DisplayAck {
             recovered_mask,
             loss_threshold_offset: Self::loss_threshold_offset(&received_mask),
             grant: 0,
+            mz_refusals: 0,
         }
     }
 
@@ -105,6 +109,12 @@ impl DisplayAck {
     /// generation's implicit first grant and so grants nothing.
     pub(crate) fn with_grant(mut self, grant: u32) -> Self {
         self.grant = grant;
+        self
+    }
+
+    /// Attach the browser's running count of MZ refusals.
+    pub(crate) fn with_mz_refusals(mut self, mz_refusals: u32) -> Self {
+        self.mz_refusals = mz_refusals;
         self
     }
 
@@ -300,7 +310,8 @@ pub(crate) fn parse_display_ack(body: &[u8]) -> Option<DisplayAck> {
     let ack = DisplayAckPayload::parse(body)?;
     Some(
         DisplayAck::with_recovered(ack.generation, ack.largest_seq, ack.received, ack.recovered)
-            .with_grant(ack.grant),
+            .with_grant(ack.grant)
+            .with_mz_refusals(ack.mz_refusals),
     )
 }
 
@@ -319,6 +330,7 @@ pub(crate) fn encode_display_ack(
         received: received_mask,
         recovered: recovered_mask,
         grant,
+        mz_refusals: 0,
     }
     .encode()
 }
@@ -372,6 +384,7 @@ pub(crate) fn handle_display_ack(
         // pre-resize/pre-resume grid); nothing to advance.
         return;
     }
+    peer.display_cache.references.note_refusals(ack.mz_refusals);
 
     if ack.largest_seq != 0 {
         let sent_high_water = peer.last_display_seq_sent;
@@ -525,9 +538,6 @@ pub(crate) fn handle_display_ack(
             }
         };
         peer.display_cache.record_datagram_outcome(&sent, outcome);
-        if resolution != DisplayAckResolution::Applied {
-            peer.display_cache.references.note_unresolved(seq);
-        }
         if resolution == DisplayAckResolution::Lost {
             // Retire the entry, but do NOT disown its rows from here. A row this
             // datagram carried may already have been re-sent at a newer sequence
@@ -911,16 +921,17 @@ mod tests {
         let received = [0x0123_4567, 0x89ab_cdef, 0x1357_9bdf, 0x2468_ace0];
         let recovered = [0x0000_0001, 0x0000_0100, 0x0001_0000, 0x1000_0000];
         let body = encode_display_ack(7, 99, received, recovered, 0x0102_0304);
-        assert_eq!(body.len(), 44);
+        assert_eq!(body.len(), 48);
         let ack = parse_display_ack(&body).expect("current ACK body");
         assert_eq!(ack.generation, 7);
         assert_eq!(ack.largest_seq, 99);
         assert_eq!(ack.received_mask, received);
         assert_eq!(ack.recovered_mask, recovered);
         assert_eq!(ack.grant, 0x0102_0304);
-        assert_eq!(&body[40..], &[1, 2, 3, 4]);
+        assert_eq!(ack.mz_refusals, 0);
+        assert_eq!(&body[40..44], &[1, 2, 3, 4]);
         assert!(parse_display_ack(&body[..24]).is_none());
-        assert!(parse_display_ack(&body[..40]).is_none());
+        assert!(parse_display_ack(&body[..44]).is_none());
     }
 
     /// The per-row hash baseline the owner loop would be holding for this

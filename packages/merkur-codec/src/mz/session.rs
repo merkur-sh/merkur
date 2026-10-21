@@ -232,9 +232,10 @@ impl MzTracePool {
     }
 }
 
-/// One end's session epochs: the traces of datagrams not yet folded, and the
-/// two newest epochs, so frames coded against the previous one while the next
-/// was being acknowledged still decode.
+/// One end's session epochs: the traces of the current generation's datagrams
+/// not yet folded, and the newest epoch with the base it was declared over, so
+/// frames coded against the base while the newest was being acknowledged
+/// still decode.
 #[derive(Default)]
 pub struct MzSession {
     traces: HashMap<u32, Vec<u32>>,
@@ -270,6 +271,24 @@ impl MzSession {
         self.order.clear();
         self.current = None;
         self.previous = None;
+    }
+
+    /// A display generation began: its sequences start over, so every kept
+    /// trace goes. The epochs stay; they describe content, not order.
+    pub fn begin_generation(&mut self) {
+        for (_, trace) in self.traces.drain() {
+            self.spare.put(trace);
+        }
+        self.order.clear();
+    }
+
+    /// Append one chunk of the generation's snapshot, datagram 0, to its
+    /// trace: the chunks fold in chunk order, as one datagram.
+    pub fn keep_snapshot_chunk(&mut self, trace: &[u32]) {
+        match self.traces.get_mut(&0) {
+            Some(held) => held.extend_from_slice(trace),
+            None => self.keep(0, trace),
+        }
     }
 
     /// Keep datagram `seq`'s trace for a later fold, retiring every trace
@@ -309,7 +328,10 @@ impl MzSession {
     }
 
     /// Build the declared epoch from its base and the declared traces, and
-    /// make it current.
+    /// make it current, keeping exactly its base beside it: until the sender
+    /// learns this epoch is held, it codes against the base, which is what it
+    /// named when it declared this one. A built epoch the sender abandoned is
+    /// never a base, so the next build drops it.
     pub fn build(&mut self, declaration: &MzEpochDeclaration) -> Result<(), MzEpochError> {
         let mut model = match declaration.base {
             0 => SessionModel::default(),
@@ -324,7 +346,11 @@ impl MzSession {
                 self.spare.put(trace);
             }
         }
-        self.previous = self.current.take();
+        let base = [self.current.take(), self.previous.take()]
+            .into_iter()
+            .flatten()
+            .find(|(id, _)| *id == declaration.base);
+        self.previous = base;
         self.current = Some((declaration.id, model));
         Ok(())
     }
@@ -350,7 +376,8 @@ impl MzSession {
 }
 
 /// A receiver's MZ state: the rows it holds for copies, its session epochs,
-/// and the epochs declared to it but not yet built.
+/// the epochs declared to it but not yet built, and the display generation its
+/// frames belong to.
 #[derive(Default)]
 pub struct MzReceiver {
     pub history: super::history::RowHistory,
@@ -358,17 +385,23 @@ pub struct MzReceiver {
     decoder: super::frame::MzDecoder,
     /// Declared epochs waiting to be built, oldest first.
     pending: Vec<MzEpochDeclaration>,
+    /// The newest display generation a frame was decoded in; 0 before any.
+    generation: u32,
+    /// Frames of the current generation refused as unresolved, wrapping: the
+    /// sender reads a change as proof its view of this end was wrong.
+    refusals: u32,
 }
 
 struct ReceiverSources<'a> {
     history: &'a super::history::RowHistory,
     session: &'a MzSession,
+    generation: u32,
     presentation_id: u32,
 }
 
 impl super::frame::MzSources for ReceiverSources<'_> {
-    fn row(&self, seq_delta: u32, row: u16) -> Result<super::frame::MzRow<'_>, super::frame::MzError> {
-        self.history.row(self.presentation_id, seq_delta, row)
+    fn row(&self, previous: bool, back: u32, row: u16) -> Result<super::frame::MzRow<'_>, super::frame::MzError> {
+        self.history.row(self.generation, self.presentation_id, previous, back, row)
     }
 
     fn epoch(&self, id: u8) -> Option<&SessionModel> {
@@ -377,24 +410,70 @@ impl super::frame::MzSources for ReceiverSources<'_> {
 }
 
 impl MzReceiver {
-    /// Forget every row and epoch: the grid they describe is gone.
+    /// Forget every row and epoch: the grid they describe is gone. The
+    /// refusal count starts over, as the sender's reading of it does when the
+    /// resume claims no grid.
     pub fn clear(&mut self) {
         self.history.clear();
         self.session.clear();
         self.pending.clear();
+        self.generation = 0;
+        self.refusals = 0;
     }
 
-    /// The ordering epoch restarted: the rows a frame may copy from go, the
-    /// session's epochs and traces, which describe content, not order, stay.
-    pub fn reset_ordering(&mut self) {
-        self.history.clear();
+    /// A frame of display generation `generation` arrived, compressed or not:
+    /// a newer generation begins here.
+    pub fn observe_generation(&mut self, generation: u32) {
+        if generation != 0 && (self.generation == 0 || older(self.generation, generation)) {
+            self.begin_generation(generation);
+        }
     }
 
-    /// Decode datagram `seq`'s payload of `row_count` entries, `rows_len`
-    /// row-layout bytes, into `out`. A declaration it carries is kept to build;
-    /// an epoch it names that is declared but not yet built is built first.
+    /// Generation `generation` began: every declaration pending is built
+    /// first, since the sender may already count one held, and then the
+    /// generation's traces and the rows two generations old go.
+    fn begin_generation(&mut self, generation: u32) {
+        while self.build_pending() {}
+        self.pending.clear();
+        self.session.begin_generation();
+        self.history.begin_generation(generation);
+        self.generation = generation;
+    }
+
+    /// Decode the payload of datagram `seq` of display generation
+    /// `generation` (0: the generation's snapshot, one call per chunk in chunk
+    /// order), presented as `presentation_id`, of `row_count` entries and
+    /// `rows_len` row-layout bytes, into `out`. A newer generation begins
+    /// here. A declaration it carries is kept to build; an epoch it names that
+    /// is declared but not yet built is built first. A frame of an older
+    /// generation still decodes against the rows it can name, but its trace
+    /// and any declaration it carries are of a generation whose traces are
+    /// gone.
+    #[expect(clippy::too_many_arguments, reason = "a frame's identity, payload and output")]
     pub fn decode(
         &mut self,
+        generation: u32,
+        seq: u32,
+        presentation_id: u32,
+        payload: &[u8],
+        row_count: u16,
+        rows_len: usize,
+        out: &mut Vec<u8>,
+    ) -> Result<(), super::frame::MzError> {
+        self.observe_generation(generation);
+        let current = generation == self.generation;
+        let result = self.decode_frame(current, generation, seq, presentation_id, payload, row_count, rows_len, out);
+        if current && result == Err(super::frame::MzError::Unresolved) {
+            self.refusals = self.refusals.wrapping_add(1);
+        }
+        result
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "`decode`'s arguments, resolved")]
+    fn decode_frame(
+        &mut self,
+        current: bool,
+        generation: u32,
         seq: u32,
         presentation_id: u32,
         payload: &[u8],
@@ -410,7 +489,7 @@ impl MzReceiver {
             // A declaration this end cannot build is refused with its frame,
             // so the sender never takes it for held.
             let base_pending = self.pending.iter().any(|pending| pending.id == declaration.base);
-            if !base_pending && !self.session.can_build(&declaration) {
+            if !current || (!base_pending && !self.session.can_build(&declaration)) {
                 return Err(super::frame::MzError::Unresolved);
             }
             self.pending.push(declaration);
@@ -421,9 +500,17 @@ impl MzReceiver {
         let sources = ReceiverSources {
             history: &self.history,
             session: &self.session,
+            generation,
             presentation_id,
         };
         self.decoder.decode(payload, row_count, rows_len, &sources, out)?;
+        if !current {
+            return Ok(());
+        }
+        if seq == 0 {
+            self.session.keep_snapshot_chunk(self.decoder.trace());
+            return Ok(());
+        }
         // Keeping this trace retires the oldest; a pending declaration may
         // still name one, so build those first.
         if !self.pending.is_empty() && self.session.retires_before(seq) {
@@ -431,6 +518,17 @@ impl MzReceiver {
         }
         self.session.keep(seq, self.decoder.trace());
         Ok(())
+    }
+
+    /// Frames of the current generation refused as unresolved since this
+    /// receiver began, wrapping.
+    pub fn refusals(&self) -> u32 {
+        self.refusals
+    }
+
+    /// The generation the newest decoded frame belonged to; 0 before any.
+    pub fn generation(&self) -> u32 {
+        self.generation
     }
 
     /// Build every pending epoch up to and including `id`.
@@ -451,13 +549,17 @@ impl MzReceiver {
 
     /// Build one pending epoch, off the decode path. Returns whether more wait.
     pub fn build_pending(&mut self) -> bool {
-        if let Some(at) = self.pending.iter().position(|declaration| declaration.base == 0 || self.session.epoch(declaration.base).is_some()) {
-            let declaration = self.pending.remove(at);
-            // As in `build_through`: a failed build leaves frames naming the
-            // epoch unresolved.
-            if self.session.build(&declaration).is_err() {
-                return !self.pending.is_empty();
-            }
+        let Some(at) = self.pending.iter().position(|declaration| declaration.base == 0 || self.session.epoch(declaration.base).is_some()) else {
+            // None can build, now or later: their frames are refused as
+            // unresolved.
+            self.pending.clear();
+            return false;
+        };
+        let declaration = self.pending.remove(at);
+        // As in `build_through`: a failed build leaves frames naming the
+        // epoch unresolved.
+        if self.session.build(&declaration).is_err() {
+            return !self.pending.is_empty();
         }
         !self.pending.is_empty()
     }

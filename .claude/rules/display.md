@@ -35,7 +35,10 @@ health. The one-line versions:
   browser calibration fixtures and test grids (`packages/display-fixture`). An epoch is used
   only after a datagram declaring it is acknowledged, and a browser refuses a declaration it
   cannot build. Copies name item runs of an earlier entry of the frame or of a complete row of
-  an acknowledged delta (counted from the presentation id), which the browser kept as the frame
-  carried it; both ends run the same `MzLedger`, the daemon's over a superset, so it never
-  names a retired row; an unresolvable copy or epoch is a lost datagram, never a resync.
+  an acknowledged datagram, which the browser kept as the frame carried it: of the frame's
+  display generation (counted from the presentation id) or the one before (by sequence; a
+  snapshot is datagram 0). Both ends run the same `MzGenerations`, the daemon's over a superset,
+  so it never names a retired row. Rows and epochs survive generations and resizes; traces and
+  declarations are a generation's. An unresolvable copy or epoch is a lost datagram, never a
+  resync, and the browser reports its count in every display ACK.
 - One wrap bit per row on the row's final cell; `row_hash` digests it.

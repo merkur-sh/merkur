@@ -1036,7 +1036,7 @@ This section is a summary. The normative rules (idempotent datagrams, advisory p
 selective ACK, the no-coalescing owner loop, compression, the wrap bit) are in
 [`docs/display-invariants.md`](display-invariants.md).
 
-The codec version is 37; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
+The codec version is 38; `merkur-codec` (`packages/merkur-codec/src/lib.rs`) has exactly one integrated version and every side of the wire moves with it.
 
 Display frames use `merkur-codec` with a 1100-byte application datagram ceiling. A frame has two
 forms. Staged, in memory on both ends, it has an 18-byte stream envelope (type and flags, a

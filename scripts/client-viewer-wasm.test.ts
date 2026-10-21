@@ -195,11 +195,12 @@ test('WASM ACK bytes describe applied deltas and a fence claims the retained row
     viewer.present_now(2);
     const ack = output(viewer, 2);
     expect(ack.kind).toBe(1);
-    expect(ack.bytes.byteLength).toBe(44);
+    expect(ack.bytes.byteLength).toBe(48);
     const ackWords = new DataView(ack.bytes.buffer);
     expect(ackWords.getUint32(0)).toBe(1);
     expect(ackWords.getUint32(4)).toBe(1);
     expect(ackWords.getUint32(8) & 1).toBe(1);
+    expect(ackWords.getUint32(44)).toBe(0); // no MZ refusals
     while (output(viewer, 2).kind !== 0) {}
     const shown = viewer.presentation_viewport_rows();
     viewer.fence(3, 2);

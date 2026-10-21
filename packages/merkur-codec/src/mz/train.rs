@@ -14,29 +14,26 @@
 
 use super::model::{FIELDS, KEYS, StaticModel, TableSet, field_of};
 use super::nibble::{Cdf, PROB_SCALE};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
-/// Rates a table may adapt at.
-const RATES: std::ops::RangeInclusive<u8> = 1..=7;
+/// Every rate accepted by the unchanged model reader.
+const RATES: std::ops::RangeInclusive<u8> = 1..=8;
+/// A table's frame boundary, outside its sixteen-symbol alphabet.
+const RESET: u8 = 16;
+/// High table first, then the sixteen low tables.
+const TABLES: usize = 17;
 
-/// One key's (or field's) symbol counts.
-#[derive(Clone, Default)]
-struct Counts {
-    hi: [u64; 16],
-    lo: [[u64; 16]; 16],
+struct Samples {
+    symbols: [Vec<u8>; TABLES],
+    last_frame: [usize; TABLES],
 }
 
-impl Counts {
-    fn add(&mut self, low: bool, h: usize, s: usize) {
-        if low {
-            self.lo[h][s] += 1;
-        } else {
-            self.hi[s] += 1;
+impl Default for Samples {
+    fn default() -> Self {
+        Self {
+            symbols: core::array::from_fn(|_| Vec::new()),
+            last_frame: [usize::MAX; TABLES],
         }
-    }
-
-    fn total(&self) -> u64 {
-        self.hi.iter().sum::<u64>() + self.lo.iter().flatten().sum::<u64>()
     }
 }
 
@@ -46,15 +43,11 @@ pub struct MzTrainer {
     frames: Vec<Vec<u32>>,
 }
 
-/// Frequencies of `counts` summing to `PROB_SCALE`, every symbol at least 1,
-/// with `prior` blended in as pseudo-counts so a sparse table stays near it.
-fn normalize(counts: &[u64; 16], prior: Option<&[u16; 16]>) -> [u16; 16] {
-    let mut weights = [0f64; 16];
-    let total: u64 = counts.iter().sum();
-    for (s, weight) in weights.iter_mut().enumerate() {
-        let pseudo = prior.map_or(1.0, |prior| f64::from(prior[s]) / f64::from(PROB_SCALE) * 16.0);
-        *weight = counts[s] as f64 + pseudo + if total == 0 { 1.0 } else { 0.0 };
-    }
+/// Quantize a smoothed distribution to the coder's exact frequency scale.
+fn normalize(counts: &[f64; 16], prior: Option<&Cdf>) -> Cdf {
+    let base = prior.map_or([2048; 16], Cdf::freqs);
+    let weights: [f64; 16] =
+        core::array::from_fn(|s| counts[s] + f64::from(base[s]) / f64::from(PROB_SCALE) * 16.0);
     let sum: f64 = weights.iter().sum();
     let spare = f64::from(PROB_SCALE - 16);
     let mut freqs = [0u16; 16];
@@ -63,21 +56,115 @@ fn normalize(counts: &[u64; 16], prior: Option<&[u16; 16]>) -> [u16; 16] {
         *freq = 1 + (weight / sum * spare).floor() as u16;
         have += u32::from(*freq);
     }
-    let top = (0..16).max_by(|&a, &b| weights[a].total_cmp(&weights[b]).then(b.cmp(&a))).unwrap_or(0);
+    let top = (0..16)
+        .max_by(|&a, &b| weights[a].total_cmp(&weights[b]).then(b.cmp(&a)))
+        .unwrap_or(0);
     freqs[top] += (PROB_SCALE - have) as u16;
-    freqs
+    Cdf::from_freqs(&freqs)
 }
 
-fn cost(counts: &[u64; 16], freqs: &[u16; 16]) -> f64 {
-    counts
-        .iter()
-        .zip(freqs)
-        .filter(|(count, _)| **count > 0)
-        .map(|(&count, &freq)| count as f64 * (f64::from(PROB_BITS_F) - f64::from(freq).log2()))
-        .sum()
+fn table_cost(symbols: &[u8], initial: Cdf, rate: u8) -> f64 {
+    let mut table = initial;
+    let mut bits = 0.0;
+    for &s in symbols {
+        if s == RESET {
+            table = initial;
+        } else {
+            bits += f64::from(super::nibble::PROB_BITS)
+                - f64::from(table.start_freq(usize::from(s)).1).log2();
+            table.update(usize::from(s), u32::from(rate));
+        }
+    }
+    bits
 }
 
-const PROB_BITS_F: u32 = super::nibble::PROB_BITS;
+/// Compare the frame average with counts weighted by the prior's remaining
+/// influence after each update. Resets are per context and per nibble table.
+fn fit(samples: &[&Samples], rate: u8, prior: Option<&TableSet>) -> ([Cdf; TABLES], [f64; TABLES]) {
+    let mut tables = [Cdf::from_freqs(&[2048; 16]); TABLES];
+    let mut costs = [0.0; TABLES];
+    let decay = 1.0 - 1.0 / f64::from(1u32 << rate);
+    for t in 0..TABLES {
+        let mut average = [0.0; 16];
+        let mut early = [0.0; 16];
+        for sample in samples {
+            let mut weight = 1.0;
+            for &s in &sample.symbols[t] {
+                if s == RESET {
+                    weight = 1.0;
+                } else {
+                    average[usize::from(s)] += 1.0;
+                    early[usize::from(s)] += weight;
+                    weight *= decay;
+                }
+            }
+        }
+        let base = prior.map(|set| {
+            if t == 0 {
+                set.hi
+            } else {
+                set.lo[t - 1].expect("field low")
+            }
+        });
+        let mut best = (f64::INFINITY, tables[t]);
+        for counts in [&average, &early] {
+            let initial = normalize(counts, base.as_ref());
+            let bits = samples
+                .iter()
+                .map(|sample| table_cost(&sample.symbols[t], initial, rate))
+                .sum();
+            if bits < best.0 {
+                best = (bits, initial);
+            }
+        }
+        // A context may retain its field's initial high table while choosing
+        // its own rate or low tables.
+        if let Some(initial) = base {
+            let bits = samples
+                .iter()
+                .map(|sample| table_cost(&sample.symbols[t], initial, rate))
+                .sum();
+            if bits < best.0 {
+                best = (bits, initial);
+            }
+        }
+        // Attribute each coded probability to the fraction still supplied by
+        // the initial table, then refit that table. The integer CDF update
+        // prices every candidate; only a measured improvement is retained.
+        let mut initial = best.1;
+        for _ in 0..8 {
+            let initial_freqs = initial.freqs();
+            let mut expected = [0.0; 16];
+            for sample in samples {
+                let mut table = initial;
+                let mut weight = 1.0;
+                for &s in &sample.symbols[t] {
+                    if s == RESET {
+                        table = initial;
+                        weight = 1.0;
+                    } else {
+                        let s = usize::from(s);
+                        expected[s] +=
+                            weight * f64::from(initial_freqs[s]) / f64::from(table.start_freq(s).1);
+                        table.update(s, u32::from(rate));
+                        weight *= decay;
+                    }
+                }
+            }
+            initial = normalize(&expected, base.as_ref());
+            let bits = samples
+                .iter()
+                .map(|sample| table_cost(&sample.symbols[t], initial, rate))
+                .sum();
+            if bits < best.0 {
+                best = (bits, initial);
+            }
+        }
+        tables[t] = best.1;
+        costs[t] = best.0;
+    }
+    (tables, costs)
+}
 
 fn set_bytes(set: &TableSet) -> usize {
     4 + 1 + 32 + 2 + 32 * set.lo.iter().flatten().count()
@@ -93,114 +180,155 @@ impl MzTrainer {
 
     /// The model data for `model_data.rs`, its contexts within `budget` bytes.
     pub fn model_data(&self, budget: usize) -> Vec<u8> {
-        let mut per_key: HashMap<u32, Counts> = HashMap::new();
-        let mut per_field = vec![Counts::default(); FIELDS];
-        for frame in &self.frames {
+        let mut per_key: BTreeMap<u32, Samples> = BTreeMap::new();
+        for (frame_index, frame) in self.frames.iter().enumerate() {
             for &entry in frame {
                 let key = entry >> 9;
                 if key as usize >= KEYS {
                     continue;
                 }
-                let (low, h, s) = (entry >> 8 & 1 == 1, (entry >> 4 & 15) as usize, (entry & 15) as usize);
-                per_key.entry(key).or_default().add(low, h, s);
-                per_field[field_of(key)].add(low, h, s);
+                let t = if entry >> 8 & 1 == 0 {
+                    0
+                } else {
+                    1 + (entry >> 4 & 15) as usize
+                };
+                let sample = per_key.entry(key).or_default();
+                if sample.last_frame[t] != frame_index {
+                    sample.last_frame[t] = frame_index;
+                    sample.symbols[t].push(RESET);
+                }
+                sample.symbols[t].push((entry & 15) as u8);
             }
         }
-        // Field sets: every table, from the field's counts.
-        let mut fields: Vec<TableSet> = per_field
-            .iter()
-            .map(|counts| TableSet {
-                rate: 4,
-                hi: Cdf::from_freqs(&normalize(&counts.hi, None)),
-                lo: core::array::from_fn(|h| Some(Cdf::from_freqs(&normalize(&counts.lo[h], None)))),
-            })
-            .collect();
-        // Context sets: the tables of a key that beat its field's, ranked by
-        // bits saved per byte of table.
-        let mut ranked: Vec<(f64, u32, TableSet)> = Vec::new();
-        for (&key, counts) in &per_key {
-            let field = &fields[field_of(key)];
-            let field_hi = field.hi.freqs();
-            let hi = normalize(&counts.hi, Some(&field_hi));
-            let mut saved = cost(&counts.hi, &field_hi) - cost(&counts.hi, &hi);
-            let mut lo = [None; 16];
-            for ((slot, field_table), lo_counts) in lo.iter_mut().zip(&field.lo).zip(&counts.lo) {
-                if lo_counts.iter().sum::<u64>() == 0 {
-                    continue;
-                }
-                let field_lo = field_table.map(|cdf| cdf.freqs()).unwrap_or([2048; 16]);
-                let own = normalize(lo_counts, Some(&field_lo));
-                let gain = cost(lo_counts, &field_lo) - cost(lo_counts, &own);
-                // A low table pays for its 32 bytes or stays the field's.
-                if gain > 32.0 * 8.0 {
-                    saved += gain;
-                    *slot = Some(Cdf::from_freqs(&own));
+        let mut fields = Vec::with_capacity(FIELDS);
+        for f in 0..FIELDS {
+            let samples: Vec<_> = per_key
+                .iter()
+                .filter(|(key, _)| field_of(**key) == f)
+                .map(|(_, sample)| sample)
+                .collect();
+            let mut best = (
+                f64::INFINITY,
+                TableSet {
+                    rate: 4,
+                    hi: Cdf::from_freqs(&[2048; 16]),
+                    lo: [Some(Cdf::from_freqs(&[2048; 16])); 16],
+                },
+            );
+            for rate in RATES {
+                let (tables, costs) = fit(&samples, rate, None);
+                let bits: f64 = costs.iter().sum();
+                if bits < best.0 {
+                    best = (
+                        bits,
+                        TableSet {
+                            rate,
+                            hi: tables[0],
+                            lo: core::array::from_fn(|h| Some(tables[h + 1])),
+                        },
+                    );
                 }
             }
-            let set = TableSet { rate: 4, hi: Cdf::from_freqs(&hi), lo };
-            let bytes = set_bytes(&set);
-            if saved > (bytes * 8) as f64 && counts.total() > 0 {
-                ranked.push((saved / bytes as f64, key, set));
+            fields.push(best.1);
+        }
+        // Savings include the exact adaptive updates, with missing low
+        // tables initialized from the field at the context's chosen rate.
+        let mut ranked = Vec::new();
+        for (&key, sample) in &per_key {
+            let field = &fields[field_of(key)];
+            let field_table = |t: usize| {
+                if t == 0 {
+                    field.hi
+                } else {
+                    field.lo[t - 1].expect("field low")
+                }
+            };
+            let baseline: f64 = (0..TABLES)
+                .map(|t| table_cost(&sample.symbols[t], field_table(t), field.rate))
+                .sum();
+            let mut best = (
+                0.0,
+                TableSet {
+                    lo: [None; 16],
+                    ..*field
+                },
+            );
+            for rate in RATES {
+                let (tables, costs) = fit(&[sample], rate, Some(field));
+                let mut bits = costs[0];
+                let mut lo = [None; 16];
+                for h in 0..16 {
+                    let base_cost = table_cost(&sample.symbols[h + 1], field_table(h + 1), rate);
+                    if base_cost - costs[h + 1] > 32.0 * 8.0 {
+                        lo[h] = Some(tables[h + 1]);
+                        bits += costs[h + 1];
+                    } else {
+                        bits += base_cost;
+                    }
+                }
+                let set = TableSet {
+                    rate,
+                    hi: tables[0],
+                    lo,
+                };
+                let saved = baseline - bits;
+                // Maximize the training bits saved after paying for the set.
+                if saved - (set_bytes(&set) * 8) as f64 > best.0 - (set_bytes(&best.1) * 8) as f64 {
+                    best = (saved, set);
+                }
+            }
+            let bytes = set_bytes(&best.1);
+            if best.0 > (bytes * 8) as f64 {
+                ranked.push((best.0 / bytes as f64, key, best.1));
             }
         }
         ranked.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
         let mut used = 0usize;
-        let mut contexts: Vec<(u32, TableSet)> = Vec::new();
+        let mut contexts = Vec::new();
         for (_, key, set) in ranked {
             let bytes = set_bytes(&set);
-            if used + bytes > budget {
-                continue;
+            if used + bytes <= budget {
+                used += bytes;
+                contexts.push((key, set));
             }
-            used += bytes;
-            contexts.push((key, set));
         }
         contexts.sort_by_key(|&(key, _)| key);
-        // Rates: each set's rate is the one whose adaptive coding of every
-        // frame, from these tables, costs least.
-        let model = StaticModel::parse(&StaticModel::write(&fields, &contexts)).expect("a model it wrote");
-        let mut set_of = vec![usize::MAX; KEYS];
-        for (index, (key, _)) in contexts.iter().enumerate() {
-            set_of[*key as usize] = FIELDS + index;
-        }
-        let sets = FIELDS + contexts.len();
-        let mut rate_cost = vec![[0f64; 8]; sets];
-        for rate in RATES {
-            let mut work: HashMap<u32, (Cdf, [Option<Cdf>; 16])> = HashMap::new();
-            for frame in &self.frames {
-                work.clear();
-                for &entry in frame {
-                    let key = entry >> 9;
-                    if key as usize >= KEYS {
-                        continue;
-                    }
-                    let (low, h, s) = (entry >> 8 & 1 == 1, (entry >> 4 & 15) as usize, (entry & 15) as usize);
-                    let set = match set_of[key as usize] {
-                        usize::MAX => field_of(key),
-                        set => set,
+        // Field rates serve only keys without a context set; selected keys
+        // still borrow the field's low distributions, at their own rate.
+        for (f, field) in fields.iter_mut().enumerate() {
+            let samples: Vec<_> = per_key
+                .iter()
+                .filter(|(key, _)| {
+                    field_of(**key) == f
+                        && contexts.binary_search_by_key(key, |(key, _)| key).is_err()
+                })
+                .map(|(_, sample)| sample)
+                .collect();
+            field.rate = RATES
+                .min_by(|&a, &b| {
+                    let price = |rate| {
+                        samples
+                            .iter()
+                            .map(|sample| {
+                                (0..TABLES)
+                                    .map(|t| {
+                                        table_cost(
+                                            &sample.symbols[t],
+                                            if t == 0 {
+                                                field.hi
+                                            } else {
+                                                field.lo[t - 1].expect("field low")
+                                            },
+                                            rate,
+                                        )
+                                    })
+                                    .sum::<f64>()
+                            })
+                            .sum::<f64>()
                     };
-                    use super::model::Prior;
-                    let tables = work.entry(key).or_insert_with(|| (*model.hi(key), [None; 16]));
-                    let cdf = if low {
-                        tables.1[h].get_or_insert_with(|| *model.lo(key, h))
-                    } else {
-                        &mut tables.0
-                    };
-                    let (_, freq) = cdf.start_freq(s);
-                    rate_cost[set][usize::from(rate)] += f64::from(PROB_BITS_F) - f64::from(freq).log2();
-                    cdf.update(s, u32::from(rate));
-                }
-            }
-        }
-        let best_rate = |set: usize| {
-            RATES
-                .min_by(|&a, &b| rate_cost[set][usize::from(a)].total_cmp(&rate_cost[set][usize::from(b)]))
-                .unwrap_or(4)
-        };
-        for (index, field) in fields.iter_mut().enumerate() {
-            field.rate = best_rate(index);
-        }
-        for (index, (_, set)) in contexts.iter_mut().enumerate() {
-            set.rate = best_rate(FIELDS + index);
+                    price(a).total_cmp(&price(b))
+                })
+                .unwrap_or(4);
         }
         StaticModel::write(&fields, &contexts)
     }

@@ -1698,7 +1698,6 @@ impl PerPeerDisplayCache {
         self.sent_row_resend_after_ms.clear();
         self.sent_row_resend_after_ms.resize(usize::from(rows), 0.0);
         self.retire_all_sent_datagrams_unknown();
-        self.references.resize();
         self.row_invalidation_mask.clear();
         self.row_invalidation_mask
             .resize(usize::from(rows).div_ceil(u64::BITS as usize), 0);
@@ -1805,11 +1804,6 @@ impl PerPeerDisplayCache {
             self.invalidate_calls += 1;
         }
         let mut disowned = 0usize;
-        // A disowned row may differ from what the browser's history rebuilds,
-        // and a reference to it would only be refused.
-        if !rows.is_empty() {
-            self.references.clear();
-        }
         for &row in rows {
             let r = usize::from(row);
             if r >= usize::from(self.rows) {
@@ -2443,7 +2437,6 @@ impl PerPeerDisplayCache {
             };
             if let Some(evicted) = self.sent_datagrams.remove(&oldest_seq) {
                 self.record_unknown_datagram(evicted);
-                self.references.note_unresolved(oldest_seq);
             }
         }
     }
@@ -2590,8 +2583,7 @@ impl PerPeerDisplayCache {
 
         let mut sole_path_unknown = 0u64;
         let mut header_retired = false;
-        let references = &mut self.references;
-        self.sent_datagrams.retain(|&seq, sent| {
+        self.sent_datagrams.retain(|_, sent| {
             let (rode_retired, rode_survivor) = match retired_path {
                 PeerTransport::WebTransport => (sent.sent_via.webtransport, sent.sent_via.edge),
                 PeerTransport::Edge => (sent.sent_via.edge, sent.sent_via.webtransport),
@@ -2599,7 +2591,6 @@ impl PerPeerDisplayCache {
             if !rode_retired || rode_survivor {
                 return true;
             }
-            references.note_unresolved(seq);
             if sent.outcome_path() == Some(retired_path) {
                 sole_path_unknown += 1;
             }
@@ -2623,9 +2614,8 @@ impl PerPeerDisplayCache {
         }
         let outcomes = &mut self.datagram_outcomes;
         let evidence = &mut self.fec_evidence;
-        let references = &mut self.references;
         let mut oldest = f64::INFINITY;
-        for (seq, expired) in self.sent_datagrams.extract_if(.., |_, sent| {
+        for (_, expired) in self.sent_datagrams.extract_if(.., |_, sent| {
             let expired = now_ms - sent.sent_at_ms > DisplayPolicy::SENT_DATAGRAM_PRUNE_AGE_MS;
             if !expired {
                 oldest = oldest.min(sent.sent_at_ms);
@@ -2638,7 +2628,6 @@ impl PerPeerDisplayCache {
                 &expired,
                 DisplayDatagramOutcome::Unknown,
             );
-            references.note_unresolved(seq);
         }
         self.oldest_sent_datagram_at_ms = oldest;
     }
@@ -2648,9 +2637,6 @@ impl PerPeerDisplayCache {
     }
 
     fn retire_all_sent_datagrams_unknown(&mut self) {
-        // A reference outcome this would have resolved can no longer arrive,
-        // and the history the sources describe may not survive what retired it.
-        self.references.clear();
         let retired = std::mem::take(&mut self.sent_datagrams);
         self.oldest_sent_datagram_at_ms = f64::INFINITY;
         for sent in retired.values() {
@@ -4006,6 +3992,7 @@ impl PeerDisplayState {
         self.has_receiver_ack = false;
         self.display_cache.abandon_resume_repair();
         self.display_cache.reset_for_snapshot();
+        self.display_cache.references.begin_generation(self.generation);
         self.needs_snapshot = true;
         self.snapshot_retry_at_ms = 0.0;
         self.snapshot_consecutive_failures = 0;
@@ -4961,7 +4948,7 @@ mod tests {
     }
 
     #[test]
-    fn a_referencing_datagram_whose_record_ends_unresolved_retires_every_source() {
+    fn a_referencing_datagram_whose_record_ends_unresolved_keeps_every_source() {
         let cells: Arc<[CellRepr]> = vec![cell('x'); 4].into();
         let source = SentRow {
             row: 0,
@@ -4980,7 +4967,9 @@ mod tests {
             protection: DisplayDatagramProtection::Unprotected,
         };
         // Expiry, eviction and the retirement of its only carrier each end the
-        // record with the browser's verdict on its references unknown.
+        // record with the browser's verdict on its references unknown. That
+        // says nothing about the browser's history, which the ledger bounds:
+        // only a refusal the browser reports retires the sources.
         for end in ["expired", "evicted", "carrier retired"] {
             let mut cache = PerPeerDisplayCache::new();
             cache.resize(4, 2);
@@ -5002,7 +4991,7 @@ mod tests {
                 }
             }
             assert!(!cache.sent_datagrams.contains_key(&2), "{end}");
-            assert_eq!(cache.references.len(), 0, "{end}");
+            assert_eq!(cache.references.len(), 1, "{end}");
         }
     }
 

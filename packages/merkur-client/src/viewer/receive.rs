@@ -86,6 +86,9 @@ pub trait DisplayGrid {
     /// An authenticated session boundary that kept no grid: the row history
     /// MZ references read never follows it.
     fn clear_history(&mut self);
+    /// Frames refused for naming an MZ row or epoch the grid's history does
+    /// not hold, counted since that history began; every ACK carries it.
+    fn mz_refusals(&self) -> u32;
     fn cols(&self) -> u16;
     /// Whether the last apply changed what the grid would show.
     fn last_apply_visually_changed(&self) -> bool;
@@ -1404,17 +1407,19 @@ impl<G: DisplayGrid> Viewer<G> {
         while !self.owed.is_empty() {
             let owed = self.owed.remove(0);
             let grant = self.demand.grant(owed.generation);
+            let mz_refusals = self.grid.mz_refusals();
             let window = self.windows.iter().find(|(generation, window)| {
                 *generation == owed.generation && window.has_applied()
             });
             let payload = match window {
-                Some((_, window)) => window.payload(owed.generation, grant),
+                Some((_, window)) => window.payload(owed.generation, grant, mz_refusals),
                 None if owed.grant && grant != 0 => DisplayAckPayload {
                     generation: owed.generation,
                     largest_seq: 0,
                     received: [0; DISPLAY_ACK_MASK_WORDS],
                     recovered: [0; DISPLAY_ACK_MASK_WORDS],
                     grant,
+                    mz_refusals,
                 },
                 None => continue,
             };

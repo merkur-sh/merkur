@@ -3925,6 +3925,16 @@ mod mz_census {
         cols: u16,
         rows: u16,
         chunks: Vec<(u64, Vec<u8>)>,
+        /// What the browser does mid-session, at a time in microseconds.
+        events: Vec<(u64, Event)>,
+    }
+
+    #[derive(Clone, Copy)]
+    enum Event {
+        /// The browser's viewport becomes `cols` by `rows`.
+        Resize(u16, u16),
+        /// The browser asks for a snapshot.
+        Resync,
     }
 
     fn recordings() -> Vec<Recording> {
@@ -3960,6 +3970,7 @@ mod mz_census {
                     cols: u16::from_le_bytes([data[6], data[7]]),
                     rows: u16::from_le_bytes([data[8], data[9]]),
                     chunks,
+                    events: boundary_events(),
                 }
             })
             .collect()
@@ -3974,10 +3985,33 @@ mod mz_census {
         unresolved: usize,
         dropped: usize,
         diverged_rows: usize,
+        /// Snapshots the browser applied: one per display generation it saw.
+        snapshots: usize,
         /// Daemon CPU in MZ attempts, and browser CPU staging and applying
         /// every delivered frame, in microseconds.
         mz_us: u64,
         browser_us: u64,
+    }
+
+    /// `MERKUR_MZ_BOUNDARIES` injects, into every recording, a browser
+    /// resize or snapshot request every that many milliseconds, alternating
+    /// a resync, a rows-only resize, a resync and the resize back: the
+    /// display generations a phone's keyboard and a lossy link open.
+    fn boundary_events() -> Vec<(u64, Event)> {
+        let Ok(every_ms) = std::env::var("MERKUR_MZ_BOUNDARIES") else {
+            return Vec::new();
+        };
+        let every_us = every_ms.parse::<u64>().expect("milliseconds") * 1000;
+        (1..=64u64)
+            .map(|n| {
+                let event = match n % 4 {
+                    1 | 3 => Event::Resync,
+                    2 => Event::Resize(0, 7),
+                    _ => Event::Resize(0, 0),
+                };
+                (n * every_us, event)
+            })
+            .collect()
     }
 
     async fn replay(recording: &Recording, mz: bool, loss_pct: u32) -> Replay {
@@ -3991,15 +4025,42 @@ mod mz_census {
         sim.set_downlink_delay_ms(37.0);
         viewers.viewer(&peer).set_ack_delay_ms(37.0);
         sim.set_loss(loss_pct, 0x9e37_79b9);
+        let last_us = recording.chunks.last().map_or(0, |(t_us, _)| *t_us);
         for (t_us, bytes) in &recording.chunks {
             sim.schedule_pty_write(*t_us as f64 / 1000.0, bytes.clone());
         }
+        // An empty write wakes the loop at each event's time.
+        let events: Vec<_> = recording.events.iter().filter(|(t_us, _)| *t_us <= last_us).copied().collect();
+        for (t_us, _) in &events {
+            sim.schedule_pty_write(*t_us as f64 / 1000.0, Vec::new());
+        }
+        let mut events = events.into_iter().peekable();
+        let mut viewport_seq = 0u32;
         use crate::display::compressor::CENSUS_MZ_NS;
         CENSUS_MZ_NS.store(0, Relaxed);
         let mut browser = std::time::Duration::ZERO;
         let mut steps = 0usize;
         loop {
             let woke = sim.step().await;
+            while let Some((_, event)) = events.next_if(|(t_us, _)| *t_us as f64 / 1000.0 <= sim.now_ms()) {
+                match event {
+                    // Columns 0 keep the recording's; rows grow or shrink by
+                    // the amount given, 0 restoring the recording's.
+                    Event::Resize(cols_delta, rows_delta) => {
+                        viewport_seq += 1;
+                        sim.commit_viewport(crate::pty::Viewport {
+                            cols: cols + cols_delta,
+                            rows: rows.saturating_sub(rows_delta).max(4),
+                            seq: viewport_seq,
+                            geometry_generation: u64::from(viewport_seq),
+                            cell: None,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        });
+                    }
+                    Event::Resync => sim.deliver_snapshot_request(&peer),
+                }
+            }
             let pumped = std::time::Instant::now();
             viewers.pump(&sim);
             browser += pumped.elapsed();
@@ -4026,6 +4087,7 @@ mod mz_census {
             unresolved: viewer.references_unresolved,
             dropped: sim.dropped_count(),
             diverged_rows,
+            snapshots: viewer.snapshots_applied,
             mz_us: CENSUS_MZ_NS.load(Relaxed) / 1000,
             browser_us: u64::try_from(browser.as_micros()).expect("a replay's browser time"),
         };
@@ -4059,6 +4121,7 @@ mod mz_census {
             cols: 100,
             rows: 30,
             chunks,
+            events: Vec::new(),
         };
         let replayed = replay(&recording, true, 5).await;
         assert!(replayed.compressed_frames > 0, "{replayed:?}");
@@ -4068,6 +4131,61 @@ mod mz_census {
             REFERENCING.load(Relaxed) > 0,
             "no datagram carried a reference: {replayed:?}"
         );
+    }
+
+    /// A flood through display generations: rows-only resizes as a phone's
+    /// keyboard opens and closes, a column resize that rewraps, and a resync
+    /// storm of snapshots a few datagrams apart. The rows and epochs survive
+    /// every boundary, every snapshot after the first is MZ, and at every
+    /// loss rate the browser refuses nothing and converges on the daemon.
+    #[tokio::test(flavor = "current_thread")]
+    async fn mz_state_survives_resizes_and_resync_storms_under_loss() {
+        let mut chunks = Vec::new();
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        for line in 0..400u64 {
+            let mut text = format!("\x1b[3{}m{line:>5}\x1b[0m Строка ", line % 7 + 1);
+            for _ in 0..(30 + line % 40) {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                text.push(char::from(b"etaoinshrdlucmfwypvbgkjqxz  ,.:;0123"[(state % 36) as usize]));
+            }
+            text.push_str("\r\n");
+            chunks.push((line * 40_000, text.into_bytes()));
+        }
+        let mut events = Vec::new();
+        for (index, event) in [
+            Event::Resize(0, 9),
+            Event::Resize(0, 0),
+            Event::Resync,
+            Event::Resize(0, 9),
+            Event::Resize(0, 0),
+            Event::Resize(12, 0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            events.push((2_000_000 + index as u64 * 1_700_000, event));
+        }
+        // A storm: three snapshot requests a few datagrams apart.
+        for at in [12_500_000, 12_560_000, 12_620_000] {
+            events.push((at, Event::Resync));
+        }
+        events.sort_by_key(|(at, _)| *at);
+        let recording = Recording {
+            name: String::from("boundaries"),
+            cols: 100,
+            rows: 30,
+            chunks,
+            events,
+        };
+        for loss in [0, 5, 10] {
+            let replayed = replay(&recording, true, loss).await;
+            assert!(replayed.snapshots >= 8, "loss {loss}%: every boundary opened a generation: {replayed:?}");
+            assert!(replayed.compressed_frames > 0, "loss {loss}%: {replayed:?}");
+            assert_eq!(replayed.unresolved, 0, "loss {loss}%: {replayed:?}");
+            assert_eq!(replayed.diverged_rows, 0, "loss {loss}%: {replayed:?}");
+        }
     }
 
     #[tokio::test(flavor = "current_thread")]

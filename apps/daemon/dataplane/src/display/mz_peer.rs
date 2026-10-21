@@ -1,19 +1,19 @@
 //! One peer's MZ state on the encoding side: the acknowledged rows its frames
 //! may copy from, and its session epochs.
 //!
-//! The owner loop decides what the browser holds — acknowledgements, losses,
-//! the ledger's floor — and queues those facts here; whoever encodes the
-//! peer's next frame (the prepare thread, or the owner loop inline when no
-//! request is in flight) drains them first. Each peer has at most one encode
-//! at a time, so the state lock is never contended; the fact queue's lock is
-//! held only to push or swap a vector.
+//! The owner loop decides what the browser holds — acknowledgements, display
+//! generations, the ledger's floor, reported refusals — and queues those facts
+//! here; whoever encodes the peer's next frame (the prepare thread, or the
+//! owner loop inline when no request is in flight) drains them first. Each peer
+//! has at most one encode at a time, so the state lock is never contended; the
+//! fact queue's lock is held only to push or swap a vector.
 
 use crate::connection::SentRow;
 use merkur_codec::CellRepr;
 use merkur_codec::mz::{
     MZ_DECLARATION_REACH, MZ_EPOCH_DATAGRAMS, MZ_REFERENCE_DATAGRAMS, MzCandidate, MzEpochDeclaration, MzItem,
     MzMatches, MzRow, MzSession, MzTracePool, SessionModel, encode_full_row_entry, entry_items, item_hash,
-    next_epoch_id, pair_hash,
+    next_epoch_id, pair_hash, previous_generation,
 };
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -21,28 +21,36 @@ use std::sync::{Arc, Mutex};
 
 /// A fact the owner loop learned about what the browser holds.
 pub(crate) enum MzFact {
-    /// The browser applied datagram `seq`, which carried `rows`; `coded` when
-    /// it was an MZ frame, `declared` the epoch it declared.
+    /// The browser applied datagram `seq` of the current generation (0: its
+    /// snapshot), which carried `rows`; `coded` when it was MZ, `declared`
+    /// the epoch it declared.
     Applied {
         seq: u32,
         rows: Vec<(u16, Arc<[CellRepr]>)>,
         coded: bool,
         declared: Option<u8>,
     },
-    /// No acknowledged row may be copied again: the browser may have refused
-    /// one.
-    Untrusted,
-    /// The grid changed geometry; the browser's history and epochs went with
-    /// it.
-    Reset,
+    /// Display generation `generation` began. The current one's rows become
+    /// the previous generation's, `previous_floor` the oldest datagram of it
+    /// the browser's ledger may still hold; its traces and any declaration in
+    /// flight go, and the epochs stay.
+    Generation {
+        generation: u32,
+        previous_floor: Option<u32>,
+    },
+    /// The browser reported a frame it could not resolve: no row is copied and
+    /// no epoch is coded against until new ones are acknowledged.
+    Refused,
+    /// The browser discarded every row and epoch it held.
+    Cleared,
 }
 
 /// A peer's shared MZ state.
 #[derive(Default)]
 pub(crate) struct PeerMz {
     facts: Mutex<Vec<MzFact>>,
-    /// The oldest datagram the browser's history may still hold, plus one
-    /// (zero: none recorded yet).
+    /// The oldest datagram of the current generation the browser's history may
+    /// still hold, plus one (zero: none recorded yet).
     floor: AtomicU32,
     state: Mutex<MzPeerState>,
 }
@@ -67,11 +75,13 @@ impl PeerMz {
         if let Ok(mut queued) = self.facts.lock() {
             std::mem::swap(&mut *queued, &mut facts);
         }
-        let floor = self.floor.load(Ordering::Acquire);
-        state.floor = floor.checked_sub(1).filter(|_| floor != 0);
         for fact in facts.drain(..) {
             state.apply(fact);
         }
+        // Read after the facts: a generation fact precedes the floor of the
+        // generation it opens.
+        let floor = self.floor.load(Ordering::Acquire);
+        state.floor = floor.checked_sub(1).filter(|_| floor != 0);
         state.fact_spare = facts;
         state
     }
@@ -85,17 +95,28 @@ struct Source {
     mode: u8,
 }
 
+/// A source's name: display generation, datagram, row.
+type SourceKey = (u32, u32, u16);
+
 /// The encoder's view of one peer.
 #[derive(Default)]
 pub(crate) struct MzPeerState {
     fact_spare: Vec<MzFact>,
+    /// The current display generation, and the one before it whose rows are
+    /// still copied (0: none).
+    generation: u32,
+    previous: u32,
     floor: Option<u32>,
-    /// Acknowledged complete rows, by datagram and row.
-    sources: HashMap<(u32, u16), Source>,
-    /// The pair hash of each source item pair → `(seq, row, item)`, newest last.
-    pairs: HashMap<u64, Vec<(u32, u16, u16)>>,
-    /// Sources in acknowledgement order, so they retire oldest first.
-    order: VecDeque<(u32, u16)>,
+    previous_floor: Option<u32>,
+    /// Acknowledged complete rows, by generation, datagram and row.
+    sources: HashMap<SourceKey, Source>,
+    /// The pair hash of each source item pair → `(source, item)`, newest last.
+    pairs: HashMap<u64, Vec<(SourceKey, u16)>>,
+    /// The current generation's sources in acknowledgement order, so they
+    /// retire oldest first, and the previous generation's, which retire with
+    /// it.
+    order: VecDeque<SourceKey>,
+    previous_order: VecDeque<SourceKey>,
     spare: Vec<Source>,
     newest: Option<u32>,
     session: MzSession,
@@ -109,9 +130,13 @@ pub(crate) struct MzPeerState {
     /// reach old, when the traces it names may be gone from the browser and
     /// it is abandoned.
     declaring: Option<(MzEpochDeclaration, u32)>,
-    /// Acknowledged MZ datagrams not yet folded, oldest first.
+    /// Acknowledged MZ datagrams of the current generation not yet folded,
+    /// oldest first.
     unfolded: VecDeque<u32>,
     trace_spare: MzTracePool,
+    /// Advances whenever the browser refused or discarded what frames were
+    /// coded against, so a frame prepared before it can be told apart.
+    trust: u32,
 }
 
 /// Datagrams whose traces one declaration folds: once this many acknowledged
@@ -130,8 +155,9 @@ impl MzPeerState {
     fn apply(&mut self, fact: MzFact) {
         match fact {
             MzFact::Applied { seq, rows, coded, declared } => {
+                let generation = self.generation;
                 for (row, cells) in rows {
-                    self.add_source(seq, row, &cells);
+                    self.add_source((generation, seq, row), &cells);
                 }
                 if self.newest.is_none_or(|newest| older(newest, seq)) {
                     self.newest = Some(seq);
@@ -147,13 +173,48 @@ impl MzPeerState {
                 }
                 self.retire();
             }
-            MzFact::Untrusted => self.clear_sources(),
-            MzFact::Reset => {
+            MzFact::Generation { generation, previous_floor } => {
+                for key in self.previous_order.drain(..) {
+                    if let Some(source) = self.sources.remove(&key) {
+                        self.spare.push(source);
+                    }
+                }
+                self.previous = if previous_generation(generation) == self.generation { self.generation } else { 0 };
+                std::mem::swap(&mut self.order, &mut self.previous_order);
+                self.previous_floor = previous_floor;
+                // What the frozen floor retired, or a skipped generation's
+                // rows, no frame can name.
+                let (previous, floor) = (self.previous, previous_floor);
+                let sources = &mut self.sources;
+                let spare = &mut self.spare;
+                self.previous_order.retain(|key| {
+                    let held = previous != 0 && floor.is_none_or(|floor| !older(key.1, floor));
+                    if !held && let Some(source) = sources.remove(key) {
+                        spare.push(source);
+                    }
+                    held
+                });
+                self.spare.truncate(merkur_codec::MAX_TERMINAL_ROWS);
+                self.generation = generation;
+                self.newest = None;
+                self.session.begin_generation();
+                self.unfolded.clear();
+                self.declaring = None;
+                self.prune_pairs();
+            }
+            MzFact::Refused => {
+                self.clear_sources();
+                self.usable = None;
+                self.declaring = None;
+                self.trust = self.trust.wrapping_add(1);
+            }
+            MzFact::Cleared => {
                 self.clear_sources();
                 self.session.clear();
                 self.usable = None;
                 self.declaring = None;
                 self.unfolded.clear();
+                self.trust = self.trust.wrapping_add(1);
             }
         }
     }
@@ -165,9 +226,10 @@ impl MzPeerState {
         self.spare.truncate(merkur_codec::MAX_TERMINAL_ROWS);
         self.pairs.clear();
         self.order.clear();
+        self.previous_order.clear();
     }
 
-    fn add_source(&mut self, seq: u32, row: u16, cells: &[CellRepr]) {
+    fn add_source(&mut self, key: SourceKey, cells: &[CellRepr]) {
         let mut source = self.spare.pop().unwrap_or(Source {
             entry: Vec::new(),
             items: Vec::new(),
@@ -199,40 +261,51 @@ impl MzPeerState {
                 let Ok(item) = u16::try_from(index - 1) else {
                     break;
                 };
-                list.push((seq, row, item));
+                list.push((key, item));
             }
             previous = Some(hash);
         }
-        if let Some(old) = self.sources.insert((seq, row), source) {
+        if let Some(old) = self.sources.insert(key, source) {
             self.spare.push(old);
         }
-        self.order.push_back((seq, row));
+        self.order.push_back(key);
     }
 
-    /// Retire sources no frame can copy from: past the reach of the newest
-    /// acknowledged datagram, or below the ledger's floor.
+    /// Retire the current generation's sources no frame can copy from: past
+    /// the reach of the newest acknowledged datagram, or below the ledger's
+    /// floor.
     fn retire(&mut self) {
         let Some(newest) = self.newest else { return };
         let reach = newest.wrapping_sub(MZ_REFERENCE_DATAGRAMS);
-        while let Some(&(seq, row)) = self.order.front() {
-            let below_floor = self.floor.is_some_and(|floor| older(seq, floor));
-            if !older(seq, reach) && !below_floor {
+        while let Some(&key) = self.order.front() {
+            let below_floor = self.floor.is_some_and(|floor| older(key.1, floor));
+            if !older(key.1, reach) && !below_floor {
                 break;
             }
             self.order.pop_front();
-            if let Some(source) = self.sources.remove(&(seq, row)) {
+            if let Some(source) = self.sources.remove(&key) {
                 self.spare.push(source);
             }
         }
-        // Pair lists keep stale names until a lookup misses them; prune the
-        // map once it outgrows its sources.
+        self.prune_pairs();
+    }
+
+    /// Pair lists keep stale names until a lookup misses them; prune the map
+    /// once it outgrows its sources.
+    fn prune_pairs(&mut self) {
         if self.pairs.len() > 64 * self.sources.len().max(64) {
             let sources = &self.sources;
             self.pairs.retain(|_, list| {
-                list.retain(|(seq, row, _)| sources.contains_key(&(*seq, *row)));
+                list.retain(|(key, _)| sources.contains_key(key));
                 !list.is_empty()
             });
         }
+    }
+
+    /// What frames are coded against, as a count of the browser's refusals
+    /// and discards.
+    pub(crate) fn trust(&self) -> u32 {
+        self.trust
     }
 
     /// How many acknowledged rows the peer's frames may copy from.
@@ -241,9 +314,16 @@ impl MzPeerState {
         self.sources.len()
     }
 
-    /// The copy sources for a frame of presentation `presentation_id`.
+    /// The copy sources for a delta of the current generation presented as
+    /// `presentation_id`.
     pub(crate) fn history(&self, presentation_id: u32) -> History<'_> {
-        History { state: self, presentation_id }
+        History { state: self, presentation_id, snapshot: false }
+    }
+
+    /// The copy sources for the snapshot that opens the next generation: the
+    /// current generation's rows, which that one names as its previous.
+    pub(crate) fn snapshot_history(&self) -> History<'_> {
+        History { state: self, presentation_id: 0, snapshot: true }
     }
 
     /// The epoch the next frame may be coded against.
@@ -299,6 +379,12 @@ impl MzPeerState {
         self.session.keep(seq, trace);
     }
 
+    /// The current generation's snapshot went out with `trace`, its chunks'
+    /// symbols in chunk order.
+    pub(crate) fn keep_snapshot_trace(&mut self, trace: &[u32]) {
+        self.session.keep_snapshot_chunk(trace);
+    }
+
     /// A pooled buffer that holds `len` trace symbols.
     pub(crate) fn take_trace_buffer(&mut self, len: usize) -> Vec<u32> {
         self.trace_spare.take(len)
@@ -319,37 +405,56 @@ fn item_bytes<'a>(row: &MzRow<'a>, index: usize) -> Option<&'a [u8]> {
     row.entry.get(start..usize::from(row.items.get(index)?.end))
 }
 
-/// A peer's sources as one frame sees them.
+/// A peer's sources as one frame sees them: a delta of the current generation,
+/// or the snapshot that opens the next one.
 pub(crate) struct History<'a> {
     state: &'a MzPeerState,
     presentation_id: u32,
+    snapshot: bool,
 }
 
 impl History<'_> {
+    /// How the frame names source `key`, if it may: `(previous, back)`.
     #[inline]
-    fn reachable(&self, seq: u32) -> Option<u32> {
-        let seq_delta = self.presentation_id.wrapping_sub(seq);
-        let held = self.state.floor.is_none_or(|floor| !older(seq, floor));
-        (seq_delta != 0 && seq_delta <= MZ_REFERENCE_DATAGRAMS && held).then_some(seq_delta)
+    fn name(&self, key: SourceKey) -> Option<(bool, u32)> {
+        let (generation, seq, _) = key;
+        let state = self.state;
+        if generation == state.generation {
+            let held = state.floor.is_none_or(|floor| !older(seq, floor));
+            if self.snapshot {
+                return held.then_some((true, seq));
+            }
+            let seq_delta = self.presentation_id.wrapping_sub(seq);
+            (seq_delta != 0 && seq_delta <= MZ_REFERENCE_DATAGRAMS && held).then_some((false, seq_delta))
+        } else {
+            let held = state.previous_floor.is_none_or(|floor| !older(seq, floor));
+            (!self.snapshot && generation == state.previous && state.previous != 0 && held).then_some((true, seq))
+        }
     }
 }
 
 impl MzMatches for History<'_> {
     fn candidates(&self, pair: u64, out: &mut Vec<MzCandidate>) {
         let Some(list) = self.state.pairs.get(&pair) else { return };
-        for &(seq, row, item) in list.iter().rev() {
-            if self.state.sources.contains_key(&(seq, row))
-                && let Some(seq_delta) = self.reachable(seq)
+        for &(key, item) in list.iter().rev() {
+            if self.state.sources.contains_key(&key)
+                && let Some((previous, back)) = self.name(key)
             {
-                out.push(MzCandidate { seq_delta, row, item });
+                out.push(MzCandidate { previous, back, row: key.2, item });
             }
         }
     }
 
-    fn row(&self, seq_delta: u32, row: u16) -> Option<MzRow<'_>> {
-        let seq = self.presentation_id.wrapping_sub(seq_delta);
-        self.reachable(seq)?;
-        let source = self.state.sources.get(&(seq, row))?;
+    fn row(&self, previous: bool, back: u32, row: u16) -> Option<MzRow<'_>> {
+        let state = self.state;
+        let key = match (self.snapshot, previous) {
+            (true, true) => (state.generation, back, row),
+            (false, true) => (state.previous, back, row),
+            (false, false) => (state.generation, self.presentation_id.wrapping_sub(back), row),
+            (true, false) => return None,
+        };
+        (self.name(key)? == (previous, back)).then_some(())?;
+        let source = state.sources.get(&key)?;
         Some(MzRow {
             entry: &source.entry,
             first: source.first,

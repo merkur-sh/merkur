@@ -314,14 +314,15 @@ export function encodeHeartbeatPongFrame(timestamp: bigint, monotonicUs: bigint)
 const DISPLAY_ACK_MASK_WORDS = 4;
 /**
  * Display-ACK payload: generation, largest applied seq, received bitmap words,
- * FEC-recovered bitmap words using the same anchor, then the cumulative
- * per-generation display grant.
+ * FEC-recovered bitmap words using the same anchor, the cumulative
+ * per-generation display grant, then the browser's running count of frames it
+ * refused for naming an MZ row or epoch it does not hold.
  *
  * The same layout is used by the sealed `displayAck` datagram (which carries the
  * bare payload with no message header) and by the reliable ctrl-lane backstop
  * frame, so the daemon has one parser for both.
  */
-export const DISPLAY_ACK_PAYLOAD_BYTES = UINT32_BYTES * (3 + DISPLAY_ACK_MASK_WORDS * 2);
+export const DISPLAY_ACK_PAYLOAD_BYTES = UINT32_BYTES * (4 + DISPLAY_ACK_MASK_WORDS * 2);
 
 function encodeInputAck(seq: number): ArrayBuffer {
   validateUint32(seq, 'input ack seq');

@@ -132,7 +132,7 @@ mod tests {
         assert!(payload.len() < rows.len());
         let mut decoded = Vec::new();
         merkur_codec::mz::MzReceiver::default()
-            .decode(1, 1, &payload, 32, rows.len(), &mut decoded)
+            .decode(1, 1, 1, &payload, 32, rows.len(), &mut decoded)
             .unwrap();
         assert_eq!(decoded, rows);
     }

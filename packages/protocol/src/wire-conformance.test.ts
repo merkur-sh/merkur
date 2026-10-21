@@ -236,10 +236,10 @@ describe('wire conformance: encoded frames', () => {
     // on one side only silences every ACK rather than misreading one. A
     // narrower browser mask does not fail either: it reads as loss, and the
     // daemon re-sends rows the browser already has.
-    expect(DISPLAY_ACK_PAYLOAD_BYTES).toBe(44);
+    expect(DISPLAY_ACK_PAYLOAD_BYTES).toBe(48);
     expect(RUST_PROTOCOL_SOURCE).toContain('pub const DISPLAY_ACK_MASK_WORDS: usize = 4;');
     expect(RUST_PROTOCOL_SOURCE).toContain(
-      'pub const DISPLAY_ACK_PAYLOAD_BYTES: usize = 4 * (3 + 2 * DISPLAY_ACK_MASK_WORDS);',
+      'pub const DISPLAY_ACK_PAYLOAD_BYTES: usize = 4 * (4 + 2 * DISPLAY_ACK_MASK_WORDS);',
     );
   });
 });

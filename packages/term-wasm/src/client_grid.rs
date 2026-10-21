@@ -139,6 +139,10 @@ impl DisplayGrid for ClientGrid {
         self.terminal.clear_display_history();
     }
 
+    fn mz_refusals(&self) -> u32 {
+        self.terminal.display_mz_refusals()
+    }
+
     fn cols(&self) -> u16 {
         self.terminal.cols()
     }

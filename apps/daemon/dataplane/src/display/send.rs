@@ -379,6 +379,40 @@ struct SnapshotPeerPlan {
     prepare_epoch_fence: Arc<AtomicU64>,
     profile: PeerPlanningSnapshot,
     context: PlanningContext,
+    /// The peer's MZ state: each peer's chunks copy from the rows its own
+    /// history holds and code against its own session epoch.
+    mz: crate::display::mz_peer::SharedPeerMz,
+    /// Per chunk, once prepared: the MZ frame when it shrank, whether
+    /// compression was attempted, and the coded frame's symbol trace.
+    compressed_chunks: Vec<Option<Vec<u8>>>,
+    compression_attempted: Vec<bool>,
+    chunk_traces: Vec<Vec<u32>>,
+    /// The peer's MZ trust as the chunks were coded.
+    mz_trust: u32,
+}
+
+impl SnapshotPeerPlan {
+    fn new(
+        peer_id: Arc<str>,
+        prepare_epoch: u64,
+        prepare_epoch_fence: Arc<AtomicU64>,
+        profile: PeerPlanningSnapshot,
+        context: PlanningContext,
+        mz: crate::display::mz_peer::SharedPeerMz,
+    ) -> Self {
+        Self {
+            peer_id,
+            prepare_epoch,
+            prepare_epoch_fence,
+            profile,
+            context,
+            mz,
+            compressed_chunks: Vec::new(),
+            compression_attempted: Vec::new(),
+            chunk_traces: Vec::new(),
+            mz_trust: 0,
+        }
+    }
 }
 
 struct SnapshotPrepareRequest {
@@ -426,8 +460,6 @@ pub(crate) struct SnapshotPrepareCompletion {
     snapshot_graphics: Vec<Option<GraphicsVersion>>,
     row_hashes: Vec<u64>,
     raw_chunks: Vec<Vec<u8>>,
-    compressed_chunks: Vec<Option<Vec<u8>>>,
-    compression_attempted: Vec<bool>,
     peers: Vec<SnapshotPeerPlan>,
 }
 
@@ -2150,6 +2182,7 @@ fn prepare_display_off_loop(
     let mut mz_context = MzContext {
         state: &mut mz_state,
         presentation_id,
+        snapshot: false,
     };
     pack_captured_rows(
         rows,
@@ -2333,34 +2366,43 @@ fn prepare_snapshot_off_loop(
         )
         .expect("snapshot chunk must fit the stream body length");
     }
-    let mut compressed_chunks = Vec::with_capacity(raw_chunks.len());
-    let mut compression_attempted = Vec::with_capacity(raw_chunks.len());
-    for raw in &raw_chunks {
-        let should_attempt = peers.iter().any(|peer| {
-            planner_should_attempt_compression(
+    for peer in &mut peers {
+        let mz = Arc::clone(&peer.mz);
+        let mut mz_state = mz.lock();
+        peer.mz_trust = mz_state.trust();
+        let mut mz_context = MzContext {
+            state: &mut mz_state,
+            presentation_id: 0,
+            snapshot: true,
+        };
+        for raw in &raw_chunks {
+            let should_attempt = planner_should_attempt_compression(
                 planner,
                 peer.profile,
                 ExecutionLane::Bulk,
                 wire_len(raw),
                 content_class,
                 peer.context,
-            )
-        });
-        compression_attempted.push(should_attempt);
-        if !should_attempt {
-            compressed_chunks.push(None);
-            continue;
+            );
+            peer.compression_attempted.push(should_attempt);
+            if !should_attempt {
+                peer.compressed_chunks.push(None);
+                peer.chunk_traces.push(Vec::new());
+                continue;
+            }
+            let started = Instant::now();
+            let mut compressed = Vec::new();
+            let coded = compressor.compress_display_rows_into(raw, Some(&mut mz_context), &mut compressed);
+            planner.observe_sender_service(
+                ExecutionLane::Bulk,
+                wire_len(raw),
+                content_class,
+                started.elapsed().as_secs_f64() * 1_000_000.0,
+            );
+            peer.chunk_traces
+                .push(coded.map_or_else(Vec::new, |_| compressor.trace().to_vec()));
+            peer.compressed_chunks.push(coded.map(|_| compressed));
         }
-        let started = Instant::now();
-        let mut compressed = Vec::new();
-        let saved = compressor.compress_display_frame_into(raw, &mut compressed);
-        planner.observe_sender_service(
-            ExecutionLane::Bulk,
-            wire_len(raw),
-            content_class,
-            started.elapsed().as_secs_f64() * 1_000_000.0,
-        );
-        compressed_chunks.push(saved.map(|_| compressed));
     }
     SnapshotPrepareCompletion {
         token,
@@ -2377,8 +2419,6 @@ fn prepare_snapshot_off_loop(
         snapshot_graphics,
         row_hashes,
         raw_chunks,
-        compressed_chunks,
-        compression_attempted,
         peers,
     }
 }
@@ -3974,6 +4014,7 @@ fn build_captured_datagram_batches(
     let mut mz_context = MzContext {
         state: &mut mz_state,
         presentation_id,
+        snapshot: false,
     };
     pack_captured_rows(
         captured_rows,
@@ -7522,15 +7563,14 @@ pub(crate) fn schedule_pending_snapshots(
         let _ = refresh_display_delivery_quotes(peer);
         let mut context = display_planning_context(peer, now_ms, 0);
         context.fec_enabled = false;
-        peer_plans.push(SnapshotPeerPlan {
-            peer_id: Arc::clone(peer_id),
-            prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
-            prepare_epoch_fence: Arc::clone(&peer.display_prepare_epoch),
-            profile: peer
-                .display_planning
-                .snapshot(content_class),
+        peer_plans.push(SnapshotPeerPlan::new(
+            Arc::clone(peer_id),
+            peer.display_prepare_epoch.load(Ordering::Acquire),
+            Arc::clone(&peer.display_prepare_epoch),
+            peer.display_planning.snapshot(content_class),
             context,
-        });
+            peer.display_cache.references.shared(),
+        ));
     }
     if peer_plans.is_empty() {
         buffers.put(snapshot);
@@ -7631,8 +7671,6 @@ pub(crate) async fn finish_snapshot_prepare(
         snapshot_graphics,
         row_hashes,
         raw_chunks,
-        compressed_chunks,
-        compression_attempted,
         peers: peer_plans,
     } = completion;
     trace!(
@@ -7661,12 +7699,19 @@ pub(crate) async fn finish_snapshot_prepare(
             peer.snapshot_retry_at_ms = 0.0;
             continue;
         }
+        if plan.compressed_chunks.iter().any(Option::is_some) && plan.mz.lock().trust() != plan.mz_trust {
+            // The browser refused or discarded what the chunks were coded
+            // against while they were prepared; code them again.
+            peer.snapshot_retry_at_ms = 0.0;
+            continue;
+        }
 
         let mut selected_bytes = 0usize;
+        let mut selected = Vec::with_capacity(raw_chunks.len());
         for (index, raw) in raw_chunks.iter().enumerate() {
-            let compressed = compressed_chunks.get(index).and_then(Option::as_ref);
+            let compressed = plan.compressed_chunks.get(index).and_then(Option::as_ref);
             let raw_wire = wire_len(raw);
-            if compression_attempted.get(index).copied().unwrap_or(false) {
+            if plan.compression_attempted.get(index).copied().unwrap_or(false) {
                 peer.display_planning.observe_ratio(
                     raw_wire,
                     content_class,
@@ -7681,6 +7726,7 @@ pub(crate) async fn finish_snapshot_prepare(
                     plan.context,
                 ) == Representation::Compressed
             });
+            selected.push(use_compressed);
             selected_bytes = selected_bytes.saturating_add(if use_compressed {
                 compressed.map_or(raw_wire, |frame| wire_len(frame))
             } else {
@@ -7705,19 +7751,14 @@ pub(crate) async fn finish_snapshot_prepare(
         let mut sent = true;
         let mut plaintext = Vec::new();
         for (chunk_index, raw) in raw_chunks.iter().enumerate() {
-            let compressed = compressed_chunks.get(chunk_index).and_then(Option::as_ref);
-            let selected = compressed
-                .filter(|frame| {
-                    choose_after_compression(
-                        plan.profile,
-                        wire_len(raw),
-                        wire_len(frame),
-                        plan.context,
-                    ) == Representation::Compressed
-                })
+            let chosen = plan
+                .compressed_chunks
+                .get(chunk_index)
+                .and_then(Option::as_ref)
+                .filter(|_| selected.get(chunk_index).copied().unwrap_or(false))
                 .unwrap_or(raw);
             plaintext.clear();
-            plaintext.extend_from_slice(selected);
+            plaintext.extend_from_slice(chosen);
             patch_stream_header(
                 &mut plaintext,
                 0,
@@ -7767,6 +7808,20 @@ pub(crate) async fn finish_snapshot_prepare(
             peer.snapshot_retry_at_ms = 0.0;
             peer.display_cache
                 .prime_from_snapshot(&snapshot_grid, &row_hashes, &snapshot_graphics);
+            // The snapshot is datagram 0 of the generation it opened: its MZ
+            // chunks' traces fold as one, in chunk order, and its rows are
+            // sources once the browser acknowledges the generation.
+            let mut coded = false;
+            {
+                let mut mz = plan.mz.lock();
+                for (trace, _) in plan.chunk_traces.iter().zip(&selected).filter(|(_, chosen)| **chosen) {
+                    coded = true;
+                    mz.keep_snapshot_trace(trace);
+                }
+            }
+            peer.display_cache
+                .references
+                .note_snapshot_sent(&snapshot_grid, cols, &snapshot_graphics, coded);
             peer.last_admitted_critical_header_signal = header_signal;
             peer.last_admitted_sync_epoch = peer
                 .last_admitted_sync_epoch

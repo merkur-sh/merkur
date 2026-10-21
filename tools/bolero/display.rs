@@ -88,7 +88,7 @@ fn fuzz_display_mz() {
             // A fresh receiver holds no rows and no epochs, as a fresh
             // terminal does.
             merkur_codec::mz::MzReceiver::default()
-                .decode(1, 1, bytes, 1, rows_len, &mut decoded)
+                .decode(1, 1, 1, bytes, 1, rows_len, &mut decoded)
                 .expect("an accepted payload decodes");
             assert_eq!(decoded.len(), rows_len);
             let mut plain = raw[..STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES].to_vec();

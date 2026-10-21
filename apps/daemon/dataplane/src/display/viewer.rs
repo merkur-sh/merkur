@@ -1056,6 +1056,7 @@ impl SimViewers {
         let (header, rows_start) = parse_frame_header_and_rows_start(plain)
             .unwrap_or_else(|error| panic!("a unit with an unreadable frame header: {error:?}"));
         let mut decoded = Vec::new();
+        viewer.unit_mz.observe_generation(stream.generation);
         let (rows, start) = if stream.flags & merkur_codec::DISPLAY_HEADER_FLAG_COMPRESSED_MZ != 0 {
             let rows_len = u32::from_be_bytes(
                 plain[merkur_codec::DISPLAY_COMPRESSED_LENGTH_OFFSET
@@ -1066,6 +1067,7 @@ impl SimViewers {
             viewer
                 .unit_mz
                 .decode(
+                    stream.generation,
                     stream.seq,
                     header.presentation_id,
                     &plain[merkur_codec::DISPLAY_COMPRESSED_PAYLOAD_OFFSET..],
@@ -1079,8 +1081,8 @@ impl SimViewers {
             (plain, rows_start)
         };
         // Record the unit's complete rows, as the terminal records those of
-        // every delta it decodes.
-        if matches!(header.kind, FrameKind::Delta) {
+        // every frame it decodes: a snapshot's as datagram 0.
+        {
             let (mut validated, mut cells, mut seen, mut graphics, mut table) =
                 (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
             if merkur_codec::validate_display_rows(
@@ -1098,11 +1100,11 @@ impl SimViewers {
                     let row_cells = &cells[row.cells_start..row.cells_end];
                     if row.left == 0 && row_cells.len() == usize::from(header.cols) {
                         viewer.unit_mz.history.record(
-                            stream.seq,
+                            stream.generation,
+                            if matches!(header.kind, FrameKind::Delta) { stream.seq } else { 0 },
                             row.row_index,
                             row_cells,
                             header.cols,
-                            header.rows,
                         );
                     }
                 }
