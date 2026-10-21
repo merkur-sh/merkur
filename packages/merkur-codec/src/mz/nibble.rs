@@ -405,7 +405,9 @@ impl<P: Prior> Coder<'_, P> {
     fn code(cdf: &mut Cdf, s: usize, rate: u32, coded: &mut Vec<u32>, bits: &mut u64) {
         let (start, freq) = cdf.start_freq(s);
         coded.push(start | freq << 16);
-        *bits += u64::from(cost(freq));
+        if P::PRICE_ENCODE {
+            *bits += u64::from(cost(freq));
+        }
         cdf.update(s, rate);
     }
 

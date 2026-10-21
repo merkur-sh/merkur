@@ -442,9 +442,10 @@ output vector, so there is no compressed-payload staging copy. Warm reuse, byte-
 rejected-candidate clearing are covered by `display::compressor::tests`, whose allocation tally
 counts Rust allocator requests. `pty::buffer_pool_tests` also requires the full requested
 capacity before a reused frame is filled. An attempt's time is its sender service time, which the
-planner prices against the carrier. The MZ encoder steps rANS by reciprocal, never by division,
-and the decoder reads every table from one slot arena, so a symbol costs one dependent load after
-its context index. `display::sim::mz_census` replays recorded PTY sessions (`MZPTY1` files in
+planner prices against the carrier. The MZ encoder runs the model forward once, recording each
+symbol's range, then codes the ranges into rANS in reverse; both ends copy a context's working
+tables from the frame's prior on first use and keep them in buffers reused across frames, so a
+warm frame allocates nothing on either end. `display::sim::mz_census` replays recorded PTY sessions (`MZPTY1` files in
 `MERKUR_DISPLAY_RECORDINGS`) through `DisplaySim` and the real `term-wasm` viewer, with MZ on and
 off (raw frames): bytes on every lane, frames refused for an unresolved reference, grid
 convergence, and both ends' codec CPU. `MERKUR_MZ_LOSS` sets loss, and `MERKUR_MZ_ONLY` and
