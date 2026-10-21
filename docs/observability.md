@@ -704,9 +704,16 @@ and counts it as dropped. An explicit `CMD_CAPTURE_PERF_TRACE` (`0x0e`) names an
 path that must not exist; a cold thread, never the owner loop, drains every ring into that one
 owner-only `.mtrace` file and the command is accepted once it is written. The daemon writes
 captures under `~/.merkur/profiles/`, and `@merkur/profile` (`packages/profile/src/mtrace.ts`)
-reads them. A malformed capture rejects the capture, not the terminal session. The test-only
-`SIGUSR2` listener enabled by `MERKUR_E2E_FINAL_TRANSPORT_CAPTURE=1` requests transport
-statistics and then this capture, and logs the file's path.
+reads them. A malformed capture rejects the capture, not the terminal session.
+
+The daemon serves the trace commands on an owner-only Unix socket, `~/.merkur/profile.sock`,
+one JSON request and one JSON reply per connection: `sessions` (with the dataplane's pid),
+`start` (`CMD_PROFILE_START`), `capture` and `end` (`CMD_PROFILE_END`). A capture logs
+`daemon_perf_trace_capture_complete` with the file's path. `merkur profile record` starts an
+observation of the session typed into most recently, captures it after its window, ends it,
+and with `--cpu` samples the dataplane with samply for the same window; a CLI observation
+supersedes a browser profiler's, whose token then fails closed. The e2e harness requests its
+captures over the same socket.
 
 Each record has an owner, an ordinal, a process-monotonic `at_us`, a closed `kind`, and
 sixteen integer words. Kinds are `pty_enqueue`, `pty_write`, `pty_read`, `pty_read_handled`,

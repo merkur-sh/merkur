@@ -42,6 +42,22 @@ pub const EVT_NAT_MAPPING_OUTCOME: u8 = 0x91;
 /// depends on. See `session::rebind_flow::RebindEventBudget`.
 pub const EVT_SESSION_REBIND: u8 = 0x92;
 pub const EVT_DAEMON_PROOF: u8 = 0x94;
+/// The sessions `CMD_PROFILE_SESSIONS` asked for, ahead of its acknowledgement.
+pub const EVT_PROFILE_SESSIONS: u8 = 0x95;
+
+#[derive(Serialize)]
+pub struct ProfileSessionsEvt<'a> {
+    pub command_id: &'a str,
+    pub sessions: Vec<ProfileSessionEvt<'a>>,
+}
+
+#[derive(Serialize)]
+pub struct ProfileSessionEvt<'a> {
+    pub session_id: &'a str,
+    pub peer_id: &'a str,
+    /// Milliseconds since this session's last input; `None` before any.
+    pub input_ms_ago: Option<u64>,
+}
 
 #[derive(Serialize)]
 pub struct DaemonProofEvt<'a> {
@@ -897,6 +913,7 @@ fn should_flush(kind: u8) -> bool {
         // after the window it explains has closed.
         || kind == EVT_SESSION_REBIND
         || kind == EVT_DAEMON_PROOF
+        || kind == EVT_PROFILE_SESSIONS
 }
 
 #[cfg(test)]

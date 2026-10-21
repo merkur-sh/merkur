@@ -9,6 +9,7 @@ import { runInstallCommand } from './cli/install';
 import { runLicensesCommand } from './cli/licenses';
 import { runLinkCommand } from './cli/link';
 import { runOpenCommand } from './cli/open';
+import { runProfileCommand } from './cli/profile';
 import { runSetupCommand } from './cli/setup';
 import { runShellIntegrationCommand } from './cli/shell-integration';
 import { runStartCommand } from './cli/start';
@@ -44,6 +45,7 @@ const CLI_COMMANDS: Readonly<Record<string, CliCommand>> = {
   stop: () => runStopCommand(cliLogger),
   update: () => runUpdateCommand(cliLogger),
   open: (commandArgs) => runOpenCommand(commandArgs),
+  profile: (commandArgs) => runProfileCommand(commandArgs),
   'shell-integration': (commandArgs) => runShellIntegrationCommand(commandArgs, cliLogger),
 };
 

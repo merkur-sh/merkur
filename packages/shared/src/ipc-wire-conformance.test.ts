@@ -24,6 +24,9 @@ const DAEMON_COMMAND_GOLDEN = {
   CMD_SHUTDOWN: 0x0f,
   CMD_SIGN_DAEMON_PROOF: 0x10,
   CMD_UPDATE_EDGE_ADMISSION: 0x11,
+  CMD_PROFILE_SESSIONS: 0x12,
+  CMD_PROFILE_START: 0x13,
+  CMD_PROFILE_END: 0x14,
 } as const;
 
 const DAEMON_EVENT_GOLDEN = {
@@ -47,6 +50,7 @@ const DAEMON_EVENT_GOLDEN = {
   // is drivable by anyone holding the rendezvous id.
   EVT_SESSION_REBIND: 0x92,
   EVT_DAEMON_PROOF: 0x94,
+  EVT_PROFILE_SESSIONS: 0x95,
 } as const;
 
 /**
@@ -141,6 +145,28 @@ describe('daemon dataplane IPC wire conformance', () => {
     expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'CapturePerfTraceCmd')).toEqual([
       'command_id',
       'path',
+    ]);
+  });
+
+  test('the profile commands and their session listing are the key sets the client uses', () => {
+    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'ProfileSessionsCmd')).toEqual([
+      'command_id',
+    ]);
+    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'ProfileStartCmd')).toEqual([
+      'command_id',
+      'session_id',
+    ]);
+    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'ProfileEndCmd')).toEqual(['command_id']);
+    // The client decodes the event against a schema of the same keys
+    // (`ProfileSessionsEvent` in dataplane-client.ts), rejecting any surplus one.
+    expect(readRustStructFields(DAEMON_EVENT_SOURCE, "ProfileSessionsEvt<'a>")).toEqual([
+      'command_id',
+      'sessions',
+    ]);
+    expect(readRustStructFields(DAEMON_EVENT_SOURCE, "ProfileSessionEvt<'a>")).toEqual([
+      'input_ms_ago',
+      'peer_id',
+      'session_id',
     ]);
   });
 

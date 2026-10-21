@@ -105,6 +105,17 @@ Run inside a Merkur terminal. The viewer asks you to approve opening the URL.`,
 
 Add the command for your shell to its startup file.`,
   },
+  profile: {
+    description: 'Record what this machine does for one live session.',
+    usage: 'merkur profile sessions | record [--session <id>|current] [--seconds <n>] [--cpu]',
+    body: `EXAMPLES
+  merkur profile sessions
+  merkur profile record --seconds 10 --cpu
+
+record traces the session typed into most recently unless --session names another,
+and writes one directory under ~/.merkur/profiles. --cpu also samples the CPU with
+samply (MERKUR_SAMPLY names the binary).`,
+  },
   setup: {
     description: 'Install a signed release archive. Used by the installer script.',
     usage: 'merkur setup <archive> <manifest> <signature> [--link <origin>]',
@@ -158,6 +169,7 @@ THIS MACHINE
 
 TOOLS
   open <url>         Request a URL in the connected viewer
+  profile            Record native traces of a live session
   shell-integration  Print integration for bash, zsh, or fish
   version            Print the build version
   release-key        Print the trusted release key fingerprint

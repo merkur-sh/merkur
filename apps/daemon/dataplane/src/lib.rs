@@ -1303,6 +1303,9 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     // emission site in the heartbeat arm below.
     let mut stats_tick: u32 = 0;
     let mut stats_window_started_at = Instant::now();
+    // The observation `merkur profile` began, and the epoch the next one takes.
+    let mut cli_trace_token: Option<perf_trace::TraceToken> = None;
+    let mut cli_trace_epoch: u32 = 0;
     let mut stats_events_dropped: u64 = 0;
     // Keepalive rides the same tick. The resolved vantage address is cached
     // because it never changes for a given credential and a DNS lookup every
@@ -2604,6 +2607,88 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         if spawned.is_err() {
                             reject_command(&event_tx, &command_id, "write_failed");
                         }
+                    }
+                    CMD_PROFILE_SESSIONS => {
+                        let cmd: ProfileSessionsCmd = match serde_json::from_slice(&payload) {
+                            Ok(command) => command,
+                            Err(_) => {
+                                reject_command_from_payload(&event_tx, &payload, "invalid_command");
+                                continue;
+                            }
+                        };
+                        if !is_valid_command_id(&cmd.command_id) {
+                            reject_command(&event_tx, &cmd.command_id, "invalid_command");
+                            continue;
+                        }
+                        let now_ms = now_ms_since(start_instant);
+                        let sessions = registry
+                            .peers
+                            .values()
+                            .filter(|peer| peer.authenticated)
+                            .map(|peer| ProfileSessionEvt {
+                                session_id: &peer.signal_session_id,
+                                peer_id: &peer.peer_id,
+                                input_ms_ago: (peer.last_input_at_ms > 0.0)
+                                    .then(|| {
+                                        Duration::try_from_secs_f64(
+                                            (now_ms - peer.last_input_at_ms).max(0.0) / 1_000.0,
+                                        )
+                                        .ok()
+                                    })
+                                    .flatten()
+                                    .and_then(|ago| u64::try_from(ago.as_millis()).ok()),
+                            })
+                            .collect();
+                        send_json_event(
+                            &event_tx,
+                            EVT_PROFILE_SESSIONS,
+                            &ProfileSessionsEvt { command_id: &cmd.command_id, sessions },
+                        );
+                        accept_command(&event_tx, &cmd.command_id);
+                    }
+                    CMD_PROFILE_START => {
+                        let cmd: ProfileStartCmd = match serde_json::from_slice(&payload) {
+                            Ok(command) => command,
+                            Err(_) => {
+                                reject_command_from_payload(&event_tx, &payload, "invalid_command");
+                                continue;
+                            }
+                        };
+                        if !is_valid_command_id(&cmd.command_id) {
+                            reject_command(&event_tx, &cmd.command_id, "invalid_command");
+                            continue;
+                        }
+                        let Some(peer) = registry.peers.values().find(|peer| {
+                            peer.authenticated && peer.signal_session_id == cmd.session_id
+                        }) else {
+                            reject_command(&event_tx, &cmd.command_id, "unknown_session");
+                            continue;
+                        };
+                        // One observation at a time: this one supersedes any other, a
+                        // browser profiler's included, whose token then fails closed.
+                        cli_trace_epoch = cli_trace_epoch.wrapping_add(1).max(1);
+                        cli_trace_token =
+                            perf_trace::begin(&peer.peer_id, &cmd.session_id, cli_trace_epoch);
+                        accept_command(&event_tx, &cmd.command_id);
+                    }
+                    CMD_PROFILE_END => {
+                        let cmd: ProfileEndCmd = match serde_json::from_slice(&payload) {
+                            Ok(command) => command,
+                            Err(_) => {
+                                reject_command_from_payload(&event_tx, &payload, "invalid_command");
+                                continue;
+                            }
+                        };
+                        if !is_valid_command_id(&cmd.command_id) {
+                            reject_command(&event_tx, &cmd.command_id, "invalid_command");
+                            continue;
+                        }
+                        let Some(token) = cli_trace_token.take() else {
+                            reject_command(&event_tx, &cmd.command_id, "profiling_not_started");
+                            continue;
+                        };
+                        perf_trace::end(token);
+                        accept_command(&event_tx, &cmd.command_id);
                     }
                     CMD_CAPTURE_TRANSPORT_STATS => {
                         let cmd: CaptureTransportStatsCmd = match serde_json::from_slice(&payload) {

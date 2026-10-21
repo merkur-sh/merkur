@@ -32,6 +32,12 @@ pub const CMD_SIGN_DAEMON_PROOF: u8 = 0x10;
 /// control lease, and a configure payload at that cadence would be orders of
 /// magnitude more bytes.
 pub const CMD_UPDATE_EDGE_ADMISSION: u8 = 0x11;
+/// List the authenticated sessions a profile can observe (`EVT_PROFILE_SESSIONS`).
+pub const CMD_PROFILE_SESSIONS: u8 = 0x12;
+/// Begin a native trace observation of one session, owned by `merkur profile`.
+pub const CMD_PROFILE_START: u8 = 0x13;
+/// End the observation `CMD_PROFILE_START` began; `CMD_CAPTURE_PERF_TRACE` drains it first.
+pub const CMD_PROFILE_END: u8 = 0x14;
 
 /// Payload of [`CMD_UPDATE_EDGE_ADMISSION`].
 #[derive(Debug, Deserialize)]
@@ -142,6 +148,26 @@ pub struct CapturePerfTraceCmd {
     pub command_id: String,
     /// Absolute path of a file that must not exist yet; the capture never overwrites.
     pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileSessionsCmd {
+    pub command_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileStartCmd {
+    pub command_id: String,
+    /// A `signal_session_id` that `EVT_PROFILE_SESSIONS` listed.
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileEndCmd {
+    pub command_id: String,
 }
 
 #[cfg(test)]
@@ -257,6 +283,23 @@ mod tests {
             .is_err(),
             "surplus fields must not silently change capture semantics"
         );
+    }
+
+    #[test]
+    fn profile_command_shapes_are_exact() {
+        let start = serde_json::from_str::<ProfileStartCmd>(
+            r#"{"command_id":"profile-1","session_id":"session-a"}"#,
+        )
+        .expect("exact profile start command");
+        assert_eq!(start.session_id, "session-a");
+        assert!(
+            serde_json::from_str::<ProfileStartCmd>(r#"{"command_id":"profile-1"}"#).is_err()
+        );
+        assert!(
+            serde_json::from_str::<ProfileSessionsCmd>(r#"{"command_id":"p","all":true}"#)
+                .is_err()
+        );
+        assert!(serde_json::from_str::<ProfileEndCmd>(r#"{"command_id":"p"}"#).is_ok());
     }
 
     #[test]

@@ -12,6 +12,7 @@ import {
   launchAgentPathForHome,
   loadDaemonConfigFromPath,
   MERKUR_WEBTRANSPORT_PORT,
+  profileSocketPathForHome,
   removeDaemonConfigFromPath,
   requireDaemonConfigFromPath,
   saveDaemonConfigToPath,
@@ -128,6 +129,11 @@ export function merkurInstallRootPath(): string {
 /** ~/.merkur/profiles — native trace captures, readable only by this user. */
 export function daemonProfilesPath(): string {
   return path.join(merkurInstallRootPath(), 'profiles');
+}
+
+/** ~/.merkur/profile.sock — `merkur profile`'s owner-only channel to the running daemon. */
+export function daemonProfileSocketPath(): string {
+  return profileSocketPathForHome(daemonEnv.HOME);
 }
 
 export function currentMachineName(): string {

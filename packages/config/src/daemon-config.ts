@@ -180,6 +180,14 @@ export function shellTokenPathForHome(home: string): string {
 }
 
 /**
+ * `merkur profile`'s owner-only socket to the running daemon. Short, because macOS caps a
+ * socket path at 104 bytes.
+ */
+export function profileSocketPathForHome(home: string): string {
+  return path.join(home, CONFIG_DIRECTORY_NAME, 'profile.sock');
+}
+
+/**
  * Read the shell-integration token, creating it on first use.
  *
  * The token proves an `OSC 133;B` came from a shell Merkur started rather than

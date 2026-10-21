@@ -40,7 +40,10 @@ const EVT_COMMAND_ACK = 0x8f;
 const EVT_TRANSPORT_STATS = 0x90;
 const EVT_SESSION_REBIND = 0x92;
 const EVT_DAEMON_PROOF = 0x94;
+const EVT_PROFILE_SESSIONS = 0x95;
 const CMD_SIGN_DAEMON_PROOF = 0x10;
+const CMD_PROFILE_SESSIONS = 0x12;
+const CMD_PROFILE_START = 0x13;
 
 interface CapturedFrame {
   readonly kind: number;
@@ -868,6 +871,58 @@ describe('DataplaneClient acknowledged commands', () => {
     });
     sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'trace-1', status: 'accepted' });
     await expect(capture).resolves.toEqual({ status: 'accepted' });
+    client.stop();
+  });
+
+  test('lists profile sessions from the event its acknowledgement follows', async () => {
+    const sidecars: FakeSidecar[] = [];
+    const client = createClient(logger, createHandlers(), createDependencies(sidecars));
+    client.start();
+    const sidecar = required(sidecars[0]);
+    const listing = Effect.runPromise(client.profileSessionsEffect('sessions-1'));
+    const frame = required(
+      readFrames(sidecar.inputChunks).find((entry) => entry.kind === CMD_PROFILE_SESSIONS),
+    );
+    expect(JSON.parse(new TextDecoder().decode(frame.payload))).toEqual({
+      command_id: 'sessions-1',
+    });
+    sidecar.emitFrame(EVT_PROFILE_SESSIONS, {
+      command_id: 'sessions-1',
+      sessions: [
+        { session_id: 'session-a', peer_id: 'peer-a', input_ms_ago: 12 },
+        { session_id: 'session-b', peer_id: 'peer-b', input_ms_ago: null },
+      ],
+    });
+    sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'sessions-1', status: 'accepted' });
+    await expect(listing).resolves.toEqual({
+      status: 'accepted',
+      sessions: [
+        { sessionId: 'session-a', peerId: 'peer-a', inputMsAgo: 12 },
+        { sessionId: 'session-b', peerId: 'peer-b', inputMsAgo: null },
+      ],
+    });
+
+    const silent = Effect.runPromise(client.profileSessionsEffect('sessions-2'));
+    sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'sessions-2', status: 'accepted' });
+    await expect(silent).resolves.toEqual({
+      status: 'rejected',
+      reason: 'incomplete_profile_sessions',
+    });
+
+    const start = Effect.runPromise(client.profileStartEffect('start-1', 'session-a'));
+    const startFrame = required(
+      readFrames(sidecar.inputChunks).find((entry) => entry.kind === CMD_PROFILE_START),
+    );
+    expect(JSON.parse(new TextDecoder().decode(startFrame.payload))).toEqual({
+      command_id: 'start-1',
+      session_id: 'session-a',
+    });
+    sidecar.emitFrame(EVT_COMMAND_ACK, {
+      command_id: 'start-1',
+      status: 'rejected',
+      reason: 'unknown_session',
+    });
+    await expect(start).resolves.toEqual({ status: 'rejected', reason: 'unknown_session' });
     client.stop();
   });
 

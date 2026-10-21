@@ -16,7 +16,19 @@ import type {
   DelegationRevocationTarget,
   UserDelegationCertificate,
 } from '@merkur/shared/user-authorization';
-import { Cause, Context, Data, Deferred, Duration, Effect, Layer, Queue, type Scope } from 'effect';
+import {
+  Cause,
+  Context,
+  Data,
+  Deferred,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Queue,
+  Schema,
+  type Scope,
+} from 'effect';
 import type { Logger } from '../logger';
 import { type DataplaneMetricEvent, recordDataplaneMetricEvent } from './daemon-metrics';
 import { resolveDataplaneBinaryPath } from './dataplane-binary';
@@ -49,6 +61,9 @@ const CMD_CAPTURE_PERF_TRACE = 0x0e;
 const CMD_SHUTDOWN = 0x0f;
 const CMD_SIGN_DAEMON_PROOF = 0x10;
 const CMD_UPDATE_EDGE_ADMISSION = 0x11;
+const CMD_PROFILE_SESSIONS = 0x12;
+const CMD_PROFILE_START = 0x13;
+const CMD_PROFILE_END = 0x14;
 
 const EVT_PTY_READY = 0x82;
 const EVT_PTY_CLOSED = 0x83;
@@ -63,6 +78,7 @@ const EVT_COMMAND_ACK = 0x8f;
 const EVT_TRANSPORT_STATS = 0x90;
 const EVT_SESSION_REBIND = 0x92;
 const EVT_DAEMON_PROOF = 0x94;
+const EVT_PROFILE_SESSIONS = 0x95;
 
 const UTF8_DECODER = new TextDecoder();
 
@@ -319,7 +335,47 @@ export type DataplaneProofResult =
   | ({ readonly status: 'accepted' } & DataplaneProof)
   | { readonly status: 'rejected'; readonly reason: string };
 
+/** One authenticated session the dataplane can profile. */
+export interface DataplaneProfileSession {
+  readonly sessionId: string;
+  readonly peerId: string;
+  /** Milliseconds since its last input; `null` before any. */
+  readonly inputMsAgo: number | null;
+}
+
+/** `EVT_PROFILE_SESSIONS`, exactly: a surplus key rejects the event. */
+const ProfileSessionsEvent = Schema.Struct({
+  command_id: Schema.NonEmptyString,
+  sessions: Schema.Array(
+    Schema.Struct({
+      session_id: Schema.NonEmptyString,
+      peer_id: Schema.NonEmptyString,
+      input_ms_ago: Schema.NullOr(Schema.Int),
+    }),
+  ),
+});
+const decodeProfileSessionsEvent = Schema.decodeUnknownOption(ProfileSessionsEvent, {
+  onExcessProperty: 'error',
+});
+
+/** The listing a sessions command's event delivered, until its acknowledgement. */
+interface ListedProfileSessions {
+  value: readonly DataplaneProfileSession[] | null;
+}
+
+export type DataplaneProfileSessionsResult =
+  | { readonly status: 'accepted'; readonly sessions: readonly DataplaneProfileSession[] }
+  | { readonly status: 'rejected'; readonly reason: string };
+
 export interface DataplaneClient {
+  /** The running dataplane's process id, for a CPU profiler to attach to. */
+  dataplanePid(): number | null;
+  /** The authenticated sessions, for `merkur profile` to choose one. */
+  profileSessionsEffect(commandId: string): Effect.Effect<DataplaneProfileSessionsResult>;
+  /** Begin the one native trace observation, of `sessionId`, superseding any other. */
+  profileStartEffect(commandId: string, sessionId: string): Effect.Effect<DataplaneCommandResult>;
+  /** End the observation `profileStartEffect` began. */
+  profileEndEffect(commandId: string): Effect.Effect<DataplaneCommandResult>;
   signDaemonProofEffect(
     commandId: string,
     purpose: 'http' | 'control',
@@ -396,6 +452,7 @@ export class DataplaneClientService extends Context.Service<
 >()('DataplaneClientService') {}
 
 export interface DataplaneSidecarProcess {
+  readonly pid?: number | undefined;
   readonly stdin: Writable;
   readonly stdout: Readable;
   readonly stderr: Readable;
@@ -464,6 +521,10 @@ interface SidecarCommandWriter {
 interface PendingDataplaneCommand {
   readonly daemonProof: {
     readonly onProof: (proof: DataplaneProof) => void;
+    received: boolean;
+  } | null;
+  readonly profileSessions: {
+    readonly onSessions: (sessions: readonly DataplaneProfileSession[]) => void;
     received: boolean;
   } | null;
   readonly deferred: Deferred.Deferred<DataplaneCommandResult>;
@@ -715,6 +776,42 @@ function makeDataplaneClient(
       });
     },
 
+    dataplanePid() {
+      return sidecar?.pid ?? null;
+    },
+
+    profileSessionsEffect(commandId) {
+      return Effect.gen(function* () {
+        const listed: ListedProfileSessions = { value: null };
+        const result = yield* requestAcknowledgedCommandEffect(
+          commandId,
+          CMD_PROFILE_SESSIONS,
+          { command_id: commandId },
+          undefined,
+          (sessions) => {
+            listed.value = sessions;
+          },
+        );
+        if (result.status === 'rejected') return result;
+        return listed.value === null
+          ? { status: 'rejected' as const, reason: 'incomplete_profile_sessions' }
+          : { status: 'accepted' as const, sessions: listed.value };
+      });
+    },
+
+    profileStartEffect(commandId, sessionId) {
+      return requestAcknowledgedCommandEffect(commandId, CMD_PROFILE_START, {
+        command_id: commandId,
+        session_id: sessionId,
+      });
+    },
+
+    profileEndEffect(commandId) {
+      return requestAcknowledgedCommandEffect(commandId, CMD_PROFILE_END, {
+        command_id: commandId,
+      });
+    },
+
     signDaemonProofEffect(commandId, purpose, transcript) {
       return Effect.gen(function* () {
         const proof: { value: DataplaneProof | null } = { value: null };
@@ -775,9 +872,13 @@ function makeDataplaneClient(
       | typeof CMD_REVOKE_DELEGATION
       | typeof CMD_CAPTURE_TRANSPORT_STATS
       | typeof CMD_CAPTURE_PERF_TRACE
-      | typeof CMD_SIGN_DAEMON_PROOF,
+      | typeof CMD_SIGN_DAEMON_PROOF
+      | typeof CMD_PROFILE_SESSIONS
+      | typeof CMD_PROFILE_START
+      | typeof CMD_PROFILE_END,
     payload: object,
     onDaemonProof?: (proof: DataplaneProof) => void,
+    onProfileSessions?: (sessions: readonly DataplaneProfileSession[]) => void,
   ): Effect.Effect<DataplaneCommandResult> {
     return Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
@@ -792,6 +893,10 @@ function makeDataplaneClient(
         const pending: PendingDataplaneCommand = {
           daemonProof:
             onDaemonProof === undefined ? null : { onProof: onDaemonProof, received: false },
+          profileSessions:
+            onProfileSessions === undefined
+              ? null
+              : { onSessions: onProfileSessions, received: false },
           deferred,
           timer: null,
         };
@@ -1941,6 +2046,12 @@ function makeDataplaneClient(
       case EVT_DAEMON_PROOF:
         valid = handleDaemonProof(json);
         break;
+      case EVT_PROFILE_SESSIONS:
+        valid = Option.match(decodeProfileSessionsEvent(json), {
+          onNone: () => false,
+          onSome: handleProfileSessions,
+        });
+        break;
       case EVT_COMMAND_ACK:
         valid = handleCommandAck(json);
         break;
@@ -2282,6 +2393,22 @@ function makeDataplaneClient(
     return true;
   }
 
+  function handleProfileSessions(event: typeof ProfileSessionsEvent.Type): boolean {
+    const pending = pendingCommands.get(event.command_id);
+    if (pending === undefined) return true;
+    const listed = pending.profileSessions;
+    if (listed === null || listed.received) return false;
+    listed.received = true;
+    listed.onSessions(
+      event.sessions.map((session) => ({
+        sessionId: session.session_id,
+        peerId: session.peer_id,
+        inputMsAgo: session.input_ms_ago,
+      })),
+    );
+    return true;
+  }
+
   function handleCommandAck(json: unknown): boolean {
     if (!isRecord(json)) return false;
     const commandId = readNonEmptyString(json.command_id);
@@ -2291,6 +2418,13 @@ function makeDataplaneClient(
       const pending = pendingCommands.get(commandId);
       if (pending?.daemonProof != null && !pending.daemonProof.received) {
         settlePendingCommand(commandId, { status: 'rejected', reason: 'incomplete_daemon_proof' });
+        return true;
+      }
+      if (pending?.profileSessions != null && !pending.profileSessions.received) {
+        settlePendingCommand(commandId, {
+          status: 'rejected',
+          reason: 'incomplete_profile_sessions',
+        });
         return true;
       }
       settlePendingCommand(commandId, { status: 'accepted' });

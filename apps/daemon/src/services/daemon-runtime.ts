@@ -1,11 +1,8 @@
-import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
 import { waitForProcessSignal } from '@merkur/shared/node-signals';
 import { Clock, type Deferred, Effect, Fiber, Metric, Queue, Redacted, type Scope } from 'effect';
 import { ensureOpenUrlCommandsEffect } from '../cli/open';
 import {
   type DaemonConfig,
-  daemonProfilesPath,
   ensureShellTokenEffect,
   publicWebtransportEndpoint,
   shellTokenPath as shellTokenPathValue,
@@ -32,11 +29,11 @@ import {
   type DataplaneConfig,
   type DataplaneHandlers,
 } from './dataplane-client';
+import { serveProfileSocketScoped } from './profile-socket';
 import { createTerminalBellReporterScoped } from './terminal-bell-reporter';
 
 const FINAL_TRANSPORT_CAPTURE_TIMEOUT_MS = 5_000;
 const FINAL_TRANSPORT_CAPTURE_POLL_MS = 5;
-let nativePerfCaptureSequence = 0;
 
 export interface DaemonRuntimeOptions {
   /** See `DaemonControlClientOptions.shutdownIntent`. */
@@ -129,15 +126,12 @@ export function runDaemonRuntimeEffect(
               dataplaneClient,
               options.retireTelemetry ?? Effect.void,
             );
+            yield* serveProfileSocketScoped(config.daemon_id, dataplaneClient);
             if (options.enableFinalTransportCapture === true) {
               yield* Effect.forever(
                 waitForProcessSignal(['SIGUSR2']).pipe(
                   Effect.flatMap(() =>
-                    captureFinalTransportEvidence(config.daemon_id, dataplaneClient).pipe(
-                      Effect.flatMap(() =>
-                        captureNativePerfTrace(config.daemon_id, dataplaneClient),
-                      ),
-                    ),
+                    captureFinalTransportEvidence(config.daemon_id, dataplaneClient),
                   ),
                   Effect.catchCause((cause) =>
                     logEffect('error', 'daemon', 'daemon_transport_capture_failed', {
@@ -285,37 +279,6 @@ export function captureFinalTransportEvidence(
     }
   });
 }
-
-/** Cold SIGUSR2 capture only: the dataplane writes the file, the log names it. */
-const captureNativePerfTrace = Effect.fn('daemon.capture_native_perf_trace')(function* (
-  daemonId: string,
-  dataplaneClient: DataplaneClient,
-) {
-  const captureRequestedAtMs = yield* Clock.currentTimeMillis;
-  const commandId = `perf-trace-${captureRequestedAtMs}-${++nativePerfCaptureSequence}`;
-  const directory = daemonProfilesPath();
-  const capturePath = path.join(directory, `${commandId}.mtrace`);
-  yield* Effect.tryPromise(() => mkdir(directory, { recursive: true, mode: 0o700 }));
-  const result = yield* dataplaneClient.capturePerfTraceEffect(commandId, capturePath);
-  const captureCompletedAtMs = yield* Clock.currentTimeMillis;
-  if (result.status !== 'accepted') {
-    yield* logEffect('error', 'daemon', 'daemon_perf_trace_capture_failed', {
-      daemonId,
-      commandId,
-      captureRequestedAtMs,
-      captureCompletedAtMs,
-      reason: result.reason,
-    });
-    return;
-  }
-  yield* logEffect('info', 'daemon', 'daemon_perf_trace_capture_complete', {
-    daemonId,
-    commandId,
-    captureRequestedAtMs,
-    captureCompletedAtMs,
-    path: capturePath,
-  });
-});
 
 function dataplaneHandlers(
   logger: Logger,

@@ -11,7 +11,7 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
-import { type DaemonConfig, validateDaemonConfig } from '@merkur/config';
+import { type DaemonConfig, profileSocketPathForHome, validateDaemonConfig } from '@merkur/config';
 import type { BrowserContext, BrowserContextOptions, Page, TestInfo } from '@playwright/test';
 import { nativeProgram } from '../../../scripts/native-artifacts';
 
@@ -657,6 +657,34 @@ async function captureLinkedDaemonTransport(resources: LinkedDaemonResources): P
   await waitForFinalDaemonTransportCapture(resources.logChunks, requestedAfterMs);
 }
 
+/**
+ * Asks the daemon, over its profile socket, to write the current native observation. The
+ * reply is only delivery; the capture's evidence is the log line the collector reads.
+ */
+async function requestDaemonProfileCapture(daemonHome: string): Promise<boolean> {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  try {
+    await Bun.connect({
+      unix: profileSocketPathForHome(daemonHome),
+      socket: {
+        open(socket) {
+          socket.write(`${JSON.stringify({ op: 'capture' })}\n`);
+        },
+        data() {},
+        close() {
+          resolve(true);
+        },
+        error() {
+          resolve(false);
+        },
+      },
+    });
+  } catch {
+    return false;
+  }
+  return promise;
+}
+
 async function captureLinkedDaemonPerfTrace(
   resources: LinkedDaemonResources,
 ): Promise<DaemonPerfTraceCapture> {
@@ -668,17 +696,10 @@ async function captureLinkedDaemonPerfTrace(
       resources.daemonId,
       requestedAfterMs,
     );
-  if (process.env.MERKUR_E2E_FINAL_TRANSPORT_CAPTURE !== '1') {
-    return {
-      ...read(),
-      status: 'failed',
-      errors: ['native capture requires MERKUR_E2E_FINAL_TRANSPORT_CAPTURE=1 before daemon launch'],
-    };
-  }
   if (
     resources.process.exitCode !== null ||
     resources.process.signalCode !== null ||
-    !resources.process.kill('SIGUSR2')
+    !(await requestDaemonProfileCapture(resources.daemonHome))
   ) {
     return { ...read(), status: 'failed', errors: ['daemon unavailable for native capture'] };
   }
