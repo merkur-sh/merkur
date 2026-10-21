@@ -288,8 +288,10 @@ fn thread_id() -> u64 {
 
 #[cfg(target_os = "linux")]
 fn thread_id() -> u64 {
-    // SAFETY: `gettid` has no preconditions.
-    u64::try_from(unsafe { libc::gettid() }).unwrap_or(0)
+    // The raw system call: glibc's `gettid` wrapper is newer than the
+    // release sysroot's glibc, which the binary must link against.
+    // SAFETY: `gettid` takes no arguments and has no preconditions.
+    u64::try_from(unsafe { libc::syscall(libc::SYS_gettid) }).unwrap_or(0)
 }
 
 struct State {
