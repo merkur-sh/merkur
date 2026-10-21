@@ -85,6 +85,7 @@ function harness() {
     handleShutdown: () => events.push('shutdown'),
     handleInit: () => events.push('init'),
     runDataPlaneFairnessSlice: () => events.push('data'),
+    installPublishedFence: () => {},
     continueDisplayOwner: () => {},
     predictionFastPath: null,
     armPresentationCommit: () => {},

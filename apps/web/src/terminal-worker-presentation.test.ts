@@ -120,6 +120,22 @@ describe('terminal worker presentation host adapter', () => {
     expect(body('drainViewerOutputs')).toContain('activeSessionEpoch, activeFrameFenceToken');
   });
 
+  test('a published fence is installed before anything made under its lineage', () => {
+    // The transport publishes a lineage's fence before it posts or reports
+    // anything under it, so main's replay and the peer's messages each find
+    // that lineage installed rather than reset after them.
+    const port = body('handleRingWakeEdge');
+    expect(port.indexOf('installPublishedFence()')).toBeGreaterThan(-1);
+    expect(port.indexOf('installPublishedFence()')).toBeLessThan(
+      port.indexOf('switch (data.kind)'),
+    );
+    const controls = body('runControlPump');
+    expect(controls.indexOf('installPublishedFence()')).toBeLessThan(
+      controls.indexOf('controlQueue.shift()'),
+    );
+    expect(body('installPublishedFence')).toContain('applyLineageFence(fence)');
+  });
+
   test('bounded control slices yield to data work without overtaking ownership barriers', () => {
     const controls = body('runControlPump');
     expect(controls).toContain('processed < CONTROL_COMMANDS_PER_SLICE');
