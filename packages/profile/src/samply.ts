@@ -72,6 +72,16 @@ export class CpuProfileDecodeError extends Error {
 }
 
 /**
+ * The operating system's id in a samply pid or tid. On Linux samply writes `13711.1` for the
+ * image a process exec'd into: the same OS id, told apart from the image before the exec.
+ */
+export function osId(value: string): number {
+  const id = /^(\d+)(?:\.\d+)?$/.exec(value)?.[1];
+  if (id === undefined) throw new CpuProfileDecodeError(`not a process or thread id: ${value}`);
+  return Number(id);
+}
+
+/**
  * Decodes a gzipped samply profile. Only on-CPU samples are kept (`threadCPUDelta` above
  * zero): a sample of a parked thread says where it waits, not where CPU goes.
  */
@@ -124,7 +134,7 @@ export function decodeSamplyProfile(gzipped: Uint8Array): CpuProfile {
       if (stack === null || stack === undefined || cpu === null || cpu <= 0) continue;
       samples.push({ atNs: BigInt(zero) + BigInt(Math.round(timeMs * 1e6)), stack: chain(stack) });
     }
-    return { pid: Number(thread.pid), tid: Number(thread.tid), name: thread.name, samples };
+    return { pid: osId(thread.pid), tid: osId(thread.tid), name: thread.name, samples };
   });
   return { clock, frames, threads };
 }

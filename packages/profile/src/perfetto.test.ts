@@ -5,7 +5,7 @@ import { gzipSync } from 'node:zlib';
 import { decodeNativeTrace } from './mtrace';
 import { TraceMergeError, writePerfettoTrace } from './perfetto';
 import { ProtoWriter } from './protobuf';
-import { type CpuProfile, decodeSamplyProfile } from './samply';
+import { type CpuProfile, CpuProfileDecodeError, decodeSamplyProfile, osId } from './samply';
 
 const CAPTURE = decodeNativeTrace(
   readFileSync(path.join(import.meta.dir, '../../merkur-trace/testdata/capture.mtrace')),
@@ -156,6 +156,19 @@ describe('decodeSamplyProfile', () => {
         samples: [{ atNs: 1_500_000n, stack: [0, 1] }],
       },
     ]);
+  });
+
+  test("reads a Linux exec's pid.N as its OS id, and a zero of 0 as absolute time", () => {
+    const linux = {
+      ...profile,
+      meta: { startTimeAsClockMonotonicNanosecondsSinceBoot: 0 },
+      threads: profile.threads.map((thread) => ({ ...thread, pid: '13711.1', tid: '13713' })),
+    };
+    const cpu = decodeSamplyProfile(gzipSync(JSON.stringify(linux)));
+    expect(cpu.clock).toBe('linux-monotonic');
+    expect(cpu.threads.map((thread) => [thread.pid, thread.tid])).toEqual([[13711, 13713]]);
+    expect(cpu.threads[0]?.samples[0]?.atNs).toBe(500_000n);
+    expect(() => osId('13711.x')).toThrow(CpuProfileDecodeError);
   });
 
   test('refuses a profile without an anchor-clock zero', () => {
