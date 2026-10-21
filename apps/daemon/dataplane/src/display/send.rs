@@ -8261,6 +8261,9 @@ pub(crate) fn arm_expired_resume_snapshots(peers: &mut PeerMap, now_ms: f64) -> 
         }
         peer.awaiting_resume_until_ms = None;
         peer.needs_snapshot = true;
+        // The claim that would say the browser kept its MZ rows and epochs
+        // never came: the snapshot is coded against none of them.
+        peer.display_cache.references.clear();
         armed += 1;
     }
     armed

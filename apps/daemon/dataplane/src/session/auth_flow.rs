@@ -663,6 +663,10 @@ pub(crate) fn splice_resumed_peer(
         );
     } else {
         peer.display_cache.reset_for_snapshot();
+        // No resume claim will say the browser kept its grid, and with it the
+        // MZ rows and epochs: a replacement worker holds none, so the
+        // snapshot is coded against nothing it might not hold.
+        peer.display_cache.references.clear();
         peer.needs_snapshot = true;
         peer.awaiting_resume_until_ms = None;
         info!(

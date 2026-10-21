@@ -557,9 +557,10 @@ Copies from history follow the ledger both ends keep:
   keys and retirement, and opens a generation before the browser can, so it never names a
   datagram the browser retired. A resize clears nothing: its snapshot opens a generation like any
   other. Rows and epochs clear together, at both ends, only at a session boundary that kept no
-  grid, which the resume claim states by carrying no row hashes (prevents memory growing with
-  the session, a copy of a retired row, and the daemon coding against an epoch the browser
-  discarded).
+  grid, which the resume claim states by carrying no row hashes. The daemon also clears its
+  own when it snapshots an authenticated session with no claim to wait for, or whose claim
+  never came: a replacement browser holds nothing (prevents memory growing with the session, a
+  copy of a retired row, and a snapshot or frame coded against an epoch the browser discarded).
 - **Presentation id, not sequence, is the base.** Header promotion reorders a flush's batches
   after they are coded; the presentation id is fixed at capture (prevents a reordered frame
   naming the wrong datagram).
