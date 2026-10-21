@@ -415,6 +415,11 @@ export interface FrameRingReader {
    * were discarded.
    */
   discardPending(): boolean;
+  /**
+   * A fence is announced and not yet taken: until it is, this reader hands out
+   * that fence and nothing else.
+   */
+  fencePending(): boolean;
   /** Record that the viewer installed the lineage of the fence with `token`. */
   installFence(token: number): void;
   /**
@@ -610,6 +615,10 @@ export function createFrameRingReader(
       }
       Atomics.store(meta, 1, readOff);
       return discarded;
+    },
+
+    fencePending(): boolean {
+      return Atomics.load(meta, FRAME_RING_ANNOUNCED_FENCE_INDEX) >>> 0 !== takenFence;
     },
 
     installFence(token): void {

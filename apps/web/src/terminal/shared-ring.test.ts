@@ -450,6 +450,27 @@ describe('frame ring', () => {
     expect(successor.tryRead()?.payload).toEqual(Uint8Array.of(5));
   });
 
+  test('a pending fence is the only entry the reader hands out until taken', () => {
+    const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
+    const writer = createFrameRingWriter(sab);
+    const reader = createFrameRingReader(sab);
+    expect(writer.write(Uint8Array.of(1), FRAME_KIND_DISPLAY, false)).toBe(true);
+    expect(reader.fencePending()).toBe(false);
+
+    const token = writer.fenceSessionLineage(2, false);
+    expect(reader.fencePending()).toBe(true);
+    // Announced but not yet published: nothing to hand out, the old frame gone.
+    expect(reader.tryReadLeased()).toBeNull();
+    expect(reader.fencePending()).toBe(true);
+    expect(writer.publishFence()).toBe(true);
+    expect(writer.write(Uint8Array.of(2), FRAME_KIND_DISPLAY, false)).toBe(true);
+    const lease = must(reader.tryReadLeased());
+    expect(fenceOf(lease)).toEqual({ token, lineage: 2, newSession: false });
+    lease.release();
+    expect(reader.fencePending()).toBe(false);
+    expect(reader.tryRead()?.payload).toEqual(Uint8Array.of(2));
+  });
+
   test('fence tokens skip zero across the uint32 wrap', () => {
     const sab = new SharedArrayBuffer(FRAME_RING_SIZE);
     Atomics.store(new Int32Array(sab, 0, 6), 4, 0xffff_ffff | 0);

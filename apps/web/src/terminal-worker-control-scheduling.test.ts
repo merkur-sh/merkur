@@ -32,6 +32,7 @@ function harness(kinds: string[]) {
       hasDataPlaneBarrier: () => commands.some((cmd) => cmd.kind === 'session_epoch'),
     },
     commitPreparedFontFamilyUpdate: () => {},
+    installPublishedFence: () => {},
     workerControlCommandBlocksDataPlane: (cmd: { kind: string }) => cmd.kind === 'session_epoch',
     handleControlCommand: (cmd: { kind: string }) => {
       events.push(cmd.kind);
