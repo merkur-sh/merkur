@@ -292,6 +292,7 @@ const app = createServerApp({
   logger: createLogger('telemetry-smoke'),
   webIndexFile: '/nonexistent/index.html',
   webDistDirectory: '/nonexistent',
+  daemonReleaseStoreDirectory: '/nonexistent',
 });
 
 await app.listen(0);

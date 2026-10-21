@@ -241,6 +241,7 @@ describe('daemon control protocol v1', () => {
       4_000,
       'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       EDGES,
+      null,
     );
     expect(
       parseDaemonControlServerMessage({
