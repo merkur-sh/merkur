@@ -24,7 +24,9 @@
  * `createInputStreamAnalyzer`, after Wobbrock and Myers) says which erased taps
  * were mistakes and what was meant in their place, however many letters later
  * the mistake was noticed; the line is then wiped. What survives is per-key
- * counts, each on one key, so no pair of keystrokes survives either.
+ * counts, each on one key, so no pair of keystrokes survives either. Two taps
+ * of one key side by side leave only the gap between their touch-downs, folded
+ * into a histogram without the key, as the inter-tap gap is.
  */
 import {
   createInputStreamAnalyzer,
@@ -33,6 +35,7 @@ import {
   INPUT_STREAM_KEPT,
   INPUT_STREAM_OMISSION,
   type InputStreamClass,
+  isWideKeyboardKey,
   KEYBOARD_CANDIDATE_COUNT,
   type KeyboardKeyDefinition,
   type KeyboardTouchTrace,
@@ -46,6 +49,8 @@ import {
  * counts after them come from finished lines.
  */
 interface KeyAccumulator {
+  /** Its sideways scatter is the key's own width, so it has no x bias to pool. */
+  wide: boolean;
   count: number;
   sumX: number;
   sumY: number;
@@ -89,7 +94,9 @@ export interface KeyboardKeyOffset {
   readonly sigmaY: number;
   /**
    * Mean landing point minus the centre the engine scored this key against,
-   * learned offsets included. Near zero once the learner has absorbed the bias.
+   * learned offsets included. The learner deliberately settles short of a
+   * large bias (`@merkur/keyboard`'s offset model says why), so a key landing
+   * well off its drawn centre keeps a fraction of that here.
    */
   readonly residualX: number;
   readonly residualY: number;
@@ -155,13 +162,38 @@ export interface KeyboardDiagnosticsSummary {
    * next-letter prior overruled it. The rest the finger made.
    */
   readonly missesByPrior: number;
-  /** Taps where the next-letter prior changed the key the touch alone chose. */
+  /**
+   * Taps where the next-letter prior changed the key the touch alone chose.
+   * Every one ends in exactly one of: kept, erased though right, corrected back
+   * to the touch's key (`missesByPrior`), corrected to a third neighbour,
+   * deleted as an extra tap, or replaced by a key far from the tap.
+   */
   readonly priorOverrides: number;
-  /** Of those, the ones the user kept. */
   readonly priorOverridesKept: number;
+  /** Erased on the way back to an earlier mistake, or skipped past, though right. */
+  readonly priorOverridesErased: number;
+  /** Corrected to a neighbour that neither the touch nor the prior chose. */
+  readonly priorOverridesMisread: number;
+  readonly priorOverridesDeleted: number;
+  readonly priorOverridesReplaced: number;
   readonly erasedCorrect: number;
   readonly replaced: number;
   readonly extra: number;
+  /**
+   * Extra taps that repeat the key typed just before them, and the gap from
+   * that tap's touch-down to theirs. A bounce or a double delivery lands far
+   * faster than a finger can type a double letter, which is why the same gap is
+   * kept for doubled letters that survived: they are the control.
+   */
+  readonly extraRepeats: number;
+  readonly extraRepeatGapMs: KeyboardDistribution;
+  readonly keptDoubleGapMs: KeyboardDistribution;
+  /**
+   * Extra taps whose touch never traced, held-key repeats aside: a commit no
+   * contact accounts for, which is what a key delivered twice by software
+   * looks like.
+   */
+  readonly extraUntraced: number;
   readonly skipped: number;
   /**
    * Misses by how many later letters were still on the line when erasing began:
@@ -174,7 +206,9 @@ export interface KeyboardDiagnosticsSummary {
   /**
    * Root-mean-square of the per-key mean offset, weighted by taps: once from
    * the drawn centre and once from the learned centre. The gap between the two
-   * is how much systematic bias the learner removes.
+   * is how much systematic bias the learner removes. A wide key contributes
+   * only its y offset: where along the space bar a thumb lands is the bar's
+   * width, not aim, and it would otherwise dominate both figures.
    */
   readonly pooledBiasPx: number;
   readonly pooledResidualBiasPx: number;
@@ -182,6 +216,7 @@ export interface KeyboardDiagnosticsSummary {
 }
 
 export interface KeyboardDistribution {
+  readonly p10: number;
   readonly p50: number;
   readonly p90: number;
   readonly p99: number;
@@ -241,6 +276,15 @@ export interface KeyboardDiagnosticsSnapshot {
   readonly missesByPrior: number;
   readonly priorOverrides: number;
   readonly priorOverridesKept: number;
+  readonly priorOverridesErased: number;
+  readonly priorOverridesMisread: number;
+  readonly priorOverridesDeleted: number;
+  readonly priorOverridesReplaced: number;
+  readonly extraRepeatGap: readonly number[];
+  readonly extraRepeatGapSum: number;
+  readonly keptDoubleGap: readonly number[];
+  readonly keptDoubleGapSum: number;
+  readonly extraUntraced: number;
   readonly typedDrift: readonly number[];
   readonly missDrift: readonly number[];
   readonly noticed: readonly number[];
@@ -292,19 +336,36 @@ export function createKeyboardDiagnostics(
   let missesByPrior = 0;
   let priorOverrides = 0;
   let priorOverridesKept = 0;
+  let priorOverridesErased = 0;
+  let priorOverridesMisread = 0;
+  let priorOverridesDeleted = 0;
+  let priorOverridesReplaced = 0;
   // Drift of every analysed typed tap, and of the ones that were misses, so the
   // rate can be split at whatever `tapDrift` the profile has when read.
   const typedDrift = new Uint32Array(DRIFT_BUCKETS);
   const missDrift = new Uint32Array(DRIFT_BUCKETS);
   const noticed = new Uint32Array(NOTICED_BUCKETS);
+  // Touch-down gaps within a pair of same-key taps, folded like `interTap`: the
+  // difference survives, the pair does not.
+  const extraRepeatGap = new Uint32Array(INTER_TAP_BUCKETS);
+  const keptDoubleGap = new Uint32Array(INTER_TAP_BUCKETS);
+  let extraRepeatGapSum = 0;
+  let keptDoubleGapSum = 0;
+  let extraUntraced = 0;
 
   // The open line: one entry per typed key, or null for a Backspace, with the
-  // trace and geometry each typed tap was decided on. Memory only, and every
-  // slot a line used is wiped when it closes.
+  // trace and geometry each typed tap was decided on, and whether it was a held
+  // key's repeat. Memory only, and every slot a line used is wiped when it
+  // closes.
   const lineSymbols: (string | null)[] = [];
   const lineTraces: (KeyboardTouchTrace | null)[] = [];
   const lineGeometries: (ResolvedKeyboardGeometry | null)[] = [];
+  const lineRepeats: boolean[] = [];
   let lineLength = 0;
+  // The entry the analyser visited last, so a kept double letter can tell that
+  // its first letter was kept too.
+  let previousIndex = -1;
+  let previousKind: InputStreamClass = INPUT_STREAM_KEPT;
   // An anchored tap commits at touch-down and traces at its lift, so its entry
   // waits here, by pointer, for the trace. A release-decided tap traces just
   // before its commit, so its trace waits in `pendingTrace` instead; commits of
@@ -373,6 +434,7 @@ export function createKeyboardDiagnostics(
     const offsetY = trace.downY - (key.rect.y + key.rect.height / 2);
 
     const accumulator = accumulatorFor(trace.layerId, definition.id);
+    accumulator.wide = isWideKeyboardKey(geometry, key);
     accumulator.count += 1;
     accumulator.sumX += offsetX;
     accumulator.sumY += offsetY;
@@ -401,11 +463,11 @@ export function createKeyboardDiagnostics(
 
   function recordCommit(key: KeyboardKeyDefinition, pointerId: number, repeat: boolean): boolean {
     if (key.value === 'Backspace') {
-      append(null);
+      append(null, repeat);
       return false;
     }
     if (!isTyped(key)) return closeLine();
-    const index = append(key.id);
+    const index = append(key.id, repeat);
     // A held key's repeats are real characters on the line, but the contact
     // traces once, for the press that started it.
     if (repeat) return false;
@@ -424,17 +486,19 @@ export function createKeyboardDiagnostics(
     return false;
   }
 
-  function append(symbol: string | null): number {
+  function append(symbol: string | null, repeat: boolean): number {
     const index = lineLength;
     lineSymbols[index] = symbol;
     lineTraces[index] = null;
     lineGeometries[index] = null;
+    lineRepeats[index] = repeat;
     lineLength += 1;
     return index;
   }
 
   function closeLine(): boolean {
     if (lineLength === 0) return false;
+    previousIndex = -1;
     analyzer.analyze(lineSymbols, lineLength, visit);
     wipeLine();
     lines += 1;
@@ -447,6 +511,7 @@ export function createKeyboardDiagnostics(
       lineSymbols[index] = null;
       lineTraces[index] = null;
       lineGeometries[index] = null;
+      lineRepeats[index] = false;
     }
     lineLength = 0;
     untraced.clear();
@@ -459,10 +524,18 @@ export function createKeyboardDiagnostics(
     intended: string | null,
     noticedAfter: number,
   ): void {
+    const followsKept = previousIndex === index - 1 && previousKind === INPUT_STREAM_KEPT;
+    previousIndex = index;
+    previousKind = kind;
     const trace = lineTraces[index] ?? null;
+    if (trace === null) {
+      // A held key's repeats never trace; any other commit should have.
+      if (kind === INPUT_STREAM_INSERTION && lineRepeats[index] !== true) extraUntraced += 1;
+      return;
+    }
     const geometry = lineGeometries[index] ?? null;
-    const committed = trace?.predictedKey ?? null;
-    if (trace === null || geometry === null || committed === null) return;
+    const committed = trace.predictedKey;
+    if (geometry === null || committed === null) return;
     const accumulator = accumulatorFor(trace.layerId, committed.id);
     const driftBucket = clampBucket(DRIFT_BUCKETS, Math.floor(contactTravel(trace)));
     typedDrift[driftBucket] = (typedDrift[driftBucket] ?? 0) + 1;
@@ -472,16 +545,19 @@ export function createKeyboardDiagnostics(
     if (kind === INPUT_STREAM_KEPT) {
       accumulator.aimed += 1;
       if (overridden) priorOverridesKept += 1;
+      if (followsKept) keptDoubleGapSum += foldGap(keptDoubleGap, sameKeyGap(index - 1, index));
       return;
     }
     if (kind === INPUT_STREAM_ERASED_CORRECT) {
       accumulator.aimed += 1;
       accumulator.erasedCorrect += 1;
+      if (overridden) priorOverridesErased += 1;
       return;
     }
     if (kind === INPUT_STREAM_OMISSION) {
       // The tap itself was right; the key before it was skipped.
       accumulator.aimed += 1;
+      if (overridden) priorOverridesErased += 1;
       if (intended !== null && hasKey(geometry, intended)) {
         accumulatorFor(trace.layerId, intended).skipped += 1;
       }
@@ -489,6 +565,8 @@ export function createKeyboardDiagnostics(
     }
     if (kind === INPUT_STREAM_INSERTION) {
       accumulator.extra += 1;
+      if (overridden) priorOverridesDeleted += 1;
+      extraRepeatGapSum += foldGap(extraRepeatGap, twinGap(index));
       return;
     }
     // A substitution is a misread only when the replacement lies next to where
@@ -497,6 +575,7 @@ export function createKeyboardDiagnostics(
     const atlasOffset = keyboardHitAtlasOffset(geometry, trace.downX, trace.downY);
     if (intended === null || !candidatesInclude(geometry, atlasOffset, intended)) {
       accumulator.replaced += 1;
+      if (overridden) priorOverridesReplaced += 1;
       return;
     }
     const meant = accumulatorFor(trace.layerId, intended);
@@ -506,7 +585,33 @@ export function createKeyboardDiagnostics(
     missDrift[driftBucket] = (missDrift[driftBucket] ?? 0) + 1;
     bump(noticed, noticedAfter);
     if (trace.spatialKey?.id === intended) missesByPrior += 1;
+    else if (overridden) priorOverridesMisread += 1;
     onCorrection?.(trace, geometry, intended);
+  }
+
+  /**
+   * Gap from an extra tap to the same-key twin beside it. Backspace takes the
+   * later of a pair, but a pair noticed late can be retyped either way round,
+   * so the twin may sit on either side.
+   */
+  function twinGap(index: number): number {
+    const before = sameKeyGap(index - 1, index);
+    return before >= 0 ? before : sameKeyGap(index, index + 1);
+  }
+
+  /**
+   * Touch-down gap between two adjacent line entries that typed the same key,
+   * both traced; -1 when they are not such a pair.
+   */
+  function sameKeyGap(first: number, second: number): number {
+    if (first < 0 || second >= lineLength) return -1;
+    const symbol = lineSymbols[first];
+    if (symbol === null || symbol === undefined || lineSymbols[second] !== symbol) return -1;
+    const before = lineTraces[first] ?? null;
+    const after = lineTraces[second] ?? null;
+    if (before === null || after === null) return -1;
+    const gap = after.contactAtMs - before.contactAtMs;
+    return Number.isFinite(gap) && gap >= 0 ? gap : -1;
   }
 
   function summary(driftThresholdPx: number): KeyboardDiagnosticsSummary {
@@ -543,10 +648,12 @@ export function createKeyboardDiagnostics(
         const residualN = accumulator.residualCount;
         const residualX = residualN === 0 ? 0 : accumulator.sumResidualX / residualN;
         const residualY = residualN === 0 ? 0 : accumulator.sumResidualY / residualN;
+        const biasX = aimBiasX(accumulator, meanX);
+        const residualBiasX = aimBiasX(accumulator, residualX);
         biasWeight += n;
-        biasSquares += n * (meanX * meanX + meanY * meanY);
+        biasSquares += n * (biasX * biasX + meanY * meanY);
         residualWeight += residualN;
-        residualSquares += residualN * (residualX * residualX + residualY * residualY);
+        residualSquares += residualN * (residualBiasX * residualBiasX + residualY * residualY);
         keys.push({
           layerId,
           keyId,
@@ -584,6 +691,7 @@ export function createKeyboardDiagnostics(
       }
     }
     const typedUnder = typedTaps - typedOver;
+    const extraRepeatCount = bucketTotal(extraRepeatGap);
 
     return {
       taps,
@@ -616,9 +724,29 @@ export function createKeyboardDiagnostics(
       missesByPrior,
       priorOverrides,
       priorOverridesKept,
+      priorOverridesErased,
+      priorOverridesMisread,
+      priorOverridesDeleted,
+      priorOverridesReplaced,
       erasedCorrect,
       replaced,
       extra,
+      extraRepeats: extraRepeatCount,
+      extraRepeatGapMs: distribution(
+        extraRepeatGap,
+        extraRepeatCount,
+        extraRepeatGapSum,
+        INTER_TAP_BUCKET_MS,
+        INTER_TAP_BUCKET_MS / 2,
+      ),
+      keptDoubleGapMs: distribution(
+        keptDoubleGap,
+        bucketTotal(keptDoubleGap),
+        keptDoubleGapSum,
+        INTER_TAP_BUCKET_MS,
+        INTER_TAP_BUCKET_MS / 2,
+      ),
+      extraUntraced,
       skipped,
       noticedAfter: Array.from(noticed),
       missRateUnderDrift: typedUnder === 0 ? 0 : (misses - missesOver) / typedUnder,
@@ -638,6 +766,11 @@ export function createKeyboardDiagnostics(
     typedDrift.fill(0);
     missDrift.fill(0);
     noticed.fill(0);
+    extraRepeatGap.fill(0);
+    keptDoubleGap.fill(0);
+    extraRepeatGapSum = 0;
+    keptDoubleGapSum = 0;
+    extraUntraced = 0;
     wipeLine();
     pendingTrace = null;
     pendingGeometry = null;
@@ -659,6 +792,10 @@ export function createKeyboardDiagnostics(
     missesByPrior = 0;
     priorOverrides = 0;
     priorOverridesKept = 0;
+    priorOverridesErased = 0;
+    priorOverridesMisread = 0;
+    priorOverridesDeleted = 0;
+    priorOverridesReplaced = 0;
   }
 
   function snapshot(): KeyboardDiagnosticsSnapshot {
@@ -688,6 +825,15 @@ export function createKeyboardDiagnostics(
       missesByPrior,
       priorOverrides,
       priorOverridesKept,
+      priorOverridesErased,
+      priorOverridesMisread,
+      priorOverridesDeleted,
+      priorOverridesReplaced,
+      extraRepeatGap: Array.from(extraRepeatGap),
+      extraRepeatGapSum,
+      keptDoubleGap: Array.from(keptDoubleGap),
+      keptDoubleGapSum,
+      extraUntraced,
       typedDrift: Array.from(typedDrift),
       missDrift: Array.from(missDrift),
       noticed: Array.from(noticed),
@@ -716,11 +862,21 @@ export function createKeyboardDiagnostics(
     missesByPrior = state.missesByPrior;
     priorOverrides = state.priorOverrides;
     priorOverridesKept = state.priorOverridesKept;
+    priorOverridesErased = state.priorOverridesErased;
+    priorOverridesMisread = state.priorOverridesMisread;
+    priorOverridesDeleted = state.priorOverridesDeleted;
+    priorOverridesReplaced = state.priorOverridesReplaced;
+    copyInto(extraRepeatGap, state.extraRepeatGap);
+    extraRepeatGapSum = state.extraRepeatGapSum;
+    copyInto(keptDoubleGap, state.keptDoubleGap);
+    keptDoubleGapSum = state.keptDoubleGapSum;
+    extraUntraced = state.extraUntraced;
     copyInto(typedDrift, state.typedDrift);
     copyInto(missDrift, state.missDrift);
     copyInto(noticed, state.noticed);
     for (const entry of state.keys) {
       const accumulator = accumulatorFor(entry.layerId, entry.keyId);
+      accumulator.wide = entry.wide;
       accumulator.count = entry.count;
       accumulator.sumX = entry.sumX;
       accumulator.sumY = entry.sumY;
@@ -770,6 +926,7 @@ function clampBucket(length: number, rawIndex: number): number {
 
 function emptyAccumulator(): KeyAccumulator {
   return {
+    wide: false,
     count: 0,
     sumX: 0,
     sumY: 0,
@@ -837,7 +994,7 @@ function distribution(
   scale: number,
   centre: number,
 ): KeyboardDistribution {
-  if (total === 0) return { p50: 0, p90: 0, p99: 0, max: 0, mean: 0 };
+  if (total === 0) return { p10: 0, p50: 0, p90: 0, p99: 0, max: 0, mean: 0 };
   const at = (quantile: number): number => {
     const target = quantile * total;
     let seen = 0;
@@ -854,7 +1011,37 @@ function distribution(
       break;
     }
   }
-  return { p50: at(0.5), p90: at(0.9), p99: at(0.99), max, mean: sum / total };
+  return { p10: at(0.1), p50: at(0.5), p90: at(0.9), p99: at(0.99), max, mean: sum / total };
+}
+
+/** A wide key's sideways offset is its own width, not aim: it pools as zero. */
+function aimBiasX(accumulator: KeyAccumulator, offsetX: number): number {
+  return accumulator.wide ? 0 : offsetX;
+}
+
+/** Folds a gap into its histogram and returns what it adds to the sum; -1 is no gap. */
+function foldGap(buckets: Uint32Array, gap: number): number {
+  if (gap < 0) return 0;
+  bump(buckets, Math.floor(gap / INTER_TAP_BUCKET_MS));
+  return gap;
+}
+
+function bucketTotal(buckets: Uint32Array): number {
+  let total = 0;
+  for (const count of buckets) total += count;
+  return total;
+}
+
+/** Ninety-five per cent Wilson score interval for `hits` out of `trials`. */
+function wilsonInterval(hits: number, trials: number): readonly [number, number] {
+  if (trials === 0) return [0, 1];
+  const z = 1.96;
+  const zz = z * z;
+  const rate = hits / trials;
+  const centre = rate + zz / (2 * trials);
+  const spread = z * Math.sqrt((rate * (1 - rate)) / trials + zz / (4 * trials * trials));
+  const scale = 1 + zz / trials;
+  return [Math.max(0, (centre - spread) / scale), Math.min(1, (centre + spread) / scale)];
 }
 
 /**
@@ -899,10 +1086,24 @@ export function formatKeyboardDiagnostics(summary: KeyboardDiagnosticsSummary): 
       `over it ${percent(summary.missRateOverDrift)}`,
     `  erased although right ${summary.erasedCorrect}  replaced by a key far from the tap ${summary.replaced}  ` +
       `extra taps ${summary.extra}  skipped keys ${summary.skipped}`,
+    `  extra taps that repeat the key just before them ${summary.extraRepeats}` +
+      (summary.extraRepeats === 0
+        ? ''
+        : `, touch-down gap p10 ${summary.extraRepeatGapMs.p10.toFixed(0)}ms  ` +
+          `p50 ${summary.extraRepeatGapMs.p50.toFixed(0)}ms`) +
+      (summary.keptDoubleGapMs.p50 === 0
+        ? ''
+        : `; double letters kept: p10 ${summary.keptDoubleGapMs.p10.toFixed(0)}ms  ` +
+          `p50 ${summary.keptDoubleGapMs.p50.toFixed(0)}ms`),
+    `  extra taps no touch accounts for (a key delivered twice): ${summary.extraUntraced}`,
     `  next-letter guess overruled the touch ${summary.priorOverrides} times: ` +
-      `kept ${summary.priorOverridesKept}, corrected back ${summary.missesByPrior}`,
-    `per-key bias, pooled: from the drawn centre ${summary.pooledBiasPx.toFixed(1)}px  ` +
-      `from the learned centre ${summary.pooledResidualBiasPx.toFixed(1)}px`,
+      `right ${summary.priorOverridesKept + summary.priorOverridesErased} ` +
+      `(kept ${summary.priorOverridesKept}, erased later ${summary.priorOverridesErased})  ` +
+      `wrong ${summary.missesByPrior + summary.priorOverridesMisread} ` +
+      `(the touch was right ${summary.missesByPrior}, a third key was meant ${summary.priorOverridesMisread})  ` +
+      `deleted ${summary.priorOverridesDeleted}  replaced far ${summary.priorOverridesReplaced}`,
+    `per-key bias, pooled, wide keys' sideways offset left out: from the drawn centre ` +
+      `${summary.pooledBiasPx.toFixed(1)}px  from the learned centre ${summary.pooledResidualBiasPx.toFixed(1)}px`,
     '',
     'per-key landing offset from the drawn centre, residual from the learned centre (px), most-typed first:',
   ];
@@ -919,21 +1120,29 @@ export function formatKeyboardDiagnostics(summary: KeyboardDiagnosticsSummary): 
     );
   }
   // Worst-missed first. Its own table, because sorting the offset table by rate
-  // would push the most-typed keys out of its top twenty. Ties go to the key
-  // aimed at more often, whose rate rests on more evidence.
+  // would push the most-typed keys out of its top twenty. Ranked by the low end
+  // of each rate's 95% interval: the key surely worst, not the one whose one
+  // miss in three taps happens to read highest. Ties go to the key aimed at
+  // more often.
   const missedKeys = summary.keys
     .filter((key) => key.missed > 0 || key.took > 0)
+    .map((key) => ({ key, interval: wilsonInterval(key.missed, key.aimed) }))
     .sort(
-      (left, right) =>
-        ratio(right.missed, right.aimed) - ratio(left.missed, left.aimed) ||
-        right.aimed - left.aimed,
+      (left, right) => right.interval[0] - left.interval[0] || right.key.aimed - left.key.aimed,
     );
   if (missedKeys.length > 0) {
-    lines.push('', 'per-key misses as a share of the taps meant for that key, highest first:');
-    for (const key of missedKeys.slice(0, 20)) {
+    lines.push(
+      '',
+      'per-key misses as a share of the taps meant for that key, with its 95% interval, surely worst first:',
+    );
+    for (const { key, interval } of missedKeys.slice(0, 20)) {
       lines.push(
         `  ${key.layerId}/${key.keyId.padEnd(14)} aimed=${String(key.aimed).padStart(4)}  ` +
-          `missed ${String(key.missed).padStart(3)} (${percent(ratio(key.missed, key.aimed)).padStart(6)})  ` +
+          `missed ${String(key.missed).padStart(3)} ` +
+          (key.aimed === 0
+            ? '(none meant)  '
+            : `(${percent(ratio(key.missed, key.aimed)).padStart(6)}, ` +
+              `${percent(interval[0]).padStart(5)}-${percent(interval[1]).padStart(6)})  `) +
           `took ${String(key.took).padStart(3)} from neighbours`,
       );
     }

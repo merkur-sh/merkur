@@ -76,6 +76,14 @@ function appliedShiftX(
   return (applied.centerX[key.index] ?? 0) - (base.centerX[key.index] ?? 0);
 }
 
+/** The applied y shift of one key against the plain spatial prior, in px. */
+function appliedShiftY(model: ReturnType<typeof createKeyboardOffsetModel>, keyId: string): number {
+  const base = createKeyboardSpatialPrior(geometry);
+  const applied = model.apply(geometry, base);
+  const key = keyFor(keyId);
+  return (applied.centerY[key.index] ?? 0) - (base.centerY[key.index] ?? 0);
+}
+
 describe('keyboard offset model', () => {
   test('converges on a systematic bias despite learning only from the anchor', () => {
     const model = createKeyboardOffsetModel();
@@ -93,8 +101,8 @@ describe('keyboard offset model', () => {
     }
 
     const learned = appliedShiftX(model, 'key-e') / key.rect.width;
-    // Truncated learning attenuates each step, but the fixed point is the true
-    // mean, so it should land close after enough taps.
+    // Truncated learning attenuates each step and settles a little short of
+    // the true mean, so it should land close after enough taps.
     expect(learned).toBeLessThan(-0.1);
     expect(learned).toBeGreaterThan(-0.2);
   });
@@ -219,6 +227,39 @@ describe('keyboard offset model', () => {
     const untouched = appliedShiftX(model, 'key-p');
     expect(untouched).toBeGreaterThan(biasPx * 0.5);
     expect(untouched).toBeLessThanOrEqual(biasPx * 1.5);
+  });
+
+  test('recovers a key the field has pushed the wrong way', () => {
+    // The top row drifts to landing over half a key low, which the moving
+    // window follows and the shared field hands to 't' too. The user hits 't'
+    // on its drawn centre, so the field's prediction for it is wrong by more
+    // than the moving window: only the window around the visual centre lets
+    // those taps train.
+    const model = createKeyboardOffsetModel();
+    const random = createRandom(0x7ec0);
+    const low = ['key-q', 'key-w', 'key-e', 'key-r', 'key-y', 'key-u', 'key-i', 'key-o', 'key-p'];
+    const t = keyFor('key-t');
+    const height = t.rect.height;
+    // The field learns first, so every 't' tap meets the wrong prediction.
+    for (let index = 0; index < 8_000; index += 1) {
+      if (index >= 4_000 && index % 10 === 9) {
+        // Exactly on the centre: with scatter, the tail that reaches the moving
+        // window would recover the key slowly on its own.
+        model.record(
+          trace('key-t', t.rect.x + t.rect.width / 2, t.rect.y + t.rect.height / 2),
+          geometry,
+        );
+        continue;
+      }
+      const keyId = low[index % low.length] ?? 'key-e';
+      const key = keyFor(keyId);
+      const x = key.rect.x + key.rect.width * (0.5 + random() * 0.05);
+      const bias = 0.2 + 0.35 * Math.min(1, index / 2_000);
+      const y = key.rect.y + key.rect.height * (0.5 + bias + random() * 0.05);
+      model.record(trace(keyId, x, y), geometry);
+    }
+    expect(appliedShiftY(model, 'key-e')).toBeGreaterThan(0.5 * height);
+    expect(Math.abs(appliedShiftY(model, 'key-t'))).toBeLessThan(0.05 * height);
   });
 
   test('learns no x field from a wide key', () => {

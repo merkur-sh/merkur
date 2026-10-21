@@ -36,7 +36,11 @@ export type {
   KeyboardOffsetModelOptions,
   KeyboardOffsetSnapshot,
 } from './offset-model';
-export { createKeyboardOffsetModel, isKeyboardOffsetSnapshot } from './offset-model';
+export {
+  createKeyboardOffsetModel,
+  isKeyboardOffsetSnapshot,
+  isWideKeyboardKey,
+} from './offset-model';
 export {
   classifyKeyboardTouch,
   createKeyboardSpatialPrior,

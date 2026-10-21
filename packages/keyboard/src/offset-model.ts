@@ -31,15 +31,28 @@
  * clamps included — or inside the anchor around the visual centre, where the
  * decoder's own anchor-commit guarantee makes the tap unambiguous by
  * definition. The moving window is an EM iteration: it travels with the
- * estimate, and for a symmetric error distribution the fixed point is reached
- * exactly when the combined centre sits on the true mean, because that is when
- * the truncated residuals average to zero. The visual window is the recovery
- * path: when the shared field has moved a key's prediction the wrong way, its
- * anchor-committed taps still train — gating on the moving window alone let
- * exactly those taps be rejected forever, measured as the pooled model landing
- * 5 pp BELOW no learner under a non-smooth injected bias. Every accepted
- * residual stays bounded by an anchor plus the clamps, so the model cannot
- * diverge.
+ * estimate, and alone, for a symmetric error distribution, it would settle
+ * exactly on the true mean. The visual window is the recovery path: when the
+ * shared field has moved a key's prediction the wrong way, its anchor-committed
+ * taps still train — gating on the moving window alone let exactly those taps
+ * be rejected forever, measured as the pooled model landing 5 pp BELOW no
+ * learner under a non-smooth injected bias. Every accepted residual stays
+ * bounded by an anchor plus the clamps, so the model cannot diverge.
+ *
+ * THE UNION SETTLES SHORT OF THE MEAN, AND THAT IS THE BETTER DECODER. Once a
+ * prediction has moved, the two windows together keep the tail on the
+ * drawn-centre side and cut the far one, so the estimate stops short of the
+ * true mean, by more the wider the scatter is against the window. A device
+ * landing 9 to 10 px low on its top-row keys, at a vertical sigma of 10 px,
+ * reported a fifth to a third of that bias left over, and replaying its
+ * per-key distributions through this model reproduced the leftover. Both
+ * symmetric gates were tried in closed loop on scatter shaped like that
+ * device's, the real engine committing every tap and this model training on
+ * its commits: the moving window alone, and the union plus the visual window
+ * mirrored through the prediction. Each put the centres nearer the true mean
+ * and decoded worse than this gate in every scenario — by 0.1 to 0.2 pp on
+ * that device's biases, 1.7 to 1.9 pp on non-smooth seeded biases, 1 to
+ * 2.4 pp on a pathological device. The leftover is not a bias still to remove.
  *
  * The field is shared across layers within a model — grip is a property of
  * hand and board, not of which legend is painted on — while per-key residuals
@@ -370,7 +383,8 @@ export function createKeyboardOffsetModel(
     // what lets a key recover when the shared field has moved its prediction
     // the wrong way: gating on the moving window alone let exactly that key's
     // taps be rejected forever, measured as pooled landing 5 pp BELOW no
-    // learner under a non-smooth injected bias.
+    // learner under a non-smooth injected bias. The union is lopsided once the
+    // prediction has moved, which the header explains and measures.
     const centredX = (trace.downX - centerX) / key.rect.width;
     const centredY = (trace.downY - centerY) / key.rect.height;
     const inMovingWindow =
@@ -392,7 +406,7 @@ export function createKeyboardOffsetModel(
       // worst before decaying, always inside the half-pitch total clamp.
       const fieldOwnX = trace.downX - (centerX + fieldX);
       const fieldOwnY = trace.downY - (centerY + fieldY);
-      if (key.rect.width <= FIELD_WIDE_KEY_PITCHES * keyPitch) {
+      if (!isWideKeyboardKey(geometry, key)) {
         fieldStep(px, thetaX, clamp(fieldOwnX / keyPitch, FIELD_ERROR_CLIP_PITCHES), su, sv);
       }
       fieldStep(py, thetaY, clamp(fieldOwnY / rowPitch, FIELD_ERROR_CLIP_PITCHES), su, sv);
@@ -567,6 +581,18 @@ function isFiniteNumberArray(value: unknown, length: number): value is readonly 
     value.length === length &&
     value.every((entry) => typeof entry === 'number' && Number.isFinite(entry))
   );
+}
+
+/**
+ * A key whose sideways scatter is its own width rather than aim: the field
+ * takes no x evidence from it, and the typing diagnostics leave its x offset
+ * out of the pooled bias for the same reason.
+ */
+export function isWideKeyboardKey(
+  geometry: ResolvedKeyboardGeometry,
+  key: ResolvedKeyboardGeometry['keys'][number],
+): boolean {
+  return key.rect.width > (FIELD_WIDE_KEY_PITCHES * geometry.width) / 10;
 }
 
 /**

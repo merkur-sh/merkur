@@ -147,8 +147,10 @@ its corrections can be analysed, and wiped when it does.
   mistake, so the learner only accepts taps whose commit is not in doubt: inside the anchor
   around the current combined prediction, or inside the visual-centre anchor where the
   decoder's own anchor-commit guarantee applies. Updates are residuals from the current
-  prediction, an EM iteration whose fixed point is the true offset, converging from a
-  biased first step and unable to diverge. The other source is the user: a tap they erased
+  prediction, an EM iteration that cannot diverge. Once a key's prediction has moved, the
+  two windows together are lopsided and the estimate settles short of a large bias, toward
+  the drawn centre. Both symmetric alternatives were measured in closed loop and decoded
+  worse, so the shortfall stays. The other source is the user: a tap they erased
   and replaced with a neighbour of where it landed is labelled with the key they meant
   (`recordCorrection`), and a label they gave needs no window, only the same clamps. Those
   are exactly the boundary taps the windows reject.
@@ -161,7 +163,10 @@ its corrections can be analysed, and wiped when it does.
   the finger or the context prior made each miss.
 - **Diagnostics.** Contact-to-release travel, contact duration, movement-free tap rate and
   per-key spread, for deciding whether the thresholds above are right for a given device,
-  and the correction counts above per key.
+  and the correction counts above per key, with each key's miss rate bounded by a 95%
+  interval. Extra taps that repeat the key before them carry the touch-down gap, beside
+  the same gap for doubled letters that were kept, so a bounce or a double delivery shows
+  as a gap no finger types. Every context-prior override is followed to its outcome.
 
 ## Geometry profiles and theming
 

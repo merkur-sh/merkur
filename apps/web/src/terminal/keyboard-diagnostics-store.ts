@@ -110,32 +110,71 @@ function schedulePersist(): void {
   }, PERSIST_DELAY_MS);
 }
 
+const SNAPSHOT_COUNTS = [
+  'taps',
+  'uncommitted',
+  'interTapCount',
+  'fastDriftCount',
+  'slowDriftCount',
+  'lines',
+  'missesByPrior',
+  'priorOverrides',
+  'priorOverridesKept',
+  'priorOverridesErased',
+  'priorOverridesMisread',
+  'priorOverridesDeleted',
+  'priorOverridesReplaced',
+  'extraUntraced',
+] as const;
+const SNAPSHOT_SUMS = [
+  'driftSum',
+  'durationSum',
+  'sampleSum',
+  'interTapSum',
+  'fastDriftSum',
+  'slowDriftSum',
+  'extraRepeatGapSum',
+  'keptDoubleGapSum',
+] as const;
+const SNAPSHOT_HISTOGRAMS = [
+  'drift',
+  'duration',
+  'samples',
+  'interTap',
+  'extraRepeatGap',
+  'keptDoubleGap',
+  'typedDrift',
+  'missDrift',
+  'noticed',
+] as const;
+const KEY_COUNTS = [
+  'count',
+  'residualCount',
+  'aimed',
+  'missed',
+  'took',
+  'erasedCorrect',
+  'replaced',
+  'extra',
+  'skipped',
+] as const;
+const KEY_SUMS = [
+  'sumX',
+  'sumY',
+  'sumXX',
+  'sumYY',
+  'sumXY',
+  'sumResidualX',
+  'sumResidualY',
+] as const;
+
 function isSnapshot(value: unknown): value is KeyboardDiagnosticsSnapshot {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
-    isCount(candidate.taps) &&
-    isCount(candidate.uncommitted) &&
-    isFiniteNumber(candidate.driftSum) &&
-    isFiniteNumber(candidate.durationSum) &&
-    isFiniteNumber(candidate.sampleSum) &&
-    isNumberArray(candidate.drift) &&
-    isNumberArray(candidate.duration) &&
-    isNumberArray(candidate.samples) &&
-    isNumberArray(candidate.interTap) &&
-    isFiniteNumber(candidate.interTapSum) &&
-    isCount(candidate.interTapCount) &&
-    isFiniteNumber(candidate.fastDriftSum) &&
-    isCount(candidate.fastDriftCount) &&
-    isFiniteNumber(candidate.slowDriftSum) &&
-    isCount(candidate.slowDriftCount) &&
-    isCount(candidate.lines) &&
-    isCount(candidate.missesByPrior) &&
-    isCount(candidate.priorOverrides) &&
-    isCount(candidate.priorOverridesKept) &&
-    isNumberArray(candidate.typedDrift) &&
-    isNumberArray(candidate.missDrift) &&
-    isNumberArray(candidate.noticed) &&
+    SNAPSHOT_COUNTS.every((field) => isCount(candidate[field])) &&
+    SNAPSHOT_SUMS.every((field) => isFiniteNumber(candidate[field])) &&
+    SNAPSHOT_HISTOGRAMS.every((field) => isNumberArray(candidate[field])) &&
     Array.isArray(candidate.keys) &&
     candidate.keys.every(isKeyEntry)
   );
@@ -147,22 +186,9 @@ function isKeyEntry(value: unknown): boolean {
   return (
     typeof entry.layerId === 'string' &&
     typeof entry.keyId === 'string' &&
-    isCount(entry.count) &&
-    isFiniteNumber(entry.sumX) &&
-    isFiniteNumber(entry.sumY) &&
-    isFiniteNumber(entry.sumXX) &&
-    isFiniteNumber(entry.sumYY) &&
-    isFiniteNumber(entry.sumXY) &&
-    isCount(entry.residualCount) &&
-    isFiniteNumber(entry.sumResidualX) &&
-    isFiniteNumber(entry.sumResidualY) &&
-    isCount(entry.aimed) &&
-    isCount(entry.missed) &&
-    isCount(entry.took) &&
-    isCount(entry.erasedCorrect) &&
-    isCount(entry.replaced) &&
-    isCount(entry.extra) &&
-    isCount(entry.skipped)
+    (entry.wide === true || entry.wide === false) &&
+    KEY_COUNTS.every((field) => isCount(entry[field])) &&
+    KEY_SUMS.every((field) => isFiniteNumber(entry[field]))
   );
 }
 

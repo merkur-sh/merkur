@@ -221,6 +221,19 @@ describe('learned-centre residual', () => {
     expect(summary.pooledBiasPx).toBeCloseTo(Math.hypot(4, 9), 6);
     expect(summary.pooledResidualBiasPx).toBeCloseTo(Math.SQRT2, 6);
   });
+
+  test('pools only the y offset of a wide key', () => {
+    const diagnostics = createKeyboardDiagnostics();
+    // Where along the space bar a thumb lands is the bar's width, not aim.
+    diagnostics.record(trace('space', 30, 6), geometry);
+    const restored = createKeyboardDiagnostics();
+    restored.restore(diagnostics.snapshot());
+    for (const summary of [diagnostics.summary(12), restored.summary(12)]) {
+      expect(summary.keys[0]?.offsetX).toBeCloseTo(30, 6);
+      expect(summary.pooledBiasPx).toBeCloseTo(6, 6);
+      expect(summary.pooledResidualBiasPx).toBeCloseTo(6, 6);
+    }
+  });
 });
 
 describe('corrections', () => {
@@ -439,8 +452,134 @@ describe('corrections', () => {
     expect(summary.missRateOverDrift).toBeCloseTo(1, 6);
     expect(summary.noticedAfter[0]).toBe(1);
     expect(formatKeyboardDiagnostics(summary)).toContain(
-      'alpha/key-w          aimed=   2  missed   1 ( 50.0%)  took   0 from neighbours',
+      'alpha/key-w          aimed=   2  missed   1 ( 50.0%,  9.5%- 90.5%)  took   0 from neighbours',
     );
+  });
+
+  test('ranks missed keys by how surely they are bad, not by their raw rate', () => {
+    const diagnostics = createKeyboardDiagnostics();
+    // 'w': ten misses in fifty aimed (20%). 'i': one in three (33.3%), which
+    // reads higher and proves far less.
+    for (let index = 0; index < 10; index += 1) {
+      type(diagnostics, 'key-e', -14);
+      erase(diagnostics);
+      type(diagnostics, 'key-w');
+    }
+    for (let index = 0; index < 30; index += 1) type(diagnostics, 'key-w');
+    type(diagnostics, 'key-o', -14);
+    erase(diagnostics);
+    type(diagnostics, 'key-i');
+    type(diagnostics, 'key-i');
+    diagnostics.recordBreak();
+    expect(entryFor(diagnostics, 'key-w')?.aimed).toBe(50);
+    const text = formatKeyboardDiagnostics(diagnostics.summary(12));
+    const table = text.slice(text.indexOf('per-key misses'));
+    expect(table.indexOf('key-w')).toBeLessThan(table.indexOf('key-i'));
+  });
+
+  test('times an extra tap against the twin it repeats, with kept doubles as control', () => {
+    const diagnostics = createKeyboardDiagnostics();
+    // A bounce: 't' lands twice 30ms apart and the second is erased.
+    type(diagnostics, 'key-t', 0, 0, { contactAtMs: 1_000 });
+    type(diagnostics, 'key-t', 0, 0, { contactAtMs: 1_030 });
+    erase(diagnostics);
+    // A double letter typed on purpose, 160ms apart, kept.
+    type(diagnostics, 'key-l', 0, 0, { contactAtMs: 1_400 });
+    type(diagnostics, 'key-l', 0, 0, { contactAtMs: 1_560 });
+    diagnostics.recordBreak();
+    const summary = diagnostics.summary(12);
+    expect(summary.extra).toBe(1);
+    expect(summary.extraRepeats).toBe(1);
+    expect(summary.extraRepeatGapMs.p50).toBe(30);
+    expect(summary.keptDoubleGapMs.p50).toBe(170);
+    expect(formatKeyboardDiagnostics(summary)).toContain(
+      'extra taps that repeat the key just before them 1, touch-down gap p10 30ms  p50 30ms; ' +
+        'double letters kept: p10 170ms  p50 170ms',
+    );
+  });
+
+  test('counts an erased commit no touch traced, but not a held key repeat', () => {
+    const diagnostics = createKeyboardDiagnostics();
+    type(diagnostics, 'key-a');
+    // A second commit with no trace of its own, as a key delivered twice is.
+    diagnostics.recordCommit(keyFor('key-a').definition, pointer, false);
+    erase(diagnostics);
+    type(diagnostics, 'key-s');
+    pointer += 1;
+    diagnostics.recordCommit(keyFor('key-s').definition, pointer, true);
+    erase(diagnostics);
+    diagnostics.recordBreak();
+    expect(diagnostics.summary(12).extraUntraced).toBe(1);
+  });
+
+  test('accounts for every outcome of an overruled touch', () => {
+    const diagnostics = createKeyboardDiagnostics();
+    const w = keyFor('key-w').definition;
+    const r = keyFor('key-r').definition;
+    const line = (steps: () => void): void => {
+      steps();
+      diagnostics.recordBreak();
+    };
+    // Kept.
+    line(() => type(diagnostics, 'key-e', 0, 0, { spatialKey: w }));
+    // Erased and retyped as itself: right all along.
+    line(() => {
+      type(diagnostics, 'key-e', 0, 0, { spatialKey: w });
+      erase(diagnostics);
+      type(diagnostics, 'key-e');
+    });
+    // Corrected back to the key the touch had chosen.
+    line(() => {
+      type(diagnostics, 'key-e', -14, 0, { spatialKey: w });
+      erase(diagnostics);
+      type(diagnostics, 'key-w');
+    });
+    // Corrected to a neighbour neither the touch nor the guess chose.
+    line(() => {
+      type(diagnostics, 'key-e', -14, 0, { spatialKey: r });
+      erase(diagnostics);
+      type(diagnostics, 'key-w');
+    });
+    // Deleted outright.
+    line(() => {
+      type(diagnostics, 'key-e', 0, 0, { spatialKey: w });
+      erase(diagnostics);
+    });
+    // Replaced by a key far from the tap.
+    line(() => {
+      type(diagnostics, 'key-e', 0, 0, { spatialKey: w });
+      erase(diagnostics);
+      type(diagnostics, 'key-p');
+    });
+    const summary = diagnostics.summary(12);
+    expect(summary.priorOverrides).toBe(6);
+    expect(summary.priorOverridesKept).toBe(1);
+    expect(summary.priorOverridesErased).toBe(1);
+    expect(summary.missesByPrior).toBe(1);
+    expect(summary.priorOverridesMisread).toBe(1);
+    expect(summary.priorOverridesDeleted).toBe(1);
+    expect(summary.priorOverridesReplaced).toBe(1);
+    expect(formatKeyboardDiagnostics(summary)).toContain(
+      'next-letter guess overruled the touch 6 times: right 2 (kept 1, erased later 1)  ' +
+        'wrong 2 (the touch was right 1, a third key was meant 1)  deleted 1  replaced far 1',
+    );
+  });
+
+  test('round-trips the extra-tap and override counts through a snapshot', () => {
+    const diagnostics = createKeyboardDiagnostics();
+    type(diagnostics, 'key-t', 0, 0, { contactAtMs: 1_000 });
+    type(diagnostics, 'key-t', 0, 0, {
+      contactAtMs: 1_030,
+      spatialKey: keyFor('key-r').definition,
+    });
+    erase(diagnostics);
+    diagnostics.recordBreak();
+    const restored = createKeyboardDiagnostics();
+    restored.restore(diagnostics.snapshot());
+    const summary = restored.summary(12);
+    expect(summary.extraRepeats).toBe(1);
+    expect(summary.extraRepeatGapMs.mean).toBe(30);
+    expect(summary.priorOverridesDeleted).toBe(1);
   });
 
   test('lists missed keys by rate, not by how often they were typed', () => {
@@ -458,7 +597,9 @@ describe('corrections', () => {
     diagnostics.recordBreak();
     const text = formatKeyboardDiagnostics(diagnostics.summary(12));
     const table = text.slice(text.indexOf('per-key misses'));
-    expect(table).toContain('missed   1 ( 20.0%)');
+    expect(table).toContain('missed   1 ( 20.0%,');
+    // A key that only took taps has no rate to bound.
+    expect(table).toContain('alpha/key-e          aimed=   0  missed   0 (none meant)');
     expect(table.indexOf('key-i')).toBeLessThan(table.indexOf('key-w'));
     // A key that neither missed nor took a tap has no row.
     expect(table).not.toContain('key-a');
