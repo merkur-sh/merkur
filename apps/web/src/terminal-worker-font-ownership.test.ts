@@ -73,7 +73,6 @@ function harness() {
     self: { postMessage: (event: { kind: string }) => events.push(event.kind) },
     controlQueue: queue,
     controlQueueSize: () => queue.size(),
-    peerFences: [],
     controlPumpActive: false,
     controlQueueOverflowReported: false,
     activeControlBlocksDataPlane: false,

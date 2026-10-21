@@ -92,17 +92,24 @@ describe('terminal worker presentation host adapter', () => {
       expect(commit).toContain(`Math.max(0, at - (t[${index}] ?? at))`);
   });
 
-  test('the peer fence retires SAB backlog and account authority before acknowledging custody', () => {
-    const fence = body('applyPeerFence');
+  test('the ring fence retires account authority before recording the installed lineage', () => {
+    // The fence is read from the frame ring in order with the frames, its
+    // lease returned before the viewer changes lineage.
+    const consume = body('consumeDisplayRingEntry');
+    expect(consume.indexOf('entry.release()')).toBeLessThan(
+      consume.indexOf('applyLineageFence(fence)'),
+    );
+    const fence = body('applyLineageFence');
     expect(fence).toContain('terminal.viewer.reset_session()');
-    expect(fence.indexOf('frameRingReader?.discardPending()')).toBeLessThan(
-      fence.indexOf('terminal.viewer.fence('),
+    expect(fence).toContain('activeFrameFenceToken = fence.token');
+    expect(fence.indexOf('terminal.viewer.fence(')).toBeLessThan(
+      fence.indexOf('frameRingReader?.installFence(fence.token)'),
     );
     expect(fence.indexOf('drainViewerOutputs()')).toBeLessThan(
-      fence.indexOf("kind: 'client_viewer_fenced'"),
+      fence.indexOf('frameRingReader?.installFence(fence.token)'),
     );
-    expect(fence).toContain('frameFenceToken: fence.frameFenceToken');
-    expect(fence).toContain('releaseSessionLineageFence(fence.frameFenceToken)');
+    // Nothing about the fence crosses the peer port.
+    expect(fence).not.toContain('ringWakePort');
     // An output held for a full ring belongs to the lineage that ends here: it
     // is dropped before the viewer's output buffer is reused.
     expect(fence.indexOf('viewerOutputPublisher?.reset()')).toBeGreaterThan(-1);

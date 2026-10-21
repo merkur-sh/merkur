@@ -20,7 +20,6 @@ function harness(kinds: string[]) {
   const tasks: (() => Promise<unknown>)[] = [];
   let displayBudgets = 0;
   const context = {
-    peerFences: [],
     wasmTerminal: {},
     controlPumpActive: false,
     controlPumpScheduled: false,

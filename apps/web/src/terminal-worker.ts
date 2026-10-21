@@ -94,8 +94,11 @@ import {
 
 import {
   FRAME_KIND_CLIENT_INGRESS_BASE,
+  FRAME_KIND_LINEAGE_FENCE,
   FRAME_RING_SPACE_EDGE,
+  type FrameRingFence,
   type FrameRingReader,
+  readFrameRingFence,
 } from './terminal/shared-ring';
 
 import type { TerminalTheme } from './terminal/themes';
@@ -114,8 +117,9 @@ import {
 } from './terminal/worker-control-queue';
 
 import type {
+  ClientGeometry,
   ClientGraphicsAsset,
-  ClientSessionFence,
+  ClientGraphicsClock,
   PerfGridConvergenceResponseEdge,
   TerminalToTransportPeer,
   TransportToTerminalPeer,
@@ -588,29 +592,36 @@ function handleRingWakeEdge(event: MessageEvent<number | TransportToTerminalPeer
       void acceptClientGraphicsAsset(data).catch(reportFatal);
       return;
     case 'client_graphics_clock':
-      if (data.lineage === activeSessionEpoch && data.frameFenceToken === activeFrameFenceToken) {
-        wasmTerminal?.viewer.graphics_clock(viewerNowMs(), data.monotonicUs, data.rttMs);
-        observeViewerPresentation();
-        drainViewerOutputs();
-        armViewerDeadline();
-        wakeGraphics();
+      // Published under a fence still ahead in the frame ring: it takes
+      // effect when the viewer installs that fence.
+      if (data.frameFenceToken !== activeFrameFenceToken) {
+        heldGraphicsClock = data;
+        return;
       }
+      if (data.lineage === activeSessionEpoch) applyGraphicsClock(data);
       return;
     case 'client_geometry':
-      if (data.lineage === activeSessionEpoch && data.frameFenceToken === activeFrameFenceToken) {
+      if (data.frameFenceToken !== activeFrameFenceToken) {
+        heldGeometry = data;
+        return;
+      }
+      if (data.lineage === activeSessionEpoch) {
         receivedGeometryState = { epoch: data.lineage, status: data.status };
         applyGeometryAuthority();
       }
-      return;
-    case 'client_session_fence':
-      peerFences.length = 0;
-      peerFences.push(data);
-      scheduleControlPump();
       return;
     case 'perf_grid_convergence_response':
       handlePerfGridConvergenceResponse(data);
       return;
   }
+}
+
+function applyGraphicsClock(clock: ClientGraphicsClock): void {
+  wasmTerminal?.viewer.graphics_clock(viewerNowMs(), clock.monotonicUs, clock.rttMs);
+  observeViewerPresentation();
+  drainViewerOutputs();
+  armViewerDeadline();
+  wakeGraphics();
 }
 
 function installRingWakePort(port: MessagePort): void {
@@ -1154,10 +1165,6 @@ async function runControlPump(): Promise<void> {
   controlPumpActive = true;
   let processed = 0;
   try {
-    while (peerFences.length > 0 && wasmTerminal !== null) {
-      const fence = peerFences.shift();
-      if (fence !== undefined) applyPeerFence(fence);
-    }
     while (controlQueueSize() > 0 && processed < CONTROL_COMMANDS_PER_SLICE) {
       const cmd = controlQueue.shift();
       if (cmd === undefined) {
@@ -1184,10 +1191,6 @@ async function runControlPump(): Promise<void> {
     controlPumpActive = false;
   }
 
-  while (peerFences.length > 0 && wasmTerminal !== null) {
-    const fence = peerFences.shift();
-    if (fence !== undefined) applyPeerFence(fence);
-  }
   runDataPlaneFairnessSlice();
   if (controlQueueSize() > 0) {
     // Repeated queueMicrotask turns never yield to input/rAF task sources.
@@ -1732,6 +1735,8 @@ function disposeInstalledRuntime(): void {
   workerReady = false;
   activeSessionEpoch = 0;
   activeFrameFenceToken = 0;
+  heldGeometry = null;
+  heldGraphicsClock = null;
   predictionModelThroughInputSeq = 0;
   localPresentationPending = false;
   provisionalPreview.clear();
@@ -1827,6 +1832,12 @@ function consumeDisplayRingEntry(): boolean {
   if (entry === null || entry === undefined) {
     if (frameRingReader?.takeRefusal()) ringWakePort?.postMessage(FRAME_RING_SPACE_EDGE);
     return false;
+  }
+  if (entry.kind === FRAME_KIND_LINEAGE_FENCE) {
+    const fence = readFrameRingFence(entry.payload);
+    entry.release();
+    applyLineageFence(fence);
+    return true;
   }
   try {
     const terminal = wasmTerminal;
@@ -3223,7 +3234,14 @@ function viewWasmU8(buffer: ArrayBufferLike, ptr: number, len: number): Uint8Arr
   return atlasPixelsView;
 }
 
-const peerFences: ClientSessionFence[] = [];
+/**
+ * The latest geometry state and graphics clock the transport published under a
+ * fence the viewer has not installed yet: the transport never waits for the
+ * viewer to take a fence, so these can overtake the fence's ring entry.
+ */
+let heldGeometry: ClientGeometry | null = null;
+
+let heldGraphicsClock: ClientGraphicsClock | null = null;
 
 let observedViewerFrames = 0;
 
@@ -3447,11 +3465,16 @@ function observeViewerPresentation(): void {
   }
 }
 
-function applyPeerFence(fence: ClientSessionFence): void {
+/**
+ * The frame ring handed the viewer a lineage boundary, in order with the
+ * frames: everything read before it was the old lineage's, everything after is
+ * the new one's.
+ */
+function applyLineageFence(fence: FrameRingFence): void {
   const terminal = wasmTerminal;
   if (
     terminal === null ||
-    fence.frameFenceToken === activeFrameFenceToken ||
+    fence.token === activeFrameFenceToken ||
     (!fence.newSession && fence.lineage <= activeSessionEpoch)
   )
     return;
@@ -3485,7 +3508,6 @@ function applyPeerFence(fence: ClientSessionFence): void {
   resumePresentationPending = false;
   resumeAppliedFrames = terminal.viewer.applied_frames();
   presentationsAtLastRowPump = -1;
-  frameRingReader?.discardPending();
   displayOutputSettle.reset();
   abandonInFlightLatencyFrame();
   firstDisplayGpuFence.resetEpoch();
@@ -3497,10 +3519,14 @@ function applyPeerFence(fence: ClientSessionFence): void {
   graphicsPresentationDirty = false;
   graphicsOfferSpaceReleased = false;
   activeSessionEpoch = fence.lineage;
-  activeFrameFenceToken = fence.frameFenceToken;
+  activeFrameFenceToken = fence.token;
   graphicsEpoch = fence.lineage;
   controlsGeometry = false;
   resizeRequestedAtMs = 0;
+  const geometry = heldGeometry;
+  heldGeometry = null;
+  if (geometry?.frameFenceToken === fence.token && geometry.lineage === fence.lineage)
+    receivedGeometryState = { epoch: fence.lineage, status: geometry.status };
   if (receivedGeometryState?.epoch !== fence.lineage) receivedGeometryState = null;
   graphicsOwner = crypto.randomUUID();
   observedLinkRevision = -1;
@@ -3509,15 +3535,13 @@ function applyPeerFence(fence: ClientSessionFence): void {
   renderer?.clearGraphics();
   terminal.viewer.fence(viewerNowMs(), fence.lineage);
   applyGeometryAuthority();
+  const clock = heldGraphicsClock;
+  heldGraphicsClock = null;
+  if (clock?.frameFenceToken === fence.token && clock.lineage === fence.lineage)
+    applyGraphicsClock(clock);
   publishViewerLinks();
   drainViewerOutputs();
-  ringWakePort?.postMessage({
-    kind: 'client_viewer_fenced',
-    lineage: fence.lineage,
-    frameFenceToken: fence.frameFenceToken,
-  } satisfies TerminalToTransportPeer);
-  frameRingReader?.releaseSessionLineageFence(fence.frameFenceToken);
-  displayAvailableWake.wake();
+  frameRingReader?.installFence(fence.token);
   publishPredictionModel();
   armPresentationCommit();
   armViewerDeadline();
