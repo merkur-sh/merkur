@@ -1,0 +1,47 @@
+name: Profile
+
+# The simulated display pipeline, profiled on a Linux runner: spans from the dataplane's own
+# recorder, CPU samples from samply, and the query catalogue's answers, uploaded together.
+# Started by hand; it gates nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: Full-screen writes the capture flushes
+        default: '3000'
+
+permissions:
+  contents: read
+
+jobs:
+  sim:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust: 'true'
+          rust-cache: 'true'
+      # samply samples through perf_event_open, which the runner's default paranoia refuses to
+      # an unprivileged process.
+      - run: sudo sysctl -w kernel.perf_event_paranoid=1
+      - run: bun run profile:setup
+      - env:
+          ROUNDS: ${{ inputs.rounds }}
+        run: bun run profile:sim --rounds "$ROUNDS" --cpu --out profile
+      - run: |
+          for query in span-percentiles flush-breakdown cpu-top; do
+            {
+              echo "### $query"
+              echo '```'
+              bun run --silent profile:query profile "$query" | tee "profile/$query.txt"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: profile
+          path: profile
