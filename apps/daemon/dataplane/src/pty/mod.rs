@@ -525,12 +525,14 @@ fn start_pty_reader(
         .name("merkur-pty-reader".to_string())
         .spawn(move || {
             // SAFETY: `pthread_self` takes no argument and names the calling thread.
-            let _ = stop.thread.set(unsafe { libc::pthread_self() });
+            stop.thread.get_or_init(|| unsafe { libc::pthread_self() });
             let mut buf = vec![0u8; PTY_READ_BYTES];
             let mut read_ordinal = 0u64;
             loop {
                 if stop.stopping() {
-                    let _ = event_tx.blocking_send(TerminalEvent::PtyReaderStopped);
+                    if let Err(error) = event_tx.blocking_send(TerminalEvent::PtyReaderStopped) {
+                        tracing::debug!(%error, "the owner left before the reader stopped");
+                    }
                     break;
                 }
                 // The last read's buffer went to the owner. Take back one it has
@@ -2163,7 +2165,7 @@ mod tests {
             child.try_wait().unwrap().is_none(),
             "the shell outlives its reader"
         );
-        let _ = child.kill();
-        let _ = child.wait();
+        child.kill().expect("end the shell");
+        child.wait().expect("reap the shell");
     }
 }

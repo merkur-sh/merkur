@@ -1119,8 +1119,9 @@ impl Host {
         };
         if let Ok(address) = owner.local_addr()
             && let Some(path) = address.as_pathname()
+            && let Err(error) = std::fs::remove_file(path)
         {
-            let _ = std::fs::remove_file(path);
+            warn!(%error, "the taken owner socket stays at its path");
         }
         drop(owner);
         let (kind, payload) =
@@ -4060,7 +4061,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(merkur_sim))]
     if let Some((upgrade, owner_listener)) = pending_upgrade.take() {
         if let Some(mut server) = wt_server.take() {
-            let _ = server.shutdown().await;
+            // Its retired connections close with this process image.
+            drop(server.shutdown().await);
         }
         management_signatures.abort_all();
         let error = hand_over_terminal(
@@ -4077,7 +4079,9 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
             &mut event_output,
         )
         .await;
-        let _ = std::fs::remove_file(&upgrade.socket_path);
+        if let Err(removal) = std::fs::remove_file(&upgrade.socket_path) {
+            warn!(error = %removal, "the owner socket of a failed upgrade stays at its path");
+        }
         return Err(Box::new(error));
     }
 
@@ -4203,7 +4207,12 @@ async fn hand_over_terminal(
         Err(error) => return refuse(error),
     };
     accept_command(event_tx, &upgrade.command_id);
-    let _ = event_output.shutdown().await;
+    // The acknowledgement must reach the owner before this image goes.
+    if let Err(failure) = event_output.shutdown().await {
+        return io::Error::other(format!(
+            "the upgrade acknowledgement was not delivered: {failure}"
+        ));
+    }
     staged.exec(std::path::Path::new(&upgrade.executable))
 }
 

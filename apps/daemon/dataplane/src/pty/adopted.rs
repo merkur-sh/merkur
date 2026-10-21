@@ -29,7 +29,7 @@ pub fn adopt_pty(
 ) -> io::Result<PtyHandle> {
     configure_blocking_fd(master.as_raw_fd())?;
     let pid = libc::pid_t::try_from(pid)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "shell pid out of range"))?;
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let master = Master(master);
     let reader = master.duplicate()?;
     let writer = master.duplicate()?;
