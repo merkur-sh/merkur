@@ -224,7 +224,10 @@ mod tests {
         };
         let state = index.peer().lock();
         let mut out = Vec::new();
-        state.history(presentation_id).candidates(pair_hash(item(0), item(1)), &mut out);
+        state.history(presentation_id).candidates(pair_hash(item(0), item(1)), |candidate, _| {
+            out.push(candidate);
+            true
+        });
         out
     }
 
@@ -295,7 +298,10 @@ mod tests {
         };
         let state = index.peer().lock();
         let mut out = Vec::new();
-        state.snapshot_history().candidates(pair_hash(item(0), item(1)), &mut out);
+        state.snapshot_history().candidates(pair_hash(item(0), item(1)), |candidate, _| {
+            out.push(candidate);
+            true
+        });
         out
     }
 

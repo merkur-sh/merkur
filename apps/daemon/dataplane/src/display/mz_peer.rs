@@ -16,6 +16,7 @@ use merkur_codec::mz::{
     next_epoch_id, pair_hash, previous_generation,
 };
 use std::collections::{HashMap, VecDeque};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -98,6 +99,50 @@ struct Source {
 /// A source's name: display generation, datagram, row.
 type SourceKey = (u32, u32, u16);
 
+/// Pair keys already contain the item hashes. Source keys are three integers;
+/// combine their words without hashing their byte representation. Map traversal
+/// never orders candidates: `pairs` owns ordered lists and `order` owns retirement.
+#[derive(Default)]
+struct SourceHasher(u64);
+
+impl Hasher for SourceHasher {
+    fn finish(&self) -> u64 {
+        let mixed = self.0.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        mixed ^ (mixed >> 32)
+    }
+
+    #[expect(clippy::unreachable, reason = "SourceKey hashes as two u32s and one u16")]
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("source keys hash as integers");
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.0 = self.0.rotate_left(32) ^ u64::from(value);
+    }
+
+    fn write_u16(&mut self, value: u16) {
+        self.0 ^= u64::from(value).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+#[derive(Default)]
+struct PairHasher(u64);
+
+impl Hasher for PairHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[expect(clippy::unreachable, reason = "pair keys hash as one u64")]
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("pair keys hash as one u64");
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = value;
+    }
+}
+
 /// The encoder's view of one peer.
 #[derive(Default)]
 pub(crate) struct MzPeerState {
@@ -109,9 +154,9 @@ pub(crate) struct MzPeerState {
     floor: Option<u32>,
     previous_floor: Option<u32>,
     /// Acknowledged complete rows, by generation, datagram and row.
-    sources: HashMap<SourceKey, Source>,
+    sources: HashMap<SourceKey, Source, BuildHasherDefault<SourceHasher>>,
     /// The pair hash of each source item pair → `(source, item)`, newest last.
-    pairs: HashMap<u64, Vec<(SourceKey, u16)>>,
+    pairs: HashMap<u64, Vec<(SourceKey, u16)>, BuildHasherDefault<PairHasher>>,
     /// The current generation's sources in acknowledgement order, so they
     /// retire oldest first, and the previous generation's, which retire with
     /// it.
@@ -434,34 +479,22 @@ impl History<'_> {
 }
 
 impl MzMatches for History<'_> {
-    fn candidates(&self, pair: u64, out: &mut Vec<MzCandidate>) {
+    fn candidates(&self, pair: u64, mut visit: impl FnMut(MzCandidate, MzRow<'_>) -> bool) {
         let Some(list) = self.state.pairs.get(&pair) else { return };
         for &(key, item) in list.iter().rev() {
-            if self.state.sources.contains_key(&key)
-                && let Some((previous, back)) = self.name(key)
-            {
-                out.push(MzCandidate { previous, back, row: key.2, item });
+            let Some((previous, back)) = self.name(key) else { continue };
+            let Some(source) = self.state.sources.get(&key) else { continue };
+            let row = MzRow {
+                entry: &source.entry,
+                first: source.first,
+                items: &source.items,
+                mode: source.mode,
+                hashes: &source.hashes,
+            };
+            if !visit(MzCandidate { previous, back, row: key.2, item }, row) {
+                break;
             }
         }
-    }
-
-    fn row(&self, previous: bool, back: u32, row: u16) -> Option<MzRow<'_>> {
-        let state = self.state;
-        let key = match (self.snapshot, previous) {
-            (true, true) => (state.generation, back, row),
-            (false, true) => (state.previous, back, row),
-            (false, false) => (state.generation, self.presentation_id.wrapping_sub(back), row),
-            (true, false) => return None,
-        };
-        (self.name(key)? == (previous, back)).then_some(())?;
-        let source = state.sources.get(&key)?;
-        Some(MzRow {
-            entry: &source.entry,
-            first: source.first,
-            items: &source.items,
-            mode: source.mode,
-            hashes: &source.hashes,
-        })
     }
 }
 
