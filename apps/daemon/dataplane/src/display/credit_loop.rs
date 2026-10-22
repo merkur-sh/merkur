@@ -888,7 +888,10 @@ async fn a_flood_that_outruns_preparation_presents_every_paid_state() {
         let period_ms = 1_000.0 / hz;
         let paced = Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, true, true)).await;
         let control = Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, true, false)).await;
-        let unbounded = Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, false, true)).await;
+        // Unpaced delivery under the frame rule: with early commits an
+        // unpaced flood presents up to two captures a frame, a render cost
+        // pacing is not meant to match.
+        let unbounded = Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, false, false)).await;
         eprintln!(
             "flood with encode time {hz} Hz / {} ms RTT (age mean/p95, commits per frame): \
              paced {:.1}/{:.1} {:.2} ({} of {} early), frame rule {:.1}/{:.1} {:.2}, \

@@ -35,8 +35,10 @@ pub(crate) struct SimCommit {
 }
 
 pub(crate) struct SimPresentation {
-    /// Honour `PATCH_FLAG_DEMAND_AWAITS_GRANT`. Off, members reach the
-    /// coordinator without it, which leaves the frame rule alone: the test
+    /// Honour the early release rules: `PATCH_FLAG_DEMAND_AWAITS_GRANT` and
+    /// the host's early opportunity, which complete membership also takes.
+    /// Off, members reach the coordinator without the fact and no early
+    /// commit is attempted, which leaves the frame rule alone: the test
     /// control.
     pub(crate) paced: bool,
     coordinator: PresentationCoordinator,
@@ -115,7 +117,8 @@ impl SimPresentation {
         if completed != Release::None {
             return Some(completed);
         }
-        if self.opportunity
+        if self.paced
+            && self.opportunity
             && self.coordinator.early_release_eligible()
             && self.coordinator.with_early_release(|| true)
         {
