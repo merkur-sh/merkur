@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 pub struct Compressor {
     mz: MzEncoder,
+    /// Whether the last compression attempt produced attributable row costs.
     row_costs_valid: bool,
     /// Profiling-only accumulator around the complete compression stage,
     /// including validation and rejected outputs. Disabled in normal operation,
@@ -128,8 +129,13 @@ impl Compressor {
         self.mz.trace()
     }
 
+    /// Row prices from the last completed encode, including rejected payloads.
     pub(crate) fn row_costs(&self) -> &[merkur_codec::mz::MzRowCost] {
-        if self.row_costs_valid { self.mz.row_costs() } else { &[] }
+        if self.row_costs_valid {
+            self.mz.row_costs()
+        } else {
+            &[]
+        }
     }
 
     fn compress_mz(
@@ -489,8 +495,7 @@ mod tests {
         }
     }
 
-    /// Measure the sender-service and achieved-ratio surfaces consumed by the
-    /// display planner.
+    /// Measure sender service and the row entropy observed by the planner.
     #[test]
     #[ignore = "benchmark"]
     fn production_compression_planner_surface_benchmark() {
@@ -499,10 +504,7 @@ mod tests {
         const ITERATIONS: usize = 400;
         const WARMUPS: usize = 100;
 
-        println!(
-            "\n{:>8}  {:>7}  {:>6}  {:>10}",
-            "raw", "saved", "ratio", "us/call"
-        );
+        println!("\n{:>8}  {:>7}  {:>6}  {:>10}", "raw", "saved", "row bits", "us/call");
 
         for target in TARGET_BYTES {
             let frame = benchmark_frame_of_at_least(target);
@@ -526,7 +528,7 @@ mod tests {
                 "{:>8}  {:>7}  {:>6.2}  {:>10.3}",
                 frame.len(),
                 saved_bytes,
-                frame.len() as f64 / (frame.len() - saved_bytes) as f64,
+                compressor.row_costs().iter().map(|row| row.bits).sum::<u64>() as f64 / 256.0,
                 measured_ms * 1_000.0,
             );
             println!(

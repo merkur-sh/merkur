@@ -563,7 +563,7 @@ mod ack_route_invariance {
 
     fn packing_decision(peer: &PeerDisplayState) -> PackingDecision {
         let global = GlobalDisplayPlanningModel::default();
-        let snapshot = peer.display_planning.snapshot(ContentClass::Text);
+        let snapshot = peer.display_planning.snapshot();
         let context = display_planning_context(peer, DECISION_AT_MS, 0);
         let mut workspace = PlannerWorkspace::default();
         let mut partitions = BatchPartitionPlan::default();
@@ -813,11 +813,7 @@ fn compression_policy_for_test(
         backpressure_score: 0,
         recently_interactive,
         fit_relay_critical_datagram: false,
-        planning_profiles: [
-            peer.snapshot(ContentClass::Sparse),
-            peer.snapshot(ContentClass::Text),
-            peer.snapshot(ContentClass::Color),
-        ],
+        planning_profiles: [peer.snapshot(), peer.snapshot(), peer.snapshot()],
         planning_context: PlanningContext::default(),
         execution_lane,
     }
@@ -832,16 +828,7 @@ fn batch_compression_preserves_attempted_rejection() {
     assert_eq!(
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: false,
-            achieved_ratio: Some(1.0),
-            history: false,
-            declared: None,
-        }),
-        BatchCompression::AttemptedRejected,
-    );
-    assert_eq!(
-        BatchCompression::from_outcome(&DisplayCompressionOutcome {
-            used: false,
-            achieved_ratio: Some(0.97),
+            attempted: true,
             history: false,
             declared: None,
         }),
@@ -850,7 +837,7 @@ fn batch_compression_preserves_attempted_rejection() {
     assert_eq!(
         BatchCompression::from_outcome(&DisplayCompressionOutcome {
             used: true,
-            achieved_ratio: Some(0.25),
+            attempted: true,
             history: false,
             declared: None,
         }),
@@ -1165,10 +1152,7 @@ fn only_header_or_causal_cursor_row_updates_bypass_presentation_coherence() {
             });
         }
         (
-            BatchPayload::plain(
-                vec![0; STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES],
-                ContentClass::Text,
-            ),
+            BatchPayload::plain(vec![0; STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES]),
             rows,
             encoded_rows,
             utility,
@@ -2123,8 +2107,6 @@ fn prepared_with_utility_for_test(
         header_signal: 0,
         frame: StagedFrame::new(staged_frame_for_test(seq, wire_bytes)),
         rows: SentRows::default(),
-        compression_attempted: false,
-        content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
         history_copies: false,
@@ -2201,8 +2183,6 @@ pub(super) fn valid_header_only_prepared_with_presentation_for_test(
         header_signal: (2u128 << 80) | (8u128 << 64) | (1u128 << 16),
         frame: StagedFrame::new(frame),
         rows: SentRows::default(),
-        compression_attempted: false,
-        content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
         history_copies: false,
@@ -3883,7 +3863,7 @@ fn adaptive_replanning_and_parity_precompute_share_exact_group_boundaries() {
         let packed = (0..count)
             .map(|_| {
                 (
-                    BatchPayload::plain(vec![0; 100], ContentClass::Text),
+                    BatchPayload::plain(vec![0; 100]),
                     SentRows::default(),
                     1,
                     DisplayUtility::NonCritical,
@@ -4612,11 +4592,8 @@ fn prepared_snapshot_for_test(
                 Arc::clone(&peer.peer_id),
                 peer.display_prepare_epoch.load(Ordering::Acquire),
                 Arc::clone(&peer.display_prepare_epoch),
-                peer.display_planning.snapshot(content_class),
-                PlanningContext {
-                    fec_enabled: false,
-                    ..PlanningContext::default()
-                },
+                peer.display_planning.snapshot(),
+                PlanningContext { fec_enabled: false, ..PlanningContext::default() },
                 peer.display_cache.references.shared(),
             )
         })
@@ -5189,8 +5166,6 @@ fn fence_horizon_tracks_only_datagram_sends() {
         header_signal: 0,
         frame: StagedFrame::new(staged_frame_for_test(2, 8)),
         rows: SentRows::default(),
-        compression_attempted: false,
-        content_class: ContentClass::Text,
         precomputed_fec_repair: None,
         physical_plan: PreparedPhysicalDatagramPlan::default(),
         history_copies: false,
@@ -5759,8 +5734,7 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
     terminal.current_grid_into(&mut snapshot_grid);
 
     let mut planner = GlobalDisplayPlanningModel::default();
-    let profile =
-        crate::display::planner::PeerDisplayPlanningModel::default().snapshot(ContentClass::Text);
+    let profile = crate::display::planner::PeerDisplayPlanningModel::default().snapshot();
     let context = PlanningContext {
         fec_enabled: false,
         carrier: CarrierDeliveryQuote {
@@ -6232,10 +6206,6 @@ fn production_scroll_literal_benchmark() {
                         &mut fec,
                         &mut scratch,
                     );
-                    if learned_peer {
-                        for datagram in &completion.buffers.datagrams {
-                        }
-                    }
                     if round >= 20 {
                         let mut bytes = 0usize;
                         let mut count = 0usize;
@@ -6430,10 +6400,6 @@ fn display_partition_domain_diagnostic() {
                     &mut fec,
                     &mut scratch,
                 );
-                if learned {
-                    for datagram in &completion.buffers.datagrams {
-                    }
-                }
                 if round + 1 == rounds {
                     let mut domains: Vec<(DisplayUtility, ContentClass, usize, usize)> = Vec::new();
                     for row in &completion.buffers.rows {
@@ -7738,7 +7704,6 @@ async fn k1_original_membership_is_truthful_before_raw_or_compressed_copies_are_
                             .is_some()
                     );
                     datagram.frame = StagedFrame::new(encoded);
-                    datagram.compression_attempted = true;
                 }
                 let body_before =
                     datagram.frame[STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES..].to_vec();
@@ -10986,12 +10951,22 @@ fn first_partition_candidate_fits_actual_sizes_without_crossing_planned_spans() 
             let regime = state.row_regime();
             for row in &request.buffers.rows {
                 for first in [false, true] {
-                    state.row_cost_model.observe(regime, first, row.content, merkur_codec::mz::MzRowCost {
-                        row: row.sent.row,
-                        raw_bytes: row.encoded_size,
-                        bits: row.encoded_size as u64 * 2048 / 100,
-                    });
-                    assert!(state.row_cost_model.observed(regime, first, row.content.class(), row.encoded_size));
+                    state.row_cost_model.observe(
+                        regime,
+                        first,
+                        row.content,
+                        merkur_codec::mz::MzRowCost {
+                            row: row.sent.row,
+                            raw_bytes: row.encoded_size,
+                            bits: row.encoded_size as u64 * 2048 / 100,
+                        },
+                    );
+                    assert!(state.row_cost_model.observed(
+                        regime,
+                        first,
+                        row.content.class(),
+                        row.encoded_size
+                    ));
                 }
             }
         }
@@ -11990,13 +11965,6 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                         interactive_cpu_us.push(interactive.cpu_time.as_secs_f64() * 1e6);
                         bulk_before_interactive += usize::from(bulk_first);
                     }
-                    if learned_peer {
-                        // Apply the same achieved-content evidence as the owner
-                        // completion path. Keep the other population cold to
-                        // measure a new-content worst case even with warm storage.
-                        for datagram in &bulk.buffers.datagrams {
-                        }
-                    }
                     worker.recycle(bulk.buffers);
                     worker.recycle(interactive.buffers);
                 }
@@ -12055,7 +12023,7 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                             Arc::clone(&peer.peer_id),
                             peer.display_prepare_epoch.load(Ordering::Acquire),
                             Arc::clone(&peer.display_prepare_epoch),
-                            peer.display_planning.snapshot(ContentClass::Color),
+                            peer.display_planning.snapshot(),
                             display_planning_context(&peer, 100.0, 0),
                             peer.display_cache.references.shared(),
                         )],
