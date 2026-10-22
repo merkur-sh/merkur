@@ -311,4 +311,12 @@ export type BoxCreatedResponse = Static<typeof BoxCreatedResponse>;
 
 // The release every daemon of this server runs: a `vX.Y.Z` tag, or `dev` from source. A frozen
 // cross-release contract (docs/releases.md, Convergence): its shape never changes.
-export const ReleaseResponse = Type.Object({ release: Text(1) }, { additionalProperties: false });
+export const ReleaseResponse = Type.Object(
+  {
+    release: Type.Union([
+      Type.Literal('dev'),
+      Type.String({ pattern: '^v(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$' }),
+    ]),
+  },
+  { additionalProperties: false },
+);
