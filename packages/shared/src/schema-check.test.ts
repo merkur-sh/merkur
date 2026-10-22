@@ -499,11 +499,12 @@ function sample(schema: JsonRecord): unknown {
             sample(node(schema.items)),
           );
     case 'string': {
-      // The shortest run of `A` TypeBox accepts: a pattern's bounds are in its own text.
+      // The shortest run of `A` TypeBox accepts: a pattern's bounds are in its own text. A
+      // release tag is the one pattern of the contract no such run meets.
       const lengths = [1, 0, ...counts(schema).flatMap((count) => [count, count + 1])];
-      const text = lengths
-        .map((length) => 'A'.repeat(length))
-        .find((run) => Value.Check(schema, run));
+      const text = [...lengths.map((length) => 'A'.repeat(length)), 'v1.2.3'].find((run) =>
+        Value.Check(schema, run),
+      );
 
       if (text === undefined) throw new Error(`schema-check.test: no sample for ${shown(schema)}`);
 

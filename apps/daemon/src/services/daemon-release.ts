@@ -33,7 +33,6 @@ import {
   releaseArtifact,
   releaseFileUrl,
 } from '@merkur/shared';
-import { ReleaseResponse } from '@merkur/shared/api-schema';
 import {
   decodeReleasePublicKey,
   decodeReleaseSignature,
@@ -131,11 +130,8 @@ export interface VerifiedReleaseCandidate {
   readonly manifestSha512: string;
 }
 
-const requireReleaseResponse = compileRequire(ReleaseResponse, 'malformed release answer');
-
 /** The longest `/api/release` answer read: a tag in a one-field object, with room to spare. */
 const RELEASE_RESPONSE_MAX_BYTES = 1_024;
-const RELEASE_TEXT_MAX_CHARS = 128;
 
 /**
  * The release `origin`'s daemons run (`GET /api/release`, a frozen contract).
@@ -151,16 +147,12 @@ export function fetchServerReleaseEffect(
   return updaterGet(fetchImpl, new URL(RELEASE_ENDPOINT_PATH, origin).href, operation, (response) =>
     readBoundedResponseEffect(response, RELEASE_RESPONSE_MAX_BYTES, operation).pipe(
       Effect.flatMap((bytes) =>
-        Effect.try({
-          try: () => {
-            const { release } = requireReleaseResponse(JSON.parse(TEXT_DECODER.decode(bytes)));
-            if (
-              release.length > RELEASE_TEXT_MAX_CHARS ||
-              [...release].some((char) => char < ' ' || char === '\u007f')
-            ) {
-              throw new Error('release answer is malformed');
-            }
-            return release;
+        Effect.tryPromise({
+          try: async () => {
+            // Loaded here: its validator library would cost every CLI start, help included.
+            const { ReleaseResponse } = await import('@merkur/shared/api-schema');
+            const answer = JSON.parse(TEXT_DECODER.decode(bytes));
+            return compileRequire(ReleaseResponse, 'malformed release answer')(answer).release;
           },
           catch: () =>
             new DaemonUpdatePayloadError({

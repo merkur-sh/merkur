@@ -71,6 +71,8 @@ describe('release convergence', () => {
       'v0.2.0',
       '{"version":"v0.2.0"}',
       '{"release":""}',
+      '{"release":"latest"}',
+      '{"release":"v1.2"}',
       '{"release":"a\\nb"}',
     ]) {
       const fetchImpl: DaemonUpdateFetch = () => Promise.resolve(new Response(body));
