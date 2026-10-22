@@ -531,9 +531,11 @@ so nothing of the model crosses the wire:
   the new one is held it codes against that base, and a built epoch the daemon abandoned is
   never one (prevents an abandoned epoch evicting the one frames name). Traces are kept for a
   window twice the copy reach.
-- **The encoder picks the prior per frame.** With a usable epoch it codes the frame against both
-  the epoch and the static model and keeps the smaller (prevents a session's statistics making a
-  frame unlike them larger).
+- **The encoder picks the prior per frame.** With a usable epoch it first codes the frame against
+  the epoch and prices that encoding's symbol trace against the static model. When that trace
+  prices smaller, it also codes the frame against the static model and keeps the shorter payload
+  (prevents a trial from replacing a shorter session encoding). The static walk can choose different
+  copies, so the trace price gates a trial rather than proving its final size.
 - **Epochs outlive display generations; traces do not.** Sequences start over at every
   generation (each snapshot: a resize, a resync, a resume repair), so a trace is a generation's
   and a declaration names datagrams of the generation of the frame carrying it. At a generation's

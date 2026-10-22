@@ -130,35 +130,26 @@ impl Sent {
 }
 
 impl MzMatches for Sent {
-    fn candidates(&self, pair: u64, out: &mut Vec<MzCandidate>) {
-        for (seq, row, entry, items, first, mode, _) in self.rows.iter().rev() {
-            let source = MzRow { entry, first: *first, items, mode: *mode, hashes: &[] };
+    fn candidates(&self, pair: u64, mut visit: impl FnMut(MzCandidate, MzRow<'_>) -> bool) {
+        for (seq, row, entry, items, first, mode, hashes) in self.rows.iter().rev() {
+            let source = MzRow { entry, first: *first, items, mode: *mode, hashes };
             for index in 0..items.len().saturating_sub(1) {
                 let bytes = |i: usize| {
                     let start = if i == 0 { usize::from(source.first) } else { usize::from(items[i - 1].end) };
                     &entry[start..usize::from(items[i].end)]
                 };
-                if pair_hash(item_hash(bytes(index)), item_hash(bytes(index + 1))) == pair {
-                    out.push(MzCandidate {
+                if pair_hash(item_hash(bytes(index)), item_hash(bytes(index + 1))) == pair
+                    && !visit(MzCandidate {
                         previous: self.previous,
                         back: if self.previous { *seq } else { self.presentation_id.wrapping_sub(*seq) },
                         row: *row,
                         item: u16::try_from(index).expect("an item"),
-                    });
+                    }, source)
+                {
+                    return;
                 }
             }
         }
-    }
-
-    fn row(&self, previous: bool, back: u32, row: u16) -> Option<MzRow<'_>> {
-        if previous != self.previous {
-            return None;
-        }
-        let seq = if previous { back } else { self.presentation_id.wrapping_sub(back) };
-        self.rows
-            .iter()
-            .find(|held| held.0 == seq && held.1 == row)
-            .map(|(_, _, entry, items, first, mode, hashes)| MzRow { entry, first: *first, items, mode: *mode, hashes })
     }
 }
 

@@ -402,13 +402,13 @@ pub(super) struct Coder<'p, P: Prior> {
 )]
 impl<P: Prior> Coder<'_, P> {
     #[inline(always)]
-    fn code(cdf: &mut Cdf, s: usize, rate: u32, coded: &mut Vec<u32>, bits: &mut u64) {
+    fn range(cdf: &mut Cdf, s: usize, rate: u32, bits: &mut u64) -> u32 {
         let (start, freq) = cdf.start_freq(s);
-        coded.push(start | freq << 16);
         if P::PRICE_ENCODE {
             *bits += u64::from(cost(freq));
         }
         cdf.update(s, rate);
+        start | freq << 16
     }
 
     /// Code `v` (below 16) in `key`'s high table.
@@ -417,7 +417,8 @@ impl<P: Prior> Coder<'_, P> {
         let at = self.tables.work(self.prior, key);
         let work = &mut self.tables.work[at];
         let rate = u32::from(work.rate);
-        Self::code(&mut work.hi, usize::from(v & 15), rate, self.coded, &mut self.bits);
+        let range = Self::range(&mut work.hi, usize::from(v & 15), rate, &mut self.bits);
+        self.coded.push(range);
     }
 
     /// Code byte `v` in `key`'s tables.
@@ -426,9 +427,11 @@ impl<P: Prior> Coder<'_, P> {
         let (h, l) = (usize::from(v >> 4), usize::from(v & 15));
         let at = self.tables.work(self.prior, key);
         let rate = u32::from(self.tables.work[at].rate);
-        Self::code(&mut self.tables.work[at].hi, h, rate, self.coded, &mut self.bits);
+        let high = Self::range(&mut self.tables.work[at].hi, h, rate, &mut self.bits);
         let lo = self.tables.lo(self.prior, at, h);
-        Self::code(&mut self.tables.lo[lo], l, rate, self.coded, &mut self.bits);
+        let low = Self::range(&mut self.tables.lo[lo], l, rate, &mut self.bits);
+        // One reservation and contiguous write for the byte's two ranges.
+        self.coded.extend_from_slice(&[high, low]);
     }
 
     /// What coding `v` in `key`'s high table would cost now, without coding it.

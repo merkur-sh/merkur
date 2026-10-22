@@ -237,18 +237,16 @@ pub struct MzCandidate {
 /// What the encoder may copy from beyond its own frame: complete rows the
 /// receiver holds, found by the pair hash of the items a copy starts with.
 pub trait MzMatches {
-    fn candidates(&self, pair: u64, out: &mut Vec<MzCandidate>);
-    fn row(&self, previous: bool, back: u32, row: u16) -> Option<MzRow<'_>>;
+    /// Visit candidates in priority order, resolving each row once. Stop when
+    /// `visit` returns false; an unresolved source is never visited.
+    fn candidates(&self, pair: u64, visit: impl FnMut(MzCandidate, MzRow<'_>) -> bool);
 }
 
 /// No history: copies come only from the frame itself.
 pub struct NoHistory;
 
 impl MzMatches for NoHistory {
-    fn candidates(&self, _: u64, _: &mut Vec<MzCandidate>) {}
-    fn row(&self, _: bool, _: u32, _: u16) -> Option<MzRow<'_>> {
-        None
-    }
+    fn candidates(&self, _: u64, _: impl FnMut(MzCandidate, MzRow<'_>) -> bool) {}
 }
 
 #[inline]
@@ -422,8 +420,10 @@ impl<P: Prior> Io for EncodeIo<'_, '_, P> {
     fn byte(&mut self, key: u32, v: u8) -> u8 {
         self.coder.byte(key, v);
         if let Some(trace) = self.trace.as_deref_mut() {
-            trace.push(trace_entry(key, false, 0, v >> 4));
-            trace.push(trace_entry(key, true, v >> 4, v & 15));
+            trace.extend_from_slice(&[
+                trace_entry(key, false, 0, v >> 4),
+                trace_entry(key, true, v >> 4, v & 15),
+            ]);
         }
         v
     }
@@ -806,7 +806,6 @@ pub struct MzEncoder {
     /// `(entry, item, previous link plus one)`, so the frame's pair index
     /// reuses its storage and allocates nothing once warm.
     links: Vec<(u32, u16, u32)>,
-    candidates: Vec<MzCandidate>,
     /// The chosen encoding's symbol trace, for the session fold.
     trace: Vec<u32>,
     trial: Vec<u8>,
@@ -953,7 +952,6 @@ impl MzEncoder {
                 target_row,
                 &sources,
                 history,
-                &mut self.candidates,
             )?;
             at = start + len;
             // The last entry has no later target to index it for.
@@ -1047,7 +1045,6 @@ fn best_copy(
     index: usize,
     sources: &FrameSources<'_>,
     history: &impl MzMatches,
-    candidates: &mut Vec<MzCandidate>,
 ) -> Option<(Seg, usize)> {
     let (Some(&first), Some(&second)) = (hashes.get(index), hashes.get(index + 1)) else {
         return None;
@@ -1070,24 +1067,20 @@ fn best_copy(
         }
         link = previous;
     }
-    candidates.clear();
-    history.candidates(pair, candidates);
-    for candidate in candidates.iter().take(8) {
-        if let Some(source) = history.row(candidate.previous, candidate.back, candidate.row) {
-            let kind = if candidate.previous { SRC_PREVIOUS } else { SRC_HISTORY };
-            consider(
-                &mut best,
-                target,
-                index,
-                Seg::Copy { kind, back: candidate.back, row: candidate.row, item: candidate.item, count: 0 },
-                &source,
-                usize::from(candidate.item),
-            );
-            if best.is_some_and(|(_, len)| len == target.items.len() - index) {
-                break;
-            }
-        }
-    }
+    let mut visited = 0;
+    history.candidates(pair, |candidate, source| {
+        visited += 1;
+        let kind = if candidate.previous { SRC_PREVIOUS } else { SRC_HISTORY };
+        consider(
+            &mut best,
+            target,
+            index,
+            Seg::Copy { kind, back: candidate.back, row: candidate.row, item: candidate.item, count: 0 },
+            &source,
+            usize::from(candidate.item),
+        );
+        visited < 8 && !best.is_some_and(|(_, len)| len == target.items.len() - index)
+    });
     best
 }
 
@@ -1095,7 +1088,6 @@ fn best_copy(
 /// copy from the frame or the history, taken exactly when its fields cost
 /// less than its items as literals on the tables as they stand. Returns
 /// whether it copied from history.
-#[expect(clippy::too_many_arguments, reason = "the entry coder reads the encoder's split borrows")]
 fn encode_entry<P: Prior>(
     io: &mut EncodeIo<'_, '_, P>,
     walk: &mut Walk,
@@ -1104,7 +1096,6 @@ fn encode_entry<P: Prior>(
     row: u16,
     sources: &FrameSources<'_>,
     history: &impl MzMatches,
-    candidates: &mut Vec<MzCandidate>,
 ) -> Option<bool> {
     let entry = target.entry;
     let &[_, _, left_high, left_low, count_high, count_low, _, _, ..] = entry else {
@@ -1136,7 +1127,7 @@ fn encode_entry<P: Prior>(
     let mut sink = Vec::new();
     while index < target.items.len() {
         if let Some((Seg::Copy { kind, back, row: source_row, item: source_item, count }, len)) =
-            best_copy(target, hashes, index, sources, history, candidates)
+            best_copy(target, hashes, index, sources, history)
         {
             let fields = Some((kind, back, source_row, source_item, count));
             let mut estimate = EstimateIo { coder: &mut *io.coder, bits: 0 };
