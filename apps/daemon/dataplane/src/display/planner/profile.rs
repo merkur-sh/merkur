@@ -3,8 +3,8 @@
 //! They drive the production entry point [`plan_batch_partitions`] with rows
 //! captured from a real `TerminalState`, replaying the suffix-replan control
 //! flow of `send.rs::pack_captured_rows`: utility domains, the open FEC group
-//! carried into every replan, each compression attempt's achieved ratio fed
-//! into the flush-local profile, and exact raw records consuming the
+//! carried into every replan, each compression attempt's row prices fed
+//! into the peer's row model, and exact raw records consuming the
 //! already-optimal suffix. Compression is real MZ over each span's real encoded
 //! cells. Sender service is a fixed deterministic
 //! model instead of a wall-clock sample, so every run replays one call sequence
@@ -94,6 +94,8 @@ fn fixture_bytes(cols: u16, rows: u16, entropy: bool) -> Vec<u8> {
 struct CapturedRow {
     planned: PlannedRow,
     encoded: Vec<u8>,
+    /// Exact row census used by the encoder's row-cost key.
+    content: ContentEvidence,
     critical: bool,
 }
 
@@ -120,6 +122,7 @@ fn capture(cols: u16, rows: u16, entropy: bool) -> Vec<CapturedRow> {
                     class: content.class(),
                 },
                 encoded,
+                content,
                 critical: cursor_row == Some(row),
             }
         })
@@ -158,7 +161,7 @@ fn peer_model(rtt_ms: f64) -> PeerDisplayPlanningModel {
 }
 
 fn profiles(model: &PeerDisplayPlanningModel) -> [PeerPlanningSnapshot; CONTENT_CLASSES] {
-    CONTENT_CLASS_BY_INDEX.map(|class| model.snapshot(class))
+    [model.snapshot(); CONTENT_CLASSES]
 }
 
 /// Deterministic sender-service sample for one attempt, in place of a clock
@@ -209,9 +212,6 @@ struct Job {
     calls: Vec<Call>,
     records: usize,
     fingerprint: u64,
-    /// `(raw_bytes, wire_bytes, class)` for each attempted compression,
-    /// which the learned population feeds back like the owner completion.
-    attempts: Vec<(usize, usize, ContentClass)>,
 }
 
 fn fnv(hash: &mut u64, value: u64) {
@@ -231,6 +231,10 @@ struct Worker {
     batches: Vec<(usize, bool)>,
     planned: Vec<PlannedRow>,
     count_work: bool,
+    /// Row observations retained across benchmark jobs when measuring warm peers.
+    row_model: RowCostModel,
+    /// Cold benchmark jobs start from an empty row model.
+    retain_rows: bool,
 }
 
 impl Worker {
@@ -245,6 +249,8 @@ impl Worker {
             batches: Vec::new(),
             planned: Vec::new(),
             count_work,
+            row_model: RowCostModel::default(),
+            retain_rows: true,
         }
     }
 
@@ -278,7 +284,7 @@ impl Worker {
         profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
         context: PlanningContext,
         job: &mut Job,
-    ) -> Option<f64> {
+    ) -> bool {
         let mut class_bytes = [0usize; CONTENT_CLASSES];
         for row in rows {
             class_bytes[row.planned.class.index()] += row.planned.bytes;
@@ -291,11 +297,6 @@ impl Worker {
                 self.span.extend_from_slice(&row.encoded);
             }
             self.payload.clear();
-            #[expect(
-                clippy::unwrap_in_result,
-                reason = "the rows were captured from a real grid; rows MZ cannot code are a \
-                          profile defect, never a raw record"
-            )]
             self.mz
                 .encode(
                     &self.span,
@@ -306,6 +307,9 @@ impl Worker {
                     &mut self.payload,
                 )
                 .expect("captured rows code");
+            for (index, (cost, row)) in self.mz.row_costs().iter().zip(rows).enumerate() {
+                self.row_model.observe(0, index == 0, row.content, *cost);
+            }
             let compressed = &self.payload;
             self.global.observe_sender_service(
                 ExecutionLane::Bulk,
@@ -315,8 +319,7 @@ impl Worker {
             );
             let compressed_bytes = HEADER_BYTES + 4 + compressed.len();
             if compressed_bytes >= raw_bytes {
-                job.attempts.push((raw_bytes, raw_bytes, class));
-                (raw_bytes, Some(1.0))
+                (raw_bytes, true)
             } else {
                 let used = choose_after_compression(
                     profiles[class.index()],
@@ -325,11 +328,11 @@ impl Worker {
                     context,
                 ) == Representation::Compressed;
                 let wire = if used { compressed_bytes } else { raw_bytes };
-                job.attempts.push((raw_bytes, wire, class));
-                (wire, Some(compressed_bytes as f64 / raw_bytes as f64))
+
+                (wire, true)
             }
         } else {
-            (raw_bytes, None)
+            (raw_bytes, false)
         };
         if wire_bytes <= WIRE_CAP || rows.len() == 1 {
             self.batches.push((wire_bytes, critical));
@@ -338,23 +341,9 @@ impl Worker {
             return achieved;
         }
         let keep = (rows.len() * WIRE_CAP / wire_bytes).clamp(1, rows.len() - 1);
-        let first = self.emit(
-            &rows[..keep],
-            critical,
-            representation,
-            profiles,
-            context,
-            job,
-        );
-        let second = self.emit(
-            &rows[keep..],
-            critical,
-            representation,
-            profiles,
-            context,
-            job,
-        );
-        second.or(first).or(achieved)
+        let first = self.emit(&rows[..keep], critical, representation, profiles, context, job);
+        let second = self.emit(&rows[keep..], critical, representation, profiles, context, job);
+        second || first || achieved
     }
 
     fn plan(
@@ -411,6 +400,10 @@ impl Worker {
     ) -> Job {
         let mut job = Job::default();
         let mut local = profiles;
+        if !self.retain_rows {
+            self.row_model = RowCostModel::default();
+        }
+        self.row_model.apply(0, &mut local);
         self.batches.clear();
         let mut batch_start = 0;
         while batch_start < rows.len() {
@@ -434,6 +427,14 @@ impl Worker {
                 if !valid {
                     origin = planned_start;
                     cursor = 0;
+                    for (planned, captured) in self.planned.iter_mut().zip(domain) {
+                        planned.price_scale = self.row_model.price_scale(
+                            0,
+                            captured.content,
+                            planned.bytes,
+                            local[planned.class.index()],
+                        );
+                    }
                     self.plan(&local, planning, planned_start, &mut job);
                 }
                 let (offset, representation) = self
@@ -446,17 +447,16 @@ impl Worker {
                 for row in span {
                     class_bytes[row.planned.class.index()] += row.planned.bytes;
                 }
-                let class = content_class_by_bytes(class_bytes);
                 let emitted_before = self.batches.len();
                 let actual = self.emit(span, critical, representation, &local, context, &mut job);
                 let predicted_raw_bytes =
                     HEADER_BYTES + span.iter().map(|row| row.planned.bytes).sum::<usize>();
-                if let Some(ratio) = actual {
-                    local[class.index()].observe_actual_ratio(predicted_raw_bytes, ratio);
+                if actual {
+                    self.row_model.apply(0, &mut local);
                 }
                 cursor += 1;
                 valid = representation == Representation::Raw
-                    && actual.is_none()
+                    && !actual
                     && self.batches.len() == emitted_before + 1
                     && self.batches[emitted_before].0 == predicted_raw_bytes
                     && self.plan.get(cursor).is_some();
@@ -483,15 +483,19 @@ fn derive_work(
         "work replay is single-carrier"
     );
     let count = rows.len().min(MAX_PLANNED_ROWS);
-    let mut work = Work {
-        rows: count,
-        ..Work::default()
-    };
-    let multirow_limit = profiles
+    let mut work = Work { rows: count, ..Work::default() };
+    let minimum = rows
         .iter()
-        .map(|profile| multirow_raw_limit(*profile, WIRE_CAP))
-        .max()
-        .unwrap_or(WIRE_CAP);
+        .flat_map(|row| {
+            [false, true].map(|first| {
+                profiles[row.class.index()].row_price(row.bytes, first)
+                    * row.price_scale[usize::from(first)]
+                    / row.bytes.max(1) as f64
+            })
+        })
+        .fold(f64::INFINITY, f64::min);
+    let multirow_limit =
+        WIRE_CAP.max(((WIRE_CAP as f64 / minimum).ceil() as usize).saturating_add(1));
     let sender_upper_by_size: [[f64; SIZE_CLASSES]; CONTENT_CLASSES] =
         std::array::from_fn(|content| {
             std::array::from_fn(|class| {
@@ -516,11 +520,16 @@ fn derive_work(
             misses += 1;
             slots[end - start] = Some(key);
         }
-        batch_candidates(
+        let predicted = workspace.row_price_prefix[end] - workspace.row_price_prefix[start]
+            + workspace.row_prices[start][1]
+            - workspace.row_prices[start][0];
+        row_batch_candidates(
             profiles,
             &sender_upper_by_size,
             key.0,
             key.1,
+            predicted,
+            context.mz_declaration_bytes,
             end == start + 1,
             WIRE_CAP,
             context.datagram_max_payload_bytes,
@@ -660,23 +669,12 @@ fn planner_replan_sequence_profile() {
         );
         for rtt_ms in RTT_QUOTES_MS {
             for learned in [false, true] {
-                let mut peer = peer_model(rtt_ms);
+                let peer = peer_model(rtt_ms);
                 let context = planning_context(&peer);
                 let mut worker = Worker::new(false);
-                let observe = |peer: &mut PeerDisplayPlanningModel, job: &Job| {
-                    if learned {
-                        for &(raw, wire, class) in &job.attempts {
-                            peer.observe_ratio(
-                                raw,
-                                class,
-                                (wire as f64 / raw as f64).clamp(0.01, 1.0),
-                            );
-                        }
-                    }
-                };
+                worker.retain_rows = learned;
                 for _ in 0..WARMUP_JOBS {
-                    let job = worker.run_job(&captured, profiles(&peer), context);
-                    observe(&mut peer, &job);
+                    worker.run_job(&captured, profiles(&peer), context);
                 }
                 let mut totals = Vec::with_capacity(samples);
                 let mut firsts = Vec::with_capacity(samples);
@@ -691,7 +689,7 @@ fn planner_replan_sequence_profile() {
                     // is outside the timed call but still host CPU.
                     worker.count_work = sample == 0;
                     let job = worker.run_job(&captured, profiles(&peer), context);
-                    observe(&mut peer, &job);
+
                     if sample == 0 {
                         let mut work = Work::default();
                         for call in &job.calls {
@@ -756,20 +754,12 @@ fn planner_first_call_profile() {
         let captured = capture(cols, rows, entropy);
         for rtt_ms in [120.0] {
             for learned in [false, true] {
-                let mut peer = peer_model(rtt_ms);
+                let peer = peer_model(rtt_ms);
                 let base = planning_context(&peer);
                 let mut worker = Worker::new(false);
+                worker.retain_rows = learned;
                 for _ in 0..WARMUP_JOBS {
-                    let job = worker.run_job(&captured, profiles(&peer), base);
-                    if learned {
-                        for &(raw, wire, class) in &job.attempts {
-                            peer.observe_ratio(
-                                raw,
-                                class,
-                                (wire as f64 / raw as f64).clamp(0.01, 1.0),
-                            );
-                        }
-                    }
+                    worker.run_job(&captured, profiles(&peer), base);
                 }
                 let crossing = PlanningContext {
                     alternate_carrier: Some(CarrierDeliveryQuote {
@@ -904,11 +894,6 @@ fn warm_peer_model(rtt_ms: f64) -> PeerDisplayPlanningModel {
                     ..CarrierDeliveryQuote::default()
                 },
             );
-        }
-        for class in CONTENT_CLASS_BY_INDEX {
-            for bytes in [512, 768, 1_536, 3_072, 6_144, 12_288] {
-                model.observe_ratio(bytes, class, 0.2 + 0.01 * jitter);
-            }
         }
     }
     model
@@ -1076,14 +1061,11 @@ fn planner_small_plan_profile() {
 fn planner_reliable_only_scaling_profile() {
     let samples = samples();
     let captured = capture(384, 256, true);
-    let mut peer = peer_model(120.0);
+    let peer = peer_model(120.0);
     let context = planning_context(&peer);
     let mut worker = Worker::new(false);
     for _ in 0..WARMUP_JOBS {
-        let job = worker.run_job(&captured, profiles(&peer), context);
-        for &(raw, wire, class) in &job.attempts {
-            peer.observe_ratio(raw, class, (wire as f64 / raw as f64).clamp(0.01, 1.0));
-        }
+        worker.run_job(&captured, profiles(&peer), context);
     }
     let snapshot = profiles(&peer);
     let planned: Vec<PlannedRow> = captured
