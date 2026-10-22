@@ -86,6 +86,8 @@ interface HarnessResult {
   paints: number;
   appliedFrames: number;
   firstPaintFrameCount: number;
+  /** Display frames applied when the first paint was submitted. */
+  appliedAtFirstPaint: number;
   urgentPaintedBeforeYield: boolean;
 }
 const HARNESS = ([frameCount, coherent]: readonly [number, boolean]) =>
@@ -117,7 +119,8 @@ const HARNESS = ([frameCount, coherent]: readonly [number, boolean]) =>
       paints = 0,
       firstApplied = 0,
       eligibleFrames = 0,
-      firstPaintFrameCount = -1;
+      firstPaintFrameCount = -1,
+      appliedAtFirstPaint = -1;
     let yielded = false,
       urgentPaintedBeforeYield = false,
       frame = 0,
@@ -136,6 +139,7 @@ const HARNESS = ([frameCount, coherent]: readonly [number, boolean]) =>
           paints,
           appliedFrames,
           firstPaintFrameCount,
+          appliedAtFirstPaint,
           urgentPaintedBeforeYield,
         });
     }
@@ -147,7 +151,10 @@ const HARNESS = ([frameCount, coherent]: readonly [number, boolean]) =>
     ): void {
       if (action.kind !== 'render-now') return;
       paints++;
-      if (paints === 1) firstPaintFrameCount = eligibleFrames;
+      if (paints === 1) {
+        firstPaintFrameCount = eligibleFrames;
+        appliedAtFirstPaint = Number(viewer.applied_frames()) - 1;
+      }
       if (!yielded) urgentPaintedBeforeYield = true;
       const id = paints;
       mailbox.noteSubmitted(performance.now(), id);
@@ -234,7 +241,7 @@ const HARNESS = ([frameCount, coherent]: readonly [number, boolean]) =>
     delivery.port2.postMessage(0);
   });
 
-test('dribbled coherent redraw releases within two frames; urgent updates precede yielding', async ({
+test('dribbled coherent redraw paints whole within two frames; urgent updates precede yielding', async ({
   page,
 }) => {
   await page.goto('data:text/html,<!doctype html><title>viewer presentation</title>');
@@ -243,7 +250,9 @@ test('dribbled coherent redraw releases within two frames; urgent updates preced
   const urgent = await page.evaluate(HARNESS, [1, false] as const);
   expect(coherent.appliedFrames).toBe(REDRAW_FRAME_COUNT);
   expect(coherent.paints).toBeGreaterThanOrEqual(1);
-  expect(coherent.firstPaintFrameCount).toBeGreaterThanOrEqual(1);
+  // Complete membership may paint at the early opportunity, before any
+  // frame; it never paints part of the transaction.
+  expect(coherent.appliedAtFirstPaint).toBe(REDRAW_FRAME_COUNT);
   expect(coherent.firstPaintFrameCount).toBeLessThanOrEqual(2);
   expect(urgent.appliedFrames).toBe(1);
   expect(urgent.paints).toBe(1);
