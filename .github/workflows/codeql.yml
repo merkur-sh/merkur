@@ -29,8 +29,14 @@ concurrency:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    # A cancelled CI run was superseded by a newer push, whose own completion is analyzed.
-    if: github.event.workflow_run.conclusion != 'cancelled'
+    # After CI, only its run for a push to main of this repository: a pull request's run, whatever
+    # its branch is called, never checks out its commit here with code-scanning write access. A
+    # cancelled run was superseded by a newer push, whose own completion is analyzed.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
@@ -80,7 +86,11 @@ jobs:
 
   query-tests:
     name: Query tests
-    if: github.event.workflow_run.conclusion != 'cancelled'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:

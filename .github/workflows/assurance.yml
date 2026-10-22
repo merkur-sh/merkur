@@ -28,8 +28,14 @@ concurrency:
 jobs:
   parser-smoke:
     name: Fixed-seed parser safety
-    # A cancelled CI run was superseded by a newer push, whose own completion proves it.
-    if: github.event.workflow_run.conclusion != 'cancelled'
+    # After CI, only its run for a push to main of this repository: a pull request's run, whatever
+    # its branch is called, never checks out its commit here with this repository's caches and
+    # secrets. A cancelled run was superseded by a newer push, whose own completion proves it.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
@@ -63,7 +69,11 @@ jobs:
           retention-days: 7
   ownership:
     name: Ownership proofs and race models
-    if: github.event.workflow_run.conclusion != 'cancelled'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
@@ -111,7 +121,11 @@ jobs:
           retention-days: 7
   bounded-proofs:
     name: Bounded parser and state proofs
-    if: github.event.workflow_run.conclusion != 'cancelled'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
@@ -154,7 +168,11 @@ jobs:
           retention-days: 7
   simulation:
     name: Network simulation
-    if: github.event.workflow_run.conclusion != 'cancelled'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
@@ -189,7 +207,11 @@ jobs:
           retention-days: 14
   kernel-tool:
     name: Linux diagnostic tool checks
-    if: github.event.workflow_run.conclusion != 'cancelled'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
@@ -269,7 +291,12 @@ jobs:
           retention-days: 14
   required:
     name: Assurance required
-    if: always() && github.event.workflow_run.conclusion != 'cancelled'
+    if: >-
+      always() &&
+      (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion != 'cancelled' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository))
     needs: [parser-smoke, ownership, bounded-proofs, simulation, kernel-tool, fuzz-campaign]
     runs-on: ubuntu-26.04
     timeout-minutes: 5
