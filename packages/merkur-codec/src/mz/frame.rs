@@ -981,12 +981,7 @@ impl MzEncoder {
                 &sources,
                 history,
             )?;
-            if !P::PRICE_ENCODE {
-                coder.bits += coder.coded[before_ranges..]
-                    .iter()
-                    .map(|range| u64::from(nibble::cost(range >> 16)))
-                    .sum::<u64>();
-            }
+            coder.price_since(before_ranges);
             self.row_costs.push(MzRowCost {
                 row: target_row,
                 raw_bytes: len,

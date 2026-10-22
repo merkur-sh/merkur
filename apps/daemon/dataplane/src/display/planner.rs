@@ -1496,6 +1496,31 @@ fn visit_distinct_predecessors(
     }
 }
 
+/// The MZ packet a row-cost prediction implies, in plaintext bytes: the rows'
+/// predicted prices plus the header bytes the codec carries, its packet framing,
+/// any epoch declaration and the rANS states.
+pub(crate) fn predicted_packet_bytes(
+    predicted_rows_bytes: f64,
+    header_bytes: usize,
+    declaration_bytes: usize,
+    row_bytes: usize,
+) -> usize {
+    let states = if row_bytes >= merkur_codec::mz::MZ_TWO_STATE_MIN_ROW_BYTES {
+        8
+    } else {
+        4
+    };
+    (predicted_rows_bytes + (header_bytes + 4 + 1 + declaration_bytes + states) as f64)
+        .ceil()
+        .max(1.0) as usize
+}
+
+/// The largest raw span worth planning as one packet: past it, not even the
+/// cheapest row price fits `wire_cap`.
+fn multirow_limit(wire_cap: usize, minimum_ratio: f64) -> usize {
+    wire_cap.max(((wire_cap as f64 / minimum_ratio).ceil() as usize).saturating_add(1))
+}
+
 /// The raw and predicted-compressed candidates for one span.
 ///
 /// The row prediction already sums each entry's position-conditioned entropy
@@ -1518,13 +1543,6 @@ fn row_batch_candidates(
     let sender_upper_by_size = &sender_upper_by_size[major];
     let row_bytes: usize = class_bytes.iter().sum();
     let header_bytes = raw_bytes.saturating_sub(row_bytes);
-    let states = if row_bytes >= merkur_codec::mz::MZ_TWO_STATE_MIN_ROW_BYTES {
-        8
-    } else {
-        4
-    };
-    let predicted =
-        predicted_rows_bytes + (header_bytes + 4 + 1 + declaration_bytes + states) as f64;
     let raw_lane =
         if raw_bytes <= wire_cap || (singleton && raw_bytes <= datagram_max_payload_bytes) {
             Some(DeliveryLane::Datagram)
@@ -1540,7 +1558,8 @@ fn row_batch_candidates(
         sender_service_us: 0.0,
         receiver_service_us: 0.0,
     });
-    let predicted_bytes = predicted.ceil().max(1.0) as usize;
+    let predicted_bytes =
+        predicted_packet_bytes(predicted_rows_bytes, header_bytes, declaration_bytes, row_bytes);
     let compressed_lane = if predicted_bytes < raw_bytes
         && (predicted_bytes <= wire_cap
             || (singleton && predicted_bytes <= datagram_max_payload_bytes))
@@ -1588,8 +1607,7 @@ fn plan_for_carrier(
             minimum_ratio = minimum_ratio.min(price / row.bytes.max(1) as f64);
         }
     }
-    let multirow_limit =
-        wire_cap.max(((wire_cap as f64 / minimum_ratio).ceil() as usize).saturating_add(1));
+    let multirow_limit = multirow_limit(wire_cap, minimum_ratio);
     let sender_upper_by_size: [[f64; SIZE_CLASSES]; CONTENT_CLASSES] =
         std::array::from_fn(|content| {
             std::array::from_fn(|class| {

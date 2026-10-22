@@ -304,6 +304,12 @@ pub(super) fn cost(freq: u32) -> u32 {
 }
 
 /// Exact integer symbol prices for every representable CDF frequency.
+#[expect(
+    clippy::indexing_slicing,
+    clippy::cast_possible_truncation,
+    reason = "a compile-time table: `frequency` walks its entries, `mantissa` is masked below \
+              128, and every price is below 2^16"
+)]
 static SYMBOL_PRICES: [u16; PROB_SCALE as usize + 1] = {
     let mut prices = [0; PROB_SCALE as usize + 1];
     let mut frequency = 0usize;
@@ -439,6 +445,20 @@ impl<P: Prior> Coder<'_, P> {
         }
         cdf.update(s, rate);
         start | freq << 16
+    }
+
+    /// Price the symbols coded from `from` on, for a prior that does not price
+    /// while it codes.
+    #[inline]
+    pub(super) fn price_since(&mut self, from: usize) {
+        if !P::PRICE_ENCODE {
+            self.bits += self
+                .coded
+                .iter()
+                .skip(from)
+                .map(|range| u64::from(cost(range >> 16)))
+                .sum::<u64>();
+        }
     }
 
     /// Code `v` (below 16) in `key`'s high table.
