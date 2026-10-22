@@ -64,8 +64,8 @@
     "cognitive": 12
   },
   "apps/web/src/renderer-webgpu.ts::render": {
-    "cyclomatic": 62,
-    "cognitive": 38
+    "cyclomatic": 45,
+    "cognitive": 36
   },
   "apps/web/src/terminal-worker-client.ts::<arrow>": {
     "cyclomatic": 39,
@@ -188,8 +188,8 @@
     "cognitive": 110
   },
   "scripts/perf/webgpu-renderer-benchmark.ts::result": {
-    "cyclomatic": 37,
-    "cognitive": 71
+    "cyclomatic": 36,
+    "cognitive": 70
   },
   "scripts/run-edge-harness.ts::main": {
     "cyclomatic": 54,

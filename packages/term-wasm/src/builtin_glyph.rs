@@ -1,24 +1,31 @@
-// Adapted from Alacritty's builtin_font block-element coverage for Merkur's
-// WebGL primitive renderer. Alacritty rasterizes these into a bitmap canvas;
-// here we emit normalized cell rectangles for the existing solid-rect pass.
+// Adapted from Alacritty's builtin_font block-element coverage. Alacritty
+// rasterizes these into a bitmap canvas; here each glyph is a shape the
+// decoration pass fills exactly, encoded into the glyph bits of a cell record.
 
-#[derive(Clone, Copy)]
-pub(crate) struct CellRect {
-    pub(crate) x: f32,
-    pub(crate) y: f32,
-    pub(crate) w: f32,
-    pub(crate) h: f32,
+/// A builtin glyph's shape. Every one is a rectangle on the cell's eighths or
+/// a mosaic of parts of a two-column division of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BuiltinCellGlyph {
+    /// `x`, `y`, `w`, `h` in eighths of the cell (`0..=8`).
+    Block { x: u8, y: u8, w: u8, h: u8 },
+    /// A quadrant or sextant mosaic: bit `row * 2 + col` set for each filled
+    /// part of a two-column, `rows`-row division of the cell.
+    Mosaic { mask: u8, rows: u8 },
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct BuiltinCellGlyph {
-    rects: [CellRect; 6],
-    len: usize,
-}
+/// Set in a shape for [`BuiltinCellGlyph::Mosaic`]; a block leaves it clear.
+pub(crate) const BUILTIN_MOSAIC: u32 = 1 << 16;
 
 impl BuiltinCellGlyph {
-    pub(crate) fn rects(&self) -> &[CellRect] {
-        &self.rects[..self.len]
+    /// The 17-bit shape the decoration shader decodes: a block's `x | y << 4 |
+    /// w << 8 | h << 12`, or a mosaic's `mask | rows << 8 | BUILTIN_MOSAIC`.
+    pub(crate) fn shape(self) -> u32 {
+        match self {
+            Self::Block { x, y, w, h } => {
+                u32::from(x) | u32::from(y) << 4 | u32::from(w) << 8 | u32::from(h) << 12
+            }
+            Self::Mosaic { mask, rows } => u32::from(mask) | u32::from(rows) << 8 | BUILTIN_MOSAIC,
+        }
     }
 }
 
@@ -48,58 +55,49 @@ fn builtin_char_glyph(character: char) -> Option<BuiltinCellGlyph> {
 }
 
 fn partial_block(character: char) -> Option<BuiltinCellGlyph> {
-    if character == '\u{2588}' {
-        return Some(glyph1(CellRect::full()));
-    }
-
-    // Let shaded blocks continue through the font path. Our primitive pass is opaque RGB, while
-    // Alacritty renders shades with reduced fill intensity.
+    // Let shaded blocks continue through the font path. The decoration pass
+    // fills opaquely, while Alacritty renders shades with reduced intensity.
     if matches!(character, '\u{2591}'..='\u{2593}') {
         return None;
     }
 
-    let width = match character {
-        '\u{2589}' | '\u{1fb8b}' => 7.0 / 8.0,
-        '\u{258a}' | '\u{1fb8a}' => 6.0 / 8.0,
-        '\u{258b}' | '\u{1fb89}' => 5.0 / 8.0,
-        '\u{258c}' => 4.0 / 8.0,
-        '\u{258d}' | '\u{1fb88}' => 3.0 / 8.0,
-        '\u{258e}' | '\u{1fb87}' => 2.0 / 8.0,
-        '\u{258f}' | '\u{2595}' => 1.0 / 8.0,
-        '\u{2590}' => 4.0 / 8.0,
-        _ => 1.0,
+    let w = match character {
+        '\u{2589}' | '\u{1fb8b}' => 7,
+        '\u{258a}' | '\u{1fb8a}' => 6,
+        '\u{258b}' | '\u{1fb89}' => 5,
+        '\u{258c}' => 4,
+        '\u{258d}' | '\u{1fb88}' => 3,
+        '\u{258e}' | '\u{1fb87}' => 2,
+        '\u{258f}' | '\u{2595}' => 1,
+        '\u{2590}' => 4,
+        _ => 8,
     };
 
-    let (height, y) = match character {
-        '\u{2580}' => (4.0 / 8.0, 0.0),
-        '\u{2581}' => (1.0 / 8.0, 7.0 / 8.0),
-        '\u{2582}' => (2.0 / 8.0, 6.0 / 8.0),
-        '\u{2583}' => (3.0 / 8.0, 5.0 / 8.0),
-        '\u{2584}' => (4.0 / 8.0, 4.0 / 8.0),
-        '\u{2585}' => (5.0 / 8.0, 3.0 / 8.0),
-        '\u{2586}' => (6.0 / 8.0, 2.0 / 8.0),
-        '\u{2587}' => (7.0 / 8.0, 1.0 / 8.0),
-        '\u{2594}' => (1.0 / 8.0, 0.0),
-        '\u{1fb82}' => (2.0 / 8.0, 0.0),
-        '\u{1fb83}' => (3.0 / 8.0, 0.0),
-        '\u{1fb84}' => (5.0 / 8.0, 0.0),
-        '\u{1fb85}' => (6.0 / 8.0, 0.0),
-        '\u{1fb86}' => (7.0 / 8.0, 0.0),
-        _ => (1.0, 0.0),
+    let (h, y) = match character {
+        '\u{2580}' => (4, 0),
+        '\u{2581}' => (1, 7),
+        '\u{2582}' => (2, 6),
+        '\u{2583}' => (3, 5),
+        '\u{2584}' => (4, 4),
+        '\u{2585}' => (5, 3),
+        '\u{2586}' => (6, 2),
+        '\u{2587}' => (7, 1),
+        '\u{2594}' => (1, 0),
+        '\u{1fb82}' => (2, 0),
+        '\u{1fb83}' => (3, 0),
+        '\u{1fb84}' => (5, 0),
+        '\u{1fb85}' => (6, 0),
+        '\u{1fb86}' => (7, 0),
+        _ => (8, 0),
     };
 
     let x = match character {
-        '\u{2590}' => 0.5,
-        '\u{2595}' | '\u{1fb87}'..='\u{1fb8b}' => 1.0 - width,
-        _ => 0.0,
+        '\u{2590}' => 4,
+        '\u{2595}' | '\u{1fb87}'..='\u{1fb8b}' => 8 - w,
+        _ => 0,
     };
 
-    Some(glyph1(CellRect {
-        x,
-        y,
-        w: width,
-        h: height,
-    }))
+    Some(BuiltinCellGlyph::Block { x, y, w, h })
 }
 
 fn quadrants(character: char) -> Option<BuiltinCellGlyph> {
@@ -117,7 +115,7 @@ fn quadrants(character: char) -> Option<BuiltinCellGlyph> {
         _ => return None,
     };
 
-    Some(grid_glyph(mask, 2, 2))
+    Some(BuiltinCellGlyph::Mosaic { mask, rows: 2 })
 }
 
 fn sextants(character: char) -> Option<BuiltinCellGlyph> {
@@ -129,66 +127,10 @@ fn sextants(character: char) -> Option<BuiltinCellGlyph> {
     // U+1FB00..U+1FB3B encode all non-empty 2x3 sextant combinations except the full block.
     // Alacritty's tables are equivalent to these bit positions:
     // top-left, top-right, middle-left, middle-right, bottom-left, bottom-right.
-    Some(grid_glyph((offset + 1) as u8, 2, 3))
-}
-
-fn grid_glyph(mask: u8, cols: u8, rows: u8) -> BuiltinCellGlyph {
-    let mut glyph = empty_glyph();
-    let cell_w = 1.0 / cols as f32;
-    let cell_h = 1.0 / rows as f32;
-
-    for row in 0..rows {
-        for col in 0..cols {
-            let bit = row * cols + col;
-            if mask & (1 << bit) == 0 {
-                continue;
-            }
-
-            glyph.rects[glyph.len] = CellRect {
-                x: col as f32 * cell_w,
-                y: row as f32 * cell_h,
-                w: cell_w,
-                h: cell_h,
-            };
-            glyph.len += 1;
-        }
-    }
-
-    glyph
-}
-
-fn glyph1(rect: CellRect) -> BuiltinCellGlyph {
-    let mut glyph = empty_glyph();
-    glyph.rects[0] = rect;
-    glyph.len = 1;
-    glyph
-}
-
-fn empty_glyph() -> BuiltinCellGlyph {
-    BuiltinCellGlyph {
-        rects: [CellRect::empty(); 6],
-        len: 0,
-    }
-}
-
-impl CellRect {
-    const fn empty() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            w: 0.0,
-            h: 0.0,
-        }
-    }
-
-    const fn full() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            w: 1.0,
-            h: 1.0,
-        }
-    }
+    Some(BuiltinCellGlyph::Mosaic {
+        mask: (offset + 1) as u8,
+        rows: 3,
+    })
 }
 
 #[cfg(test)]
@@ -204,7 +146,11 @@ mod tests {
             .chain('\u{25a0}'..='\u{1faff}')
             .chain('\u{1fb8c}'..=char::MAX)
         {
-            assert!(builtin_char_glyph(character).is_none(), "U+{:04X}", u32::from(character));
+            assert!(
+                builtin_char_glyph(character).is_none(),
+                "U+{:04X}",
+                u32::from(character)
+            );
         }
     }
 

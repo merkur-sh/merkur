@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { WebGpuRenderer } from './renderer-webgpu';
 import { srgbToLinear } from './terminal/color-space';
+import {
+  createGeometryRenderState,
+  type GeometryBuffer,
+  type GeometryRenderState,
+} from './terminal/geometry-render-state';
 import { MAX_IN_FLIGHT_RENDER_FRAMES } from './terminal/render-mailbox';
-import type { GeometryVersions, TerminalPreviewGeometry } from './terminal-renderer';
+import type { TerminalPreviewGeometry } from './terminal-renderer';
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {
@@ -49,6 +54,7 @@ function fakeDevice() {
     attachment: GPURenderPassColorAttachment | undefined;
     draws: number[];
     pipelines: object[];
+    scissors: number[][];
   }[] = [];
   const shaderCodes: string[] = [];
   let errorListener: ((event: { error: Error }) => void) | undefined;
@@ -154,11 +160,13 @@ function fakeDevice() {
       return {
         beginRenderPass(descriptor: GPURenderPassDescriptor) {
           const attachment = Array.from(descriptor.colorAttachments)[0];
+          const scissors: number[][] = [];
           const pass = {
             descriptor,
             attachment: attachment == null ? undefined : { ...attachment },
             draws: [] as number[],
             pipelines: [] as object[],
+            scissors,
           };
           passes.push(pass);
           let primitive: GPUPrimitiveTopology | undefined;
@@ -169,6 +177,9 @@ function fakeDevice() {
               primitive = pipelinePrimitives.get(pipeline);
             },
             setVertexBuffer() {},
+            setScissorRect(x: number, y: number, width: number, height: number) {
+              pass.scissors.push([x, y, width, height]);
+            },
             draw(vertices: number, instances: number) {
               expect(primitive).toBeDefined();
               expect(vertices).toBe(primitive === 'triangle-strip' ? 4 : 6);
@@ -249,6 +260,8 @@ function harness(devices = [fakeDevice()]) {
     },
     getCurrentTexture() {
       return {
+        width: 1600,
+        height: 960,
         createView(descriptor: GPUTextureViewDescriptor = {}) {
           return { format: descriptor.format ?? 'rgba8unorm' };
         },
@@ -287,32 +300,26 @@ function harness(devices = [fakeDevice()]) {
 }
 
 const memory = new ArrayBuffer(16384);
-const bg = { ptr: 0, count: 2 };
-const glyph = { ptr: 1024, count: 2 };
-const deco = { ptr: 4096, count: 2 };
-const cursor = { ptr: 8192, count: 1 };
-const empty = { ptr: 0, count: 0 };
-function versions(): GeometryVersions {
-  return {
-    bg: 1,
-    glyph: 1,
-    deco: 1,
-    cursor: 1,
-    bgDirtyOffset: 0,
-    bgDirtyCount: 2,
-    glyphDirtyOffset: 0,
-    glyphDirtyCount: 2,
-    decoDirtyOffset: 0,
-    decoDirtyCount: 2,
-    cursorDirtyOffset: 0,
-    cursorDirtyCount: 1,
-  };
+function buffer(ptr: number, count: number, version = 1): GeometryBuffer {
+  return { ptr, count, version, dirtyOffset: 0, dirtyCount: count };
+}
+/** Two cell records, no overlay, one cursor and two glyph table entries. */
+function scene(viewport: [number, number] = [1600, 960]): GeometryRenderState {
+  const state = createGeometryRenderState();
+  Object.assign(state.cells, buffer(0, 2));
+  Object.assign(state.overlay, buffer(1024, 0));
+  Object.assign(state.cursor, buffer(8192, 1));
+  Object.assign(state.glyphs, { ptr: 4096, count: 2, epoch: 1 });
+  state.params.set([8, 16, 12, 0.25, 0.5, 0.75]);
+  state.viewport[0] = viewport[0];
+  state.viewport[1] = viewport[1];
+  return state;
 }
 async function flush() {
   for (let i = 0; i < 12; i += 1) await Promise.resolve();
 }
-function draw(renderer: WebGpuRenderer, v = versions(), preview?: TerminalPreviewGeometry) {
-  return renderer.render(memory, bg, glyph, deco, cursor, [1600, 960], v, preview);
+function draw(renderer: WebGpuRenderer, state = scene(), preview?: TerminalPreviewGeometry) {
+  return renderer.render(memory, state, preview);
 }
 async function ready(h: ReturnType<typeof harness>) {
   await h.renderer.init(h.canvas, 8, 8);
@@ -333,11 +340,15 @@ describe('WebGPU terminal renderer', () => {
       alphaMode: 'opaque',
     });
     expect(fake.pipelines.map((p) => p.vertex.entryPoint)).toEqual([
-      'solid',
-      'encoded_solid',
-      'glyph',
+      'cell_background',
+      'encoded_cell_background',
+      'cell_glyph',
+      'cell_decoration',
       'cursor',
     ]);
+    expect(fake.pipelines.slice(0, 4).every((p) => p.vertex.buffers?.[0]?.arrayStride === 12)).toBe(
+      true,
+    );
     expect(fake.pipelines.every((p) => p.primitive?.topology === 'triangle-strip')).toBe(true);
     expect(fake.shaderCodes[0]).toContain('coverage * v.alpha');
     expect(fake.pipelines.map((p) => p.fragment?.targets[0]?.format)).toEqual([
@@ -345,6 +356,15 @@ describe('WebGPU terminal renderer', () => {
       'rgba8unorm',
       'rgba8unorm-srgb',
       'rgba8unorm-srgb',
+      'rgba8unorm-srgb',
+    ]);
+    // Only glyph coverage and the cursor blend; backgrounds and decorations are opaque.
+    expect(fake.pipelines.map((p) => p.fragment?.targets[0]?.blend !== undefined)).toEqual([
+      false,
+      false,
+      true,
+      false,
+      true,
     ]);
     expect(fake.shaderCodes[0]).toContain('v.local.x <= 0.14');
     expect(fake.shaderCodes[0]).toContain('v.local.y >= 0.9');
@@ -355,10 +375,62 @@ describe('WebGPU terminal renderer', () => {
     // frame. The first draws nothing and uploads nothing.
     expect(fake.passes).toHaveLength(2);
     expect(fake.passes[0]?.draws).toEqual([]);
+    // Backgrounds, glyphs and decorations over the two cell records, then the cursor.
     expect(fake.passes[1]?.draws).toEqual([2, 2, 2, 1]);
     expect(fake.events.slice(-5)).toEqual(['encode', 'passEnd', 'finish', 'submit', 'completion']);
-    expect(fake.writes.map((w) => w.size)).toEqual([56, 112, 56, 32, 2]);
-    expect(fake.writes.slice(0, 4).every((w) => w.data === memory)).toBe(true);
+    // Glyph table, cells and cursor straight from WASM memory, then the uniform.
+    expect(fake.writes.map((w) => w.size)).toEqual([24, 24, 32, 12]);
+    expect(fake.writes.slice(0, 3).every((w) => w.data === memory)).toBe(true);
+    const uniform = fake.writes[3]?.data;
+    if (!(uniform instanceof Float32Array)) throw new Error('uniform is not a float upload');
+    expect(Array.from(uniform)).toEqual([1600, 960, 8, 16, 12, 0, 0, 0, 0.25, 0.5, 0.75, 0]);
+  });
+
+  test('the overlay draws after the grid in every pass and uploads whole', async () => {
+    const fake = fakeDevice();
+    const h = harness([fake]);
+    await ready(h);
+    const state = scene();
+    Object.assign(state.overlay, buffer(1024, 3));
+    expect(draw(h.renderer, state)).toBe(1);
+    expect(fake.passes[1]?.draws).toEqual([2, 3, 2, 3, 2, 3, 1]);
+    expect(fake.writes.map((w) => [w.offset, w.dataOffset, w.size])).toContainEqual([0, 1024, 36]);
+    fake.completions[0]?.resolve();
+    await flush();
+    // Unchanged versions upload nothing; a retracted overlay draws nothing.
+    const writes = fake.writes.length;
+    Object.assign(state.overlay, buffer(1024, 0, 2));
+    draw(h.renderer, state);
+    expect(fake.writes.length).toBe(writes);
+    expect(fake.passes.at(-1)?.draws).toEqual([2, 2, 2, 1]);
+  });
+
+  test('the glyph table uploads only new entries until its epoch changes', async () => {
+    const fake = fakeDevice();
+    const h = harness([fake]);
+    await ready(h);
+    const state = scene();
+    draw(h.renderer, state);
+    fake.completions[0]?.resolve();
+    await flush();
+    const tableBuffer = fake.buffers[1];
+    Object.assign(state.glyphs, { ptr: 4096, count: 5, epoch: 1 });
+    draw(h.renderer, state);
+    expect(fake.writes.at(-1)).toMatchObject({ offset: 24, dataOffset: 4096 + 24, size: 36 });
+    fake.completions[1]?.resolve();
+    await flush();
+    Object.assign(state.glyphs, { ptr: 4096, count: 3, epoch: 2 });
+    draw(h.renderer, state);
+    expect(fake.writes.at(-1)).toMatchObject({ offset: 0, dataOffset: 4096, size: 36 });
+    expect(fake.buffers[1]).toBe(tableBuffer);
+    fake.completions[2]?.resolve();
+    await flush();
+    // Outgrowing the buffer replaces it and uploads the whole table.
+    const big = new ArrayBuffer(65536);
+    Object.assign(state.glyphs, { ptr: 0, count: 400, epoch: 2 });
+    h.renderer.render(big, { ...state, cells: buffer(0, 0), cursor: buffer(0, 0) });
+    expect(tableBuffer?.destroyed).toBe(1);
+    expect(fake.writes.at(-1)).toMatchObject({ offset: 0, dataOffset: 0, size: 4800 });
   });
 
   test('configuring the canvas presents the terminal background before the pipeline compile', async () => {
@@ -375,7 +447,7 @@ describe('WebGPU terminal renderer', () => {
     // two — so a cold shader cache held the surface at full black for the
     // length of the compile. The background must already be on screen while
     // the pipelines are still pending.
-    expect(fake.pipelines).toHaveLength(4);
+    expect(fake.pipelines).toHaveLength(5);
     expect(fake.events).toEqual(['encode', 'passEnd', 'finish', 'submit']);
 
     gate.resolve({});
@@ -423,7 +495,7 @@ describe('WebGPU terminal renderer', () => {
       ...Array.from({ length: MAX_IN_FLIGHT_RENDER_FRAMES - 1 }, (_, i) => i + 3),
     ]);
     expect(h.renderer.frameInFlight()).toBe(false);
-    expect(fake.writes).toHaveLength(5);
+    expect(fake.writes).toHaveLength(4);
     // Index 0 is `init`'s one-off background present, which owns its own
     // descriptor because it runs before the scene resources exist. Every
     // rendered frame after it reuses the single retained descriptor.
@@ -435,8 +507,11 @@ describe('WebGPU terminal renderer', () => {
     const h = harness([fake]);
     await ready(h);
     const large = new ArrayBuffer(18 * 1024 * 1024);
-    const range = { ptr: 0, count: Math.floor(large.byteLength / 28) };
-    h.renderer.render(large, range, empty, empty, empty, [1600, 960]);
+    const state = scene();
+    Object.assign(state.cells, buffer(0, Math.floor(large.byteLength / 12)));
+    Object.assign(state.cursor, buffer(0, 0));
+    Object.assign(state.glyphs, { ptr: 0, count: 0, epoch: 1 });
+    h.renderer.render(large, state);
     expect(h.renderer.canSubmitFrame()).toBe(false);
     expect(() => draw(h.renderer)).toThrow('admission budget');
     expect(() => h.renderer.uploadAtlas(new Uint8Array(64), [0, 0, 8, 8], [8, 8])).toThrow(
@@ -472,18 +547,18 @@ describe('WebGPU terminal renderer', () => {
     draw(h.renderer);
     fake.completions[0]?.resolve();
     await flush();
-    const v = versions();
-    v.glyph = 2;
-    v.glyphDirtyOffset = 1;
-    v.glyphDirtyCount = 1;
-    draw(h.renderer, v);
-    expect(fake.writes.at(-1)).toMatchObject({ offset: 56, dataOffset: 1080, size: 56 });
+    // One changed cell record uploads its twelve bytes.
+    const state = scene();
+    Object.assign(state.cells, { version: 2, dirtyOffset: 1, dirtyCount: 1 });
+    draw(h.renderer, state);
+    expect(fake.writes.at(-1)).toMatchObject({ offset: 12, dataOffset: 12, size: 12 });
     fake.completions[1]?.resolve();
     await flush();
     const oldBuffer = fake.buffers[2];
-    h.renderer.render(memory, bg, { ptr: 1024, count: 16 }, deco, cursor, [1600, 960], v);
+    Object.assign(state.cells, { ptr: 1024, count: 16 });
+    draw(h.renderer, state);
     expect(oldBuffer?.destroyed).toBe(1);
-    expect(fake.writes.at(-1)).toMatchObject({ offset: 0, dataOffset: 1024, size: 896 });
+    expect(fake.writes.at(-1)).toMatchObject({ offset: 0, dataOffset: 1024, size: 192 });
   });
 
   test('atlas dirty windows avoid repacking; replacement uploads full contents and retires prior texture', async () => {
@@ -517,11 +592,11 @@ describe('WebGPU terminal renderer', () => {
     const bufferCount = fake.buffers.length;
     h.renderer.resize(1200, 800);
     h.renderer.setClearColor([51, 102, 153]);
-    h.renderer.render(memory, bg, glyph, deco, cursor, [1200, 800], versions());
+    draw(h.renderer, scene([1200, 800]));
     expect(h.canvas.width).toBe(1200);
     expect(h.canvas.height).toBe(800);
     expect(fake.buffers.length).toBe(bufferCount);
-    expect(fake.writes.at(-1)?.size).toBe(2);
+    expect(fake.writes.at(-1)?.size).toBe(12);
     expect(Array.from(fake.passes[1]?.descriptor.colorAttachments ?? [])[0]?.clearValue).toEqual({
       r: srgbToLinear(0.2),
       g: srgbToLinear(0.4),
@@ -536,27 +611,30 @@ describe('WebGPU terminal renderer', () => {
     await ready(h);
     const preview: TerminalPreviewGeometry = {
       version: 1,
-      bg: new Float32Array(7),
-      bgCount: 1,
-      glyph: new Float32Array(140),
-      glyphCount: 10,
+      cells: new Uint32Array(33),
+      cellCount: 11,
+      clip: Uint32Array.of(16, 32, 80, 16),
       cursor: new Float32Array(8),
       cursorCount: 1,
     };
-    expect(draw(h.renderer, versions(), preview)).toBe(1);
-    expect(fake.passes.at(-1)?.draws).toEqual([2, 2, 2, 1, 1, 10, 1]);
+    expect(draw(h.renderer, scene(), preview)).toBe(1);
+    // Preview backgrounds, then its glyphs clipped to the previewed cells, then its cursor.
+    expect(fake.passes.at(-1)?.draws).toEqual([2, 2, 2, 1, 11, 11, 1]);
+    expect(fake.passes.at(-1)?.scissors).toEqual([
+      [16, 32, 80, 16],
+      [0, 0, 1600, 960],
+    ]);
     expect(fake.completions).toHaveLength(1);
-    expect(() => draw(h.renderer, versions(), { ...preview, glyphCount: 11 })).toThrow(
+    expect(() => draw(h.renderer, scene(), { ...preview, cellCount: 12 })).toThrow(
       'bounded capacity',
     );
     fake.completions[0]?.resolve();
     await flush();
     const writes = fake.writes.length;
-    draw(h.renderer, versions(), {
+    draw(h.renderer, scene(), {
       ...preview,
       version: 2,
-      bgCount: 0,
-      glyphCount: 0,
+      cellCount: 0,
       cursorCount: 0,
     });
     expect(fake.passes.at(-1)?.draws).toEqual([2, 2, 2, 1]);
@@ -580,7 +658,7 @@ describe('WebGPU terminal renderer', () => {
     h.renderer.uploadAtlas(new Uint8Array(64), [2, 2, 1, 1], [8, 8]);
     expect(second.textureWrites[0]?.size).toEqual({ width: 8, height: 8 });
     expect(draw(h.renderer)).toBe(2);
-    expect(second.writes).toHaveLength(5);
+    expect(second.writes).toHaveLength(4);
     second.completions[0]?.resolve();
     await flush();
     expect(h.completed).toEqual([2]);
@@ -676,7 +754,10 @@ describe('WebGPU terminal renderer', () => {
     await expect(h.renderer.init(h.canvas, 8, 8)).rejects.toThrow('WebGPU is required');
     const second = harness();
     await second.renderer.init(second.canvas, 8, 8);
-    expect(second.renderer.render(memory, empty, empty, empty, empty, [1600, 960])).toBe(1);
+    const blank = createGeometryRenderState();
+    blank.viewport[0] = 1600;
+    blank.viewport[1] = 960;
+    expect(second.renderer.render(memory, blank)).toBe(1);
   });
 });
 
@@ -761,7 +842,7 @@ test('image copies share submission completion and retain backing pages across s
   );
   expect(h.renderer.offerGraphicsTile(tile.key, bitmap)).toBe(true);
   const priorPasses = fake.passes.length;
-  h.renderer.render(memory, bg, glyph, deco, empty, [1600, 960], versions());
+  draw(h.renderer, { ...scene(), cursor: buffer(0, 0) });
   expect(fake.passes.slice(priorPasses).map((pass) => pass.draws)).toEqual([
     [1, 2, 1],
     [2, 2],

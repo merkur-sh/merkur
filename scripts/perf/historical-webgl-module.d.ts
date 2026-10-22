@@ -23,7 +23,7 @@ declare module 'merkur-historical-webgl' {
       deco: { ptr: number; count: number },
       cursor: { ptr: number; count: number },
       viewport: [number, number],
-      versions?: import('../../apps/web/src/terminal-renderer').GeometryVersions,
+      versions?: import('./historical-geometry').GeometryVersions,
     ): number;
     frameInFlight(): boolean;
     canSubmitFrame(): boolean;

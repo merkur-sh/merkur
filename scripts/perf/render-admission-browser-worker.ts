@@ -5,6 +5,7 @@ import {
   createRenderMailbox,
   type MailboxAction,
 } from '../../apps/web/src/terminal/render-mailbox';
+import { createCellGridFixture } from './cell-grid-fixture';
 
 export interface RenderAdmissionBrowserRequest {
   canvas: OffscreenCanvas;
@@ -69,30 +70,7 @@ async function run(request: RenderAdmissionBrowserRequest) {
   const callbackObserved: number[] = [];
   const cpu: number[] = [];
   const offerRevisionById: number[] = [];
-  const memory = new Float32Array(30 * 7 + 2400 * 14);
-  const bg = { ptr: 0, count: 30 };
-  const glyph = { ptr: 30 * 28, count: 2400 };
-  const empty = { ptr: 0, count: 0 };
-  const versions = {
-    bg: 0,
-    glyph: 0,
-    deco: 0,
-    cursor: 0,
-    bgDirtyOffset: 0,
-    bgDirtyCount: 30,
-    glyphDirtyOffset: 0,
-    glyphDirtyCount: 2400,
-    decoDirtyOffset: 0,
-    decoDirtyCount: 0,
-    cursorDirtyOffset: 0,
-    cursorDirtyCount: 0,
-  };
-  for (let row = 0; row < 30; row++) memory.set([0, row * 20, 800, 20, 0, 0.1, 0.2], row * 7);
-  for (let cell = 0; cell < 2400; cell++)
-    memory.set(
-      [(cell % 80) * 10 + 3, Math.floor(cell / 80) * 20, 0, 0, 6, 16, 0, 0, 1, 1, 1, 1, 1, 1],
-      210 + cell * 14,
-    );
+  const grid = createCellGridFixture();
   function credit(values: number[], revision: number, at: number) {
     while (values.length < revision) values.push(at);
   }
@@ -163,15 +141,9 @@ async function run(request: RenderAdmissionBrowserRequest) {
       return;
     }
     const revision = pending;
-    const count = request.dense ? 30 : 1;
-    for (let row = 0; row < count; row++) memory[row * 7 + 4] = (revision % 200) / 255;
-    versions.bg = revision;
-    versions.bgDirtyCount = count;
-    versions.glyph = revision;
-    versions.glyphDirtyCount = request.dense ? 2400 : 1;
-    memory[220] = (revision % 200) / 255;
+    grid.revise(revision, request.dense);
     const start = performance.now();
-    const id = renderer.render(memory.buffer, bg, glyph, empty, empty, [800, 600], versions);
+    const id = renderer.render(grid.memory.buffer, grid.state);
     const end = performance.now();
     cpu.push(end - start);
     offerRevisionById[id] = revision;

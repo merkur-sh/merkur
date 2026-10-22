@@ -1,6 +1,7 @@
 // Observation experiment only. Mapping an unrelated sentinel buffer does NOT
 // prove completion of the renderer's queue prefix and never releases its owner.
 import { WebGpuRenderer } from '../../apps/web/src/renderer-webgpu';
+import { createCellGridFixture } from './cell-grid-fixture';
 
 declare const GPUBufferUsage: {
   readonly COPY_SRC: number;
@@ -162,43 +163,14 @@ async function run(request: CompletionObserverRequest) {
       });
     },
   });
-  const memory = new Float32Array(30 * 7 + 2400 * 14);
-  const bg = { ptr: 0, count: 30 };
-  const glyph = { ptr: 30 * 28, count: 2400 };
-  const empty = { ptr: 0, count: 0 };
-  const versions = {
-    bg: 0,
-    glyph: 0,
-    deco: 0,
-    cursor: 0,
-    bgDirtyOffset: 0,
-    bgDirtyCount: 30,
-    glyphDirtyOffset: 0,
-    glyphDirtyCount: 2400,
-    decoDirtyOffset: 0,
-    decoDirtyCount: 0,
-    cursorDirtyOffset: 0,
-    cursorDirtyCount: 0,
-  };
-  for (let row = 0; row < 30; row++) memory.set([0, row * 20, 800, 20, 0, 0.1, 0.2], row * 7);
-  for (let cell = 0; cell < 2400; cell++)
-    memory.set(
-      [(cell % 80) * 10 + 3, Math.floor(cell / 80) * 20, 0, 0, 6, 16, 0, 0, 1, 1, 1, 1, 1, 1],
-      210 + cell * 14,
-    );
+  const grid = createCellGridFixture();
   function schedule() {
     if (!active || !pending || outstanding >= 2 || !renderer.canSubmitFrame()) return;
     const slot = busy.indexOf(0);
     if (request.sentinel && slot < 0) return;
     const revision = pending;
     pending = 0;
-    const count = request.dense ? 30 : 1;
-    for (let row = 0; row < count; row++) memory[row * 7 + 4] = (revision % 200) / 255;
-    versions.bg = revision;
-    versions.bgDirtyCount = count;
-    versions.glyph = revision;
-    versions.glyphDirtyCount = request.dense ? 2400 : 1;
-    memory[220] = (revision % 200) / 255;
+    grid.revise(revision, request.dense);
     const sample: Sample = {
       revision,
       cpuMs: 0,
@@ -211,7 +183,7 @@ async function run(request: CompletionObserverRequest) {
     activeSlot = slot;
     if (request.sentinel) busy[slot] = 1;
     const start = performance.now();
-    renderer.render(memory.buffer, bg, glyph, empty, empty, [800, 600], versions);
+    renderer.render(grid.memory.buffer, grid.state);
     sample.cpuMs = performance.now() - start;
     activeSample = null;
     outstanding++;

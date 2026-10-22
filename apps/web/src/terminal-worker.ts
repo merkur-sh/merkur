@@ -294,11 +294,8 @@ const previewAuthority = {
 const previewAtlas = {
   entries: new Int32Array(0) as Int32Array,
   generation: 0,
-  width: 0,
-  height: 0,
   cellWidth: 0,
   cellHeight: 0,
-  baseline: 0,
 };
 
 function createBouncedContinuation(
@@ -2623,11 +2620,8 @@ function preparePreviewGeometry(): void {
   const metrics = terminal.cellMetrics();
   previewAtlas.entries = terminal.speculativeAsciiEntries();
   previewAtlas.generation = terminal.atlasGeneration();
-  previewAtlas.width = terminal.atlasWidth();
-  previewAtlas.height = terminal.atlasHeight();
   previewAtlas.cellWidth = metrics[0] ?? 0;
   previewAtlas.cellHeight = metrics[1] ?? 0;
-  previewAtlas.baseline = metrics[2] ?? 0;
   provisionalPreview.buildGeometry(previewAuthority, previewAtlas);
 }
 
@@ -3125,10 +3119,9 @@ function executeRender(): void {
         );
       resetRenderGateAccumulators();
     }
-    const beforeBg = geometryRenderState.versions.bg;
-    const beforeGlyph = geometryRenderState.versions.glyph;
-    const beforeDeco = geometryRenderState.versions.deco;
-    const beforeCursor = geometryRenderState.versions.cursor;
+    const beforeCells = geometryRenderState.cells.version;
+    const beforeOverlay = geometryRenderState.overlay.version;
+    const beforeCursor = geometryRenderState.cursor.version;
     const submissionId = buildAndRender();
     if (rendererContextLost || submissionId === 0) return;
     submission.sessionEpoch = activeSessionEpoch;
@@ -3171,10 +3164,9 @@ function executeRender(): void {
         presentationTransactionSeq = (presentationTransactionSeq + 1) >>> 0 || 1;
         const changed =
           surfaceChanged ||
-          beforeBg !== geometryRenderState.versions.bg ||
-          beforeGlyph !== geometryRenderState.versions.glyph ||
-          beforeDeco !== geometryRenderState.versions.deco ||
-          beforeCursor !== geometryRenderState.versions.cursor;
+          beforeCells !== geometryRenderState.cells.version ||
+          beforeOverlay !== geometryRenderState.overlay.version ||
+          beforeCursor !== geometryRenderState.cursor.version;
         emitViewerPresentationCommit(perfWriter, submittedAtMs, renderPerfSeq, changed);
       }
     }
@@ -3224,12 +3216,7 @@ function renderFrame(): number {
   updateGeometryRenderState(geometryRenderState, packed, committedPhysW, committedPhysH);
   return renderer.render(
     wasmTerminal.memory.buffer,
-    geometryRenderState.bg,
-    geometryRenderState.glyph,
-    geometryRenderState.deco,
-    geometryRenderState.cursor,
-    geometryRenderState.viewport,
-    geometryRenderState.versions,
+    geometryRenderState,
     provisionalPreview.geometry,
   );
 }

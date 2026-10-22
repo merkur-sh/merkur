@@ -1,5 +1,6 @@
 use hashbrown::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub const ATLAS_INITIAL_SIZE: u32 = 2048; // R8 = 4MB VRAM
 const ATLAS_MAX_SIZE: u32 = 4096;
@@ -8,6 +9,18 @@ const ATLAS_MAX_SIZE: u32 = 4096;
 /// the common case is an index rather than a hash probe.
 const DENSE_CODEPOINTS: u32 = 0x80;
 const STYLES: usize = 4;
+/// Words per glyph-table entry: atlas `x | y << 16`, `width | height << 16`,
+/// and the bearings `offset_x | offset_y << 16` as two's-complement halves.
+pub const GLYPH_TABLE_WORDS: usize = 3;
+/// Glyph ids are 1-based and fill the low 20 bits of a cell record.
+pub const MAX_GLYPH_ID: u32 = (1 << 20) - 1;
+/// Every glyph table, across atlases and raster resets, has its own epoch, so
+/// a renderer holding another table's entries can never mistake them for these.
+static NEXT_TABLE_EPOCH: AtomicU32 = AtomicU32::new(1);
+
+fn next_table_epoch() -> u32 {
+    NEXT_TABLE_EPOCH.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct GlyphKey {
@@ -23,6 +36,8 @@ pub struct GlyphEntry {
     pub height: u16,
     pub offset_x: i16, // bearing from cell left edge (physical px)
     pub offset_y: i16, // bearing from cell top edge (physical px)
+    /// 1-based index of this glyph's entry in `GlyphAtlas::table`.
+    pub id: u32,
 }
 
 /// What is known about one (codepoint, style) pair.
@@ -66,8 +81,13 @@ pub struct GlyphAtlas {
     pub cell_w: f32, // physical pixels
     pub cell_h: f32,
     pub baseline: f32,
-    /// Changes whenever existing normalized UVs must be rebuilt.
+    /// Changes whenever the texture is reallocated or its glyphs are dropped.
     generation: u32,
+    /// The rasterized glyphs' atlas rectangles and bearings in pixels, indexed
+    /// by `GlyphEntry::id - 1`. Append-only until a raster reset; growth keeps
+    /// every pixel coordinate, so it never rewrites an entry.
+    pub table: Vec<u32>,
+    table_epoch: u32,
 }
 
 impl GlyphAtlas {
@@ -91,11 +111,37 @@ impl GlyphAtlas {
             cell_h: 16.0,
             baseline: 13.0,
             generation: 1,
+            table: Vec::new(),
+            table_epoch: next_table_epoch(),
         }
     }
 
     pub fn generation(&self) -> u32 {
         self.generation
+    }
+
+    /// Identity of `table`'s contents: a new value means its ids were reissued.
+    pub fn table_epoch(&self) -> u32 {
+        self.table_epoch
+    }
+
+    pub fn glyph_count(&self) -> usize {
+        self.table.len() / GLYPH_TABLE_WORDS
+    }
+
+    /// Give a packed glyph its table entry, or `None` once ids run out.
+    fn register(&mut self, mut entry: GlyphEntry) -> Option<GlyphEntry> {
+        let id = u32::try_from(self.glyph_count() + 1).ok()?;
+        if id > MAX_GLYPH_ID {
+            return None;
+        }
+        entry.id = id;
+        self.table.extend_from_slice(&[
+            u32::from(entry.atlas_x) | u32::from(entry.atlas_y) << 16,
+            u32::from(entry.width) | u32::from(entry.height) << 16,
+            u32::from(entry.offset_x as u16) | u32::from(entry.offset_y as u16) << 16,
+        ]);
+        Some(entry)
     }
 
     /// Drop every rasterized glyph while retaining the allocated atlas tier.
@@ -113,6 +159,8 @@ impl GlyphAtlas {
         // `Unrenderable` goes too: Canvas 2D rasterization is size-dependent, so
         // zero coverage at one cell size is not a verdict at another.
         self.pending.clear();
+        self.table.clear();
+        self.table_epoch = next_table_epoch();
         self.generation = self.generation.wrapping_add(1).max(1);
         self.dirty = true;
         self.dirty_rect = [0, 0, self.atlas_w, self.atlas_h];
@@ -137,9 +185,8 @@ impl GlyphAtlas {
     }
 
     /// Grow atlas to the next tier while preserving every existing glyph's
-    /// pixel coordinates. Repacking here would invalidate geometry that was
-    /// built earlier in the same frame; keeping coordinates stable limits the
-    /// required invalidation to the normalized UV denominator.
+    /// pixel coordinates. The glyph table and every cell record that names one
+    /// of its ids stay valid; only the texture is reallocated.
     pub fn grow(&mut self) -> bool {
         let Some(new_sz) = self.atlas_w.checked_mul(2) else {
             return false;
@@ -166,7 +213,7 @@ impl GlyphAtlas {
         self.atlas_h = new_sz;
         self.pixels = pixels;
         self.generation = self.generation.wrapping_add(1).max(1);
-        // The WebGL texture must be reallocated and populated in full after a
+        // The GPU texture must be reallocated and populated in full after a
         // dimension change, including the zeroed portion of the larger atlas.
         self.dirty = true;
         self.dirty_rect = [0, 0, new_sz, new_sz];
@@ -242,13 +289,17 @@ impl GlyphAtlas {
             self.dirty_rect[3] = y2;
         }
 
-        let entry = GlyphEntry {
+        let Some(entry) = self.register(GlyphEntry {
             atlas_x: ax as u16,
             atlas_y: ay as u16,
             width: metrics.width as u16,
             height: metrics.height as u16,
             offset_x: metrics.xmin as i16,
             offset_y: -(metrics.height as i16 + metrics.ymin as i16),
+            id: 0,
+        }) else {
+            self.set_slot(key, GlyphSlot::Unrenderable);
+            return None;
         };
         self.set_slot(key, GlyphSlot::Rasterized(entry));
         self.pending.remove(&key);
@@ -372,13 +423,16 @@ impl GlyphAtlas {
         if y2 > self.dirty_rect[3] {
             self.dirty_rect[3] = y2;
         }
-        let entry = GlyphEntry {
+        let Some(entry) = self.register(GlyphEntry {
             atlas_x: ax as u16,
             atlas_y: ay as u16,
             width: w,
             height: h,
             offset_x: ox,
             offset_y: oy,
+            id: 0,
+        }) else {
+            return false;
         };
         // The Canvas 2D font stack carries no bold or italic variant, so this
         // one bitmap is exact for all four styles. Aliasing it costs no pixels
@@ -609,6 +663,7 @@ mod tests {
             height: 1,
             offset_x: 0,
             offset_y: 0,
+            id: 1,
         };
         atlas.set_slot(key, GlyphSlot::Rasterized(entry));
         let generation = atlas.generation();
@@ -676,7 +731,10 @@ mod tests {
         // then declines every other one.
         assert!(atlas.inject_extern(control, &[7; 4], 2, 2, 0, 0));
         atlas.finish_missing_pass();
-        assert!(matches!(atlas.slot(control), Some(GlyphSlot::Rasterized(_))));
+        assert!(matches!(
+            atlas.slot(control),
+            Some(GlyphSlot::Rasterized(_))
+        ));
         assert_eq!(
             atlas.slot(GlyphKey {
                 codepoint: 0x02,

@@ -4,7 +4,7 @@ import {
   parseReferenceRenderContent,
 } from './reference-render-content';
 
-const CALL = 'r.render(t.memory.buffer,s.bg,s.glyph,s.deco,s.cursor,s.viewport,s.versions)';
+const CALL = 'r.render(t.memory.buffer,s,p.geometry)';
 
 test('content observer refuses absent, ambiguous, or already instrumented GPU calls', () => {
   expect(() => instrumentReferenceRenderContent('')).toThrow('exactly one');
@@ -33,31 +33,27 @@ test('identical newer-sequence submissions do not advance exact grid-content rev
     memory,
   };
   const state = {
-    bg: {},
-    glyph: {},
-    deco: {},
+    cells: {},
     cursor: { ptr: 0, count: 1 },
     viewport: [800, 40],
-    versions: {},
   };
+  const preview = { geometry: {} };
   const renderer = {
     render: (...args: unknown[]) => {
-      expect(args).toEqual([
-        memory.buffer,
-        state.bg,
-        state.glyph,
-        state.deco,
-        state.cursor,
-        state.viewport,
-        state.versions,
-      ]);
+      expect(args).toEqual([memory.buffer, state, preview.geometry]);
       submissions += 1;
     },
   };
   const source = instrumentReferenceRenderContent(`return () => ${CALL};`);
-  const submit = new Function('r', 't', 's', 'console', source)(renderer, terminal, state, {
-    debug: (entry: string) => logs.push(entry),
-  });
+  const submit = new Function('r', 't', 's', 'p', 'console', source)(
+    renderer,
+    terminal,
+    state,
+    preview,
+    {
+      debug: (entry: string) => logs.push(entry),
+    },
+  );
   submit();
   submit();
   hashes[3] = 5;

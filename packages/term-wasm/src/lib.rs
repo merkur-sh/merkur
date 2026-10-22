@@ -22,7 +22,7 @@ use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::{Config, Term, point_to_viewport};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
-use builtin_glyph::{BuiltinCellGlyph, builtin_cell_glyph};
+use builtin_glyph::builtin_cell_glyph;
 use merkur_codec::theme::{
     ANSI_PALETTE, DEFAULT_BACKGROUND, DEFAULT_CURSOR, DEFAULT_DIM_FOREGROUND, DEFAULT_FOREGROUND,
     DIM_PALETTE, resolve_color,
@@ -62,9 +62,47 @@ const STAGED_FRAME_MAX: usize = 256;
 const STAGED_ACTIVE_MAX_WIRE_BYTES: usize = merkur_codec::MAX_DISPLAY_SNAPSHOT_BYTES;
 const STAGED_ACTIVE_MAX_DECODED_BYTES: usize = merkur_codec::MAX_DISPLAY_SNAPSHOT_BYTES;
 const STAGED_ACTIVE_MAX_CELL_BUDGET: usize = MAX_TERMINAL_CELLS * 2;
+// Packed render metadata. Cells, overlay and cursor are each
+// [ptr, count, version, dirty_offset, dirty_count]; the glyph table is
+// [ptr, glyph count, epoch]; the parameters are cell width, cell height,
+// baseline and the preedit highlight's encoded RGB, as f32 bits; the last
+// word is the image scene revision.
 const GEOMETRY_STATE_WORDS_PER_BUFFER: usize = 5;
-const GEOMETRY_STATE_BUFFER_COUNT: usize = 4;
-const GEOMETRY_STATE_LEN: usize = GEOMETRY_STATE_WORDS_PER_BUFFER * GEOMETRY_STATE_BUFFER_COUNT + 1;
+const GEOMETRY_STATE_CELLS: usize = 0;
+const GEOMETRY_STATE_OVERLAY: usize = GEOMETRY_STATE_WORDS_PER_BUFFER;
+const GEOMETRY_STATE_CURSOR: usize = GEOMETRY_STATE_WORDS_PER_BUFFER * 2;
+const GEOMETRY_STATE_GLYPHS: usize = GEOMETRY_STATE_WORDS_PER_BUFFER * 3;
+const GEOMETRY_STATE_PARAMS: usize = GEOMETRY_STATE_GLYPHS + 3;
+const GEOMETRY_PARAMS: usize = 6;
+const GEOMETRY_STATE_LEN: usize = GEOMETRY_STATE_PARAMS + GEOMETRY_PARAMS + 1;
+
+// A cell record is three words, and the grid holds one per cell at
+// `row * cols + col`, so a changed cell rewrites only its own record.
+//
+// word 0: glyph id (1-based into the atlas glyph table, 0 for none) or, with
+//         `CELL_BUILTIN`, a builtin shape, in bits 0..20; the column in bits
+//         20..29; then `CELL_WIDE`, `CELL_UNDERLINE`, `CELL_STRIKEOUT`.
+// word 1: text colour RGB in bits 0..24, then `CELL_BUILTIN`,
+//         `CELL_BACKGROUND`, the glyph alpha class and `CELL_PREEDIT`.
+// word 2: background RGB in bits 0..24, the row in bits 24..32.
+const CELL_WORDS: usize = 3;
+const CELL_GLYPH_MASK: u32 = (1 << 20) - 1;
+const CELL_COLUMN_SHIFT: u32 = 20;
+const CELL_WIDE: u32 = 1 << 29;
+const CELL_UNDERLINE: u32 = 1 << 30;
+const CELL_STRIKEOUT: u32 = 1 << 31;
+const CELL_BUILTIN: u32 = 1 << 24;
+const CELL_BACKGROUND: u32 = 1 << 25;
+/// Glyph alpha class in bits 26..28: opaque, dim (0.72) or prediction (0.55).
+const CELL_ALPHA_DIM: u32 = 1 << 26;
+const CELL_ALPHA_PREDICTION: u32 = 2 << 26;
+/// A cell of the IME preedit run: its background is the highlight colour
+/// the parameters carry, and it is underlined two pixels deep.
+const CELL_PREEDIT: u32 = 1 << 28;
+const CELL_ROW_SHIFT: u32 = 24;
+const _: () = assert!(MAX_TERMINAL_COLUMNS <= 1 << (29 - CELL_COLUMN_SHIFT));
+const _: () = assert!(MAX_TERMINAL_ROWS <= 1 << (32 - CELL_ROW_SHIFT));
+const _: () = assert!(atlas::MAX_GLYPH_ID <= CELL_GLYPH_MASK);
 
 #[derive(Clone, Copy)]
 struct RenderTheme {
@@ -88,15 +126,12 @@ const CURSOR_SHAPE_HIDDEN: u8 = 0;
 const CURSOR_SHAPE_BLOCK: u8 = 1;
 const CURSOR_SHAPE_BEAM: u8 = 2;
 const CURSOR_SHAPE_UNDERLINE: u8 = 3;
-const PREDICTION_ALPHA: f32 = 0.55;
 const PREDICTION_STYLE_NORMAL: u8 = 0;
 const SPECULATIVE_ASCII_FIRST: u32 = 0x20;
 const SPECULATIVE_ASCII_LAST: u32 = 0x7e;
 const SPECULATIVE_ASCII_COUNT: usize =
     (SPECULATIVE_ASCII_LAST - SPECULATIVE_ASCII_FIRST + 1) as usize;
-const SPECULATIVE_GLYPH_ENTRY_WORDS: usize = 6;
-const SPECULATIVE_ASCII_ENTRIES_LEN: usize =
-    SPECULATIVE_ASCII_COUNT * SPECULATIVE_GLYPH_ENTRY_WORDS;
+const SPECULATIVE_ASCII_ENTRIES_LEN: usize = SPECULATIVE_ASCII_COUNT;
 // PTY write completion can advance a display frame's authenticated input
 // watermark just before the slave's echo reaches the terminal parser. Give a
 // contradictory cell projection one presentation-sized grace window so a
@@ -476,16 +511,6 @@ struct TerminalDimensions {
     rows: usize,
 }
 
-#[derive(Default)]
-struct RowGeometry {
-    bg: Vec<f32>,
-    glyph: Vec<f32>,
-    deco: Vec<f32>,
-    bg_start: usize,
-    glyph_start: usize,
-    deco_start: usize,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PendingDisplayHeader {
     seq: u32,
@@ -667,8 +692,7 @@ pub struct Terminal {
     prediction_model_buf: [u32; 6],
     cell_metrics_buf: [f32; 4],
     atlas_dirty_buf: [u32; 4],
-    // Printable ASCII metadata from the exact fontdue/WebGL atlas cache:
-    // atlas x/y, width/height, and physical-pixel x/y bearings.
+    // Printable ASCII glyph ids in the terminal atlas's glyph table.
     speculative_ascii_entries: [i32; SPECULATIVE_ASCII_ENTRIES_LEN],
     missing_buf: Vec<u32>,
     // confirmed, mismatched, expired-covered, no-credit,
@@ -683,28 +707,25 @@ pub struct Terminal {
     // Font atlas and cached render geometry.
     atlas: Option<atlas::GlyphAtlas>,
     cell_dpr: f32,
-    bg_buf: Vec<f32>,     // 7 f32/instance: [x, y, w, h, r, g, b]
-    glyph_buf: Vec<f32>,  // 14 f32/instance: [cx, cy, ox, oy, gw, gh, u0, v0, u1, v1, r, g, b, a]
-    deco_buf: Vec<f32>,   // 7 f32/instance: [x, y, w, h, r, g, b]
+    /// One `CELL_WORDS` record per presented cell, row-major.
+    cell_buf: Vec<u32>,
+    /// Records drawn over the grid: visible predictions, then the IME preedit.
+    overlay_buf: Vec<u32>,
+    overlay_scratch: Vec<u32>,
     cursor_buf: Vec<f32>, // 8 f32/instance: [x, y, w, h, r, g, b, shape]
-    // Post-build render metadata, grouped as
-    // [ptr, count, version, dirty_offset, dirty_count] for bg/glyph/deco/cursor.
-    // JS holds a view over this fixed array, replacing twenty wasm boundary
-    // calls with one stable memory read while the legacy getters remain an
-    // independent compatibility/correctness oracle.
+    // Post-build render metadata (see `GEOMETRY_STATE_*`). JS holds a view
+    // over this fixed array: one stable memory read per render.
     geometry_state: [u32; GEOMETRY_STATE_LEN],
-    row_geometry: Vec<RowGeometry>,
-    /// Atlas layout generation used by the cached normalized glyph UVs.
-    geometry_atlas_generation: u32,
-    bg_version: u32,
-    glyph_version: u32,
-    deco_version: u32,
+    /// Glyph table epoch whose ids the cell records hold.
+    geometry_glyph_epoch: u32,
+    cell_version: u32,
+    overlay_version: u32,
     cursor_version: u32,
-    bg_dirty: (u32, u32),
-    glyph_dirty: (u32, u32),
-    deco_dirty: (u32, u32),
+    cell_dirty: (u32, u32),
     cursor_dirty: (u32, u32),
-    geometry_buffers_initialized: bool,
+    /// Cell width, height and baseline the records were built against, and
+    /// the preedit highlight colour.
+    geometry_params: [f32; GEOMETRY_PARAMS],
     display_row_versions: Vec<u32>,
     display_cell_versions: Vec<u32>,
     /// OSC 8 link id per authoritative cell, row-major, 0 for none. Beside the
@@ -960,9 +981,8 @@ impl Terminal {
         next.cell_dpr = self.cell_dpr;
         next.theme = self.theme;
         next.cursor_motion_enabled = self.cursor_motion_enabled;
-        next.bg_version = self.bg_version.wrapping_add(1);
-        next.glyph_version = self.glyph_version.wrapping_add(1);
-        next.deco_version = self.deco_version.wrapping_add(1);
+        next.cell_version = self.cell_version.wrapping_add(1);
+        next.overlay_version = self.overlay_version.wrapping_add(1);
         next.cursor_version = self.cursor_version.wrapping_add(1);
         next.presentation_revision = self.presentation_revision.wrapping_add(1);
         next
@@ -1330,22 +1350,18 @@ impl Terminal {
             reconcile_stats: [0; 7],
             atlas: None,
             cell_dpr: 1.0,
-            bg_buf: Vec::new(),
-            glyph_buf: Vec::new(),
-            deco_buf: Vec::new(),
+            cell_buf: Vec::new(),
+            overlay_buf: Vec::new(),
+            overlay_scratch: Vec::new(),
             cursor_buf: Vec::new(),
             geometry_state: [0; GEOMETRY_STATE_LEN],
-            row_geometry: Vec::new(),
-            geometry_atlas_generation: 0,
-            bg_version: 1,
-            glyph_version: 1,
-            deco_version: 1,
+            geometry_glyph_epoch: 0,
+            cell_version: 1,
+            overlay_version: 1,
             cursor_version: 1,
-            bg_dirty: (0, 0),
-            glyph_dirty: (0, 0),
-            deco_dirty: (0, 0),
+            cell_dirty: (0, 0),
             cursor_dirty: (0, 0),
-            geometry_buffers_initialized: false,
+            geometry_params: [0.0; GEOMETRY_PARAMS],
             display_row_versions: Vec::new(),
             display_cell_versions: Vec::new(),
             display_cell_links: Vec::new(),
@@ -1419,6 +1435,7 @@ impl Terminal {
         terminal.cell_dpr = dpr;
         terminal.atlas = Some(atlas);
         terminal.full_damage = true;
+        terminal.refresh_geometry_state();
         terminal
     }
 
@@ -1492,7 +1509,8 @@ impl Terminal {
         let input = std::mem::take(&mut self.staged_frame_input);
         // Every frame, raw or MZ, tells the MZ receiver its generation, so a
         // raw snapshot opens its generation as an MZ one does.
-        let generation = merkur_codec::parse_stream_header(&input[..len]).map_or(0, |stream| stream.generation);
+        let generation =
+            merkur_codec::parse_stream_header(&input[..len]).map_or(0, |stream| stream.generation);
         self.display_mz.observe_generation(generation);
         let (data, validation) = if admission.compressed {
             let Some(validation) = self.decode_mz_frame(
@@ -1938,7 +1956,6 @@ impl Terminal {
         };
         self.theme = theme;
         self.full_damage = true;
-        self.geometry_buffers_initialized = false;
         self.prediction_render_dirty = true;
         true
     }
@@ -1962,7 +1979,8 @@ impl Terminal {
                 return false;
             }
         };
-        let generation = merkur_codec::parse_stream_header(data).map_or(0, |stream| stream.generation);
+        let generation =
+            merkur_codec::parse_stream_header(data).map_or(0, |stream| stream.generation);
         self.apply_validated_frame(header, generation, snapshot, seq, None)
     }
 
@@ -2252,7 +2270,6 @@ impl Terminal {
         self.damaged_rows.clear();
         self.damaged_row_set.clear();
         self.damaged_row_set.resize(usize::from(rows.max(1)), false);
-        self.row_geometry.clear();
         // The MZ rows and epochs outlive the resize: the generation its
         // snapshot opens copies the rows the old size held.
         self.display_row_versions.clear();
@@ -2283,7 +2300,6 @@ impl Terminal {
         self.last_applied_display_header = None;
         self.last_apply_visually_changed = true;
         self.authoritative_header_revision = 0;
-        self.geometry_buffers_initialized = false;
         self.full_damage = true;
         // Every row moved, and the vector length changed with it. Listing rows
         // individually here would be the one case where the dirty list can grow
@@ -3676,9 +3692,6 @@ impl Terminal {
 
     fn replace_fonts(&mut self, fonts: [Rc<fontdue::Font>; 4]) {
         self.atlas = Some(atlas::GlyphAtlas::new(fonts));
-        self.row_geometry.clear();
-        self.geometry_atlas_generation = 0;
-        self.geometry_buffers_initialized = false;
         self.full_damage = true;
     }
 
@@ -3697,26 +3710,11 @@ impl Terminal {
             None => return,
         };
         let old_px_per_em = atlas.px_per_em.to_bits();
-        let old_layout_metrics = (
-            atlas.cell_w.to_bits(),
-            atlas.cell_h.to_bits(),
-            atlas.baseline.to_bits(),
-        );
         apply_cell_metrics_to_atlas(atlas, px_per_em, line_height);
-        let raster_metrics_changed = old_px_per_em != atlas.px_per_em.to_bits();
-        let layout_metrics_changed = old_layout_metrics
-            != (
-                atlas.cell_w.to_bits(),
-                atlas.cell_h.to_bits(),
-                atlas.baseline.to_bits(),
-            );
-        if raster_metrics_changed {
+        // New raster metrics reissue every glyph id. Cell size and baseline
+        // reach the renderer with the geometry, never inside a cell record.
+        if old_px_per_em != atlas.px_per_em.to_bits() {
             atlas.reset_raster_cache();
-            self.geometry_atlas_generation = 0;
-        }
-        if raster_metrics_changed || layout_metrics_changed {
-            self.row_geometry.clear();
-            self.geometry_buffers_initialized = false;
         }
         self.cell_dpr = dpr;
         self.full_damage = true;
@@ -3769,30 +3767,26 @@ impl Terminal {
         self.atlas.as_ref().map(|a| a.generation()).unwrap_or(0)
     }
 
-    /// Rasterize printable ASCII into the same cache used by terminal WebGL
-    /// geometry and publish its exact pixel coordinates and bearings to JS.
+    /// Rasterize printable ASCII into the same cache the terminal's cell
+    /// records use and publish each codepoint's glyph id (0 for none) to JS.
+    /// The glyph table the ids index is republished with them.
     pub fn prepare_speculative_ascii_atlas(&mut self) -> bool {
         let Some(atlas) = self.atlas.as_mut() else {
             return false;
         };
         let mut entries = [0_i32; SPECULATIVE_ASCII_ENTRIES_LEN];
-        for codepoint in SPECULATIVE_ASCII_FIRST..=SPECULATIVE_ASCII_LAST {
-            let Some(entry) = atlas.get_or_rasterize(atlas::GlyphKey {
+        for (codepoint, entry) in
+            (SPECULATIVE_ASCII_FIRST..=SPECULATIVE_ASCII_LAST).zip(&mut entries)
+        {
+            if let Some(glyph) = atlas.get_or_rasterize(atlas::GlyphKey {
                 codepoint,
                 style: PREDICTION_STYLE_NORMAL,
-            }) else {
-                continue;
-            };
-            let offset =
-                (codepoint - SPECULATIVE_ASCII_FIRST) as usize * SPECULATIVE_GLYPH_ENTRY_WORDS;
-            entries[offset] = i32::from(entry.atlas_x);
-            entries[offset + 1] = i32::from(entry.atlas_y);
-            entries[offset + 2] = i32::from(entry.width);
-            entries[offset + 3] = i32::from(entry.height);
-            entries[offset + 4] = i32::from(entry.offset_x);
-            entries[offset + 5] = i32::from(entry.offset_y);
+            }) {
+                *entry = glyph.id as i32;
+            }
         }
         self.speculative_ascii_entries = entries;
+        self.refresh_geometry_state();
         true
     }
 
@@ -3868,8 +3862,7 @@ impl Terminal {
             oy,
         );
         if injected {
-            self.row_geometry.clear();
-            self.geometry_buffers_initialized = false;
+            // Any cell that waited on this glyph now draws it.
             self.full_damage = true;
         }
         injected
@@ -4006,19 +3999,17 @@ impl Terminal {
             .unwrap_or(0)
     }
 
+    /// Bring the cell records, overlay and cursor up to date with the
+    /// presented state. A damaged row rewrites only the records that changed,
+    /// and the dirty range spans only those, so a keystroke uploads a few
+    /// bytes. Every record is rewritten only on resize, a theme or font
+    /// change, or new glyph ids.
     pub fn build_geometry(&mut self) {
-        self.build_geometry_inner(true);
-    }
-
-    fn build_geometry_inner(&mut self, retry_after_growth: bool) {
-        let current_atlas_generation = self
+        let glyph_epoch = self
             .atlas
             .as_ref()
-            .map(|atlas| atlas.generation())
-            .unwrap_or(0);
-        if current_atlas_generation != self.geometry_atlas_generation {
-            self.row_geometry.clear();
-            self.geometry_buffers_initialized = false;
+            .map_or(0, atlas::GlyphAtlas::table_epoch);
+        if glyph_epoch != self.geometry_glyph_epoch {
             self.full_damage = true;
         }
         if self.damaged_rows.is_empty()
@@ -4144,210 +4135,100 @@ impl Terminal {
                 return;
             }
         };
-        let build_atlas_generation = atlas.generation();
         let grid = &self.presentation_grid;
-        let cols = grid.columns();
-        let rows = grid.screen_lines();
+        // Positions travel in the record's column and row bits, which the
+        // codec's grid caps fit; nothing larger ever reaches the grid.
+        let cols = grid.columns().min(MAX_TERMINAL_COLUMNS);
+        let rows = grid.screen_lines().min(MAX_TERMINAL_ROWS);
         let cw = atlas.cell_w;
         let ch = atlas.cell_h;
-        let baseline = atlas.baseline;
-        let aw = atlas.atlas_w as f32;
-        let ah = atlas.atlas_h as f32;
         let theme = self.theme;
-        if self.row_geometry.len() != rows {
-            self.row_geometry.clear();
-            self.row_geometry.resize_with(rows, RowGeometry::default);
-            self.full_damage = true;
-            self.geometry_buffers_initialized = false;
-        }
-
-        let mut rows_changed = self.full_damage;
-        let mut rebuild_bg = self.full_damage || !self.geometry_buffers_initialized;
-        let mut rebuild_glyph =
-            self.full_damage || !self.geometry_buffers_initialized || self.prediction_render_dirty;
-        let mut rebuild_deco = self.full_damage || !self.geometry_buffers_initialized;
-        // The preedit overlay is cursor-anchored: while active, cursor motion
-        // must reposition it, so force full rebuilds (composition sessions are
-        // short and human-paced; rebuilds already dominate during typing).
-        let preedit_was_dirty = self.preedit_dirty;
-        let preedit_active = !self.preedit_chars.is_empty();
-        if preedit_active || preedit_was_dirty {
-            rebuild_bg = true;
-            rebuild_glyph = true;
-            rebuild_deco = true;
-        }
-        self.bg_dirty = (0, 0);
-        self.glyph_dirty = (0, 0);
-        self.deco_dirty = (0, 0);
+        let row_words = cols * CELL_WORDS;
+        self.cell_dirty = (0, 0);
         self.cursor_dirty = (0, 0);
-        if self.full_damage {
-            for row_idx in 0..rows {
-                build_row_geometry_into(
+        let mut cells_changed = false;
+        if self.full_damage || self.cell_buf.len() != rows * row_words {
+            self.cell_buf.clear();
+            self.cell_buf.resize(rows * row_words, 0);
+            for (row, records) in self.cell_buf.chunks_exact_mut(row_words.max(1)).enumerate() {
+                write_row_cells(
                     grid,
                     atlas,
-                    row_idx,
+                    row,
                     cols,
-                    cw,
-                    ch,
-                    baseline,
-                    aw,
-                    ah,
                     theme,
                     shadow_projection.as_ref(),
-                    &mut self.row_geometry[row_idx],
+                    records,
                 );
             }
-        } else if !self.damaged_rows.is_empty() {
-            self.damaged_rows.sort_unstable();
+            self.cell_dirty = (0, (rows * cols) as u32);
+            cells_changed = true;
+        } else {
             for row in self.damaged_rows.iter().copied() {
-                let row_idx = usize::from(row);
-                if row_idx >= rows {
+                let row = usize::from(row);
+                if row >= rows {
                     continue;
                 }
-                rows_changed = true;
-                let old_bg_len = self.row_geometry[row_idx].bg.len();
-                let old_glyph_len = self.row_geometry[row_idx].glyph.len();
-                let old_deco_len = self.row_geometry[row_idx].deco.len();
-                let bg_start = self.row_geometry[row_idx].bg_start;
-                let glyph_start = self.row_geometry[row_idx].glyph_start;
-                let deco_start = self.row_geometry[row_idx].deco_start;
-                build_row_geometry_into(
+                if let Some((first, last)) = write_row_cells(
                     grid,
                     atlas,
-                    row_idx,
+                    row,
                     cols,
-                    cw,
-                    ch,
-                    baseline,
-                    aw,
-                    ah,
                     theme,
                     shadow_projection.as_ref(),
-                    &mut self.row_geometry[row_idx],
-                );
-                let row = &self.row_geometry[row_idx];
-                if !rebuild_bg && old_bg_len == row.bg.len() {
-                    self.bg_buf[bg_start..bg_start + row.bg.len()].copy_from_slice(&row.bg);
-                    widen_dirty_range(&mut self.bg_dirty, bg_start / 7, row.bg.len() / 7);
-                } else {
-                    rebuild_bg = true;
-                }
-                if !rebuild_glyph && old_glyph_len == row.glyph.len() {
-                    self.glyph_buf[glyph_start..glyph_start + row.glyph.len()]
-                        .copy_from_slice(&row.glyph);
-                    widen_dirty_range(
-                        &mut self.glyph_dirty,
-                        glyph_start / 14,
-                        row.glyph.len() / 14,
-                    );
-                } else {
-                    rebuild_glyph = true;
-                }
-                if !rebuild_deco && old_deco_len == row.deco.len() {
-                    self.deco_buf[deco_start..deco_start + row.deco.len()]
-                        .copy_from_slice(&row.deco);
-                    widen_dirty_range(&mut self.deco_dirty, deco_start / 7, row.deco.len() / 7);
-                } else {
-                    rebuild_deco = true;
+                    &mut self.cell_buf[row * row_words..(row + 1) * row_words],
+                ) {
+                    widen_dirty_range(&mut self.cell_dirty, row * cols + first, last + 1 - first);
+                    cells_changed = true;
                 }
             }
         }
 
-        if rebuild_bg {
-            rebuild_bg_buffer(&mut self.bg_buf, &mut self.row_geometry);
-            self.bg_dirty = (0, (self.bg_buf.len() / 7) as u32);
-        }
-        if rebuild_glyph {
-            rebuild_glyph_buffer(&mut self.glyph_buf, &mut self.row_geometry);
-            self.glyph_dirty = (0, (self.glyph_buf.len() / 14) as u32);
-        }
-        if rebuild_deco {
-            rebuild_deco_buffer(&mut self.deco_buf, &mut self.row_geometry);
-            self.deco_dirty = (0, (self.deco_buf.len() / 7) as u32);
-        }
-        self.geometry_buffers_initialized = true;
-
-        if rebuild_glyph && !use_shadow_row_projection {
-            let prediction_glyph_start = self.glyph_buf.len() / 14;
+        // The overlay is a handful of records; rebuild it whole and upload it
+        // only when it differs. Predictions draw over the grid unless their
+        // row is projected into the cell records above.
+        let mut overlay = std::mem::take(&mut self.overlay_scratch);
+        overlay.clear();
+        if !use_shadow_row_projection {
             for prediction in &visible_predictions {
-                push_prediction_glyph_into(
-                    atlas,
-                    &mut self.glyph_buf,
-                    prediction,
-                    cols,
-                    rows,
-                    cw,
-                    ch,
-                    baseline,
-                    aw,
-                    ah,
-                    theme,
-                );
+                push_prediction_record(atlas, &mut overlay, prediction, cols, rows, theme);
             }
-            let prediction_glyph_count = self.glyph_buf.len() / 14 - prediction_glyph_start;
-            widen_dirty_range(
-                &mut self.glyph_dirty,
-                prediction_glyph_start,
-                prediction_glyph_count,
-            );
         }
-
-        // IME preedit overlay — appended last so it draws above grid content.
-        if preedit_active {
-            let cursor_vp = point_to_viewport(0, self.presentation_grid.cursor.point);
-            if let Some(vp) = cursor_vp {
-                let missing = append_preedit_into(
-                    atlas,
-                    &mut self.bg_buf,
-                    &mut self.glyph_buf,
-                    &mut self.deco_buf,
-                    &self.preedit_chars,
-                    vp.column.0,
-                    vp.line,
-                    cols,
-                    rows,
-                    cw,
-                    ch,
-                    baseline,
-                    aw,
-                    ah,
-                    theme,
-                );
-                self.bg_dirty = (0, (self.bg_buf.len() / 7) as u32);
-                self.glyph_dirty = (0, (self.glyph_buf.len() / 14) as u32);
-                self.deco_dirty = (0, (self.deco_buf.len() / 7) as u32);
-                // Glyphs queued for JS-side rasterization: stay dirty so the
-                // post-injection rebuild re-appends them.
-                self.preedit_dirty = missing;
-            } else {
-                self.preedit_dirty = false;
-            }
-        } else {
-            self.preedit_dirty = false;
+        // The IME preedit is anchored at the cursor and drawn last.
+        self.preedit_dirty = match point_to_viewport(0, grid.cursor.point) {
+            Some(vp) if !self.preedit_chars.is_empty() => append_preedit_records(
+                atlas,
+                &mut overlay,
+                &self.preedit_chars,
+                vp.column.0,
+                vp.line,
+                cols,
+                rows,
+                theme,
+            ),
+            // Glyphs queued for JS-side rasterization keep it dirty so the
+            // post-injection build draws them.
+            _ => false,
+        };
+        if overlay != self.overlay_buf {
+            std::mem::swap(&mut overlay, &mut self.overlay_buf);
+            self.overlay_version = self.overlay_version.wrapping_add(1).max(1);
         }
-
-        let final_atlas_generation = atlas.generation();
-        if final_atlas_generation != build_atlas_generation {
-            // Rasterization can grow the atlas while this pass is producing
-            // normalized UVs. Never expose a mixture of old/new denominators
-            // (or cached rows that refer to the old layout) to the renderer.
-            self.row_geometry.clear();
-            self.geometry_buffers_initialized = false;
-            self.full_damage = true;
-            if retry_after_growth {
-                self.visible_predictions_scratch = visible_predictions;
-                self.build_geometry_inner(false);
-            } else {
-                self.visible_predictions_scratch = visible_predictions;
-                self.refresh_geometry_state();
-            }
-            return;
-        }
-        self.geometry_atlas_generation = final_atlas_generation;
+        self.overlay_scratch = overlay;
+        let highlight = mix_rgb_f32(theme.background, theme.foreground, 0.18);
+        self.geometry_params = [
+            cw,
+            ch,
+            atlas.baseline,
+            highlight[0],
+            highlight[1],
+            highlight[2],
+        ];
+        self.geometry_glyph_epoch = atlas.table_epoch();
 
         // Cursor. Row damage commonly rebuilds geometry without moving or
         // restyling the cursor. Keep the existing instance and version in that
-        // case so the renderer can skip the WebGL buffer upload.
+        // case so the renderer can skip the buffer upload.
         let next_cursor_geometry = if !matches!(self.presentation_cursor_shape, CursorShape::Hidden)
         {
             let cursor = if self.shadow_cursor_is_visible() {
@@ -4388,20 +4269,14 @@ impl Terminal {
             self.cursor_version = self.cursor_version.wrapping_add(1).max(1);
         }
 
-        if rows_changed || preedit_was_dirty || preedit_active {
-            self.bg_version = self.bg_version.wrapping_add(1).max(1);
-            self.deco_version = self.deco_version.wrapping_add(1).max(1);
-        }
-        if rows_changed || self.prediction_render_dirty || preedit_was_dirty || preedit_active {
-            self.glyph_version = self.glyph_version.wrapping_add(1).max(1);
+        if cells_changed {
+            self.cell_version = self.cell_version.wrapping_add(1).max(1);
         }
         self.clear_damaged_rows();
         self.full_damage = false;
         self.presentation_cursor_dirty = false;
         self.shadow_row_projected = use_shadow_row_projection;
         self.visible_predictions_scratch = visible_predictions;
-        // Atlas growth can restart this build. Consume one-shot clear effects
-        // only after the final geometry succeeds, not before a recursive retry.
         self.pending_prediction_clear_effects.clear();
         self.pending_prediction_clear_effects_truncated = false;
         self.refresh_geometry_state();
@@ -4410,30 +4285,43 @@ impl Terminal {
     // ── Geometry pointer exports ──────────────────────────────────────────────
 
     fn refresh_geometry_state(&mut self) {
+        let (table_ptr, glyphs, epoch) = self.atlas.as_ref().map_or((0, 0, 0), |atlas| {
+            (
+                atlas.table.as_ptr() as usize as u32,
+                atlas.glyph_count() as u32,
+                atlas.table_epoch(),
+            )
+        });
+        let overlay_records = (self.overlay_buf.len() / CELL_WORDS) as u32;
         // The image revision changes only at presentation commit. Rewriting it
         // here adds a load/store to every text-only geometry refresh.
-        self.geometry_state[..GEOMETRY_STATE_LEN - 1].copy_from_slice(&[
-            self.bg_buf.as_ptr() as usize as u32,
-            (self.bg_buf.len() / 7) as u32,
-            self.bg_version,
-            self.bg_dirty.0,
-            self.bg_dirty.1,
-            self.glyph_buf.as_ptr() as usize as u32,
-            (self.glyph_buf.len() / 14) as u32,
-            self.glyph_version,
-            self.glyph_dirty.0,
-            self.glyph_dirty.1,
-            self.deco_buf.as_ptr() as usize as u32,
-            (self.deco_buf.len() / 7) as u32,
-            self.deco_version,
-            self.deco_dirty.0,
-            self.deco_dirty.1,
+        let state = &mut self.geometry_state;
+        state[GEOMETRY_STATE_CELLS..GEOMETRY_STATE_OVERLAY].copy_from_slice(&[
+            self.cell_buf.as_ptr() as usize as u32,
+            (self.cell_buf.len() / CELL_WORDS) as u32,
+            self.cell_version,
+            self.cell_dirty.0,
+            self.cell_dirty.1,
+        ]);
+        // The overlay uploads whole whenever its version moves.
+        state[GEOMETRY_STATE_OVERLAY..GEOMETRY_STATE_CURSOR].copy_from_slice(&[
+            self.overlay_buf.as_ptr() as usize as u32,
+            overlay_records,
+            self.overlay_version,
+            0,
+            overlay_records,
+        ]);
+        state[GEOMETRY_STATE_CURSOR..GEOMETRY_STATE_GLYPHS].copy_from_slice(&[
             self.cursor_buf.as_ptr() as usize as u32,
             (self.cursor_buf.len() / 8) as u32,
             self.cursor_version,
             self.cursor_dirty.0,
             self.cursor_dirty.1,
         ]);
+        state[GEOMETRY_STATE_GLYPHS..GEOMETRY_STATE_PARAMS]
+            .copy_from_slice(&[table_ptr, glyphs, epoch]);
+        state[GEOMETRY_STATE_PARAMS..GEOMETRY_STATE_LEN - 1]
+            .copy_from_slice(&self.geometry_params.map(f32::to_bits));
     }
 
     pub fn geometry_state_ptr(&self) -> *const u32 {
@@ -5692,198 +5580,160 @@ fn write_cell(cell: &mut Cell, repr: CellRepr) -> bool {
 #[cfg(test)]
 mod tests;
 
-fn build_row_geometry_into(
+#[inline]
+fn pack_rgb(rgb: [u8; 3]) -> u32 {
+    u32::from(rgb[0]) | u32::from(rgb[1]) << 8 | u32::from(rgb[2]) << 16
+}
+
+/// Write one row's cell records into `out` (`cols * CELL_WORDS` words),
+/// returning the first and last column whose record changed.
+///
+/// Every column owns its record. A background belongs to its own column; a
+/// glyph or decoration belongs to the column that starts it, and a wide
+/// character's second column draws neither.
+fn write_row_cells(
     grid: &Grid<Cell>,
     atlas: &mut atlas::GlyphAtlas,
     row_idx: usize,
     cols: usize,
-    cw: f32,
-    ch: f32,
-    baseline: f32,
-    aw: f32,
-    ah: f32,
     theme: RenderTheme,
     shadow: Option<&ShadowRenderProjection<'_>>,
-    out: &mut RowGeometry,
-) {
-    out.bg.clear();
-    out.glyph.clear();
-    out.deco.clear();
-    let line_idx = match i32::try_from(row_idx) {
-        Ok(value) => Line(value),
-        Err(_) => return,
-    };
-    let y = row_idx as f32 * ch;
-    let mut span_start = 0usize;
-    let mut span_color: Option<[f32; 3]> = None;
-    for col in 0..=cols {
-        let bg = if col < cols {
-            let cell = &grid[Point::new(line_idx, Column(col))];
-            if cell.flags.contains(Flags::INVERSE)
-                && cell.c != merkur_graphics::placeholder::PLACEHOLDER
-            {
-                Some(rgb_to_f32(resolve_theme_color(theme, cell.fg)))
-            } else if cell.bg != Color::Named(NamedColor::Background) {
-                Some(rgb_to_f32(resolve_theme_color(theme, cell.bg)))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        if bg != span_color {
-            if let Some(sc) = span_color {
-                let x = span_start as f32 * cw;
-                let w = (col - span_start) as f32 * cw;
-                push7(&mut out.bg, [x, y, w, ch, sc[0], sc[1], sc[2]]);
-            }
-            span_start = col;
-            span_color = bg;
-        }
-    }
-
-    let mut col = 0usize;
-    while col < cols {
-        let cell = &grid[Point::new(line_idx, Column(col))];
-        let shadow_cell = shadow.and_then(|projection| {
-            if projection.row != row_idx
-                || col < projection.start_col
-                || col >= projection.start_col.saturating_add(projection.extent)
-            {
-                return None;
-            }
-            let offset = col - projection.start_col;
-            let projected = projection.cells.get(offset);
-            Some((
-                projected
-                    .map(|cell| cell.codepoint)
-                    .unwrap_or(u32::from(' ')),
-                projected,
-            ))
-        });
-        let authoritative_codepoint = authoritative_cell_codepoint(cell);
-        let shadow_override =
-            shadow_cell.filter(|(codepoint, _)| *codepoint != authoritative_codepoint);
-        let flags = if shadow_override.is_some() {
-            Flags::empty()
-        } else {
-            cell.flags
-        };
-        if flags.contains(Flags::WIDE_CHAR_SPACER) {
-            col += 1;
-            continue;
-        }
-        let cp = shadow_override
-            .map(|(codepoint, _)| codepoint)
-            .unwrap_or(authoritative_codepoint);
-        // The canonical graphics row already describes this cell's image.
-        // Foreground/underline colors encode IDs; text styling is reserved.
-        if cp == u32::from(merkur_graphics::placeholder::PLACEHOLDER) {
-            col += 1;
-            continue;
-        }
-        let is_wide = flags.contains(Flags::WIDE_CHAR);
-        let span = if is_wide { 2usize } else { 1usize };
-        let cell_x = col as f32 * cw;
-        let cell_pixel_w = span as f32 * cw;
-
-        if cp > 31 && cp != 127 {
-            let style: u8 = if let Some((_, Some(shadow_cell))) = shadow_override {
-                shadow_cell.font_style
-            } else if shadow_override.is_some() {
-                PREDICTION_STYLE_NORMAL
-            } else {
-                font_style_from_flags(flags)
-            };
-            let key = atlas::GlyphKey {
-                codepoint: cp,
-                style,
-            };
-            let (fg_raw, dim) = if let Some((_, Some(shadow_cell))) = shadow_override {
-                (remap_rgb(theme, shadow_cell.fg), false)
-            } else if flags.contains(Flags::INVERSE) {
-                (
-                    resolve_theme_color(theme, cell.bg),
-                    flags.contains(Flags::DIM),
-                )
-            } else {
-                (
-                    resolve_theme_color(theme, cell.fg),
-                    flags.contains(Flags::DIM),
-                )
-            };
-            let [r, g, b] = rgb_to_f32(fg_raw);
-            let a = if shadow_override.is_some() {
-                PREDICTION_ALPHA
-            } else if dim {
-                0.72f32
-            } else {
-                1.0f32
-            };
-            if let Some(glyph) = builtin_cell_glyph(cp) {
-                push_builtin_cell_glyph(&mut out.deco, glyph, cell_x, y, cell_pixel_w, ch, r, g, b);
-            } else if let Some(entry) = atlas.get_or_rasterize(key) {
-                let gw = entry.width as f32;
-                let gh = entry.height as f32;
-                let ox = entry.offset_x as f32;
-                let oy = baseline + entry.offset_y as f32;
-                let u0 = entry.atlas_x as f32 / aw;
-                let v0 = entry.atlas_y as f32 / ah;
-                let u1 = (entry.atlas_x as f32 + gw) / aw;
-                let v1 = (entry.atlas_y as f32 + gh) / ah;
-                push14(
-                    &mut out.glyph,
-                    [cell_x, y, ox, oy, gw, gh, u0, v0, u1, v1, r, g, b, a],
-                );
-            }
-        }
-
-        let shadow_underline = shadow_override
-            .and_then(|(_, shadow_cell)| shadow_cell)
-            .is_some_and(|shadow_cell| shadow_cell.underline);
-        if shadow_underline || flags.contains(Flags::UNDERLINE) || flags.contains(Flags::STRIKEOUT)
+    out: &mut [u32],
+) -> Option<(usize, usize)> {
+    let line = Line(row_idx as i32);
+    let row_word = (row_idx as u32) << CELL_ROW_SHIFT;
+    let mut changed: Option<(usize, usize)> = None;
+    let mut covered_by_wide = false;
+    for (col, record) in out
+        .as_chunks_mut::<CELL_WORDS>()
+        .0
+        .iter_mut()
+        .take(cols)
+        .enumerate()
+    {
+        let cell = &grid[Point::new(line, Column(col))];
+        let mut glyph_word = (col as u32) << CELL_COLUMN_SHIFT;
+        let mut color_word = 0;
+        let mut background_word = row_word;
+        if cell.flags.contains(Flags::INVERSE)
+            && cell.c != merkur_graphics::placeholder::PLACEHOLDER
         {
-            let decoration_color = if let Some((_, Some(shadow_cell))) = shadow_override {
-                remap_rgb(theme, shadow_cell.fg)
-            } else if flags.contains(Flags::INVERSE) {
-                resolve_theme_color(theme, cell.bg)
+            color_word |= CELL_BACKGROUND;
+            background_word |= pack_rgb(resolve_theme_color(theme, cell.fg));
+        } else if cell.bg != Color::Named(NamedColor::Background) {
+            color_word |= CELL_BACKGROUND;
+            background_word |= pack_rgb(resolve_theme_color(theme, cell.bg));
+        }
+        if std::mem::take(&mut covered_by_wide) {
+            // The second column of the wide character before it.
+        } else {
+            let shadow_cell = shadow.and_then(|projection| {
+                if projection.row != row_idx
+                    || col < projection.start_col
+                    || col >= projection.start_col.saturating_add(projection.extent)
+                {
+                    return None;
+                }
+                let projected = projection.cells.get(col - projection.start_col);
+                Some((
+                    projected
+                        .map(|cell| cell.codepoint)
+                        .unwrap_or(u32::from(' ')),
+                    projected,
+                ))
+            });
+            let authoritative_codepoint = authoritative_cell_codepoint(cell);
+            let shadow_override =
+                shadow_cell.filter(|(codepoint, _)| *codepoint != authoritative_codepoint);
+            let flags = if shadow_override.is_some() {
+                Flags::empty()
             } else {
-                resolve_theme_color(theme, cell.fg)
+                cell.flags
             };
-            let [r, g, b] = rgb_to_f32(decoration_color);
-            if shadow_underline || flags.contains(Flags::UNDERLINE) {
-                let line_y = y + ch - 1.0;
-                push7(&mut out.deco, [cell_x, line_y, cell_pixel_w, 1.0, r, g, b]);
-            }
-            if flags.contains(Flags::STRIKEOUT) {
-                let line_y = y + ch * 0.5;
-                push7(&mut out.deco, [cell_x, line_y, cell_pixel_w, 1.0, r, g, b]);
+            let cp = shadow_override
+                .map(|(codepoint, _)| codepoint)
+                .unwrap_or(authoritative_codepoint);
+            // The canonical graphics row already describes a placeholder's
+            // image; its colours encode ids, and text styling is reserved.
+            if !flags.contains(Flags::WIDE_CHAR_SPACER)
+                && cp != u32::from(merkur_graphics::placeholder::PLACEHOLDER)
+            {
+                if flags.contains(Flags::WIDE_CHAR) {
+                    glyph_word |= CELL_WIDE;
+                    covered_by_wide = true;
+                }
+                let projected = shadow_override.and_then(|(_, projected)| projected);
+                let underline =
+                    projected.map_or(flags.contains(Flags::UNDERLINE), |cell| cell.underline);
+                // A glyph, a builtin shape and a decoration share one colour.
+                let mut coloured = underline || flags.contains(Flags::STRIKEOUT);
+                if cp > 31 && cp != 127 {
+                    if let Some(glyph) = builtin_cell_glyph(cp) {
+                        glyph_word |= glyph.shape();
+                        color_word |= CELL_BUILTIN;
+                        coloured = true;
+                    } else {
+                        let style = if let Some(projected) = projected {
+                            projected.font_style
+                        } else if shadow_override.is_some() {
+                            PREDICTION_STYLE_NORMAL
+                        } else {
+                            font_style_from_flags(flags)
+                        };
+                        if let Some(entry) = atlas.get_or_rasterize(atlas::GlyphKey {
+                            codepoint: cp,
+                            style,
+                        }) {
+                            glyph_word |= entry.id;
+                            coloured = true;
+                            if shadow_override.is_some() {
+                                color_word |= CELL_ALPHA_PREDICTION;
+                            } else if flags.contains(Flags::DIM) {
+                                color_word |= CELL_ALPHA_DIM;
+                            }
+                        }
+                    }
+                }
+                if coloured {
+                    color_word |= pack_rgb(if let Some(projected) = projected {
+                        remap_rgb(theme, projected.fg)
+                    } else if flags.contains(Flags::INVERSE) {
+                        resolve_theme_color(theme, cell.bg)
+                    } else {
+                        resolve_theme_color(theme, cell.fg)
+                    });
+                }
+                if underline {
+                    glyph_word |= CELL_UNDERLINE;
+                }
+                if flags.contains(Flags::STRIKEOUT) {
+                    glyph_word |= CELL_STRIKEOUT;
+                }
             }
         }
-        col += span;
+        let next = [glyph_word, color_word, background_word];
+        if *record != next {
+            *record = next;
+            changed = Some(changed.map_or((col, col), |(first, _)| (first, col)));
+        }
     }
+    changed
 }
 
-/// Append the IME preedit run (bg highlight, glyphs, 2px underline) anchored
-/// at the cursor cell. If the run would overflow the row, it is shifted left
-/// (and, if longer than the row, trimmed from the front) so the most recently
-/// composed tail stays visible. Returns true if any glyph was queued for
-/// JS-side rasterization (caller keeps the overlay dirty for the rebuild).
-fn append_preedit_into(
+/// Append the IME preedit run (background highlight, glyphs, two-pixel
+/// underline) anchored at the cursor cell. If the run would overflow the row,
+/// it is shifted left (and, if longer than the row, trimmed from the front)
+/// so the most recently composed tail stays visible. Returns true if any
+/// glyph was queued for JS-side rasterization (caller keeps the overlay
+/// dirty for the rebuild).
+fn append_preedit_records(
     atlas: &mut atlas::GlyphAtlas,
-    bg_buf: &mut Vec<f32>,
-    glyph_buf: &mut Vec<f32>,
-    deco_buf: &mut Vec<f32>,
+    out: &mut Vec<u32>,
     chars: &[char],
     cursor_col: usize,
     cursor_row: usize,
     cols: usize,
     rows: usize,
-    cw: f32,
-    ch: f32,
-    baseline: f32,
-    aw: f32,
-    ah: f32,
     theme: RenderTheme,
 ) -> bool {
     if cursor_row >= rows || cols == 0 {
@@ -5892,11 +5742,8 @@ fn append_preedit_into(
 
     // Cell widths (zero-width combining marks render over the previous cell;
     // approximate by skipping them — the committed text renders correctly).
-    let widths: Vec<usize> = chars
-        .iter()
-        .map(|c| UnicodeWidthChar::width(*c).unwrap_or(0))
-        .collect();
-    let mut total: usize = widths.iter().sum();
+    let width = |c: char| UnicodeWidthChar::width(c).unwrap_or(0);
+    let mut total: usize = chars.iter().copied().map(width).sum();
     if total == 0 {
         return false;
     }
@@ -5904,11 +5751,11 @@ fn append_preedit_into(
     // Trim from the front until the run fits the row.
     let mut first = 0usize;
     while total > cols && first < chars.len() {
-        total -= widths[first];
+        total -= width(chars[first]);
         first += 1;
     }
     // Every char trimmed (e.g. a wide char in a one-column grid): nothing to
-    // draw — bail before pushing zero-width quads.
+    // draw.
     if total == 0 {
         return false;
     }
@@ -5918,61 +5765,24 @@ fn append_preedit_into(
         cols - total
     };
 
-    let y = cursor_row as f32 * ch;
-    let x0 = start_col as f32 * cw;
-    let run_w = total as f32 * cw;
-    let fg = rgb_to_f32(theme.foreground);
-    let bg = mix_rgb_f32(theme.background, theme.foreground, 0.18);
-
-    // Background highlight (single quad) + underline (2px, distinguishes the
-    // composing run from regular underlined grid text).
-    push7(bg_buf, [x0, y, run_w, ch, bg[0], bg[1], bg[2]]);
-    push7(
-        deco_buf,
-        [x0, y + ch - 2.0, run_w, 2.0, fg[0], fg[1], fg[2]],
-    );
-
+    let color_word = pack_rgb(theme.foreground) | CELL_BACKGROUND | CELL_PREEDIT;
+    let row_word = (cursor_row as u32) << CELL_ROW_SHIFT;
     let mut missing = false;
     let mut col = start_col;
-    for (i, c) in chars.iter().enumerate().skip(first) {
-        let width = widths[i];
+    for c in chars[first..].iter().copied() {
+        let width = width(c);
         if width == 0 {
             continue;
         }
-        let cp = *c as u32;
+        let mut glyph_word = (col as u32) << CELL_COLUMN_SHIFT;
+        let cp = c as u32;
         if cp > 31 && cp != 127 {
             let key = atlas::GlyphKey {
                 codepoint: cp,
                 style: PREDICTION_STYLE_NORMAL,
             };
             if let Some(entry) = atlas.get_or_rasterize(key) {
-                let gw = entry.width as f32;
-                let gh = entry.height as f32;
-                let ox = entry.offset_x as f32;
-                let oy = baseline + entry.offset_y as f32;
-                let u0 = entry.atlas_x as f32 / aw;
-                let v0 = entry.atlas_y as f32 / ah;
-                let u1 = (entry.atlas_x as f32 + gw) / aw;
-                let v1 = (entry.atlas_y as f32 + gh) / ah;
-                push14(
-                    glyph_buf,
-                    [
-                        col as f32 * cw,
-                        y,
-                        ox,
-                        oy,
-                        gw,
-                        gh,
-                        u0,
-                        v0,
-                        u1,
-                        v1,
-                        fg[0],
-                        fg[1],
-                        fg[2],
-                        1.0,
-                    ],
-                );
+                glyph_word |= entry.id;
             } else if atlas.is_pending(key) {
                 // Only a glyph actually queued for the Canvas 2D pass justifies
                 // staying dirty. A blank (U+0020 reaches here) or an already
@@ -5983,9 +5793,44 @@ fn append_preedit_into(
                 missing = true;
             }
         }
+        out.extend_from_slice(&[glyph_word, color_word, row_word]);
+        // Each preedit record covers one column: a wide character's second
+        // column is a record of its own, highlighted and underlined.
+        for covered in col + 1..col + width {
+            out.extend_from_slice(&[(covered as u32) << CELL_COLUMN_SHIFT, color_word, row_word]);
+        }
         col += width;
     }
     missing
+}
+
+fn push_prediction_record(
+    atlas: &mut atlas::GlyphAtlas,
+    out: &mut Vec<u32>,
+    prediction: &Prediction,
+    cols: usize,
+    rows: usize,
+    theme: RenderTheme,
+) {
+    if prediction.kind != PredKind::Char {
+        return;
+    }
+    let row = usize::from(prediction.row);
+    let col = usize::from(prediction.col);
+    if row >= rows || col >= cols {
+        return;
+    }
+    let Some(entry) = atlas.get_or_rasterize(atlas::GlyphKey {
+        codepoint: prediction.codepoint,
+        style: PREDICTION_STYLE_NORMAL,
+    }) else {
+        return;
+    };
+    out.extend_from_slice(&[
+        entry.id | (col as u32) << CELL_COLUMN_SHIFT,
+        pack_rgb(remap_rgb(theme, prediction.fg)) | CELL_ALPHA_PREDICTION,
+        (row as u32) << CELL_ROW_SHIFT,
+    ]);
 }
 
 fn mix_rgb_f32(base: [u8; 3], toward: [u8; 3], amount: f32) -> [f32; 3] {
@@ -5998,127 +5843,7 @@ fn mix_rgb_f32(base: [u8; 3], toward: [u8; 3], amount: f32) -> [f32; 3] {
     ]
 }
 
-fn push_builtin_cell_glyph(
-    buf: &mut Vec<f32>,
-    glyph: BuiltinCellGlyph,
-    cell_x: f32,
-    cell_y: f32,
-    cell_w: f32,
-    cell_h: f32,
-    r: f32,
-    g: f32,
-    b: f32,
-) {
-    for rect in glyph.rects() {
-        push7(
-            buf,
-            [
-                cell_x + rect.x * cell_w,
-                cell_y + rect.y * cell_h,
-                rect.w * cell_w,
-                rect.h * cell_h,
-                r,
-                g,
-                b,
-            ],
-        );
-    }
-}
-
-fn rebuild_bg_buffer(out: &mut Vec<f32>, rows: &mut [RowGeometry]) {
-    out.clear();
-    out.reserve(rows.iter().map(|row| row.bg.len()).sum());
-    for row in rows {
-        row.bg_start = out.len();
-        out.extend_from_slice(&row.bg);
-    }
-}
-
-fn rebuild_glyph_buffer(out: &mut Vec<f32>, rows: &mut [RowGeometry]) {
-    out.clear();
-    out.reserve(rows.iter().map(|row| row.glyph.len()).sum());
-    for row in rows {
-        row.glyph_start = out.len();
-        out.extend_from_slice(&row.glyph);
-    }
-}
-
-fn rebuild_deco_buffer(out: &mut Vec<f32>, rows: &mut [RowGeometry]) {
-    out.clear();
-    out.reserve(rows.iter().map(|row| row.deco.len()).sum());
-    for row in rows {
-        row.deco_start = out.len();
-        out.extend_from_slice(&row.deco);
-    }
-}
-
-fn push_prediction_glyph_into(
-    atlas: &mut atlas::GlyphAtlas,
-    glyph_buf: &mut Vec<f32>,
-    prediction: &Prediction,
-    cols: usize,
-    rows: usize,
-    cw: f32,
-    ch: f32,
-    baseline: f32,
-    aw: f32,
-    ah: f32,
-    theme: RenderTheme,
-) {
-    if prediction.kind != PredKind::Char {
-        return;
-    }
-    let row = usize::from(prediction.row);
-    let col = usize::from(prediction.col);
-    if row >= rows || col >= cols {
-        return;
-    }
-    let key = atlas::GlyphKey {
-        codepoint: prediction.codepoint,
-        style: PREDICTION_STYLE_NORMAL,
-    };
-    let Some(entry) = atlas.get_or_rasterize(key) else {
-        return;
-    };
-    let gw = entry.width as f32;
-    let gh = entry.height as f32;
-    let ox = entry.offset_x as f32;
-    let oy = baseline + entry.offset_y as f32;
-    let u0 = entry.atlas_x as f32 / aw;
-    let v0 = entry.atlas_y as f32 / ah;
-    let u1 = (entry.atlas_x as f32 + gw) / aw;
-    let v1 = (entry.atlas_y as f32 + gh) / ah;
-    let [r, g, b] = rgb_to_f32(remap_rgb(theme, prediction.fg));
-    push14(
-        glyph_buf,
-        [
-            col as f32 * cw,
-            row as f32 * ch,
-            ox,
-            oy,
-            gw,
-            gh,
-            u0,
-            v0,
-            u1,
-            v1,
-            r,
-            g,
-            b,
-            PREDICTION_ALPHA,
-        ],
-    );
-}
-
-fn push7(buf: &mut Vec<f32>, v: [f32; 7]) {
-    buf.extend_from_slice(&v);
-}
-
 fn push8(buf: &mut Vec<f32>, v: [f32; 8]) {
-    buf.extend_from_slice(&v);
-}
-
-fn push14(buf: &mut Vec<f32>, v: [f32; 14]) {
     buf.extend_from_slice(&v);
 }
 

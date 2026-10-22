@@ -108,9 +108,25 @@ their normal ownership work. WebGPU command encoders, texture views, command buf
 promises are browser-owned per-submission objects: the design is bounded and low-allocation, not a
 claim that the browser API allocates nothing.
 
-Terminal backgrounds, glyphs, decorations, cursors and previews use four-vertex instanced triangle
-strips. Each rectangle keeps its two triangles while sharing the diagonal's vertices; the geometry
-ABI, uploads, blending and submission ownership are unchanged.
+The terminal grid is one fixed record per cell: twelve bytes at `row * cols + col` holding a
+glyph id (or a builtin block shape), the text colour, the background colour, the cell's column
+and row, and wide, underline, strikeout, background, glyph-alpha and preedit flags
+(`apps/web/src/terminal/cell-records.ts`, written by `write_row_cells`). A damaged row rewrites
+only the records whose words changed, and the dirty range spans only those, so a keystroke into a
+blank cell uploads one record; every record is rewritten only on resize or a theme, font or
+glyph-id change. Glyph rectangles and bearings live in an append-only glyph table in atlas
+pixels, indexed by id: atlas growth keeps every coordinate and rewrites no record, and only the
+table entries added since the last upload of its epoch are uploaded. Cell size, baseline and the
+preedit highlight travel in the uniform. Visible predictions over the blank tail and the IME
+preedit are a small overlay of the same records drawn after the grid's; a projected prediction
+row writes its cells' records directly. Touch previews are the same records, their glyphs
+scissored to the previewed cells.
+
+Backgrounds, glyphs and decorations are three draws over the same records, then the overlay's,
+each a four-vertex instanced triangle strip; a record with nothing to draw in a pass collapses
+to a point. Underlines, strikeouts, the preedit underline and builtin block shapes are decided
+per fragment at the pixel centre against the cell, with the edges the rectangle rasterizer drew.
+Cursors keep their eight-float instance.
 
 Glyph masks are rasterized at the current device pixel density. Cell dimensions and the
 baseline lie on whole physical pixels; nearest atlas sampling preserves the mask's existing

@@ -91,11 +91,11 @@ for (let sample = 0; sample < SAMPLES; sample += 1) {
   for (let index = 0; index < PROJECTIONS_PER_SAMPLE; index += 1) {
     checksum ^= projectionTerminal.predict_printable(0x78, sample, projectionInputSeq++, true);
     projectionTerminal.build_geometry();
-    checksum ^= projectionGeometry.glyphs();
+    checksum ^= projectionGeometry.records();
     projectionTerminal.clear_prediction_render_dirty();
     checksum ^= projectionTerminal.predict_backspace(sample, projectionInputSeq++);
     projectionTerminal.build_geometry();
-    checksum ^= projectionGeometry.glyphs();
+    checksum ^= projectionGeometry.records();
     projectionTerminal.clear_prediction_render_dirty();
   }
   projectionSamples.push((performance.now() - startedAt) / (PROJECTIONS_PER_SAMPLE * 2));
@@ -119,12 +119,12 @@ for (let sample = 0; sample < SAMPLES; sample += 1) {
     checksum ^= midlineTerminal.predict_cursor_shift(-1, sample, midlineInputSeq++);
     checksum ^= midlineTerminal.predict_printable(0x78, sample, midlineInputSeq++, true);
     midlineTerminal.build_geometry();
-    checksum ^= midlineGeometry.glyphs();
+    checksum ^= midlineGeometry.records();
     midlineTerminal.clear_prediction_render_dirty();
     checksum ^= midlineTerminal.predict_backspace(sample, midlineInputSeq++);
     checksum ^= midlineTerminal.predict_cursor_shift(1, sample, midlineInputSeq++);
     midlineTerminal.build_geometry();
-    checksum ^= midlineGeometry.glyphs();
+    checksum ^= midlineGeometry.records();
     midlineTerminal.clear_prediction_render_dirty();
   }
   midlineProjectionSamples.push((performance.now() - startedAt) / (PROJECTIONS_PER_SAMPLE * 2));
@@ -159,11 +159,11 @@ for (let sample = 0; sample < SAMPLES; sample += 1) {
   const startedAt = performance.now();
   const inserted = longMidlineTerminal.predict_printable(0x78, sample, longMidlineInputSeq++, true);
   longMidlineTerminal.build_geometry();
-  checksum ^= longMidlineGeometry.glyphs();
+  checksum ^= longMidlineGeometry.records();
   longMidlineTerminal.clear_prediction_render_dirty();
   const removed = longMidlineTerminal.predict_backspace(sample, longMidlineInputSeq++);
   longMidlineTerminal.build_geometry();
-  checksum ^= longMidlineGeometry.glyphs();
+  checksum ^= longMidlineGeometry.records();
   longMidlineTerminal.clear_prediction_render_dirty();
   const elapsedMs = performance.now() - startedAt;
 

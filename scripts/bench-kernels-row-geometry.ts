@@ -1,6 +1,6 @@
-// Production full-screen row geometry inside terminal WASM.
+// Production full-screen cell records inside terminal WASM.
 //
-// `build_row_geometry_into` asks `builtin_cell_glyph` and then
+// `write_row_cells` asks `builtin_cell_glyph` and then
 // `GlyphAtlas::get_or_rasterize` for every printable cell of every dirty row.
 // The atlas profile in `packages/term-wasm/src/atlas_profile.rs` times those
 // kernels natively; this script times the shipped artifact's `build_geometry`
@@ -19,9 +19,15 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  GEOMETRY_STATE_BG_OFFSET,
-  GEOMETRY_STATE_DECO_OFFSET,
-  GEOMETRY_STATE_GLYPH_OFFSET,
+  CELL_BUILTIN,
+  CELL_GLYPH_MASK,
+  CELL_WORDS,
+  GLYPH_TABLE_WORDS,
+} from '../apps/web/src/terminal/cell-records';
+import {
+  GEOMETRY_STATE_CELLS_OFFSET,
+  GEOMETRY_STATE_GLYPHS_OFFSET,
+  GEOMETRY_STATE_OVERLAY_OFFSET,
 } from '../apps/web/src/terminal/geometry-render-state';
 import {
   DISPLAY_CHUNK_COUNT_OFFSET,
@@ -44,8 +50,6 @@ import { emitPerfMetric, summarizeSamples } from './perf/harness';
 const ROOT = path.resolve(import.meta.dir, '..');
 const COLS = 200;
 const ROWS = 50;
-const GLYPH_FLOATS = 14;
-const RECT_FLOATS = 7;
 const TAG_BOLD = 1 << 3;
 const TAG_ITALIC = 1 << 4;
 const CURSOR_VISIBLE_BLOCK = 0x10;
@@ -159,8 +163,8 @@ for (const content of CONTENTS) {
   }
   const summary = summarizeSamples(shippedSamples);
   process.stdout.write(
-    `${content}: glyphs=${geometryBuffer(shipped, GEOMETRY_STATE_GLYPH_OFFSET).count} ` +
-      `decorations=${geometryBuffer(shipped, GEOMETRY_STATE_DECO_OFFSET).count} ` +
+    `${content}: cells=${geometryBuffer(shipped, GEOMETRY_STATE_CELLS_OFFSET).count} ` +
+      `glyphs=${drawnGlyphs(shipped)} ` +
       `p50=${summary.median.toFixed(1)}us p95=${summary.p95.toFixed(1)}us\n`,
   );
   if (candidate !== undefined) {
@@ -245,7 +249,21 @@ function rebuild(arm: Arm): number {
   return (Bun.nanoseconds() - start) / 1_000;
 }
 
-/** One buffer's pointer and instance count, read the way the renderer reads them. */
+/** Cell records that draw an atlas glyph. */
+function drawnGlyphs(arm: Arm): number {
+  const cells = geometryBuffer(arm, GEOMETRY_STATE_CELLS_OFFSET);
+  const records = new Uint32Array(arm.memory.buffer, cells.pointer, cells.count * CELL_WORDS);
+  let glyphs = 0;
+  for (let index = 0; index < records.length; index += CELL_WORDS)
+    if (
+      ((records[index] ?? 0) & CELL_GLYPH_MASK) !== 0 &&
+      ((records[index + 1] ?? 0) & CELL_BUILTIN) === 0
+    )
+      glyphs += 1;
+  return glyphs;
+}
+
+/** One buffer's pointer and record count, read the way the renderer reads them. */
 function geometryBuffer(
   arm: Arm,
   base: number,
@@ -263,12 +281,12 @@ function geometryFingerprint(arm: Arm): string {
   const view = (pointer: number, length: number) =>
     new Uint8Array(memory.buffer, pointer >>> 0, length);
   const hash = new Bun.CryptoHasher('sha256');
-  const glyphs = geometryBuffer(arm, GEOMETRY_STATE_GLYPH_OFFSET);
-  const decorations = geometryBuffer(arm, GEOMETRY_STATE_DECO_OFFSET);
-  const backgrounds = geometryBuffer(arm, GEOMETRY_STATE_BG_OFFSET);
-  hash.update(view(glyphs.pointer, glyphs.count * GLYPH_FLOATS * 4));
-  hash.update(view(decorations.pointer, decorations.count * RECT_FLOATS * 4));
-  hash.update(view(backgrounds.pointer, backgrounds.count * RECT_FLOATS * 4));
+  const cells = geometryBuffer(arm, GEOMETRY_STATE_CELLS_OFFSET);
+  const overlay = geometryBuffer(arm, GEOMETRY_STATE_OVERLAY_OFFSET);
+  const table = geometryBuffer(arm, GEOMETRY_STATE_GLYPHS_OFFSET);
+  hash.update(view(cells.pointer, cells.count * CELL_WORDS * 4));
+  hash.update(view(overlay.pointer, overlay.count * CELL_WORDS * 4));
+  hash.update(view(table.pointer, table.count * GLYPH_TABLE_WORDS * 4));
   hash.update(view(terminal.atlas_pixels_ptr(), terminal.atlas_width() * terminal.atlas_height()));
   return hash.digest('hex');
 }

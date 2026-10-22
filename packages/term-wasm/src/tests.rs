@@ -1,5 +1,7 @@
 use merkur_codec::CellAttrs;
 include!("presentation_tests.rs");
+#[path = "render_model_tests.rs"]
+mod render_model;
 #[cfg(not(target_arch = "wasm32"))]
 mod geometry_allocations {
     use std::alloc::{GlobalAlloc, Layout, System};
@@ -338,7 +340,7 @@ fn explicit_default_background_is_ordered_hashed_and_presented() {
     );
     assert!(terminal.apply_presented_state_seq(&initial, 1));
     terminal.build_geometry();
-    assert_eq!(terminal.bg_count(), 0);
+    assert_eq!(terminal.background_count(), 0);
     let initial_hash = terminal.row_hash(0);
     cells[1..3].fill(explicit);
     let painted = test_frame(
@@ -361,14 +363,14 @@ fn explicit_default_background_is_ordered_hashed_and_presented() {
         !CellRepr::from_alacritty(&terminal.presentation_grid[point]).has_explicit_background()
     );
     terminal.build_geometry();
-    assert_eq!(terminal.bg_count(), 0);
+    assert_eq!(terminal.background_count(), 0);
     terminal.commit_presentation_state();
     assert!(CellRepr::from_alacritty(&terminal.presentation_grid[point]).has_explicit_background());
     terminal.build_geometry();
     assert_eq!(
-        terminal.bg_count(),
-        1,
-        "explicit equal-RGB paint needs a background span"
+        terminal.background_count(),
+        2,
+        "explicit equal-RGB paint needs a background"
     );
     let cleared = test_frame(
         FrameKind::Delta,
@@ -390,7 +392,7 @@ fn explicit_default_background_is_ordered_hashed_and_presented() {
         !CellRepr::from_alacritty(&terminal.presentation_grid[point]).has_explicit_background()
     );
     terminal.build_geometry();
-    assert_eq!(terminal.bg_count(), 0);
+    assert_eq!(terminal.background_count(), 0);
     let inverse = [CellRepr {
         fg: DEFAULT_BACKGROUND,
         attrs: CellAttrs::INVERSE,
@@ -409,8 +411,8 @@ fn explicit_default_background_is_ordered_hashed_and_presented() {
     assert!(terminal.apply_presented_delta_seq(&reversed, 5));
     terminal.build_geometry();
     assert_eq!(
-        terminal.bg_count(),
-        1,
+        terminal.background_count(),
+        4,
         "inverse paint cannot disappear on RGB equality"
     );
 }
@@ -874,56 +876,46 @@ fn terminal_with_atlas(cols: u16, rows: u16) -> Terminal {
     terminal
 }
 
-/// The per-buffer reads the packed `geometry_state` replaced, kept only as the
-/// oracle it is checked against: each reads one field the direct way.
+/// Reads of the built geometry for assertions, each taken the direct way.
 impl Terminal {
-    fn bg_ptr(&self) -> *const f32 {
-        self.bg_buf.as_ptr()
+    /// Grid cell records, then the overlay's, in draw order.
+    fn drawn_records(&self) -> impl Iterator<Item = [u32; CELL_WORDS]> + '_ {
+        self.cell_buf
+            .as_chunks::<CELL_WORDS>()
+            .0
+            .iter()
+            .chain(self.overlay_buf.as_chunks::<CELL_WORDS>().0)
+            .copied()
     }
-    fn bg_count(&self) -> u32 {
-        (self.bg_buf.len() / 7) as u32
-    }
-    fn bg_version(&self) -> u32 {
-        self.bg_version
-    }
-    fn bg_dirty_offset(&self) -> u32 {
-        self.bg_dirty.0
-    }
-    fn bg_dirty_count(&self) -> u32 {
-        self.bg_dirty.1
-    }
-    fn glyph_ptr(&self) -> *const f32 {
-        self.glyph_buf.as_ptr()
-    }
+    /// Records that draw an atlas glyph.
     fn glyph_count(&self) -> u32 {
-        (self.glyph_buf.len() / 14) as u32
+        self.drawn_records()
+            .filter(|record| record[0] & CELL_GLYPH_MASK != 0 && record[1] & CELL_BUILTIN == 0)
+            .count() as u32
     }
-    fn glyph_version(&self) -> u32 {
-        self.glyph_version
+    /// Records that paint a background.
+    fn background_count(&self) -> u32 {
+        self.drawn_records()
+            .filter(|record| record[1] & CELL_BACKGROUND != 0)
+            .count() as u32
     }
-    fn glyph_dirty_offset(&self) -> u32 {
-        self.glyph_dirty.0
+    /// Records the decoration pass fills: a line or a builtin shape.
+    fn decoration_count(&self) -> u32 {
+        self.drawn_records()
+            .filter(|record| {
+                record[0] & (CELL_UNDERLINE | CELL_STRIKEOUT) != 0
+                    || record[1] & (CELL_BUILTIN | CELL_PREEDIT) != 0
+            })
+            .count() as u32
     }
-    fn glyph_dirty_count(&self) -> u32 {
-        self.glyph_dirty.1
+    /// The record of one grid cell.
+    fn cell_record(&self, row: usize, col: usize) -> [u32; CELL_WORDS] {
+        let cols = self.presentation_grid.columns();
+        self.cell_buf.as_chunks::<CELL_WORDS>().0[row * cols + col]
     }
-    fn deco_ptr(&self) -> *const f32 {
-        self.deco_buf.as_ptr()
-    }
-    fn deco_count(&self) -> u32 {
-        (self.deco_buf.len() / 7) as u32
-    }
-    fn deco_version(&self) -> u32 {
-        self.deco_version
-    }
-    fn deco_dirty_offset(&self) -> u32 {
-        self.deco_dirty.0
-    }
-    fn deco_dirty_count(&self) -> u32 {
-        self.deco_dirty.1
-    }
-    fn cursor_ptr(&self) -> *const f32 {
-        self.cursor_buf.as_ptr()
+    /// Everything the text passes draw, for before/after comparisons.
+    fn drawn_text(&self) -> (Vec<u32>, Vec<u32>) {
+        (self.cell_buf.clone(), self.overlay_buf.clone())
     }
     fn cursor_count(&self) -> u32 {
         (self.cursor_buf.len() / 8) as u32
@@ -939,28 +931,41 @@ impl Terminal {
     }
 }
 
-fn legacy_geometry_state(terminal: &Terminal) -> [u32; GEOMETRY_STATE_LEN] {
+/// `geometry_state` as each field reads directly.
+fn expected_geometry_state(terminal: &Terminal) -> [u32; GEOMETRY_STATE_LEN] {
+    let overlay = (terminal.overlay_buf.len() / CELL_WORDS) as u32;
+    let (table, glyphs, epoch) = terminal.atlas.as_ref().map_or((0, 0, 0), |atlas| {
+        (
+            atlas.table.as_ptr() as usize as u32,
+            atlas.glyph_count() as u32,
+            atlas.table_epoch(),
+        )
+    });
     [
-        terminal.bg_ptr() as usize as u32,
-        terminal.bg_count(),
-        terminal.bg_version(),
-        terminal.bg_dirty_offset(),
-        terminal.bg_dirty_count(),
-        terminal.glyph_ptr() as usize as u32,
-        terminal.glyph_count(),
-        terminal.glyph_version(),
-        terminal.glyph_dirty_offset(),
-        terminal.glyph_dirty_count(),
-        terminal.deco_ptr() as usize as u32,
-        terminal.deco_count(),
-        terminal.deco_version(),
-        terminal.deco_dirty_offset(),
-        terminal.deco_dirty_count(),
-        terminal.cursor_ptr() as usize as u32,
+        terminal.cell_buf.as_ptr() as usize as u32,
+        (terminal.cell_buf.len() / CELL_WORDS) as u32,
+        terminal.cell_version,
+        terminal.cell_dirty.0,
+        terminal.cell_dirty.1,
+        terminal.overlay_buf.as_ptr() as usize as u32,
+        overlay,
+        terminal.overlay_version,
+        0,
+        overlay,
+        terminal.cursor_buf.as_ptr() as usize as u32,
         terminal.cursor_count(),
-        terminal.cursor_version(),
-        terminal.cursor_dirty_offset(),
-        terminal.cursor_dirty_count(),
+        terminal.cursor_version,
+        terminal.cursor_dirty.0,
+        terminal.cursor_dirty.1,
+        table,
+        glyphs,
+        epoch,
+        terminal.geometry_params[0].to_bits(),
+        terminal.geometry_params[1].to_bits(),
+        terminal.geometry_params[2].to_bits(),
+        terminal.geometry_params[3].to_bits(),
+        terminal.geometry_params[4].to_bits(),
+        terminal.geometry_params[5].to_bits(),
         terminal
             .graphics
             .as_ref()
@@ -968,7 +973,7 @@ fn legacy_geometry_state(terminal: &Terminal) -> [u32; GEOMETRY_STATE_LEN] {
     ]
 }
 
-fn assert_packed_geometry_state_matches_legacy(terminal: &Terminal) {
+fn assert_packed_geometry_state_matches_fields(terminal: &Terminal) {
     assert_eq!(terminal.geometry_state_len(), GEOMETRY_STATE_LEN);
     // SAFETY: the pointer and the length are `as_ptr()` and `len()` of the
     // terminal's own `geometry_state`, which `terminal` keeps alive and
@@ -976,74 +981,137 @@ fn assert_packed_geometry_state_matches_legacy(terminal: &Terminal) {
     let packed = unsafe {
         std::slice::from_raw_parts(terminal.geometry_state_ptr(), terminal.geometry_state_len())
     };
-    assert_eq!(packed, legacy_geometry_state(terminal));
+    assert_eq!(packed, expected_geometry_state(terminal));
 }
 
 #[test]
-fn packed_geometry_state_matches_legacy_across_render_lifecycle() {
+fn packed_geometry_state_matches_fields_across_render_lifecycle() {
     let uninitialized = Terminal::new(8, 2);
-    assert_packed_geometry_state_matches_legacy(&uninitialized);
+    assert_packed_geometry_state_matches_fields(&uninitialized);
 
     let mut terminal = terminal_with_atlas(8, 2);
     let packed_ptr = terminal.geometry_state_ptr();
-    assert_packed_geometry_state_matches_legacy(&terminal);
+    assert_packed_geometry_state_matches_fields(&terminal);
 
     terminal.build_presented_geometry();
     assert_eq!(terminal.geometry_state_ptr(), packed_ptr);
-    assert_packed_geometry_state_matches_legacy(&terminal);
+    assert_eq!(terminal.cell_buf.len(), 8 * 2 * CELL_WORDS);
+    assert_eq!(terminal.cell_dirty, (0, 16));
+    assert_packed_geometry_state_matches_fields(&terminal);
 
-    // Change all three row-buffer cardinalities in one dirty-row rebuild.
+    // A glyph, a background and a decoration in one cell rewrite one record.
     let mut decorated = test_cell('x');
     decorated.bg = [1, 2, 3];
     decorated.attrs |= CellAttrs::UNDERLINE;
     write_cell(
-        &mut terminal.term.grid_mut()[Point::new(Line(0), Column(0))],
+        &mut terminal.term.grid_mut()[Point::new(Line(1), Column(3))],
         decorated,
     );
-    terminal.note_damaged_row(0);
+    terminal.note_damaged_row(1);
+    let version = terminal.cell_version;
     terminal.build_presented_geometry();
-    assert!(terminal.bg_count() > 0);
-    assert!(terminal.glyph_count() > 0);
-    assert!(terminal.deco_count() > 0);
-    assert_packed_geometry_state_matches_legacy(&terminal);
+    assert_eq!(terminal.background_count(), 1);
+    assert_eq!(terminal.glyph_count(), 1);
+    assert_eq!(terminal.decoration_count(), 1);
+    assert_eq!(terminal.cell_version, version + 1);
+    assert_eq!(terminal.cell_dirty, (8 + 3, 1));
+    assert_packed_geometry_state_matches_fields(&terminal);
 
     // A no-damage build takes the early return and must leave a coherent,
     // stable snapshot rather than publishing partially reset dirty ranges.
     let no_damage_state = terminal.geometry_state;
     terminal.build_presented_geometry();
     assert_eq!(terminal.geometry_state, no_damage_state);
-    assert_packed_geometry_state_matches_legacy(&terminal);
+    assert_packed_geometry_state_matches_fields(&terminal);
+
+    // Damage that changes no record uploads nothing.
+    terminal.note_damaged_row(0);
+    terminal.build_presented_geometry();
+    assert_eq!(terminal.cell_version, version + 1);
+    assert_eq!(terminal.cell_dirty, (0, 0));
 
     let cursor_frame = test_cursor_frame(8, 2, 2, 1, CURSOR_SHAPE_BEAM, 1);
     assert!(terminal.apply_presented_delta_seq(&cursor_frame, 1));
     terminal.build_presented_geometry();
     assert_eq!(terminal.cursor_count(), 1);
-    assert_packed_geometry_state_matches_legacy(&terminal);
+    assert_packed_geometry_state_matches_fields(&terminal);
 
     terminal.resize(12, 3);
     terminal.build_presented_geometry();
     assert_eq!((terminal.cols(), terminal.rows()), (12, 3));
     assert_eq!(terminal.geometry_state_ptr(), packed_ptr);
-    assert_packed_geometry_state_matches_legacy(&terminal);
+    assert_eq!(terminal.cell_dirty, (0, 36));
+    assert_packed_geometry_state_matches_fields(&terminal);
 
     let mut predicted = terminal_with_atlas(8, 1);
     train_shadow_text(&mut predicted, "a");
     assert_ne!(predicted.predict_printable('x' as u32, 101.0, 2, true), 0);
     predicted.build_presented_geometry();
-    assert_packed_geometry_state_matches_legacy(&predicted);
+    assert_eq!(predicted.overlay_buf.len(), CELL_WORDS);
+    assert_packed_geometry_state_matches_fields(&predicted);
 
     predicted.set_preedit("xy", 2);
     predicted.build_presented_geometry();
-    assert_packed_geometry_state_matches_legacy(&predicted);
+    assert_packed_geometry_state_matches_fields(&predicted);
 }
 
+/// `apps/web/src/terminal/cell-records.ts` restates the record layout for the
+/// shader, and its suite pins the same values. Change both together.
 #[test]
-fn packed_geometry_state_is_published_after_atlas_growth_retry() {
-    let mut terminal = terminal_with_atlas(1, 1);
+fn cell_record_layout_is_pinned() {
+    assert_eq!(
+        [
+            CELL_WORDS as u32,
+            CELL_GLYPH_MASK,
+            CELL_COLUMN_SHIFT,
+            CELL_WIDE,
+            CELL_UNDERLINE,
+            CELL_STRIKEOUT,
+            CELL_BUILTIN,
+            CELL_BACKGROUND,
+            CELL_ALPHA_DIM,
+            CELL_ALPHA_PREDICTION,
+            CELL_PREEDIT,
+            CELL_ROW_SHIFT,
+            builtin_glyph::BUILTIN_MOSAIC,
+            atlas::GLYPH_TABLE_WORDS as u32,
+            GEOMETRY_STATE_LEN as u32,
+        ],
+        [
+            3,
+            0xf_ffff,
+            20,
+            0x2000_0000,
+            0x4000_0000,
+            0x8000_0000,
+            0x0100_0000,
+            0x0200_0000,
+            0x0400_0000,
+            0x0800_0000,
+            0x1000_0000,
+            24,
+            0x1_0000,
+            3,
+            25,
+        ]
+    );
+}
+
+/// Atlas growth keeps every glyph's pixel coordinates, so neither the glyph
+/// table nor a single cell record changes: only the texture is replaced.
+#[test]
+fn atlas_growth_rewrites_no_cell_record() {
+    let mut terminal = terminal_with_atlas(2, 1);
     write_cell(
         &mut terminal.term.grid_mut()[Point::new(Line(0), Column(0))],
         test_cell('x'),
     );
+    terminal.note_damaged_row(0);
+    terminal.build_presented_geometry();
+    let record = terminal.cell_record(0, 0);
+    let table = terminal.atlas.as_ref().expect("atlas").table.clone();
+    let epoch = terminal.geometry_glyph_epoch;
+    let version = terminal.cell_version;
     terminal
         .atlas
         .as_mut()
@@ -1051,12 +1119,84 @@ fn packed_geometry_state_is_published_after_atlas_growth_retry() {
         .force_next_pack_to_grow();
     let generation = terminal.atlas_generation();
 
+    write_cell(
+        &mut terminal.term.grid_mut()[Point::new(Line(0), Column(1))],
+        test_cell('y'),
+    );
+    terminal.note_damaged_row(0);
     terminal.build_presented_geometry();
 
     assert_eq!(terminal.atlas_generation(), generation + 1);
-    assert_eq!(terminal.geometry_atlas_generation, generation + 1);
-    assert_eq!(terminal.glyph_count(), 1);
-    assert_packed_geometry_state_matches_legacy(&terminal);
+    assert_eq!(terminal.geometry_glyph_epoch, epoch);
+    assert_eq!(terminal.cell_record(0, 0), record);
+    assert_eq!(terminal.cell_version, version + 1);
+    assert_eq!(terminal.cell_dirty, (1, 1));
+    let atlas = terminal.atlas.as_ref().expect("atlas");
+    assert_eq!(&atlas.table[..table.len()], table.as_slice());
+    assert_eq!(atlas.glyph_count(), 2);
+    assert_eq!(terminal.glyph_count(), 2);
+    assert_packed_geometry_state_matches_fields(&terminal);
+}
+
+/// Typing into a blank cell rewrites that one record: the glyph count of a
+/// row no longer decides how much is uploaded.
+#[test]
+fn a_keystroke_dirties_only_the_cells_it_changed() {
+    let mut terminal = terminal_with_atlas(20, 4);
+    let text: Vec<CellRepr> = "hello world".chars().map(test_cell).collect();
+    let frame = test_frame_with_entries(
+        FrameKind::Delta,
+        20,
+        4,
+        11,
+        3,
+        &[RowRef {
+            graphics: &[],
+            row_index: 3,
+            left: 0,
+            cells: &text,
+        }],
+    );
+    assert!(terminal.apply_presented_delta_seq(&frame, 1));
+    terminal.build_presented_geometry();
+    let typed = test_frame_with_entries(
+        FrameKind::Delta,
+        20,
+        4,
+        12,
+        3,
+        &[RowRef {
+            graphics: &[],
+            row_index: 3,
+            left: 11,
+            cells: &[test_cell('!')],
+        }],
+    );
+    assert!(terminal.apply_presented_delta_seq(&typed, 2));
+    terminal.build_presented_geometry();
+    assert_eq!(terminal.cell_dirty, (3 * 20 + 11, 1));
+    assert_eq!(terminal.glyph_count(), 11);
+
+    // A visible prediction draws in the overlay and leaves every cell record.
+    let mut predicted = terminal_with_atlas(8, 1);
+    train_shadow_text(&mut predicted, "a");
+    predicted.build_presented_geometry();
+    let cells = predicted.cell_buf.clone();
+    let version = predicted.cell_version;
+    let overlay_version = predicted.overlay_version;
+    assert_ne!(predicted.predict_printable('x' as u32, 101.0, 2, true), 0);
+    predicted.build_presented_geometry();
+    assert_eq!(predicted.cell_buf, cells);
+    assert_eq!(predicted.cell_version, version);
+    assert_eq!(predicted.cell_dirty, (0, 0));
+    assert_eq!(predicted.overlay_version, overlay_version + 1);
+    assert_eq!(predicted.overlay_buf.len(), CELL_WORDS);
+    // Retraction restores the overlay exactly, still without a cell write.
+    predicted.predict_discard();
+    predicted.build_presented_geometry();
+    assert!(predicted.overlay_buf.is_empty());
+    assert_eq!(predicted.cell_buf, cells);
+    assert_eq!(predicted.cell_version, version);
 }
 
 /// The MZ frame of a raw test frame, as the daemon writes it: the header, the
@@ -2991,10 +3131,13 @@ fn placeholder_cells_keep_backgrounds_without_rasterizing_ids_or_decorations() {
     );
     assert!(terminal.apply_presented_delta_seq(&frame, 1));
     terminal.build_presented_geometry();
-    assert!(terminal.row_geometry[0].glyph.is_empty());
-    assert!(terminal.row_geometry[0].deco.is_empty());
-    assert_eq!(terminal.row_geometry[0].bg.len(), 7);
-    assert_eq!(&terminal.row_geometry[0].bg[4..7], &[0.0, 0.0, 1.0]);
+    assert_eq!(terminal.glyph_count(), 0);
+    assert_eq!(terminal.decoration_count(), 0);
+    assert_eq!(terminal.background_count(), 1);
+    assert_eq!(
+        terminal.cell_record(0, 0),
+        [0, CELL_BACKGROUND, pack_rgb([0, 0, 255])]
+    );
     assert_eq!(
         terminal.row_hash(0),
         merkur_codec::row_hash(&[cell, test_cell(' ')])
@@ -3974,31 +4117,13 @@ fn confirmed_shadow_rebases_authoritative_foreground_and_style() {
     assert_ne!(terminal.predict_printable('x' as u32, 12.0, 3, true), 0);
     terminal.build_presented_geometry();
 
-    let cell_w = terminal
-        .atlas
-        .as_ref()
-        .map(|atlas| atlas.cell_w)
-        .expect("atlas");
-    let shifted_glyph = terminal.row_geometry[0]
-        .glyph
-        .as_chunks::<14>()
-        .0
-        .iter()
-        .find(|glyph| (glyph[0] - cell_w).abs() < f32::EPSILON)
-        .expect("shifted styled glyph");
-    let expected_fg = rgb_to_f32(styled.fg);
-    assert!((shifted_glyph[10] - expected_fg[0]).abs() < f32::EPSILON);
-    assert!((shifted_glyph[11] - expected_fg[1]).abs() < f32::EPSILON);
-    assert!((shifted_glyph[12] - expected_fg[2]).abs() < f32::EPSILON);
-    assert!((shifted_glyph[13] - PREDICTION_ALPHA).abs() < f32::EPSILON);
-    assert!(
-        terminal.row_geometry[0]
-            .deco
-            .as_chunks::<7>()
-            .0
-            .iter()
-            .any(|decoration| (decoration[0] - cell_w).abs() < f32::EPSILON)
-    );
+    // The styled glyph shifted one column right keeps its colour and
+    // underline and draws at the prediction alpha.
+    let [glyph, color, _] = terminal.cell_record(0, 1);
+    assert_ne!(glyph & CELL_GLYPH_MASK, 0);
+    assert_ne!(glyph & CELL_UNDERLINE, 0);
+    assert_eq!(color & 0x00ff_ffff, pack_rgb(styled.fg));
+    assert_eq!(color & (3 << 26), CELL_ALPHA_PREDICTION);
 }
 
 #[test]
@@ -4709,18 +4834,25 @@ fn coalesced_clear_keeps_only_the_latest_effect_for_a_cell() {
 }
 
 #[test]
-fn prediction_glyph_dirty_range_covers_appended_instances() {
+fn a_prediction_draws_in_the_overlay_and_republishes_it_whole() {
     let mut terminal = terminal_with_atlas(3, 1);
     terminal.build_presented_geometry();
     terminal.confirmed_epoch = terminal.prediction_epoch;
+    let overlay_version = terminal.overlay_version;
 
     let epoch = terminal.predict_printable('x' as u32, 0.0, 1, true);
     terminal.confirmed_epoch = epoch;
     terminal.build_presented_geometry();
 
     assert_eq!(terminal.glyph_count(), 1);
-    assert!(terminal.glyph_dirty_offset() <= terminal.glyph_count());
-    assert!(terminal.glyph_dirty_offset() + terminal.glyph_dirty_count() >= terminal.glyph_count());
+    assert_eq!(terminal.overlay_version, overlay_version + 1);
+    let state = terminal.geometry_state;
+    assert_eq!(state[GEOMETRY_STATE_OVERLAY + 1], 1);
+    assert_eq!(
+        &state[GEOMETRY_STATE_OVERLAY + 3..GEOMETRY_STATE_CURSOR],
+        &[0, 1]
+    );
+    assert_eq!(state[GEOMETRY_STATE_CELLS + 4], 0);
 }
 
 #[test]
@@ -4728,12 +4860,10 @@ fn speculative_ascii_metadata_uses_the_terminal_atlas_entry_exactly() {
     let mut terminal = terminal_with_atlas(1, 1);
     assert!(terminal.prepare_speculative_ascii_atlas());
 
-    let space_offset =
-        (u32::from(' ') - SPECULATIVE_ASCII_FIRST) as usize * SPECULATIVE_GLYPH_ENTRY_WORDS;
+    // A space draws nothing, so it has no glyph id.
     assert_eq!(
-        &terminal.speculative_ascii_entries
-            [space_offset..space_offset + SPECULATIVE_GLYPH_ENTRY_WORDS],
-        &[0; SPECULATIVE_GLYPH_ENTRY_WORDS]
+        terminal.speculative_ascii_entries[(u32::from(' ') - SPECULATIVE_ASCII_FIRST) as usize],
+        0
     );
 
     let key = atlas::GlyphKey {
@@ -4746,21 +4876,27 @@ fn speculative_ascii_metadata_uses_the_terminal_atlas_entry_exactly() {
         .expect("atlas")
         .rasterized(&key)
         .expect("ASCII glyph");
-    let offset =
-        (u32::from('A') - SPECULATIVE_ASCII_FIRST) as usize * SPECULATIVE_GLYPH_ENTRY_WORDS;
     assert_eq!(
-        &terminal.speculative_ascii_entries[offset..offset + SPECULATIVE_GLYPH_ENTRY_WORDS],
-        &[
-            i32::from(entry.atlas_x),
-            i32::from(entry.atlas_y),
-            i32::from(entry.width),
-            i32::from(entry.height),
-            i32::from(entry.offset_x),
-            i32::from(entry.offset_y),
-        ]
+        terminal.speculative_ascii_entries[(u32::from('A') - SPECULATIVE_ASCII_FIRST) as usize],
+        entry.id as i32
     );
 
+    // The id names the glyph table entry the cell records use, and the table
+    // the renderer reads is republished with it.
     let atlas = terminal.atlas.as_ref().expect("atlas");
+    let table = &atlas.table[(entry.id as usize - 1) * atlas::GLYPH_TABLE_WORDS..][..3];
+    assert_eq!(
+        table,
+        &[
+            u32::from(entry.atlas_x) | u32::from(entry.atlas_y) << 16,
+            u32::from(entry.width) | u32::from(entry.height) << 16,
+            u32::from(entry.offset_x as u16) | u32::from(entry.offset_y as u16) << 16,
+        ]
+    );
+    assert_eq!(
+        terminal.geometry_state[GEOMETRY_STATE_GLYPHS + 1],
+        atlas.glyph_count() as u32
+    );
     let covered = (0..usize::from(entry.height)).flat_map(|row| {
         let start = (usize::from(entry.atlas_y) + row) * atlas.atlas_w as usize
             + usize::from(entry.atlas_x);
@@ -4772,45 +4908,34 @@ fn speculative_ascii_metadata_uses_the_terminal_atlas_entry_exactly() {
 #[test]
 fn speculative_ascii_metadata_refreshes_after_raster_metric_change() {
     let mut terminal = terminal_with_atlas(1, 1);
+    let key = atlas::GlyphKey {
+        codepoint: u32::from('W'),
+        style: PREDICTION_STYLE_NORMAL,
+    };
     assert!(terminal.prepare_speculative_ascii_atlas());
-    let offset =
-        (u32::from('W') - SPECULATIVE_ASCII_FIRST) as usize * SPECULATIVE_GLYPH_ENTRY_WORDS;
-    let old_width = terminal.speculative_ascii_entries[offset + 2];
+    let old_epoch = terminal.geometry_state[GEOMETRY_STATE_GLYPHS + 2];
+    let old_width = terminal
+        .atlas
+        .as_ref()
+        .and_then(|atlas| atlas.rasterized(&key))
+        .expect("W")
+        .width;
 
     terminal.set_cell_metrics(28.0, 1.2, 1.0);
     assert!(terminal.prepare_speculative_ascii_atlas());
 
-    assert!(terminal.speculative_ascii_entries[offset + 2] > old_width);
-}
-
-#[test]
-fn atlas_growth_invalidates_cached_normalized_uvs() {
-    let mut terminal = terminal_with_atlas(1, 1);
-    write_cell(
-        &mut terminal.term.grid_mut()[Point::new(Line(0), Column(0))],
-        test_cell('x'),
+    let entry = terminal
+        .atlas
+        .as_ref()
+        .and_then(|atlas| atlas.rasterized(&key))
+        .expect("W");
+    assert!(entry.width > old_width);
+    let offset = (u32::from('W') - SPECULATIVE_ASCII_FIRST) as usize;
+    assert_eq!(terminal.speculative_ascii_entries[offset], entry.id as i32);
+    assert_ne!(
+        terminal.geometry_state[GEOMETRY_STATE_GLYPHS + 2],
+        old_epoch
     );
-    terminal.full_damage = true;
-    terminal.build_presented_geometry();
-    assert_eq!(terminal.glyph_count(), 1);
-    let old_uv = terminal.glyph_buf[6..10].to_vec();
-    let old_generation = terminal.atlas_generation();
-
-    assert!(terminal.atlas.as_mut().expect("atlas").grow());
-    assert_eq!(terminal.atlas_generation(), old_generation + 1);
-    terminal.full_damage = false;
-    terminal.clear_damaged_rows();
-    terminal.build_presented_geometry();
-
-    assert_eq!(
-        terminal.geometry_atlas_generation,
-        terminal.atlas_generation()
-    );
-    assert_eq!(terminal.glyph_count(), 1);
-    let new_uv = &terminal.glyph_buf[6..10];
-    for (old, new) in old_uv.iter().zip(new_uv) {
-        assert!((new * 2.0 - old).abs() < f32::EPSILON);
-    }
 }
 
 #[test]
@@ -4829,12 +4954,27 @@ fn glyph_bitmaps_land_on_physical_pixels_at_every_font_size_and_density() {
             terminal.set_cell_metrics(size as f32 * dpr, 1.0, dpr);
             terminal.build_presented_geometry();
             assert_eq!(terminal.glyph_count(), 16);
-            for glyph in terminal.glyph_buf.as_chunks::<14>().0 {
-                for value in [glyph[0] + glyph[2], glyph[1] + glyph[3], glyph[4], glyph[5]] {
+            // A glyph's quad starts at its cell origin plus its bearing
+            // below the baseline, in the shader as here.
+            let [cell_w, cell_h, baseline, ..] = terminal.geometry_params;
+            let atlas = terminal.atlas.as_ref().expect("atlas");
+            for value in [cell_w, cell_h, baseline] {
+                assert_eq!(value.fract(), 0.0, "size={size}, dpr={dpr}, metric={value}");
+            }
+            for record in terminal.cell_buf.as_chunks::<CELL_WORDS>().0 {
+                let id = record[0] & CELL_GLYPH_MASK;
+                assert_ne!(id, 0, "size={size}, dpr={dpr}");
+                let entry = &atlas.table[(id as usize - 1) * atlas::GLYPH_TABLE_WORDS..][..3];
+                let col = (record[0] >> CELL_COLUMN_SHIFT) & 0x1ff;
+                let row = record[2] >> CELL_ROW_SHIFT;
+                let left = col as f32 * cell_w + f32::from(entry[2] as u16 as i16);
+                let top =
+                    row as f32 * cell_h + baseline + f32::from((entry[2] >> 16) as u16 as i16);
+                for value in [left, top] {
                     assert_eq!(
                         value.fract(),
                         0.0,
-                        "size={size}, dpr={dpr}, glyph={glyph:?}"
+                        "size={size}, dpr={dpr}, record={record:?}"
                     );
                 }
             }
@@ -4873,19 +5013,23 @@ fn cell_metric_change_resets_raster_and_geometry_caches() {
     assert!(atlas.pixels.iter().all(|pixel| *pixel == 0));
     assert!(atlas.dirty);
     assert_eq!(atlas.dirty_rect, [0, 0, atlas.atlas_w, atlas.atlas_h]);
-    assert!(terminal.row_geometry.is_empty());
-    assert!(!terminal.geometry_buffers_initialized);
+    assert!(atlas.table.is_empty());
+    assert_ne!(atlas.table_epoch(), terminal.geometry_glyph_epoch);
     assert!(terminal.full_damage);
 
     terminal.build_presented_geometry();
     let atlas = terminal.atlas.as_ref().expect("atlas");
     let new_entry = atlas.rasterized(&key).expect("rerasterized glyph");
     assert!(new_entry.width > old_entry.width);
-    assert_eq!(terminal.geometry_atlas_generation, atlas.generation());
+    assert_eq!(terminal.geometry_glyph_epoch, atlas.table_epoch());
+    assert_eq!(
+        terminal.cell_record(0, 0)[0] & CELL_GLYPH_MASK,
+        new_entry.id
+    );
 }
 
 #[test]
-fn line_height_change_reuses_raster_but_invalidates_geometry() {
+fn line_height_change_reuses_raster_and_republishes_metrics() {
     let mut terminal = terminal_with_atlas(1, 1);
     write_cell(
         &mut terminal.term.grid_mut()[Point::new(Line(0), Column(0))],
@@ -4895,6 +5039,8 @@ fn line_height_change_reuses_raster_but_invalidates_geometry() {
     terminal.atlas_mark_clean();
     let generation = terminal.atlas_generation();
     let glyph_count = terminal.atlas.as_ref().expect("atlas").glyphs.len();
+    let record = terminal.cell_record(0, 0);
+    let cell_h = terminal.geometry_params[1];
 
     terminal.set_cell_metrics(14.0, 2.0, 1.0);
 
@@ -4902,9 +5048,15 @@ fn line_height_change_reuses_raster_but_invalidates_geometry() {
     assert_eq!(atlas.generation(), generation);
     assert_eq!(atlas.glyphs.len(), glyph_count);
     assert!(!atlas.dirty);
-    assert!(terminal.row_geometry.is_empty());
-    assert!(!terminal.geometry_buffers_initialized);
     assert!(terminal.full_damage);
+    terminal.build_presented_geometry();
+    // Records name cells, not pixels: only the published metrics move.
+    assert_eq!(terminal.cell_record(0, 0), record);
+    assert!(terminal.geometry_params[1] > cell_h);
+    assert_eq!(
+        terminal.geometry_state[GEOMETRY_STATE_PARAMS + 1],
+        terminal.geometry_params[1].to_bits()
+    );
 }
 
 #[test]
@@ -5782,21 +5934,25 @@ fn preedit_appends_overlay_geometry_and_clears() {
     let mut terminal = terminal_with_atlas(10, 2);
     terminal.build_presented_geometry();
     let base_glyphs = terminal.glyph_count();
-    let base_bg = terminal.bg_count();
-    let base_deco = terminal.deco_count();
+    let base_bg = terminal.background_count();
+    let base_deco = terminal.decoration_count();
+    let cells = terminal.cell_buf.clone();
 
     terminal.set_preedit("ab", 2);
     terminal.build_presented_geometry();
-    // Two glyphs plus one bg highlight quad and one underline quad.
+    // Two overlay records, each a glyph over the highlight with the underline.
+    assert_eq!(terminal.overlay_buf.len(), 2 * CELL_WORDS);
     assert_eq!(terminal.glyph_count(), base_glyphs + 2);
-    assert_eq!(terminal.bg_count(), base_bg + 1);
-    assert_eq!(terminal.deco_count(), base_deco + 1);
+    assert_eq!(terminal.background_count(), base_bg + 2);
+    assert_eq!(terminal.decoration_count(), base_deco + 2);
+    assert_eq!(terminal.cell_buf, cells);
 
     terminal.set_preedit("", 0);
     terminal.build_presented_geometry();
     assert_eq!(terminal.glyph_count(), base_glyphs);
-    assert_eq!(terminal.bg_count(), base_bg);
-    assert_eq!(terminal.deco_count(), base_deco);
+    assert_eq!(terminal.background_count(), base_bg);
+    assert_eq!(terminal.decoration_count(), base_deco);
+    assert!(terminal.overlay_buf.is_empty());
 }
 
 #[test]
@@ -5816,15 +5972,16 @@ fn preedit_overflow_keeps_tail_visible() {
 fn preedit_wider_than_grid_draws_nothing() {
     let mut terminal = terminal_with_atlas(1, 1);
     terminal.build_presented_geometry();
-    let base_bg = terminal.bg_count();
-    let base_deco = terminal.deco_count();
+    let base_bg = terminal.background_count();
+    let base_deco = terminal.decoration_count();
 
     // A double-width char cannot fit a one-column row: the trim consumes
-    // the whole run, and no zero-width quads may be pushed.
+    // the whole run, and no record may be pushed.
     terminal.set_preedit("あ", 1);
     terminal.build_presented_geometry();
-    assert_eq!(terminal.bg_count(), base_bg);
-    assert_eq!(terminal.deco_count(), base_deco);
+    assert_eq!(terminal.background_count(), base_bg);
+    assert_eq!(terminal.decoration_count(), base_deco);
+    assert!(terminal.overlay_buf.is_empty());
 }
 
 #[test]

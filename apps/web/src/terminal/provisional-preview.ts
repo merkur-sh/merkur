@@ -1,16 +1,17 @@
 import type { TerminalPreviewGeometry } from '../terminal-renderer';
+import {
+  CELL_ALPHA_PREDICTION,
+  CELL_BACKGROUND,
+  CELL_COLUMN_SHIFT,
+  CELL_ROW_SHIFT,
+  CELL_WORDS,
+  cellRgb,
+} from './cell-records';
 import { PROVISIONAL_PREVIEW_SLOTS, type ProvisionalPreviewSnapshot } from './prediction-fast-path';
 import {
   SPECULATIVE_ASCII_FIRST,
   SPECULATIVE_ASCII_LAST,
   SPECULATIVE_GLYPH_ENTRIES_LENGTH,
-  SPECULATIVE_GLYPH_ENTRY_HEIGHT,
-  SPECULATIVE_GLYPH_ENTRY_OFFSET_X,
-  SPECULATIVE_GLYPH_ENTRY_OFFSET_Y,
-  SPECULATIVE_GLYPH_ENTRY_STRIDE,
-  SPECULATIVE_GLYPH_ENTRY_WIDTH,
-  SPECULATIVE_GLYPH_ENTRY_X,
-  SPECULATIVE_GLYPH_ENTRY_Y,
 } from './speculative-glyph-atlas';
 
 export const MAX_PROVISIONAL_PREVIEWS = PROVISIONAL_PREVIEW_SLOTS;
@@ -41,15 +42,12 @@ export interface ProvisionalPreviewAuthority {
   readonly atlasGeneration: number;
 }
 
-/** Borrowed already-installed atlas metadata; never prepare/repack it here. */
+/** Borrowed already-installed atlas glyph ids; never prepare/repack it here. */
 export interface ProvisionalPreviewAtlas {
   readonly entries: Int32Array;
   readonly generation: number;
-  readonly width: number;
-  readonly height: number;
   readonly cellWidth: number;
   readonly cellHeight: number;
-  readonly baseline: number;
 }
 
 /**
@@ -63,10 +61,10 @@ export function createProvisionalPreviewState() {
   const codepoints = new Uint32Array(MAX_PROVISIONAL_PREVIEWS);
   const geometry = {
     version: 1,
-    bg: new Float32Array(7),
-    bgCount: 0,
-    glyph: new Float32Array(MAX_PROVISIONAL_PREVIEWS * 14),
-    glyphCount: 0,
+    // The previewed cells, then the cursor cell they push right.
+    cells: new Uint32Array((MAX_PROVISIONAL_PREVIEWS + 1) * CELL_WORDS),
+    cellCount: 0,
+    clip: new Uint32Array(4),
     cursor: new Float32Array(8),
     cursorCount: 0,
   } satisfies TerminalPreviewGeometry;
@@ -96,10 +94,9 @@ export function createProvisionalPreviewState() {
   };
 
   function clear(): boolean {
-    if (count === 0 && geometry.bgCount === 0) return false;
+    if (count === 0 && geometry.cellCount === 0) return false;
     count = 0;
-    geometry.bgCount = 0;
-    geometry.glyphCount = 0;
+    geometry.cellCount = 0;
     geometry.cursorCount = 0;
     geometry.version += 1;
     dirty = false;
@@ -255,15 +252,10 @@ export function createProvisionalPreviewState() {
       if (
         atlas.generation !== atlasGeneration ||
         atlas.entries.length !== SPECULATIVE_GLYPH_ENTRIES_LENGTH ||
-        !Number.isFinite(atlas.width) ||
-        atlas.width <= 0 ||
-        !Number.isFinite(atlas.height) ||
-        atlas.height <= 0 ||
         !Number.isFinite(atlas.cellWidth) ||
         atlas.cellWidth <= 0 ||
         !Number.isFinite(atlas.cellHeight) ||
-        atlas.cellHeight <= 0 ||
-        !Number.isFinite(atlas.baseline)
+        atlas.cellHeight <= 0
       ) {
         clear();
         return geometry;
@@ -274,63 +266,35 @@ export function createProvisionalPreviewState() {
       const fr = ((a.foreground >>> 16) & 255) / 255;
       const fg = ((a.foreground >>> 8) & 255) / 255;
       const fb = (a.foreground & 255) / 255;
-      const bg = geometry.bg;
-      bg[0] = x;
-      bg[1] = y;
-      bg[2] = (count + 1) * atlas.cellWidth;
-      bg[3] = atlas.cellHeight;
-      bg[4] = ((a.background >>> 16) & 255) / 255;
-      bg[5] = ((a.background >>> 8) & 255) / 255;
-      bg[6] = (a.background & 255) / 255;
-      let glyphCount = 0;
-      for (let index = 0; index < count; index += 1) {
-        const codepoint = codepoints[index] ?? 0;
-        if (codepoint === SPECULATIVE_ASCII_FIRST) continue;
-        const at = (codepoint - SPECULATIVE_ASCII_FIRST) * SPECULATIVE_GLYPH_ENTRY_STRIDE;
-        const sx = atlas.entries[at + SPECULATIVE_GLYPH_ENTRY_X] ?? 0;
-        const sy = atlas.entries[at + SPECULATIVE_GLYPH_ENTRY_Y] ?? 0;
-        const width = atlas.entries[at + SPECULATIVE_GLYPH_ENTRY_WIDTH] ?? 0;
-        const height = atlas.entries[at + SPECULATIVE_GLYPH_ENTRY_HEIGHT] ?? 0;
-        const ox = atlas.entries[at + SPECULATIVE_GLYPH_ENTRY_OFFSET_X] ?? 0;
-        const oy = atlas.entries[at + SPECULATIVE_GLYPH_ENTRY_OFFSET_Y] ?? 0;
-        // A missing glyph never starts asynchronous raster work under a frozen
-        // atlas; fail closed rather than display an empty advertised preview.
-        if (
-          width <= 0 ||
-          height <= 0 ||
-          sx < 0 ||
-          sy < 0 ||
-          sx + width > atlas.width ||
-          sy + height > atlas.height
-        ) {
+      const color = cellRgb(a.foreground) | CELL_BACKGROUND | CELL_ALPHA_PREDICTION;
+      const background = cellRgb(a.background) | (row << CELL_ROW_SHIFT);
+      const cells = geometry.cells;
+      for (let index = 0; index <= count; index += 1) {
+        const codepoint = index < count ? (codepoints[index] ?? 0) : SPECULATIVE_ASCII_FIRST;
+        // The glyph table entry the cell records already use. A missing glyph
+        // never starts asynchronous raster work under a frozen atlas; fail
+        // closed rather than display an empty advertised preview.
+        const id =
+          codepoint === SPECULATIVE_ASCII_FIRST
+            ? 0
+            : (atlas.entries[codepoint - SPECULATIVE_ASCII_FIRST] ?? 0);
+        if (codepoint !== SPECULATIVE_ASCII_FIRST && id <= 0) {
           clear();
           return geometry;
         }
-        const left = Math.max(x, x + index * atlas.cellWidth + ox);
-        const top = Math.max(y, y + atlas.baseline + oy);
-        const right = Math.min(
-          x + count * atlas.cellWidth,
-          x + index * atlas.cellWidth + ox + width,
-        );
-        const bottom = Math.min(y + atlas.cellHeight, y + atlas.baseline + oy + height);
-        if (right <= left || bottom <= top) continue;
-        const into = glyphCount++ * 14;
-        const out = geometry.glyph;
-        out[into] = left;
-        out[into + 1] = top;
-        out[into + 2] = 0;
-        out[into + 3] = 0;
-        out[into + 4] = right - left;
-        out[into + 5] = bottom - top;
-        out[into + 6] = (sx + left - (x + index * atlas.cellWidth + ox)) / atlas.width;
-        out[into + 7] = (sy + top - (y + atlas.baseline + oy)) / atlas.height;
-        out[into + 8] = (sx + right - (x + index * atlas.cellWidth + ox)) / atlas.width;
-        out[into + 9] = (sy + bottom - (y + atlas.baseline + oy)) / atlas.height;
-        out[into + 10] = fr;
-        out[into + 11] = fg;
-        out[into + 12] = fb;
-        out[into + 13] = 0.55;
+        const into = index * CELL_WORDS;
+        cells[into] = (id | ((col + index) << CELL_COLUMN_SHIFT)) >>> 0;
+        // The cursor cell after the run is background only.
+        cells[into + 1] = index < count ? color : CELL_BACKGROUND;
+        cells[into + 2] = background >>> 0;
       }
+      // Glyphs stay inside the previewed cells, never over the cursor cell or
+      // the neighbouring rows.
+      const clip = geometry.clip;
+      clip[0] = x;
+      clip[1] = y;
+      clip[2] = count * atlas.cellWidth;
+      clip[3] = atlas.cellHeight;
       const cursor = geometry.cursor;
       cursor[0] = x + count * atlas.cellWidth;
       cursor[1] = y;
@@ -340,8 +304,7 @@ export function createProvisionalPreviewState() {
       cursor[5] = fg;
       cursor[6] = fb;
       cursor[7] = a.cursorShape;
-      geometry.bgCount = 1;
-      geometry.glyphCount = glyphCount;
+      geometry.cellCount = count + 1;
       geometry.cursorCount = 1;
       geometry.version += 1;
       dirty = false;

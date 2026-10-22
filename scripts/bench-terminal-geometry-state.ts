@@ -4,9 +4,10 @@ import { DEFAULT_TERMINAL_FONT } from '../apps/web/src/terminal/fonts';
 import {
   createGeometryRenderState,
   GEOMETRY_STATE_LENGTH,
+  type GeometryBuffer,
+  type GeometryRenderState,
   updateGeometryRenderState,
 } from '../apps/web/src/terminal/geometry-render-state';
-import type { GeometryBufferRange, GeometryVersions } from '../apps/web/src/terminal-renderer';
 import { emitPerfMetric, perfEnvInteger, summarizeSamples } from './perf/harness';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -55,47 +56,25 @@ function readPackedState(): Uint32Array {
 
 function collect(): number {
   updateGeometryRenderState(reusableState, readPackedState(), VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
-  return consumeGeometry(
-    reusableState.bg,
-    reusableState.glyph,
-    reusableState.deco,
-    reusableState.cursor,
-    reusableState.viewport,
-    reusableState.versions,
-  );
+  return consumeGeometry(reusableState);
 }
 
-function consumeGeometry(
-  bg: GeometryBufferRange,
-  glyph: GeometryBufferRange,
-  deco: GeometryBufferRange,
-  cursor: GeometryBufferRange,
-  viewport: readonly [number, number],
-  versions: GeometryVersions,
-): number {
+function consumeBuffer(buffer: GeometryBuffer): number {
+  return buffer.ptr + buffer.count + buffer.version + buffer.dirtyOffset + buffer.dirtyCount;
+}
+
+function consumeGeometry(state: GeometryRenderState): number {
   return (
-    (bg.ptr +
-      bg.count +
-      glyph.ptr +
-      glyph.count +
-      deco.ptr +
-      deco.count +
-      cursor.ptr +
-      cursor.count +
-      viewport[0] +
-      viewport[1] +
-      versions.bg +
-      versions.glyph +
-      versions.deco +
-      versions.cursor +
-      versions.bgDirtyOffset +
-      versions.bgDirtyCount +
-      versions.glyphDirtyOffset +
-      versions.glyphDirtyCount +
-      versions.decoDirtyOffset +
-      versions.decoDirtyCount +
-      versions.cursorDirtyOffset +
-      versions.cursorDirtyCount) >>>
+    (consumeBuffer(state.cells) +
+      consumeBuffer(state.overlay) +
+      consumeBuffer(state.cursor) +
+      state.glyphs.ptr +
+      state.glyphs.count +
+      state.glyphs.epoch +
+      (state.params[0] ?? 0) +
+      (state.params[1] ?? 0) +
+      state.viewport[0] +
+      state.viewport[1]) >>>
     0
   );
 }
