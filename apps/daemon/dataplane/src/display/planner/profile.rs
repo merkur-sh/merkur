@@ -494,8 +494,7 @@ fn derive_work(
             })
         })
         .fold(f64::INFINITY, f64::min);
-    let multirow_limit =
-        WIRE_CAP.max(((WIRE_CAP as f64 / minimum).ceil() as usize).saturating_add(1));
+    let multirow_limit = multirow_limit(WIRE_CAP, minimum);
     let sender_upper_by_size: [[f64; SIZE_CLASSES]; CONTENT_CLASSES] =
         std::array::from_fn(|content| {
             std::array::from_fn(|class| {
