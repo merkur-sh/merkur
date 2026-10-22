@@ -3778,11 +3778,15 @@ impl Terminal {
         for (codepoint, entry) in
             (SPECULATIVE_ASCII_FIRST..=SPECULATIVE_ASCII_LAST).zip(&mut entries)
         {
-            if let Some(glyph) = atlas.get_or_rasterize(atlas::GlyphKey {
-                codepoint,
-                style: PREDICTION_STYLE_NORMAL,
-            }) {
-                *entry = glyph.id as i32;
+            // Ids stop at `atlas::MAX_GLYPH_ID`, well inside `i32`.
+            if let Some(Ok(id)) = atlas
+                .get_or_rasterize(atlas::GlyphKey {
+                    codepoint,
+                    style: PREDICTION_STYLE_NORMAL,
+                })
+                .map(|glyph| i32::try_from(glyph.id))
+            {
+                *entry = id;
             }
         }
         self.speculative_ascii_entries = entries;
@@ -4161,7 +4165,7 @@ impl Terminal {
                     records,
                 );
             }
-            self.cell_dirty = (0, (rows * cols) as u32);
+            widen_dirty_range(&mut self.cell_dirty, 0, rows * cols);
             cells_changed = true;
         } else {
             for row in self.damaged_rows.iter().copied() {
@@ -5580,6 +5584,27 @@ fn write_cell(cell: &mut Cell, repr: CellRepr) -> bool {
 #[cfg(test)]
 mod tests;
 
+/// A record's column bits. Every column the geometry writes is below
+/// `MAX_TERMINAL_COLUMNS`, which the field holds (asserted with `CELL_WORDS`).
+#[inline]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "columns stop below MAX_TERMINAL_COLUMNS (512), far inside u32"
+)]
+fn cell_column_word(col: usize) -> u32 {
+    (col as u32) << CELL_COLUMN_SHIFT
+}
+
+/// A record's row bits; rows stop below `MAX_TERMINAL_ROWS`, which they hold.
+#[inline]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "rows stop below MAX_TERMINAL_ROWS (256), far inside u32"
+)]
+fn cell_row_word(row: usize) -> u32 {
+    (row as u32) << CELL_ROW_SHIFT
+}
+
 #[inline]
 fn pack_rgb(rgb: [u8; 3]) -> u32 {
     u32::from(rgb[0]) | u32::from(rgb[1]) << 8 | u32::from(rgb[2]) << 16
@@ -5600,8 +5625,10 @@ fn write_row_cells(
     shadow: Option<&ShadowRenderProjection<'_>>,
     out: &mut [u32],
 ) -> Option<(usize, usize)> {
-    let line = Line(row_idx as i32);
-    let row_word = (row_idx as u32) << CELL_ROW_SHIFT;
+    let Ok(line) = i32::try_from(row_idx).map(Line) else {
+        return None;
+    };
+    let row_word = cell_row_word(row_idx);
     let mut changed: Option<(usize, usize)> = None;
     let mut covered_by_wide = false;
     for (col, record) in out
@@ -5612,7 +5639,7 @@ fn write_row_cells(
         .enumerate()
     {
         let cell = &grid[Point::new(line, Column(col))];
-        let mut glyph_word = (col as u32) << CELL_COLUMN_SHIFT;
+        let mut glyph_word = cell_column_word(col);
         let mut color_word = 0;
         let mut background_word = row_word;
         if cell.flags.contains(Flags::INVERSE)
@@ -5766,7 +5793,7 @@ fn append_preedit_records(
     };
 
     let color_word = pack_rgb(theme.foreground) | CELL_BACKGROUND | CELL_PREEDIT;
-    let row_word = (cursor_row as u32) << CELL_ROW_SHIFT;
+    let row_word = cell_row_word(cursor_row);
     let mut missing = false;
     let mut col = start_col;
     for c in chars[first..].iter().copied() {
@@ -5774,7 +5801,7 @@ fn append_preedit_records(
         if width == 0 {
             continue;
         }
-        let mut glyph_word = (col as u32) << CELL_COLUMN_SHIFT;
+        let mut glyph_word = cell_column_word(col);
         let cp = c as u32;
         if cp > 31 && cp != 127 {
             let key = atlas::GlyphKey {
@@ -5797,7 +5824,7 @@ fn append_preedit_records(
         // Each preedit record covers one column: a wide character's second
         // column is a record of its own, highlighted and underlined.
         for covered in col + 1..col + width {
-            out.extend_from_slice(&[(covered as u32) << CELL_COLUMN_SHIFT, color_word, row_word]);
+            out.extend_from_slice(&[cell_column_word(covered), color_word, row_word]);
         }
         col += width;
     }
@@ -5827,9 +5854,9 @@ fn push_prediction_record(
         return;
     };
     out.extend_from_slice(&[
-        entry.id | (col as u32) << CELL_COLUMN_SHIFT,
+        entry.id | cell_column_word(col),
         pack_rgb(remap_rgb(theme, prediction.fg)) | CELL_ALPHA_PREDICTION,
-        (row as u32) << CELL_ROW_SHIFT,
+        cell_row_word(row),
     ]);
 }
 
