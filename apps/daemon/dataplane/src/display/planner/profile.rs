@@ -114,6 +114,7 @@ fn capture(cols: u16, rows: u16, entropy: bool) -> Vec<CapturedRow> {
             merkur_codec::encode_cells(&mut encoded, &captured.cells);
             CapturedRow {
                 planned: PlannedRow {
+                    price_scale: [1.0; 2],
                     bytes: merkur_codec::ROW_PREFIX_BYTES
                         + merkur_codec::encoded_cells_size(&captured.cells),
                     class: content.class(),
@@ -138,7 +139,9 @@ fn planning_context(model: &PeerDisplayPlanningModel) -> PlanningContext {
         initial_fec_group_len: 0,
         initial_fec_group_max_bytes: 0,
         receiver_service_debt_us: model.receiver_service_debt_us(),
+        mz_declaration_bytes: 0,
         higher_priority_preparation_jobs: 0,
+        successor_waiting: false,
     }
 }
 
@@ -927,6 +930,7 @@ fn planner_small_plan_profile() {
     let mut content = ContentEvidence::default();
     content.observe(&captured.cells);
     let prompt_row = PlannedRow {
+        price_scale: [1.0; 2],
         bytes: merkur_codec::ROW_PREFIX_BYTES + merkur_codec::encoded_cells_size(&captured.cells),
         class: content.class(),
     };

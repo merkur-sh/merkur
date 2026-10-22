@@ -866,3 +866,46 @@ fn v2_checkpoint() {
         println!("V2 wrote {} bytes of model data to {out}", data.len());
     }
 }
+
+#[test]
+#[ignore = "P3 row-price attribution over MERKUR_MZ_FRAMES"]
+fn p3_row_price_attribution() {
+    use super::{model::static_model, nibble, session::Layered};
+    let directory = std::env::var("MERKUR_MZ_FRAMES").expect("frames");
+    let mut paths: Vec<_> = std::fs::read_dir(directory).unwrap().map(|p| p.unwrap().path()).collect();
+    paths.sort();
+    let (mut frames, mut entries, mut symbols, mut sessions) = (0u64, 0u64, 0u64, 0u64);
+    let mut encoder = MzEncoder::default();
+    let mut output = Vec::new();
+    let mut tables = nibble::Tables::default();
+    for path in paths {
+        let data = std::fs::read(path).unwrap();
+        let mut at = 0;
+        let mut session = SessionModel::default();
+        while at < data.len() {
+            let count = u16::from_le_bytes(data[at..at + 2].try_into().unwrap());
+            let len = u32::from_le_bytes(data[at + 2..at + 6].try_into().unwrap()) as usize;
+            let rows = &data[at + 6..at + 6 + len];
+            at += 6 + len;
+            for with_session in [false, true] {
+                output.clear();
+                let prior = with_session.then_some((1, &session));
+                let encoded = encoder.encode(rows, count, &NoHistory, prior, None, &mut output).unwrap();
+                assert_eq!(encoder.row_costs().len(), usize::from(count));
+                assert_eq!(encoder.row_costs().iter().map(|r| r.raw_bytes).sum::<usize>(), rows.len());
+                let expected = if encoded.prior == 0 {
+                    nibble::price(static_model(), &mut tables, encoder.trace())
+                } else {
+                    sessions += 1;
+                    nibble::price(&Layered { session: &session, base: static_model() }, &mut tables, encoder.trace())
+                };
+                assert_eq!(encoder.row_costs().iter().map(|r| r.bits).sum::<u64>(), expected);
+                frames += 1;
+                entries += u64::from(count);
+                symbols += encoder.trace().len() as u64;
+            }
+            session.fold(encoder.trace());
+        }
+    }
+    println!("P3_PRICES frames={frames} entries={entries} symbols={symbols} session_chosen={sessions}");
+}
