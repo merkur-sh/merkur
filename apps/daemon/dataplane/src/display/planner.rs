@@ -1,9 +1,9 @@
 //! Deadline-aware display representation planning.
 //!
 //! The planner compares complete packet schedules, never `bytes / bandwidth`.
-//! It keeps bounded empirical posteriors for sender service, achieved ratio,
-//! receiver incremental service, and carrier loss. All state is fixed-capacity
-//! and allocation-free after construction.
+//! It keeps bounded empirical posteriors for sender service, receiver service
+//! and carrier loss. Row entropy observations live with the peer. The partition
+//! workspace is fixed-capacity and reused across solves.
 
 use crate::display::policy::DisplayPolicy;
 
@@ -52,7 +52,7 @@ const CONTENT_CLASS_BY_INDEX: [ContentClass; CONTENT_CLASSES] = [
 /// Cell census of one encoded row span, taken once at capture. It classifies
 /// the row; the planner then reasons about spans by the bytes each class
 /// contributes, never by re-counting cells.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct ContentEvidence {
     pub(crate) cells: u32,
     pub(crate) visible: u32,
@@ -91,17 +91,19 @@ impl ContentEvidence {
 pub(crate) struct PlannedRow {
     pub(crate) bytes: usize,
     pub(crate) class: ContentClass,
+    pub(crate) price_scale: [f64; 2],
 }
 
 impl PlannedRow {
     pub(crate) const EMPTY: Self = Self {
         bytes: 0,
         class: ContentClass::Sparse,
+        price_scale: [1.0; 2],
     };
 
     #[cfg(test)]
     pub(crate) const fn of(bytes: usize, class: ContentClass) -> Self {
-        Self { bytes, class }
+        Self { bytes, class, price_scale: [1.0; 2] }
     }
 }
 
@@ -509,6 +511,24 @@ impl CarrierDeliveryQuote {
         )
     }
 
+    /// Delay to a confirmed successor at the slowest serial bottleneck.
+    /// A full congestion window uses its bytes per RTT if that is slower than
+    /// the measured pacer; no sender headroom multiplier enters this price.
+    fn successor_delay_us(&self, wire_bytes: usize) -> f64 {
+        let delay = |hop: CarrierHopQuote| {
+            let window = hop.congestion_window_bytes.max(hop.mtu_bytes.max(1) as u64);
+            let window_rate = window as f64 / (hop.one_way_us * 2.0).max(1.0);
+            let rate = if hop.pacing_rate_bps == 0 {
+                window_rate
+            } else {
+                let pacing = hop.pacing_rate_bps as f64 / 8_000_000.0;
+                if hop.bytes_in_flight >= window { pacing.min(window_rate) } else { pacing }
+            };
+            wire_bytes as f64 / rate
+        };
+        self.serial_hops.map_or_else(|| delay(self.as_hop()), |hops| hops.into_iter().map(delay).fold(0.0, f64::max))
+    }
+
     /// Predicted p95/CVaR-like delivery time for the complete remaining plan.
     pub fn earliest_delivery_us(&self, data_bytes: usize, packet_count: usize) -> f64 {
         // `loss_upper` is already the end-to-end probability (the exact
@@ -578,6 +598,9 @@ pub struct PlanningContext {
     /// whole request nor charges an opportunity cost when compression is not
     /// selected.
     pub higher_priority_preparation_jobs: usize,
+    pub mz_declaration_bytes: usize,
+    /// A changed grid/header after this capture has permission to send.
+    pub successor_waiting: bool,
 }
 
 impl Default for PlanningContext {
@@ -592,6 +615,8 @@ impl Default for PlanningContext {
             initial_fec_group_max_bytes: 0,
             receiver_service_debt_us: 0.0,
             earliest_uncompressed_send_us: 0.0,
+            mz_declaration_bytes: 0,
+            successor_waiting: false,
             higher_priority_preparation_jobs: 0,
         }
     }
@@ -629,6 +654,11 @@ pub struct PacketPlan {
     #[cfg(test)]
     pub wire_bytes: usize,
     pub tail_latency_us: f64,
+    successor_delay_us: f64,
+}
+
+impl PacketPlan {
+    fn score_us(self) -> f64 { self.tail_latency_us + self.successor_delay_us }
 }
 
 /// Physical bytes admitted for one display datagram `wire_len` long. The
@@ -789,6 +819,7 @@ fn single_record_plan(
         #[cfg(test)]
         wire_bytes: _complete_wire_bytes,
         tail_latency_us: delivery + context.receiver_service_debt_us + receiver_incremental_us,
+        successor_delay_us: if context.successor_waiting { context.carrier.successor_delay_us(_complete_wire_bytes) } else { 0.0 },
     }
 }
 
@@ -802,7 +833,7 @@ fn best_single_record_plan(
         return primary;
     };
     let alternate = single_record_plan(plaintext_bytes, receiver_incremental_us, alternate);
-    if alternate.tail_latency_us < primary.tail_latency_us {
+    if alternate.score_us() < primary.score_us() {
         alternate
     } else {
         primary
@@ -822,6 +853,7 @@ struct BatchCandidate {
 /// Row count selects a slot, but only equal byte censuses may reuse its price.
 #[derive(Clone, Copy)]
 struct SpanCostEntry {
+    predicted_rows_bytes: f64,
     class_bytes: [usize; CONTENT_CLASSES],
     raw_bytes: usize,
     choices: [Option<(BatchCandidate, f64)>; 2],
@@ -858,6 +890,8 @@ impl PlannerState {
 /// open FEC group has at most four members and every shard is at most 1,084 B.
 pub struct PlannerWorkspace {
     prefix: [usize; MAX_PLANNED_ROWS + 1],
+    row_price_prefix: [f64; MAX_PLANNED_ROWS + 1],
+    row_prices: Box<[[f64; 2]]>,
     /// Per-class byte prefix sums, so a span's mix is one subtraction. u32 is
     /// exact for every legal frame and keeps the workspace under its bound.
     class_prefix: [[u32; CONTENT_CLASSES]; MAX_PLANNED_ROWS + 1],
@@ -890,12 +924,18 @@ pub struct PlannerWorkspace {
     #[cfg(test)]
     disable_group_lower_bound: bool,
     span_costs: Vec<Option<SpanCostEntry>>,
+    /// Every nonempty contiguous span of MAX_PLANNED_ROWS has one triangular
+    /// slot. The suffix pass writes every feasible span before later passes
+    /// read it. Reuse is confined to this carrier/profile invocation.
+    span_prices: Box<[[Option<(BatchCandidate, f64)>; 2]]>,
 }
 
 impl Default for PlannerWorkspace {
     fn default() -> Self {
         Self {
             prefix: [0; MAX_PLANNED_ROWS + 1],
+            row_price_prefix: [0.0; MAX_PLANNED_ROWS + 1],
+            row_prices: vec![[0.0; 2]; MAX_PLANNED_ROWS].into_boxed_slice(),
             class_prefix: [[0; CONTENT_CLASSES]; MAX_PLANNED_ROWS + 1],
             states: Vec::with_capacity(MAX_PLANNED_ROWS * 8),
             frontier_starts: [0; MAX_PLANNED_ROWS + 1],
@@ -917,6 +957,7 @@ impl Default for PlannerWorkspace {
             #[cfg(test)]
             disable_group_lower_bound: false,
             span_costs: vec![None; MAX_PLANNED_ROWS + 1],
+            span_prices: vec![[None; 2]; MAX_PLANNED_ROWS * (MAX_PLANNED_ROWS + 1) / 2].into_boxed_slice(),
         }
     }
 }
@@ -1082,6 +1123,7 @@ pub(crate) fn group_close_cost_us(
     };
     let incomplete = datagram_group_failure_probability(group_len, recovery, carrier.loss_upper);
     carrier.serialization_us(repair_wire_bytes)
+        + if context.successor_waiting { carrier.successor_delay_us(repair_wire_bytes) } else { 0.0 }
         + geometric_tail_cvar_cycles(incomplete, TAIL_PERCENTILE)
             * (carrier.one_way_us * 2.0).max(1.0)
 }
@@ -1214,6 +1256,7 @@ fn candidate_base_cost_us(
         + candidate.sender_service_us
             * (1 + context.higher_priority_preparation_jobs) as f64
         + carrier.serialization_us(wire_bytes)
+        + if context.successor_waiting { carrier.successor_delay_us(wire_bytes) } else { 0.0 }
         + reliable_loss_tail_us
         // Stable ties prefer fewer records, then fewer physical bytes.
         + 1e-6
@@ -1459,18 +1502,17 @@ fn visit_distinct_predecessors(
 
 /// The raw and predicted-compressed candidates for one span.
 ///
-/// A span's compressed size is predicted per class: each class's bytes at its
-/// own learned ratio for this size bucket, summed, with the frame header
-/// priced at the dominant class's ratio. A span mixing an incompressible color
-/// row with compressible text therefore predicts the sum of both parts, which
-/// is what MZ produces, rather than one class's ratio over both. Service
-/// posteriors are per class, so the dominant class prices sender and receiver
-/// work and receives the achieved ratio afterwards.
-fn batch_candidates(
+/// The row prediction already sums each entry's position-conditioned entropy
+/// price. Fixed MZ and packing overhead is added separately. The dominant
+/// content class selects sender and receiver service, not the other rows'
+/// entropy estimates.
+fn row_batch_candidates(
     profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
     sender_upper_by_size: &[[f64; SIZE_CLASSES]; CONTENT_CLASSES],
     class_bytes: [usize; CONTENT_CLASSES],
     raw_bytes: usize,
+    predicted_rows_bytes: f64,
+    declaration_bytes: usize,
     singleton: bool,
     wire_cap: usize,
     datagram_max_payload_bytes: usize,
@@ -1478,14 +1520,10 @@ fn batch_candidates(
     let major = content_class_by_bytes(class_bytes).index();
     let peer = profiles[major];
     let sender_upper_by_size = &sender_upper_by_size[major];
-    let counted: usize = class_bytes.iter().sum();
-    let header_bytes = raw_bytes.saturating_sub(counted);
-    let predicted = class_bytes
-        .iter()
-        .zip(profiles)
-        .map(|(bytes, profile)| *bytes as f64 * profile.ratio(raw_bytes))
-        .sum::<f64>()
-        + header_bytes as f64 * peer.ratio(raw_bytes);
+    let row_bytes: usize = class_bytes.iter().sum();
+    let header_bytes = raw_bytes.saturating_sub(row_bytes);
+    let states = if row_bytes >= merkur_codec::mz::MZ_TWO_STATE_MIN_ROW_BYTES { 8 } else { 4 };
+    let predicted = predicted_rows_bytes + (header_bytes + 4 + 1 + declaration_bytes + states) as f64;
     let raw_lane =
         if raw_bytes <= wire_cap || (singleton && raw_bytes <= datagram_max_payload_bytes) {
             Some(DeliveryLane::Datagram)
@@ -1523,24 +1561,24 @@ fn batch_candidates(
     [raw, compressed]
 }
 
+#[cfg(test)]
+fn batch_candidates(
+    profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
+    sender: &[[f64; SIZE_CLASSES]; CONTENT_CLASSES],
+    classes: [usize; CONTENT_CLASSES], raw: usize, singleton: bool, cap: usize, max: usize,
+) -> [Option<BatchCandidate>; 2] {
+    let predicted = classes.iter().zip(profiles).map(|(bytes, profile)| *bytes as f64 * profile.ratio(raw)).sum();
+    row_batch_candidates(profiles, sender, classes, raw, predicted, 0, singleton, cap, max)
+}
+
 /// Conservative upper bound on a feasible multirow raw body across every
 /// independent ratio bucket. Ratios need not be monotone: take each bucket's
 /// own intersection with its size interval before taking the maximum. The
 /// extra byte protects floating-point division at an exact boundary; actual
 /// candidate construction still decides feasibility.
 fn multirow_raw_limit(peer: PeerPlanningSnapshot, wire_cap: usize) -> usize {
-    let lower = [0, 513, 1_025, 2_049, 4_097, 8_193];
-    let upper = [512, 1_024, 2_048, 4_096, 8_192, usize::MAX];
-    let mut limit = wire_cap;
-    for class in 0..SIZE_CLASSES {
-        let ratio = peer.ratio_by_size[class];
-        let compressed_limit = ((wire_cap as f64 / ratio).ceil() as usize).saturating_add(1);
-        let candidate_limit = compressed_limit.min(upper[class]);
-        if candidate_limit >= lower[class] {
-            limit = limit.max(candidate_limit);
-        }
-    }
-    limit
+    let ratio = peer.ratio_by_size.into_iter().chain(peer.first_ratio_by_size).fold(f64::INFINITY, f64::min);
+    wire_cap.max((wire_cap as f64 / ratio).ceil() as usize + 1)
 }
 
 fn plan_for_carrier(
@@ -1559,11 +1597,14 @@ fn plan_for_carrier(
     let count = rows.len().min(MAX_PLANNED_ROWS);
     // A span's class is decided by its summed census, so the feasibility bound
     // must admit whichever class's ratios reach furthest.
-    let multirow_limit = profiles
-        .iter()
-        .map(|profile| multirow_raw_limit(*profile, wire_cap))
-        .max()
-        .unwrap_or(wire_cap);
+    let mut minimum_ratio = f64::INFINITY;
+    for (index, row) in rows[..count].iter().enumerate() {
+        let profile = profiles[row.class.index()];
+        let prices = [false, true].map(|first| profile.row_price(row.bytes, first) * row.price_scale[usize::from(first)]);
+        workspace.row_prices[index] = prices;
+        for price in prices { minimum_ratio = minimum_ratio.min(price / row.bytes.max(1) as f64); }
+    }
+    let multirow_limit = wire_cap.max(((wire_cap as f64 / minimum_ratio).ceil() as usize).saturating_add(1));
     let sender_upper_by_size: [[f64; SIZE_CLASSES]; CONTENT_CLASSES] =
         std::array::from_fn(|content| {
             std::array::from_fn(|class| {
@@ -1578,9 +1619,12 @@ fn plan_for_carrier(
     // The loop writes every prefix 1..=count a solve reads; entries past
     // `count` are an earlier, longer solve's and are never read.
     workspace.prefix[0] = 0;
+    workspace.row_price_prefix[0] = 0.0;
     workspace.class_prefix[0] = [0; CONTENT_CLASSES];
     for (index, row) in rows[..count].iter().enumerate() {
         workspace.prefix[index + 1] = workspace.prefix[index].saturating_add(row.bytes);
+        workspace.row_price_prefix[index + 1] = workspace.row_price_prefix[index]
+            + workspace.row_prices[index][0];
         let mut classes = workspace.class_prefix[index];
         classes[row.class.index()] =
             classes[row.class.index()].saturating_add(row.bytes.min(u32::MAX as usize) as u32);
@@ -1592,22 +1636,30 @@ fn plan_for_carrier(
     // reset at every replan so new compression observations take effect.
     // A span is at most `count` rows, so no longer slot can be read.
     workspace.span_costs[..=count].fill(None);
-    let mut price_span = |start: usize, end: usize| {
+    let mut price_span = |start: usize, end: usize, cached: bool| {
+        let index = end * (end - 1) / 2 + start;
+        if cached { return workspace.span_prices[index]; }
         let raw_bytes = header_bytes
             .saturating_add(workspace.prefix[end].saturating_sub(workspace.prefix[start]));
         let class_bytes = span_class_bytes(&workspace.class_prefix, start, end);
+        let predicted_rows_bytes = workspace.row_price_prefix[end] - workspace.row_price_prefix[start]
+            + workspace.row_prices[start][1] - workspace.row_prices[start][0];
         let slot = &mut workspace.span_costs[end - start];
         if let Some(entry) = slot
             && entry.raw_bytes == raw_bytes
             && entry.class_bytes == class_bytes
+            && entry.predicted_rows_bytes == predicted_rows_bytes
         {
+            workspace.span_prices[index] = entry.choices;
             return entry.choices;
         }
-        let choices = batch_candidates(
+        let choices = row_batch_candidates(
             profiles,
             &sender_upper_by_size,
             class_bytes,
             raw_bytes,
+            predicted_rows_bytes,
+            context.mz_declaration_bytes,
             end == start + 1,
             wire_cap,
             context.datagram_max_payload_bytes,
@@ -1615,7 +1667,9 @@ fn plan_for_carrier(
         .map(|choice| {
             choice.map(|choice| (choice, candidate_base_cost_us(choice, carrier, context)))
         });
+        workspace.span_prices[index] = choices;
         *slot = Some(SpanCostEntry {
+            predicted_rows_bytes,
             class_bytes,
             raw_bytes,
             choices,
@@ -1637,7 +1691,7 @@ fn plan_for_carrier(
             if end > start + 1 && raw_bytes > multirow_limit {
                 break;
             }
-            for (choice, base_cost_us) in price_span(start, end).into_iter().flatten() {
+            for (choice, base_cost_us) in price_span(start, end, false).into_iter().flatten() {
                 let cost = base_cost_us + workspace.suffix_lower_bound_us[end];
                 if cost < best {
                     best = cost;
@@ -1667,7 +1721,7 @@ fn plan_for_carrier(
     let mut start = 0;
     while reliable_only && start < count {
         let end = usize::from(workspace.suffix_ends[start]);
-        reliable_only = price_span(start, end)
+        reliable_only = price_span(start, end, true)
             .into_iter()
             .flatten()
             .find(|(choice, _)| choice.representation == workspace.suffix_representations[start])
@@ -1760,7 +1814,7 @@ fn plan_for_carrier(
     let mut start = 0;
     while start < count {
         let end = usize::from(workspace.suffix_ends[start]);
-        let (choice, base_cost_us) = price_span(start, end)
+        let (choice, base_cost_us) = price_span(start, end, true)
             .into_iter()
             .flatten()
             .find(|(choice, _)| choice.representation == workspace.suffix_representations[start])
@@ -1812,7 +1866,7 @@ fn plan_for_carrier(
             if end > start + 1 && raw_bytes > multirow_limit {
                 break;
             }
-            for (choice, base_cost_us) in price_span(start, end).into_iter().flatten() {
+            for (choice, base_cost_us) in price_span(start, end, true).into_iter().flatten() {
                 visit_distinct_predecessors(
                     &workspace.states,
                     &workspace.frontier_groups[start],
@@ -1979,9 +2033,11 @@ pub fn plan_batch_partitions(
         return;
     }
     if let Some(alternate) = context.alternate() {
-        if context.carrier.dominates(alternate.carrier) {
+        if context.carrier.dominates(alternate.carrier)
+            && (!context.successor_waiting || context.carrier.successor_delay_us(1) <= alternate.carrier.successor_delay_us(1)) {
             context.alternate_carrier = None;
-        } else if alternate.carrier.dominates(context.carrier) {
+        } else if alternate.carrier.dominates(context.carrier)
+            && (!context.successor_waiting || alternate.carrier.successor_delay_us(1) <= context.carrier.successor_delay_us(1)) {
             context = alternate;
         }
     }
@@ -2022,7 +2078,79 @@ pub fn plan_batch_partitions(
     }
 }
 
+/// Sufficient statistics of row entropy, independent of packet-byte rounding.
+#[derive(Clone, Copy, Default)]
+struct RowTotals {
+    bits: u64,
+    raw_bytes: u64,
+    ratio: f64,
+}
+
+impl RowTotals {
+    fn observe(&mut self, row: merkur_codec::mz::MzRowCost) {
+        self.bits += row.bits;
+        self.raw_bytes += row.raw_bytes as u64;
+        self.ratio = self.bits as f64 / (2048.0 * self.raw_bytes as f64);
+    }
+}
+
+/// Known encoding regimes: history present/absent and usable epoch present/absent.
+/// Each regime keeps content, row-size and first/continuation observations apart.
+pub(crate) struct RowCostModel {
+    regimes: [[RowTotals; SIZE_CLASSES * CONTENT_CLASSES * 2]; 4],
+    exact: std::collections::HashMap<(ContentEvidence, usize), [RowTotals; 8]>,
+}
+
+impl Default for RowCostModel {
+    fn default() -> Self {
+        Self { regimes: [[RowTotals::default(); SIZE_CLASSES * CONTENT_CLASSES * 2]; 4], exact: std::collections::HashMap::new() }
+    }
+}
+
+impl RowCostModel {
+    #[cfg(test)]
+    pub(crate) fn observed(&self, regime: usize, first: bool, class: ContentClass, bytes: usize) -> bool {
+        self.regimes[regime][(usize::from(first) * SIZE_CLASSES + size_class(bytes)) * CONTENT_CLASSES + class.index()].raw_bytes != 0
+    }
+
+    pub(crate) fn observe(&mut self, regime: usize, first: bool, content: ContentEvidence, row: merkur_codec::mz::MzRowCost) {
+        let class = content.class();
+        let index = (usize::from(first) * SIZE_CLASSES + size_class(row.raw_bytes)) * CONTENT_CLASSES + class.index();
+        let totals = &mut self.regimes[regime][index];
+        totals.observe(row);
+        let exact = &mut self.exact.entry((content, row.raw_bytes)).or_default()[regime * 2 + usize::from(first)];
+        exact.observe(row);
+    }
+
+    pub(crate) fn price_scale(&self, regime: usize, content: ContentEvidence, bytes: usize, profile: PeerPlanningSnapshot) -> [f64; 2] {
+        let Some(entries) = self.exact.get(&(content, bytes)) else { return [1.0; 2] };
+        [false, true].map(|first| {
+            let totals = &entries[regime * 2 + usize::from(first)];
+            if totals.raw_bytes == 0 { 1.0 } else {
+                totals.ratio / (profile.row_price(bytes, first) / bytes as f64)
+            }
+        })
+    }
+
+    pub(crate) fn apply(&self, regime: usize, profiles: &mut [PeerPlanningSnapshot; CONTENT_CLASSES]) {
+        for (content, profile) in profiles.iter_mut().enumerate() {
+            for size in 0..SIZE_CLASSES {
+                for first in [false, true] {
+                    let totals = self.regimes[regime][(usize::from(first) * SIZE_CLASSES + size) * CONTENT_CLASSES + content];
+                    let totals = if totals.raw_bytes == 0 {
+                        self.regimes[regime][(usize::from(!first) * SIZE_CLASSES + size) * CONTENT_CLASSES + content]
+                    } else { totals };
+                    let ratio = if totals.raw_bytes == 0 { COLD_RATIO_UPPER } else { totals.ratio };
+                    if first { profile.first_ratio_by_size[size] = ratio; }
+                    else { profile.ratio_by_size[size] = ratio; }
+                }
+            }
+        }
+    }
+}
+
 pub struct PeerDisplayPlanningModel {
+    #[cfg(test)]
     ratio: [BoundedPosterior; SIZE_CLASSES * CONTENT_CLASSES],
     receiver: [ReceiverCostPosterior; SIZE_CLASSES * RATIO_CLASSES],
     receiver_service_debt_us: f64,
@@ -2067,12 +2195,19 @@ impl ReceiverCostPosterior {
 
 #[derive(Clone, Copy)]
 pub struct PeerPlanningSnapshot {
+    first_ratio_by_size: [f64; SIZE_CLASSES],
     ratio_by_size: [f64; SIZE_CLASSES],
     receiver_upper_by_surface: [f64; SIZE_CLASSES * RATIO_CLASSES],
     receiver_service_debt_us: f64,
 }
 
 impl PeerPlanningSnapshot {
+
+    #[inline]
+    pub(crate) fn row_price(&self, bytes: usize, first: bool) -> f64 {
+        bytes as f64 * if first { self.first_ratio_by_size[size_class(bytes)] } else { self.ratio(bytes) }
+    }
+
     #[inline]
     pub(crate) fn ratio(&self, bytes: usize) -> f64 {
         self.ratio_by_size[size_class(bytes)]
@@ -2083,6 +2218,7 @@ impl PeerPlanningSnapshot {
         self.receiver_upper_by_surface[size_class(bytes) * RATIO_CLASSES + ratio_class(ratio)]
     }
 
+    #[cfg(test)]
     pub(crate) fn observe_actual_ratio(&mut self, bytes: usize, ratio: f64) {
         // A neighboring row can change from blank text to high-entropy color;
         // compression ratio is not monotone across larger prefixes. Keep the
@@ -2114,6 +2250,7 @@ impl PeerPlanningSnapshot {
 impl Default for PeerDisplayPlanningModel {
     fn default() -> Self {
         Self {
+            #[cfg(test)]
             ratio: [BoundedPosterior::default();
                 SIZE_CLASSES * CONTENT_CLASSES],
             receiver: [ReceiverCostPosterior::default();
@@ -2128,6 +2265,7 @@ impl Default for PeerDisplayPlanningModel {
 }
 
 impl PeerDisplayPlanningModel {
+    #[cfg(test)]
     fn ratio_index(bytes: usize, content: ContentClass) -> usize {
         size_class(bytes) * CONTENT_CLASSES + content.index()
     }
@@ -2136,6 +2274,7 @@ impl PeerDisplayPlanningModel {
         size_class(bytes) * RATIO_CLASSES + ratio_class(ratio)
     }
 
+    #[cfg(test)]
     pub fn observe_ratio(
         &mut self,
         raw_bytes: usize,
@@ -2250,6 +2389,8 @@ impl PeerDisplayPlanningModel {
         // alone, a learned smaller bucket outbids its colder neighbour, the
         // planner stops building frames that size, and the neighbour never
         // collects the samples that would warm it.
+        #[cfg(test)]
+        let ratio_by_size = {
         let windows =
             representative.map(|bytes| &self.ratio[Self::ratio_index(bytes, content)]);
         let own = BoundedPosterior::predictive_uppers(windows, [0.0; SIZE_CLASSES]);
@@ -2264,6 +2405,10 @@ impl PeerDisplayPlanningModel {
             *ratio = bound.clamp(0.01, 1.0);
             prior = COLD_RATIO_UPPER.min(*ratio);
         }
+            ratio_by_size
+        };
+        #[cfg(not(test))]
+        let ratio_by_size = [COLD_RATIO_UPPER; SIZE_CLASSES];
         let mut receiver_upper_by_surface = [250.0; SIZE_CLASSES * RATIO_CLASSES];
         for (class, bytes) in representative.into_iter().enumerate() {
             for (ratio_index, ratio) in [0.1, 0.2, 0.375, 0.75].into_iter().enumerate() {
@@ -2272,6 +2417,7 @@ impl PeerDisplayPlanningModel {
             }
         }
         PeerPlanningSnapshot {
+            first_ratio_by_size: ratio_by_size,
             ratio_by_size,
             receiver_upper_by_surface,
             receiver_service_debt_us: self.receiver_service_debt_us,
@@ -2297,8 +2443,8 @@ pub fn should_attempt_compression(
     raw_bytes: usize,
     content: ContentClass,
     mut context: PlanningContext,
+    predicted_bytes: usize,
 ) -> bool {
-    let predicted_bytes = (raw_bytes as f64 * peer.ratio(raw_bytes)).ceil() as usize;
     if predicted_bytes >= raw_bytes {
         return false;
     }
@@ -2311,13 +2457,13 @@ pub fn should_attempt_compression(
         let compressed = single_record_plan(predicted_bytes, receiver_us, context);
         let critical_path = (sender_service - context.earliest_uncompressed_send_us).max(0.0)
             + sender_service * context.higher_priority_preparation_jobs as f64;
-        compressed.tail_latency_us + critical_path
+        compressed.score_us() + critical_path
     };
     let primary_finish = compressed_finish(context);
     let best_finish = context.alternate().map_or(primary_finish, |alternate| {
         primary_finish.min(compressed_finish(alternate))
     });
-    best_finish < raw.tail_latency_us
+    best_finish < raw.score_us()
 }
 
 pub fn choose_after_compression(
@@ -2336,7 +2482,7 @@ pub fn choose_after_compression(
         peer.receiver_upper_us(raw_bytes, compressed_bytes as f64 / raw_bytes.max(1) as f64),
         context,
     );
-    if compressed.tail_latency_us < raw.tail_latency_us {
+    if compressed.score_us() < raw.score_us() {
         Representation::Compressed
     } else {
         Representation::Raw
@@ -2813,11 +2959,18 @@ mod tests {
                     let raw_bytes =
                         self.header_bytes + self.prefix[end].saturating_sub(self.prefix[start]);
                     let class_bytes = span_class_bytes(&self.class_prefix, start, end);
-                    for choice in batch_candidates(
+                    let predicted = self.rows[start..end].iter().enumerate().map(|(position, row)| {
+                        let profile = self.profiles[row.class.index()];
+                        let ratio = if position == 0 { profile.first_ratio_by_size[size_class(row.bytes)] } else { profile.ratio(row.bytes) };
+                        row.bytes as f64 * ratio * row.price_scale[usize::from(position == 0)]
+                    }).sum();
+                    for choice in row_batch_candidates(
                         &self.profiles,
                         &self.sender_upper_by_size,
                         class_bytes,
                         raw_bytes,
+                        predicted,
+                        self.context.mz_declaration_bytes,
                         end == start + 1,
                         self.wire_cap,
                         self.context.datagram_max_payload_bytes,
@@ -2937,7 +3090,9 @@ mod tests {
             initial_fec_group_max_bytes: 0,
             receiver_service_debt_us: 0.0,
             earliest_uncompressed_send_us: 0.0,
+            mz_declaration_bytes: 0,
             higher_priority_preparation_jobs: 0,
+            successor_waiting: false,
         }
     }
 
@@ -2945,6 +3100,7 @@ mod tests {
     fn a_reliable_only_relaxed_optimum_skips_fec_work_but_not_an_inherited_group() {
         let global = GlobalDisplayPlanningModel::default();
         let peer = PeerPlanningSnapshot {
+            first_ratio_by_size: [COLD_RATIO_UPPER; SIZE_CLASSES],
             ratio_by_size: [0.75; SIZE_CLASSES],
             receiver_upper_by_surface: [0.0; SIZE_CLASSES * RATIO_CLASSES],
             receiver_service_debt_us: 0.0,
@@ -2987,6 +3143,33 @@ mod tests {
                 initial_fec_group_len == 0
             );
         }
+    }
+
+    #[test]
+    fn a_confirmed_successor_pays_its_exact_bottleneck_delay() {
+        let peer = PeerPlanningSnapshot {
+            first_ratio_by_size: [0.5; SIZE_CLASSES],
+            ratio_by_size: [0.5; SIZE_CLASSES],
+            receiver_upper_by_surface: [150.0; SIZE_CLASSES * RATIO_CLASSES],
+            receiver_service_debt_us: 0.0,
+        };
+        let mut context = context();
+        context.fec_enabled = false;
+        context.carrier.pacing_rate_bps = 8_000_000;
+        context.carrier.loss_upper = 0.0;
+        assert_eq!(choose_after_compression(peer, 1_000, 900, context), Representation::Raw);
+        let idle = single_record_plan(1_000, 0.0, context);
+        assert_eq!(idle.successor_delay_us, 0.0);
+        context.successor_waiting = true;
+        let raw = single_record_plan(1_000, 0.0, context);
+        let coded = single_record_plan(900, 150.0, context);
+        assert_eq!(raw.successor_delay_us, display_datagram_wire_len(1_000) as f64);
+        assert_eq!(coded.tail_latency_us - raw.tail_latency_us, 50.0);
+        assert_eq!(raw.score_us() - coded.score_us(), 50.0);
+        assert_eq!(choose_after_compression(peer, 1_000, 900, context), Representation::Compressed);
+        context.carrier.pacing_rate_bps = 0;
+        let window_rate = context.carrier.congestion_window_bytes.max(context.carrier.mtu_bytes as u64) as f64 / (context.carrier.one_way_us * 2.0).max(1.0);
+        assert_eq!(context.carrier.successor_delay_us(1_000), 1_000.0 / window_rate);
     }
 
     #[test]
@@ -3039,6 +3222,7 @@ mod tests {
             4_000,
             ContentClass::Text,
             hidden,
+            800,
         ));
     }
 
@@ -3068,8 +3252,10 @@ mod tests {
             4_000,
             ContentClass::Text,
             unopposed,
+            800,
         ));
         let opposed = PlanningContext {
+            mz_declaration_bytes: 0,
             higher_priority_preparation_jobs: 100,
             ..unopposed
         };
@@ -3080,6 +3266,7 @@ mod tests {
             4_000,
             ContentClass::Text,
             opposed,
+            800,
         ));
     }
 
@@ -3356,6 +3543,7 @@ mod tests {
     fn raw_on_the_other_carrier_beats_compression_on_the_small_packet_winner() {
         let context = crossing_carrier_context();
         let peer = PeerPlanningSnapshot {
+            first_ratio_by_size: [COLD_RATIO_UPPER; SIZE_CLASSES],
             ratio_by_size: [0.2; SIZE_CLASSES],
             receiver_upper_by_surface: [2_000.0; SIZE_CLASSES * RATIO_CLASSES],
             receiver_service_debt_us: 0.0,
@@ -3385,6 +3573,7 @@ mod tests {
             5_000,
             ContentClass::Text,
             context,
+            1_000,
         ));
         let raw_edge = single_record_plan(5_000, 0.0, context.alternate().unwrap());
         let compressed_direct = single_record_plan(1_000, 2_000.0, context);
@@ -3403,6 +3592,7 @@ mod tests {
             (2_000.0, &[PlannedRow::of(600, ContentClass::Text); 8][..]),
         ] {
             let peer = PeerPlanningSnapshot {
+                first_ratio_by_size: [0.2; SIZE_CLASSES],
                 ratio_by_size: [0.2; SIZE_CLASSES],
                 receiver_upper_by_surface: [receiver_us; SIZE_CLASSES * RATIO_CLASSES],
                 receiver_service_debt_us: 0.0,
@@ -3874,6 +4064,58 @@ mod tests {
     }
 
     #[test]
+    fn cached_row_ratios_match_separate_position_and_regime_totals_bitwise() {
+        let mut model = RowCostModel::default();
+        let mut exact = std::collections::HashMap::new();
+        let mut population = std::collections::HashMap::new();
+        let sizes = [512, 768, 1_536, 3_072, 6_144, 12_288];
+        let seed = PeerDisplayPlanningModel::default().snapshot(ContentClass::Text);
+        for step in 0..512usize {
+            let regime = (step / 3) % 4;
+            let first = step % 2 == 0;
+            let content = ContentEvidence {
+                cells: 40,
+                visible: [0, 20, 40][step % 3],
+                styled: if step % 5 == 0 { 20 } else { 0 },
+            };
+            let bytes = sizes[(step / 2) % sizes.len()];
+            let row = merkur_codec::mz::MzRowCost {
+                row: 0,
+                raw_bytes: bytes,
+                bits: (step as u64 + 1) * 257,
+            };
+            model.observe(regime, first, content, row);
+            let totals = exact.entry((regime, first, content, bytes)).or_insert((0u64, 0u64));
+            totals.0 += row.bits;
+            totals.1 += bytes as u64;
+            let totals = population.entry((regime, first, content.class().index(), size_class(bytes))).or_insert((0u64, 0u64));
+            totals.0 += row.bits;
+            totals.1 += bytes as u64;
+            let mut profiles = [seed; CONTENT_CLASSES];
+            model.apply(regime, &mut profiles);
+            for (class, profile) in profiles.iter().enumerate() {
+                for size in 0..SIZE_CLASSES {
+                    for position in [false, true] {
+                        let totals = population.get(&(regime, position, class, size))
+                            .or_else(|| population.get(&(regime, !position, class, size)));
+                        let expected = totals.map_or(COLD_RATIO_UPPER, |&(bits, raw)| bits as f64 / (2048.0 * raw as f64));
+                        let actual = if position { profile.first_ratio_by_size[size] } else { profile.ratio_by_size[size] };
+                        assert_eq!(actual.to_bits(), expected.to_bits());
+                    }
+                }
+            }
+            let profile = profiles[content.class().index()];
+            let scales = model.price_scale(regime, content, bytes, profile);
+            for position in [false, true] {
+                let expected = exact.get(&(regime, position, content, bytes)).map_or(1.0, |&(bits, raw)| {
+                    (bits as f64 / (2048.0 * raw as f64)) / (profile.row_price(bytes, position) / bytes as f64)
+                });
+                assert_eq!(scales[usize::from(position)].to_bits(), expected.to_bits());
+            }
+        }
+    }
+
+    #[test]
     fn maximum_row_plan_is_bounded_and_monotonic() {
         let rows = [PlannedRow::of(7, ContentClass::Text); MAX_PLANNED_ROWS];
         let global = GlobalDisplayPlanningModel::default();
@@ -3898,6 +4140,8 @@ mod tests {
         let warmed_state_capacity = workspace.states.capacity();
         let warmed_candidate_capacity = workspace.candidates.capacity();
         let candidate_best_ptr = workspace.candidate_best.as_ptr();
+        let row_prices_ptr = workspace.row_prices.as_ptr();
+        let span_prices_ptr = workspace.span_prices.as_ptr();
         let first_score = plan.score_us();
         plan_batch_partitions(
             &global,
@@ -3924,6 +4168,10 @@ mod tests {
         assert_eq!(workspace.states.capacity(), warmed_state_capacity);
         assert_eq!(workspace.candidates.capacity(), warmed_candidate_capacity);
         assert_eq!(workspace.candidate_best.as_ptr(), candidate_best_ptr);
+        assert_eq!(workspace.row_prices.as_ptr(), row_prices_ptr);
+        assert_eq!(workspace.row_prices.len(), MAX_PLANNED_ROWS);
+        assert_eq!(workspace.span_prices.as_ptr(), span_prices_ptr);
+        assert_eq!(workspace.span_prices.len(), MAX_PLANNED_ROWS * (MAX_PLANNED_ROWS + 1) / 2);
         assert_eq!(workspace.candidate_best.len(), GROUP_LENGTHS * SHARD_SIZES);
         assert!(workspace.candidate_dirty.iter().all(|word| *word == 0));
         assert!(

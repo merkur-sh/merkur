@@ -586,6 +586,7 @@ mod ack_route_invariance {
                 5_000,
                 ContentClass::Text,
                 context,
+                1_000,
             ),
             fitted_representation: choose_after_compression(snapshot, 5_000, 1_000, context),
             partitions: (0..8).filter_map(|index| partitions.get(index)).collect(),
@@ -4246,6 +4247,8 @@ fn pack_heterogeneous_order(compressible_prefix: bool) -> (usize, usize, Vec<(u1
     // Test packet choices against an exact CPU cost, independently of runner contention.
     scratch.planner.sender_service_us_for_test = Some(20.0);
     let mut frames = BufferPool::new(DISPLAY_FRAME_POOL_DEPTH);
+    let mut mz = crate::display::mz_peer::MzPeerState::default();
+    let mut context = MzContext { state: &mut mz, presentation_id: 1, snapshot: false };
     pack_captured_rows(
         &rows,
         terminal.current_display_header(merkur_codec::FrameKind::Delta),
@@ -4255,7 +4258,7 @@ fn pack_heterogeneous_order(compressible_prefix: bool) -> (usize, usize, Vec<(u1
         &mut compressor,
         &mut scratch,
         &mut frames,
-        None,
+        Some(&mut context),
     );
     let attempts = compressor.display_frame_compression_attempts();
     let raw_bytes = scratch
@@ -4278,10 +4281,10 @@ fn heterogeneous_ratio_feedback_is_bounded_in_both_row_orders() {
     eprintln!(
         "heterogeneous planner: compressible-prefix attempts={prefix_attempts} raw={prefix_raw_bytes} partition={prefix_partition:?}; random-prefix attempts={tail_attempts} raw={tail_raw_bytes} partition={tail_partition:?}"
     );
-    // One attempt per batch and none from fitter splits. A failed attempt
-    // informs only its own size bucket, and each single random row (1,010
-    // planned bytes) sits one bucket below the failed pair, so each is tried.
-    assert_eq!((prefix_attempts, tail_attempts), (5, 5));
+    // Rejected candidates teach their individual row keys before suffix
+    // replanning. This takes four attempts, versus five with packet feedback,
+    // while retaining the same five packets and encoded lengths.
+    assert_eq!((prefix_attempts, tail_attempts), (4, 4));
     let (event_tx, _event_rx) = crossbeam_channel::unbounded();
     let header =
         TerminalState::new(120, 8, event_tx).current_display_header(merkur_codec::FrameKind::Delta);
@@ -5752,6 +5755,8 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
         terminal.apply_bytes(&line);
     }
     let (snapshot, _) = terminal.encode_snapshot_into(Vec::new());
+    let mut snapshot_grid = Vec::new();
+    terminal.current_grid_into(&mut snapshot_grid);
 
     let mut planner = GlobalDisplayPlanningModel::default();
     let profile =
@@ -5775,7 +5780,7 @@ fn a_full_size_snapshot_is_compressed_once_shared_and_round_trips() {
             header_signal: terminal.current_display_header_signal(),
             content_class: ContentClass::Text,
             snapshot,
-            snapshot_grid: Vec::new(),
+            snapshot_grid,
             snapshot_graphics: Vec::new(),
             row_hashes: Vec::new(),
             peers: vec![
@@ -6229,13 +6234,6 @@ fn production_scroll_literal_benchmark() {
                     );
                     if learned_peer {
                         for datagram in &completion.buffers.datagrams {
-                            observe_display_compression_outcome(
-                                &mut peer,
-                                datagram.frame.wire_len(),
-                                datagram.raw_bytes,
-                                datagram.compression_attempted,
-                                datagram.content_class,
-                            );
                         }
                     }
                     if round >= 20 {
@@ -6434,13 +6432,6 @@ fn display_partition_domain_diagnostic() {
                 );
                 if learned {
                     for datagram in &completion.buffers.datagrams {
-                        observe_display_compression_outcome(
-                            &mut peer,
-                            datagram.frame.wire_len(),
-                            datagram.raw_bytes,
-                            datagram.compression_attempted,
-                            datagram.content_class,
-                        );
                     }
                 }
                 if round + 1 == rounds {
@@ -10991,11 +10982,16 @@ fn first_partition_candidate_fits_actual_sizes_without_crossing_planned_spans() 
             // Deliberately stale but legitimate historical evidence: the
             // actual fitter must split a newly incompressible selected
             // span, never turn it into a multi-datagram correctness unit.
-            for profile in &mut request.compression.planning_profiles {
-                for _ in 0..100 {
-                    for exponent in 6..21 {
-                        profile.observe_actual_ratio(1usize << exponent, 0.01);
-                    }
+            let mut state = request.mz.lock();
+            let regime = state.row_regime();
+            for row in &request.buffers.rows {
+                for first in [false, true] {
+                    state.row_cost_model.observe(regime, first, row.content, merkur_codec::mz::MzRowCost {
+                        row: row.sent.row,
+                        raw_bytes: row.encoded_size,
+                        bits: row.encoded_size as u64 * 2048 / 100,
+                    });
+                    assert!(state.row_cost_model.observed(regime, first, row.content.class(), row.encoded_size));
                 }
             }
         }
@@ -11999,13 +11995,6 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                         // completion path. Keep the other population cold to
                         // measure a new-content worst case even with warm storage.
                         for datagram in &bulk.buffers.datagrams {
-                            observe_display_compression_outcome(
-                                &mut peer,
-                                datagram.frame.wire_len(),
-                                datagram.raw_bytes,
-                                datagram.compression_attempted,
-                                datagram.content_class,
-                            );
                         }
                     }
                     worker.recycle(bulk.buffers);

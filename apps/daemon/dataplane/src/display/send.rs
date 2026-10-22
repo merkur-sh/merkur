@@ -115,11 +115,11 @@ pub(crate) struct PreparedDisplayDatagram {
     /// frame is encoded and returned there once the burst has sealed it.
     frame: StagedFrame,
     rows: SentRows,
-    /// Whether the compression path actually ran for this datagram. Only
-    /// attempted frames update the achieved-ratio posterior.
+    /// Whether compression ran while fitting this datagram; used by
+    /// compression diagnostics.
     compression_attempted: bool,
-    /// Class of the rows the frame carries, from their summed census; the
-    /// class whose ratio posterior this frame's achieved compression feeds.
+    /// Class of the rows the frame carries, from their summed census, for
+    /// sender and receiver service estimation.
     content_class: ContentClass,
     /// Parity for the group this datagram closes, computed on the CPU worker
     /// into a pooled buffer that returns to the pool once the shard is sealed.
@@ -154,12 +154,10 @@ struct DisplayCompressionPolicy {
     backpressure_score: u32,
     recently_interactive: bool,
     fit_relay_critical_datagram: bool,
-    /// Content-conditioned snapshots captured while the owner holds the peer.
-    /// The planner prices every candidate span with the profile of the class
-    /// its summed census selects, and each emitted batch feeds its evidence
-    /// back into that same class, so a compressible text tail cannot inherit a
-    /// high-entropy color prefix's ratio merely because both encoded sizes
-    /// occupy the same bucket. Class never cuts a batch; only cost does.
+    /// Service snapshots captured while the owner holds the peer. Preparation
+    /// overlays the peer's row entropy estimates. Every span sums its rows'
+    /// prices; its dominant class selects sender and receiver service. Class
+    /// never cuts a batch; only cost does.
     planning_profiles: [PeerPlanningSnapshot; 3],
     planning_context: PlanningContext,
     execution_lane: ExecutionLane,
@@ -1346,43 +1344,21 @@ fn keep_mz_trace(state: &mut crate::display::mz_peer::MzPeerState, seq: u32, pay
     state.return_trace_buffer(trace);
 }
 
-/// Fold one attempted datagram's achieved `compressed / raw` into the peer's
-/// bounded empirical posterior.
-///
-/// Only frames that actually reached the compression path may be sampled;
-/// `Interactive` frames bypass it by design and would report 1.0 for a decision
-/// compression never made.
-#[inline]
-fn observe_display_compression_outcome(
-    peer: &mut PeerDisplayState,
-    wire_bytes: usize,
-    raw_bytes: usize,
-    attempted: bool,
-    content_class: ContentClass,
-) {
-    if !attempted || raw_bytes == 0 {
-        return;
-    }
-    let sample = (wire_bytes as f64 / raw_bytes as f64).clamp(0.01, 1.0);
-    peer.display_planning
-        .observe_ratio(raw_bytes, content_class, sample);
-}
-
 /// A batch as it will ride the wire, together with the size it was encoded from.
 ///
 /// The batcher compresses a batch at the moment it decides that batch's size,
 /// because those are the same question: a batch is correctly sized exactly when
 /// its compressed form fits a datagram. Carrying `raw_bytes` alongside keeps
-/// every downstream consumer — workload classification, the ratio estimate,
+/// every downstream consumer — workload classification, service estimation,
 /// telemetry — reading the uncompressed size. Both are planned wire lengths
-/// under the flush's `header_reserve`, so a ratio compares like with like.
+/// under the flush's `header_reserve`.
 struct BatchPayload {
     frame: Vec<u8>,
     raw_bytes: usize,
     header_reserve: usize,
     compression: BatchCompression,
-    /// Class of the rows the frame carries, from their summed census; the
-    /// class whose ratio posterior this frame's achieved compression feeds.
+    /// Class of the rows the frame carries, from their summed census, for
+    /// sender and receiver service estimation.
     content_class: ContentClass,
     /// See [`PreparedDisplayDatagram::history_copies`].
     history_copies: bool,
@@ -1538,11 +1514,10 @@ fn compress_batch_candidate(
 /// Encode one candidate batch, compress it, and split until every piece fits a
 /// datagram.
 ///
-/// Returns the `compressed / raw` ratio the batch achieved, so the caller can
-/// size the *next* batch from it. That feedback is what lets a repaint converge
-/// within a single flush: the first batch is one row wide because no evidence
-/// exists yet, and each batch after it packs the larger unit the previous one
-/// proved was affordable.
+/// Returns `Some` when compression ran, so the caller refreshes its row prices
+/// before replanning the suffix. Each attempt contributes individual row costs,
+/// including an oversized candidate and a non-shrinking output. The returned
+/// ratio is not learned as a packet sample.
 ///
 /// The split ratio comes from what the batch actually achieved rather than a
 /// blind halving, so a mispredicted budget normally costs exactly one
@@ -1567,11 +1542,9 @@ fn emit_fitted_batches(
     if rows.is_empty() {
         return None;
     }
-    // Classified from exactly these rows. A fitter split re-classifies each
-    // half, so a piece's ratio and sender-service evidence land in its own
-    // class rather than its parent span's. `profiles` carries the ratios this
-    // flush has already learned, so the post-attempt decision sees the same
-    // evidence the planner used.
+    // The span's dominant class prices sender and receiver service. Entropy
+    // observations keep each row's own census, including when fitting rejects
+    // the span. The post-attempt decision uses the solve's receiver profile.
     let content_class = classify_captured_content(rows);
     let profile = profiles[content_class.index()];
     let mut frame = frames.take(0);
@@ -1609,6 +1582,12 @@ fn emit_fitted_batches(
         raw_bytes
     };
 
+        if outcome.achieved_ratio.is_some() && let Some(peer) = mz.as_deref_mut() {
+            let regime = peer.state.row_regime();
+            for (index, (cost, row)) in compressor.row_costs().iter().zip(rows).enumerate() {
+                peer.state.row_cost_model.observe(regime, index == 0, row.content, *cost);
+            }
+        }
     if wire_bytes <= wire_cap || rows.len() == 1 {
         let trace = match mz.as_deref_mut() {
             Some(peer) if outcome.used => {
@@ -1912,7 +1891,7 @@ fn pack_captured_rows(
         experiment,
     } = scratch;
     // The comparison arm deliberately freezes the first partition, not just
-    // the ratio prior. Actual fitting may split any selected span, but it does
+    // the row estimates. Actual fitting may split any selected span, but it does
     // not move subsequent row boundaries or infer new compression evidence.
     #[cfg(test)]
     let adaptive_refinement = *experiment != PackingExperiment::FirstPartition;
@@ -1947,6 +1926,10 @@ fn pack_captured_rows(
     }
     let cap = DisplayPolicy::FEC_PROTECTED_DATAGRAM_PAYLOAD_BYTES;
     let mut local_profiles = policy.planning_profiles;
+    let declaration_bytes = if let Some(peer) = mz.as_deref_mut() {
+        peer.state.row_profiles(&mut local_profiles);
+        if peer.snapshot { 0 } else { peer.state.declaration(peer.presentation_id).map_or(0, |_| merkur_codec::mz::MzEpochDeclaration::BYTES) }
+    } else { 0 };
     while batch_start < rows.len() {
         // A domain is one utility run. Content class is a property of each
         // planned span, never of a boundary between rows: the planner
@@ -1960,11 +1943,18 @@ fn pack_captured_rows(
         }
 
         let domain = &rows[batch_start..domain_end];
+        // Later utility runs are already captured, admitted members of this
+        // presentation. Their independent frames wait behind this solve's
+        // complete schedule, so they are an observed successor, not future PTY
+        // demand inferred from a grant.
+        let mut domain_policy = *policy;
+        domain_policy.planning_context.successor_waiting |= domain_end < rows.len();
         let mut planned_rows = [PlannedRow::EMPTY; merkur_codec::MAX_TERMINAL_ROWS];
         for (slot, row) in planned_rows.iter_mut().zip(domain) {
             *slot = PlannedRow {
                 bytes: captured_row_encoded_size(row),
                 class: row.content.class(),
+                price_scale: [1.0; 2],
             };
         }
         let mut planned_start = 0usize;
@@ -1972,7 +1962,8 @@ fn pack_captured_rows(
         let mut partition_cursor = 0usize;
         let mut partition_valid = false;
         while planned_start < domain.len() {
-            let mut planning_context = policy.planning_context;
+            let mut planning_context = domain_policy.planning_context;
+            planning_context.mz_declaration_bytes = declaration_bytes;
             let (open_group_len, open_group_max) =
                 pending_packed_fec_group(batches, utility, planning_context.fec_group_size);
             planning_context.initial_fec_group_len = open_group_len;
@@ -1982,6 +1973,11 @@ fn pack_captured_rows(
                 let partition_started = Instant::now();
                 partition_origin = planned_start;
                 partition_cursor = 0;
+                if let Some(peer) = mz.as_deref_mut() {
+                    for (row, captured) in planned_rows[planned_start..domain.len()].iter_mut().zip(&domain[planned_start..]) {
+                        row.price_scale = peer.state.row_cost_model.price_scale(peer.state.row_regime(), captured.content, row.bytes, local_profiles[row.class.index()]);
+                    }
+                }
                 plan_batch_partitions(
                     planner,
                     &local_profiles,
@@ -2010,13 +2006,12 @@ fn pack_captured_rows(
                 .get(partition_cursor)
                 .expect("every nonempty row domain has a feasible partition");
             let planned_end = partition_origin + planned_offset;
-            let content_class = classify_captured_content(&domain[planned_start..planned_end]);
             let emitted_before = batches.len();
             let actual_ratio = emit_fitted_batches(
                 header,
                 &domain[planned_start..planned_end],
                 utility,
-                policy,
+                &domain_policy,
                 &local_profiles,
                 presentation_workload,
                 compressor,
@@ -2033,9 +2028,8 @@ fn pack_captured_rows(
                     .iter()
                     .map(|row| row.bytes)
                     .sum::<usize>();
-            if adaptive_refinement && let Some(ratio) = actual_ratio {
-                local_profiles[content_class.index()]
-                    .observe_actual_ratio(predicted_raw_bytes, ratio);
+            if adaptive_refinement && actual_ratio.is_some() && let Some(peer) = mz.as_deref_mut() {
+                peer.state.row_profiles(&mut local_profiles);
             }
             // An exact raw record changes neither representation evidence nor
             // the planned FEC width. Consume the already-optimal suffix rather
@@ -2181,6 +2175,8 @@ fn prepare_display_off_loop(
     } = &mut buffers;
     let _span = merkur_trace::span!("display.prepare", rows.len() as u64);
     let presentation_id = presentation_id_from(start_seq);
+    let mut compression = compression;
+    compression.planning_context.successor_waiting = mz.successor_waiting();
     let mut mz_state = mz.lock();
     let mut mz_context = MzContext {
         state: &mut mz_state,
@@ -2375,6 +2371,7 @@ fn prepare_snapshot_off_loop(
     }
     for peer in &mut peers {
         let mz = Arc::clone(&peer.mz);
+        peer.context.successor_waiting = mz.successor_waiting();
         let mut mz_state = mz.lock();
         peer.mz_trust = mz_state.trust();
         let mut mz_context = MzContext {
@@ -2383,6 +2380,24 @@ fn prepare_snapshot_off_loop(
             snapshot: true,
         };
         for raw in &raw_chunks {
+            let mut profiles = [peer.profile; 3];
+            mz_context.state.row_profiles(&mut profiles);
+            let (raw_header, offset) = merkur_codec::parse_frame_header_and_rows_start(raw)
+                .expect("owner-produced snapshot header");
+            let mut predicted_rows = 0.0;
+            let mut row_bytes = 0;
+            for (position, entry) in merkur_codec::iter_rows_at(raw, offset, raw_header.row_count).enumerate() {
+                let entry = entry.expect("owner-produced snapshot row");
+                let start = usize::from(entry.row_index) * usize::from(cols);
+                let mut evidence = ContentEvidence::default();
+                evidence.observe(&snapshot_grid[start..start + usize::from(cols)]);
+                let profile = profiles[evidence.class().index()];
+                let scale = mz_context.state.row_cost_model.price_scale(mz_context.state.row_regime(), evidence, entry.len, profile);
+                predicted_rows += profile.row_price(entry.len, position == 0) * scale[usize::from(position == 0)];
+                row_bytes += entry.len;
+            }
+            let states = if row_bytes >= merkur_codec::mz::MZ_TWO_STATE_MIN_ROW_BYTES { 8 } else { 4 };
+            let predicted = (predicted_rows + (wire_len(raw) - row_bytes + 4 + 1 + states) as f64).ceil() as usize;
             let should_attempt = planner_should_attempt_compression(
                 planner,
                 peer.profile,
@@ -2390,6 +2405,7 @@ fn prepare_snapshot_off_loop(
                 wire_len(raw),
                 content_class,
                 peer.context,
+                predicted,
             );
             peer.compression_attempted.push(should_attempt);
             if !should_attempt {
@@ -2400,6 +2416,16 @@ fn prepare_snapshot_off_loop(
             let started = Instant::now();
             let mut compressed = Vec::new();
             let coded = compressor.compress_display_rows_into(raw, Some(&mut mz_context), &mut compressed);
+            let regime = mz_context.state.row_regime();
+            for (index, cost) in compressor.row_costs().iter().enumerate() {
+                let start = usize::from(cost.row) * usize::from(cols);
+                if let Some(cells) = snapshot_grid.get(start..start + usize::from(cols)) {
+                    let mut evidence = ContentEvidence::default();
+                    evidence.observe(cells);
+                    mz_context.state.row_cost_model.observe(regime, index == 0, evidence, *cost);
+                }
+            }
+
             planner.observe_sender_service(
                 ExecutionLane::Bulk,
                 wire_len(raw),
@@ -2749,6 +2775,14 @@ pub(crate) async fn flush_display(
         &mut flush_row_scratch.dirty_captures,
         flush_row_cache,
     );
+
+    for peer in peers.values() {
+        if peer.display_prepare_in_flight.is_some() {
+            let permitted = !peer.display_credit.awaits_grant(peer.generation, now_ms, peer.adaptive.presentation_period_ms)
+                || peer.latest_input_seq != peer.last_row_advertised_input_seq;
+            peer.display_cache.references.shared().pending(current_row_hashes, terminal.current_display_header_signal(), permitted);
+        }
+    }
 
     // The cohort is read in place: an id is borrowed from the cursor for the
     // turn it is served, never cloned out of it, and the tail the budget does
@@ -4234,7 +4268,9 @@ fn display_planning_context(
         initial_fec_group_len: 0,
         initial_fec_group_max_bytes: 0,
         receiver_service_debt_us: peer.display_planning.receiver_service_debt_us(),
+        mz_declaration_bytes: 0,
         higher_priority_preparation_jobs: 0,
+        successor_waiting: false,
     }
 }
 
@@ -5638,6 +5674,7 @@ pub(crate) fn send_peer_datagram_delta_with_worker(
         header.demand_limited = demand.limited;
         header.demand_prompt = demand.prompt;
         header.demand_awaits_grant = demand.awaits_grant;
+        peer.display_cache.references.shared().capture(current_row_hashes, header_signal);
         let request = DisplayPrepareRequest {
             token,
             prepare_epoch: peer.display_prepare_epoch.load(Ordering::Acquire),
@@ -6028,15 +6065,6 @@ pub(crate) async fn finish_display_prepare(
         peer.last_wire_bytes = last.frame.wire_len();
         peer.last_compression_ratio =
             last.frame.planned_wire_len(last.header_reserve) as f64 / last.raw_bytes.max(1) as f64;
-    }
-    for datagram in &buffers.datagrams {
-        observe_display_compression_outcome(
-            peer,
-            datagram.frame.planned_wire_len(datagram.header_reserve),
-            datagram.raw_bytes,
-            datagram.compression_attempted,
-            datagram.content_class,
-        );
     }
 
     let had_datagram_sends = !buffers.datagrams.is_empty();
@@ -6680,13 +6708,6 @@ fn prepare_display_datagram(
     let planned_wire_bytes = planned_wire_len(frame.len(), header_reserve);
     peer.last_wire_bytes = wire_len(&frame);
     peer.last_compression_ratio = planned_wire_bytes as f64 / raw_bytes.max(1) as f64;
-    observe_display_compression_outcome(
-        peer,
-        planned_wire_bytes,
-        raw_bytes,
-        compression_attempted,
-        content_class,
-    );
 
     if raw_bytes >= DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES
         || planned_wire_bytes >= DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES
@@ -7574,6 +7595,7 @@ pub(crate) fn schedule_pending_snapshots(
         let _ = refresh_display_delivery_quotes(peer);
         let mut context = display_planning_context(peer, now_ms, 0);
         context.fec_enabled = false;
+        peer.display_cache.references.shared().capture(current_row_hashes, snapshot_header_signal);
         peer_plans.push(SnapshotPeerPlan::new(
             Arc::clone(peer_id),
             peer.display_prepare_epoch.load(Ordering::Acquire),
@@ -7722,13 +7744,6 @@ pub(crate) async fn finish_snapshot_prepare(
         for (index, raw) in raw_chunks.iter().enumerate() {
             let compressed = plan.compressed_chunks.get(index).and_then(Option::as_ref);
             let raw_wire = wire_len(raw);
-            if plan.compression_attempted.get(index).copied().unwrap_or(false) {
-                peer.display_planning.observe_ratio(
-                    raw_wire,
-                    content_class,
-                    compressed.map_or(1.0, |frame| wire_len(frame) as f64 / raw_wire as f64),
-                );
-            }
             let use_compressed = compressed.is_some_and(|frame| {
                 choose_after_compression(
                     plan.profile,
