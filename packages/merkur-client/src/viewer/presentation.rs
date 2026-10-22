@@ -968,11 +968,11 @@ impl PresentationCoordinator {
 
     /// A complete paced state landed, and nothing newer can follow it without
     /// a grant reaching the daemon: release at the first opportunity.
-    fn paced_closed(&self) -> bool {
+    fn paced_closed(&self, disable_bits: u32) -> bool {
         if !self.pending || self.closure != Closure::None {
             return false;
         }
-        if self.membership_disable_bits() & !DISABLE_END != 0 {
+        if disable_bits & !DISABLE_END != 0 {
             return false;
         }
         self.newest_transaction_member_group()
@@ -1157,23 +1157,35 @@ impl PresentationCoordinator {
         self.closure
     }
 
-    /// The held transaction may commit before the next frame: a met closure,
-    /// or a complete paced transaction whose newest state awaited a grant.
+    /// A complete capture can reach the next composite before its frame
+    /// callback. Membership proves the capture, not application finality;
+    /// a declared application closure always takes precedence.
+    fn early_release(&self) -> Option<(Release, u32)> {
+        if !self.held || self.closure == Closure::Pending {
+            return None;
+        }
+        if self.closure == Closure::Met {
+            return Some((Release::ClosureComplete, 0));
+        }
+        let disable_bits = self.membership_disable_bits();
+        if self.paced_closed(disable_bits) {
+            Some((Release::PacedComplete, disable_bits))
+        } else if disable_bits == 0 {
+            Some((Release::MembershipComplete, 0))
+        } else {
+            None
+        }
+    }
+
+    /// The held transaction may use the host's early presentation opportunity.
     pub fn early_release_eligible(&self) -> bool {
-        self.held && (self.closure == Closure::Met || self.paced_closed())
+        self.early_release().is_some()
     }
 
     /// Release an early-eligible transaction only inside this `submit`, which
     /// shows it; the hold is restored if it did not.
     pub fn with_early_release(&mut self, submit: impl FnOnce() -> bool) -> bool {
-        if !self.held {
-            return false;
-        }
-        let (reason, disable_bits) = if self.closure == Closure::Met {
-            (Release::ClosureComplete, 0)
-        } else if self.paced_closed() {
-            (Release::PacedComplete, self.membership_disable_bits())
-        } else {
+        let Some((reason, disable_bits)) = self.early_release() else {
             return false;
         };
         let previous_reason = self.release_reason;
@@ -1191,7 +1203,8 @@ impl PresentationCoordinator {
     }
 
     /// Release complete known membership that owes no presentation
-    /// opportunity. A transaction with coherent pixels waits for a frame:
+    /// opportunity. Coherent pixels require the host's early opportunity
+    /// or a real frame:
     /// one logical redraw arrives as several separately END'd groups, and only
     /// the vsync folds them into one commit.
     pub fn release_completed_at_pump(&mut self) -> Release {
@@ -1230,7 +1243,7 @@ impl PresentationCoordinator {
             }
         }
         let disable_bits = self.membership_disable_bits();
-        if self.paced_closed() {
+        if self.paced_closed(disable_bits) {
             self.release_frame_time = frame_time_ms;
             return self.release(Release::PacedComplete, disable_bits);
         }

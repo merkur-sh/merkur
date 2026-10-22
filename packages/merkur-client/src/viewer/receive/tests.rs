@@ -1492,7 +1492,7 @@ fn urgent_state_is_shown_at_once() {
 }
 
 #[test]
-fn a_coherent_redraw_is_held_until_its_membership_completes_at_a_frame() {
+fn a_coherent_redraw_commits_early_only_after_its_membership_completes() {
     let mut viewer = shown();
     datagram(
         &mut viewer,
@@ -1513,12 +1513,13 @@ fn a_coherent_redraw_is_held_until_its_membership_completes_at_a_frame() {
     );
     assert_eq!(
         viewer.present_now(17.0),
-        None,
-        "coherent work commits at a frame"
+        Some(Release::MembershipComplete),
+        "complete membership can reach the composite before its callback"
     );
     assert_eq!(
         viewer.frame(32.0, 16.0, true, None),
-        Some(Release::EndQuiet)
+        None,
+        "the frame does not recommit already shown state"
     );
     assert_eq!(
         viewer.grid().presented,

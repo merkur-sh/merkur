@@ -1155,7 +1155,6 @@ impl<G: DisplayGrid> Viewer<G> {
             && !self.resync_pending
             && !self.lineage_unrooted
             && (self.presentation.closure() != Closure::Met || self.closure_claim_current())
-            && self.presentation.early_release_eligible()
         {
             let grid = &mut self.grid;
             let committed = self.presentation.with_early_release(|| {

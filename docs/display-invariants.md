@@ -193,10 +193,13 @@ transaction* must have carried END. A group first observed after the transaction
 (a queued newer redraw, or a daemon re-send of identical rows under a fresh presentation
 id) belongs to the next transaction and cannot move the goalpost, and a queued frame
 never re-holds a transaction that already released. Advisory completion is evaluated at the
-applying member; coherent transactions normally commit at a worker animation frame. The
-frame folds separately ended chunks into one image because advisory membership does not
-establish application completion or complete content. This coalescing wait can miss a
-composite that an earlier submission would reach.
+applying member. Complete, valid membership through END may commit as `membership-complete`
+at the receive pump's presentation opportunity, even when the daemon holds another grant.
+This proves a complete capture, not that an unsynchronized application finished its redraw.
+Waiting for the worker animation callback can miss the composite an earlier submission
+would reach; a subsequent state can then replace that capture before it is ever visible.
+Incomplete membership and missing predecessors retain the frame rules below. A current
+unmet complete-screen closure claim blocks this release, and a met claim takes precedence.
 
 A paced transaction closes on arrival. `PATCH_FLAG_DEMAND_AWAITS_GRANT` says that when the
 daemon sent the frame, it was pacing the run and held no grant to send a newer state. When
@@ -210,10 +213,10 @@ shows as a local terminal shows its grid at vsync, until the next paid state sho
 A capture that carries a closure claim is exact: the terminal applies a BSU/ESU update whole,
 and closure outranks this rule. A synchronized application's capture carries no claim when a
 read after its last ESU reached the terminal, including one that only opened the next update,
-and is then shown like unsynchronized output. The commit happens inside the current task under
-the closure gates above, otherwise on the first real animation frame. The frame's own commit
-does not spend the early opportunity; an early commit does, so a frame carries at most one of
-each. (Waiting for the frame could fold in only a state an in-flight grant had already paid,
+and is then shown like unsynchronized output. Both paced and membership completion commit
+inside the current task under the closure gates above, otherwise on the first real animation
+frame. The frame's own commit does not spend the early opportunity; an early commit does,
+so a frame carries at most one of each. (Waiting for the frame could fold in only a state an in-flight grant had already paid,
 and it left paced output a frame staler on screen than unpaced delivery. Letting
 a frame-released commit spend the opportunity kept every later state on the frame rule for
 good. Holding a continuing state for its successor bet that the successor completed a redraw:

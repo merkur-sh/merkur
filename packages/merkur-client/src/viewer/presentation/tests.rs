@@ -2501,22 +2501,23 @@ fn the_first_state_after_an_end_a_reset_a_generation_or_an_echo_releases() {
 }
 
 #[test]
-fn a_newest_frame_without_the_awaits_fact_keeps_the_frame_rules() {
+fn a_newest_ended_frame_without_the_awaits_fact_uses_membership() {
     let mut c = PresentationCoordinator::new(9);
     paced(&mut c, 100.0, 1, false, 5, true, 0, 1);
     paced(&mut c, 101.0, 2, false, 5, true, 0, 1);
     paced(&mut c, 102.0, 3, true, 5, false, 0, 1);
-    assert!(!c.early_release_eligible());
-    assert_ne!(c.release_at_frame(108.0), Release::PacedComplete);
+    assert!(c.early_release_eligible());
+    assert!(c.with_early_release(|| true));
+    assert_eq!(c.last_release_reason(), Release::MembershipComplete);
 }
 
 #[test]
-fn without_the_awaits_fact_the_frame_rules_are_unchanged() {
+fn an_unpaced_end_uses_membership_and_an_unended_capture_keeps_its_frame_bound() {
     let mut ended = PresentationCoordinator::new(9);
     paced(&mut ended, 100.0, 1, true, 5, false, 0, 1);
-    assert!(!ended.early_release_eligible());
-    assert!(!ended.with_early_release(|| true));
-    assert_eq!(ended.release_at_frame(108.0), Release::EndQuiet);
+    assert!(ended.early_release_eligible());
+    assert!(ended.with_early_release(|| true));
+    assert_eq!(ended.last_release_reason(), Release::MembershipComplete);
 
     let mut continuing = PresentationCoordinator::new(9);
     paced(&mut continuing, 100.0, 1, false, 5, false, 0, 1);
@@ -2546,15 +2547,21 @@ fn a_queued_member_not_yet_applied_blocks_the_early_close() {
 }
 
 #[test]
-fn a_group_whose_members_disagree_on_the_fact_fails_closed() {
+fn disagreeing_pacing_facts_cannot_bypass_end_but_complete_membership_can_release() {
     let mut c = PresentationCoordinator::new(9);
     paced(&mut c, 100.0, 1, false, 5, true, 0, 2);
     paced(&mut c, 101.0, 1, true, 5, false, 1, 2);
-    assert!(!c.early_release_eligible());
+    assert!(c.with_early_release(|| true));
+    assert_eq!(c.last_release_reason(), Release::MembershipComplete);
     let mut serials = PresentationCoordinator::new(9);
     paced(&mut serials, 100.0, 1, false, 5, true, 0, 2);
     paced(&mut serials, 101.0, 1, true, 6, true, 1, 2);
-    assert!(!serials.early_release_eligible());
+    assert!(serials.with_early_release(|| true));
+    assert_eq!(serials.last_release_reason(), Release::MembershipComplete);
+    let mut continuing = PresentationCoordinator::new(9);
+    paced(&mut continuing, 100.0, 1, false, 5, true, 0, 2);
+    paced(&mut continuing, 101.0, 1, false, 5, false, 1, 2);
+    assert!(!continuing.early_release_eligible());
 }
 
 #[test]
@@ -2613,4 +2620,82 @@ fn a_paced_flood_commits_every_paid_state_as_it_lands() {
     let at: Vec<f64> = paced_commits.iter().map(|&(at, _)| at - 1_000.0).collect();
     let expected: Vec<f64> = (0..12).map(|k| f64::from(k) * 16.0 + 1.0).collect();
     assert_eq!(at, expected);
+}
+
+#[test]
+fn a_complete_ended_capture_can_use_the_early_opportunity_without_waiting_for_a_grant() {
+    let mut c = PresentationCoordinator::new(GENERATION);
+    apply(
+        &mut c,
+        A {
+            at: 100.0,
+            id: 1,
+            seq: 1,
+            coherent: true,
+            end: true,
+            rows: 1,
+            count: 1,
+            ..A::default()
+        },
+    );
+    assert!(c.early_release_eligible());
+    assert!(c.with_early_release(|| true));
+    assert_eq!(c.last_release_reason(), Release::MembershipComplete);
+}
+
+#[test]
+fn an_early_ended_capture_still_requires_every_member_and_its_predecessor() {
+    let mut c = PresentationCoordinator::new(GENERATION);
+    apply(
+        &mut c,
+        A {
+            at: 100.0,
+            id: 2,
+            seq: 3,
+            coherent: true,
+            end: true,
+            rows: 1,
+            index: 1,
+            count: 2,
+            predecessor: 1,
+            ..A::default()
+        },
+    );
+    assert!(!c.early_release_eligible());
+    apply(
+        &mut c,
+        A {
+            at: 101.0,
+            id: 2,
+            seq: 2,
+            coherent: true,
+            rows: 1,
+            count: 2,
+            predecessor: 1,
+            ..A::default()
+        },
+    );
+    assert!(!c.early_release_eligible());
+    apply(
+        &mut c,
+        A {
+            at: 102.0,
+            id: 1,
+            seq: 1,
+            coherent: true,
+            end: true,
+            rows: 1,
+            count: 1,
+            ..A::default()
+        },
+    );
+    assert!(c.early_release_eligible());
+    assert!(!c.with_early_release(|| false));
+    assert!(c.is_held());
+    c.set_closure(Closure::Pending);
+    assert!(!c.early_release_eligible());
+    assert!(!c.with_early_release(|| true));
+    c.set_closure(Closure::Met);
+    assert!(c.with_early_release(|| true));
+    assert_eq!(c.last_release_reason(), Release::ClosureComplete);
 }
