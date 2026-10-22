@@ -53,7 +53,9 @@ pub(crate) struct PeerMz {
     /// The oldest datagram of the current generation the browser's history may
     /// still hold, plus one (zero: none recorded yet).
     floor: AtomicU32,
+    /// Last captured grid hashes and frame header, owned by the capture loop.
     capture: Mutex<(Vec<u64>, u128)>,
+    /// Whether a changed, permitted successor is waiting behind preparation.
     successor: AtomicBool,
     state: Mutex<MzPeerState>,
 }
@@ -69,11 +71,14 @@ impl PeerMz {
         self.successor.store(false, Ordering::Release);
     }
 
+    /// Publish whether demand permits the changed grid/header to follow this frame.
     pub(crate) fn pending(&self, hashes: &[u64], header: u128, permitted: bool) {
         let capture = self.capture.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.successor.store(permitted && (capture.0 != hashes || capture.1 != header), Ordering::Release);
+        self.successor
+            .store(permitted && (capture.0 != hashes || capture.1 != header), Ordering::Release);
     }
 
+    /// Read the successor fact without taking the capture lock.
     pub(crate) fn successor_waiting(&self) -> bool {
         self.successor.load(Ordering::Acquire)
     }
@@ -168,6 +173,7 @@ impl Hasher for PairHasher {
 #[derive(Default)]
 pub(crate) struct MzPeerState {
     fact_spare: Vec<MzFact>,
+    /// Encoding-regime and content-conditioned entropy observations for this peer.
     pub(crate) row_cost_model: super::planner::RowCostModel,
     /// The current display generation, and the one before it whose rows are
     /// still copied (0: none).
@@ -219,10 +225,12 @@ fn older(a: u32, b: u32) -> bool {
 }
 
 impl MzPeerState {
+    /// Identify the history/epoch regime used by the next encode.
     pub(crate) fn row_regime(&self) -> usize {
         usize::from(!self.sources.is_empty()) | (usize::from(self.session().is_some()) << 1)
     }
 
+    /// Apply this peer's observed row costs to the planning profiles.
     pub(crate) fn row_profiles(&self, profiles: &mut [super::planner::PeerPlanningSnapshot; 3]) {
         self.row_cost_model.apply(self.row_regime(), profiles);
     }
@@ -254,7 +262,11 @@ impl MzPeerState {
                         self.spare.push(source);
                     }
                 }
-                self.previous = if previous_generation(generation) == self.generation { self.generation } else { 0 };
+                self.previous = if previous_generation(generation) == self.generation {
+                    self.generation
+                } else {
+                    0
+                };
                 std::mem::swap(&mut self.order, &mut self.previous_order);
                 self.previous_floor = previous_floor;
                 // What the frozen floor retired, or a skipped generation's
@@ -542,6 +554,7 @@ pub(crate) type SharedPeerMz = Arc<PeerMz>;
 
 #[cfg(test)]
 mod successor_tests {
+    /// Changed state counts as a successor only while demand permits sending it.
     #[test]
     fn a_successor_requires_both_changed_state_and_send_permission() {
         let peer = super::PeerMz::default();
