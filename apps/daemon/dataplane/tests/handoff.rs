@@ -65,9 +65,11 @@ fn shell_script(directory: &Path) -> PathBuf {
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\necho $$ > '{dir}/shell.pid'\nenv > '{dir}/shell.env'\n\
-             trap 'echo winch >> \"{dir}/winch\"' WINCH\nprintf 'before the upgrade\\n'\n\
-             while :; do sleep 0.05; done\n"
+            // The pid file is renamed into place last, so its appearance means the trap is
+            // set and the environment is written whole.
+            "#!/bin/sh\ntrap 'echo winch >> \"{dir}/winch\"' WINCH\nenv > '{dir}/shell.env'\n\
+             echo $$ > '{dir}/shell.pid.new'\nmv '{dir}/shell.pid.new' '{dir}/shell.pid'\n\
+             printf 'before the upgrade\\n'\nwhile :; do sleep 0.05; done\n"
         ),
     )
     .expect("script");
