@@ -1365,11 +1365,28 @@
       "run": "39833492004",
       "attempt": 1,
       "sequence": 122,
-      "phase": "signing",
+      "phase": "retained",
       "events": [
         {
           "phase": "signing",
           "evidence": {}
+        },
+        {
+          "phase": "retained",
+          "evidence": {
+            "NOTICES.txt": "d9fc0f86b261f14a8831181ec959c118be454d71351b46b85d7aaaf36cff8b7720b6e77a817a1ee37f2fdfaad499529531e5fec028caef285cbd11c323669ca7",
+            "deployment.tar.gz": "eaa3785ff06099ad0f4daa831d0ab4a4d6aa7faf801fe8150ddfe6459b30027e63338a86c96d7144059124af4898bb37a47b69c187c639e30bf814ba95502e26",
+            "merkur-daemon-darwin-arm64.tar.gz": "629ef8ecf6c4315e4448543968e3b0f944864288c8b0d938a811b7bb6e02c957dad0bbd4380e3e69e78ed8e306a64da122785d0e6042505779ab78b26f16f8c5",
+            "merkur-daemon-darwin-x64.tar.gz": "446ad9e634551a366a30af68e8a97f4789bdbd083d1ce271b5629fc0b11afdcabfdb58d7d92648f6e4bb8dc6cd708fb99b925fa94cfe20df3c2fe43529bf54c9",
+            "merkur-daemon-linux-arm64.tar.gz": "8524f8f6d976acddac13340a6ced074dfda45e2716f2a7c1ae1e1f0552af20a93bb64196b53d5b2e1d551b1f6d3ab847be311b567bb6c46c5ebf8bd7cb8adbac",
+            "merkur-daemon-linux-x64.tar.gz": "eff5b9914b5004dbb4dad8518a96e59b250ae56beae189b196d758b5de3d38fa136d5db4f3da827917035adf05be2c10effe02dca364b55b06809df452967577",
+            "merkur-edge": "a21b0c647d8e8946ba3f565853174900898ce65d782fa6080f359a1b23a6437150d975f024f245fee769102e7f6963263be4d0e7c9d07bf40a84a7f58babfce1",
+            "merkur-release.json": "b2d7e2062ce97749429ab0eca010e5b5736af615a4675ce3b0e3bd2c481cac510d6953f9d851712d66b8ddef63b029f4a1c5b7b00a0e65f2a7ec39af26db4a05",
+            "merkur-release.sig": "7628c3a97e36f345ebf1f8340fd1de07bf5e9ff82573482ea92efbb4f1c1c14a4bcbb45195e7557d430e9ed11aa93e0317cb237e0b94e731eccfff6884a40e76",
+            "merkur-stun": "90d97e0c7f6993e99c32e82abd2d242f4ac4f6f3232f9d704663a734df8f438109ddf339a59cd5340450755747090f11e6429c9d6e13a4278155de7def09448e",
+            "verify-linux-arm64": "d3a1bd639a42a2c23e6e2e20ea4f6a8c7e474a9af453e0aeb69dc7bfb26cbe4ab138dc6ee7d620457f2f969a2dd17038aa2e2ea94da0164b05f4d5e281c979f3",
+            "verify-linux-x64": "dbc2e36db4b1bb710a49f55270984f4d8d7a532e61649f182f3cc5e93787b8d90eb284451c1517870ff6da03b82b93bd94962825a0cf675247c679bd8d59220e"
+          }
         }
       ],
       "configuration": {
