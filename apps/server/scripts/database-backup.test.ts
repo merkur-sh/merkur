@@ -6,8 +6,8 @@ import { sql } from 'kysely';
 
 import { createMigratedKyselyDatabase } from '../src/db/migrate';
 import type { DatabaseSchema } from '../src/db/types';
+import { dump, restore } from './database-backup';
 
-const SCRIPT = path.resolve(import.meta.dir, 'database-backup.ts');
 const REPO_ROOT = path.resolve(import.meta.dir, '../../..');
 const SCRATCH_ROOT = path.join(REPO_ROOT, 'data');
 const temporaryDirectories: string[] = [];
@@ -26,8 +26,8 @@ describe('database backup', () => {
     const dumpFile = path.join(directory, 'dump.jsonl');
     await seed(source);
 
-    expect(await run(['dump', '--url', source, '--out', dumpFile])).toBe(0);
-    expect(await run(['restore', '--url', target, '--in', dumpFile])).toBe(0);
+    await dump(source, dumpFile);
+    await restore(target, dumpFile);
 
     const restored = await createMigratedKyselyDatabase<DatabaseSchema>(target);
     try {
@@ -73,14 +73,14 @@ describe('database backup', () => {
     const target = `file:${path.join(directory, 'target.db')}`;
     const dumpFile = path.join(directory, 'dump.jsonl');
     await seed(source);
-    await run(['dump', '--url', source, '--out', dumpFile]);
+    await dump(source, dumpFile);
 
     const lines = (await Bun.file(dumpFile).text()).split('\n').filter((line) => line.length > 0);
     const trailer = lines.pop();
     if (trailer === undefined) throw new Error('dump has no trailer');
     await Bun.write(dumpFile, `${[...lines.slice(0, -1), trailer].join('\n')}\n`);
 
-    expect(await run(['restore', '--url', target, '--in', dumpFile])).not.toBe(0);
+    await expect(restore(target, dumpFile)).rejects.toThrow('is truncated');
   });
 
   test('refuses to dump a database with a table it does not know', async () => {
@@ -95,9 +95,9 @@ describe('database backup', () => {
       await db.destroy();
     }
 
-    expect(
-      await run(['dump', '--url', source, '--out', path.join(directory, 'dump.jsonl')]),
-    ).not.toBe(0);
+    await expect(dump(source, path.join(directory, 'dump.jsonl'))).rejects.toThrow(
+      'tables missing from the dump list: unlisted',
+    );
   });
 
   test('refuses to restore over a database that already holds accounts', async () => {
@@ -105,9 +105,9 @@ describe('database backup', () => {
     const source = `file:${path.join(directory, 'source.db')}`;
     const dumpFile = path.join(directory, 'dump.jsonl');
     await seed(source);
-    await run(['dump', '--url', source, '--out', dumpFile]);
+    await dump(source, dumpFile);
 
-    expect(await run(['restore', '--url', source, '--in', dumpFile])).not.toBe(0);
+    await expect(restore(source, dumpFile)).rejects.toThrow('already holds accounts');
   });
 });
 
@@ -116,15 +116,6 @@ async function scratchDirectory(): Promise<string> {
   const directory = await mkdtemp(path.join(SCRATCH_ROOT, 'merkur-backup-'));
   temporaryDirectories.push(directory);
   return directory;
-}
-
-async function run(argv: readonly string[]): Promise<number> {
-  const child = Bun.spawn(['bun', 'run', SCRIPT, ...argv], {
-    cwd: REPO_ROOT,
-    stdout: 'ignore',
-    stderr: 'ignore',
-  });
-  return await child.exited;
 }
 
 async function seed(url: string): Promise<void> {

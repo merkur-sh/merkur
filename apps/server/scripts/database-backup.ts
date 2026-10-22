@@ -72,18 +72,28 @@ interface DumpRow {
   readonly row: Record<string, InValue>;
 }
 
-const [command, ...rest] = process.argv.slice(2);
-const options = parseOptions(rest);
-
-if (command === 'dump') {
-  await dump(required(options, 'url'), required(options, 'out'));
-} else if (command === 'restore') {
-  await restore(required(options, 'url'), required(options, 'in'));
-} else {
-  throw new Error('usage: database-backup.ts <dump|restore> --url <url> [--out|--in] <file>');
+if (import.meta.main) {
+  const [command, ...rest] = process.argv.slice(2);
+  const options = parseOptions(rest);
+  if (command === 'dump') {
+    const outFile = required(options, 'out');
+    const counts = await dump(required(options, 'url'), outFile);
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+    process.stdout.write(`wrote ${outFile}: ${total} rows across ${TABLES.length} tables\n`);
+    for (const table of TABLES) process.stdout.write(`  ${table.padEnd(30)} ${counts[table]}\n`);
+  } else if (command === 'restore') {
+    const url = required(options, 'url');
+    const counts = await restore(url, required(options, 'in'));
+    for (const table of TABLES) process.stdout.write(`  ${table.padEnd(30)} ${counts[table]}\n`);
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+    process.stdout.write(`restored ${total} rows into ${redactUrl(url)}\n`);
+  } else {
+    throw new Error('usage: database-backup.ts <dump|restore> --url <url> [--out|--in] <file>');
+  }
 }
 
-async function dump(url: string, outFile: string): Promise<void> {
+/** Writes every row to `outFile` and returns the rows each table held. */
+export async function dump(url: string, outFile: string): Promise<Record<string, number>> {
   const client = createDatabaseClient(url, process.env.DB_AUTH_TOKEN);
   try {
     const header: DumpHeader = {
@@ -115,15 +125,14 @@ async function dump(url: string, outFile: string): Promise<void> {
     }
     lines.push(JSON.stringify({ counts } satisfies DumpTrailer));
     await Bun.write(outFile, `${lines.join('\n')}\n`);
-    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-    process.stdout.write(`wrote ${outFile}: ${total} rows across ${TABLES.length} tables\n`);
-    for (const table of TABLES) process.stdout.write(`  ${table.padEnd(30)} ${counts[table]}\n`);
+    return counts;
   } finally {
     client.close();
   }
 }
 
-async function restore(url: string, inFile: string): Promise<void> {
+/** Loads a dump into an empty database and returns the rows each table took. */
+export async function restore(url: string, inFile: string): Promise<Record<string, number>> {
   const text = await Bun.file(inFile).text();
   const lines = text.split('\n').filter((line) => line.length > 0);
   const headerLine = lines.shift();
@@ -164,7 +173,7 @@ async function restore(url: string, inFile: string): Promise<void> {
     if (Number(occupied.rows[0]?.count ?? 0) !== 0) {
       throw new Error('refusing to restore into a database that already holds accounts');
     }
-    let written = 0;
+    const counts: Record<string, number> = {};
     for (const table of TABLES) {
       const rows = rowsByTable.get(table) ?? [];
       for (let start = 0; start < rows.length; start += INSERT_CHUNK_ROWS) {
@@ -180,11 +189,10 @@ async function restore(url: string, inFile: string): Promise<void> {
           }),
           'write',
         );
-        written += chunk.length;
       }
-      process.stdout.write(`  ${table.padEnd(30)} ${rows.length}\n`);
+      counts[table] = rows.length;
     }
-    process.stdout.write(`restored ${written} rows into ${redactUrl(url)}\n`);
+    return counts;
   } finally {
     client.close();
   }
