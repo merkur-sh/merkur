@@ -872,7 +872,8 @@ fn v2_checkpoint() {
 fn p3_row_price_attribution() {
     use super::{model::static_model, nibble, session::Layered};
     let directory = std::env::var("MERKUR_MZ_FRAMES").expect("frames");
-    let mut paths: Vec<_> = std::fs::read_dir(directory).unwrap().map(|p| p.unwrap().path()).collect();
+    let mut paths: Vec<_> =
+        std::fs::read_dir(directory).unwrap().map(|p| p.unwrap().path()).collect();
     paths.sort();
     let (mut frames, mut entries, mut symbols, mut sessions) = (0u64, 0u64, 0u64, 0u64);
     let mut encoder = MzEncoder::default();
@@ -890,14 +891,22 @@ fn p3_row_price_attribution() {
             for with_session in [false, true] {
                 output.clear();
                 let prior = with_session.then_some((1, &session));
-                let encoded = encoder.encode(rows, count, &NoHistory, prior, None, &mut output).unwrap();
+                let encoded =
+                    encoder.encode(rows, count, &NoHistory, prior, None, &mut output).unwrap();
                 assert_eq!(encoder.row_costs().len(), usize::from(count));
-                assert_eq!(encoder.row_costs().iter().map(|r| r.raw_bytes).sum::<usize>(), rows.len());
+                assert_eq!(
+                    encoder.row_costs().iter().map(|r| r.raw_bytes).sum::<usize>(),
+                    rows.len()
+                );
                 let expected = if encoded.prior == 0 {
                     nibble::price(static_model(), &mut tables, encoder.trace())
                 } else {
                     sessions += 1;
-                    nibble::price(&Layered { session: &session, base: static_model() }, &mut tables, encoder.trace())
+                    nibble::price(
+                        &Layered { session: &session, base: static_model() },
+                        &mut tables,
+                        encoder.trace(),
+                    )
                 };
                 assert_eq!(encoder.row_costs().iter().map(|r| r.bits).sum::<u64>(), expected);
                 frames += 1;
@@ -907,5 +916,7 @@ fn p3_row_price_attribution() {
             session.fold(encoder.trace());
         }
     }
-    println!("P3_PRICES frames={frames} entries={entries} symbols={symbols} session_chosen={sessions}");
+    println!(
+        "P3_PRICES frames={frames} entries={entries} symbols={symbols} session_chosen={sessions}"
+    );
 }

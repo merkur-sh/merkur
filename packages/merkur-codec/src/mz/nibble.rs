@@ -303,6 +303,7 @@ pub(super) fn cost(freq: u32) -> u32 {
     u32::from(unsafe { *SYMBOL_PRICES.get_unchecked(freq as usize) })
 }
 
+/// Exact integer symbol prices for every representable CDF frequency.
 static SYMBOL_PRICES: [u16; PROB_SCALE as usize + 1] = {
     let mut prices = [0; PROB_SCALE as usize + 1];
     let mut frequency = 0usize;
@@ -310,18 +311,23 @@ static SYMBOL_PRICES: [u16; PROB_SCALE as usize + 1] = {
         let freq = if frequency == 0 { 1 } else { frequency as u32 };
         let log = 31 - freq.leading_zeros();
         let mantissa = ((freq << (31 - log)) >> 24) & 0x7f;
-        prices[frequency] = ((PROB_BITS - log) * 256 - LOG2_MANTISSA[mantissa as usize] as u32) as u16;
+        prices[frequency] =
+            ((PROB_BITS - log) * 256 - LOG2_MANTISSA[mantissa as usize] as u32) as u16;
         frequency += 1;
     }
     prices
 };
 
+/// The lookup preserves the integer price definition at every frequency.
 #[test]
 fn symbol_price_lookup_matches_the_integer_definition_for_every_frequency() {
     for freq in 0..=PROB_SCALE {
         let log = 31 - freq.max(1).leading_zeros();
         let mantissa = ((freq << (31 - log)) >> 24) & 0x7f;
-        assert_eq!(cost(freq), (PROB_BITS - log) * 256 - u32::from(LOG2_MANTISSA[mantissa as usize]));
+        assert_eq!(
+            cost(freq),
+            (PROB_BITS - log) * 256 - u32::from(LOG2_MANTISSA[mantissa as usize])
+        );
     }
 }
 
