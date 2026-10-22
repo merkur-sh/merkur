@@ -20,9 +20,10 @@ health. The one-line versions:
 - A display datagram is a complete, order-independent, idempotent transformation; the
   datagram lane never carries a multi-chunk frame; a delta naming other dimensions is
   refused (`display_dimensions_mismatch`), never fitted.
-- Presentation grouping is advisory and browser-only; `END` alone never releases; a
-  coherent transaction commits at a worker animation frame unless a met closure claim or
-  the paced close releases it inside the task; there is no timer on the release path.
+- Presentation grouping is advisory in the shared client core; `END` alone never releases;
+  complete, valid membership through END, a met closure claim or the paced close can use
+  the existing early presentation opportunity. An unmet closure claim blocks every release;
+  incomplete transactions retain their real-frame bound. There is no release timer.
 - The daemon never coalesces against a clock; damage is not an emit reason; write
   completions are confirmed before the read that echoes them is applied.
 - The ACK is a selective 128-bit bitmap; loss is declared after `LOSS_PACKET_THRESHOLD`
