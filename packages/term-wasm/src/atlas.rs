@@ -139,7 +139,8 @@ impl GlyphAtlas {
         self.table.extend_from_slice(&[
             u32::from(entry.atlas_x) | u32::from(entry.atlas_y) << 16,
             u32::from(entry.width) | u32::from(entry.height) << 16,
-            u32::from(entry.offset_x as u16) | u32::from(entry.offset_y as u16) << 16,
+            u32::from(entry.offset_x.cast_unsigned())
+                | u32::from(entry.offset_y.cast_unsigned()) << 16,
         ]);
         Some(entry)
     }

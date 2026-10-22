@@ -888,25 +888,25 @@ impl Terminal {
             .copied()
     }
     /// Records that draw an atlas glyph.
-    fn glyph_count(&self) -> u32 {
+    fn glyph_count(&self) -> usize {
         self.drawn_records()
             .filter(|record| record[0] & CELL_GLYPH_MASK != 0 && record[1] & CELL_BUILTIN == 0)
-            .count() as u32
+            .count()
     }
     /// Records that paint a background.
-    fn background_count(&self) -> u32 {
+    fn background_count(&self) -> usize {
         self.drawn_records()
             .filter(|record| record[1] & CELL_BACKGROUND != 0)
-            .count() as u32
+            .count()
     }
     /// Records the decoration pass fills: a line or a builtin shape.
-    fn decoration_count(&self) -> u32 {
+    fn decoration_count(&self) -> usize {
         self.drawn_records()
             .filter(|record| {
                 record[0] & (CELL_UNDERLINE | CELL_STRIKEOUT) != 0
                     || record[1] & (CELL_BUILTIN | CELL_PREEDIT) != 0
             })
-            .count() as u32
+            .count()
     }
     /// The record of one grid cell.
     fn cell_record(&self, row: usize, col: usize) -> [u32; CELL_WORDS] {
@@ -931,28 +931,49 @@ impl Terminal {
     }
 }
 
+/// A count or address as the `u32` word the geometry state carries.
+fn state_word(value: usize) -> u32 {
+    u32::try_from(value).expect("a geometry state word")
+}
+
+/// An address as the word the geometry state carries: its low 32 bits, as
+/// `refresh_geometry_state` stores it (all of it in WASM memory).
+fn address_word(address: usize) -> u32 {
+    let [b0, b1, b2, b3, ..] = address.to_le_bytes();
+    u32::from_le_bytes([b0, b1, b2, b3])
+}
+
+/// A glyph table entry's signed bearings, x then y, from its third word.
+fn table_bearing(word: u32) -> [f32; 2] {
+    let [x0, x1, y0, y1] = word.to_le_bytes();
+    [
+        f32::from(i16::from_le_bytes([x0, x1])),
+        f32::from(i16::from_le_bytes([y0, y1])),
+    ]
+}
+
 /// `geometry_state` as each field reads directly.
 fn expected_geometry_state(terminal: &Terminal) -> [u32; GEOMETRY_STATE_LEN] {
-    let overlay = (terminal.overlay_buf.len() / CELL_WORDS) as u32;
+    let overlay = state_word(terminal.overlay_buf.len() / CELL_WORDS);
     let (table, glyphs, epoch) = terminal.atlas.as_ref().map_or((0, 0, 0), |atlas| {
         (
-            atlas.table.as_ptr() as usize as u32,
-            atlas.glyph_count() as u32,
+            address_word(atlas.table.as_ptr() as usize),
+            state_word(atlas.glyph_count()),
             atlas.table_epoch(),
         )
     });
     [
-        terminal.cell_buf.as_ptr() as usize as u32,
-        (terminal.cell_buf.len() / CELL_WORDS) as u32,
+        address_word(terminal.cell_buf.as_ptr() as usize),
+        state_word(terminal.cell_buf.len() / CELL_WORDS),
         terminal.cell_version,
         terminal.cell_dirty.0,
         terminal.cell_dirty.1,
-        terminal.overlay_buf.as_ptr() as usize as u32,
+        address_word(terminal.overlay_buf.as_ptr() as usize),
         overlay,
         terminal.overlay_version,
         0,
         overlay,
-        terminal.cursor_buf.as_ptr() as usize as u32,
+        address_word(terminal.cursor_buf.as_ptr() as usize),
         terminal.cursor_count(),
         terminal.cursor_version,
         terminal.cursor_dirty.0,
@@ -1061,7 +1082,7 @@ fn packed_geometry_state_matches_fields_across_render_lifecycle() {
 fn cell_record_layout_is_pinned() {
     assert_eq!(
         [
-            CELL_WORDS as u32,
+            state_word(CELL_WORDS),
             CELL_GLYPH_MASK,
             CELL_COLUMN_SHIFT,
             CELL_WIDE,
@@ -1074,8 +1095,8 @@ fn cell_record_layout_is_pinned() {
             CELL_PREEDIT,
             CELL_ROW_SHIFT,
             builtin_glyph::BUILTIN_MOSAIC,
-            atlas::GLYPH_TABLE_WORDS as u32,
-            GEOMETRY_STATE_LEN as u32,
+            state_word(atlas::GLYPH_TABLE_WORDS),
+            state_word(GEOMETRY_STATE_LEN),
         ],
         [
             3,
@@ -4877,8 +4898,8 @@ fn speculative_ascii_metadata_uses_the_terminal_atlas_entry_exactly() {
         .rasterized(&key)
         .expect("ASCII glyph");
     assert_eq!(
-        terminal.speculative_ascii_entries[(u32::from('A') - SPECULATIVE_ASCII_FIRST) as usize],
-        entry.id as i32
+        Ok(terminal.speculative_ascii_entries[(u32::from('A') - SPECULATIVE_ASCII_FIRST) as usize]),
+        i32::try_from(entry.id)
     );
 
     // The id names the glyph table entry the cell records use, and the table
@@ -4890,12 +4911,13 @@ fn speculative_ascii_metadata_uses_the_terminal_atlas_entry_exactly() {
         &[
             u32::from(entry.atlas_x) | u32::from(entry.atlas_y) << 16,
             u32::from(entry.width) | u32::from(entry.height) << 16,
-            u32::from(entry.offset_x as u16) | u32::from(entry.offset_y as u16) << 16,
+            u32::from(entry.offset_x.cast_unsigned())
+                | u32::from(entry.offset_y.cast_unsigned()) << 16,
         ]
     );
     assert_eq!(
         terminal.geometry_state[GEOMETRY_STATE_GLYPHS + 1],
-        atlas.glyph_count() as u32
+        state_word(atlas.glyph_count())
     );
     let covered = (0..usize::from(entry.height)).flat_map(|row| {
         let start = (usize::from(entry.atlas_y) + row) * atlas.atlas_w as usize
@@ -4931,7 +4953,10 @@ fn speculative_ascii_metadata_refreshes_after_raster_metric_change() {
         .expect("W");
     assert!(entry.width > old_width);
     let offset = (u32::from('W') - SPECULATIVE_ASCII_FIRST) as usize;
-    assert_eq!(terminal.speculative_ascii_entries[offset], entry.id as i32);
+    assert_eq!(
+        Ok(terminal.speculative_ascii_entries[offset]),
+        i32::try_from(entry.id)
+    );
     assert_ne!(
         terminal.geometry_state[GEOMETRY_STATE_GLYPHS + 2],
         old_epoch
@@ -4967,9 +4992,9 @@ fn glyph_bitmaps_land_on_physical_pixels_at_every_font_size_and_density() {
                 let entry = &atlas.table[(id as usize - 1) * atlas::GLYPH_TABLE_WORDS..][..3];
                 let col = (record[0] >> CELL_COLUMN_SHIFT) & 0x1ff;
                 let row = record[2] >> CELL_ROW_SHIFT;
-                let left = col as f32 * cell_w + f32::from(entry[2] as u16 as i16);
-                let top =
-                    row as f32 * cell_h + baseline + f32::from((entry[2] >> 16) as u16 as i16);
+                let [bearing_x, bearing_y] = table_bearing(entry[2]);
+                let left = col as f32 * cell_w + bearing_x;
+                let top = row as f32 * cell_h + baseline + bearing_y;
                 for value in [left, top] {
                     assert_eq!(
                         value.fract(),

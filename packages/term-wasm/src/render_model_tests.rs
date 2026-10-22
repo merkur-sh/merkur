@@ -23,6 +23,11 @@ fn decode(channel: f32) -> f32 {
     }
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "clamped to 0..=1 and scaled to 0..=255 before rounding"
+)]
 fn encode(channel: f32) -> u8 {
     let value = if channel <= 0.003_130_8 {
         channel * 12.92
@@ -75,6 +80,12 @@ impl Canvas {
     }
 
     /// One glyph quad: `uv0..uv1` spans the quad, sampled nearest.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a pixel centre inside the quad interpolates into 0..=1, so the texel \
+                  index is non-negative and clamped to the atlas"
+    )]
     fn glyph(
         &mut self,
         atlas: &atlas::GlyphAtlas,
@@ -170,9 +181,9 @@ fn put_row(terminal: &mut Terminal, row: u16, cells: &[CellRepr], seq: u32) {
     assert!(terminal.apply_presented_delta_seq(&frame, seq));
 }
 
-fn put_grid_cell(terminal: &mut Terminal, row: usize, col: usize, cell: Cell) {
-    terminal.term.grid_mut()[Point::new(Line(row as i32), Column(col))] = cell;
-    terminal.note_damaged_row(row as u16);
+fn put_grid_cell(terminal: &mut Terminal, row: u16, col: usize, cell: Cell) {
+    terminal.term.grid_mut()[Point::new(Line(i32::from(row)), Column(col))] = cell;
+    terminal.note_damaged_row(row);
 }
 
 fn text(s: &str, fg: [u8; 3], bg: [u8; 3], attrs: CellAttrs) -> Vec<CellRepr> {
@@ -312,10 +323,16 @@ fn wide_and_builtin_scene() -> Terminal {
     row4.push(placeholder);
     row4.extend(text("img", fg, bg, CellAttrs::NONE));
     put_row(&mut terminal, 4, &row4, 5);
-    // A wide character written straight into the grid with its spacer, and
-    // a builtin glyph made wide the same way.
+    put_wide_grid_cells(&mut terminal);
+    inject_wide_bitmaps(&mut terminal);
+    terminal
+}
+
+/// A wide character written straight into the grid with its spacer, and a
+/// builtin glyph made wide the same way.
+fn put_wide_grid_cells(terminal: &mut Terminal) {
     put_grid_cell(
-        &mut terminal,
+        terminal,
         3,
         10,
         Cell {
@@ -325,7 +342,7 @@ fn wide_and_builtin_scene() -> Terminal {
         },
     );
     put_grid_cell(
-        &mut terminal,
+        terminal,
         3,
         11,
         Cell {
@@ -336,7 +353,7 @@ fn wide_and_builtin_scene() -> Terminal {
         },
     );
     put_grid_cell(
-        &mut terminal,
+        terminal,
         3,
         14,
         Cell {
@@ -346,7 +363,7 @@ fn wide_and_builtin_scene() -> Terminal {
         },
     );
     put_grid_cell(
-        &mut terminal,
+        terminal,
         3,
         15,
         Cell {
@@ -355,16 +372,18 @@ fn wide_and_builtin_scene() -> Terminal {
             ..Cell::default()
         },
     );
+}
+
+fn inject_wide_bitmaps(terminal: &mut Terminal) {
     // The bundled faces lack these; give them the bitmaps the Canvas 2D
     // pass would, two cells wide.
     for (index, c) in ['漢', '字', '界'].into_iter().enumerate() {
         let (width, height) = (14_u16, 16_u16);
         let pixels: Vec<u8> = (0..usize::from(width) * usize::from(height))
-            .map(|texel| ((texel * 37 + index * 91) % 256) as u8)
+            .map(|texel| (texel * 37 + index * 91).to_le_bytes()[0])
             .collect();
         assert!(terminal.inject_glyph(c as u32, 0, width, height, 1, -13, &pixels));
     }
-    terminal
 }
 
 fn cursor_scene(shape: u8) -> Terminal {
@@ -389,9 +408,9 @@ fn cursor_scene(shape: u8) -> Terminal {
 fn tail_prediction_scene() -> Terminal {
     let mut terminal = terminal_with_atlas(12, 2);
     train_shadow_text(&mut terminal, "ab");
-    for (index, c) in "cd ef".chars().enumerate() {
+    for (input_seq, c) in (10_u32..).zip("cd ef".chars()) {
         assert_ne!(
-            terminal.predict_printable(c as u32, 200.0 + index as f64, 10 + index as u32, true),
+            terminal.predict_printable(c as u32, 190.0 + f64::from(input_seq), input_seq, true),
             0
         );
     }
@@ -444,7 +463,9 @@ fn preedit_scene() -> Terminal {
     );
     let frame = test_cursor_frame(12, 2, 2, 0, CURSOR_SHAPE_BEAM, 1);
     assert!(terminal.apply_presented_delta_seq(&frame, 2));
-    let pixels: Vec<u8> = (0..14 * 16).map(|texel| (texel * 53 % 256) as u8).collect();
+    let pixels: Vec<u8> = (0..14 * 16_usize)
+        .map(|texel| (texel * 53).to_le_bytes()[0])
+        .collect();
     assert!(terminal.inject_glyph('か' as u32, 0, 14, 16, 1, -13, &pixels));
     terminal.set_preedit("か な\u{301}x", 5);
     terminal
@@ -508,14 +529,24 @@ fn decoration_covers(record: [u32; 3], local: [f32; 2], width: f32, ch: f32) -> 
     }
 }
 
+/// The pixel extent of `cells` cells of `size` pixels each.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "cell sizes are whole, positive pixel counts (apply_cell_metrics_to_atlas)"
+)]
+fn pixels(cells: usize, size: f32) -> usize {
+    cells * size as usize
+}
+
 /// Draw the three text passes over the cell records and then the overlay,
 /// as the renderer orders them, then the cursor.
 fn render(terminal: &mut Terminal) -> Canvas {
     terminal.build_presented_geometry();
     let atlas = terminal.atlas.as_ref().expect("atlas");
     let [cw, ch, baseline, highlight @ ..] = terminal.geometry_params;
-    let width = terminal.presentation_grid.columns() * cw as usize;
-    let height = terminal.presentation_grid.screen_lines() * ch as usize;
+    let width = pixels(terminal.presentation_grid.columns(), cw);
+    let height = pixels(terminal.presentation_grid.screen_lines(), ch);
     let mut canvas = Canvas::new(width, height, terminal.theme.background);
     let records: Vec<[u32; 3]> = terminal
         .cell_buf
@@ -531,7 +562,10 @@ fn render(terminal: &mut Terminal) -> Canvas {
             (record[2] >> CELL_ROW_SHIFT) as f32 * ch,
         ]
     };
-    let rgb = |word: u32| rgb_to_f32([word as u8, (word >> 8) as u8, (word >> 16) as u8]);
+    let rgb = |word: u32| {
+        let [r, g, b, _] = word.to_le_bytes();
+        rgb_to_f32([r, g, b])
+    };
     for record in &records {
         if record[1] & CELL_BACKGROUND != 0 {
             let [x, y] = origin(*record);
@@ -551,10 +585,7 @@ fn render(terminal: &mut Terminal) -> Canvas {
         let entry = &atlas.table[(id as usize - 1) * atlas::GLYPH_TABLE_WORDS..][..3];
         let at = [(entry[0] & 0xffff) as f32, (entry[0] >> 16) as f32];
         let size = [(entry[1] & 0xffff) as f32, (entry[1] >> 16) as f32];
-        let bearing = [
-            f32::from(entry[2] as u16 as i16),
-            f32::from((entry[2] >> 16) as u16 as i16),
-        ];
+        let bearing = table_bearing(entry[2]);
         let dims = [atlas.atlas_w as f32, atlas.atlas_h as f32];
         let [x, y] = origin(*record);
         let alpha = match record[1] & (3 << 26) {
