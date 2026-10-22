@@ -592,10 +592,57 @@ Copies from history follow the ledger both ends keep:
   proves nothing about the browser's history and retires nothing (prevents a refused source
   looping, and a lossy link discarding every source).
 
+The partition planner learns entropy prices per row entry, in 1/256-bit units, rather
+than learning a packet's compression ratio. Every ordinary fitting attempt contributes its
+selected prior's row prices, including an oversized candidate and an output discarded because
+it did not shrink. Snapshot attempts contribute the same observations. Static-prior prices
+sum the frequency ranges already recorded by the forward pass; session-prior prices are
+collected during that pass. No separate encode runs to scout a missing key.
+
+A peer keeps row totals by acknowledged-history and usable-session availability, raw row size,
+content class and first/continuation position. Exact raw length and the captured counts of
+cells, visible cells and styled cells refine those populations. A missing exact key reads its
+population estimate; an empty position uses the observed sibling position. When neither has
+observations, the row prior is 0.5. The model stores real observations only. History availability
+does not prove that a particular row has a matching source, and a continuation's adaptive and
+copy state still depends on the entries before it: these are conditional estimates. The exact-key
+map grows as new keys are observed. Each exact content/length key holds a fixed eight-slot
+block for its history/session and first/continuation combinations. Both positions share one
+lookup. Integer totals update their cached ratio when an observation arrives; replanning reads
+that ratio without repeating the division.
+
+Both delta and snapshot selectors sum their rows' predicted costs. They add the packing-header
+reservation, decoded-length field, prior byte, outstanding epoch declaration and one or two
+rANS states. The physical cost functions add Noise framing, channel or reliable-record framing
+and the selected FEC group's repair shape. Packet rounding and payload padding are not learned.
+The header reservation still bounds predecessor fields that are stamped at admission.
+
+The planner scores a complete utility run using the carrier quote, serialization, sender
+preparation service, receiver service and debt, and each FEC or reliable group's recovery tail.
+Within a solve, row prices are computed once for each position. The suffix pass prices every
+feasible contiguous span before the frontier pass reads it; both passes use the same choices
+from a preallocated triangular table covering every span of the maximum legal row count. The
+table is overwritten for each carrier/profile invocation, so observations and successor facts
+cannot reuse a price from another solve. Arithmetic order and equal-score selection are unchanged.
+The planner carries an already emitted open FEC group into suffix replans and compares complete
+schedules on both available carriers. When another independent frame is known to wait, the score also
+charges the delay its physical data and repair bytes impose on that successor: bytes times
+8 divided by the carrier's pacing rate, or its window/RTT rate when window-limited. A relayed
+carrier uses its slowest serial bottleneck for this additional delay. This term is separate
+from the current run's own predicted delivery latency.
+
+A later captured utility run is already waiting work, even when it shares the presentation.
+For an active asynchronous capture, the owner also compares the live row hashes and header
+with that capture after the shared hash refresh. A changed state with a grant, a free output
+run or causal-input permission is a waiting successor; a banked grant alone is not. The worker
+samples this fact for its solve. Snapshots use the same capture identity and signal. Their
+chunks assemble one frame, so a following chunk alone is not a successor. With no known
+successor the additional byte-delay term is zero; future PTY output is not predicted.
+
 When the edge is the primary display carrier, an eligible critical datagram gets one bounded
 compression attempt, taken only when it saves enough bytes or keeps the frame out of the reliable
 jumbo lane. Direct critical datagrams and relayed noncritical datagrams do not pay that extra
-attempt; stream and bulk delta workloads keep adaptive compression.
+payload-selection attempt. Stream and bulk delta workloads keep adaptive compression.
 
 ## One wrap bit per row
 

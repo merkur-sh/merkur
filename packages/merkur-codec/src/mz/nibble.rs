@@ -296,9 +296,33 @@ static LOG2_MANTISSA: [u16; 128] = {
 /// price for a choice, never a coded value.
 #[inline]
 pub(super) fn cost(freq: u32) -> u32 {
-    let lz = 31 - freq.max(1).leading_zeros();
-    let mantissa = ((freq << (31 - lz)) >> 24) & 0x7f;
-    (PROB_BITS - lz) * 256 - LOG2_MANTISSA.get(mantissa as usize).map_or(0, |&log| u32::from(log))
+    // CDF frequencies are bounded by the probability precision. Include the
+    // full-scale endpoint as well as every adaptive CDF gap.
+    // SAFETY: a CDF gap is at most PROB_SCALE, including the full-scale
+    // endpoint tested below. Recorded ranges retain the same gap.
+    u32::from(unsafe { *SYMBOL_PRICES.get_unchecked(freq as usize) })
+}
+
+static SYMBOL_PRICES: [u16; PROB_SCALE as usize + 1] = {
+    let mut prices = [0; PROB_SCALE as usize + 1];
+    let mut frequency = 0usize;
+    while frequency < prices.len() {
+        let freq = if frequency == 0 { 1 } else { frequency as u32 };
+        let log = 31 - freq.leading_zeros();
+        let mantissa = ((freq << (31 - log)) >> 24) & 0x7f;
+        prices[frequency] = ((PROB_BITS - log) * 256 - LOG2_MANTISSA[mantissa as usize] as u32) as u16;
+        frequency += 1;
+    }
+    prices
+};
+
+#[test]
+fn symbol_price_lookup_matches_the_integer_definition_for_every_frequency() {
+    for freq in 0..=PROB_SCALE {
+        let log = 31 - freq.max(1).leading_zeros();
+        let mantissa = ((freq << (31 - log)) >> 24) & 0x7f;
+        assert_eq!(cost(freq), (PROB_BITS - log) * 256 - u32::from(LOG2_MANTISSA[mantissa as usize]));
+    }
 }
 
 /// One key's working tables within a frame.

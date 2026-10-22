@@ -810,8 +810,19 @@ pub struct MzEncoder {
     trace: Vec<u32>,
     trial: Vec<u8>,
     trial_trace: Vec<u32>,
+    row_costs: Vec<MzRowCost>,
+    trial_row_costs: Vec<MzRowCost>,
     /// The epoch declaration the next payloads carry.
     declaration: Option<MzEpochDeclaration>,
+}
+
+/// One row entry's forward entropy price, excluding packet framing and states.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MzRowCost {
+    pub row: u16,
+    pub raw_bytes: usize,
+    /// Units of 1/256 bit, summed over the selected encoding's symbols.
+    pub bits: u64,
 }
 
 /// What one encode produced.
@@ -861,16 +872,19 @@ impl MzEncoder {
         let mut trial = std::mem::take(&mut self.trial);
         trial.clear();
         let session_trace = std::mem::replace(&mut self.trace, std::mem::take(&mut self.trial_trace));
+        let session_rows = std::mem::replace(&mut self.row_costs, std::mem::take(&mut self.trial_row_costs));
         let result = self.encode_with(rows, row_count, history, model, 0, &mut trial);
         let chosen = match result {
             Some((_, copies, _)) if trial.len() < out.len() - base => {
                 out.truncate(base);
                 out.extend_from_slice(&trial);
                 self.trial_trace = session_trace;
+                self.trial_row_costs = session_rows;
                 MzEncoded { rows_len, prior: 0, history_copies: copies }
             }
             _ => {
                 self.trial_trace = std::mem::replace(&mut self.trace, session_trace);
+                self.trial_row_costs = std::mem::replace(&mut self.row_costs, session_rows);
                 encoded
             }
         };
@@ -884,6 +898,11 @@ impl MzEncoder {
         &self.trace
     }
 
+    /// Entry prices for the last chosen payload, in entry order.
+    pub fn row_costs(&self) -> &[MzRowCost] {
+        &self.row_costs
+    }
+
     fn encode_with<P: Prior>(
         &mut self,
         rows: &[u8],
@@ -895,6 +914,7 @@ impl MzEncoder {
     ) -> Option<(usize, bool, u64)> {
         self.tables.begin();
         self.coded.clear();
+        self.row_costs.clear();
         self.trace.clear();
         self.frame.clear();
         self.pairs.clear();
@@ -909,6 +929,8 @@ impl MzEncoder {
         let mut at = 0usize;
         let mut history_copies = false;
         for row_index in 0..row_count {
+            let before_bits = coder.bits;
+            let before_ranges = coder.coded.len();
             let start = at;
             let entry_rest = rows.get(start..)?;
             let (first, mode) = entry_items(entry_rest, &mut self.entry_items)?;
@@ -953,6 +975,10 @@ impl MzEncoder {
                 &sources,
                 history,
             )?;
+            if !P::PRICE_ENCODE {
+                coder.bits += coder.coded[before_ranges..].iter().map(|range| u64::from(nibble::cost(range >> 16))).sum::<u64>();
+            }
+            self.row_costs.push(MzRowCost { row: target_row, raw_bytes: len, bits: coder.bits - before_bits });
             at = start + len;
             // The last entry has no later target to index it for.
             if row_index + 1 == row_count {

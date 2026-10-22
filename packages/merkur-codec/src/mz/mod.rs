@@ -17,7 +17,7 @@ pub mod train;
 
 pub use frame::{
     MZ_TWO_STATE_MIN_ROW_BYTES, MzCandidate, MzDecoder, MzEncoded, MzEncoder, MzError, MzItem,
-    MzMatches, MzRow, MzSources, NoHistory, encode_full_row_entry, entry_items,
+    MzMatches, MzRow, MzRowCost, MzSources, NoHistory, encode_full_row_entry, entry_items,
     full_row_entry_bytes, item_hash, pair_hash,
 };
 pub use history::{
