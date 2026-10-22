@@ -57,7 +57,7 @@ pub(super) const fn field_of(key: u32) -> usize {
 
 /// Where a frame's tables start.
 pub(super) trait Prior {
-    /// Whether the forward encode needs a price for prior selection.
+    /// Whether the forward encode collects symbol prices.
     const PRICE_ENCODE: bool;
     fn hi(&self, key: u32) -> &Cdf;
     fn lo(&self, key: u32, h: usize) -> &Cdf;

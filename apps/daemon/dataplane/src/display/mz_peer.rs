@@ -17,7 +17,7 @@ use merkur_codec::mz::{
 };
 use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hasher};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// A fact the owner loop learned about what the browser holds.
@@ -53,10 +53,31 @@ pub(crate) struct PeerMz {
     /// The oldest datagram of the current generation the browser's history may
     /// still hold, plus one (zero: none recorded yet).
     floor: AtomicU32,
+    capture: Mutex<(Vec<u64>, u128)>,
+    successor: AtomicBool,
     state: Mutex<MzPeerState>,
 }
 
 impl PeerMz {
+    /// Exact captured grid/header identity. Only the owner writes this buffer;
+    /// the worker reads the successor fact without taking its lock.
+    pub(crate) fn capture(&self, hashes: &[u64], header: u128) {
+        let mut capture = self.capture.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        capture.0.clear();
+        capture.0.extend_from_slice(hashes);
+        capture.1 = header;
+        self.successor.store(false, Ordering::Release);
+    }
+
+    pub(crate) fn pending(&self, hashes: &[u64], header: u128, permitted: bool) {
+        let capture = self.capture.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.successor.store(permitted && (capture.0 != hashes || capture.1 != header), Ordering::Release);
+    }
+
+    pub(crate) fn successor_waiting(&self) -> bool {
+        self.successor.load(Ordering::Acquire)
+    }
+
     pub(crate) fn push(&self, fact: MzFact) {
         if let Ok(mut facts) = self.facts.lock() {
             facts.push(fact);
@@ -147,6 +168,7 @@ impl Hasher for PairHasher {
 #[derive(Default)]
 pub(crate) struct MzPeerState {
     fact_spare: Vec<MzFact>,
+    pub(crate) row_cost_model: super::planner::RowCostModel,
     /// The current display generation, and the one before it whose rows are
     /// still copied (0: none).
     generation: u32,
@@ -197,6 +219,14 @@ fn older(a: u32, b: u32) -> bool {
 }
 
 impl MzPeerState {
+    pub(crate) fn row_regime(&self) -> usize {
+        usize::from(!self.sources.is_empty()) | (usize::from(self.session().is_some()) << 1)
+    }
+
+    pub(crate) fn row_profiles(&self, profiles: &mut [super::planner::PeerPlanningSnapshot; 3]) {
+        self.row_cost_model.apply(self.row_regime(), profiles);
+    }
+
     fn apply(&mut self, fact: MzFact) {
         match fact {
             MzFact::Applied { seq, rows, coded, declared } => {
@@ -509,3 +539,24 @@ pub(crate) fn recorded_rows<'a>(rows: impl IntoIterator<Item = &'a SentRow>) -> 
 
 /// One peer's handle, shared by the owner loop and the prepare thread.
 pub(crate) type SharedPeerMz = Arc<PeerMz>;
+
+#[cfg(test)]
+mod successor_tests {
+    #[test]
+    fn a_successor_requires_both_changed_state_and_send_permission() {
+        let peer = super::PeerMz::default();
+        peer.capture(&[1, 2], 3);
+        peer.pending(&[1, 2], 3, true);
+        assert!(!peer.successor_waiting(), "a banked grant is not demand");
+        peer.pending(&[1, 4], 3, false);
+        assert!(!peer.successor_waiting(), "changed rows still need permission");
+        peer.pending(&[1, 4], 3, true);
+        assert!(peer.successor_waiting());
+        peer.pending(&[1, 2], 3, true);
+        assert!(!peer.successor_waiting(), "a reverted mutation needs no successor");
+        peer.pending(&[1, 2], 5, true);
+        assert!(peer.successor_waiting(), "a changed header is display state");
+        peer.capture(&[1, 2], 5);
+        assert!(!peer.successor_waiting());
+    }
+}

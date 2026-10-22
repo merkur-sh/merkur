@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 pub struct Compressor {
     mz: MzEncoder,
+    row_costs_valid: bool,
     /// Profiling-only accumulator around the complete compression stage,
     /// including validation and rejected outputs. Disabled in normal operation,
     /// so an unprofiled attempt pays one predictable false branch and no clock.
@@ -57,6 +58,7 @@ impl Compressor {
     pub fn new() -> Self {
         Self {
             mz: MzEncoder::default(),
+            row_costs_valid: false,
             timing_enabled: false,
             timed_compression: Duration::ZERO,
             #[cfg(test)]
@@ -126,12 +128,17 @@ impl Compressor {
         self.mz.trace()
     }
 
+    pub(crate) fn row_costs(&self) -> &[merkur_codec::mz::MzRowCost] {
+        if self.row_costs_valid { self.mz.row_costs() } else { &[] }
+    }
+
     fn compress_mz(
         &mut self,
         frame: &[u8],
         peer: Option<&mut MzContext<'_>>,
         out: &mut Vec<u8>,
     ) -> Option<CompressedFrame> {
+        self.row_costs_valid = false;
         out.clear();
         let rows_offset = STREAM_HEADER_BYTES + FRAME_HEADER_BODY_BYTES;
         if frame.len() <= rows_offset
@@ -176,6 +183,7 @@ impl Compressor {
             }
             None => self.mz.encode(rows, row_count, &NoHistory, None, None, out)?,
         };
+        self.row_costs_valid = true;
         let frame_len = out.len();
         if frame_len >= frame.len()
             || rows_offset + encoded.rows_len > merkur_codec::MAX_DISPLAY_FRAME_BYTES
