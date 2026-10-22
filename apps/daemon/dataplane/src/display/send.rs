@@ -34,7 +34,7 @@ use crate::connection::{SimDatagramMetadata, SimDatagramRole};
 use crate::display::clock::FlushClock;
 use crate::display::compressor::{Compressor, MzContext};
 use crate::connection::SentMz;
-use crate::display::mz_peer::SharedPeerMz;
+use crate::display::mz_peer::{MzPeerState, SharedPeerMz};
 
 use crate::DISPLAY_DIAGNOSTIC_LARGE_FRAME_BYTES;
 use crate::display::credit::{DemandStamp, DisplayAdmission, PreparedDemand};
@@ -47,7 +47,8 @@ use crate::display::planner::{
     GlobalDisplayPlanningModel, PeerPlanningSnapshot, PlannedRow, PlannerWorkspace,
     PlanningContext, Representation, choose_after_compression, content_class_by_bytes,
     display_repair_wire_len, encoded_record_cost_us, fec_recovery_shard_count, group_close_cost_us,
-    plan_batch_partitions, should_attempt_compression as planner_should_attempt_compression,
+    plan_batch_partitions, predicted_packet_bytes,
+    should_attempt_compression as planner_should_attempt_compression,
 };
 use crate::display::policy::{DisplayPolicy, DisplayWorkload, compute_display_workload};
 use crate::network::peer::ReliablePayload;
@@ -2321,6 +2322,54 @@ fn cancelled_display_prepare(request: DisplayPrepareRequest) -> DisplayPrepareCo
     }
 }
 
+/// What MZ is predicted to make of one snapshot chunk, in plaintext bytes,
+/// from each row's learned price.
+fn predict_snapshot_chunk(
+    raw: &[u8],
+    grid: &[CellRepr],
+    cols: u16,
+    state: &MzPeerState,
+    profile: PeerPlanningSnapshot,
+) -> usize {
+    let mut profiles = [profile; 3];
+    state.row_profiles(&mut profiles);
+    let regime = state.row_regime();
+    let (header, offset) = merkur_codec::parse_frame_header_and_rows_start(raw)
+        .expect("owner-produced snapshot header");
+    let mut predicted_rows = 0.0;
+    let mut row_bytes = 0;
+    for (position, entry) in merkur_codec::iter_rows_at(raw, offset, header.row_count).enumerate() {
+        let entry = entry.expect("owner-produced snapshot row");
+        let start = usize::from(entry.row_index) * usize::from(cols);
+        let mut evidence = ContentEvidence::default();
+        evidence.observe(&grid[start..start + usize::from(cols)]);
+        let profile = profiles[evidence.class().index()];
+        let first = position == 0;
+        let scale = state.row_cost_model.price_scale(regime, evidence, entry.len, profile);
+        predicted_rows += profile.row_price(entry.len, first) * scale[usize::from(first)];
+        row_bytes += entry.len;
+    }
+    predicted_packet_bytes(predicted_rows, wire_len(raw) - row_bytes, 0, row_bytes)
+}
+
+/// Teach the peer's row cost model what each row of the chunk just encoded cost.
+fn observe_snapshot_row_costs(
+    state: &mut MzPeerState,
+    compressor: &Compressor,
+    grid: &[CellRepr],
+    cols: u16,
+) {
+    let regime = state.row_regime();
+    for (index, cost) in compressor.row_costs().iter().enumerate() {
+        let start = usize::from(cost.row) * usize::from(cols);
+        if let Some(cells) = grid.get(start..start + usize::from(cols)) {
+            let mut evidence = ContentEvidence::default();
+            evidence.observe(cells);
+            state.row_cost_model.observe(regime, index == 0, evidence, *cost);
+        }
+    }
+}
+
 fn prepare_snapshot_off_loop(
     request: SnapshotPrepareRequest,
     compressor: &mut Compressor,
@@ -2370,34 +2419,8 @@ fn prepare_snapshot_off_loop(
         peer.mz_trust = mz_state.trust();
         let mut mz_context = MzContext { state: &mut mz_state, presentation_id: 0, snapshot: true };
         for raw in &raw_chunks {
-            let mut profiles = [peer.profile; 3];
-            mz_context.state.row_profiles(&mut profiles);
-            let (raw_header, offset) = merkur_codec::parse_frame_header_and_rows_start(raw)
-                .expect("owner-produced snapshot header");
-            let mut predicted_rows = 0.0;
-            let mut row_bytes = 0;
-            for (position, entry) in
-                merkur_codec::iter_rows_at(raw, offset, raw_header.row_count).enumerate()
-            {
-                let entry = entry.expect("owner-produced snapshot row");
-                let start = usize::from(entry.row_index) * usize::from(cols);
-                let mut evidence = ContentEvidence::default();
-                evidence.observe(&snapshot_grid[start..start + usize::from(cols)]);
-                let profile = profiles[evidence.class().index()];
-                let scale = mz_context.state.row_cost_model.price_scale(
-                    mz_context.state.row_regime(),
-                    evidence,
-                    entry.len,
-                    profile,
-                );
-                predicted_rows +=
-                    profile.row_price(entry.len, position == 0) * scale[usize::from(position == 0)];
-                row_bytes += entry.len;
-            }
-            let states =
-                if row_bytes >= merkur_codec::mz::MZ_TWO_STATE_MIN_ROW_BYTES { 8 } else { 4 };
-            let predicted = (predicted_rows + (wire_len(raw) - row_bytes + 4 + 1 + states) as f64)
-                .ceil() as usize;
+            let predicted =
+                predict_snapshot_chunk(raw, &snapshot_grid, cols, mz_context.state, peer.profile);
             let should_attempt = planner_should_attempt_compression(
                 planner,
                 peer.profile,
@@ -2417,16 +2440,7 @@ fn prepare_snapshot_off_loop(
             let mut compressed = Vec::new();
             let coded =
                 compressor.compress_display_rows_into(raw, Some(&mut mz_context), &mut compressed);
-            let regime = mz_context.state.row_regime();
-            for (index, cost) in compressor.row_costs().iter().enumerate() {
-                let start = usize::from(cost.row) * usize::from(cols);
-                if let Some(cells) = snapshot_grid.get(start..start + usize::from(cols)) {
-                    let mut evidence = ContentEvidence::default();
-                    evidence.observe(cells);
-                    mz_context.state.row_cost_model.observe(regime, index == 0, evidence, *cost);
-                }
-            }
-
+            observe_snapshot_row_costs(mz_context.state, compressor, &snapshot_grid, cols);
             planner.observe_sender_service(
                 ExecutionLane::Bulk,
                 wire_len(raw),
