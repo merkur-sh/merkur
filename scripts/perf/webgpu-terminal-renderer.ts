@@ -3,7 +3,7 @@
 const GLYPH_GAMMA_DARK_FOREGROUND = 1.45;
 const GLYPH_GAMMA_LIGHT_FOREGROUND = 0.69;
 
-import type { GeometryVersions } from '../../apps/web/src/terminal-renderer';
+import type { GeometryVersions } from './historical-geometry';
 
 export const FIXTURE_COLUMNS = 100;
 export const FIXTURE_ROWS = 30;

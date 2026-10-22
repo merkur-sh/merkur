@@ -1,6 +1,6 @@
-//! Ignored profiles of the glyph atlas as the row geometry builder drives it.
+//! Ignored profiles of the glyph atlas as the cell record writer drives it.
 //!
-//! `append_row_geometry_into` calls `GlyphAtlas::get_or_rasterize` once for
+//! `write_row_cells` calls `GlyphAtlas::get_or_rasterize` once for
 //! every printable cell it does not draw as a builtin block element, spaces
 //! included, on every dirty-row rebuild. After first paint every one of those
 //! calls is a hit. The lookup profile replays a deterministic full screen of
@@ -200,17 +200,18 @@ fn builtin_glyph_profile() {
             .map(|key| key.codepoint)
             .filter(|codepoint| *codepoint > 31 && *codepoint != 127)
             .collect();
-        let (median, p95, rects) = time_per_call(401, || {
-            let mut rects = 0usize;
+        let (median, p95, builtins) = time_per_call(401, || {
+            let mut builtins = 0usize;
             for codepoint in black_box(&codepoints) {
                 if let Some(glyph) = builtin_cell_glyph(*codepoint) {
-                    rects += glyph.rects().len();
+                    black_box(glyph);
+                    builtins += 1;
                 }
             }
-            rects
+            builtins
         });
         println!(
-            "{label}: cells={} builtin_rects={rects} full-screen median={median:.0}ns p95={p95:.0}ns \
+            "{label}: cells={} builtins={builtins} full-screen median={median:.0}ns p95={p95:.0}ns \
              per_cell_median={:.2}ns",
             codepoints.len(),
             median / codepoints.len() as f64

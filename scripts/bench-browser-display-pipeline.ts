@@ -323,7 +323,7 @@ function runPipeline(
   if ('release' in entry && typeof entry.release === 'function') entry.release();
   if (!SKIP_GEOMETRY) viewerDriver.viewer.build_geometry();
   checksum ^=
-    viewerGeometry.glyphs() ^ viewerGeometry.cursors() ^ viewerDriver.viewer.applied_sequence();
+    viewerGeometry.records() ^ viewerGeometry.cursors() ^ viewerDriver.viewer.applied_sequence();
   seq = (seq + 1) >>> 0;
   if (seq === 0) seq = 1;
 }

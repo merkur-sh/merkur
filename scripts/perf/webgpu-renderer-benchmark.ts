@@ -1,4 +1,11 @@
 import { type Browser, chromium } from '@playwright/test';
+import {
+  CELL_BACKGROUND,
+  CELL_COLUMN_SHIFT,
+  CELL_ROW_SHIFT,
+  CELL_UNDERLINE,
+  CELL_WORDS,
+} from '../../apps/web/src/terminal/cell-records';
 import { emitPerfMetric, summarizeSamples } from './harness';
 
 export function rendererBenchmarkCount(name: string, fallback: number, minimum = 1): number {
@@ -75,7 +82,7 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
     const result = await Promise.race([
       page
         .evaluate(
-          async ({ mode, samples, warmups, repetitions, softwareGpu }) => {
+          async ({ mode, samples, warmups, repetitions, softwareGpu, layout }) => {
             type Constructor = typeof import('../../apps/web/src/renderer-webgpu').WebGpuRenderer;
             const Renderer = (globalThis as typeof globalThis & { __Renderer?: Constructor })
               .__Renderer;
@@ -99,36 +106,28 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
             const devicePrototype: object = Object.getPrototypeOf(probe);
             const queuePrototype: object = Object.getPrototypeOf(probe.queue);
             probe.destroy();
-            const fixture = new Float32Array(30 * 7 + 3000 * 14 + 7 + 8);
-            const bg = { ptr: 0, count: 30 };
-            const glyph = { ptr: 30 * 7 * 4, count: 3000 };
-            const deco = { ptr: (30 * 7 + 3000 * 14) * 4, count: 1 };
-            const cursor = { ptr: deco.ptr + 28, count: 1 };
-            const empty = { ptr: 0, count: 0 };
-            for (let row = 0; row < 30; row += 1)
-              fixture.set([0, row * 32, 1600, 32, 0.04, 0.06, 0.08], row * 7);
-            for (let index = 0; index < 3000; index += 1)
+            // 100x30 cells of 16x32: each a glyph over its background, every
+            // cell of the full variant underlined, then the glyph table and
+            // the cursor. One glyph table entry: the whole 8x8 atlas, its top
+            // 12 pixels below the cell's (baseline 26, bearing -14), x+6.
+            const records = 3000 * layout.words;
+            const fixture = new Uint32Array(records * 2 + 3 + 8);
+            const floats = new Float32Array(fixture.buffer);
+            const table = records * 2;
+            const cursorWord = table + 3;
+            for (let index = 0; index < 3000; index += 1) {
+              const glyph = 1 | ((index % 100) << layout.columnShift);
+              const color = 217 | (191 << 8) | (166 << 16);
+              const background =
+                (10 | (15 << 8) | (20 << 16) | (Math.floor(index / 100) << layout.rowShift)) >>> 0;
               fixture.set(
-                [
-                  (index % 100) * 16,
-                  Math.floor(index / 100) * 32,
-                  6,
-                  2,
-                  8,
-                  24,
-                  0,
-                  0,
-                  1,
-                  1,
-                  0.85,
-                  0.75,
-                  0.65,
-                  1,
-                ],
-                30 * 7 + index * 14,
+                [(glyph | layout.underline) >>> 0, (color | layout.background) >>> 0, background],
+                index * layout.words,
               );
-            fixture.set([0, 30, 1600, 2, 0.7, 0.5, 0.2], deco.ptr / 4);
-            fixture.set([48, 0, 16, 32, 0.8, 0.7, 0.6, 0], cursor.ptr / 4);
+              fixture.set([glyph, color, background], records + index * layout.words);
+            }
+            fixture.set([0, 8 | (8 << 16), 6 | ((-14 & 0xffff) << 16)], table);
+            floats.set([48, 0, 16, 32, 0.8, 0.7, 0.6, 0], cursorWord);
             const atlas = new Uint8Array(64);
             for (let i = 0; i < atlas.length; i += 1)
               atlas[i] = i % 8 === 1 || Math.floor(i / 8) === 1 ? 255 : 0;
@@ -232,19 +231,27 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
                   rejectCompletion?.(e);
                 },
               );
-              const v = {
-                bg: 0,
-                glyph: 0,
-                deco: 0,
-                cursor: 0,
-                bgDirtyOffset: 0,
-                bgDirtyCount: 30,
-                glyphDirtyOffset: 0,
-                glyphDirtyCount: 3000,
-                decoDirtyOffset: 0,
-                decoDirtyCount: 1,
-                cursorDirtyOffset: 0,
-                cursorDirtyCount: 1,
+              const viewport: [number, number] = [1600, 960];
+              // The glyph-cursor arm draws records without backgrounds or lines.
+              const geometry = {
+                cells: {
+                  ptr: Number(scenario === 'glyph-cursor') * records * 4,
+                  count: 3000,
+                  version: 0,
+                  dirtyOffset: 0,
+                  dirtyCount: 3000,
+                },
+                overlay: { ptr: 0, count: 0, version: 0, dirtyOffset: 0, dirtyCount: 0 },
+                cursor: {
+                  ptr: cursorWord * 4,
+                  count: 1,
+                  version: 0,
+                  dirtyOffset: 0,
+                  dirtyCount: 1,
+                },
+                glyphs: { ptr: table * 4, count: 1, epoch: 1 },
+                params: new Float32Array([16, 32, 26, 0, 0, 0]),
+                viewport,
               };
               const durations: number[] = [];
               const completionDurations: number[] = [];
@@ -261,25 +268,15 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
               const render = async () => {
                 if (error !== null) throw error;
                 if (scenario !== 'same-version') {
-                  v.bg += 1;
-                  v.glyph += 1;
-                  v.deco += 1;
-                  v.cursor += 1;
+                  geometry.cells.version += 1;
+                  geometry.cursor.version += 1;
                 }
                 const completion = new Promise<number>((accept, reject) => {
                   resolveCompletion = accept;
                   rejectCompletion = reject;
                 });
                 const started = performance.now();
-                const id = renderer.render(
-                  fixture.buffer,
-                  scenario === 'glyph-cursor' ? empty : bg,
-                  glyph,
-                  scenario === 'glyph-cursor' ? empty : deco,
-                  cursor,
-                  [1600, 960],
-                  v,
-                );
+                const id = renderer.render(fixture.buffer, geometry);
                 const ended = performance.now();
                 if (id === 0 || (await completion) !== id)
                   throw new Error('missing exact GPU completion');
@@ -287,7 +284,7 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
               };
               try {
                 if (mode === 'render') {
-                  fixture[cursor.ptr / 4 + 7] =
+                  floats[cursorWord + 7] =
                     scenario === 'glyph-cursor' ? 0 : scenario === 'all-pass' ? 1 : 2;
                   await renderer.init(canvas, 8, 8, [10, 15, 20]);
                   renderer.uploadAtlas(atlas, [0, 0, 8, 8], [8, 8]);
@@ -363,7 +360,8 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
                   assertPixel(1, 16, [10, 15, 20]);
                   assertPixel(7, 16, [217, 191, 166]);
                   assertPixel(6, 16, [159, 141, 122]);
-                  if (scenario !== 'glyph-cursor') assertPixel(2, 30, [179, 128, 51]);
+                  // Every full-variant cell is underlined on its last pixel row.
+                  if (scenario !== 'glyph-cursor') assertPixel(2, 31, [217, 191, 166]);
                   if (scenario === 'glyph-cursor') assertPixel(49, 16, [188, 184, 180]);
                   else if (scenario === 'all-pass') {
                     assertPixel(48, 16, [245, 240, 235]);
@@ -392,7 +390,20 @@ export async function runWebGpuRendererBenchmark(mode: 'init' | 'render'): Promi
             }
             return { identity, results };
           },
-          { mode, samples, warmups, repetitions, softwareGpu },
+          {
+            mode,
+            samples,
+            warmups,
+            repetitions,
+            softwareGpu,
+            layout: {
+              words: CELL_WORDS,
+              columnShift: CELL_COLUMN_SHIFT,
+              rowShift: CELL_ROW_SHIFT,
+              underline: CELL_UNDERLINE,
+              background: CELL_BACKGROUND,
+            },
+          },
         )
         .finally(() => {
           if (timer !== undefined) clearTimeout(timer);

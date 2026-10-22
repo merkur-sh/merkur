@@ -53,7 +53,7 @@ function harness() {
 
     displaySurfaceResizePending: false,
     displaySurfaceReplacementPending: false,
-    geometryRenderState: { versions: { bg: 0, glyph: 0, deco: 0, cursor: 0 } },
+    geometryRenderState: { cells: { version: 0 }, overlay: { version: 0 }, cursor: { version: 0 } },
     perfEnabled: false,
     perfWriter: null,
     renderStateRevision: 0,

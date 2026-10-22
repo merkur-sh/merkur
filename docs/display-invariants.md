@@ -619,9 +619,10 @@ explicit default-color paint; implicit defaults still omit the color. Both decod
 the attribute, so captures, changed ranges, ACK baselines, repair and hashes retain it.
 
 WASM preserves explicit paint as a `Color::Spec` cell. Its receipt, ordering and presentation
-follow the same row transaction as text. Background geometry omits only an implicit default;
-explicit and inverse backgrounds still produce spans when their RGB matches the terminal
-clear color. The image compositor uses these spans between its lowest and middle image layers.
+follow the same row transaction as text. A cell record paints no background only for an
+implicit default; explicit and inverse backgrounds still paint when their RGB matches the
+terminal clear color. The image compositor draws these backgrounds between its lowest and
+middle image layers.
 
 ## Links are ids on cells, URIs on the control lane
 

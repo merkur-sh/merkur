@@ -28,8 +28,7 @@ export function instrumentReferenceRenderContent(source: string): string {
   const identifier = '[$A-Z_a-z][$\\w]*';
   const call = new RegExp(
     `(${identifier})\\.render\\((${identifier})\\.memory\\.buffer,` +
-      `(${identifier})\\.bg,\\3\\.glyph,\\3\\.deco,\\3\\.cursor,` +
-      '\\3\\.viewport,\\3\\.versions\\)',
+      `(${identifier}),${identifier}\\.geometry\\)`,
     'g',
   );
   const matches = [...source.matchAll(call)];

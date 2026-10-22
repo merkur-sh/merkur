@@ -69,7 +69,7 @@ fn presentation_hold_keeps_received_rows_and_cursor_out_of_forced_geometry_rebui
     );
     assert!(terminal.apply_presented_state_seq(&before, 1));
     terminal.build_geometry();
-    let glyphs = terminal.glyph_buf.clone();
+    let glyphs = terminal.drawn_text();
     let cursor = terminal.cursor_buf.clone();
     let revision = terminal.presentation_revision();
 
@@ -99,14 +99,14 @@ fn presentation_hold_keeps_received_rows_and_cursor_out_of_forced_geometry_rebui
     // hold. It must still read only the retained eligible cells/header.
     terminal.full_damage = true;
     terminal.build_geometry();
-    assert_eq!(terminal.glyph_buf, glyphs);
+    assert_eq!(terminal.drawn_text(), glyphs);
     assert_eq!(terminal.cursor_buf, cursor);
     assert_eq!(terminal.presentation_revision(), revision);
     assert_eq!(terminal.presentation_dirty_rows, [0]);
 
     terminal.commit_presentation_state();
     terminal.build_geometry();
-    assert_ne!(terminal.glyph_buf, glyphs);
+    assert_ne!(terminal.drawn_text(), glyphs);
     assert_ne!(terminal.cursor_buf, cursor);
     assert_eq!(terminal.presentation_row_version(0), 2);
     assert!(terminal.presentation_dirty_rows.is_empty());
@@ -119,7 +119,7 @@ fn presentation_hold_keeps_confirmed_prefix_visible_and_accepts_the_next_keystro
     terminal.build_geometry();
     assert_ne!(terminal.predict_printable('b' as u32, 101.0, 2, true), 0);
     terminal.build_geometry();
-    let before_echo = terminal.glyph_buf.clone();
+    let before_echo = terminal.drawn_text();
     let held_echo = test_frame_with_entries(
         FrameKind::Delta,
         20,
@@ -138,7 +138,7 @@ fn presentation_hold_keeps_confirmed_prefix_visible_and_accepts_the_next_keystro
     assert_eq!(terminal.reconcile_stats, [0, 0, 0, 0, 0, 1, 0]);
     assert!(terminal.has_predictions());
     terminal.build_geometry();
-    assert_eq!(terminal.glyph_buf, before_echo);
+    assert_eq!(terminal.drawn_text(), before_echo);
     assert_eq!(terminal.visible_prediction_input_seqs, [2]);
 
     assert_ne!(terminal.predict_printable('c' as u32, 111.0, 3, true), 0);
@@ -165,7 +165,7 @@ fn presentation_reconciles_the_echoed_prefix_when_input_coverage_runs_ahead() {
     terminal.build_geometry();
     assert_ne!(terminal.predict_printable('b' as u32, 101.0, 2, true), 0);
     terminal.build_geometry();
-    let before_echo = terminal.glyph_buf.clone();
+    let before_echo = terminal.drawn_text();
     let held_echo = test_frame_with_entries(
         FrameKind::Delta,
         20,
@@ -184,7 +184,7 @@ fn presentation_reconciles_the_echoed_prefix_when_input_coverage_runs_ahead() {
     assert_eq!(terminal.reconcile_stats, [0, 0, 0, 0, 0, 1, 0]);
     assert!(terminal.has_predictions());
     terminal.build_geometry();
-    assert_eq!(terminal.glyph_buf, before_echo);
+    assert_eq!(terminal.drawn_text(), before_echo);
     assert_eq!(terminal.visible_prediction_input_seqs, [2]);
 
     assert_ne!(terminal.predict_printable('c' as u32, 111.0, 3, true), 0);
@@ -216,7 +216,7 @@ fn presentation_received_contradiction_refuses_new_input_before_visual_grace_exp
         let mut terminal = terminal_with_atlas(20, 2);
         train_shadow_text(&mut terminal, "a");
         terminal.build_geometry();
-        let eligible = terminal.glyph_buf.clone();
+        let eligible = terminal.drawn_text();
         assert_ne!(terminal.predict_printable('b' as u32, 101.0, 2, true), 0);
         let held = test_frame_with_entries(
             FrameKind::Delta,
@@ -243,7 +243,7 @@ fn presentation_received_contradiction_refuses_new_input_before_visual_grace_exp
         // as a contradiction this refusal was itself provoked by.
         assert!(terminal.has_predictions());
         terminal.build_geometry();
-        assert_ne!(terminal.glyph_buf, eligible);
+        assert_ne!(terminal.drawn_text(), eligible);
         terminal.predict_reconcile(103.0 + PREDICTION_MISMATCH_GRACE_MS, 500.0, 2, 2);
         if cursor_col == 7 {
             // Only the cursor disagreed, and the refused `c` is not written
@@ -262,9 +262,9 @@ fn presentation_received_contradiction_refuses_new_input_before_visual_grace_exp
         assert!(!terminal.has_predictions());
         terminal.build_geometry();
         assert_eq!(
-            terminal.glyph_buf,
+            terminal.drawn_text(),
             if cursor_col == 7 {
-                terminal.glyph_buf.clone()
+                terminal.drawn_text()
             } else {
                 eligible
             }
@@ -333,7 +333,7 @@ fn presentation_security_revocation_clears_prediction_without_exposing_held_auth
     let mut terminal = terminal_with_atlas(20, 2);
     train_shadow_text(&mut terminal, "a");
     terminal.build_geometry();
-    let baseline_glyphs = terminal.glyph_buf.clone();
+    let baseline_glyphs = terminal.drawn_text();
     let baseline_cursor = terminal.cursor_buf.clone();
     assert_ne!(terminal.predict_printable('b' as u32, 101.0, 2, true), 0);
     terminal.build_geometry();
@@ -363,7 +363,7 @@ fn presentation_security_revocation_clears_prediction_without_exposing_held_auth
     assert_eq!(terminal.predict_printable('c' as u32, 102.0, 3, true), 0);
     assert_eq!(terminal.row_text(1), "X");
     terminal.build_geometry();
-    assert_eq!(terminal.glyph_buf, baseline_glyphs);
+    assert_eq!(terminal.drawn_text(), baseline_glyphs);
     assert_eq!(terminal.cursor_buf, baseline_cursor);
     assert!(terminal.visible_prediction_input_seqs.is_empty());
     assert!(terminal.presentation_header_pending);

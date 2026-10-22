@@ -1,15 +1,30 @@
 import { nextPowerOfTwo } from '@merkur/shared';
 import { GraphicsCompositor } from './graphics/compositor';
 import type { ImageScene } from './graphics/scene';
+import {
+  BUILTIN_MOSAIC,
+  CELL_ALPHA_DIM,
+  CELL_BACKGROUND,
+  CELL_BUILTIN,
+  CELL_COLUMN_SHIFT,
+  CELL_GLYPH_MASK,
+  CELL_PREEDIT,
+  CELL_ROW_SHIFT,
+  CELL_STRIKEOUT,
+  CELL_UNDERLINE,
+  CELL_WIDE,
+  CELL_WORDS,
+  GLYPH_TABLE_WORDS,
+} from './terminal/cell-records';
 import { SRGB_DECODE_WGSL, srgbToLinear } from './terminal/color-space';
+import type {
+  GeometryBuffer,
+  GeometryRenderState,
+  GlyphTableRange,
+} from './terminal/geometry-render-state';
 import { MAX_IN_FLIGHT_RENDER_FRAMES } from './terminal/render-mailbox';
 import { DEFAULT_TERMINAL_THEME } from './terminal/themes';
-import type {
-  GeometryBufferRange,
-  GeometryVersions,
-  GpuRenderer,
-  TerminalPreviewGeometry,
-} from './terminal-renderer';
+import type { GpuRenderer, TerminalPreviewGeometry } from './terminal-renderer';
 
 // Admission stops at these watermarks before preparing another transaction.
 // One already admitted transaction may cross them; it is validated against the
@@ -23,40 +38,81 @@ declare const GPUBufferUsage: {
   readonly UNIFORM: number;
   readonly COPY_DST: number;
   readonly VERTEX: number;
+  readonly STORAGE: number;
 };
 declare const GPUTextureUsage: { readonly TEXTURE_BINDING: number; readonly COPY_DST: number };
 declare const GPUShaderStage: { readonly VERTEX: number; readonly FRAGMENT: number };
 
-// The WASM geometry ABI stays unchanged: background/decorations are seven
-// floats, glyphs fourteen, and cursors eight. No full-grid JS extraction or copy.
+// A touch preview draws its cells and the cursor cell after them.
+const MAX_PREVIEW_CELLS = 11;
+const CELL_BYTES = CELL_WORDS * 4;
+const GLYPH_ENTRY_BYTES = GLYPH_TABLE_WORDS * 4;
+const MIN_GLYPH_TABLE_BYTES = 4096;
+// viewport, cell size, baseline, then the preedit highlight at its vec3 alignment.
+const UNIFORM_FLOATS = 12;
+
+// Every text pass draws one instance per cell record (`terminal/cell-records`),
+// the grid's records first and then the overlay's. A record positions itself
+// from its column and row; one that draws nothing in a pass collapses to a
+// point outside the viewport. Glyph rectangles and bearings come from the
+// glyph table, in atlas pixels, so atlas growth rewrites no record. Cursors
+// keep their eight-float instance.
 const SHADER = `
 ${SRGB_DECODE_WGSL}
-@group(0) @binding(0) var<uniform> viewport: vec2f;
+struct View {
+  viewport: vec2f,
+  cell: vec2f,
+  baseline: f32,
+  highlight: vec3f,
+};
+@group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var atlas_sampler: sampler;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var<storage, read> glyphs: array<u32>;
+const GLYPH_MASK = ${CELL_GLYPH_MASK}u;
+const COLUMN_SHIFT = ${CELL_COLUMN_SHIFT}u;
+const ROW_SHIFT = ${CELL_ROW_SHIFT}u;
+const WIDE = ${CELL_WIDE}u;
+const UNDERLINE = ${CELL_UNDERLINE}u;
+const STRIKEOUT = ${CELL_STRIKEOUT}u;
+const BUILTIN = ${CELL_BUILTIN}u;
+const BACKGROUND = ${CELL_BACKGROUND}u;
+const PREEDIT = ${CELL_PREEDIT}u;
+const ALPHA_SHIFT = ${Math.log2(CELL_ALPHA_DIM)}u;
+const MOSAIC = ${BUILTIN_MOSAIC}u;
+const OUTSIDE = vec4f(2, 2, 0, 1);
 fn corner(i: u32) -> vec2f {
   let corners = array<vec2f, 4>(vec2f(0,0), vec2f(1,0), vec2f(0,1), vec2f(1,1));
   return corners[i];
 }
 fn position(p: vec2f) -> vec4f {
-  return vec4f(p.x / viewport.x * 2.0 - 1.0, 1.0 - p.y / viewport.y * 2.0, 0, 1);
+  return vec4f(p.x / view.viewport.x * 2.0 - 1.0, 1.0 - p.y / view.viewport.y * 2.0, 0, 1);
+}
+fn origin(record: vec3u) -> vec2f {
+  return vec2f(f32((record.x >> COLUMN_SHIFT) & 0x1ffu), f32(record.z >> ROW_SHIFT)) * view.cell;
+}
+fn rgb(word: u32) -> vec3f {
+  return unpack4x8unorm(word).rgb;
+}
+fn background(record: vec3u) -> vec3f {
+  return select(rgb(record.z), view.highlight, (record.y & PREEDIT) != 0u);
 }
 struct SolidOutput {
   @builtin(position) position: vec4f,
   @location(0) color: vec3f,
 };
-@vertex fn solid(@builtin(vertex_index) i: u32, @location(0) rect: vec4f,
-  @location(1) color: vec3f) -> SolidOutput {
-  return SolidOutput(position(rect.xy + corner(i) * rect.zw), srgb_to_linear(color));
+@vertex fn cell_background(@builtin(vertex_index) i: u32, @location(0) record: vec3u) -> SolidOutput {
+  if ((record.y & BACKGROUND) == 0u) { return SolidOutput(OUTSIDE, vec3f(0)); }
+  return SolidOutput(position(origin(record) + corner(i) * view.cell), srgb_to_linear(background(record)));
 }
-@vertex fn encoded_solid(@builtin(vertex_index) i: u32, @location(0) rect: vec4f,
-  @location(1) color: vec3f) -> SolidOutput {
-  return SolidOutput(position(rect.xy + corner(i) * rect.zw), color);
+@vertex fn encoded_cell_background(@builtin(vertex_index) i: u32, @location(0) record: vec3u) -> SolidOutput {
+  if ((record.y & BACKGROUND) == 0u) { return SolidOutput(OUTSIDE, vec3f(0)); }
+  return SolidOutput(position(origin(record) + corner(i) * view.cell), background(record));
 }
-@fragment fn encoded_solid_fragment(v: SolidOutput) -> @location(0) vec4f {
+@fragment fn encoded_cell_background_fragment(v: SolidOutput) -> @location(0) vec4f {
   return vec4f(v.color, 1);
 }
-@fragment fn solid_fragment(v: SolidOutput) -> @location(0) vec4f {
+@fragment fn cell_background_fragment(v: SolidOutput) -> @location(0) vec4f {
   return vec4f(v.color, 1);
 }
 struct GlyphOutput {
@@ -65,15 +121,78 @@ struct GlyphOutput {
   @location(1) color: vec3f,
   @location(2) alpha: f32,
 };
-@vertex fn glyph(@builtin(vertex_index) i: u32, @location(0) cell: vec2f,
-  @location(1) offset: vec2f, @location(2) size: vec2f, @location(3) uv: vec4f,
-  @location(4) color: vec3f, @location(5) alpha: f32) -> GlyphOutput {
+@vertex fn cell_glyph(@builtin(vertex_index) i: u32, @location(0) record: vec3u) -> GlyphOutput {
+  let id = record.x & GLYPH_MASK;
+  if (id == 0u || (record.y & BUILTIN) != 0u) { return GlyphOutput(OUTSIDE, vec2f(0), vec3f(0), 0); }
+  let entry = (id - 1u) * 3u;
+  let at = glyphs[entry];
+  let extent = glyphs[entry + 1u];
+  let bearing = bitcast<i32>(glyphs[entry + 2u]);
+  let size = vec2f(f32(extent & 0xffffu), f32(extent >> 16u));
+  let offset = vec2f(f32(extractBits(bearing, 0u, 16u)), view.baseline + f32(extractBits(bearing, 16u, 16u)));
   let c = corner(i);
-  return GlyphOutput(position(cell + offset + c * size), mix(uv.xy, uv.zw, c), srgb_to_linear(color), alpha);
+  let alphas = array<f32, 4>(1.0, 0.72, 0.55, 1.0);
+  return GlyphOutput(
+    position(origin(record) + offset + c * size),
+    (vec2f(f32(at & 0xffffu), f32(at >> 16u)) + c * size) / vec2f(textureDimensions(atlas)),
+    srgb_to_linear(rgb(record.y)),
+    alphas[(record.y >> ALPHA_SHIFT) & 3u],
+  );
 }
-@fragment fn glyph_fragment(v: GlyphOutput) -> @location(0) vec4f {
+@fragment fn cell_glyph_fragment(v: GlyphOutput) -> @location(0) vec4f {
   let coverage = textureSample(atlas, atlas_sampler, v.uv).r;
   return vec4f(v.color, coverage * v.alpha);
+}
+struct DecorationOutput {
+  @builtin(position) position: vec4f,
+  @location(0) color: vec3f,
+  @location(1) @interpolate(flat) origin: vec2f,
+  @location(2) @interpolate(flat) record: vec2u,
+  @location(3) @interpolate(flat) width: f32,
+};
+@vertex fn cell_decoration(@builtin(vertex_index) i: u32, @location(0) record: vec3u) -> DecorationOutput {
+  if ((record.x & (UNDERLINE | STRIKEOUT)) == 0u && (record.y & (BUILTIN | PREEDIT)) == 0u) {
+    return DecorationOutput(OUTSIDE, vec3f(0), vec2f(0), vec2u(0), 0);
+  }
+  let width = view.cell.x * select(1.0, 2.0, (record.x & WIDE) != 0u);
+  let at = origin(record);
+  return DecorationOutput(
+    position(at + corner(i) * vec2f(width, view.cell.y)),
+    srgb_to_linear(rgb(record.y)),
+    at,
+    record.xy,
+    width,
+  );
+}
+fn inside(p: vec2f, low: vec2f, high: vec2f) -> bool {
+  return all(p >= low) && all(p < high);
+}
+// Lines, the preedit underline and builtin block shapes, tested at the pixel
+// centre so every edge falls exactly where the rectangle rasterizer put it.
+fn decorates(record: vec2u, p: vec2f, width: f32) -> bool {
+  let height = view.cell.y;
+  if ((record.x & UNDERLINE) != 0u && inside(p, vec2f(0, height - 1.0), vec2f(width, height))) { return true; }
+  if ((record.x & STRIKEOUT) != 0u &&
+      inside(p, vec2f(0, height * 0.5), vec2f(width, height * 0.5 + 1.0))) { return true; }
+  if ((record.y & PREEDIT) != 0u && inside(p, vec2f(0, height - 2.0), vec2f(width, height))) { return true; }
+  if ((record.y & BUILTIN) == 0u) { return false; }
+  let shape = record.x & GLYPH_MASK;
+  let cell = vec2f(width, height);
+  if ((shape & MOSAIC) == 0u) {
+    let low = vec2f(f32(shape & 15u), f32((shape >> 4u) & 15u)) * 0.125 * cell;
+    return inside(p, low, low + vec2f(f32((shape >> 8u) & 15u), f32((shape >> 12u) & 15u)) * 0.125 * cell);
+  }
+  let rows = (shape >> 8u) & 15u;
+  let part = vec2f(0.5, 1.0 / f32(rows));
+  for (var bit = 0u; bit < rows * 2u; bit++) {
+    let low = vec2f(f32(bit % 2u), f32(bit / 2u)) * part * cell;
+    if ((shape & (1u << bit)) != 0u && inside(p, low, low + part * cell)) { return true; }
+  }
+  return false;
+}
+@fragment fn cell_decoration_fragment(v: DecorationOutput) -> @location(0) vec4f {
+  if (!decorates(v.record, v.position.xy - v.origin, v.width)) { discard; }
+  return vec4f(v.color, 1);
 }
 struct CursorOutput {
   @builtin(position) position: vec4f,
@@ -96,25 +215,10 @@ struct CursorOutput {
   return vec4f(v.color, inside);
 }`;
 
-const SOLID_LAYOUT: GPUVertexBufferLayout = {
-  arrayStride: 28,
+const CELL_LAYOUT: GPUVertexBufferLayout = {
+  arrayStride: CELL_BYTES,
   stepMode: 'instance',
-  attributes: [
-    { shaderLocation: 0, offset: 0, format: 'float32x4' },
-    { shaderLocation: 1, offset: 16, format: 'float32x3' },
-  ],
-};
-const GLYPH_LAYOUT: GPUVertexBufferLayout = {
-  arrayStride: 56,
-  stepMode: 'instance',
-  attributes: [
-    { shaderLocation: 0, offset: 0, format: 'float32x2' },
-    { shaderLocation: 1, offset: 8, format: 'float32x2' },
-    { shaderLocation: 2, offset: 16, format: 'float32x2' },
-    { shaderLocation: 3, offset: 24, format: 'float32x4' },
-    { shaderLocation: 4, offset: 40, format: 'float32x3' },
-    { shaderLocation: 5, offset: 52, format: 'float32' },
-  ],
+  attributes: [{ shaderLocation: 0, offset: 0, format: 'uint32x3' }],
 };
 const CURSOR_LAYOUT: GPUVertexBufferLayout = {
   arrayStride: 32,
@@ -135,6 +239,10 @@ interface GeometryStorage {
   readonly stride: number;
   capacity: number;
   version: number;
+}
+
+function storage(stride: number): GeometryStorage {
+  return { buffer: null, stride, capacity: 0, version: -1 };
 }
 
 /**
@@ -214,45 +322,30 @@ export class WebGpuRenderer implements GpuRenderer {
   private bindLayout: GPUBindGroupLayout | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private uniform: GPUBuffer | null = null;
-  private readonly viewportData = new Float32Array(4);
-  private viewportDirty = true;
-  private solidPipeline: GPURenderPipeline | null = null;
-  private encodedSolidPipeline: GPURenderPipeline | null = null;
+  private readonly uniformData = new Float32Array(UNIFORM_FLOATS);
+  private uniformDirty = true;
+  private backgroundPipeline: GPURenderPipeline | null = null;
+  private encodedBackgroundPipeline: GPURenderPipeline | null = null;
   private glyphPipeline: GPURenderPipeline | null = null;
+  private decorationPipeline: GPURenderPipeline | null = null;
   private cursorPipeline: GPURenderPipeline | null = null;
-  private readonly background: GeometryStorage = {
-    buffer: null,
-    stride: 28,
-    capacity: 0,
-    version: -1,
+  private readonly cells: GeometryStorage = storage(CELL_BYTES);
+  private readonly overlay: GeometryStorage = storage(CELL_BYTES);
+  private readonly cursor: GeometryStorage = storage(32);
+  private readonly previewCells: GeometryStorage = storage(CELL_BYTES);
+  private readonly previewCursor: GeometryStorage = storage(32);
+  // Append-only within an epoch: only entries past `count` upload.
+  private glyphTable: GPUBuffer | null = null;
+  private glyphTableCapacity = 0;
+  private glyphTableEpoch = -1;
+  private glyphTableCount = 0;
+  private readonly previewRange: GeometryBuffer = {
+    ptr: 0,
+    count: 0,
+    version: 0,
+    dirtyOffset: 0,
+    dirtyCount: 0,
   };
-  private readonly glyphs: GeometryStorage = { buffer: null, stride: 56, capacity: 0, version: -1 };
-  private readonly decorations: GeometryStorage = {
-    buffer: null,
-    stride: 28,
-    capacity: 0,
-    version: -1,
-  };
-  private readonly cursor: GeometryStorage = { buffer: null, stride: 32, capacity: 0, version: -1 };
-  private readonly previewBackground: GeometryStorage = {
-    buffer: null,
-    stride: 28,
-    capacity: 0,
-    version: -1,
-  };
-  private readonly previewGlyphs: GeometryStorage = {
-    buffer: null,
-    stride: 56,
-    capacity: 0,
-    version: -1,
-  };
-  private readonly previewCursor: GeometryStorage = {
-    buffer: null,
-    stride: 32,
-    capacity: 0,
-    version: -1,
-  };
-  private readonly previewRange = { ptr: 0, count: 0 };
   private readonly clearValue: GPUColorDict = { r: 0, g: 0, b: 0, a: 1 };
   private attachment: GPURenderPassColorAttachment | null = null;
   private readonly encodedClearValue: GPUColorDict = { r: 0, g: 0, b: 0, a: 1 };
@@ -344,83 +437,44 @@ export class WebGpuRenderer implements GpuRenderer {
 
   render(
     memory: ArrayBuffer,
-    bg: GeometryBufferRange,
-    glyph: GeometryBufferRange,
-    deco: GeometryBufferRange,
-    cursor: GeometryBufferRange,
-    viewport: [number, number],
-    versions?: GeometryVersions,
+    geometry: GeometryRenderState,
     preview?: TerminalPreviewGeometry,
   ): number {
     if (this.failed) throw new Error('WebGPU renderer failed');
     if (!this.ready || this.device === null || this.context === null) return 0;
     if (!this.canSubmitFrame()) throw new Error('renderer submission exceeds admission budget');
-    if ((glyph.count > 0 || (preview?.glyphCount ?? 0) > 0) && !this.atlasReady)
+    if (geometry.glyphs.count > 0 && !this.atlasReady)
       throw new Error('glyph atlas must be uploaded before rendering');
     const device = this.device;
-    const [width, height] = viewport;
+    const [width, height] = geometry.viewport;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0)
       throw new RangeError('invalid terminal viewport');
     // All writes, encoding, and submit stay in this synchronous ownership turn.
     // Reusing these buffers after the preceding submit is queue-ordered and
     // does not require waiting for its completion promise.
-    this.uploadGeometry(
-      this.background,
-      memory,
-      bg,
-      versions?.bg,
-      versions?.bgDirtyOffset,
-      versions?.bgDirtyCount,
-    );
-    this.uploadGeometry(
-      this.glyphs,
-      memory,
-      glyph,
-      versions?.glyph,
-      versions?.glyphDirtyOffset,
-      versions?.glyphDirtyCount,
-    );
-    this.uploadGeometry(
-      this.decorations,
-      memory,
-      deco,
-      versions?.deco,
-      versions?.decoDirtyOffset,
-      versions?.decoDirtyCount,
-    );
-    this.uploadGeometry(
-      this.cursor,
-      memory,
-      cursor,
-      versions?.cursor,
-      versions?.cursorDirtyOffset,
-      versions?.cursorDirtyCount,
-    );
+    this.uploadGlyphTable(memory, geometry.glyphs);
+    this.uploadGeometry(this.cells, memory, geometry.cells);
+    this.uploadGeometry(this.overlay, memory, geometry.overlay);
+    this.uploadGeometry(this.cursor, memory, geometry.cursor);
     if (preview !== undefined) {
-      if (preview.bgCount > 1 || preview.glyphCount > 10 || preview.cursorCount > 1)
+      if (preview.cellCount > MAX_PREVIEW_CELLS || preview.cursorCount > 1)
         throw new RangeError('terminal preview exceeds bounded capacity');
-      this.uploadPreview(this.previewBackground, preview.bg, preview.bgCount, preview.version);
-      this.uploadPreview(this.previewGlyphs, preview.glyph, preview.glyphCount, preview.version);
+      this.uploadPreview(this.previewCells, preview.cells, preview.cellCount, preview.version);
       this.uploadPreview(this.previewCursor, preview.cursor, preview.cursorCount, preview.version);
     }
     if (
       this.uniform === null ||
-      this.solidPipeline === null ||
-      this.encodedSolidPipeline === null ||
+      this.backgroundPipeline === null ||
+      this.encodedBackgroundPipeline === null ||
       this.glyphPipeline === null ||
+      this.decorationPipeline === null ||
       this.cursorPipeline === null ||
       this.bindGroup === null ||
       this.attachment === null ||
       this.passDescriptor === null
     )
       throw new Error('WebGPU scene resources unavailable');
-    if (this.viewportDirty || this.viewportData[0] !== width || this.viewportData[1] !== height) {
-      this.viewportData[0] = width;
-      this.viewportData[1] = height;
-      device.queue.writeBuffer(this.uniform, 0, this.viewportData, 0, 2);
-      this.pendingUploadBytes += 8;
-      this.viewportDirty = false;
-    }
+    this.updateUniform(width, height, geometry.params);
     const encoder = device.createCommandEncoder();
     const graphicsWork = this.graphics?.prepare();
     if (graphicsWork !== undefined) {
@@ -433,18 +487,17 @@ export class WebGpuRenderer implements GpuRenderer {
     const imagesBelowText = (graphicsLayers & 3) !== 0;
     const imagesAboveText = (graphicsLayers & 4) !== 0;
     const encodedView = graphicsLayers === 0 ? null : surface.createView();
+    const cells = geometry.cells.count;
+    const overlay = geometry.overlay.count;
     this.attachment.view = imagesBelowText && encodedView !== null ? encodedView : linearView;
     this.attachment.loadOp = 'clear';
     this.attachment.clearValue = imagesBelowText ? this.encodedClearValue : this.clearValue;
     let pass = encoder.beginRenderPass(this.passDescriptor);
     if (imagesBelowText) this.graphics?.draw(pass, 0);
     pass.setBindGroup(0, this.bindGroup);
-    this.draw(
-      pass,
-      imagesBelowText ? this.encodedSolidPipeline : this.solidPipeline,
-      this.background,
-      bg.count,
-    );
+    const backgrounds = imagesBelowText ? this.encodedBackgroundPipeline : this.backgroundPipeline;
+    this.draw(pass, backgrounds, this.cells, cells);
+    this.draw(pass, backgrounds, this.overlay, overlay);
     if (imagesBelowText) {
       this.graphics?.draw(pass, 1);
       pass.end();
@@ -453,8 +506,10 @@ export class WebGpuRenderer implements GpuRenderer {
       pass = encoder.beginRenderPass(this.passDescriptor);
       pass.setBindGroup(0, this.bindGroup);
     }
-    this.draw(pass, this.glyphPipeline, this.glyphs, glyph.count);
-    this.draw(pass, this.solidPipeline, this.decorations, deco.count);
+    this.draw(pass, this.glyphPipeline, this.cells, cells);
+    this.draw(pass, this.glyphPipeline, this.overlay, overlay);
+    this.draw(pass, this.decorationPipeline, this.cells, cells);
+    this.draw(pass, this.decorationPipeline, this.overlay, overlay);
     if (imagesAboveText && encodedView !== null) {
       pass.end();
       this.attachment.view = encodedView;
@@ -462,9 +517,8 @@ export class WebGpuRenderer implements GpuRenderer {
       pass = encoder.beginRenderPass(this.passDescriptor);
       this.graphics?.draw(pass, 2);
       if (
-        cursor.count > 0 ||
-        (preview !== undefined &&
-          (preview.bgCount > 0 || preview.glyphCount > 0 || preview.cursorCount > 0))
+        geometry.cursor.count > 0 ||
+        (preview !== undefined && (preview.cellCount > 0 || preview.cursorCount > 0))
       ) {
         pass.end();
         this.attachment.view = linearView;
@@ -472,12 +526,24 @@ export class WebGpuRenderer implements GpuRenderer {
         pass.setBindGroup(0, this.bindGroup);
       }
     }
-    this.draw(pass, this.cursorPipeline, this.cursor, cursor.count);
-    if (preview !== undefined) {
-      this.draw(pass, this.solidPipeline, this.previewBackground, preview.bgCount);
-      this.draw(pass, this.glyphPipeline, this.previewGlyphs, preview.glyphCount);
-      this.draw(pass, this.cursorPipeline, this.previewCursor, preview.cursorCount);
+    this.draw(pass, this.cursorPipeline, this.cursor, geometry.cursor.count);
+    if (preview !== undefined && preview.cellCount > 0) {
+      this.draw(pass, this.backgroundPipeline, this.previewCells, preview.cellCount);
+      // A preview glyph never draws outside the cells it previews.
+      const [x = 0, y = 0, clipWidth = 0, clipHeight = 0] = preview.clip;
+      const left = Math.min(x, surface.width);
+      const top = Math.min(y, surface.height);
+      pass.setScissorRect(
+        left,
+        top,
+        Math.min(clipWidth, surface.width - left),
+        Math.min(clipHeight, surface.height - top),
+      );
+      this.draw(pass, this.glyphPipeline, this.previewCells, preview.cellCount);
+      pass.setScissorRect(0, 0, surface.width, surface.height);
     }
+    if (preview !== undefined)
+      this.draw(pass, this.cursorPipeline, this.previewCursor, preview.cursorCount);
     pass.end();
     this.submission[0] = encoder.finish();
     device.queue.submit(this.submission);
@@ -633,10 +699,17 @@ export class WebGpuRenderer implements GpuRenderer {
       // completion to retire.
       this.presentClearedSurface(device, gpuContext);
       this.uniform = device.createBuffer({
-        size: 16,
+        size: UNIFORM_FLOATS * 4,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
-      this.viewportDirty = true;
+      this.uniformDirty = true;
+      this.glyphTable = device.createBuffer({
+        size: MIN_GLYPH_TABLE_BYTES,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.glyphTableCapacity = MIN_GLYPH_TABLE_BYTES;
+      this.glyphTableEpoch = -1;
+      this.glyphTableCount = 0;
       this.sampler = device.createSampler({
         // Glyphs are rasterized at the physical display size, with integer
         // placement. Preserve their coverage rather than resampling the mask.
@@ -645,19 +718,39 @@ export class WebGpuRenderer implements GpuRenderer {
         addressModeU: 'clamp-to-edge',
         addressModeV: 'clamp-to-edge',
       });
+      const both = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
       this.bindLayout = device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
+          // The decoration fragment reads the cell height; the glyph vertex
+          // stage reads the atlas size and the glyph table.
+          { binding: 0, visibility: both, buffer: { type: 'uniform' } },
           { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-          { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+          { binding: 2, visibility: both, texture: { sampleType: 'float' } },
+          { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
         ],
       });
       const layout = device.createPipelineLayout({ bindGroupLayouts: [this.bindLayout] });
       const module = device.createShaderModule({ code: SHADER });
       const pipelines = await Promise.all([
-        this.createPipeline(device, layout, module, format, 'solid', SOLID_LAYOUT),
-        this.createPipeline(device, layout, module, 'rgba8unorm', 'encoded_solid', SOLID_LAYOUT),
-        this.createPipeline(device, layout, module, format, 'glyph', GLYPH_LAYOUT, COVERAGE_BLEND),
+        this.createPipeline(device, layout, module, format, 'cell_background', CELL_LAYOUT),
+        this.createPipeline(
+          device,
+          layout,
+          module,
+          'rgba8unorm',
+          'encoded_cell_background',
+          CELL_LAYOUT,
+        ),
+        this.createPipeline(
+          device,
+          layout,
+          module,
+          format,
+          'cell_glyph',
+          CELL_LAYOUT,
+          COVERAGE_BLEND,
+        ),
+        this.createPipeline(device, layout, module, format, 'cell_decoration', CELL_LAYOUT),
         this.createPipeline(
           device,
           layout,
@@ -669,8 +762,13 @@ export class WebGpuRenderer implements GpuRenderer {
         ),
       ]);
       this.assertInitialization(generation);
-      [this.solidPipeline, this.encodedSolidPipeline, this.glyphPipeline, this.cursorPipeline] =
-        pipelines;
+      [
+        this.backgroundPipeline,
+        this.encodedBackgroundPipeline,
+        this.glyphPipeline,
+        this.decorationPipeline,
+        this.cursorPipeline,
+      ] = pipelines;
       this.replaceAtlas();
       if (this.atlas === null) throw new Error('WebGPU atlas unavailable');
       this.attachment = {
@@ -789,12 +887,10 @@ export class WebGpuRenderer implements GpuRenderer {
     this.frameCount = 0;
     this.submission.length = 0;
     for (const geometry of [
-      this.background,
-      this.glyphs,
-      this.decorations,
+      this.cells,
+      this.overlay,
       this.cursor,
-      this.previewBackground,
-      this.previewGlyphs,
+      this.previewCells,
       this.previewCursor,
     ]) {
       geometry.buffer?.destroy();
@@ -802,6 +898,11 @@ export class WebGpuRenderer implements GpuRenderer {
       geometry.capacity = 0;
       geometry.version = -1;
     }
+    this.glyphTable?.destroy();
+    this.glyphTable = null;
+    this.glyphTableCapacity = 0;
+    this.glyphTableEpoch = -1;
+    this.glyphTableCount = 0;
     this.uniform?.destroy();
     this.uniform = null;
     this.atlas?.destroy();
@@ -810,9 +911,10 @@ export class WebGpuRenderer implements GpuRenderer {
     this.bindGroup = null;
     this.bindLayout = null;
     this.sampler = null;
-    this.solidPipeline = null;
-    this.encodedSolidPipeline = null;
+    this.backgroundPipeline = null;
+    this.encodedBackgroundPipeline = null;
     this.glyphPipeline = null;
+    this.decorationPipeline = null;
     this.cursorPipeline = null;
     this.attachment = null;
     this.passDescriptor = null;
@@ -843,41 +945,110 @@ export class WebGpuRenderer implements GpuRenderer {
       format: 'r8unorm',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
-    this.bindGroup = device.createBindGroup({
-      layout: this.bindLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this.uniform } },
-        { binding: 1, resource: this.sampler },
-        { binding: 2, resource: this.atlas.createView() },
-      ],
-    });
+    this.bindResources();
     this.atlasReady = false;
     // Prior uses have already been submitted; destruction does not invalidate
     // work submitted before destroy. No encoded-but-unsubmitted scene survives.
     previous?.destroy();
   }
 
+  /** One bind group names the uniform, sampler, atlas and glyph table. */
+  private bindResources(): void {
+    const device = this.device;
+    if (
+      device === null ||
+      this.uniform === null ||
+      this.sampler === null ||
+      this.bindLayout === null ||
+      this.atlas === null ||
+      this.glyphTable === null
+    )
+      throw new Error('WebGPU bind resources unavailable');
+    this.bindGroup = device.createBindGroup({
+      layout: this.bindLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.uniform } },
+        { binding: 1, resource: this.sampler },
+        { binding: 2, resource: this.atlas.createView() },
+        { binding: 3, resource: { buffer: this.glyphTable } },
+      ],
+    });
+  }
+
+  private updateUniform(width: number, height: number, params: Float32Array): void {
+    const data = this.uniformData;
+    // viewport, cell width and height, baseline; the highlight starts at its
+    // vec3 alignment, the ninth float.
+    if (
+      !this.uniformDirty &&
+      data[0] === width &&
+      data[1] === height &&
+      data[2] === params[0] &&
+      data[3] === params[1] &&
+      data[4] === params[2] &&
+      data[8] === params[3] &&
+      data[9] === params[4] &&
+      data[10] === params[5]
+    )
+      return;
+    if (this.uniform === null || this.device === null)
+      throw new Error('WebGPU uniform unavailable');
+    data[0] = width;
+    data[1] = height;
+    data.set(params.subarray(0, 3), 2);
+    data.set(params.subarray(3, 6), 8);
+    this.device.queue.writeBuffer(this.uniform, 0, data, 0, UNIFORM_FLOATS);
+    this.pendingUploadBytes += data.byteLength;
+    this.uniformDirty = false;
+  }
+
+  /** Upload the glyph table entries added since the last upload of its epoch. */
+  private uploadGlyphTable(memory: ArrayBuffer, table: GlyphTableRange): void {
+    const device = this.device;
+    if (device === null || this.glyphTable === null) throw new Error('WebGPU device unavailable');
+    const { ptr, count, epoch } = table;
+    const bytes = count * GLYPH_ENTRY_BYTES;
+    if (!validRange(ptr, count, bytes, memory, device))
+      throw new RangeError('invalid glyph table range');
+    let from =
+      epoch === this.glyphTableEpoch && count >= this.glyphTableCount ? this.glyphTableCount : 0;
+    if (bytes > this.glyphTableCapacity) {
+      const capacity = Math.min(nextPowerOfTwo(bytes), device.limits.maxBufferSize);
+      const buffer = device.createBuffer({
+        size: capacity,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.pendingRetiredBytes += this.glyphTableCapacity;
+      this.glyphTable.destroy();
+      this.glyphTable = buffer;
+      this.glyphTableCapacity = capacity;
+      this.bindResources();
+      from = 0;
+    }
+    if (count > from) {
+      device.queue.writeBuffer(
+        this.glyphTable,
+        from * GLYPH_ENTRY_BYTES,
+        memory,
+        ptr + from * GLYPH_ENTRY_BYTES,
+        (count - from) * GLYPH_ENTRY_BYTES,
+      );
+      this.pendingUploadBytes += (count - from) * GLYPH_ENTRY_BYTES;
+    }
+    this.glyphTableEpoch = epoch;
+    this.glyphTableCount = count;
+  }
+
   private uploadGeometry(
     storage: GeometryStorage,
     memory: ArrayBuffer,
-    range: GeometryBufferRange,
-    version: number | undefined,
-    dirtyOffset: number | undefined,
-    dirtyCount: number | undefined,
+    range: GeometryBuffer,
   ): void {
     const device = this.device;
     if (device === null) throw new Error('WebGPU device unavailable');
-    const { ptr, count } = range;
+    const { ptr, count, version, dirtyOffset, dirtyCount } = range;
     const bytes = count * storage.stride;
-    if (
-      !Number.isSafeInteger(ptr) ||
-      !Number.isSafeInteger(count) ||
-      ptr < 0 ||
-      count < 0 ||
-      ptr % 4 !== 0 ||
-      ptr + bytes > memory.byteLength ||
-      bytes > device.limits.maxBufferSize
-    )
+    if (!validRange(ptr, count, bytes, memory, device))
       throw new RangeError('invalid terminal geometry range');
     if (count === 0) return;
     if (bytes > storage.capacity) {
@@ -892,10 +1063,10 @@ export class WebGpuRenderer implements GpuRenderer {
       storage.capacity = capacity;
       storage.version = -1;
     }
-    if (version !== undefined && version === storage.version) return;
-    const full = version === undefined || storage.version < 0;
-    const offset = full ? 0 : (dirtyOffset ?? 0);
-    const length = full ? count : (dirtyCount ?? count);
+    if (version === storage.version) return;
+    const full = storage.version < 0;
+    const offset = full ? 0 : dirtyOffset;
+    const length = full ? count : dirtyCount;
     if (
       !Number.isSafeInteger(offset) ||
       !Number.isSafeInteger(length) ||
@@ -915,7 +1086,7 @@ export class WebGpuRenderer implements GpuRenderer {
       );
       this.pendingUploadBytes += length * storage.stride;
     }
-    storage.version = version ?? -1;
+    storage.version = version;
   }
 
   private draw(
@@ -933,16 +1104,38 @@ export class WebGpuRenderer implements GpuRenderer {
 
   private uploadPreview(
     storage: GeometryStorage,
-    data: Float32Array<ArrayBuffer>,
+    data: Uint32Array<ArrayBuffer> | Float32Array<ArrayBuffer>,
     count: number,
     version: number,
   ): void {
     if (count * storage.stride > data.byteLength)
       throw new RangeError('invalid terminal preview geometry');
-    this.previewRange.ptr = data.byteOffset;
-    this.previewRange.count = count;
-    this.uploadGeometry(storage, data.buffer, this.previewRange, version, 0, count);
+    const range = this.previewRange;
+    range.ptr = data.byteOffset;
+    range.count = count;
+    range.version = version;
+    range.dirtyCount = count;
+    this.uploadGeometry(storage, data.buffer, range);
   }
+}
+
+/** A word-aligned `count`-record span of WASM memory one GPU buffer can hold. */
+function validRange(
+  ptr: number,
+  count: number,
+  bytes: number,
+  memory: ArrayBuffer,
+  device: GPUDevice,
+): boolean {
+  return (
+    Number.isSafeInteger(ptr) &&
+    Number.isSafeInteger(count) &&
+    ptr >= 0 &&
+    count >= 0 &&
+    ptr % 4 === 0 &&
+    ptr + bytes <= memory.byteLength &&
+    bytes <= device.limits.maxBufferSize
+  );
 }
 
 function assertAtlasDimensions(width: number, height: number, bytes = width * height): void {

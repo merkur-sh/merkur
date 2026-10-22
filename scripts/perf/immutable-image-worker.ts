@@ -1,5 +1,5 @@
 import { WebGl2Renderer } from 'merkur-historical-webgl';
-import type { GeometryVersions } from '../../apps/web/src/terminal-renderer';
+import type { GeometryVersions } from './historical-geometry';
 
 export type ImageExperimentArm = 'direct' | 'bitmap';
 

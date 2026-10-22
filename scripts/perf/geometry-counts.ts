@@ -1,12 +1,14 @@
 import {
+  GEOMETRY_STATE_CELLS_OFFSET,
   GEOMETRY_STATE_CURSOR_OFFSET,
-  GEOMETRY_STATE_GLYPH_OFFSET,
+  GEOMETRY_STATE_OVERLAY_OFFSET,
 } from '../../apps/web/src/terminal/geometry-render-state';
 import { createGeometryStateReader } from '../../apps/web/src/wasm-loader';
 
-/** Instance counts of one terminal's built geometry, for a benchmark's checksum. */
+/** Counts and versions of one terminal's built geometry, for a benchmark's checksum. */
 export interface GeometryCounts {
-  glyphs(): number;
+  /** Cell and overlay records, and the version of each. */
+  records(): number;
   cursors(): number;
 }
 
@@ -17,7 +19,16 @@ export function createGeometryCountReader(
 ): GeometryCounts {
   const read = createGeometryStateReader(memory, terminal);
   return {
-    glyphs: () => read()[GEOMETRY_STATE_GLYPH_OFFSET + 1] ?? 0,
+    records: () => {
+      const state = read();
+      return (
+        ((state[GEOMETRY_STATE_CELLS_OFFSET + 1] ?? 0) +
+          (state[GEOMETRY_STATE_CELLS_OFFSET + 2] ?? 0) +
+          (state[GEOMETRY_STATE_OVERLAY_OFFSET + 1] ?? 0) +
+          (state[GEOMETRY_STATE_OVERLAY_OFFSET + 2] ?? 0)) >>>
+        0
+      );
+    },
     cursors: () => read()[GEOMETRY_STATE_CURSOR_OFFSET + 1] ?? 0,
   };
 }

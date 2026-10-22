@@ -5,7 +5,7 @@ import {
 } from './packing-delivery-query';
 
 const SOURCE =
-  'function render(){renderer.render(terminal.memory.buffer,state.bg,state.glyph,state.deco,state.cursor,state.viewport,state.versions)}function viewport(){return terminal?.viewportRows()??""}';
+  'function render(){renderer.render(terminal.memory.buffer,state,preview.geometry)}function viewport(){return terminal?.viewportRows()??""}';
 
 test('semantic query overlay refuses drift and never instruments the render call', () => {
   const instrumented = instrumentPackingSemanticQuery(SOURCE);
@@ -46,7 +46,11 @@ test('query recomputes every canonical row and captures last-submitted cursor wi
   );
   const result = read(
     terminal,
-    { cursor: { ptr: 0, count: 1 }, versions: { bg: 1, glyph: 2, deco: 3, cursor: 4 } },
+    {
+      cells: { version: 1 },
+      overlay: { version: 2 },
+      cursor: { ptr: 0, count: 1, version: 4 },
+    },
     { debug: (value: string) => records.push(value) },
     { timeOrigin: 100, now: () => 2 },
   );

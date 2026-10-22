@@ -119,7 +119,7 @@ export interface IngressTrialResult {
 function geometryChecksum(geometry: readonly GeometryCounts[], terminalIndex: number): number {
   const counts = geometry[terminalIndex];
   if (counts === undefined) throw new Error('missing paired terminal geometry');
-  return counts.glyphs() ^ counts.cursors();
+  return counts.records() ^ counts.cursors();
 }
 
 /** Alternating assignment removes a persistent terminal-instance arm bias. */

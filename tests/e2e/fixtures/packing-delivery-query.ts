@@ -13,9 +13,8 @@ export interface PackingSemanticQuery {
   /** Exact last-submitted cursor instance: x,y,width,height,r,g,b,shape. */
   readonly cursor: readonly number[];
   readonly versions: {
-    readonly bg: number;
-    readonly glyph: number;
-    readonly deco: number;
+    readonly cells: number;
+    readonly overlay: number;
     readonly cursor: number;
   };
 }
@@ -29,8 +28,7 @@ export function instrumentPackingSemanticQuery(source: string): string {
   const identifier = '[$A-Z_a-z][$\\w]*';
   const render = new RegExp(
     `(${identifier})\\.render\\((${identifier})\\.memory\\.buffer,` +
-      `(${identifier})\\.bg,\\3\\.glyph,\\3\\.deco,\\3\\.cursor,` +
-      '\\3\\.viewport,\\3\\.versions\\)',
+      `(${identifier}),${identifier}\\.geometry\\)`,
     'g',
   );
   const viewport = new RegExp(
@@ -77,7 +75,7 @@ const __merkurPackingSemanticQuery = (() => {
     // Bind after all hashing calls: WASM memory may have grown while hashing.
     const cursor = Array.from(new Float32Array(terminal.memory.buffer, ptr, count * 8));
     const wrapBits = Array.from(terminal.viewportWrapBits());
-    const versions = { bg:state.versions.bg, glyph:state.versions.glyph, deco:state.versions.deco, cursor:state.versions.cursor };
+    const versions = { cells:state.cells.version, overlay:state.overlay.version, cursor:state.cursor.version };
     console.debug('[merkur-packing-semantic-query]' + JSON.stringify({ ordinal, atMs,
       observedAtMs:performance.timeOrigin + performance.now(), cols, rows, rowHashes, wrapBits, cursor, versions }));
   };
@@ -114,7 +112,7 @@ export function parsePackingSemanticQuery(text: string): PackingSemanticQuery | 
     entry.cursor.some((number) => typeof number !== 'number' || !Number.isFinite(number)) ||
     typeof entry.versions !== 'object' ||
     entry.versions === null ||
-    !['bg', 'glyph', 'deco', 'cursor'].every((key) => {
+    !['cells', 'overlay', 'cursor'].every((key) => {
       const number = (entry.versions as Record<string, unknown>)[key];
       return (
         typeof number === 'number' &&
