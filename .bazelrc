@@ -60,6 +60,10 @@ common:remote-cache --noremote_upload_local_results
 common:remote-cache --guard_against_concurrent_changes=lite
 common:ci --config=remote-cache
 common:ci --remote_upload_local_results
+# A remote cache lookup waits on the network, about half a second from a runner; with one action in
+# flight per CPU, the lookups held a four-CPU runner to well under half its CPUs. The CPU and memory
+# each action reserves still bound what runs locally.
+common:ci --jobs=32
 
 # One action cache for every checkout and worktree on a machine, so a new worktree starts from what
 # the others built. Bazel collects it past these bounds while idle. A CI runner starts empty and
