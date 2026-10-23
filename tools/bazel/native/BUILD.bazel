@@ -6,12 +6,16 @@ package(default_visibility = ["//visibility:public"])
 package_files()
 
 # Cross-built harness runtimes stay outside the checkout's installed programs.
-filegroup(
+genrule(
     name = "natlab_runtime",
     srcs = [
         "//tools/bazel/bun:bun",
         "//tools/bazel/bun:node",
     ],
+    outs = ["bun", "node"],
+    cmd = "cp \"$(location //tools/bazel/bun:bun)\" \"$(@D)/bun\" && " +
+          "cp \"$(location //tools/bazel/bun:node)\" \"$(@D)/node\" && " +
+          "chmod +x \"$(@D)/bun\" \"$(@D)/node\"",
 )
 
 # The native programs a checkout runs: the daemon's sidecars beside each other where the daemon

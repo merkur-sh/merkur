@@ -48,9 +48,10 @@ Every toolchain is prebuilt and pinned by digest, with one source of truth each,
 
 The macOS Secure Enclave bridge compiles with the selected Xcode's Swift.
 
-`//tools/bazel/native:natlab_runtime` exposes the pinned Bun and Node executables for the target
-platform. The NAT lab stages these files with its Linux native programs into a disposable source
-snapshot; building a Linux lab on macOS does not replace the checkout's host executables.
+`//tools/bazel/native:natlab_runtime` copies the pinned target-platform Bun and Node executables
+into declared build outputs. The NAT lab stages these files with its Linux native programs into
+a disposable source snapshot; building a Linux lab on macOS does not replace the checkout's host
+executables.
 
 ## How a Bun test runs
 

@@ -42,7 +42,7 @@ for package in (source / 'packages').glob('*/pkg'):
         shutil.copytree(package, target / package.relative_to(source), dirs_exist_ok=True)
 PY
 
-for file in $(bazel cquery "$platform" --output=files //tools/bazel/native:natlab_runtime); do
+for file in $(bazel cquery "$platform" --config=release --output=files //tools/bazel/native:natlab_runtime); do
   cp "$execution_root/$file" "$snapshot/runtime/$(basename "$file")"
 done
 for target in "${targets[@]:1}"; do
