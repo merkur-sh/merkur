@@ -70,6 +70,10 @@ common:ci --remote_upload_local_results
 # flight per CPU, the lookups held a four-CPU runner to well under half its CPUs. The CPU and memory
 # each action reserves still bound what runs locally.
 common:ci --jobs=32
+# Repository downloads go through the remote cache's asset service, keyed by their checksums, so a
+# runner fetches the archives this build needs and nothing it does not; a restored repository
+# cache held every platform's toolchains, six gigabytes a job.
+common:ci --experimental_remote_downloader=grpcs://remote.buildbuddy.io
 
 # One action cache for every checkout and worktree on a machine, so a new worktree starts from what
 # the others built. Bazel collects it past these bounds while idle. A CI runner starts empty and

@@ -37,7 +37,10 @@ BuildBuddy's remote cache holds what CI built. A workstation reads it and upload
 `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
 `--remote_header=x-buildbuddy-api-key=...` line, the key coming from the Keychain. CI writes
 the same file from the `BUILDBUDDY_API_KEY` secret with `--config=ci`, the only writer. A fork's
-pull request has no key and builds everything itself.
+pull request has no key and builds everything itself. On CI, repository downloads also go through
+BuildBuddy (`--experimental_remote_downloader`), keyed by checksum, so a runner fetches only the
+archives its build needs and restores no repository cache; `--jobs=32` keeps remote lookups in
+flight beside the local work the runner's CPUs bound.
 
 ## Toolchains
 
