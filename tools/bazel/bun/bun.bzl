@@ -457,6 +457,29 @@ def lint_checks(name, data):
         targets.append(":" + target)
     native.test_suite(name = name, tests = targets)
 
+def scoped_check(name, script, data, args = [], **kwargs):
+    """A gate's script over a checkout of what it reads: its own loads and `data`.
+
+    For a gate that reads named parts of the repository, not the whole of it, so an edit
+    elsewhere leaves its answer cached.
+
+    Args:
+      name: the test's name.
+      script: the gate's module target, `//<package>:<path>.module`.
+      data: the files the gate reads beyond what its script loads.
+      args: the script's arguments.
+      **kwargs: the common test attributes.
+    """
+    package, _, file = script.removeprefix("//").partition(":")
+    path = "%s/%s" % (package, file.removesuffix(".module")) if package else file.removesuffix(".module")
+    bun_test(
+        name = name,
+        args_ = ["run", path] + args,
+        data = [script] + data,
+        workspace = _WORKSPACE,
+        **kwargs
+    )
+
 def repo_check(name, script, data = [], **kwargs):
     """`bun run <script>`, a `package.json` gate, over a checkout of the whole repository.
 

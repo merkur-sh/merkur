@@ -2,7 +2,7 @@ load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED", "ROOT_IGNORED", "ROOT_KEPT", "module_targets")
 load("//tools/bazel:modules.bzl", "PRELOADS")
 load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "THIRD_PARTY_DEPENDENCIES")
-load("//tools/bazel/bun:bun.bzl", "checkout_snapshot", "lint_checks", "repo_check", "slop_checks", "type_checks")
+load("//tools/bazel/bun:bun.bzl", "checkout_snapshot", "lint_checks", "repo_check", "scoped_check", "slop_checks", "type_checks")
 load("//tools/bazel/rust:clippy.bzl", "clippy_manifest")
 
 npm_link_all_packages(name = "node_modules")
@@ -91,10 +91,7 @@ filegroup(
     "check-bazel-sources",
     "check-dead",
     "check-docs",
-    "check-latency-boundaries",
     "check-ratchet",
-    "check-span-attributes",
-    "check-span-lifetimes",
 ]]
 
 # `check:types`, one test per TypeScript project over what its `tsc` reads.
@@ -132,11 +129,41 @@ clippy_manifest(
     testonly = True,
 )
 
-repo_check(
+scoped_check(
     name = "rust_lint",
     args = ["--diagnostics=clippy_diagnostics.txt"],
-    data = [":clippy_diagnostics"],
-    script = "scripts/rust-lint.ts",
+    data = [
+        ":clippy_diagnostics",
+        "lint-baselines/clippy.json",
+    ] + [package + ":rust_files" for package in PACKAGES],
+    script = "//scripts:rust-lint.ts.module",
+)
+
+# The gates that read named parts of the repository, over those parts alone: the browser's
+# hot-path modules, the services' spans and the edge's span fields.
+scoped_check(
+    name = "check_latency_boundaries",
+    data = ["//apps/web:files"],
+    script = "//scripts:check-latency-boundaries.ts.module",
+)
+
+scoped_check(
+    name = "check_span_lifetimes",
+    data = [
+        "//apps/daemon:files",
+        "//apps/server:files",
+    ],
+    script = "//scripts:check-span-lifetimes.ts.module",
+)
+
+scoped_check(
+    name = "check_span_attributes",
+    data = [
+        "//apps/daemon:files",
+        "//apps/edge:files",
+        "//apps/server:files",
+    ] + [package + ":files" for package in PACKAGES if package.startswith("//packages/")],
+    script = "//scripts:check-span-attributes.ts.module",
 )
 
 test_suite(

@@ -67,7 +67,9 @@ project (`//:check_types/apps/web/tsconfig.json`), each over the files that proj
 lists (`TYPE_PROJECTS` in `tools/bazel/modules.bzl`), so only the projects a change reaches
 check again, and `//:check_lint` and `//:check_slop` are one test per Bazel package
 (`//:check_slop/apps/web/BUILD.bazel`, `//:check_slop/BUILD.bazel` for the root's), each over
-that package's own files against the baseline entries it owns. `//:static_gates` is all of them; `bun run check` is them plus
+that package's own files against the baseline entries it owns. `rust:lint`,
+`check:latency-boundaries` and the two span checks run over only the parts of the repository
+they read. `//:static_gates` is all of them; `bun run check` is them plus
 `check:protocol`. CI runs them on every push inside `bazel test //...`:
 
 ```

@@ -80,8 +80,8 @@ def module_targets():
         )
 
 def package_files(name = "files"):
-    """The package's own source files, as `//:sources` gathers them, its module targets and its
-    Clippy report.
+    """The package's own source files, as `//:sources` gathers them, its Rust sources, its module
+    targets and its Clippy report.
 
     Args:
       name: the filegroup's name.
@@ -90,6 +90,13 @@ def package_files(name = "files"):
         name = name,
         srcs = native.glob(["**"], exclude = IGNORED, allow_empty = True) +
                native.glob(_KEPT, allow_empty = True),
+        visibility = ["//visibility:public"],
+    )
+
+    # What `rust:lint` reads besides Clippy's diagnostics: the sources its baseline names.
+    native.filegroup(
+        name = "rust_files",
+        srcs = native.glob(["**/*.rs"], exclude = IGNORED, allow_empty = True),
         visibility = ["//visibility:public"],
     )
     module_targets()

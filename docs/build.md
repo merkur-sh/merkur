@@ -107,7 +107,10 @@ test per Bazel package (`slop_checks`): `scripts/check-slop.ts --package <direct
 package's own files, the rules and the baseline, judging only the entries that package owns; its
 rules read one file at a time. `check:lint` is likewise one test per Bazel package
 (`lint_checks`): `biome check .` over the package's own files, `biome.json` and `.gitignore`,
-since no rule `biome.json` enables reads another file.
+since no rule `biome.json` enables reads another file. A gate that reads named parts of the
+repository is a `scoped_check` over those parts: `rust:lint` over Clippy's diagnostics, its
+baseline and the Rust sources, `check:latency-boundaries` over the web app,
+`check:span-lifetimes` and `check:span-attributes` over the services, the edge and the packages.
 
 ## Adding code
 
