@@ -1782,13 +1782,6 @@
   background: #cba6f7;
 }
 
-.mz-cap {
-  max-width: 460px;
-  color: var(--note);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
 /* The page sets zstd's and MZ's sides from the figure (`--mz-zstd-side`,
    `--mz-mz-side`: `codecSquaresStyle`). Raw's square is in flow and gives the
    box its height: WebKit stretches a flex item's own aspect ratio. */
@@ -4016,7 +4009,7 @@
     height: 6px;
   }
 
-  /* The squares come straight after the deck, before the key and its source. */
+  /* The squares come straight after the deck, before the key. */
   .mz-copy {
     display: contents;
   }
@@ -4030,17 +4023,13 @@
     width: 100%;
   }
 
-  .mz-key,
-  .mz-cap {
-    order: 2;
-  }
-
   .mz-key {
+    order: 2;
     margin-top: 0;
   }
 
   .mz-row {
-    grid-template-columns: 76px 76px minmax(0, 1fr);
+    grid-template-columns: 64px 60px minmax(0, 1fr);
     gap: 10px;
     padding: 12px 0;
   }
