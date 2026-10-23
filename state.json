@@ -1455,7 +1455,7 @@
       "run": "39872024449",
       "attempt": 1,
       "sequence": 123,
-      "phase": "retained",
+      "phase": "services",
       "events": [
         {
           "phase": "signing",
@@ -1481,6 +1481,14 @@
         {
           "phase": "retained",
           "targetIdentities": {
+            "merkur-edge": "a21b0c647d8e8946ba3f565853174900898ce65d782fa6080f359a1b23a6437150d975f024f245fee769102e7f6963263be4d0e7c9d07bf40a84a7f58babfce1",
+            "merkur-stun": "90d97e0c7f6993e99c32e82abd2d242f4ac4f6f3232f9d704663a734df8f438109ddf339a59cd5340450755747090f11e6429c9d6e13a4278155de7def09448e",
+            "server": "01a27e8946215d7b30afd52d00299577235451769d0d64058229c9b10e47c7b66051f7b2937be250cb0f5470a2399c11f3ad065cadd4167de64a2891f5de60a8"
+          }
+        },
+        {
+          "phase": "services",
+          "evidence": {
             "merkur-edge": "a21b0c647d8e8946ba3f565853174900898ce65d782fa6080f359a1b23a6437150d975f024f245fee769102e7f6963263be4d0e7c9d07bf40a84a7f58babfce1",
             "merkur-stun": "90d97e0c7f6993e99c32e82abd2d242f4ac4f6f3232f9d704663a734df8f438109ddf339a59cd5340450755747090f11e6429c9d6e13a4278155de7def09448e",
             "server": "01a27e8946215d7b30afd52d00299577235451769d0d64058229c9b10e47c7b66051f7b2937be250cb0f5470a2399c11f3ad065cadd4167de64a2891f5de60a8"
