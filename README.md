@@ -114,10 +114,10 @@ The mechanism behind each claim above, in the same order.
   as a PWA. Sign in on a friend's laptop or phone, then revoke that browser from Settings when you
   leave; your own devices keep their sessions.
 - **Glyphs like a native terminal's.** A Rust terminal emulator in the daemon owns the screen and
-  ships cell changes, not pixels or HTML. In the browser a WebAssembly build of the same emulator
-  feeds a WebGPU renderer in a worker. Glyphs rasterize at the device's pixel density and snap to
-  whole pixels from a bundled JetBrains Mono Nerd Font, so icons, box drawing, and powerline
-  segments are crisp. `nvim`, `starship`, and `lazygit` look the way they do on your desktop.
+  ships cell changes, not pixels or HTML, packed by MZ, our own codec for terminal screens. In the
+  browser a WebAssembly build of the same emulator feeds a WebGPU renderer in a worker. Glyphs
+  rasterize at the device's pixel density and snap to whole pixels from a bundled JetBrains Mono
+  Nerd Font, so icons, box drawing, and powerline segments are crisp. `nvim`, `starship`, and `lazygit` look the way they do on your desktop.
 - **Images and links land in the browser.** Kitty graphics render inline. Links are clickable, and
   `merkur open` sends a URL from the remote shell to the browser you are using, which is what makes
   `gh auth login` work on a machine you are not sitting at.
