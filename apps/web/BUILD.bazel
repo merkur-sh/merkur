@@ -8,7 +8,8 @@ package(default_visibility = ["//visibility:public"])
 
 package_files()
 
-# The terminal fonts, which the terminal crate embeds in its tests and atlas profile.
+# The terminal fonts, which the terminal crate embeds in its tests and atlas profile, and the
+# subset manifest beside them, which the font tests and the display benchmarks read.
 filegroup(
     name = "fonts",
     srcs = glob(["public/fonts/**"]),
@@ -43,8 +44,7 @@ wasm_package_files(
 )
 
 bun_test_files(
-    # The terminal's fonts and the subset manifest beside them.
-    files = {"src/terminal/fonts.test.ts": {"data": glob(["public/fonts/**"])}},
+    files = {"src/terminal/fonts.test.ts": {"data": [":fonts"]}},
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

@@ -1,16 +1,20 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parsePerfMetrics } from './perf/harness';
 import { runTestProcess } from './test-process';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+/** Where the benchmark runs: the repository's root, a place to start in, not a file it reads. */
+const ROOT = path.resolve(import.meta.dir, '..');
+const BENCHMARK = fileURLToPath(new URL('./bench-wasm-font-style-upgrade.ts', import.meta.url));
 
 describe('terminal WASM font style-upgrade benchmark', () => {
   test('measures the production post-ready font boundary', async () => {
-    const { exitCode, stdout, stderr } = await runTestProcess(
-      ['bun', 'run', 'scripts/bench-wasm-font-style-upgrade.ts'],
-      { cwd: ROOT, env: { ...process.env, BENCH_SAMPLES: '20', BENCH_WARMUPS: '0' } },
-    );
+    const { exitCode, stdout, stderr } = await runTestProcess(['bun', 'run', BENCHMARK], {
+      cwd: ROOT,
+      env: { ...process.env, BENCH_SAMPLES: '20', BENCH_WARMUPS: '0' },
+    });
 
     expect(exitCode, stderr).toBe(0);
     const metrics = parsePerfMetrics(stdout);
@@ -27,10 +31,10 @@ describe('terminal WASM font style-upgrade benchmark', () => {
   }, 30_000);
 
   test('rejects too few samples', async () => {
-    const result = await runTestProcess(
-      ['bun', 'run', 'scripts/bench-wasm-font-style-upgrade.ts'],
-      { cwd: ROOT, env: { ...process.env, BENCH_SAMPLES: '19' } },
-    );
+    const result = await runTestProcess(['bun', 'run', BENCHMARK], {
+      cwd: ROOT,
+      env: { ...process.env, BENCH_SAMPLES: '19' },
+    });
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain('BENCH_SAMPLES must be a safe integer of at least 20');

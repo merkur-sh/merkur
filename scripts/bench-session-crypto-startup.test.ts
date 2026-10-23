@@ -1,16 +1,20 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parsePerfMetrics } from './perf/harness';
 import { runTestProcess } from './test-process';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+/** Where the benchmark runs: the repository's root, a place to start in, not a file it reads. */
+const ROOT = path.resolve(import.meta.dir, '..');
+const BENCHMARK = fileURLToPath(new URL('./bench-session-crypto-startup.ts', import.meta.url));
 
 describe('session crypto startup benchmark', () => {
   test('measures the signed ML-KEM-1024 and ML-DSA-87 bootstrap path', async () => {
-    const { exitCode, stdout, stderr } = await runTestProcess(
-      ['bun', 'run', 'scripts/bench-session-crypto-startup.ts'],
-      { cwd: ROOT, env: { ...process.env, BENCH_SAMPLES: '100' } },
-    );
+    const { exitCode, stdout, stderr } = await runTestProcess(['bun', 'run', BENCHMARK], {
+      cwd: ROOT,
+      env: { ...process.env, BENCH_SAMPLES: '100' },
+    });
 
     expect(exitCode, stderr).toBe(0);
     const metrics = parsePerfMetrics(stdout);
@@ -33,10 +37,10 @@ describe('session crypto startup benchmark', () => {
   }, 60_000);
 
   test('rejects an invalid sample count', async () => {
-    const { exitCode, stderr } = await runTestProcess(
-      ['bun', 'run', 'scripts/bench-session-crypto-startup.ts'],
-      { cwd: ROOT, env: { ...process.env, BENCH_SAMPLES: '99' } },
-    );
+    const { exitCode, stderr } = await runTestProcess(['bun', 'run', BENCHMARK], {
+      cwd: ROOT,
+      env: { ...process.env, BENCH_SAMPLES: '99' },
+    });
 
     expect(exitCode).not.toBe(0);
     expect(stderr).toContain('BENCH_SAMPLES must be a safe integer of at least 100 for p99');

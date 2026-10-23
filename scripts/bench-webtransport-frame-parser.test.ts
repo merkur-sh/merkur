@@ -1,9 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parsePerfMetrics } from './perf/harness';
 import { runTestProcess } from './test-process';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+/** Where the benchmark runs: the repository's root, a place to start in, not a file it reads. */
+const ROOT = path.resolve(import.meta.dir, '..');
+const BENCHMARK = fileURLToPath(new URL('./bench-webtransport-frame-parser.ts', import.meta.url));
 const EXPECTED_CASES = [
   'one-chunk-1b',
   'one-chunk-64b',
@@ -16,18 +20,15 @@ const EXPECTED_CASES = [
 
 describe('WebTransport frame parser benchmark', () => {
   test('reports production parser metrics and exact dispatch ownership invariants', async () => {
-    const { exitCode, stdout, stderr } = await runTestProcess(
-      ['bun', 'run', 'scripts/bench-webtransport-frame-parser.ts'],
-      {
-        cwd: ROOT,
-        env: {
-          ...process.env,
-          BENCH_SAMPLES: '2',
-          BENCH_WARMUPS: '0',
-          BENCH_TARGET_FRAMED_BYTES_PER_SAMPLE: '4096',
-        },
+    const { exitCode, stdout, stderr } = await runTestProcess(['bun', 'run', BENCHMARK], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        BENCH_SAMPLES: '2',
+        BENCH_WARMUPS: '0',
+        BENCH_TARGET_FRAMED_BYTES_PER_SAMPLE: '4096',
       },
-    );
+    });
 
     expect(exitCode, stderr).toBe(0);
     const metrics = parsePerfMetrics(stdout);

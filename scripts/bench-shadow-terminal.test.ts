@@ -1,25 +1,26 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parsePerfMetrics } from './perf/harness';
 import { runTestProcess } from './test-process';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+/** Where the benchmark runs: the repository's root, a place to start in, not a file it reads. */
+const ROOT = path.resolve(import.meta.dir, '..');
+const BENCHMARK = fileURLToPath(new URL('./bench-shadow-terminal.ts', import.meta.url));
 
 describe('shadow terminal benchmark', () => {
   test('applies current display fixtures and emits every prediction metric', async () => {
-    const { exitCode, stdout, stderr } = await runTestProcess(
-      ['bun', 'run', 'scripts/bench-shadow-terminal.ts'],
-      {
-        cwd: ROOT,
-        env: {
-          ...process.env,
-          BENCH_SAMPLES: '1',
-          BENCH_ACTIONS_PER_SAMPLE: '1',
-          BENCH_PROJECTIONS_PER_SAMPLE: '1',
-          BENCH_UNCHANGED_BUILDS_PER_SAMPLE: '1',
-        },
+    const { exitCode, stdout, stderr } = await runTestProcess(['bun', 'run', BENCHMARK], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        BENCH_SAMPLES: '1',
+        BENCH_ACTIONS_PER_SAMPLE: '1',
+        BENCH_PROJECTIONS_PER_SAMPLE: '1',
+        BENCH_UNCHANGED_BUILDS_PER_SAMPLE: '1',
       },
-    );
+    });
 
     expect(exitCode, stderr).toBe(0);
     const metrics = parsePerfMetrics(stdout);

@@ -9,7 +9,9 @@
  * (with what that extends) to resolve and transpile it. Each such file is a target,
  * `<path>.module`, in the Bazel package that owns it: the file and every file it loads.
  * `bun_test_files` (`tools/bazel/bun/bun.bzl`) gives each test its file's target. What a test reads
- * by any other name, it declares in its package's `BUILD.bazel`.
+ * by any other name, it declares in its package's `BUILD.bazel`. A place a module only starts a
+ * child in is computed with `path` (`path.resolve(import.meta.dir, '..')`), not named with a URL,
+ * so it brings nothing: the child's script is named with a URL, and brings its own loads.
  *
  * The graph starts from the test files of every package that declares `bun_test_files`, from the
  * preloads `bunfig.toml` names, and from every file a `BUILD.bazel` names by its module target: a
@@ -45,8 +47,12 @@ const CODE = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 const TEST = /\.test\.tsx?$/;
 const TSCONFIG = /(?:^|\/)tsconfig[^/]*\.json$/;
 
-/** Runtime builtins, and the modules Vite's plugins make, which are no files. */
-const NOT_FILES = /^(?:bun|node|virtual):/;
+/**
+ * A specifier with a scheme names a namespace, not a path: a runtime's builtins (`bun:`, `node:`),
+ * or the modules a bundler's plugin makes (Vite's `virtual:`, a `Bun.build` plugin's own). `file:`
+ * is the one scheme that names a file.
+ */
+const NOT_FILES = /^(?!file:)[a-z][a-z0-9+.-]*:/;
 
 const Bunfig = Schema.Struct({
   test: Schema.optional(Schema.Struct({ preload: Schema.optional(Schema.Array(Schema.String)) })),

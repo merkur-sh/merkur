@@ -1,7 +1,16 @@
 import { afterEach, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parsePerfMetrics } from './perf/harness';
 import { rendererBenchmarkCount } from './perf/webgpu-renderer-benchmark';
 import { runTestProcess } from './test-process';
+
+/** Where the benchmarks run: the repository's root, a place to start in, not a file they read. */
+const ROOT = path.resolve(import.meta.dir, '..');
+const BENCHMARKS = {
+  init: fileURLToPath(new URL('./bench-webgpu-renderer-init.ts', import.meta.url)),
+  render: fileURLToPath(new URL('./bench-webgpu-renderer-render.ts', import.meta.url)),
+};
 
 const oldCount = process.env.MERKUR_TEST_RENDERER_COUNT;
 afterEach(() => {
@@ -22,22 +31,19 @@ test('renderer component schedule rejects unbounded or fractional samples', () =
 
 test('production WebGPU component initializes and renders actual nonempty pixels with exact callbacks', async () => {
   for (const mode of ['init', 'render'] as const) {
-    const { exitCode, stdout, stderr } = await runTestProcess(
-      ['bun', `scripts/bench-webgpu-renderer-${mode}.ts`],
-      {
-        cwd: new URL('..', import.meta.url).pathname,
-        env: {
-          ...process.env,
-          DEBUG: 'pw:browser',
-          BENCH_GPU: 'swiftshader',
-          BENCH_SAMPLES: '2',
-          BENCH_WARMUPS: '0',
-          BENCH_INITS_PER_SAMPLE: '1',
-          BENCH_FRAMES_PER_SAMPLE: '1',
-        },
-        timeout: 45_000,
+    const { exitCode, stdout, stderr } = await runTestProcess(['bun', BENCHMARKS[mode]], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        DEBUG: 'pw:browser',
+        BENCH_GPU: 'swiftshader',
+        BENCH_SAMPLES: '2',
+        BENCH_WARMUPS: '0',
+        BENCH_INITS_PER_SAMPLE: '1',
+        BENCH_FRAMES_PER_SAMPLE: '1',
       },
-    );
+      timeout: 45_000,
+    });
     expect(exitCode, stderr).toBe(0);
     const metrics = parsePerfMetrics(stdout);
     expect(metrics.filter((m) => m.percentile !== undefined)).toHaveLength(mode === 'init' ? 3 : 9);

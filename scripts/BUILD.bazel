@@ -33,6 +33,9 @@ bun_binary(
 # The native session oracle the browser benchmarks drive their delivery through.
 _ORACLE = {"//packages/merkur-client:browser_session_oracle": "browser_session_oracle"}
 
+# The terminal's fonts, which the display benchmarks load from the web app by path.
+_FONTS = {"data": ["//apps/web:fonts"]}
+
 # The harness's setup and teardown, which a Playwright configuration names for Playwright to load.
 _PLAYWRIGHT_SETUP = [
     "//tests:e2e/global-setup.ts.module",
@@ -62,13 +65,38 @@ bun_test_files(
             "//tests:e2e/terminal-direct-latency.e2e.ts.module",
         ] + _PLAYWRIGHT_SETUP},
         "bench-display-ack-drain.test.ts": {"tools": _ORACLE},
-        "bench-display-encoding.test.ts": {"tools": {"//packages/display-fixture": "display-fixture"}},
+        "bench-display-encoding.test.ts": _FONTS | {
+            "tools": {"//packages/display-fixture": "display-fixture"},
+        },
         "bench-input-ack.test.ts": {"tools": _ORACLE},
         "bench-input-send-path.test.ts": {"tools": _ORACLE},
+        # Loads the shipped terminal WebAssembly where the web app imports it.
+        "bench-kernels-row-geometry.test.ts": {"data": [
+            "//apps/web:fonts",
+            "//apps/web:term_wasm_files",
+        ]},
         "bench-keyboard-hotpaths.test.ts": {"data": [":bench-keyboard-hotpaths.ts.module"]},
-        "bench-retained-wire-payload-pool.test.ts": {"browsers": True},
-        "bench-web-input-keystroke.test.ts": {"tools": _ORACLE},
-        "bench-webgpu-renderer.test.ts": {"browsers": True},
+        # Walks the web app's terminal sources for the pool's call sites.
+        "bench-retained-wire-payload-pool.test.ts": {"browsers": True, "checkout": True},
+        "bench-shadow-terminal.test.ts": _FONTS,
+        "bench-wasm-font-init.test.ts": _FONTS,
+        "bench-wasm-font-style-upgrade.test.ts": _FONTS,
+        "bench-web-input-keystroke.test.ts": {
+            # The keybinds benchmark bundles the web app's keybind hook against its browser Solid,
+            # and the V8 benchmark its own entry.
+            "data": [
+                ":bench-web-input-v8-entry.ts.module",
+                "//apps/web:node_modules/solid-js",
+                "//apps/web:src/hooks/createKeybinds.ts.module",
+            ],
+            "tools": _ORACLE,
+        },
+        "bench-web-startup-assets.test.ts": _FONTS,
+        # Bundles the web app's WebGPU renderer for the browser it launches.
+        "bench-webgpu-renderer.test.ts": {
+            "browsers": True,
+            "data": ["//apps/web:src/renderer-webgpu.ts.module"],
+        },
         "dev-redis.test.ts": {"tools": {
             "@openssl//:openssl": "openssl",
             "@redis//:redis-server": "redis-server",

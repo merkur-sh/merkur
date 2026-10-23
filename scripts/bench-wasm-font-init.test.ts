@@ -1,16 +1,20 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parsePerfMetrics } from './perf/harness';
 import { runTestProcess } from './test-process';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+/** Where the benchmark runs: the repository's root, a place to start in, not a file it reads. */
+const ROOT = path.resolve(import.meta.dir, '..');
+const BENCHMARK = fileURLToPath(new URL('./bench-wasm-font-init.ts', import.meta.url));
 
 describe('terminal WASM font initialization benchmark', () => {
   test('measures both the blocking boot face and the promoted regular face', async () => {
-    const { exitCode, stdout, stderr } = await runTestProcess(
-      ['bun', 'run', 'scripts/bench-wasm-font-init.ts'],
-      { cwd: ROOT, env: { ...process.env, BENCH_SAMPLES: '100' } },
-    );
+    const { exitCode, stdout, stderr } = await runTestProcess(['bun', 'run', BENCHMARK], {
+      cwd: ROOT,
+      env: { ...process.env, BENCH_SAMPLES: '100' },
+    });
 
     expect(exitCode, stderr).toBe(0);
     const metrics = parsePerfMetrics(stdout);
@@ -41,7 +45,7 @@ describe('terminal WASM font initialization benchmark', () => {
   }, 30_000);
 
   test('rejects an invalid sample count', async () => {
-    const result = await runTestProcess(['bun', 'run', 'scripts/bench-wasm-font-init.ts'], {
+    const result = await runTestProcess(['bun', 'run', BENCHMARK], {
       cwd: ROOT,
       env: { ...process.env, BENCH_SAMPLES: '99' },
     });

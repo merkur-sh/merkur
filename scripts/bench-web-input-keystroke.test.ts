@@ -1,9 +1,15 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { parsePerfMetrics } from './perf/harness';
 import { runTestProcess, type TestProcessResult } from './test-process';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+/** Where the benchmarks run: the repository's root, a place to start in, not a file they read. */
+const ROOT = path.resolve(import.meta.dir, '..');
+const KEYSTROKE = fileURLToPath(new URL('./bench-web-input-keystroke.ts', import.meta.url));
+const KEYBINDS = fileURLToPath(new URL('./bench-web-input-keybinds.ts', import.meta.url));
+const V8 = fileURLToPath(new URL('./bench-web-input-v8.ts', import.meta.url));
 const SMALL_RUN = {
   BENCH_KEYSTROKES: '256',
   BENCH_SAMPLES: '3',
@@ -21,11 +27,7 @@ describe('web input keystroke benchmark', () => {
   test(
     'reports objects and time per keystroke for every stage of the production path',
     async () => {
-      const { stdout, stderr, exitCode } = await run([
-        'bun',
-        'run',
-        'scripts/bench-web-input-keystroke.ts',
-      ]);
+      const { stdout, stderr, exitCode } = await run(['bun', 'run', KEYSTROKE]);
 
       expect(exitCode, stderr).toBe(0);
       const metrics = new Map(parsePerfMetrics(stdout).map((metric) => [metric.name, metric]));
@@ -57,7 +59,7 @@ describe('web input keystroke benchmark', () => {
         'bun',
         '--conditions=browser',
         'run',
-        'scripts/bench-web-input-keybinds.ts',
+        KEYBINDS,
       ]);
 
       expect(exitCode, stderr).toBe(0);
@@ -77,11 +79,7 @@ describe('web input keystroke benchmark', () => {
   test(
     'reports V8 allocation bytes per keystroke on both tiers',
     async () => {
-      const { stdout, stderr, exitCode } = await run([
-        'bun',
-        'run',
-        'scripts/bench-web-input-v8.ts',
-      ]);
+      const { stdout, stderr, exitCode } = await run(['bun', 'run', V8]);
 
       expect(exitCode, stderr).toBe(0);
       const metrics = new Map(parsePerfMetrics(stdout).map((metric) => [metric.name, metric]));
