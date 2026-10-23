@@ -10,6 +10,7 @@ targets. Cargo's manifests and lockfile stay the source of the Rust dependency g
 | Command | What it does |
 | --- | --- |
 | `bazel test //...` | Every test and static gate. Bazel runs the ones whose inputs changed and answers the rest from its cache. |
+| `bun run test:quick` | The edit loop, `bazel test --config=quick //...`: every test but the nineteen tagged `repository`, which read the whole repository and so rerun after any edit (the whole-tree gates, the gates' own tests, the scans), and without building their checkout. Run `bazel test //...` before a push. |
 | `bazel test //apps/web:test` | One package's Bun tests: a suite of one test per test file (`//apps/web:src/api.refresh.test` for `src/api.refresh.test.ts`). The Rust crates add `unit`, integration and `doc` targets. |
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | One filtered libtest run. |
 | `bazel test //:static_gates` | The static gates, each also a `package.json` script (`bun run check:types`). `check:types` is one test per TypeScript project, over the files its `tsc` lists; `check:lint` and `check:slop` one per Bazel package, over its own files. |

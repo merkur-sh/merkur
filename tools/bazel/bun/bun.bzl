@@ -271,8 +271,9 @@ def _repo_snapshot_impl(ctx):
         outputs = [output],
         mnemonic = "RepoSnapshot",
         progress_message = "Checking out the repository for %{label}",
-        # Hundreds of megabytes a commit, rebuilt in seconds: kept in the output tree only.
-        execution_requirements = {"no-remote-cache": "1"},
+        # Hundreds of megabytes a commit, rebuilt in seconds: kept in the output tree only. It reads
+        # only its declared inputs, which a sandbox would stage one link per file.
+        execution_requirements = {"no-remote-cache": "1", "no-sandbox": "1"},
     )
     return [DefaultInfo(files = depset([output]))]
 
@@ -315,6 +316,9 @@ _BROWSERS = {
 
 # The whole repository as every test that reads it as a whole clones it (`checkout_snapshot`).
 _SNAPSHOT = "//:checkout"
+
+# The tag of a test that reads the repository as a whole, which reruns after any edit.
+_REPOSITORY_TAG = "repository"
 
 def checkout_snapshot(name):
     """The whole repository as one checkout: every package's files, whose TypeScript holds Rust
@@ -377,6 +381,9 @@ def bun_test_files(name = "test", tests = [], files = {}):
             links = SYMLINKS if checkout else {},
             size = needs.get("size", "medium"),
             snapshot = _SNAPSHOT if checkout else None,
+            # A test of the repository as a whole, declared or named with its root's URL, which
+            # `--config=quick` leaves for the push.
+            tags = [_REPOSITORY_TAG] if checkout or "//:sources" in modules[test] else [],
             tests = [test],
             tools = needs.get("tools", {}),
             workspace = _WORKSPACE,
@@ -498,6 +505,7 @@ def repo_check(name, script, data = [], **kwargs):
         data = ["//:test_node_modules"] + data,
         links = SYMLINKS,
         snapshot = _SNAPSHOT,
+        tags = kwargs.pop("tags", []) + [_REPOSITORY_TAG],
         workspace = _WORKSPACE,
         **kwargs
     )

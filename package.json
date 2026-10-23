@@ -41,6 +41,7 @@
     "rust:test": "bazel test //apps/... //packages/... //tools/...",
     "bench:scroll-prepare": "bazel run //apps/daemon/dataplane:unit_release -- --ignored --nocapture --test-threads=1 production_scroll_literal_benchmark",
     "test:unit": "bazel test //...",
+    "test:quick": "bazel test --config=quick //...",
     "test:tpm-sim": "bun run scripts/test-tpm-sim.ts",
     "test:graphics:long": "bazel run //apps/daemon/dataplane:unit -- --ignored display::graphics_convergence::long::",
     "test:e2e": "playwright test",

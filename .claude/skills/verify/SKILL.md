@@ -140,6 +140,9 @@ what each test declares.
 
 Process spawns dominate small runs.
 
+- While editing, `bun run test:quick` (`bazel test --config=quick //...`) runs every test whose
+  inputs changed except the nineteen tagged `repository`, which read the whole repository and
+  rerun after any edit; `bazel test //...` before the push runs them too.
 - One `bazel test` invocation takes every target: Bazel builds what they share once, runs the
   tests side by side, and prints a failing test's log when it finishes. libtest filters pass through `--test_arg`:
   `bazel test //apps/daemon/dataplane:unit --test_arg=session::rebind_flow::tests --test_arg=network::peer::tests`.
