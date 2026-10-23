@@ -29,21 +29,26 @@ convergence runs. The rules are rendered as a table below; edit the rules, never
 
 ## How a Bun test runs under Bazel
 
-`bun_tests` (`tools/bazel/bun/bun.bzl`) is one test target per package: `bun test` over the
-package's test files, sharded where a package is large. The test copies its declared files
-(`//:sources`, every package's `package_files()`, plus the WebAssembly packages and the
-installed dependencies) into a checkout of its own in the test's scratch directory, so a
-test reads only what it declared and a walk sees a working tree. `node_modules` stay links
-into rules_js's store, with the `.bin` commands pnpm would write; the vendored transport
-crates, which Bazel does not load as packages, are mounted at their paths. Bun, Node (the
-release `.node-version` names), Redis and OpenSSL, and the Playwright Chromium revision
-`playwright-core` names are hermetic and on the test's `PATH`. A native helper a script
-spawns (the display fixture, the session oracle) is a declared tool on `PATH`; run from the
-checkout, `scripts/bazel-tool.ts` builds it with `--config=release`.
+`bun_test_files` (`tools/bazel/bun/bun.bzl`) is one test per test file, `//<package>:<file
+without .ts>`, and a `//<package>:test` suite of them; `bazel test //apps/web:src/api.refresh.test`
+runs one. Each copies exactly what its file loads (its `<path>.module` target in
+`tools/bazel/modules.bzl`: imports, literal `new URL(…, import.meta.url)` names, the nearest
+`package.json` and `tsconfig.json`) plus `bunfig.toml`'s preloads into a checkout of its own, so
+it reruns only when one of those changed. `node_modules` hold the third-party packages as links
+into rules_js's store, with the `.bin` commands pnpm would write; workspace packages link to the
+checkout's own directories. What else a file reads, runs or spawns is declared in
+`bun_test_files`'s `files` (`data`, `tools`, `browsers`, `checkout`); an undeclared read fails
+with ENOENT or "Module not found" for a path under the checkout. Bun, Node (the release
+`.node-version` names), Redis and OpenSSL, and the Playwright Chromium revision
+`playwright-core` names are hermetic. A native helper a script spawns (the display fixture, the
+session oracle) is a declared tool on `PATH`; run from the checkout, `scripts/bazel-tool.ts`
+builds it with `--config=release`.
 
-`scripts/bazel-sources.ts` generates `tools/bazel/sources.bzl`, the package list
-`//:sources` gathers, and `check:bazel-sources` (`//:check_bazel_sources`) fails when it is
-stale or a `BUILD.bazel` declares no `package_files()`.
+`scripts/bazel-sources.ts` generates `tools/bazel/sources.bzl` (the package list `//:sources`
+gathers, each importer's dependencies) and `tools/bazel/modules.bzl` (the module graph), and
+`check:bazel-sources` (`//:check_bazel_sources`) fails when either is stale or a `BUILD.bazel`
+declares no `package_files()`. Rerun it after changing an import, a test file or a
+`BUILD.bazel`.
 
 ## The static gates
 
@@ -129,8 +134,7 @@ what each test declares.
 Process spawns dominate small runs.
 
 - One `bazel test` invocation takes every target: Bazel builds what they share once, runs the
-  tests side by side within the CPUs each declares (`cpu:N` tags), and prints a failing test's
-  log when it finishes. libtest filters pass through `--test_arg`:
+  tests side by side, and prints a failing test's log when it finishes. libtest filters pass through `--test_arg`:
   `bazel test //apps/daemon/dataplane:unit --test_arg=session::rebind_flow::tests --test_arg=network::peer::tests`.
   Several packages share an invocation too: `bazel test //packages/merkur-e2e/... //apps/edge/...`.
 - Never run `check` plus one of its members.

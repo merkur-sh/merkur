@@ -1,6 +1,7 @@
 load("@npm//:defs.bzl", "npm_link_all_packages")
-load("//tools/bazel:files.bzl", "IGNORED")
-load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "WORKSPACE_PACKAGES")
+load("//tools/bazel:files.bzl", "IGNORED", "module_targets")
+load("//tools/bazel:modules.bzl", "PRELOADS")
+load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "THIRD_PARTY_DEPENDENCIES")
 load("//tools/bazel/bun:bun.bzl", "repo_check")
 load("//tools/bazel/rust:clippy.bzl", "clippy_manifest")
 
@@ -43,10 +44,25 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-# Every workspace package's installed dependencies, as pnpm links them.
+module_targets()
+
+# Every package's installed third-party dependencies, as pnpm links them. A checkout links the
+# workspace packages to its own directories (`tools/bazel/bun/bun.bzl`), so a test holds only the
+# workspace files it loads.
 filegroup(
-    name = "workspace_node_modules",
-    srcs = [":node_modules"] + [package + ":node_modules" for package in WORKSPACE_PACKAGES],
+    name = "test_node_modules",
+    srcs = [
+        "//%s:node_modules/%s" % (package, dependency)
+        for package, dependencies in THIRD_PARTY_DEPENDENCIES.items()
+        for dependency in dependencies
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# What `bun test` reads before any test file: `bunfig.toml` and the preloads it names.
+filegroup(
+    name = "bun_test_config",
+    srcs = ["bunfig.toml"] + PRELOADS,
     visibility = ["//visibility:public"],
 )
 

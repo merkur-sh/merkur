@@ -1,6 +1,8 @@
 # Trees Bazel never loads as packages: installed dependencies, other build systems' outputs,
 # Bazel's own convenience links and the vendored crates crate_universe builds.
 ignore_directories([
+    # Git's own directory, where a checkout may keep Bazel's repository cache.
+    ".git",
     "**/node_modules",
     "**/target",
     "**/dist",

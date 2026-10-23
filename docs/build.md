@@ -10,7 +10,7 @@ targets. Cargo's manifests and lockfile stay the source of the Rust dependency g
 | Command | What it does |
 | --- | --- |
 | `bazel test //...` | Every test and static gate. Bazel runs the ones whose inputs changed and answers the rest from its cache. |
-| `bazel test //apps/web:test` | One package's Bun tests. Every package with tests has a `test` target; the Rust crates add `unit`, integration and `doc` targets. |
+| `bazel test //apps/web:test` | One package's Bun tests: a suite of one test per test file (`//apps/web:src/api.refresh.test` for `src/api.refresh.test.ts`). The Rust crates add `unit`, integration and `doc` targets. |
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | One filtered libtest run. |
 | `bazel test //:static_gates` | The nine static gates, each also a `package.json` script (`bun run check:types`). |
 | `bazel test //:rust_lint` | `rust:lint`: Clippy as a Bazel aspect over every first-party Rust target, cached per crate and held to its baseline; part of `bazel test //...`. |
@@ -63,27 +63,44 @@ WASM import locations, before starting its packaged web server.
 
 ## How a Bun test runs
 
-`bun_tests` (`tools/bazel/bun/bun.bzl`) runs `bun test` over a package's test files, sharded
-where a package is large. It copies its declared files into a checkout of its own in the
-test's scratch directory: `//:sources`, which gathers every package's `package_files()`, the
-WebAssembly packages, and the installed dependencies, which stay links into `rules_js`'s store
-with the `.bin` commands pnpm would write. A workspace package links to the checkout's own
-directory (`WORKSPACE_LINKS` in `tools/bazel/sources.bzl`), so its relative paths, such as a
-`tsconfig.json` extending the root's, resolve as in a working tree. A walk sees a working tree,
-and a test reads only what it declared. Bun, Node, Redis, OpenSSL and Chromium are hermetic and on the test's `PATH`,
-as is each native helper a test spawns. A static gate is a `repo_check`: the gate's
-`package.json` script over the same checkout, made a Git repository so the gate sees what Git
-ignores.
+`bun_test_files` (`tools/bazel/bun/bun.bzl`) makes one test per test file: `bun test` over that
+file in a checkout of its own in the test's scratch directory, holding exactly what the file
+loads, so a test reruns only when one of those files changes. `scripts/bazel-modules.ts`
+generates what each file loads (`tools/bazel/modules.bzl`) as a `<path>.module` target in the
+package that owns it:
+
+- what it imports, as Bun resolves it;
+- what it names relative to itself with a literal `new URL('…', import.meta.url)` or
+  `import.meta.resolve('…')`: a directory so named is every file in it, and the repository's root
+  the whole checkout;
+- its nearest `package.json` and `tsconfig.json`, with what that extends.
+
+Every test also holds `bunfig.toml` and its preloads, and the installed third-party packages,
+which stay links into `rules_js`'s store with the `.bin` commands pnpm would write. A workspace
+package a package depends on links to the checkout's own directory (`WORKSPACE_DEPENDENCIES` and
+`WORKSPACE_LINKS` in `tools/bazel/sources.bzl`), so its relative paths, such as a `tsconfig.json`
+extending the root's, resolve as in a working tree.
+
+What a test reads by any other name it declares in `bun_test_files`'s `files`: `data` (another
+file's module target, such as a script it runs or a fixture it reads by a computed path),
+`tools` (a native helper it spawns, put on its `PATH`), `browsers` (Playwright's Chromium), or
+`checkout` (the whole repository, for a gate's test or a scan). An undeclared read fails, because
+the checkout does not hold the file. Bun, Node, Redis, OpenSSL and Chromium are hermetic.
+
+A static gate is a `repo_check`: the gate's `package.json` script over a checkout of the whole
+repository, made a Git repository so the gate sees what Git ignores.
 
 ## Adding code
 
 - A Rust crate gets a hand-written `BUILD.bazel`: `rust_library`, its `rust_test` and
   `rust_doc_test` targets, `extract_cargo_lints` for its `[lints]`, and `package_files()`.
   `all_crate_deps()` names its dependencies from `Cargo.toml`.
-- A workspace package with tests gets `bun_tests` over its `*.test.ts` files.
-- Every `BUILD.bazel` calls `package_files()`. `bun run scripts/bazel-sources.ts` rewrites the
-  package list `//:sources` gathers (`tools/bazel/sources.bzl`); `check:bazel-sources` fails
-  when it is stale.
+- A package with tests gets `bun_test_files` over its `*.test.ts` files.
+- Every `BUILD.bazel` calls `package_files()`, which also declares the package's module targets.
+  `bun run scripts/bazel-sources.ts` rewrites the package list `//:sources` gathers
+  (`tools/bazel/sources.bzl`) and the module graph (`tools/bazel/modules.bzl`), after an import,
+  a test file, a workspace dependency or a `BUILD.bazel` changes; `check:bazel-sources` fails
+  when either is stale.
 - A WebAssembly package's crate graph is its own Cargo workspace under
   `tools/bazel/wasm/<package>`, which `bun run build:wasm-workspaces` regenerates after a
   manifest or `Cargo.lock` change.

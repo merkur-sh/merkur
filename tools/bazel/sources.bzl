@@ -74,24 +74,6 @@ SYMLINKS = {
     "tools/bazel/sim/vendored/wtransport-patch": "../../../../packages/wtransport-patch",
 }
 
-# The pnpm workspace's packages.
-WORKSPACE_PACKAGES = [
-    "//apps/daemon",
-    "//apps/server",
-    "//apps/site",
-    "//apps/web",
-    "//packages/auth",
-    "//packages/config",
-    "//packages/daemon-control-protocol",
-    "//packages/keyboard",
-    "//packages/logger",
-    "//packages/profile",
-    "//packages/protocol",
-    "//packages/quicksilver",
-    "//packages/shared",
-    "//packages/user-agent",
-]
-
 # Each workspace package's directory, by the name a checkout's `node_modules` links it under.
 WORKSPACE_LINKS = {
     "@merkur/auth": "packages/auth",
@@ -108,4 +90,129 @@ WORKSPACE_LINKS = {
     "@merkur/site": "apps/site",
     "@merkur/user-agent": "packages/user-agent",
     "@merkur/web": "apps/web",
+}
+
+# Each pnpm importer's third-party dependencies, by its directory, which its `:node_modules`
+# links from the store.
+THIRD_PARTY_DEPENDENCIES = {
+    "": [
+        "@biomejs/biome",
+        "@noble/post-quantum",
+        "@playwright/test",
+        "bun-types",
+        "effect",
+        "fallow",
+        "oxc-parser",
+        "rolldown",
+        "typescript",
+        "vite",
+    ],
+    "apps/daemon": [
+        "@elysia/eden",
+        "effect",
+        "uqr",
+    ],
+    "apps/server": [
+        "@block65/webcrypto-web-push",
+        "@libsql/client",
+        "@serenity-kit/opaque",
+        "disposable-email-domains-js",
+        "effect",
+        "elysia",
+        "exact-mirror",
+        "fakefilter",
+        "kysely",
+        "typebox",
+    ],
+    "apps/site": [
+        "@mdx-js/rollup",
+        "@playwright/test",
+        "@solidjs/vite-plugin",
+        "@solidjs/web",
+        "@unocss/preset-uno",
+        "motion",
+        "remark-frontmatter",
+        "remark-gfm",
+        "remark-mdx-frontmatter",
+        "shiki",
+        "solid-js",
+        "unocss",
+        "vite",
+    ],
+    "apps/web": [
+        "@elysia/eden",
+        "@serenity-kit/opaque",
+        "@solidjs/vite-plugin",
+        "@solidjs/web",
+        "@unocss/preset-uno",
+        "effect",
+        "linkify-it",
+        "motion",
+        "solid-js",
+        "unocss",
+        "vite",
+    ],
+    "packages/auth": [
+        "@serenity-kit/opaque",
+        "nanoid",
+    ],
+    "packages/config": [
+        "effect",
+    ],
+    "packages/logger": [
+        "effect",
+    ],
+    "packages/profile": [
+        "effect",
+    ],
+    "packages/quicksilver": [
+        "@unocss/preset-uno",
+        "unocss",
+        "vite",
+    ],
+    "packages/shared": [
+        "effect",
+        "typebox",
+    ],
+}
+
+# The workspace packages each pnpm importer depends on, by its directory.
+WORKSPACE_DEPENDENCIES = {
+    "apps/daemon": [
+        "@merkur/auth",
+        "@merkur/config",
+        "@merkur/daemon-control-protocol",
+        "@merkur/logger",
+        "@merkur/server",
+        "@merkur/shared",
+    ],
+    "apps/server": [
+        "@merkur/auth",
+        "@merkur/config",
+        "@merkur/daemon-control-protocol",
+        "@merkur/logger",
+        "@merkur/quicksilver",
+        "@merkur/shared",
+        "@merkur/user-agent",
+    ],
+    "apps/site": [
+        "@merkur/logger",
+        "@merkur/quicksilver",
+    ],
+    "apps/web": [
+        "@merkur/config",
+        "@merkur/keyboard",
+        "@merkur/logger",
+        "@merkur/protocol",
+        "@merkur/quicksilver",
+        "@merkur/server",
+        "@merkur/shared",
+    ],
+    "packages/auth": [
+        "@merkur/shared",
+    ],
+    "packages/config": [
+        "@merkur/auth",
+        "@merkur/shared",
+    ],
 }

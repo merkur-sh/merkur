@@ -1,7 +1,7 @@
 load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED", "package_files")
-load("//tools/bazel/bun:bun.bzl", "bun_tests")
+load("//tools/bazel/bun:bun.bzl", "bun_test_files")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -33,7 +33,15 @@ js_library(
     deps = [":node_modules"],
 )
 
-bun_tests(
+bun_test_files(
+    # Both ends of the daemon's IPC, which the conformance test holds to one wire.
+    files = {"src/ipc-wire-conformance.test.ts": {"data": [
+        "//apps/daemon:src/services/dataplane-client.ts.module",
+        "//apps/daemon/dataplane:src/ipc/commands.rs.module",
+        "//apps/daemon/dataplane:src/ipc/events.rs.module",
+        "//apps/daemon/dataplane:src/session/rebind_flow.rs.module",
+        "//packages/merkur-traversal:src/portmap/mod.rs.module",
+    ]}},
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

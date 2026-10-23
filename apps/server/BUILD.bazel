@@ -1,7 +1,7 @@
 load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED", "package_files")
-load("//tools/bazel/bun:bun.bzl", "bun_tests")
+load("//tools/bazel/bun:bun.bzl", "bun_test_files")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -21,8 +21,7 @@ js_library(
     deps = [":node_modules"],
 )
 
-bun_tests(
-    shard_count = 2,
+bun_test_files(
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

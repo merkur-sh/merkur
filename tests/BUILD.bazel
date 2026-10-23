@@ -1,5 +1,5 @@
 load("//tools/bazel:files.bzl", "IGNORED", "package_files")
-load("//tools/bazel/bun:bun.bzl", "bun_tests")
+load("//tools/bazel/bun:bun.bzl", "bun_test_files")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -10,7 +10,12 @@ filegroup(
     srcs = glob(["fixtures/kitty/**"]),
 )
 
-bun_tests(
+bun_test_files(
+    files = {
+        "e2e/fixtures/daemon-perf-trace-capture.test.ts": {"data": [
+            "//packages/merkur-trace:testdata/capture.mtrace.module",
+        ]},
+    },
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

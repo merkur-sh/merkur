@@ -153,7 +153,7 @@ Signing and deployment packaging commands are in [`docs/releases.md`](../docs/re
 
 | Kind | Where | Runner |
 | --- | --- | --- |
-| TypeScript unit tests | `*.test.ts` next to the module under test, in every app and package | Bun test, one `bun_tests` Bazel target per package (`bazel test //apps/web:test`), all through `bun run test:unit` |
+| TypeScript unit tests | `*.test.ts` next to the module under test, in every app and package | Bun test, one Bazel test per test file and a `test` suite per package (`bazel test //apps/web:test`), all through `bun run test:unit` |
 | Rust unit, integration and doc tests | Inside each crate, declared in its `BUILD.bazel` | `bazel test`, through `bun run rust:test` or `bazel test //<crate directory>/...` |
 | Browser transport cipher | `packages/merkur-e2e/src/wasm_chacha.rs`, compiled only for wasm32 with simd128 | `wasm-bindgen-test` under Node, through `bun run test:wasm-cipher` (`bazel test //tools/bazel/wasm/merkur-e2e-cipher:test`) |
 | Browser end-to-end specs | `tests/e2e/*.e2e.ts`, with shared fixtures in `tests/fixtures` and helpers in `tests/helpers` | Playwright, through the `test:e2e*` commands |

@@ -2,7 +2,7 @@ load("@aspect_rules_js//js:defs.bzl", "js_library")
 load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED", "package_files")
 load("//tools/bazel/wasm:defs.bzl", "wasm_package_files")
-load("//tools/bazel/bun:bun.bzl", "bun_tests")
+load("//tools/bazel/bun:bun.bzl", "bun_test_files")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -42,8 +42,9 @@ wasm_package_files(
     package = "//tools/bazel/wasm/term-wasm:pkg",
 )
 
-bun_tests(
-    shard_count = 4,
+bun_test_files(
+    # The terminal's fonts and the subset manifest beside them.
+    files = {"src/terminal/fonts.test.ts": {"data": glob(["public/fonts/**"])}},
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

@@ -3,7 +3,7 @@ load("@rules_rust//cargo:defs.bzl", "extract_cargo_lints")
 load("@rules_rust//rust:defs.bzl", "rust_doc_test", "rust_library", "rust_test")
 load("//tools/bazel/wasm:defs.bzl", "wasm_package_files")
 load("//tools/bazel:files.bzl", "IGNORED", "package_files")
-load("//tools/bazel/bun:bun.bzl", "bun_tests")
+load("//tools/bazel/bun:bun.bzl", "bun_test_files")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -57,7 +57,11 @@ wasm_package_files(
     package = "//tools/bazel/wasm/e2e-wasm:pkg",
 )
 
-bun_tests(
+bun_test_files(
+    # The Noise vector the native build pins too.
+    files = {"conformance.test.ts": {"data": [
+        "//packages/shared:test-vectors/noise-xxpsk3.json.module",
+    ]}},
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

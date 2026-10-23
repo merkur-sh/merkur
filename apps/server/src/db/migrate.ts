@@ -11,8 +11,7 @@ import { InfrastructureError, infrastructureError } from '../services/errors';
 import { createDatabaseClient, DatabaseService } from './client';
 import { LibsqlDialect } from './libsql-dialect';
 
-const CURRENT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIRECTORY = path.join(CURRENT_DIRECTORY, '../../migrations');
+const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../../migrations/', import.meta.url));
 
 export async function createMigratedKyselyDatabase<T>(
   databaseUrl: string,

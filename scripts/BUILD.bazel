@@ -1,6 +1,6 @@
 load("//tools/bazel/bun:bun.bzl", "bun_binary")
 load("//tools/bazel:files.bzl", "IGNORED", "package_files")
-load("//tools/bazel/bun:bun.bzl", "bun_tests")
+load("//tools/bazel/bun:bun.bzl", "bun_test_files")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -30,15 +30,61 @@ bun_binary(
     entry = "term-wasm-current-glue.ts",
 )
 
-bun_tests(
-    browsers = True,
-    shard_count = 3,
-    tools = {
-        "@openssl//:openssl": "openssl",
-        "@redis//:redis-server": "redis-server",
-        "//packages/merkur-client:browser_session_oracle": "browser_session_oracle",
-        "//packages/display-fixture": "display-fixture",
-    },
+# The native session oracle the browser benchmarks drive their delivery through.
+_ORACLE = {"//packages/merkur-client:browser_session_oracle": "browser_session_oracle"}
+
+# The harness's setup and teardown, which a Playwright configuration names for Playwright to load.
+_PLAYWRIGHT_SETUP = [
+    "//tests:e2e/global-setup.ts.module",
+    "//tests:e2e/global-teardown.ts.module",
+]
+
+# The gates, scans and workspace generators these test run over the repository as a whole.
+_WHOLE_REPOSITORY = [
+    "check-latency-boundaries.test.ts",
+    "check-slop.test.ts",
+    "check-span-attributes.test.ts",
+    "e2e-wasm-entry-points.test.ts",
+    "gates.test.ts",
+    # Lists the whole end-to-end harness under the NAT lab's Playwright configuration.
+    "natlab/bootstrap.test.ts",
+    "sim-workspace.test.ts",
+    "toolchain-pins.test.ts",
+    "vendored-workspace.test.ts",
+    "wasm-artifact-manifests.test.ts",
+]
+
+bun_test_files(
+    files = {
+        "analyze-terminal-gpu-trace.test.ts": {"data": [
+            ":analyze-terminal-gpu-trace.ts.module",
+            "//:playwright.edge.config.mjs.module",
+            "//tests:e2e/terminal-direct-latency.e2e.ts.module",
+        ] + _PLAYWRIGHT_SETUP},
+        "bench-display-ack-drain.test.ts": {"tools": _ORACLE},
+        "bench-display-encoding.test.ts": {"tools": {"//packages/display-fixture": "display-fixture"}},
+        "bench-input-ack.test.ts": {"tools": _ORACLE},
+        "bench-input-send-path.test.ts": {"tools": _ORACLE},
+        "bench-keyboard-hotpaths.test.ts": {"data": [":bench-keyboard-hotpaths.ts.module"]},
+        "bench-retained-wire-payload-pool.test.ts": {"browsers": True},
+        "bench-web-input-keystroke.test.ts": {"tools": _ORACLE},
+        "bench-webgpu-renderer.test.ts": {"browsers": True},
+        "dev-redis.test.ts": {"tools": {
+            "@openssl//:openssl": "openssl",
+            "@redis//:redis-server": "redis-server",
+        }},
+        "host-harness-lock.test.ts": {"data": [":host-harness-lock.ts.module"]},
+        "perf/client-session-fixture.test.ts": {"tools": _ORACLE},
+        "run-terminal-network-matrix.test.ts": {"data": ["//:playwright.edge.config.mjs.module"]},
+        "rust-lint.test.ts": {"data": ["//:.bazelrc.module"]},
+        "service-hosts.test.ts": {"data": ["//:deploy/service-hosts.json.module"]},
+        "sign-release-manifest.test.ts": {"data": [":sign-release-manifest.ts.module"]},
+        "worker-rollout.test.ts": {"data": [
+            "//apps/web:src/terminal-worker-client.ts.module",
+            "//apps/web:src/transport-worker-client.ts.module",
+            "//apps/web:vite.config.ts.module",
+        ]},
+    } | {test: {"checkout": True} for test in _WHOLE_REPOSITORY},
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

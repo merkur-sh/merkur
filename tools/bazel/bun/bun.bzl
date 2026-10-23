@@ -1,7 +1,8 @@
 """Bun programs, run from the repository root in their runfiles."""
 
 load("@aspect_rules_js//js:libs.bzl", "js_lib_helpers")
-load("//tools/bazel:sources.bzl", "SYMLINKS", "WORKSPACE_LINKS")
+load("//tools/bazel:modules.bzl", "MODULES")
+load("//tools/bazel:sources.bzl", "SYMLINKS", "WORKSPACE_DEPENDENCIES", "WORKSPACE_LINKS")
 load("//tools/bazel/playwright:extensions.bzl", "CHROMIUM_REVISION")
 
 def _bun_binary_impl(ctx):
@@ -105,10 +106,9 @@ while read -r modules; do
   modules_dirs+=("$tree/$modules")
 done < <(cd "$main" && find . -name node_modules -prune -type d)
 # A workspace package resolves to the checkout's own copy, as in a working tree, so its relative
-# paths (a `tsconfig.json` that extends the root's) stay inside the checkout.
-for modules in ${{modules_dirs[@]+"${{modules_dirs[@]}}"}}; do
+# paths (a `tsconfig.json` that extends the root's) stay inside the checkout. A package the
+# checkout does not hold is one nothing it holds imports.
 {workspace}
-done
 {mounts}
 {links}
 {git}
@@ -151,12 +151,13 @@ exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}} "$@"
             tools = tools,
             tests = " ".join(tests),
             workspace = "\n".join([
-                '  if [ -L "$modules/{name}" ]; then ln -sfn "$tree/{directory}" "$modules/{name}"; fi'.format(
-                    name = name,
+                'if [ -d "$tree/{directory}" ]; then mkdir -p "$tree/{parent}" && ln -sfn "$tree/{directory}" "$tree/{path}"; fi'.format(
                     directory = directory,
+                    parent = path.rpartition("/")[0],
+                    path = path,
                 )
-                for name, directory in sorted(ctx.attr.workspace.items())
-            ]) or "  :",
+                for path, directory in sorted(ctx.attr.workspace.items())
+            ]),
         ),
         is_executable = True,
     )
@@ -188,7 +189,7 @@ _CHECKOUT_ATTRS = {
         doc = "Executables the tests spawn, by the name they run them under.",
     ),
     "workspace": attr.string_dict(
-        doc = "Workspace packages' checkout directories, by the name `node_modules` links each under.",
+        doc = "Workspace packages' checkout directories, by the `node_modules` path that links each.",
     ),
     "_bun": attr.label(
         default = "//tools/bazel/bun",
@@ -230,39 +231,83 @@ _VENDORED = {
     "@vendored_wtransport_patch//:files": "packages/wtransport-patch",
 }
 
-# What Bun tests read: the checkout, whose TypeScript holds Rust and prose to the same contracts,
-# the installed dependencies, and the WebAssembly packages the sources import.
-_TEST_DATA = [
+# Each workspace package a package depends on, by the `node_modules` path that links it, with its
+# directory in the checkout.
+_WORKSPACE = {
+    (package + "/" if package else "") + "node_modules/" + name: WORKSPACE_LINKS[name]
+    for package, names in WORKSPACE_DEPENDENCIES.items()
+    for name in names
+}
+
+_BROWSERS = {
+    "//tools/bazel/playwright:chromium": "chromium-" + CHROMIUM_REVISION,
+    "//tools/bazel/playwright:chromium_headless_shell": "chromium_headless_shell-" + CHROMIUM_REVISION,
+}
+
+# The whole repository: every package's files, whose TypeScript holds Rust and prose to the same
+# contracts, and the WebAssembly packages the sources import.
+_REPOSITORY = [
     "//:sources",
     "//:wasm_packages",
-    "//:workspace_node_modules",
 ]
 
-def bun_tests(name = "test", tests = [], parallel = 4, browsers = False, **kwargs):
-    """`bun test` over `tests` in a checkout of `data`, with the checkout's symlinks.
+# A whole-repository checkout: the repository and the installed third-party packages.
+_CHECKOUT_DATA = _REPOSITORY + ["//:test_node_modules"]
+
+# What every Bun test loads beyond its own file: `bunfig.toml` and the preloads it names, and the
+# installed third-party packages.
+_TEST_BASE = [
+    "//:bun_test_config",
+    "//:test_node_modules",
+]
+
+_NEEDS = ["browsers", "checkout", "data", "size", "tools"]
+
+def bun_test_files(name = "test", tests = [], files = {}):
+    """One `bun test` per test file, over a checkout of what that file loads.
+
+    A file's checkout is its module target (`tools/bazel/modules.bzl`): the file and everything it
+    imports or names with a literal URL, as `scripts/bazel-modules.ts` resolves it, so its test
+    reruns only when one of those changes. `src/a.test.ts` is the test `src/a.test`.
 
     Args:
-      name: the test's name.
+      name: a suite of every file's test.
       tests: the test files.
-      parallel: Bun's worker processes, which the test reserves as CPUs.
-      browsers: whether the tests launch Playwright's Chromium.
-      **kwargs: the common test attributes, such as `shard_count` or `size`.
+      files: what a test file needs beyond what it loads, by file: `data`, labels it reads;
+        `tools`, executables it spawns, by the name it runs each under; `browsers`, whether it
+        launches Playwright's Chromium; `checkout`, whether it reads the repository as a whole;
+        `size`.
     """
-    bun_test(
-        name = name,
-        args_ = ["test", "--parallel=%d" % parallel],
-        browsers = {
-            "//tools/bazel/playwright:chromium": "chromium-" + CHROMIUM_REVISION,
-            "//tools/bazel/playwright:chromium_headless_shell": "chromium_headless_shell-" + CHROMIUM_REVISION,
-        } if browsers else {},
-        data = _TEST_DATA,
-        links = SYMLINKS,
-        mounts = _VENDORED,
-        workspace = WORKSPACE_LINKS,
-        tags = kwargs.pop("tags", []) + ["cpu:%d" % parallel],
-        tests = tests,
-        **kwargs
-    )
+    package = native.package_name()
+    modules = MODULES.get(package, {})
+    for file, needs in files.items():
+        if file not in tests:
+            fail("%s: %s is not a test file" % (package, file))
+        for need in needs:
+            if need not in _NEEDS:
+                fail("%s: %s needs %s, which is none of %s" % (package, file, need, _NEEDS))
+    targets = []
+    for test in tests:
+        if test not in modules:
+            fail("%s/%s is not in tools/bazel/modules.bzl: bun run scripts/bazel-sources.ts" % (package, test))
+        needs = files.get(test, {})
+        checkout = needs.get("checkout", False)
+        target = test.removesuffix(".ts")
+        bun_test(
+            name = target,
+            args_ = ["test"],
+            browsers = _BROWSERS if needs.get("browsers", False) else {},
+            data = [":%s.module" % test] + _TEST_BASE + (_REPOSITORY if checkout else []) +
+                   needs.get("data", []),
+            links = SYMLINKS if checkout else {},
+            mounts = _VENDORED if checkout else {},
+            size = needs.get("size", "medium"),
+            tests = [test],
+            tools = needs.get("tools", {}),
+            workspace = _WORKSPACE,
+        )
+        targets.append(":" + target)
+    native.test_suite(name = name, tests = targets)
 
 def repo_check(name, script, data = [], **kwargs):
     """`bun run <script>`, a `package.json` gate, over a checkout of the whole repository.
@@ -278,11 +323,11 @@ def repo_check(name, script, data = [], **kwargs):
     bun_test(
         name = name,
         args_ = ["run", script],
-        data = _TEST_DATA + data,
+        data = _CHECKOUT_DATA + data,
         git = True,
         links = SYMLINKS,
         mounts = _VENDORED,
-        workspace = WORKSPACE_LINKS,
+        workspace = _WORKSPACE,
         **kwargs
     )
 
@@ -295,9 +340,9 @@ def repo_checkout(name, **kwargs):
     """
     bun_checkout(
         name = name,
-        data = _TEST_DATA,
+        data = _CHECKOUT_DATA,
         links = SYMLINKS,
         mounts = _VENDORED,
-        workspace = WORKSPACE_LINKS,
+        workspace = _WORKSPACE,
         **kwargs
     )
