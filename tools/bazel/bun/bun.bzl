@@ -342,6 +342,8 @@ _TEST_BASE = ["//:bun_test_config"]
 
 _NEEDS = ["browsers", "checkout", "data", "size", "tools"]
 
+_BROWSER_CPUS = "cpu:4"
+
 def bun_test_files(name = "test", tests = [], files = {}):
     """One `bun test` per test file, over a checkout of what that file loads.
 
@@ -371,19 +373,22 @@ def bun_test_files(name = "test", tests = [], files = {}):
             fail("%s/%s is not in tools/bazel/modules.bzl: bun run scripts/bazel-sources.ts" % (package, test))
         needs = files.get(test, {})
         checkout = needs.get("checkout", False)
+        browsers = needs.get("browsers", False)
         target = test.removesuffix(".ts")
+        tags = [_REPOSITORY_TAG] if checkout or "//:sources" in modules[test] else []
         bun_test(
             name = target,
             args_ = ["test"],
-            browsers = _BROWSERS if needs.get("browsers", False) else {},
+            browsers = _BROWSERS if browsers else {},
             data = [":%s.module" % test] + _TEST_BASE +
                    (["//:test_node_modules"] if checkout else []) + needs.get("data", []),
             links = SYMLINKS if checkout else {},
             size = needs.get("size", "medium"),
             snapshot = _SNAPSHOT if checkout else None,
             # A test of the repository as a whole, declared or named with its root's URL, which
-            # `--config=quick` leaves for the push.
-            tags = [_REPOSITORY_TAG] if checkout or "//:sources" in modules[test] else [],
+            # `--config=quick` leaves for the push. Chromium's browser, GPU and renderer processes
+            # and SwiftShader's threads use a runner's every CPU, so a browser test reserves them.
+            tags = tags + ([_BROWSER_CPUS] if browsers else []),
             tests = [test],
             tools = needs.get("tools", {}),
             workspace = _WORKSPACE,
