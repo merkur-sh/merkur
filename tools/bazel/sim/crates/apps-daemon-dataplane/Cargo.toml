@@ -11,6 +11,7 @@ build = "../../../../../apps/daemon/dataplane/build.rs"
 path = "../../../../../apps/daemon/dataplane/src/lib.rs"
 
 [dependencies]
+merkur-traversal = { path = "../packages-merkur-traversal", "default-features" = false, features = [] }
 merkur-stun-protocol = { path = "../packages-merkur-stun-protocol", "default-features" = false, features = [] }
 portable-pty = { version = "0.9.0" }
 libc = { version = "0.2" }

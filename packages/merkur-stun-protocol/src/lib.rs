@@ -17,3 +17,4 @@
 )]
 
 pub mod message;
+pub mod observation;

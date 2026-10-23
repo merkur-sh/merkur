@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
-use merkur_client::issuance::{Issuance, IssuanceRequest, RenewalCapability, RenewalRequest};
+use merkur_client::issuance::{
+    Issuance, IssuanceRequest, RenewalCapability, RenewalRequest, StunCredentialRequest,
+};
 
 use crate::account::{Account, AccountError, Credentials};
 
@@ -17,6 +19,10 @@ pub trait Issuer: Send + Sync {
         &self,
         request: RenewalRequest,
     ) -> BoxFuture<'_, Result<RenewalCapability, AccountError>>;
+    fn stun(
+        &self,
+        request: StunCredentialRequest,
+    ) -> BoxFuture<'_, Result<crate::traversal::Credential, AccountError>>;
 }
 
 /// The account API, its access token renewed once when the server refuses it.
@@ -26,6 +32,20 @@ pub struct AccountIssuer {
 }
 
 impl Issuer for AccountIssuer {
+    fn stun(
+        &self,
+        request: StunCredentialRequest,
+    ) -> BoxFuture<'_, Result<crate::traversal::Credential, AccountError>> {
+        Box::pin(async move {
+            let (account, request) = (&self.account, &request);
+            account
+                .authorized(&self.credentials, |token| async move {
+                    account.request_stun_credential(&token, request).await
+                })
+                .await
+        })
+    }
+
     fn origin(&self) -> &str {
         self.account.origin()
     }

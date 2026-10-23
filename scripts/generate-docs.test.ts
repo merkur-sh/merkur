@@ -192,6 +192,25 @@ test('rendering is deterministic', () => {
   expect(renderE2eSpecTable(inputs, readSource)).toBe(renderE2eSpecTable(inputs, readSource));
 });
 
+test('a dedicated NAT config stays owned by its harness rather than the transport suite', () => {
+  const native: E2eSpecInputs = {
+    ...inputs,
+    configs: [
+      ...inputs.configs,
+      { file: 'scripts/natlab/playwright.native.config.mjs', specs: ['tui-nat'] },
+    ],
+    drivers: [...inputs.drivers, { file: 'scripts/natlab/run-native.ts', specs: ['tui-nat'] }],
+    allSpecs: [...inputs.allSpecs, 'tui-nat'],
+  };
+  const rows = e2eTableRows(native, readSource);
+  expect(rows.find((row) => row.command === 'test:e2e:transport')?.specs).not.toContain('tui-nat');
+  const block = renderE2eSpecTable(native, readSource);
+  expect(block).toContain(
+    'Dedicated harness configs: `tui-nat` (`scripts/natlab/playwright.native.config.mjs`; driven by `scripts/natlab/run-native.ts`).',
+  );
+  expect(block).not.toContain('`tui-nat` (no script drives it)');
+});
+
 test('replaceGenerated swaps only the text between the markers and keeps them', () => {
   const document = `# Title
 

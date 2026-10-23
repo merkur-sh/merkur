@@ -110,6 +110,7 @@ fn dials(actions: &[Action]) -> Vec<(ConnId, SocketAddr)> {
                 conn,
                 addr,
                 cert_hash,
+                binding: _,
             } => {
                 assert_eq!(
                     *cert_hash, CERT_HASH,
@@ -120,6 +121,187 @@ fn dials(actions: &[Action]) -> Vec<(ConnId, SocketAddr)> {
             _ => None,
         })
         .collect()
+}
+
+fn publish_native(harness: &mut Harness, generation: u64) -> u32 {
+    harness.session.enable_native_traversal();
+    let lineage = harness.session.native_traversal_epoch().unwrap();
+    assert!(harness.session.publish_native_candidates(
+        lineage,
+        merkur_wire::traversal::Snapshot {
+            generation,
+            bindings: vec![merkur_wire::traversal::Binding {
+                id: 7,
+                family: 4,
+                candidates: Vec::new()
+            }],
+            mac: String::new(),
+        }
+    ));
+    let actions = drain(&mut harness.session);
+    assert!(actions.iter().any(
+        |action| matches!(action, Action::SendReliable { payload, .. }
+        if matches!(ClientSignal::parse(payload), Some(ClientSignal::WebtransportCandidates(_))))
+    ));
+    lineage
+}
+
+fn native_offer(
+    harness: &Harness,
+    client_generation: u64,
+    generation: u64,
+) -> merkur_wire::traversal::Offer {
+    let key = harness.session.native_traversal_setup().unwrap().key;
+    let mut offer = merkur_wire::traversal::Offer {
+        client_generation,
+        generation,
+        cert_hash: base64::engine::general_purpose::STANDARD.encode(CERT_HASH),
+        candidates: vec![srflx()],
+        mac: String::new(),
+    };
+    offer.mac =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key.mac(true, &offer.transcript()));
+    offer
+}
+
+#[test]
+fn native_dials_require_a_current_authenticated_check_and_exact_binding() {
+    let (mut harness, _) = ready();
+    harness.session.enable_native_traversal();
+    let ordinary = deliver_signal(
+        &mut harness,
+        NOW + 40,
+        &manifest(1, vec![srflx()], CLIENT, PunchState::None),
+    );
+    assert!(
+        dials(&ordinary).is_empty(),
+        "native sockets never use browser punch admission"
+    );
+    let lineage = publish_native(&mut harness, 1);
+    let offer = native_offer(&harness, 1, 2);
+    let actions = deliver_signal(
+        &mut harness,
+        NOW + 50,
+        &DaemonSignal::WebtransportTraversalOffer(offer),
+    );
+    assert!(
+        dials(&actions).is_empty(),
+        "an offer is not connectivity evidence"
+    );
+    assert!(
+        !harness
+            .session
+            .native_pair_checked(NOW + 60, lineage + 1, 1, 2, 7, addr(SRFLX))
+    );
+    assert!(
+        !harness
+            .session
+            .native_pair_checked(NOW + 60, lineage, 2, 2, 7, addr(SRFLX))
+    );
+    assert!(
+        !harness
+            .session
+            .native_pair_checked(NOW + 60, lineage, 1, 1, 7, addr(SRFLX))
+    );
+    assert!(
+        !harness
+            .session
+            .native_pair_checked(NOW + 60, lineage, 1, 2, 0, addr(SRFLX))
+    );
+    assert!(
+        harness
+            .session
+            .native_pair_checked(NOW + 60, lineage, 1, 2, 7, addr(SRFLX))
+    );
+    let actions = drain(&mut harness.session);
+    assert!(
+        matches!(&actions[..], [Action::DialDirect { addr: endpoint, cert_hash: CERT_HASH, binding: 7, .. }] if *endpoint == addr(SRFLX))
+    );
+    assert!(
+        !harness
+            .session
+            .native_pair_checked(NOW + 61, lineage, 1, 2, 7, addr(SRFLX)),
+        "duplicate check completion cannot redial"
+    );
+}
+
+#[test]
+fn native_offer_authentication_and_candidate_generation_fence_old_work() {
+    let (mut harness, _) = ready();
+    let lineage = publish_native(&mut harness, 1);
+    let mut forged = native_offer(&harness, 1, 2);
+    forged.candidates[0].port += 1;
+    deliver_signal(
+        &mut harness,
+        NOW + 40,
+        &DaemonSignal::WebtransportTraversalOffer(forged),
+    );
+    assert!(harness.session.native_traversal_offer().is_none());
+    let valid = native_offer(&harness, 1, 2);
+    deliver_signal(
+        &mut harness,
+        NOW + 50,
+        &DaemonSignal::WebtransportTraversalOffer(valid.clone()),
+    );
+    assert!(harness.session.native_traversal_offer().is_some());
+    publish_native(&mut harness, 2);
+    deliver_signal(
+        &mut harness,
+        NOW + 60,
+        &DaemonSignal::WebtransportTraversalOffer(valid),
+    );
+    assert!(
+        harness.session.native_traversal_offer().is_none(),
+        "old snapshot cannot reopen checks"
+    );
+    assert!(
+        !harness
+            .session
+            .native_pair_checked(NOW + 60, lineage, 1, 2, 7, addr(SRFLX))
+    );
+    assert!(dials(&drain(&mut harness.session)).is_empty());
+}
+
+#[test]
+fn native_direct_loss_requests_fresh_discovery_without_a_network_change() {
+    let (mut harness, _) = ready();
+    let lineage = publish_native(&mut harness, 1);
+    let offer = native_offer(&harness, 1, 2);
+    deliver_signal(
+        &mut harness,
+        NOW + 40,
+        &DaemonSignal::WebtransportTraversalOffer(offer),
+    );
+    assert!(
+        harness
+            .session
+            .native_pair_checked(NOW + 50, lineage, 1, 2, 7, addr(SRFLX))
+    );
+    let [(conn, _)] = dials(&drain(&mut harness.session))[..] else {
+        panic!("one checked dial")
+    };
+    harness
+        .session
+        .handle(NOW + 60, Event::Connected(conn), &mut harness.entropy);
+    let raced = drain(&mut harness.session);
+    upgrade(&mut harness, NOW + 70, conn, &raced);
+    assert!(harness.session.native_direct_live());
+    let before = harness.session.native_traversal_recovery_generation();
+    harness
+        .session
+        .handle(NOW + 90_100, closed(conn), &mut harness.entropy);
+    assert_eq!(harness.session.native_traversal_epoch(), Some(lineage));
+    assert_eq!(
+        harness.session.native_traversal_recovery_generation(),
+        before + 1
+    );
+    assert!(harness.session.native_traversal_offer().is_none());
+    assert!(!harness.session.native_direct_live());
+    assert!(
+        !harness
+            .session
+            .native_pair_checked(NOW + 90_110, lineage, 1, 2, 7, addr(SRFLX))
+    );
 }
 
 fn dialed(actions: &[Action]) -> Vec<SocketAddr> {
@@ -1033,7 +1215,11 @@ fn a_superseding_manifest_keeps_a_pending_dial_it_still_offers() {
     let [(local, _)] = dials(&actions)[..] else {
         panic!("host4 dial");
     };
-    let sip = candidate("203.0.113.5:49154", CandidateKind::Sip, CandidateScope::Public);
+    let sip = candidate(
+        "203.0.113.5:49154",
+        CandidateKind::Sip,
+        CandidateScope::Public,
+    );
     let actions = deliver_signal(
         &mut h,
         NOW + 110,

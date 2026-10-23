@@ -126,6 +126,7 @@ export function daemonAuthFixture(
     disconnect: unused,
     pushRevocationGeneration: unused,
     startSession: unused,
+    registerTraversal: unused,
     cancelSession: unused,
     flushUserDelegationRevocations: unused,
     healthSnapshot: unused,

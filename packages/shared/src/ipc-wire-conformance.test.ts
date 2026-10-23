@@ -5,9 +5,7 @@ import { fileURLToPath } from 'node:url';
 const DAEMON_CLIENT_SOURCE = readSource('../../../apps/daemon/src/services/dataplane-client.ts');
 const DAEMON_COMMAND_SOURCE = readSource('../../../apps/daemon/dataplane/src/ipc/commands.rs');
 const DAEMON_EVENT_SOURCE = readSource('../../../apps/daemon/dataplane/src/ipc/events.rs');
-const DAEMON_PORTMAP_SOURCE = readSource(
-  '../../../apps/daemon/dataplane/src/webtransport/portmap/mod.rs',
-);
+const DAEMON_PORTMAP_SOURCE = readSource('../../merkur-traversal/src/portmap/mod.rs');
 const DAEMON_REBIND_SOURCE = readSource(
   '../../../apps/daemon/dataplane/src/session/rebind_flow.rs',
 );
@@ -29,6 +27,7 @@ const DAEMON_COMMAND_GOLDEN = {
   CMD_PROFILE_END: 0x14,
   CMD_UPGRADE: 0x15,
   CMD_ADOPT: 0x16,
+  CMD_REGISTER_TRAVERSAL: 0x17,
 } as const;
 
 const DAEMON_EVENT_GOLDEN = {
@@ -118,6 +117,19 @@ const SESSION_REBIND_KEY_GOLDEN = [
 ];
 
 describe('daemon dataplane IPC wire conformance', () => {
+  test('native traversal registration has exactly the authenticated tuple and receipt authority', () => {
+    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'RegisterTraversalCmd')).toEqual([
+      'browser_node_id',
+      'command_id',
+      'delegation_id',
+      'generation',
+      'lifetime_ms',
+      'rebind_counter',
+      'receipt_key',
+      'session_id',
+      'ticket',
+    ]);
+  });
   test('TS command opcodes match the Rust command decoder and committed contract', () => {
     expect(readIntegerConstants(DAEMON_CLIENT_SOURCE, 'CMD')).toEqual(DAEMON_COMMAND_GOLDEN);
     expect(readIntegerConstants(DAEMON_COMMAND_SOURCE, 'CMD')).toEqual(DAEMON_COMMAND_GOLDEN);

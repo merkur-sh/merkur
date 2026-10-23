@@ -46,6 +46,7 @@ _DEPS = [
     "//packages/merkur-image-worker:merkur_image_worker",
     "//packages/merkur-stun-protocol:merkur_stun_protocol",
     "//packages/merkur-trace:merkur_trace",
+    "//packages/merkur-traversal:merkur_traversal",
     "//packages/merkur-wire:merkur_wire",
 ]
 
@@ -63,10 +64,7 @@ rust_library(
     name = "merkur_dataplane",
     srcs = glob(["src/**/*.rs"]),
     aliases = aliases(),
-    compile_data = _COMPILE_DATA + glob(
-        ["src/**"],
-        exclude = ["src/**/*.rs"],
-    ),
+    compile_data = _COMPILE_DATA,
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro = True),
     deps = _DEPS + all_crate_deps(normal = True),
@@ -76,10 +74,6 @@ rust_binary(
     name = "merkur-dataplane",
     srcs = glob(["src/**/*.rs"]),
     aliases = aliases(),
-    compile_data = glob(
-        ["src/**"],
-        exclude = ["src/**/*.rs"],
-    ),
     crate_root = "src/main.rs",
     lint_config = ":lints",
     proc_macro_deps = all_crate_deps(proc_macro = True),
@@ -108,10 +102,7 @@ rust_e2e_testing_binary(
     name = "training",
     srcs = glob(["src/**/*.rs"]),
     aliases = aliases(),
-    compile_data = _COMPILE_DATA + glob(
-        ["src/**"],
-        exclude = ["src/**/*.rs"],
-    ),
+    compile_data = _COMPILE_DATA,
     crate_root = "src/lib.rs",
     data = ["//packages/merkur-image-worker:merkur-image-worker"],
     proc_macro_deps = all_crate_deps(

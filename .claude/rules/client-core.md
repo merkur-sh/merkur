@@ -31,6 +31,15 @@ the dataplane.
 `packages/merkur-client-native` is the tokio driver: OPAQUE, the account API, the
 WebTransport carrier and the loop.
 
+- Native direct traversal owns a wildcard UDP socket with a stable port per address family and reuses
+  `merkur-traversal` with the dataplane. Only checked pairs may enter its direct race, and a
+  pair carries the binding that checked it. Browser admission remains in its adapter: never
+  make raw-UDP actions or native candidate publication a prerequisite for a browser session.
+  Candidate/offer MACs, observation receipts and committed-lineage cleanup are authority
+  boundaries; a NAT class or a claimed router lease never stands in for a verified check.
+  Clear Quinn's source-address override so kernel route/VPN policy selects each packet's source and
+  interface. Router-mapping metadata and wildcard addresses never supply candidate evidence.
+
 - One implementation per wire fact. `merkur-wire` (channels, frames, input records,
   signaling) is shared by the dataplane and the client. `merkur-edge-protocol` (routing
   preface, splice events) is shared by the edge, the dataplane and the client, and stays

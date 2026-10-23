@@ -946,6 +946,7 @@ function createApp(
     Layer.succeed(RateLimitServiceTag, rateLimit),
     Layer.succeed(SessionServiceTag, {
       request: () => Effect.die('unexpected session request'),
+      stun: () => Effect.die('unexpected session STUN credential'),
       renew: () => Effect.die('unexpected session renewal'),
       cancel: () => Effect.die('unexpected session cancel'),
       revokeAll: (userId) =>
@@ -960,6 +961,7 @@ function createApp(
       disconnect: () => Effect.die('unexpected disconnect'),
       pushRevocationGeneration: () => Effect.die('unexpected push'),
       startSession: () => Effect.die('unexpected start'),
+      registerTraversal: () => Effect.die('unexpected traversal registration'),
       cancelSession: () => Effect.die('unexpected cancel'),
       flushUserDelegationRevocations: (userId) =>
         Effect.sync(() => {

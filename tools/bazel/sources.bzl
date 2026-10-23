@@ -33,6 +33,7 @@ PACKAGES = [
     "//packages/merkur-image-worker",
     "//packages/merkur-stun-protocol",
     "//packages/merkur-trace",
+    "//packages/merkur-traversal",
     "//packages/merkur-wire",
     "//packages/profile",
     "//packages/protocol",

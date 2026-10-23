@@ -487,8 +487,8 @@ over the authenticated control link with a short-lived ML-DSA-87 capability, pay
 | `q` | SHA-512 commitment to the exact browser nonce and ML-KEM public key |
 | `iat`, `e` | Issue and expiry times |
 
-No browser address is in the capability or the request transcript. The daemon aims NAT-pinhole
-datagrams only at the address our edge validated on the browser's committed signaling
+No browser address is in the capability or the request transcript. For a browser, the daemon
+aims NAT-pinhole datagrams only at the address our edge validated on its committed signaling
 connection, so neither the browser nor the server chooses where it sends.
 The signature uses `merkur-session-authorization`. The lifetime defaults to 60 seconds and is
 bounded from two seconds through five minutes. There is no algorithm negotiation, key id, or compatibility reader.
@@ -1129,7 +1129,7 @@ root compromise requires the destructive reprovisioning a password reset perform
 identity the account's mailbox is therefore a credential too: whoever reads it can unlink the
 account's machines and delete its boxes, though never open a terminal.
 
-NAT traversal is bounded work aimed only at the browser address our edge validated on the
+Browser NAT traversal is bounded work aimed only at the address our edge validated on the
 committed signaling connection. Private and local helper destinations are refused. The
 ordinary punch is four one-byte datagrams aimed at the daemon's own port number and the next
 one, under a per-destination cooldown and global token bucket. Router admission adds one
@@ -1140,6 +1140,46 @@ exclusively reserves its even RTP/RTCP pair; the coordinator retains silent comp
 reservations after candidate retirement because router-side expiry is not observable. The reservation set is bounded and
 reused only by owned SIP media pairs on the same local address, family and interface. A
 requested media port is never treated as a verified lease.
+
+Native peer checks have separate address authority. The authenticated session API issues a
+short-lived STUN ticket and requester integrity key, and delivers a separately derived
+observation-verification key to the exact daemon session over its acknowledged control link.
+The registration also binds the committed rebind counter and a monotonic discovery-generation
+floor. Older or conflicting registrations cannot replace current authority, and an exact
+duplicate cannot extend its deadline. Progressive candidate snapshots can reuse an unexpired
+ticket above its generation floor.
+
+The requester never receives that verification key. A native discovery request asks the STUN
+responder for a receipt covering the ticket, transaction, observed source tuple and observer.
+The observer is its bound socket identity, including a wildcard or private bind address; it is
+metadata rather than a routing candidate. Native discovery checks the actual response source
+against the exact observer endpoint it addressed. Only the observed mapping and advertised
+public client target authorize proactive checks.
+
+The daemon verifies that receipt and the current session's credential before proactively
+checking a claimed public client address. A claimed lease may name another port at that
+receipted IP; it becomes usable only after a check round trip. Local candidates do not authorize
+unsolicited daemon probes into the client's private network.
+
+Native candidate and offer transcripts are authenticated under purpose-separated derivatives
+of the hybrid-bound direct-upgrade secret. Check keys bind their candidate generations and
+socket identity; opposite directions use different keys. Invalid or unknown checks receive no
+reply, and authenticated replies cannot exceed their requests. Observations, leases and
+received requests do not admit terminal traffic: the native client must complete a check from
+its QUIC binding and then the existing certificate-pinned direct upgrade. Committed rebind,
+session retirement and network generations revoke stale check ownership through a synchronous
+send barrier before asynchronous task cancellation. The barrier removes pending response
+registrations too; stale work gains no authority over another session's carrier. The browser's
+ordinary discovery and helper policy does not consume native candidate claims or receipts.
+
+Native UDP sockets use a wildcard bind and stable port per address family. The native send wrapper
+removes Quinn's source-address override, leaving source and interface selection to kernel route
+and VPN policy for each packet. Interface metadata supports router mappings but grants no routing
+authority; neither it nor a wildcard bind supplies candidate evidence. An observer and a peer may
+take different routes, so actual observation receipts and completed peer checks establish the
+respective tuples. Mapping maintenance uses the concrete local address recorded with an actual
+STUN response, and a mapping candidate requires observer evidence for that source. Route hints
+invalidate discovery and checks; they do not replace transport evidence for a live carrier.
 
 At most 32 peer cohorts prepare or retain helper bindings, each within the ten-candidate
 manifest bound; every listener shares the existing 64-session capacity. Each helper claim

@@ -1859,3 +1859,31 @@ describe('composite identity signing IPC', () => {
     client.stop();
   });
 });
+
+test('native traversal registration emits the exact Rust key set and waits for admission', async () => {
+  const sidecars: FakeSidecar[] = [];
+  const client = createClient(logger, createHandlers(), createDependencies(sidecars));
+  client.start();
+  const registration = {
+    session_id: 'session-native',
+    browser_node_id: 'native-1',
+    delegation_id: 'delegation-1',
+    rebind_counter: 2,
+    generation: 4,
+    ticket: 'ticket',
+    receipt_key: 'receipt-key',
+    lifetime_ms: 90_000,
+  };
+  const pending = Effect.runPromise(
+    client.registerTraversalEffect('native-observation-1', registration),
+  );
+  const sidecar = required(sidecars[0]);
+  const frame = required(readFrames(sidecar.inputChunks).find((frame) => frame.kind === 0x17));
+  expect(JSON.parse(Buffer.from(frame.payload).toString('utf8'))).toEqual({
+    command_id: 'native-observation-1',
+    ...registration,
+  });
+  sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'native-observation-1', status: 'accepted' });
+  await expect(pending).resolves.toEqual({ status: 'accepted' });
+  client.stop();
+});

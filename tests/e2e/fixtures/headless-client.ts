@@ -11,6 +11,7 @@ import type { Readable, Writable } from 'node:stream';
 import { E2E_OPAQUE_PUBLIC_KEY } from '../../../scripts/e2e-opaque-pin';
 import { nativeProgram } from '../../../scripts/native-artifacts';
 import { expect, test } from './daemon-process';
+import { nativeNetworkCommand } from './native-network-namespace';
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const TUI_BIN = nativeProgram(PROJECT_ROOT, 'merkur-tui');
@@ -116,25 +117,24 @@ export async function withHeadlessClient(
 ): Promise<void> {
   expect(existsSync(TUI_BIN), `${TUI_BIN} is built`).toBe(true);
   const edgePort = process.env.EDGE_PROXY_BROWSER_PORT;
-  const child: HeadlessProcess = spawn(
-    TUI_BIN,
-    [
-      'headless',
-      '--origin',
-      new URL(baseURL ?? '').origin,
-      '--opaque-server-key',
-      E2E_OPAQUE_PUBLIC_KEY,
-      '--username',
-      machine.username,
-      '--machine',
-      machine.daemonId,
-      ...(edgePort === undefined ? [] : ['--edge-port', edgePort]),
-      // The harness keeps sessions on the relay unless `FORCE_EDGE=0`, as the
-      // web build's `VITE_FORCE_EDGE` keeps the browser's.
-      ...(process.env.FORCE_EDGE === '0' ? [] : ['--relay-only']),
-    ],
-    { stdio: ['pipe', 'pipe', 'pipe'] },
-  );
+  const command = nativeNetworkCommand('client', TUI_BIN, [
+    'headless',
+    '--origin',
+    new URL(baseURL ?? '').origin,
+    '--opaque-server-key',
+    E2E_OPAQUE_PUBLIC_KEY,
+    '--username',
+    machine.username,
+    '--machine',
+    machine.daemonId,
+    ...(edgePort === undefined ? [] : ['--edge-port', edgePort]),
+    // The harness keeps sessions on the relay unless `FORCE_EDGE=0`, as the
+    // web build's `VITE_FORCE_EDGE` keeps the browser's.
+    ...(process.env.FORCE_EDGE === '0' ? [] : ['--relay-only']),
+  ]);
+  const child: HeadlessProcess = spawn(command.executable, command.args, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
   const exited = new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', resolve);

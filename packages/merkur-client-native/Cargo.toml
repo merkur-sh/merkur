@@ -6,6 +6,13 @@ license = "AGPL-3.0-only"
 publish = false
 
 [dependencies]
+merkur-traversal = { path = "../merkur-traversal" }
+merkur-e2e = { path = "../merkur-e2e" }
+merkur-stun-protocol = { path = "../merkur-stun-protocol" }
+ring = "0.17"
+netdev = "0.46"
+socket2 = "0.6"
+libc = "0.2"
 merkur-authorization = { path = "../merkur-authorization" }
 merkur-client = { path = "../merkur-client" }
 merkur-edge-protocol = { path = "../merkur-edge-protocol" }
@@ -13,9 +20,10 @@ merkur-wire = { path = "../merkur-wire" }
 # The viewer's grid: the terminal the browser runs, built for the host.
 term-wasm = { path = "../term-wasm" }
 # The edge and the dataplane speak through the same patched crate.
-wtransport = { version = "0.7" }
+wtransport = { version = "0.7", features = ["quinn"] }
 bytes = "1"
-tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tracing = "0.1"
 # The account API. `rustls-no-provider` with ring installed at startup, as
 # `apps/edge` does: the workspace stays free of aws-lc-rs and its C toolchain.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }

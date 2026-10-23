@@ -1838,20 +1838,28 @@ dependencies = [
  "futures",
  "generic-array",
  "if-watch",
+ "libc",
  "merkur-authorization",
  "merkur-client",
+ "merkur-e2e",
  "merkur-edge-protocol",
+ "merkur-stun-protocol",
+ "merkur-traversal",
  "merkur-wire",
+ "netdev",
  "opaque-ke",
  "rand_core 0.6.4",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "socket2",
  "subtle",
  "term-wasm",
  "tokio",
+ "tracing",
  "wtransport",
  "zeroize",
 ]
@@ -1890,6 +1898,7 @@ dependencies = [
  "merkur-image-worker",
  "merkur-stun-protocol",
  "merkur-trace",
+ "merkur-traversal",
  "merkur-wire",
  "netdev",
  "portable-pty",
@@ -2034,6 +2043,23 @@ name = "merkur-trace"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "merkur-traversal"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "futures",
+ "libc",
+ "merkur-stun-protocol",
+ "netdev",
+ "ring",
+ "serde",
+ "socket2",
+ "tokio",
+ "tracing",
+ "wtransport",
 ]
 
 [[package]]

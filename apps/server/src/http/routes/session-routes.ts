@@ -1,5 +1,6 @@
+import { MAX_STUN_SERVERS } from '@merkur/daemon-control-protocol';
 import { isIpAddress } from '@merkur/shared';
-import { Effect } from 'effect';
+import { Effect, Match } from 'effect';
 import { Elysia, status, t } from 'elysia';
 import type { Logger } from '../../logger';
 import type { runServerProgram } from '../../runtime';
@@ -10,6 +11,7 @@ import {
   type SessionRequestDiagnostics,
   type SessionRequestError,
   SessionServiceTag,
+  type SessionStunError,
 } from '../../services/session-service';
 import { authenticatedApiPlugin } from '../authenticated-api';
 import { type RequestIpSource, resolveClientIp } from '../client-ip';
@@ -20,6 +22,19 @@ const STATUS_UNAUTHORIZED = 401;
 const STATUS_CONFLICT = 409;
 const STATUS_SERVICE_UNAVAILABLE = 503;
 const SERVER_TIMING_HEADER = 'server-timing';
+
+const SessionIdentityFields = {
+  daemonId: t.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
+  browserNodeId: t.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
+  sessionId: t.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
+  delegationId: t.String({ minLength: 1, maxLength: 128 }),
+};
+
+const SessionCapabilityErrorResponses = {
+  400: t.Object({ error: t.String() }),
+  401: t.Object({ error: t.String() }),
+  503: t.Object({ error: t.String() }),
+};
 
 const SessionRequestBody = t.Object({
   daemonId: t.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
@@ -118,13 +133,44 @@ export function sessionRoutesPlugin({
     api
       .use(authenticatedApiPlugin({ authorizeRequest }))
       .post(
+        '/sessions/stun',
+        {
+          body: t.Object({
+            ...SessionIdentityFields,
+            rebindCounter: t.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+            generation: t.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
+          }),
+          response: {
+            200: t.Object({
+              ticket: t.String({ minLength: 55, maxLength: 55 }),
+              secret: t.String({ minLength: 43, maxLength: 43 }),
+              servers: t.Array(t.String({ minLength: 1 }), {
+                minItems: 1,
+                maxItems: MAX_STUN_SERVERS,
+              }),
+              lifetimeMs: t.Integer({ minimum: 0, maximum: 90_000 }),
+            }),
+            ...SessionCapabilityErrorResponses,
+          },
+        },
+        async ({ body, userId, delegationId, request }) => {
+          const program = Effect.flatMap(SessionServiceTag, (sessions) =>
+            sessions.stun({ userId, delegationId }, body),
+          );
+          return runRouteEffect(runServerProgram, program, {
+            logger,
+            eventName: 'session_stun_credential_failed',
+            request,
+            signal: request.signal,
+            mapError: mapSessionStunError,
+          });
+        },
+      )
+      .post(
         '/sessions/renew',
         {
           body: t.Object({
-            daemonId: t.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
-            browserNodeId: t.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
-            sessionId: t.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$' }),
-            delegationId: t.String({ minLength: 1, maxLength: 128 }),
+            ...SessionIdentityFields,
             commitment: t.String({
               minLength: 86,
               maxLength: 86,
@@ -141,9 +187,7 @@ export function sessionRoutesPlugin({
                 t.Null(),
               ]),
             }),
-            400: t.Object({ error: t.String() }),
-            401: t.Object({ error: t.String() }),
-            503: t.Object({ error: t.String() }),
+            ...SessionCapabilityErrorResponses,
           },
         },
         async ({ body, userId, delegationId, request }) => {
@@ -246,6 +290,20 @@ export function sessionRoutesPlugin({
           });
         },
       ),
+  );
+}
+
+function mapSessionStunError(error: SessionStunError) {
+  return Match.value(error).pipe(
+    Match.tag(
+      'DaemonUnavailable',
+      'StaleDaemonPresence',
+      'ControlDeliveryTimeout',
+      'ControlBackpressure',
+      'ControlCommandRejected',
+      mapSessionCancelError,
+    ),
+    Match.orElse(mapSessionRenewalError),
   );
 }
 

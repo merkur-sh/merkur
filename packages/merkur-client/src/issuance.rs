@@ -8,6 +8,20 @@ use merkur_authorization::{DaemonBinding, decode_len};
 use serde::{Deserialize, Serialize};
 
 pub const ISSUANCE_PATH: &str = "/api/sessions/request";
+pub const STUN_CREDENTIAL_PATH: &str = "/api/sessions/stun";
+
+/// Native UDP discovery is authorized for one established session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StunCredentialRequest {
+    pub daemon_id: String,
+    pub browser_node_id: String,
+    pub session_id: String,
+    pub delegation_id: String,
+    pub rebind_counter: u64,
+    /// The native owner allocates this before requesting a discovery credential.
+    pub generation: u64,
+}
 /// `TICKET_LEN` in `apps/edge/src/attach_ticket.rs`; the ticket is opaque here.
 const EDGE_ATTACH_TICKET_BYTES: usize = 26;
 

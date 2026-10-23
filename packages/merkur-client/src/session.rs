@@ -123,6 +123,8 @@ pub enum Action {
         conn: ConnId,
         addr: std::net::SocketAddr,
         cert_hash: [u8; 32],
+        /// Zero for browser-managed sockets; a native host's exact binding otherwise.
+        binding: u64,
     },
     /// One record on the connection's persistent stream for `channel`.
     SendReliable {
@@ -2296,6 +2298,9 @@ impl Session {
             DaemonSignal::SessionRenewed { .. } => {
                 return self.on_renewal_answer(now_ms, &signal, entropy);
             }
+            DaemonSignal::WebtransportTraversalOffer(offer) => {
+                return self.on_native_traversal_offer(now_ms, offer);
+            }
             DaemonSignal::WebtransportManifest { .. } => {
                 return self.on_direct_manifest(now_ms, signal);
             }
@@ -3501,6 +3506,7 @@ fn data_lane(index: usize) -> DataLane {
 }
 
 mod direct;
+pub use direct::NativeTraversalSetup;
 mod display_ack;
 pub mod geometry;
 pub mod graphics;

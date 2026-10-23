@@ -24,6 +24,7 @@ use zeroize::Zeroizing;
 
 mod content;
 mod hybrid;
+pub mod traversal;
 mod identity;
 mod rebind;
 mod rebind_commit;

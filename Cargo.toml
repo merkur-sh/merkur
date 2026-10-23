@@ -6,6 +6,7 @@ members = [
   "apps/stun",
   "apps/tui",
   "packages/merkur-stun-protocol",
+  "packages/merkur-traversal",
   "packages/merkur-wire",
   "packages/alacritty-terminal-patch",
   "packages/fontdue-patch",

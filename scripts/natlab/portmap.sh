@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The port-mapping lease against a real miniupnpd. Isolated Linux only: this
 # script is called inside the privileged natlab container, after discovery.sh,
-# with MERKUR_DISCOVERY_TEST_BIN naming the dataplane test binary.
+# with MERKUR_PORTMAP_TEST_BIN naming the shared traversal test binary.
 #
 # miniupnpd serves UPnP IGD, NAT-PMP and PCP from one table, so it is both what
 # most consumer routers ship and the case the "exactly one protocol maps" rule
@@ -16,7 +16,7 @@
 # the NAT reaches the daemon's port through it, and release empties the table.
 set -euo pipefail
 
-BIN="${MERKUR_DISCOVERY_TEST_BIN:?}"
+BIN="${MERKUR_PORTMAP_TEST_BIN:?}"
 PUBLIC=5.5.5.1
 CLIENT=5.5.5.2
 MAPPED=/tmp/natlab-portmap-mapped

@@ -66,7 +66,8 @@ pub mod sim {
         );
     }
 
-    pub(crate) fn bind(address: SocketAddr) -> std::io::Result<Bound> {
+    /// Binds an owned simulated socket for discovery before constructing Quinn.
+    pub fn bind(address: SocketAddr) -> std::io::Result<Bound> {
         let bind = BIND.get().expect("the simulator installs its bind first");
         bind(address)
     }
@@ -293,6 +294,29 @@ impl Endpoint<endpoint_side::Server> {
 }
 
 impl Endpoint<endpoint_side::Client> {
+    /// Constructs a client over an owned socket. The config's bind address is
+    /// ignored; the caller must ensure Quinn is its only receive owner.
+    #[cfg(feature = "quinn")]
+    pub fn client_with_socket(
+        client_config: ClientConfig,
+        socket: Arc<dyn quinn::AsyncUdpSocket>,
+        runtime: Arc<dyn quinn::Runtime>,
+    ) -> std::io::Result<Self> {
+        let mut endpoint = quinn::Endpoint::new_with_abstract_socket(
+            client_config.endpoint_config,
+            None,
+            socket,
+            runtime,
+        )?;
+        endpoint.set_default_client_config(client_config.quic_config);
+        Ok(Self {
+            endpoint,
+            side: endpoint_side::Client {
+                dns_resolver: client_config.dns_resolver,
+            },
+        })
+    }
+
     /// Constructs a *client* endpoint.
     pub fn client(client_config: ClientConfig) -> std::io::Result<Self> {
         Self::client_with_runtime(client_config, Arc::new(TokioRuntime))
@@ -385,6 +409,29 @@ impl Endpoint<endpoint_side::Client> {
     where
         O: IntoConnectOptions,
     {
+        self.connect_inner(options.into_options(), None).await
+    }
+
+    /// Dials with connection-local TLS/transport policy. This never changes the
+    /// shared endpoint's default trust configuration or binds another socket.
+    #[cfg(feature = "quinn")]
+    pub async fn connect_with_config<O>(
+        &self,
+        options: O,
+        config: ClientConfig,
+    ) -> Result<Connection, ConnectingError>
+    where
+        O: IntoConnectOptions,
+    {
+        self.connect_inner(options.into_options(), Some(config.quic_config))
+            .await
+    }
+
+    async fn connect_inner(
+        &self,
+        options: ConnectOptions,
+        config: Option<quinn::ClientConfig>,
+    ) -> Result<Connection, ConnectingError> {
         let options = options.into_options();
 
         let url = Url::parse(&options.url)
@@ -421,9 +468,13 @@ impl Endpoint<endpoint_side::Client> {
             }
         };
 
-        let quic_connection = self
-            .endpoint
-            .connect(socket_address, &server_name)
+        let connecting = match config {
+            Some(config) => self
+                .endpoint
+                .connect_with(config, socket_address, &server_name),
+            None => self.endpoint.connect(socket_address, &server_name),
+        };
+        let quic_connection = connecting
             .map_err(ConnectingError::with_connect_error)?
             .await
             .map_err(|connection_error| {

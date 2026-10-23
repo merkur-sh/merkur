@@ -22,6 +22,7 @@ import {
 } from './daemon-perf-trace-capture';
 import { waitForFinalDaemonTransportCapture } from './daemon-transport-capture';
 import { releaseHarnessPort, takeHarnessPort } from './harness-ports';
+import { nativeNetworkCommand } from './native-network-namespace';
 import { enableE2ETelemetryPreference } from './terminal-perf-artifacts';
 import { test as base, expect } from './test';
 import { redirectTransportWorker } from './transport-worker-prelude';
@@ -185,7 +186,8 @@ async function spawnMerkur(
   // server answers "failed to deliver session to daemon" forever after.
   env.MERKUR_DATAPLANE_BIN = nativeProgram(PROJECT_ROOT, 'merkur-dataplane');
 
-  const proc = spawn('bun', ['run', DAEMON_ENTRY, ...args], {
+  const command = nativeNetworkCommand('daemon', 'bun', ['run', DAEMON_ENTRY, ...args]);
+  const proc = spawn(command.executable, command.args, {
     cwd: PROJECT_ROOT,
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -395,7 +397,7 @@ async function completeDaemonLink(
     if (exitCode !== 0) {
       throw new Error(`daemon link command exited ${exitCode}:\n${link.logChunks.join('')}`);
     }
-    port = takeHarnessPort();
+    port = process.env.MERKUR_E2E_DAEMON_NETNS === undefined ? takeHarnessPort() : 24_400;
     const config = pinLinkedConfig(daemonHome, port);
     expect(config.daemon_identity_seal.backend).toBe(software ? 'software' : 'hardware');
     return {

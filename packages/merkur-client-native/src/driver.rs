@@ -256,6 +256,8 @@ pub async fn run(
     let mut ready_lease = None;
     let mut ingress_leases: [Option<crate::credit::Lease>; 2] = [None, None];
     let mut issuance_refused = None;
+    let mut traversal = crate::traversal::Owner::new();
+    session.enable_native_traversal();
     session.connect(daemon_id, &mut entropy);
     loop {
         if output.is_closed() {
@@ -272,6 +274,7 @@ pub async fn run(
                 drop(command);
             }
         }
+        traversal.synchronize(&session, &issuer);
         let mut blocked_bytes = None;
         let released = session.input_released_local();
         if released != input_released {
@@ -376,14 +379,27 @@ pub async fn run(
                     conn,
                     addr,
                     cert_hash,
+                    binding,
                 } => {
                     dialing.push(conn);
                     let (tasks, carrier_events) = (tasks.clone(), carrier_events.clone());
                     let origin = issuer.origin().to_owned();
+                    let binding = traversal.binding(binding);
                     owned_tasks.spawn(TaskOwner::Dial(conn), async move {
-                        let dialed =
-                            Carrier::dial_direct(conn, addr, cert_hash, &origin, carrier_events)
-                                .await;
+                        let dialed = match binding {
+                            Some(binding) => {
+                                Carrier::dial_direct(
+                                    conn,
+                                    binding,
+                                    addr,
+                                    cert_hash,
+                                    &origin,
+                                    carrier_events,
+                                )
+                                .await
+                            }
+                            None => Err("direct binding retired".to_string()),
+                        };
                         let _ = tasks.send(Task::Dialed(conn, dialed)).await;
                     });
                 }
@@ -522,7 +538,16 @@ pub async fn run(
                 owned_tasks.finish(&task);
                 deliver(&mut session, task, now_ms(), &mut carriers, &mut dialing, &mut issuance_refused, &mut entropy);
             }
-            Some(()) = hints.recv(), if blocked_bytes.is_none() => session.connectivity_hint(now_ms(), &mut entropy),
+            notice = traversal.next(), if !session.is_closed() => {
+                if let Some(error) = traversal.apply(notice, &mut session, now_ms()) {
+                    issuance_refused = Some(error);
+                    session.handle(now_ms(), Event::AuthorizationDenied, &mut entropy);
+                }
+            }
+            Some(()) = hints.recv() => {
+                traversal.network_changed(&mut session);
+                session.connectivity_hint(now_ms(), &mut entropy);
+            },
             lease = wait_output(&output, blocked_bytes), if blocked_bytes.is_some() => {
                 let Some(lease) = lease else { return; };
                 ready_lease = Some(lease);

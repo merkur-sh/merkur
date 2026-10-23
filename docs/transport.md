@@ -83,11 +83,74 @@ each renewal's answer replaces them.
 Device kind and platform labels identify it as Merkur TUI in the account's session list;
 those labels grant no authorization.
 
-OS interface notifications are recovery hints. The native watcher discards its initial address
-snapshot, ignores loopback and link-local churn and coalesces a path-change burst. A hint can
-start an authenticated probe and candidate race; only carrier and peer evidence decide whether
-the path is usable. The session's recovery and rebind rules remain the authority. Browser-only
-Chromium endpoint admission and local-network permission handling stay in the browser adapter.
+The native adapter owns its direct UDP bindings. `packages/merkur-traversal` shares discovery,
+authenticated peer checks, egress resolution and router leases with the dataplane. The adapter
+keeps one wildcard UDP socket and stable port per address family for STUN, checks and QUIC.
+The native wrapper clears Quinn's source-address override so the kernel selects the source
+and interface for every actual send under current route and VPN policy. Interface metadata
+supplies router-lease and pinhole context; a wildcard address is never advertised as a candidate.
+Quinn is the only reader; its socket wrapper diverts discovery and check packets while preserving
+QUIC receive batches. A direct dial selects its certificate pins per connection, so concurrent
+dials on a binding cannot change each other's trust policy.
+
+Mapping and pinhole maintenance uses the concrete local address recorded with an actual STUN
+response. Its router-control sockets use that explicit egress context; an advertised mapping
+also requires observer evidence for that source. The wildcard data socket supplies no address
+evidence of its own.
+
+After session authentication, the native client requests discovery credentials from
+`POST /api/sessions/stun`. The server registers that credential's observation-verification key
+with the exact daemon session over the acknowledged control link before answering the client.
+The registration names the committed rebind counter and a reserved discovery generation.
+Later candidate snapshots may advance above that floor using the same unexpired credential;
+an exact repeated registration keeps its original deadline.
+
+Only the requester integrity key goes to the native client. Its STUN requests ask explicitly for
+a responder-authenticated observation receipt; ordinary daemon discovery retains its packet
+shape. A receipt proves the public address the observer received, not peer reachability.
+Its observer field identifies the responder's bound socket, which may have a wildcard address;
+the request transaction separately requires a reply from the exact addressed observer endpoint.
+
+The native client publishes authenticated socket-candidate snapshots on signaling. The daemon
+checks their receipts before sending toward a claimed public client address and returns an
+authenticated direct offer. Both endpoints install directional check contexts before checking
+the exact candidate tuples. A verified incoming request can reveal a peer-facing translated
+port; it remains provisional until an outbound round trip succeeds. The native client dials
+QUIC from the binding that completed that check, then performs the same certificate-pinned,
+session-key direct upgrade as a browser. Mapping or filtering classifications do not admit a
+carrier. LAN checks start at the native client; the daemon does not proactively probe a list of
+claimed private client addresses.
+
+The daemon retains destination-dependent mapping observations for native checks separately
+from its browser-dialable candidates. A peer-facing port learned by a verified check can be
+used directly; an observer's mapped port alone cannot establish that a destination-dependent
+mapping is reachable. If no pair completes, the relay continues carrying the session.
+
+Native discovery and checks run beside the relay. A mapping lease or IPv6 pinhole extends the
+candidate set without blocking terminal establishment. A network generation owns gathering and
+checks; a committed rebind replaces the check keys and contexts. Revocation closes the context's
+send authority synchronously before task cancellation, so a pending sender cannot leak a stale
+check or reply across retirement. A live carrier retains its binding and router lease until
+retirement. Credential expiry revokes native checks and queued check work without closing an
+admitted carrier or its mapping maintenance. Closing the session cancels discovery/check work
+immediately and releases the owner's bindings; remaining carrier references govern lease lifetime.
+Daemon check work ends at the discovery credential's deadline without closing an
+admitted provider. Completed discovery/check work, a failed credential request or an empty binding
+open retries under the session's recovery backoff while direct demand persists. A working direct
+carrier needs no idle credential refresh; losing it renews discovery demand even if the route and
+session keys have not changed. Native traversal does not add candidate-publication messages or
+peer checks to the browser adapter: its manifest, punch, router-admission and constructor rules
+below remain the browser's direct-path policy.
+
+OS route and interface notifications are recovery hints. The interface watcher discards its initial
+address snapshot, ignores loopback and link-local churn and coalesces a path-change burst. A hint can
+start an authenticated probe and candidate race. Observer and peer destinations may use different
+routes and source addresses on the same socket; only actual STUN receipts and completed peer checks
+establish their translated tuples. Route hints cancel stale discovery and check work and regather
+as needed; a working provider stays until transport failure or migration evidence decides its
+fate. The session's
+recovery and rebind rules remain the authority. Browser-only Chromium endpoint admission and
+local-network permission handling stay in the browser adapter.
 
 The native machine list reads `GET /api/devices/events` on its transport reactor. It retains
 the exact event cursor across stream reconnection, accepts a resume only for that cursor and
@@ -851,7 +914,7 @@ reaches the edge over IPv4.
 ### The port-mapping lease
 
 A `nat_map` candidate comes from one lease on the pinned WebTransport port
-(`apps/daemon/dataplane/src/webtransport/portmap`). All three protocols are asked whether they
+(`packages/merkur-traversal/src/portmap`). All three protocols are asked whether they
 are present at the same moment, with requests that change nothing: a PCP `ANNOUNCE` and a NAT-PMP
 external-address request from one socket bound to the egress address, and an SSDP search sent to
 the first hop before the multicast group. PCP also probes its RFC 7723 anycast address,

@@ -121,9 +121,9 @@ mod tests {
         let mut pcp = [0u8; 24];
         pcp[0] = 2;
         pcp[1] = 0x80;
-        crate::edge_tunnel::test_allocations::begin_thread();
+        crate::test_allocations::begin_thread();
         let decoded = decode(&pcp);
-        let tally = crate::edge_tunnel::test_allocations::end_thread();
+        let tally = crate::test_allocations::end_thread();
         assert!(decoded.is_some());
         assert_eq!(tally.allocations, 0);
     }

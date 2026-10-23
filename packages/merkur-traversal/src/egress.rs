@@ -29,14 +29,10 @@
 //! separate "the interface that reached the internet" from "the interface
 //! holding the default route".
 //!
-//! The previous implementation opened both datagram protocols with
-//! `let gateway = egress.gateway?;`, returning *before* their first log line.
-//! Two of three protocols were then silently disabled with no diagnostic in any
-//! log, metric or span, and the mapping report recorded the same `false` a
-//! genuinely unsupported gateway produces. That is why [`resolve_egress_path`]
-//! now falls back to the OS default gateway for the *first hop only*, and why
-//! [`EgressPath::gateway`] being absent is surfaced as a distinct outcome
-//! rather than collapsing into "unsupported".
+//! [`resolve_egress_path`] uses the OS default gateway for the first hop when
+//! the STUN-verified interface has none. An absent [`EgressPath::gateway`] is
+//! reported separately from an unsupported gateway; PCP anycast discovery can
+//! still operate without a first-hop address.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 

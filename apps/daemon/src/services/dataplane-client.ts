@@ -67,6 +67,7 @@ const CMD_PROFILE_END = 0x14;
 const CMD_UPGRADE = 0x15;
 /** The adopted dataplane's first frame; written by `dataplane-adoption.ts`. */
 export const CMD_ADOPT = 0x16;
+const CMD_REGISTER_TRAVERSAL = 0x17;
 
 const EVT_PTY_READY = 0x82;
 const EVT_PTY_CLOSED = 0x83;
@@ -370,6 +371,17 @@ export type DataplaneProfileSessionsResult =
   | { readonly status: 'accepted'; readonly sessions: readonly DataplaneProfileSession[] }
   | { readonly status: 'rejected'; readonly reason: string };
 
+export interface DataplaneTraversalRegistration {
+  readonly session_id: string;
+  readonly browser_node_id: string;
+  readonly delegation_id: string;
+  readonly rebind_counter: number;
+  readonly generation: number;
+  readonly ticket: string;
+  readonly receipt_key: string;
+  readonly lifetime_ms: number;
+}
+
 export interface DataplaneClient {
   /** The running dataplane's process id, for a CPU profiler to attach to. */
   dataplanePid(): number | null;
@@ -389,6 +401,10 @@ export interface DataplaneClient {
   shutdown(): Effect.Effect<void>;
   awaitCriticalFailure(): Effect.Effect<never, DataplaneFatalError>;
   configure(config: DataplaneConfig): void;
+  registerTraversalEffect(
+    commandId: string,
+    registration: DataplaneTraversalRegistration,
+  ): Effect.Effect<DataplaneCommandResult>;
   startSessionEffect(
     commandId: string,
     sessionId: string,
@@ -728,6 +744,13 @@ function makeDataplaneClient(
       writeJsonCommand(CMD_CONFIGURE, toDataplaneWireConfig(lastConfig), 'configure');
     },
 
+    registerTraversalEffect(commandId: string, registration: DataplaneTraversalRegistration) {
+      return requestAcknowledgedCommandEffect(commandId, CMD_REGISTER_TRAVERSAL, {
+        command_id: commandId,
+        ...registration,
+      });
+    },
+
     startSessionEffect(
       commandId: string,
       sessionId: string,
@@ -893,6 +916,7 @@ function makeDataplaneClient(
     commandId: string,
     kind:
       | typeof CMD_START_SESSION
+      | typeof CMD_REGISTER_TRAVERSAL
       | typeof CMD_CANCEL_SESSION
       | typeof CMD_REVOKE_DELEGATION
       | typeof CMD_CAPTURE_TRANSPORT_STATS

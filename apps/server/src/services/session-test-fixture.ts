@@ -7,6 +7,7 @@ import {
 import {
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
+  createDaemonControlTraversalRegisterMessage,
   encodeDaemonControlMessage,
 } from '@merkur/daemon-control-protocol';
 import {
@@ -216,6 +217,27 @@ export function createFakeControl(
           input.sessionId,
           input.browserNodeId,
           input.offer,
+          '',
+        ),
+      );
+      sent.push({ connectionId: input.presence.connectionId, payload });
+      return Effect.void;
+    },
+    registerTraversal(input) {
+      if (deliveryFailure) return failDelivery(input.presence.daemonId);
+      const payload = encodeDaemonControlMessage(
+        createDaemonControlTraversalRegisterMessage(
+          `command-${nextCommandId++}`,
+          {
+            sessionId: input.sessionId,
+            browserNodeId: input.browserNodeId,
+            delegationId: input.delegationId,
+            rebindCounter: input.rebindCounter,
+            generation: input.generation,
+            ticket: input.ticket,
+            receiptKey: input.receiptKey,
+            lifetimeMs: input.lifetimeMs,
+          },
           '',
         ),
       );

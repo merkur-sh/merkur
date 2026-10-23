@@ -154,6 +154,14 @@ export function deriveStunIntegrityKey(key: Buffer, ticket: string): Buffer {
     .digest();
 }
 
+/** Kept from the requester: only the responder and the authorized daemon get it. */
+export function deriveStunObservationKey(key: Uint8Array, ticket: string): Buffer {
+  return new Bun.CryptoHasher('sha256', key)
+    .update('merkur-stun-observation-key\0')
+    .update(Buffer.from(ticket, 'base64url'))
+    .digest();
+}
+
 /**
  * Verify a ticket, mirroring the responder's checks.
  *

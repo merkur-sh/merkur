@@ -33,7 +33,10 @@ rust_library(
     deps = [
         "//packages/merkur-authorization:merkur_authorization",
         "//packages/merkur-client:merkur_client",
+        "//packages/merkur-e2e:merkur_e2e",
         "//packages/merkur-edge-protocol:merkur_edge_protocol",
+        "//packages/merkur-stun-protocol:merkur_stun_protocol",
+        "//packages/merkur-traversal:merkur_traversal",
         "//packages/merkur-wire:merkur_wire",
         "//packages/term-wasm:term_wasm",
     ] + all_crate_deps(normal = True),

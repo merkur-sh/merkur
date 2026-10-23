@@ -1934,6 +1934,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             Some(server) => match server.reload_certificate(config) {
                                 Ok(()) => {
                                     traversal.invalidate();
+                                    webtransport::native_traversal::invalidate(&mut registry.peers);
                                     admission.invalidate(&registry.peers);
                                     let cert_b64 = cert_state.cert_hash_base64();
                                     if let Some(state) = wt_state.as_ref() {
@@ -1984,6 +1985,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         // for one at startup and on every failed renewal. Compare
                         // before publishing.
                         let mut changed = false;
+                        let mut native_changed = false;
                         // A path edge the lease did not see: the egress
                         // interface or first hop moved out from under it, or a
                         // gateway appeared where there was none. Renewal
@@ -1993,6 +1995,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             let mut state = state.write().await;
                             state.discovery_evidence = reprobe.discovery_evidence;
                             state.stun_local_ip = reprobe.stun_local_ip;
+                            native_changed = state.native_observed_endpoint != reprobe.native_observed_endpoint;
+                            state.native_observed_endpoint = reprobe.native_observed_endpoint;
                             changed = state.candidates != reprobe.candidates
                                 || state.nat_signature != reprobe.nat_signature
                                 || state.nat_mapping != reprobe.nat_mapping
@@ -2033,6 +2037,11 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             )
                             .await;
                         } else {
+                            for peer in registry.peers.values_mut() {
+                                if peer.native_traversal.as_ref().is_some_and(|native| native.needs_refresh() || (native_changed && native.announced())) {
+                                    webtransport::native_traversal::refresh(&wt_state, &network_state, peer).await;
+                                }
+                            }
                             info!("reprobe produced an identical candidate set; no new manifest");
                         }
                         if remap {
@@ -2485,6 +2494,22 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             now_ms_since(start_instant),
                         ).await;
                         admission.reconcile(&registry.peers);
+                    }
+                    CMD_REGISTER_TRAVERSAL => {
+                        let command: RegisterTraversalCmd = match serde_json::from_slice(&payload) {
+                            Ok(command) => command,
+                            Err(_) => {
+                                reject_command_from_payload(&event_tx, &payload, "invalid_traversal_registration");
+                                continue;
+                            }
+                        };
+                        let accepted = registry.peers.get_mut(command.browser_node_id.as_str())
+                            .is_some_and(|peer| webtransport::native_traversal::register(peer, &command));
+                        if accepted {
+                            accept_command(&event_tx, &command.command_id);
+                        } else {
+                            reject_command(&event_tx, &command.command_id, "traversal_session_mismatch");
+                        }
                     }
                     CMD_UPDATE_STUN => {
                         // The server answers every Redis lease renewal (~20 s)
@@ -3764,6 +3789,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 // reports the *browser's* network moving and says nothing about
                 // this daemon's control socket.
                 traversal.invalidate();
+                webtransport::native_traversal::invalidate(&mut registry.peers);
                 admission.invalidate(&registry.peers);
                 request_wt_network_change_maintenance(
                     &mut wt_maintenance_owner,
@@ -5041,6 +5067,19 @@ async fn handle_signaling_message(
             let accepted = handle_network_change(effective_peer_id, message, peers);
             action.request_reprobe = accepted;
             action.rearm_edge_dials = accepted;
+        }
+        ClientSignal::WebtransportCandidates(snapshot) => {
+            if candidate.is_none()
+                && let Some(peer) = peers.get_mut(effective_peer_id)
+            {
+                webtransport::native_traversal::accept_snapshot(
+                    wt_state,
+                    network_state,
+                    peer,
+                    snapshot,
+                )
+                .await;
+            }
         }
 
         ClientSignal::DataAttach(claim) => {

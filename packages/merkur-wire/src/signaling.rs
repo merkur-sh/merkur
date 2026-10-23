@@ -45,6 +45,7 @@ pub const MAX_REPORT_CANDIDATES: usize = 10;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClientSignal {
+    WebtransportCandidates(crate::traversal::Snapshot),
     SessionAuth(SessionAuth),
     NoiseFinal(NoiseFinal),
     SessionRebind(SessionRebind),
@@ -445,6 +446,7 @@ impl ClientSignal {
                             && DISPOSITIONS.contains(&candidate.disposition.as_str())
                     })
             }
+            Self::WebtransportCandidates(snapshot) => snapshot.is_valid(),
             Self::NetworkChange(message) => is_session_id(&message.browser_node_id),
             Self::SignalingPong {} => true,
             Self::DataAttach(claim) | Self::DataReceived(claim) => {
@@ -459,6 +461,7 @@ impl ClientSignal {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DaemonSignal {
+    WebtransportTraversalOffer(crate::traversal::Offer),
     /// Flight 2: the daemon nonce, the ML-KEM ciphertext, the next input
     /// sequence it expects, both identity signatures over the complete
     /// request/response transcript, and Noise message 2. The client verifies
@@ -705,6 +708,7 @@ impl DaemonSignal {
                     && *generation_base <= *rebind_counter
                     && exact(mac, SESSION_REBIND_MAC_BYTES)
             }
+            Self::WebtransportTraversalOffer(offer) => offer.is_valid(),
             Self::WebtransportManifest {
                 generation,
                 cert_hash,

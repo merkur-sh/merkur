@@ -304,7 +304,7 @@ pub fn unmapped(address: IpAddr) -> IpAddr {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub mod tests {
     use super::*;
     use std::net::Ipv4Addr;
     use std::time::Duration;
@@ -375,11 +375,11 @@ pub(super) mod tests {
     fn encoding_and_decoding_a_map_exchange_allocates_nothing() {
         let nonce = [9u8; 12];
         let ok = map_response(&nonce, 44_433, 0, 1800, external());
-        crate::edge_tunnel::test_allocations::begin_thread();
+        crate::test_allocations::begin_thread();
         let request = map_request(external(), 44_433, 1800, &nonce, external());
         let parsed = parse_map_response(&ok, &nonce, 44_433);
         let announce = parse_announce(&announce_response(0, 3));
-        let tally = crate::edge_tunnel::test_allocations::end_thread();
+        let tally = crate::test_allocations::end_thread();
         assert_eq!(request.len(), REQUEST_LEN);
         assert!(matches!(parsed, Some(Ok(_))));
         assert_eq!(announce, Some(AnnounceAnswer::Present { epoch: 3 }));

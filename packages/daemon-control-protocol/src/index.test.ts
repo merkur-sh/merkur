@@ -10,6 +10,7 @@ import {
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
   createDaemonControlSupersededMessage,
+  createDaemonControlTraversalRegisterMessage,
   DAEMON_CONTROL_PROTOCOL_VERSION,
   MAX_DAEMON_CONTROL_FRAME_BYTES,
   parseDaemonControlDaemonMessage,
@@ -69,6 +70,45 @@ const DELEGATION_REVOCATION = {
 } as const;
 
 describe('daemon control protocol v1', () => {
+  test('native observation registration is exact and bounded', () => {
+    const registration = createDaemonControlTraversalRegisterMessage(
+      'traversal-1',
+      {
+        sessionId: 'session-1',
+        browserNodeId: 'native-1',
+        delegationId: 'delegation-1',
+        rebindCounter: 2,
+        generation: 4,
+        ticket: Buffer.alloc(41, 7).toString('base64url'),
+        receiptKey: Buffer.alloc(32, 8).toString('base64url'),
+        lifetimeMs: 90_000,
+      },
+      '',
+    );
+    expect(parseDaemonControlServerMessage(JSON.stringify(registration))).toEqual(registration);
+    for (const change of [
+      { receiptKey: 'short' },
+      { ticket: 'short' },
+      { lifetimeMs: 0 },
+      { rebindCounter: -1 },
+      { rebindCounter: 1.5 },
+      { rebindCounter: Number.MAX_SAFE_INTEGER + 1 },
+      { generation: 0 },
+      { generation: -1 },
+      { generation: 1.5 },
+      { generation: Number.MAX_SAFE_INTEGER + 1 },
+      { lifetimeMs: 90_001 },
+      { extra: true },
+    ]) {
+      expect(
+        parseDaemonControlServerMessage(JSON.stringify({ ...registration, ...change })),
+      ).toBeNull();
+    }
+    const { rebindCounter: _omitted, ...missing } = registration;
+    expect(parseDaemonControlServerMessage(JSON.stringify(missing))).toBeNull();
+    const { generation: _generation, ...missingGeneration } = registration;
+    expect(parseDaemonControlServerMessage(JSON.stringify(missingGeneration))).toBeNull();
+  });
   test('round-trips every exact daemon message variant', () => {
     const messages = [
       createDaemonControlCommandAckMessage('command-1', { status: 'accepted' }),

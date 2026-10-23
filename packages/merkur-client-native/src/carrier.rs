@@ -21,6 +21,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use merkur_client::session::ConnId;
@@ -113,6 +114,8 @@ struct Bootstrap {
 }
 
 pub struct Carrier {
+    /// Keeps the exact native socket and its router lease alive for this carrier.
+    _direct_binding: Option<Arc<crate::traversal::SocketBinding>>,
     connection: Connection,
     /// One persistent stream per channel, opened on first use. Each writer
     /// task owns its stream, so records on one channel stay in order and a
@@ -175,6 +178,7 @@ impl Carrier {
             (None, None)
         };
         Ok(Self {
+            _direct_binding: None,
             connection,
             writers: HashMap::new(),
             proof,
@@ -198,18 +202,22 @@ impl Carrier {
     /// The connection's end is the carrier's.
     pub async fn dial_direct(
         conn: ConnId,
+        binding: Arc<crate::traversal::SocketBinding>,
         addr: SocketAddr,
         cert_hash: [u8; 32],
         origin: &str,
         inbound: InboundSender,
     ) -> Result<Self, String> {
+        if !binding.routes(addr) {
+            return Err("direct binding address family mismatch".to_string());
+        }
         let config = ClientConfig::builder()
             .with_bind_default()
             .with_server_certificate_hashes([wtransport::tls::Sha256Digest::new(cert_hash)])
             .build();
-        let endpoint = Endpoint::client(config).map_err(|error| error.to_string())?;
-        let connection = endpoint
-            .connect(connect_options(&format!("https://{addr}"), origin))
+        let connection = binding
+            .endpoint
+            .connect_with_config(connect_options(&format!("https://{addr}"), origin), config)
             .await
             .map_err(|error| error.to_string())?;
         let mut writers = HashMap::new();
@@ -226,6 +234,7 @@ impl Carrier {
             writers.insert(channel, records);
         }
         Ok(Self {
+            _direct_binding: Some(binding),
             connection,
             writers,
             proof: None,

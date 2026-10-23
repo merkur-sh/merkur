@@ -1,0 +1,25 @@
+[package]
+name = "merkur-traversal"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+merkur-stun-protocol = { path = "../merkur-stun-protocol" }
+base64 = "0.23"
+wtransport = { version = "0.7", features = ["quinn"] }
+tokio = { version = "1", features = ["net", "sync", "time", "io-util", "macros", "rt"] }
+ring = "0.17"
+netdev = "0.46"
+socket2 = "0.6"
+libc = "0.2"
+futures = "0.3"
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[lints]
+workspace = true

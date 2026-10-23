@@ -3164,6 +3164,8 @@ pub struct PeerDisplayState {
     /// Independently derived direct-WebTransport proof key for this exact
     /// hybrid session. Never parked or reused across a replacement carrier.
     pub upgrade_secret: Option<[u8; 32]>,
+    pub(crate) native_traversal:
+        Option<Box<crate::webtransport::native_traversal::NativeTraversal>>,
     /// The proven source address of the browser's committed signaling carrier,
     /// as the edge validated it on that QUIC connection: the address this
     /// peer's direct-path manifests are built for and their punches aimed at.
@@ -3419,6 +3421,7 @@ impl PeerDisplayState {
     /// parking, or dropping this peer. `Option::take` alone would only forget
     /// the stack bytes and is not a secret-destruction boundary.
     pub fn clear_hybrid_secret_material(&mut self) {
+        self.native_traversal = None;
         self.pending_identity_signature = None;
         self.clear_noise_bootstrap_material();
         if let Some(mut secret) = self.upgrade_secret.take() {
@@ -3637,6 +3640,7 @@ impl PeerDisplayState {
             perf_trace_token: None,
             delegation_id: String::new(),
             upgrade_secret: None,
+            native_traversal: None,
             awaiting_resume_until_ms: None,
             resume_waiting_for_data: false,
             snapshot_retry_at_ms: 0.0,

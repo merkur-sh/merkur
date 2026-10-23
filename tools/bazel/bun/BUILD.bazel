@@ -20,6 +20,17 @@ alias(
     }),
 )
 
+# The real Node executable for the target platform, without a host shell wrapper.
+alias(
+    name = "node",
+    actual = select({
+        ":darwin_aarch64": "@nodejs_darwin_arm64//:node_bin",
+        ":darwin_x64": "@nodejs_darwin_amd64//:node_bin",
+        ":linux_aarch64": "@nodejs_linux_arm64//:node_bin",
+        ":linux_x64": "@nodejs_linux_amd64//:node_bin",
+    }),
+)
+
 [config_setting(
     name = "%s_%s" % (os_key, cpu_key),
     constraint_values = [

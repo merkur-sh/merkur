@@ -506,6 +506,7 @@ impl ClientSession {
                 conn,
                 addr,
                 cert_hash,
+                binding: _,
             } => {
                 self.conn(conn);
                 *self.metadata = serde_json::json!({ "url": format!("https://{addr}"), "certHashes": [cert_hash] }).to_string();

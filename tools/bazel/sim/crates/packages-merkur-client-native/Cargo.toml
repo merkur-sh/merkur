@@ -10,14 +10,22 @@ publish = false
 path = "../../../../../packages/merkur-client-native/src/lib.rs"
 
 [dependencies]
+merkur-traversal = { path = "../packages-merkur-traversal", "default-features" = false, features = [] }
+merkur-e2e = { path = "../packages-merkur-e2e", "default-features" = false, features = ["std"] }
+merkur-stun-protocol = { path = "../packages-merkur-stun-protocol", "default-features" = false, features = [] }
+ring = { version = "0.17" }
+netdev = { version = "0.46" }
+socket2 = { version = "0.6" }
+libc = { version = "0.2" }
 merkur-authorization = { path = "../packages-merkur-authorization", "default-features" = false, features = ["std"] }
 merkur-client = { path = "../packages-merkur-client", "default-features" = false, features = ["std"] }
 merkur-edge-protocol = { path = "../packages-merkur-edge-protocol", "default-features" = false, features = [] }
 merkur-wire = { path = "../packages-merkur-wire", "default-features" = false, features = ["std"] }
 term-wasm = { path = "../packages-term-wasm", "default-features" = false, features = [] }
-wtransport = { version = "0.7" }
+wtransport = { version = "0.7", features = ["quinn"] }
 bytes = { version = "1" }
-tokio = { version = "1", features = ["io-util","macros","rt","sync","time"] }
+tokio = { version = "1", features = ["io-util","macros","net","rt","sync","time"] }
+tracing = { version = "0.1" }
 reqwest = { version = "0.13", "default-features" = false, features = ["rustls-no-provider","json"] }
 rustls = { version = "0.23.46", "default-features" = false, features = ["ring"] }
 opaque-ke = { version = "4.0", features = ["argon2"] }

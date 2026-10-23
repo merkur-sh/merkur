@@ -7,6 +7,7 @@ import {
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
   createDaemonControlSupersededMessage,
+  createDaemonControlTraversalRegisterMessage,
   type DaemonControlCommandMessage,
   type DaemonControlDaemonMessage,
   type DaemonControlEdge,
@@ -197,6 +198,18 @@ export interface DaemonControlSessionStartInput {
   readonly offer: DaemonControlSessionOffer;
 }
 
+export interface DaemonControlTraversalRegisterInput {
+  readonly presence: DaemonPresence;
+  readonly sessionId: string;
+  readonly browserNodeId: string;
+  readonly delegationId: string;
+  readonly rebindCounter: number;
+  readonly generation: number;
+  readonly ticket: string;
+  readonly receiptKey: string;
+  readonly lifetimeMs: number;
+}
+
 export interface DaemonControlSessionCancelInput {
   readonly daemonId: string;
   readonly userId: string;
@@ -242,6 +255,9 @@ export interface DaemonControlService {
   pushRevocationGeneration(userId: string, generation: number): Effect.Effect<void, RedisError>;
   startSession(
     input: DaemonControlSessionStartInput,
+  ): Effect.Effect<void, RedisError | DaemonControlDeliveryError>;
+  registerTraversal(
+    input: DaemonControlTraversalRegisterInput,
   ): Effect.Effect<void, RedisError | DaemonControlDeliveryError>;
   cancelSession(
     input: DaemonControlSessionCancelInput,
@@ -1197,6 +1213,30 @@ export function createDaemonControlService(
       });
     },
 
+    registerTraversal(input) {
+      return Effect.gen(function* () {
+        const commandId = crypto.randomUUID();
+        const traceparent = yield* currentTraceparent;
+        return yield* sendCommandToPresence(
+          input.presence,
+          createDaemonControlTraversalRegisterMessage(
+            commandId,
+            {
+              sessionId: input.sessionId,
+              browserNodeId: input.browserNodeId,
+              delegationId: input.delegationId,
+              rebindCounter: input.rebindCounter,
+              generation: input.generation,
+              ticket: input.ticket,
+              receiptKey: input.receiptKey,
+              lifetimeMs: input.lifetimeMs,
+            },
+            traceparent,
+          ),
+        );
+      });
+    },
+
     cancelSession(input) {
       return Effect.gen(function* () {
         const presence = yield* coordination.getDaemonPresence(input.daemonId);
@@ -2071,7 +2111,10 @@ export function createDaemonControlService(
         ) {
           return { _tag: 'Unavailable' } as const;
         }
-        if (command.type === 'session_start' && !connection.sessionReady) {
+        if (
+          (command.type === 'session_start' || command.type === 'traversal_register') &&
+          !connection.sessionReady
+        ) {
           return { _tag: 'NotReady', connection } as const;
         }
         // Read without creating: a rejected command must not leave an entry
@@ -2725,6 +2768,7 @@ function parseBrokerCommandRequest(value: Record<string, unknown>): BrokerComman
     command === null ||
     (command.type !== 'session_start' &&
       command.type !== 'session_cancel' &&
+      command.type !== 'traversal_register' &&
       command.type !== 'delegation_revoke')
   ) {
     return null;

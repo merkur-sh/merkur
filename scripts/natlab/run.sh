@@ -50,3 +50,4 @@ docker run --rm --privileged \
 
 # The real Rust live-socket and WT verification path complements the IPv6 mechanism lab.
 bash "${LAB_DIR}/run-discovery.sh"
+bash "${LAB_DIR}/run-native.sh"

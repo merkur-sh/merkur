@@ -237,6 +237,9 @@ node.toolchain(
     node_version_from_nvmrc = "//:.node-version",
 )
 
+# Target-platform runtime files for isolated Linux harnesses built from macOS.
+use_repo(node, "nodejs_darwin_arm64", "nodejs_darwin_amd64", "nodejs_linux_arm64", "nodejs_linux_amd64")
+
 # Bun, the runtime and test runner, at the release `.bun-version` names
 # (`scripts/toolchain-pins.test.ts`).
 bun = use_extension("//tools/bazel/bun:extensions.bzl", "bun")

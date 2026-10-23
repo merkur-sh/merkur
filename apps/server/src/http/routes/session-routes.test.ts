@@ -26,7 +26,7 @@ import {
   type SessionIssuanceService,
   SessionIssuanceServiceTag,
 } from '../../services/session-issuance-service';
-import { SessionServiceLive } from '../../services/session-service';
+import { SessionServiceLive, type SessionStunCredential } from '../../services/session-service';
 import {
   CLIENT_NONCE,
   createFakeConfig,
@@ -82,6 +82,7 @@ function buildApp(input: {
   readonly edgeRegistryFailure?: boolean;
   readonly listHealthyEdges?: () => Effect.Effect<EdgeRegistration[], RedisError>;
   readonly deliveryFailure?: boolean;
+  readonly control?: DaemonControlService;
   readonly sessionIssuance?: SessionIssuanceService;
   readonly daemonIdentityPublicKey?: string | null;
 }) {
@@ -90,11 +91,12 @@ function buildApp(input: {
       input.config,
       input.coordination,
       createFakeEdgeRegistry(input),
-      createFakeControl(
-        input.sentDaemonMessages ?? [],
-        input.deliveryFailure ?? false,
-        input.coordination,
-      ),
+      input.control ??
+        createFakeControl(
+          input.sentDaemonMessages ?? [],
+          input.deliveryFailure ?? false,
+          input.coordination,
+        ),
       input.sessionIssuance ?? createFakeSessionIssuanceService(),
       createFakeDeviceService(
         input.daemonIdentityPublicKey === undefined
@@ -712,5 +714,123 @@ describe('session authorization renewal', () => {
     expect(sent).toEqual([]);
     expect(allocations).toBe(0);
     expect((await request('another-delegation')).status).toBe(401);
+  });
+});
+
+describe('native STUN credentials', () => {
+  const body = {
+    daemonId: 'daemon-1',
+    browserNodeId: 'native-1',
+    sessionId: 'session-1',
+    delegationId: TEST_DELEGATION_ID,
+    rebindCounter: 3,
+    generation: 4,
+  };
+  type NativeStunOverrides = {
+    [Field in keyof typeof body]?: (typeof body)[Field] | undefined;
+  };
+  const request = (app: ReturnType<typeof buildApp>, overrides: NativeStunOverrides = {}) =>
+    app.handle(
+      new Request('http://localhost/api/sessions/stun', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...body, ...overrides }),
+      }),
+    );
+
+  test('returns requester credentials only after exact-session receipt authority is acknowledged', async () => {
+    const sent: SentDaemonMessage[] = [];
+    const coordination = createFakeCoordination({ presence: DEFAULT_DAEMON_PRESENCE });
+    const admitted = await Effect.runPromise(Deferred.make<void>());
+    const started = await Effect.runPromise(Deferred.make<void>());
+    const fake = createFakeControl(sent, false, coordination);
+    const control: DaemonControlService = {
+      ...fake,
+      registerTraversal: (input) =>
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Deferred.await(admitted)),
+          Effect.andThen(fake.registerTraversal(input)),
+        ),
+    };
+    const app = buildApp({ config: createFakeConfig(), coordination, control });
+    let answered = false;
+    const pending = request(app).then((response) => {
+      answered = true;
+      return response;
+    });
+    await Effect.runPromise(Deferred.await(started));
+    expect(answered).toBe(false);
+    await Effect.runPromise(Deferred.succeed(admitted, undefined));
+    const response = await pending;
+    expect(response.status).toBe(200);
+    // SAFETY: this fixture's 200 response passed the route's exact credential response schema.
+    const credential = (await response.json()) as SessionStunCredential;
+    expect(Object.keys(credential).sort()).toEqual(['lifetimeMs', 'secret', 'servers', 'ticket']);
+    expect(String(credential.ticket)).toHaveLength(55);
+    expect(String(credential.secret)).toHaveLength(43);
+    expect(Number(credential.lifetimeMs)).toBeGreaterThan(0);
+    const registration = JSON.parse(sent[0]?.payload ?? '{}');
+    expect(registration.type).toBe('traversal_register');
+    expect(registration.sessionId).toBe(body.sessionId);
+    expect(registration.browserNodeId).toBe(body.browserNodeId);
+    expect(registration.delegationId).toBe(body.delegationId);
+    expect(registration.rebindCounter).toBe(body.rebindCounter);
+    expect(registration.generation).toBe(body.generation);
+    expect(registration.ticket).toBe(credential.ticket);
+    expect(registration.receiptKey).not.toBe(credential.secret);
+    expect(Object.hasOwn(credential, 'receiptKey')).toBe(false);
+  });
+
+  test('bounds native observer work even when configuration names more observers', async () => {
+    const config = createFakeConfig();
+    const servers = Array.from({ length: 12 }, (_, index) => `stun-${index}.test:3478`);
+    const app = buildApp({
+      config: { ...config, stunServers: servers },
+      coordination: createFakeCoordination({ presence: DEFAULT_DAEMON_PRESENCE }),
+    });
+    const response = await request(app);
+    expect(response.status).toBe(200);
+    // SAFETY: this fixture's 200 response passed the route's exact credential response schema.
+    const credential = (await response.json()) as SessionStunCredential;
+    expect(credential.servers).toEqual(servers.slice(0, 8));
+  });
+
+  test('refuses omitted and invalid key-cut or discovery generations before control delivery', async () => {
+    const sentDaemonMessages: SentDaemonMessage[] = [];
+    const app = buildApp({
+      config: createFakeConfig(),
+      coordination: createFakeCoordination({ presence: DEFAULT_DAEMON_PRESENCE }),
+      sentDaemonMessages,
+    });
+    for (const invalid of [
+      { rebindCounter: undefined },
+      { rebindCounter: -1 },
+      { rebindCounter: 1.5 },
+      { rebindCounter: Number.MAX_SAFE_INTEGER + 1 },
+      { generation: undefined },
+      { generation: 0 },
+      { generation: 1.5 },
+      { generation: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      expect((await request(app, invalid)).status).toBe(422);
+    }
+    expect(sentDaemonMessages).toEqual([]);
+  });
+
+  test('refuses foreign delegation, unowned daemon and unavailable control delivery', async () => {
+    const config = createFakeConfig();
+    const coordination = createFakeCoordination({ presence: DEFAULT_DAEMON_PRESENCE });
+    expect(
+      (await request(buildApp({ config, coordination }), { delegationId: 'other' })).status,
+    ).toBe(401);
+    expect(
+      (await request(buildApp({ config, coordination, daemonIdentityPublicKey: null }))).status,
+    ).toBe(400);
+    expect((await request(buildApp({ config, coordination, deliveryFailure: true }))).status).toBe(
+      503,
+    );
+    expect(
+      (await request(buildApp({ config, coordination: createFakeCoordination({}) }))).status,
+    ).toBe(400);
   });
 });

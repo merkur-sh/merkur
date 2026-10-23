@@ -5,6 +5,7 @@ paths:
   - "packages/merkur-fec/**"
   - "packages/merkur-graphics/**"
   - "packages/merkur-image-worker/**"
+  - "packages/merkur-traversal/**"
   - "packages/term-wasm/**"
 ---
 

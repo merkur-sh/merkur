@@ -42,14 +42,8 @@
   "apps/daemon/dataplane/src/session/rebind_flow.rs": {
     "comment-provenance": 2
   },
-  "apps/daemon/dataplane/src/webtransport/egress.rs": {
-    "comment-provenance": 1
-  },
   "apps/daemon/dataplane/src/webtransport/mod.rs": {
     "comment-temporary": 4
-  },
-  "apps/daemon/dataplane/src/webtransport/portmap/mod.rs": {
-    "comment-defensive": 3
   },
   "apps/daemon/dataplane/src/webtransport/side_channel.rs": {
     "comment-defensive": 2
@@ -144,7 +138,7 @@
     "no-literal-timer-delay": 5,
     "no-manual-tagged-construction": 1,
     "no-swallowed-error": 4,
-    "prefer-effect-match": 2,
+    "prefer-effect-match": 1,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/daemon/src/services/daemon-metrics.test.ts": {

@@ -169,6 +169,21 @@ export interface DaemonControlSessionCancelMessage {
   readonly traceparent: string;
 }
 
+export interface DaemonControlTraversalRegisterMessage {
+  readonly type: 'traversal_register';
+  readonly version: typeof DAEMON_CONTROL_PROTOCOL_VERSION;
+  readonly commandId: string;
+  readonly sessionId: string;
+  readonly browserNodeId: string;
+  readonly delegationId: string;
+  readonly rebindCounter: number;
+  readonly generation: number;
+  readonly ticket: string;
+  readonly receiptKey: string;
+  readonly lifetimeMs: number;
+  readonly traceparent: string;
+}
+
 export interface UserDelegationCertificate {
   readonly userId: string;
   readonly rootKeyCommitment: string;
@@ -225,6 +240,7 @@ export interface DaemonControlReleaseStagedMessage {
 }
 
 export type DaemonControlServerMessage =
+  | DaemonControlTraversalRegisterMessage
   | DaemonControlRegisteredMessage
   | DaemonControlLeaseMessage
   | DaemonControlRevocationMessage
@@ -235,6 +251,7 @@ export type DaemonControlServerMessage =
   | DaemonControlReleaseStagedMessage;
 
 export type DaemonControlCommandMessage =
+  | DaemonControlTraversalRegisterMessage
   | DaemonControlSessionStartMessage
   | DaemonControlSessionCancelMessage
   | DaemonControlDelegationRevokeMessage;
@@ -309,7 +326,7 @@ const REVOCATION_KEYS = ['type', 'version', 'revocationGeneration'] as const;
  * datagrams. Three is what the deployment uses; the cap leaves room without
  * leaving it open.
  */
-const MAX_STUN_SERVERS = 8;
+export const MAX_STUN_SERVERS = 8;
 /** `host:port`, long enough for a bracketed IPv6 literal. */
 const MAX_STUN_SERVER_CHARS = 64;
 /** base64url of a 41-byte ticket is 55 characters; allow a little slack. */
@@ -331,6 +348,20 @@ const SESSION_CANCEL_KEYS = [
   'commandId',
   'sessionId',
   'browserNodeId',
+  'traceparent',
+] as const;
+const TRAVERSAL_REGISTER_KEYS = [
+  'type',
+  'version',
+  'commandId',
+  'sessionId',
+  'browserNodeId',
+  'delegationId',
+  'rebindCounter',
+  'generation',
+  'ticket',
+  'receiptKey',
+  'lifetimeMs',
   'traceparent',
 ] as const;
 const DELEGATION_REVOKE_KEYS = [
@@ -370,6 +401,8 @@ export function parseDaemonControlServerMessage(raw: unknown): DaemonControlServ
       return parseSessionStart(decoded);
     case 'session_cancel':
       return parseSessionCancel(decoded);
+    case 'traversal_register':
+      return parseTraversalRegister(decoded);
     case 'delegation_revoke':
       return parseDelegationRevoke(decoded);
     case 'release_staged': {
@@ -529,6 +562,80 @@ export function createDaemonControlSessionCancelMessage(
     browserNodeId,
     traceparent,
   };
+}
+
+export function createDaemonControlTraversalRegisterMessage(
+  commandId: string,
+  registration: Omit<
+    DaemonControlTraversalRegisterMessage,
+    'type' | 'version' | 'commandId' | 'traceparent'
+  >,
+  traceparent: string,
+): DaemonControlTraversalRegisterMessage {
+  return {
+    type: 'traversal_register',
+    version: DAEMON_CONTROL_PROTOCOL_VERSION,
+    commandId,
+    ...registration,
+    traceparent,
+  };
+}
+
+type TraversalRegisterFields = {
+  readonly commandId?: unknown;
+  readonly sessionId?: unknown;
+  readonly browserNodeId?: unknown;
+  readonly delegationId?: unknown;
+  readonly rebindCounter?: unknown;
+  readonly generation?: unknown;
+  readonly ticket?: unknown;
+  readonly receiptKey?: unknown;
+  readonly lifetimeMs?: unknown;
+  readonly traceparent?: unknown;
+};
+
+function parseTraversalRegister(
+  value: TraversalRegisterFields,
+): DaemonControlTraversalRegisterMessage | null {
+  if (!hasExactKeys(value, TRAVERSAL_REGISTER_KEYS)) return null;
+  const commandId = readIdentifier(value.commandId);
+  const sessionId = readIdentifier(value.sessionId);
+  const browserNodeId = readIdentifier(value.browserNodeId);
+  const delegationId = readIdentifier(value.delegationId);
+  const rebindCounter = readNonNegativeSafeInteger(value.rebindCounter);
+  const generation = readPositiveSafeInteger(value.generation);
+  const ticket = value.ticket;
+  const receiptKey = value.receiptKey;
+  const lifetimeMs = readPositiveSafeInteger(value.lifetimeMs);
+  const traceparent = readTraceparent(value.traceparent);
+  if (
+    commandId === null ||
+    sessionId === null ||
+    browserNodeId === null ||
+    delegationId === null ||
+    rebindCounter === null ||
+    generation === null ||
+    !isCanonicalBase64UrlBytes(ticket, 41) ||
+    !isCanonicalBase64UrlBytes(receiptKey, 32) ||
+    lifetimeMs === null ||
+    lifetimeMs > 90_000 ||
+    traceparent === null
+  )
+    return null;
+  return createDaemonControlTraversalRegisterMessage(
+    commandId,
+    {
+      sessionId,
+      browserNodeId,
+      delegationId,
+      rebindCounter,
+      generation,
+      ticket,
+      receiptKey,
+      lifetimeMs,
+    },
+    traceparent,
+  );
 }
 
 export function createDaemonControlDelegationRevokeMessage(

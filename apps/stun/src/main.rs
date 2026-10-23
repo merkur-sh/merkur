@@ -363,6 +363,20 @@ fn serve(
         {
             continue;
         }
+        if request.request_receipt {
+            let receipt = merkur_stun_protocol::observation::Receipt::issue(
+                &config
+                    .ticket_key
+                    .observation_key(&ticket_bytes[..decoded_len]),
+                &ticket_bytes[..decoded_len],
+                request.transaction_id,
+                peer,
+                local_addr,
+            );
+            if !writer.push_attribute(message::ATTR_OBSERVATION_RECEIPT, &receipt.encode()) {
+                continue;
+            }
+        }
         if !writer.finish_in_place(&integrity_key) {
             continue;
         }
@@ -510,6 +524,62 @@ mod tests {
     use ring::rand::SystemRandom;
 
     use super::*;
+
+    #[test]
+    fn a_wildcard_responder_issues_bounded_native_observation_receipts() {
+        let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
+        let bound = socket.local_addr().unwrap();
+        let config = Arc::new(Config {
+            bind_addresses: Vec::new(),
+            ports: vec![bound.port()],
+            change_ports: Vec::new(),
+            ticket_key: TicketKey::new(&[3; TICKET_KEY_BYTES]),
+        });
+        let responders = Arc::new([(bound, socket.clone())].into_iter().collect());
+        let counters = Arc::new(Counters::default());
+        let (thread_config, thread_counters) = (config.clone(), counters.clone());
+        std::thread::spawn(move || {
+            serve(socket, bound, thread_config, thread_counters, responders)
+        });
+        let ticket = config
+            .ticket_key
+            .issue(now_unix_secs() + 90, &SystemRandom::new())
+            .unwrap();
+        let username = URL_SAFE_NO_PAD.encode(ticket);
+        let key = config.ticket_key.verify(&ticket, now_unix_secs()).unwrap();
+        let transaction = [7; 12];
+        let request =
+            message::observation_request(&transaction, username.as_bytes(), &key).unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        client
+            .send_to(
+                request.as_bytes(),
+                (std::net::Ipv4Addr::LOCALHOST, bound.port()),
+            )
+            .unwrap();
+        let mut response = [0; 512];
+        let (len, source) = client.recv_from(&mut response).unwrap();
+        assert_eq!(source.port(), bound.port());
+        assert!(len <= request.as_bytes().len());
+        assert!(message::verify_integrity(&response[..len], &key));
+        let success = message::parse_success(&response[..len], &transaction).unwrap();
+        let mapped = success.mapped.unwrap();
+        assert_eq!(mapped, client.local_addr().unwrap());
+        let receipt = success.receipt.unwrap();
+        assert_eq!(
+            receipt.observer, bound,
+            "bound identity is metadata, not the public destination"
+        );
+        assert!(receipt.verifies(
+            &config.ticket_key.observation_key(&ticket),
+            &ticket,
+            &transaction,
+            mapped
+        ));
+    }
 
     #[test]
     fn ports_parse_into_distinct_vantage_points() {

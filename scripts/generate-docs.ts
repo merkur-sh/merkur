@@ -196,7 +196,7 @@ function specCell(specs: readonly string[]): string {
   return specs.length === 0 ? '—' : specs.map((spec) => `\`${spec}\``).join(', ');
 }
 
-/** The whole generated block: the table and its two trailing bullets. */
+/** The generated table and the ownership of specs outside its effective runs. */
 export function renderE2eSpecTable(
   inputs: E2eSpecInputs,
   readSource: (file: string) => string | undefined,
@@ -227,13 +227,26 @@ export function renderE2eSpecTable(
     return files.length === 0 ? 'no script drives it' : `driven by ${files.join(', ')}`;
   };
 
-  const filterOnly = [...inAnyConfig].filter((spec) => !reachable.has(spec)).sort();
+  const dedicated = [...inAnyConfig]
+    .filter(
+      (spec) =>
+        !reachable.has(spec) &&
+        inputs.configs
+          .filter((config) => config.specs.includes(spec))
+          .every((config) => config.file.startsWith('scripts/')),
+    )
+    .sort();
+  const filterOnly = [...inAnyConfig]
+    .filter((spec) => !reachable.has(spec) && !dedicated.includes(spec))
+    .sort();
   const configless = inputs.allSpecs.filter((spec) => !inAnyConfig.has(spec)).sort();
 
   lines.push('');
   lines.push(
     filterOnly.length === 0
-      ? '- Every spec in a config is reached by a `test:e2e*` script.'
+      ? dedicated.length === 0
+        ? '- Every spec in a config is reached by a `test:e2e*` script.'
+        : '- Every spec in a root config is reached by a `test:e2e*` script.'
       : `- Reachable only by an explicit filter (pass the spec name to the harness): ${filterOnly
           .map((spec) => {
             const configs = inputs.configs
@@ -244,6 +257,19 @@ export function renderE2eSpecTable(
           })
           .join('; ')}.`,
   );
+  if (dedicated.length > 0) {
+    lines.push(
+      `- Dedicated harness configs: ${dedicated
+        .map((spec) => {
+          const configs = inputs.configs
+            .filter((config) => config.specs.includes(spec))
+            .map((config) => `\`${config.file}\``)
+            .join(', ');
+          return `\`${spec}\` (${configs}; ${driversOf(spec)})`;
+        })
+        .join('; ')}.`,
+    );
+  }
   lines.push(
     configless.length === 0
       ? '- Every spec under `tests/e2e` belongs to a config.'
@@ -421,7 +447,11 @@ export function e2eScriptsOf(packageJsonText: string): Array<readonly [string, s
 /** Collect the generator's inputs from the checkout. */
 export function readE2eSpecInputs(root: string = ROOT): E2eSpecInputs {
   const configs: PlaywrightConfigSpecs[] = [];
-  for (const file of new Glob('playwright*.config.mjs').scanSync({ cwd: root })) {
+  const configFiles = [
+    ...new Glob('playwright*.config.mjs').scanSync({ cwd: root }),
+    ...new Glob('scripts/**/playwright*.config.mjs').scanSync({ cwd: root }),
+  ];
+  for (const file of configFiles) {
     configs.push({
       file,
       specs: parsePlaywrightTestMatch(readFileSync(path.join(root, file), 'utf8')),

@@ -777,7 +777,7 @@ pub fn log_refusal(action: &'static str, error: SoapError) {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub mod tests {
     use super::*;
 
     const DESCRIPTION: &str = r#"<?xml version="1.0"?>

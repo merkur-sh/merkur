@@ -48,6 +48,10 @@ pub const ATTR_USERNAME: u16 = 0x0006;
 pub const ATTR_MESSAGE_INTEGRITY_SHA256: u16 = 0x001C;
 pub const ATTR_XOR_MAPPED_ADDRESS: u16 = 0x0020;
 pub const ATTR_OTHER_ADDRESS: u16 = 0x802C;
+/// Merkur's responder-authenticated observed source, comprehension optional.
+pub const ATTR_OBSERVATION_RECEIPT: u16 = 0xC001;
+pub const ATTR_REQUEST_RECEIPT: u16 = 0xC002;
+pub const ATTR_PADDING: u16 = 0x0026;
 
 /// Largest datagram we will look at.
 ///
@@ -60,9 +64,14 @@ pub const MAX_MESSAGE_LEN: usize = 1200;
 /// because a shorter tag buys nothing here — the response is already smaller
 /// than the request either way.
 pub const MESSAGE_INTEGRITY_SHA256_LEN: usize = 32;
+/// Wire bound: header, two IPv6 address attributes, and the padded receipt;
+/// the final integrity attribute is appended after this prefix.
+const OBSERVATION_PREFIX_LEN: usize =
+    HEADER_LEN + 2 * (4 + 20) + 4 + ((crate::observation::RECEIPT_BYTES + 3) & !3);
 
 /// A parsed request, borrowing the receive buffer.
 pub struct BindingRequest<'a> {
+    pub request_receipt: bool,
     pub transaction_id: &'a [u8; TRANSACTION_ID_LEN],
     pub username: &'a [u8],
     /// Offset of the MESSAGE-INTEGRITY-SHA256 attribute's value.
@@ -166,6 +175,7 @@ pub fn parse_binding_request(datagram: &[u8]) -> Result<BindingRequest<'_>, Pars
     let mut username: Option<&[u8]> = None;
     let mut integrity: Option<(&[u8], usize)> = None;
     let mut change_request: Option<ChangeRequest> = None;
+    let mut request_receipt = false;
 
     let mut cursor = HEADER_LEN;
     while cursor < datagram.len() {
@@ -207,6 +217,9 @@ pub fn parse_binding_request(datagram: &[u8]) -> Result<BindingRequest<'_>, Pars
                     change_port: flags & 0x02 != 0,
                 });
             }
+            ATTR_PADDING => {}
+            ATTR_REQUEST_RECEIPT if !request_receipt && value.is_empty() => request_receipt = true,
+            ATTR_REQUEST_RECEIPT => return Err(ParseError::Malformed),
             other => {
                 // RFC 8489 section 14: 0x0000-0x7FFF is comprehension-required.
                 // We answer exactly one protocol and have no reason to tolerate
@@ -230,6 +243,7 @@ pub fn parse_binding_request(datagram: &[u8]) -> Result<BindingRequest<'_>, Pars
     let (integrity_value, integrity_offset) = integrity.ok_or(ParseError::MissingIntegrity)?;
 
     Ok(BindingRequest {
+        request_receipt,
         transaction_id,
         username,
         integrity_value,
@@ -431,6 +445,7 @@ pub fn verify_integrity(packet: &[u8], key: &hmac::Key) -> bool {
 pub struct Success {
     pub mapped: Option<SocketAddr>,
     pub other: Option<SocketAddr>,
+    pub receipt: Option<crate::observation::Receipt>,
 }
 
 /// The daemon's authenticated Binding request: the ticket as USERNAME, RFC 5780
@@ -442,12 +457,46 @@ pub fn binding_request(
     change: u8,
     key: &hmac::Key,
 ) -> Option<ResponseWriter> {
+    request(transaction, ticket, change, key, false)
+}
+
+/// Native discovery asks for independently verifiable source-address evidence.
+/// Ordinary daemon discovery and peer checks keep their original packet shape.
+pub fn observation_request(
+    transaction: &[u8; 12],
+    ticket: &[u8],
+    key: &hmac::Key,
+) -> Option<ResponseWriter> {
+    request(transaction, ticket, 0, key, true)
+}
+
+fn request(
+    transaction: &[u8; 12],
+    ticket: &[u8],
+    change: u8,
+    key: &hmac::Key,
+    receipt: bool,
+) -> Option<ResponseWriter> {
     let mut writer = ResponseWriter::binding_request(transaction);
     if !writer.push_attribute(ATTR_USERNAME, ticket) {
         return None;
     }
     if change != 0 && !writer.push_attribute(ATTR_CHANGE_REQUEST, &[0, 0, 0, change]) {
         return None;
+    }
+    // Header + two IPv6 addresses + observation receipt + final integrity.
+    // A padded request must cover the widest authenticated responder answer.
+    if receipt && !writer.push_attribute(ATTR_REQUEST_RECEIPT, &[]) {
+        return None;
+    }
+    if receipt && writer.len < OBSERVATION_PREFIX_LEN {
+        let padding = [0; MAX_RESPONSE_LEN];
+        if !writer.push_attribute(
+            ATTR_PADDING,
+            padding.get(..OBSERVATION_PREFIX_LEN - writer.len - 4)?,
+        ) {
+            return None;
+        }
     }
     writer.finish_in_place(key).then_some(writer)
 }
@@ -466,6 +515,7 @@ pub fn parse_success(data: &[u8], expected_txn_id: &[u8; 12]) -> Option<Success>
     let mut pos = HEADER_LEN;
     let mut mapped = None;
     let mut other = None;
+    let mut receipt = None;
     let mut integrity = false;
     // Each turn reads one attribute header at `pos`; the walk ends where fewer
     // than four bytes remain.
@@ -511,6 +561,11 @@ pub fn parse_success(data: &[u8], expected_txn_id: &[u8; 12]) -> Option<Success>
             } else {
                 other = Some(SocketAddr::new(ip, port));
             }
+        } else if kind == ATTR_OBSERVATION_RECEIPT {
+            if receipt.is_some() {
+                return None;
+            }
+            receipt = Some(crate::observation::Receipt::decode(value)?);
         } else if kind == ATTR_MESSAGE_INTEGRITY_SHA256 {
             integrity = true;
             if len != 32 || pos + 4 + len != data.len() {
@@ -524,7 +579,11 @@ pub fn parse_success(data: &[u8], expected_txn_id: &[u8; 12]) -> Option<Success>
     if pos != data.len() || !integrity {
         return None;
     }
-    Some(Success { mapped, other })
+    Some(Success {
+        mapped,
+        other,
+        receipt,
+    })
 }
 
 #[cfg(test)]
@@ -863,5 +922,51 @@ mod tests {
         }
         assert!(duplicate.finish_in_place(&key));
         assert!(parse_success(duplicate.as_bytes(), &txn).is_none());
+    }
+
+    #[test]
+    fn receipts_are_requested_explicitly_and_fit_the_request() {
+        use crate::observation::Receipt;
+        let key = test_key();
+        let transaction = [9; 12];
+        let ordinary = binding_request(&transaction, &[b'A'; 55], 0, &key).unwrap();
+        assert_eq!(ordinary.as_bytes(), build_request(&[b'A'; 55], &key, None));
+        assert_eq!(ordinary.as_bytes().len(), 116);
+        assert!(
+            !parse_binding_request(ordinary.as_bytes())
+                .unwrap()
+                .request_receipt
+        );
+        let native = observation_request(&transaction, &[b'A'; 55], &key).unwrap();
+        assert!(
+            parse_binding_request(native.as_bytes())
+                .unwrap()
+                .request_receipt
+        );
+        let mapped = "[2001:db8::1]:50000".parse().unwrap();
+        let observer = "[2001:db8::2]:3478".parse().unwrap();
+        let receipt = Receipt::issue(&key, b"ticket", &transaction, mapped, observer);
+        let mut response = ResponseWriter::new(&transaction);
+        assert!(response.push_address(ATTR_XOR_MAPPED_ADDRESS, mapped, &transaction, true));
+        assert!(response.push_address(ATTR_OTHER_ADDRESS, observer, &transaction, false));
+        assert!(response.push_attribute(ATTR_OBSERVATION_RECEIPT, &receipt.encode()));
+        assert!(response.finish_in_place(&key));
+        assert!(response.as_bytes().len() <= native.as_bytes().len());
+        assert!(verify_integrity(response.as_bytes(), &key));
+        assert_eq!(
+            parse_success(response.as_bytes(), &transaction)
+                .unwrap()
+                .receipt,
+            Some(receipt)
+        );
+        let mut duplicate = ResponseWriter::new(&transaction);
+        for _ in 0..2 {
+            assert!(duplicate.push_attribute(ATTR_OBSERVATION_RECEIPT, &receipt.encode()));
+        }
+        assert!(duplicate.finish_in_place(&key));
+        assert!(parse_success(duplicate.as_bytes(), &transaction).is_none());
+        for len in 0..response.as_bytes().len() {
+            assert!(parse_success(&response.as_bytes()[..len], &transaction).is_none());
+        }
     }
 }

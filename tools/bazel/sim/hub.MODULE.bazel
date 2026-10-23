@@ -24,6 +24,7 @@ crate.from_cargo(
         "//tools/bazel/sim:crates/packages-merkur-image-worker/Cargo.toml",
         "//tools/bazel/sim:crates/packages-merkur-stun-protocol/Cargo.toml",
         "//tools/bazel/sim:crates/packages-merkur-trace/Cargo.toml",
+        "//tools/bazel/sim:crates/packages-merkur-traversal/Cargo.toml",
         "//tools/bazel/sim:crates/packages-merkur-wire/Cargo.toml",
         "//tools/bazel/sim:crates/packages-term-wasm/Cargo.toml",
         "//tools/bazel/sim:crates/packages-vte-patch/Cargo.toml",

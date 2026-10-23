@@ -831,6 +831,7 @@ pub(crate) fn commit_rebind(
     let attempt_ms = (now_ms - flight.issued_at_ms)
         .max(0.0)
         .min(f64::from(u32::MAX)) as u32;
+    peer.native_traversal = None;
     peer.upgrade_secret = Some(*flight.successor.direct_upgrade_secret());
     let successor_secret = *flight.successor.rebind_secret();
     // Overwrite in place: assigning would drop the predecessor without

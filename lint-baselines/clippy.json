@@ -276,11 +276,6 @@
       "clippy::cast_possible_truncation": 2,
       "clippy::cast_sign_loss": 2
     },
-    "apps/daemon/dataplane/src/webtransport/discovery_socket.rs": {
-      "clippy::cast_possible_truncation": 1,
-      "clippy::let_underscore_must_use": 1,
-      "clippy::map_err_ignore": 1
-    },
     "apps/daemon/dataplane/src/webtransport/mod.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::cast_sign_loss": 1,
@@ -289,34 +284,9 @@
       "clippy::too_many_lines": 1,
       "clippy::wildcard_enum_match_arm": 4
     },
-    "apps/daemon/dataplane/src/webtransport/portmap/fixture_tests.rs": {
-      "clippy::cast_possible_truncation": 1,
-      "clippy::let_underscore_must_use": 2,
-      "clippy::wildcard_enum_match_arm": 1
-    },
-    "apps/daemon/dataplane/src/webtransport/portmap/mod.rs": {
-      "clippy::cast_possible_truncation": 1,
-      "clippy::let_underscore_must_use": 7,
-      "clippy::too_many_lines": 1
-    },
-    "apps/daemon/dataplane/src/webtransport/portmap/natpmp.rs": {
-      "clippy::map_err_ignore": 2
-    },
-    "apps/daemon/dataplane/src/webtransport/portmap/pcp.rs": {
-      "clippy::let_underscore_must_use": 1,
-      "clippy::map_err_ignore": 4
-    },
-    "apps/daemon/dataplane/src/webtransport/portmap/upnp.rs": {
-      "clippy::cast_possible_truncation": 6,
-      "clippy::let_underscore_must_use": 15
-    },
     "apps/daemon/dataplane/src/webtransport/side_channel.rs": {
       "clippy::cast_possible_truncation": 1,
       "clippy::wildcard_enum_match_arm": 1
-    },
-    "apps/daemon/dataplane/src/webtransport/stun.rs": {
-      "clippy::map_err_ignore": 1,
-      "clippy::too_many_lines": 1
     },
     "apps/daemon/dataplane/src/webtransport/traversal.rs": {
       "clippy::let_underscore_must_use": 1
@@ -1100,6 +1070,32 @@
     "packages/merkur-stun-protocol/src/message.rs": {
       "clippy::cast_possible_truncation": 6,
       "clippy::let_underscore_must_use": 1
+    },
+    "packages/merkur-traversal/src/discovery_socket.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 1
+    },
+    "packages/merkur-traversal/src/portmap/fixture_tests.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 2,
+      "clippy::wildcard_enum_match_arm": 1
+    },
+    "packages/merkur-traversal/src/portmap/mod.rs": {
+      "clippy::cast_possible_truncation": 1,
+      "clippy::let_underscore_must_use": 7,
+      "clippy::too_many_lines": 1
+    },
+    "packages/merkur-traversal/src/portmap/natpmp.rs": {
+      "clippy::map_err_ignore": 2
+    },
+    "packages/merkur-traversal/src/portmap/pcp.rs": {
+      "clippy::let_underscore_must_use": 1,
+      "clippy::map_err_ignore": 4
+    },
+    "packages/merkur-traversal/src/portmap/upnp.rs": {
+      "clippy::cast_possible_truncation": 6,
+      "clippy::let_underscore_must_use": 15
     },
     "packages/merkur-wire/src/input_record.rs": {
       "clippy::cast_possible_truncation": 1

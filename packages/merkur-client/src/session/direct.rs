@@ -40,6 +40,13 @@ use super::{Action, ConnId, Phase, Session};
 use crate::hex;
 use crate::liveness::PathKind;
 
+/// Cold native bootstrap, requested once for each authenticated lineage.
+pub struct NativeTraversalSetup {
+    pub lineage: u32,
+    pub request: crate::issuance::StunCredentialRequest,
+    pub key: merkur_e2e::traversal::TraversalKey,
+}
+
 /// Spacing of the race's dials, mirrored from `CANDIDATE_INTERLEAVE_MS`.
 const CANDIDATE_INTERLEAVE_MS: u64 = 30;
 /// Ceiling on a race from its batch's first dial, mirrored from
@@ -68,6 +75,7 @@ fn race_grace_ms(first_handshake_ms: u64) -> u64 {
 struct Endpoint {
     addr: SocketAddr,
     cert_hash: [u8; 32],
+    binding: u64,
 }
 
 struct Manifest {
@@ -186,6 +194,11 @@ impl DirectProbe {
 
 #[derive(Default)]
 pub(super) struct Direct {
+    native: bool,
+    native_offer: Option<merkur_wire::traversal::Offer>,
+    native_generation: u64,
+    native_recovery: u64,
+    checked: Vec<(Endpoint, CandidateKind)>,
     manifest: Option<Manifest>,
     /// The last punch outcome heard, and the manifest generation it served.
     punch: Option<(u64, PunchOutcome)>,
@@ -303,6 +316,21 @@ impl Direct {
     /// Every endpoint dialable now and neither spent nor racing, in dial
     /// order: public candidates, then local ones.
     fn dialable(&self) -> Vec<(Endpoint, CandidateKind)> {
+        if self.native {
+            return self
+                .checked
+                .iter()
+                .copied()
+                .filter(|(endpoint, _)| {
+                    !self.spent.contains(endpoint)
+                        && !self.race.as_ref().is_some_and(|race| {
+                            race.attempts
+                                .iter()
+                                .any(|attempt| attempt.endpoint == *endpoint)
+                        })
+                })
+                .collect();
+        }
         let Some(manifest) = self.manifest.as_ref() else {
             return Vec::new();
         };
@@ -323,6 +351,7 @@ impl Direct {
                 let endpoint = Endpoint {
                     addr: SocketAddr::new(candidate.addr, candidate.port),
                     cert_hash: manifest.cert_hash,
+                    binding: 0,
                 };
                 if !self.spent.contains(&endpoint)
                     && !racing(&endpoint)
@@ -364,6 +393,201 @@ fn outcome(kind: CandidateKind, disposition: &str) -> CandidateOutcome {
 }
 
 impl Session {
+    /// The native host owns UDP sockets. Browser hosts never call this method.
+    pub fn enable_native_traversal(&mut self) {
+        self.direct.native = true;
+    }
+
+    /// Cheap revision read: no derivation or allocation on a driver turn.
+    pub fn native_traversal_epoch(&self) -> Option<u32> {
+        (self.direct.native
+            && !self.config.relay_only
+            && matches!(self.phase, Phase::Established(_)))
+        .then_some(self.display_lineage)
+    }
+
+    pub fn native_traversal_setup(&self) -> Option<NativeTraversalSetup> {
+        if !self.is_ready() {
+            return None;
+        }
+        let lineage = self.native_traversal_epoch()?;
+        let Phase::Established(established) = &self.phase else {
+            return None;
+        };
+        let issued = self.issued.as_ref()?;
+        Some(NativeTraversalSetup {
+            lineage,
+            request: crate::issuance::StunCredentialRequest {
+                daemon_id: self.daemon_id.clone(),
+                browser_node_id: self.config.browser_node_id.clone(),
+                session_id: issued.session_id.clone(),
+                delegation_id: self.delegation.certificate.delegation_id.clone(),
+                rebind_counter: established.rebind.counter(),
+                generation: 0,
+            },
+            key: merkur_e2e::traversal::TraversalKey::derive(
+                &established.direct_upgrade_secret,
+                &issued.session_id,
+            )
+            .ok()?,
+        })
+    }
+
+    pub fn native_traversal_offer(&self) -> Option<&merkur_wire::traversal::Offer> {
+        self.direct.native_offer.as_ref()
+    }
+    pub fn native_traversal_recovery_generation(&self) -> u64 {
+        self.direct.native_recovery
+    }
+
+    pub fn native_direct_live(&self) -> bool {
+        self.direct.path.is_some()
+    }
+
+    pub fn native_direct_attempt_pending(&self) -> bool {
+        self.direct.race.is_some() || self.direct.upgrade.is_some()
+    }
+
+    /// Cold discovery retries use the measured round trip and carrier recovery's
+    /// bounded backoff. They never delay terminal traffic.
+    pub fn native_discovery_retry_delay(&self, failures: u32) -> std::time::Duration {
+        let ceiling = std::time::Duration::from_millis(super::RECONNECT_CEIL_MS);
+        let base = std::time::Duration::from_secs_f64(
+            (self.heartbeat.rto_ms().ceil() / 1_000.0)
+                .max(std::time::Duration::from_millis(super::RECONNECT_BASE_MS).as_secs_f64())
+                .min(ceiling.as_secs_f64()),
+        );
+        base.saturating_mul(1u32.checked_shl(failures).unwrap_or(u32::MAX))
+            .min(ceiling)
+    }
+
+    /// The driver publishes only socket facts gathered for this exact lineage.
+    pub fn publish_native_candidates(
+        &mut self,
+        lineage: u32,
+        mut snapshot: merkur_wire::traversal::Snapshot,
+    ) -> bool {
+        if self.native_traversal_epoch() != Some(lineage)
+            || snapshot.generation <= self.direct.native_generation
+        {
+            return false;
+        }
+        let Some(setup) = self.native_traversal_setup() else {
+            return false;
+        };
+        snapshot.mac = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(setup.key.mac(false, &snapshot.transcript()));
+        if !snapshot.is_valid() {
+            return false;
+        }
+        let Some(signaling) = self.lanes.as_ref().map(|lanes| lanes.signaling) else {
+            return false;
+        };
+        self.direct.native_generation = snapshot.generation;
+        self.direct.native_offer = None;
+        self.direct.checked.clear();
+        self.revoke_race();
+        let signal = ClientSignal::WebtransportCandidates(snapshot);
+        self.actions.push_back(Action::SendReliable {
+            conn: signaling,
+            channel: merkur_wire::protocol::CHANNEL_SIGNALING,
+            payload: signal.to_json().into_bytes(),
+        });
+        true
+    }
+
+    pub(super) fn on_native_traversal_offer(
+        &mut self,
+        _now_ms: u64,
+        offer: merkur_wire::traversal::Offer,
+    ) {
+        if !self.direct.native
+            || offer.client_generation != self.direct.native_generation
+            || self
+                .direct
+                .native_offer
+                .as_ref()
+                .is_some_and(|previous| offer.generation <= previous.generation)
+        {
+            return;
+        }
+        let Some(setup) = self.native_traversal_setup() else {
+            return;
+        };
+        let Ok(mac) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&offer.mac) else {
+            return;
+        };
+        if !offer.is_valid() || !setup.key.verifies(true, &offer.transcript(), &mac) {
+            return;
+        }
+        self.revoke_race();
+        self.direct.checked.clear();
+        self.direct.native_offer = Some(offer);
+    }
+
+    /// A completed authenticated check is eligible only under its current
+    /// candidate snapshot and binding. QUIC and upgrade still decide adoption.
+    pub fn native_pair_checked(
+        &mut self,
+        now_ms: u64,
+        lineage: u32,
+        client_generation: u64,
+        manifest_generation: u64,
+        binding: u64,
+        address: SocketAddr,
+    ) -> bool {
+        if self.native_traversal_epoch() != Some(lineage) || binding == 0 {
+            return false;
+        }
+        let Some(offer) = self.direct.native_offer.as_ref().filter(|offer| {
+            offer.client_generation == client_generation && offer.generation == manifest_generation
+        }) else {
+            return false;
+        };
+        let Ok(hash) = base64::engine::general_purpose::STANDARD.decode(&offer.cert_hash) else {
+            return false;
+        };
+        let Ok(cert_hash) = <[u8; 32]>::try_from(hash) else {
+            return false;
+        };
+        let endpoint = Endpoint {
+            addr: address,
+            cert_hash,
+            binding,
+        };
+        if self
+            .direct
+            .checked
+            .iter()
+            .any(|(known, _)| *known == endpoint)
+        {
+            return false;
+        }
+        let kind = offer
+            .candidates
+            .iter()
+            .find(|candidate| SocketAddr::new(candidate.addr, candidate.port) == address)
+            .map_or(CandidateKind::Srflx, |candidate| candidate.kind);
+        self.direct.spent.retain(|spent| *spent != endpoint);
+        self.direct.checked.push((endpoint, kind));
+        self.refresh_direct(now_ms);
+        true
+    }
+
+    /// A route event invalidates pending checks/dials, not a working provider.
+    pub fn native_network_changed(&mut self) {
+        if !self.direct.native {
+            return;
+        }
+        self.revoke_race();
+        if let Some(upgrade) = self.direct.upgrade.take() {
+            self.actions.push_back(Action::Close { conn: upgrade.conn });
+        }
+        self.direct.native_offer = None;
+        self.direct.checked.clear();
+        self.direct.spent.clear();
+    }
+
     /// A manifest landed: it replaces any earlier one.
     pub(super) fn on_direct_manifest(&mut self, now_ms: u64, signal: DaemonSignal) {
         let DaemonSignal::WebtransportManifest {
@@ -394,11 +618,12 @@ impl Session {
         {
             return;
         }
-        if self
-            .direct
-            .manifest
-            .as_ref()
-            .is_some_and(|previous| generation > previous.generation)
+        if !self.direct.native
+            && self
+                .direct
+                .manifest
+                .as_ref()
+                .is_some_and(|previous| generation > previous.generation)
         {
             // A newer manifest retires only what it no longer offers: a dial
             // or upgrade to an endpoint it still names is the same attempt,
@@ -489,6 +714,12 @@ impl Session {
         }
         self.direct.probe = DirectProbe::default();
         self.direct.manifest = None;
+        self.direct.native_offer = None;
+        self.direct.native_generation = 0;
+        self.direct.checked.clear();
+        if self.direct.native {
+            self.direct.spent.clear();
+        }
         self.direct.admission_done = None;
         self.direct.punch = None;
         if !keep_network {
@@ -526,6 +757,9 @@ impl Session {
         };
         for attempt in race.attempts {
             if let Some(conn) = attempt.conn {
+                if self.direct.native {
+                    self.actions.retain(|action| !matches!(action, Action::DialDirect { conn: owner, .. } if *owner == conn));
+                }
                 if matches!(attempt.state, AttemptState::Pending { .. }) {
                     self.direct.spent.push(attempt.endpoint);
                 }
@@ -548,14 +782,12 @@ impl Session {
             self.finish_admission();
             return;
         }
-        let Some(nat_type) = self
+        let nat_type = self
             .direct
             .manifest
             .as_ref()
             .map(|manifest| manifest.nat_type)
-        else {
-            return;
-        };
+            .unwrap_or(NatType::None);
         let race = self.direct.race.get_or_insert_with(|| Race {
             attempts: Vec::new(),
             deadline_ms: 0,
@@ -593,6 +825,7 @@ impl Session {
                     conn,
                     addr: attempt.endpoint.addr,
                     cert_hash: attempt.endpoint.cert_hash,
+                    binding: attempt.endpoint.binding,
                 });
             }
         }
@@ -706,6 +939,15 @@ impl Session {
         let Some(path) = self.direct.path.take() else {
             return;
         };
+        if self.direct.native {
+            self.direct.native_recovery = self
+                .direct
+                .native_recovery
+                .checked_add(1)
+                .expect("native recovery generation exhausted");
+            self.direct.native_offer = None;
+            self.direct.checked.clear();
+        }
         self.direct.probe = DirectProbe::default();
         self.outbox.reliable_sent = 0;
         self.paths.retire(PathKind::Direct);
@@ -950,6 +1192,9 @@ impl Session {
     }
 
     fn finish_admission(&mut self) {
+        if self.direct.native {
+            return;
+        }
         let Some(manifest) = self.direct.manifest.as_ref() else {
             return;
         };

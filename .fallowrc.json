@@ -40,6 +40,7 @@
     "apps/site/blog/**/*.mdx",
     "apps/site/fixtures/blog/**/*.mdx",
     "playwright.edge-topology.config.mjs",
+    "scripts/natlab/playwright.native.config.mjs",
     "spikes/webtransport-ios/worker/main.ts",
     "spikes/webtransport-ios/worker/drain-worker.ts"
   ],
@@ -66,6 +67,10 @@
     },
     {
       "file": "playwright.*.config.mjs",
+      "exports": ["default"]
+    },
+    {
+      "file": "scripts/natlab/playwright.native.config.mjs",
       "exports": ["default"]
     },
     {

@@ -1,9 +1,10 @@
+pub use merkur_traversal::{AddressCandidate, CandidateFlavor, discovery_socket, egress, portmap};
 pub(crate) mod admission;
 mod direct_session;
-pub(crate) mod discovery_socket;
-pub mod egress;
+pub(crate) mod native_traversal;
+
 pub mod pairing;
-pub mod portmap;
+
 pub mod side_channel;
 pub mod stun;
 pub(crate) mod traversal;
@@ -15,7 +16,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use netdev::ipnet::{IpNet, Ipv4Net};
-use serde::Serialize;
 use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
@@ -299,34 +299,6 @@ pub(crate) fn tuned_quic_transport_config() -> wtransport::config::QuicTransport
     config
 }
 
-/// Wire-level taxonomy of WebTransport candidates. Serializes as the
-/// `kind` field on the offer. The browser uses this for (a) start-order
-/// priority in the race, and (b) diagnostics. The daemon decides per-peer
-/// whether each address is reachable using `AddressClass` (internal),
-/// based on IETF prefix categories (RFC1918, RFC4193, RFC6598, GUA, etc.)
-/// rather than naming specific overlays.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CandidateFlavor {
-    /// STUN-discovered public IP. Requires hairpinning to work same-NAT.
-    Srflx,
-    /// An explicit port-mapping lease (PCP or NAT-PMP). The only candidate kind
-    /// that does not depend on NAT filter state: the gateway has been told to
-    /// forward, so unsolicited inbound is admitted by configuration rather than
-    /// by a keepalive and a punch landing in time.
-    NatMap,
-    /// Any routable IPv4 host (RFC1918 LAN, RFC6598 CGNAT/overlay, GUA).
-    Host4,
-    /// Any routable IPv6 host (GUA, RFC4193 ULA / overlay).
-    Host6,
-    /// 127.0.0.1 / ::1, added only for the SameHost selection strategy.
-    Loopback,
-    /// A dedicated socket endpoint, prepared with a TFTP RRQ.
-    Tftp,
-    /// An unverified SDP media endpoint; never a port-mapping lease.
-    Sip,
-}
-
 /// Internal classification of an IP address by IETF prefix category. The
 /// pairing layer uses this to decide which candidates to emit per peer,
 /// without hardcoding the prefixes of any specific overlay (e.g. Tailscale).
@@ -412,13 +384,6 @@ pub fn classify_interface_net(net: &IpNet) -> AddressClass {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct AddressCandidate {
-    pub addr: String,
-    pub port: u16,
-    pub kind: CandidateFlavor,
-}
-
 pub struct CertState {
     pub cert_hash: [u8; 32],
     pub created_at: Instant,
@@ -464,6 +429,9 @@ pub struct WebTransportState {
     pub nat_signature: pairing::NatSignature,
     pub nat_mapping: stun::NatMapping,
     pub daemon_srflx: Option<IpAddr>,
+    /// Authenticated raw observation for native connectivity checks, even under EDM.
+    /// It never enters the browser's unverified dialable candidate set.
+    pub native_observed_endpoint: Option<std::net::SocketAddr>,
     /// Send-only side channel used for the NAT-mapping keepalive and for
     /// pinhole punches toward an authenticated browser address.
     pub side_channel: Option<Arc<side_channel::SideChannel>>,
@@ -519,6 +487,17 @@ impl WebTransportState {
         nat_mapping: stun::NatMapping,
         daemon_srflx: Option<IpAddr>,
     ) -> Self {
+        let native_observed_endpoint = candidates.iter().find_map(|candidate| {
+            (candidate.kind == CandidateFlavor::Srflx)
+                .then(|| {
+                    candidate
+                        .addr
+                        .parse()
+                        .ok()
+                        .map(|ip| std::net::SocketAddr::new(ip, candidate.port))
+                })
+                .flatten()
+        });
         Self {
             discovery_evidence: stun::DiscoveryEvidence::default(),
             peer_connections: HashMap::new(),
@@ -531,6 +510,7 @@ impl WebTransportState {
             nat_signature,
             nat_mapping,
             daemon_srflx,
+            native_observed_endpoint,
             side_channel: None,
             traversal_requests: None,
             admission_requests: None,
@@ -875,6 +855,7 @@ pub fn manifest_json(
 /// replaces it; a timeout is not evidence that the existing candidate disappeared.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PriorReflexive {
+    pub native_observed_endpoint: Option<std::net::SocketAddr>,
     /// The reflexive candidate currently published, if any.
     pub srflx: Option<AddressCandidate>,
     pub nat_signature: pairing::NatSignature,
@@ -894,6 +875,7 @@ impl Default for PriorReflexive {
     fn default() -> Self {
         Self {
             srflx: None,
+            native_observed_endpoint: None,
             nat_signature: pairing::NatSignature {
                 public_ip: None,
                 nat_type: pairing::NatTypeLabel::None,
@@ -916,6 +898,7 @@ impl PriorReflexive {
                 .iter()
                 .find(|candidate| candidate.kind == CandidateFlavor::Srflx)
                 .cloned(),
+            native_observed_endpoint: state.native_observed_endpoint,
             nat_signature: state.nat_signature.clone(),
             nat_mapping: state.nat_mapping,
             daemon_srflx: state.daemon_srflx,
@@ -926,6 +909,7 @@ impl PriorReflexive {
 }
 
 pub struct ReprobeResult {
+    pub native_observed_endpoint: Option<std::net::SocketAddr>,
     pub discovery_evidence: stun::DiscoveryEvidence,
     pub ipv6_reachability: &'static str,
     pub candidates: Vec<AddressCandidate>,
@@ -1279,6 +1263,11 @@ fn build_reprobe_result(
 
     info!("reprobed {} WebTransport candidates", candidates.len());
     ReprobeResult {
+        native_observed_endpoint: stun_result
+            .as_ref()
+            .ok()
+            .map(|result| result.public_addr)
+            .or(prior.native_observed_endpoint),
         ipv6_reachability: "unknown",
         discovery_evidence: stun_result
             .as_ref()
@@ -1612,6 +1601,7 @@ mod reprobe_tests {
     fn prior_with_stable_mapping() -> PriorReflexive {
         PriorReflexive {
             srflx: Some(srflx("203.0.113.5", 51_000)),
+            native_observed_endpoint: Some("203.0.113.5:51000".parse().unwrap()),
             nat_signature: pairing::NatSignature {
                 public_ip: Some("203.0.113.5".to_string()),
                 nat_type: pairing::NatTypeLabel::EndpointIndependent,
@@ -2572,10 +2562,10 @@ pub async fn close_peer_if_current(
 ) -> bool {
     let session = {
         let state = registry_read(state).await;
-        if !state
+        if state
             .peer_connections
             .get(peer_id)
-            .is_some_and(|connection| connection.connection_id == connection_id)
+            .is_none_or(|connection| connection.connection_id != connection_id)
         {
             return false;
         }

@@ -25,7 +25,9 @@ neither. Everything else in the design follows from keeping that boundary intact
 
 `packages/merkur-client` is the sans-IO Rust session and viewer core: events go in,
 actions come out, and the host supplies time, randomness and I/O. The native adapter
-(`packages/merkur-client-native`) owns WebTransport, HTTPS, account events and OS path hints.
+(`packages/merkur-client-native`) owns WebTransport, HTTPS, account events, OS path hints and
+direct UDP bindings. `packages/merkur-traversal` shares native discovery, peer checks and router
+mappings with the dataplane.
 The shared Rust packages own authorization, identity custody, wire records, ML-KEM and Noise,
 the terminal model, display codec, error correction and graphics. TypeScript owns the app,
 browser adapters, server contracts, daemon coordination and on-screen keyboard. The README's

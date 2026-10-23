@@ -350,6 +350,7 @@ export function runDaemonControlClientEffect(
     DataplaneClient,
     | 'signDaemonProofEffect'
     | 'startSessionEffect'
+    | 'registerTraversalEffect'
     | 'cancelSessionEffect'
     | 'revokeDelegationEffect'
     | 'updateRevocation'
@@ -605,6 +606,7 @@ function runControlConnection(
     DataplaneClient,
     | 'signDaemonProofEffect'
     | 'startSessionEffect'
+    | 'registerTraversalEffect'
     | 'cancelSessionEffect'
     | 'revokeDelegationEffect'
     | 'updateRevocation'
@@ -801,6 +803,7 @@ function runControlEventLoop(
     DataplaneClient,
     | 'signDaemonProofEffect'
     | 'startSessionEffect'
+    | 'registerTraversalEffect'
     | 'cancelSessionEffect'
     | 'revokeDelegationEffect'
     | 'updateRevocation'
@@ -1254,11 +1257,7 @@ function runControlEventLoop(
       yield* logEffect(
         'info',
         'daemon',
-        message.type === 'session_start'
-          ? 'session_start_received'
-          : message.type === 'session_cancel'
-            ? 'session_cancel_received'
-            : 'delegation_revoke_received',
+        COMMAND_RECEIVED_EVENT[message.type],
         message.type === 'delegation_revoke' ? {} : { sessionId: message.sessionId },
       );
       yield* runDataplaneCommand(message, dataplane, persistRevocations, events, fatal).pipe(
@@ -1563,11 +1562,21 @@ function runStableConnectionTimer(
   );
 }
 
+const COMMAND_RECEIVED_EVENT = {
+  session_start: 'session_start_received',
+  session_cancel: 'session_cancel_received',
+  traversal_register: 'traversal_register_received',
+  delegation_revoke: 'delegation_revoke_received',
+} satisfies Readonly<Record<DaemonControlCommandMessage['type'], string>>;
+
 function runDataplaneCommand(
   command: DaemonControlCommandMessage,
   dataplane: Pick<
     DataplaneClient,
-    'startSessionEffect' | 'cancelSessionEffect' | 'revokeDelegationEffect'
+    | 'startSessionEffect'
+    | 'registerTraversalEffect'
+    | 'cancelSessionEffect'
+    | 'revokeDelegationEffect'
   >,
   persistRevocations: (
     targets: readonly DelegationRevocationTarget[],
@@ -1590,11 +1599,22 @@ function runDataplaneCommand(
         )
       : command.type === 'session_cancel'
         ? dataplane.cancelSessionEffect(command.commandId, command.sessionId, command.browserNodeId)
-        : dataplane.revokeDelegationEffect(
-            command.commandId,
-            command.actorCertificate,
-            command.revocation,
-          )
+        : command.type === 'traversal_register'
+          ? dataplane.registerTraversalEffect(command.commandId, {
+              session_id: command.sessionId,
+              browser_node_id: command.browserNodeId,
+              delegation_id: command.delegationId,
+              rebind_counter: command.rebindCounter,
+              generation: command.generation,
+              ticket: command.ticket,
+              receipt_key: command.receiptKey,
+              lifetime_ms: command.lifetimeMs,
+            })
+          : dataplane.revokeDelegationEffect(
+              command.commandId,
+              command.actorCertificate,
+              command.revocation,
+            )
   ).pipe(
     Effect.map(normalizeCommandResult),
     Effect.flatMap((result) =>

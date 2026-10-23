@@ -35,7 +35,7 @@ is that same daemon inside a container on a box host, which the server reaches a
 | `packages/keyboard` | On-screen keyboard, layouts, touch model, offset learner | rule `keyboard` |
 | `packages/term-wasm`, `merkur-codec`, `merkur-fec`, `merkur-graphics`, `merkur-image-worker` | Rust/WASM terminal, codec, FEC, graphics | rules `display`, `dataplane` |
 | `packages/merkur-e2e`, `e2e-wasm` | One implementation of ML-KEM/Noise bootstrap, native and WASM | rule `crypto-bootstrap` |
-| `packages/merkur-stun-protocol` | STUN wire codec and consent proofs shared by daemon and responder | rule `stun-ticket` |
+| `packages/merkur-stun-protocol`, `merkur-traversal` | STUN wire, UDP checks and router mappings | rule `stun-ticket` |
 | `packages/*-patch` | Vendored `[patch.crates-io]` crates (alacritty, vte, wtransport, quinn, quinn-proto, fontdue) | rule `vendored-crates` |
 | `packages/display-fixture` | Native MZ payload generator for browser display benchmarks and fixtures | `docs/performance.md` |
 | `scripts` | Gates, harnesses, benchmarks, agent hooks | skill `verify` |

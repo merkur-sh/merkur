@@ -3,6 +3,7 @@ import {
   deriveDaemonIdentityKeyCommitment,
   deriveSessionRequestCommitment,
 } from '@merkur/auth';
+import { MAX_STUN_SERVERS } from '@merkur/daemon-control-protocol';
 import { normalizeEdgeWebTransportUrl, spanAttributes } from '@merkur/shared';
 import { type DaemonBinding, parseDaemonBinding } from '@merkur/shared/user-authorization';
 import { Clock, Context, Data, Effect, Fiber, Layer } from 'effect';
@@ -22,6 +23,7 @@ import type { SessionIssuanceStateError } from './session-issuance-contract';
 import { SessionIssuanceConflictError } from './session-issuance-contract';
 import { type SessionIssuanceError, SessionIssuanceServiceTag } from './session-issuance-service';
 import { retireCancelledSession, retireSupersededSession } from './session-retirement';
+import { createStunTicketIssuer, deriveStunObservationKey } from './stun-ticket-service';
 
 export class DaemonNotConnectedError extends Data.TaggedError('DaemonNotConnectedError') {}
 export class DelegationMismatchError extends Data.TaggedError('DelegationMismatchError') {}
@@ -53,6 +55,22 @@ interface SessionRenewalInput {
   readonly edgeWtUrl: string;
 }
 
+interface SessionStunInput {
+  readonly daemonId: string;
+  readonly browserNodeId: string;
+  readonly delegationId: string;
+  readonly sessionId: string;
+  readonly rebindCounter: number;
+  readonly generation: number;
+}
+
+export interface SessionStunCredential {
+  readonly ticket: string;
+  readonly secret: string;
+  readonly servers: string[];
+  readonly lifetimeMs: number;
+}
+
 interface SessionResponse {
   readonly daemonId: string;
   readonly daemonIdentityPublicKey: string;
@@ -82,12 +100,18 @@ export type SessionRequestError =
   | DaemonControlDeliveryError
   | EdgeTemporarilyUnavailableError;
 
+export type SessionStunError = SessionRenewalError | DaemonControlDeliveryError;
+
 export type SessionCancellationError =
   | RedisError
   | SessionIssuanceStateError
   | DaemonControlDeliveryError;
 
 export interface SessionService {
+  stun(
+    principal: SessionPrincipal,
+    input: SessionStunInput,
+  ): Effect.Effect<SessionStunCredential, SessionStunError>;
   request(
     principal: SessionPrincipal,
     input: SessionRequestInput,
@@ -154,6 +178,11 @@ export const SessionServiceLive = Layer.effect(
     const sessionIssuance = yield* SessionIssuanceServiceTag;
     const logger = createLogger('session-service');
     const edgeAttachTickets = createEdgeAttachTicketIssuer(config.edgeAttachTicketKey);
+    const stunTickets = createStunTicketIssuer(
+      config.stunTicketKey,
+      config.stunServers,
+      config.boxHostStunObservers,
+    );
 
     const resolveIdentity = Effect.fnUntraced(function* (userId: string, daemonId: string) {
       const identity = yield* deviceService.getDaemonSessionIdentity(userId, daemonId);
@@ -181,6 +210,41 @@ export const SessionServiceLive = Layer.effect(
         },
         catch: (cause) => new SessionIdentityStateError({ daemonId, cause }),
       });
+    });
+
+    const stun = Effect.fnUntraced(function* (
+      principal: SessionPrincipal,
+      input: SessionStunInput,
+    ) {
+      if (input.delegationId !== principal.delegationId) {
+        return yield* new DelegationMismatchError();
+      }
+      yield* resolveIdentity(principal.userId, input.daemonId);
+      const presence = yield* coordination.getDaemonPresence(input.daemonId);
+      if (presence === null || presence.userId !== principal.userId) {
+        return yield* new DaemonNotConnectedError();
+      }
+      const issuedAtMs = yield* Clock.currentTimeMillis;
+      const credential = stunTickets.issue(issuedAtMs);
+      yield* daemonControl.registerTraversal({
+        presence,
+        sessionId: input.sessionId,
+        browserNodeId: input.browserNodeId,
+        delegationId: principal.delegationId,
+        rebindCounter: input.rebindCounter,
+        generation: input.generation,
+        ticket: credential.ticket,
+        receiptKey: deriveStunObservationKey(config.stunTicketKey, credential.ticket).toString(
+          'base64url',
+        ),
+        lifetimeMs: credential.lifetimeMs,
+      });
+      const answeredAtMs = yield* Clock.currentTimeMillis;
+      return {
+        ...credential,
+        lifetimeMs: Math.max(0, credential.lifetimeMs - Math.max(0, answeredAtMs - issuedAtMs)),
+        servers: stunTickets.serversFor(null).slice(0, MAX_STUN_SERVERS),
+      };
     });
 
     const renew = Effect.fnUntraced(function* (
@@ -432,6 +496,6 @@ export const SessionServiceLive = Layer.effect(
       const generation = yield* coordination.incrementRevocationGeneration(userId);
       yield* daemonControl.pushRevocationGeneration(userId, generation);
     });
-    return { request, renew, cancel, revokeAll } satisfies SessionService;
+    return { request, renew, cancel, revokeAll, stun } satisfies SessionService;
   }),
 );

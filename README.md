@@ -294,7 +294,8 @@ Bun and TypeScript handle the application and orchestration; Rust owns the termi
 | `packages/merkur-codec`             | Shared display codec.                                                        |
 | `packages/merkur-e2e`               | Native and browser session bootstrap, Noise, and replay protection.          |
 | `packages/merkur-edge-protocol`     | Edge routing preface and splice-control events.                              |
-| `packages/merkur-stun-protocol`     | Shared authenticated STUN codec.                                             |
+| `packages/merkur-stun-protocol`     | Shared authenticated STUN codec and observation receipts.                   |
+| `packages/merkur-traversal`         | Native UDP discovery, peer checks and router mappings.                       |
 | `packages/merkur-wire`              | Client–dataplane wire: channels, frames, input records, signaling.           |
 | `packages/e2e-wasm`                 | Browser bindings for session encryption.                                     |
 | `packages/graphics-wasm`            | Browser graphics verification.                                               |

@@ -80,6 +80,10 @@ test('real configuration ownership agrees with the selector', async () => {
   const config = selectGates(['playwright.edge.config.mjs'], current).deferred;
   expect(config).toContainEqual(['bun', 'run', 'test:e2e:rebind']);
   expect(config).toContainEqual(['bun', 'run', 'test:e2e:transport:reorder']);
+  expect(suites(selectGates(['tests/e2e/tui-nat.e2e.ts'], current))).toEqual(['test:natlab']);
+  const native = selectGates(['scripts/natlab/playwright.native.config.mjs'], current).deferred;
+  expect(native).toContainEqual(['bun', 'run', 'test:natlab']);
+  expect(native).not.toContainEqual(['bun', 'run', 'test:e2e:transport']);
 });
 
 test('diff discovery includes deleted files and both rename endpoints with spaces', () => {

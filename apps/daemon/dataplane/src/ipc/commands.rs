@@ -45,6 +45,22 @@ pub const CMD_UPGRADE: u8 = 0x15;
 /// The first frame on an adopted owner socket: the arguments a spawned dataplane takes on its
 /// command line, which a process started by `execve` from its predecessor did not get.
 pub const CMD_ADOPT: u8 = 0x16;
+/// Register one native session's independently verifiable STUN observations.
+pub const CMD_REGISTER_TRAVERSAL: u8 = 0x17;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisterTraversalCmd {
+    pub command_id: String,
+    pub session_id: String,
+    pub browser_node_id: String,
+    pub delegation_id: String,
+    pub rebind_counter: u64,
+    pub generation: u64,
+    pub ticket: String,
+    pub receipt_key: String,
+    pub lifetime_ms: u64,
+}
 
 /// Payload of [`CMD_UPGRADE`].
 #[derive(Debug, Deserialize)]

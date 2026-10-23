@@ -79,6 +79,10 @@ pub struct TicketKey {
 }
 
 impl TicketKey {
+    pub fn observation_key(&self, ticket: &[u8]) -> hmac::Key {
+        merkur_stun_protocol::observation::derive_key(&self.key, ticket)
+    }
+
     /// `secret` is the raw 64 bytes, matching how edge registration keys are
     /// sized and encoded.
     pub fn new(secret: &[u8]) -> Self {

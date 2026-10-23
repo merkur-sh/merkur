@@ -238,6 +238,7 @@ const CONFIG_SCRIPTS = new Map([
   ['playwright.edge-cloud.config.mjs', 'test:e2e:cloud'],
   ['playwright.edge-probe.config.mjs', 'test:e2e:edge-probe'],
   ['playwright.site.config.mjs', 'test:e2e:site'],
+  ['scripts/natlab/playwright.native.config.mjs', 'test:natlab'],
 ]);
 
 /** The specs a calibrated suite runs instead of their configuration's own. */
@@ -275,7 +276,8 @@ export async function e2eOwners(root: string = ROOT): Promise<E2eOwners> {
     addOwner(owners, config.file, ['bun', 'run', script]);
     const value = playwrightPatterns(readFileSync(path.join(root, config.file), 'utf8'));
     for (const pattern of value.testMatch) {
-      const file = path.join(path.relative(root, path.resolve(root, value.testDir)), pattern);
+      const directory = path.dirname(path.join(root, config.file));
+      const file = path.join(path.relative(root, path.resolve(directory, value.testDir)), pattern);
       const command = specOwner(script, path.basename(pattern), defaultTransport);
       addOwner(owners, config.file, command);
       addOwner(owners, file, command);

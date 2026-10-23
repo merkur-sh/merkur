@@ -457,9 +457,11 @@ async fn failed_rebind_final_leaves_the_incumbent_session_and_direct_path_usable
 
 #[tokio::test]
 async fn successful_rebind_retires_direct_commits_and_sends_a_manifest_for_the_new_carrier() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
     let peer_id = "browser-rebind-success";
     let (mut peer, _incumbent_browser, mut successor_browser, msg3, successor_upgrade) =
         rebind_handshake_peer(peer_id);
+    peer.browser_address = Some("198.51.100.8".parse().unwrap());
     let (candidate, mut proof_rx) = edge_candidate::CandidateReply::test_pair([1; 32]);
     peer.rebind
         .as_mut()
@@ -496,6 +498,66 @@ async fn successful_rebind_retires_direct_commits_and_sends_a_manifest_for_the_n
     let network_state = Arc::new(RwLock::new(NetworkState::new()));
     network::register_edge_signaling(&network_state, peer_id, signaling_tunnel).await;
 
+    // Install real native check authority on a live listener before committing
+    // the successor. Its receipt grant and contexts belong to the incumbent.
+    let raw = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    raw.set_nonblocking(true).unwrap();
+    let socket = webtransport::discovery_socket::DiscoverySocket::new(raw).unwrap();
+    let config = wtransport::ServerConfig::builder()
+        .with_bind_default(0)
+        .with_identity(wtransport::Identity::self_signed(["localhost"]).unwrap())
+        .build();
+    let _native_listener =
+        wtransport::Endpoint::server_with_socket(config, socket.clone()).unwrap();
+    wt_state.as_ref().unwrap().write().await.discovery_socket = Some(socket);
+    let peer = peers.get_mut(peer_id).unwrap();
+    let registration = RegisterTraversalCmd {
+        command_id: "native-grant".into(),
+        session_id: peer.signal_session_id.clone(),
+        browser_node_id: peer_id.into(),
+        delegation_id: peer.delegation_id.clone(),
+        rebind_counter: peer.rebind.as_ref().unwrap().counter,
+        generation: 1,
+        ticket: B64.encode([3; 41]),
+        receipt_key: B64.encode([7; 32]),
+        lifetime_ms: 90_000,
+    };
+    assert!(webtransport::native_traversal::register(
+        peer,
+        &registration
+    ));
+    let key = merkur_e2e::traversal::TraversalKey::derive(
+        peer.upgrade_secret.as_ref().unwrap(),
+        &peer.signal_session_id,
+    )
+    .unwrap();
+    let mut snapshot = merkur_wire::traversal::Snapshot {
+        generation: 1,
+        bindings: vec![merkur_wire::traversal::Binding {
+            id: 1,
+            family: 4,
+            candidates: Vec::new(),
+        }],
+        mac: String::new(),
+    };
+    snapshot.mac = B64.encode(key.mac(false, &snapshot.transcript()));
+    assert!(
+        webtransport::native_traversal::accept_snapshot(&wt_state, &network_state, peer, &snapshot)
+            .await
+    );
+    let native_authority = peer
+        .native_traversal
+        .as_ref()
+        .unwrap()
+        .first_authority()
+        .unwrap();
+    assert!(native_authority.is_live());
+    let (_, native_offer) = signaling_rx.try_recv().unwrap();
+    assert!(matches!(
+        merkur_wire::signaling::DaemonSignal::parse(&native_offer),
+        Some(merkur_wire::signaling::DaemonSignal::WebtransportTraversalOffer(_))
+    ));
+
     // Even identical routing bytes on another stream cannot consume this
     // candidate's responder or publish its successor.
     let (other, _other_rx) = edge_candidate::CandidateReply::test_pair([1; 32]);
@@ -515,6 +577,11 @@ async fn successful_rebind_retires_direct_commits_and_sends_a_manifest_for_the_n
     );
     assert!(peers[peer_id].noise_handshake.is_some());
     assert_eq!(peers[peer_id].rebind.as_ref().unwrap().counter, 0);
+    assert!(
+        native_authority.is_live(),
+        "a failed tentative successor preserves incumbent checks"
+    );
+    assert!(peers[peer_id].native_traversal.is_some());
 
     let accepted = handle_noise_final(
         peer_id,
@@ -530,6 +597,14 @@ async fn successful_rebind_retires_direct_commits_and_sends_a_manifest_for_the_n
     assert!(accepted.is_some());
 
     let peer = peers.get_mut(peer_id).expect("peer survives");
+    assert!(
+        !native_authority.is_live(),
+        "commit synchronously revokes predecessor native authority"
+    );
+    assert!(
+        peer.native_traversal.is_none(),
+        "the predecessor receipt registration is erased at commit"
+    );
     assert!(
         !peer.paths.webtransport.available,
         "predecessor direct retired"

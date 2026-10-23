@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   createStunTicketIssuer,
   deriveStunIntegrityKey,
+  deriveStunObservationKey,
   encodeStunTicket,
   STUN_TICKET_LIFETIME_MS,
   verifyStunTicket,
@@ -23,6 +24,24 @@ import {
 const KEY = Buffer.alloc(64, 3);
 const NONCE = Buffer.alloc(16, 7);
 const EXPIRY = 1_000_600n;
+
+test('native observation authority is ticket-bound and unavailable from the requester key', () => {
+  const ticket = encodeStunTicket(KEY, EXPIRY, NONCE);
+  const receipt = deriveStunObservationKey(KEY, ticket);
+  expect(receipt.byteLength).toBe(32);
+  expect(receipt.equals(deriveStunIntegrityKey(KEY, ticket))).toBe(false);
+  expect(
+    receipt.equals(
+      deriveStunObservationKey(KEY, encodeStunTicket(KEY, EXPIRY, Buffer.alloc(16, 8))),
+    ),
+  ).toBe(false);
+  expect(
+    receipt.equals(deriveStunObservationKey(deriveStunIntegrityKey(KEY, ticket), ticket)),
+  ).toBe(false);
+  expect(receipt.toString('hex')).toBe(
+    'c0268c0af3b542b3087717b5d3f2e0223372d402af7b8285c40d4f645f729f9d',
+  );
+});
 
 describe('ticket encoding', () => {
   /**

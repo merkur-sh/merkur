@@ -26,5 +26,6 @@
 pub mod input_record;
 pub mod protocol;
 pub mod signaling;
+pub mod traversal;
 
 pub mod terminal_ui;

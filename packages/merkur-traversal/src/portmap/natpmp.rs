@@ -131,7 +131,7 @@ pub async fn map(
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub mod tests {
     use super::*;
 
     pub(in super::super) fn external_answer(epoch: u32, address: Ipv4Addr) -> [u8; 12] {

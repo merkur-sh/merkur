@@ -115,8 +115,7 @@ impl RetransmitSchedule {
         attempts: MAX_RETRIES as u32 + 1,
     };
 
-    /// One send and one wait: a delete is best effort, and its answer changes
-    /// nothing the caller does.
+    /// Bound deletion retries; an unanswered delete leaves gateway expiry in force.
     const DELETE: Self = Self {
         initial: INITIAL_TIMEOUT,
         max_interval: INITIAL_TIMEOUT,
@@ -393,7 +392,7 @@ enum Attempt {
 /// Exists so tests can drive the real code path against fake gateways and a
 /// blackholed one without paying the production schedule, which is
 /// deliberately long because nothing waits on it.
-pub(crate) async fn acquire_with(
+pub async fn acquire_with(
     internal_port: u16,
     egress: Option<&EgressPath>,
     reflexive: Option<IpAddr>,
@@ -952,7 +951,7 @@ fn accept_epoch(lease: &mut Lease, epoch: u32, lifetime_secs: u32) -> bool {
     true
 }
 
-/// Delete the mapping on the gateway, best effort.
+/// Request deletion of the mapping with bounded retries.
 ///
 /// Deliberately an explicit call rather than a `Drop` impl. RFC 6886 §3.4
 /// deletion removes **every** mapping for an internal port, so an unfenced
@@ -1117,7 +1116,7 @@ pub async fn acquire_pinhole(port: u16, egress: Option<&EgressPath6>) -> Pinhole
     .await
 }
 
-pub(crate) async fn acquire_pinhole_with(
+pub async fn acquire_pinhole_with(
     port: u16,
     egress: Option<&EgressPath6>,
     schedule: RetransmitSchedule,
@@ -1401,7 +1400,7 @@ pub async fn renew_pinhole(pinhole: &mut Pinhole) -> bool {
     true
 }
 
-/// Close the pinhole on the gateway, best effort. Explicit for the same
+/// Request pinhole deletion with bounded retries. Explicit for the same
 /// ordering reason as [`release`].
 pub async fn release_pinhole(pinhole: Pinhole) {
     match pinhole.inner {

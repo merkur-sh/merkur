@@ -17,11 +17,12 @@ use tokio::time::Instant;
 use wtransport::quinn::{AsyncUdpSocket, Runtime, TokioRuntime, UdpPoller, udp};
 
 const MAX_PENDING: usize = 8;
-pub(super) const MAX_DISCOVERY_DATAGRAM: usize = 1200;
+const PEER_PENDING: usize = 64 * 8;
+pub const MAX_DISCOVERY_DATAGRAM: usize = 1200;
 const STUN_COOKIE: [u8; 4] = 0x2112_A442u32.to_be_bytes();
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum ResponseSource {
+pub enum ResponseSource {
     Exact(SocketAddr),
     AuthenticatedSelf,
     ChangedPort(SocketAddr),
@@ -48,18 +49,21 @@ impl ResponseSource {
     }
 }
 
-pub(super) fn canonical_addr(addr: SocketAddr) -> SocketAddr {
+pub fn canonical_addr(addr: SocketAddr) -> SocketAddr {
     SocketAddr::new(addr.ip().to_canonical(), addr.port())
 }
 
 #[derive(Debug)]
-pub(super) struct DiscoveryResponse {
+pub struct DiscoveryResponse {
     pub source: SocketAddr,
+    /// Actual destination address reported by the socket receive metadata.
+    pub local_ip: Option<IpAddr>,
     pub bytes: [u8; MAX_DISCOVERY_DATAGRAM],
     pub len: usize,
 }
 
 struct Pending {
+    owner: Option<std::sync::Weak<crate::check::Context>>,
     transaction: [u8; 12],
     source: ResponseSource,
     key: Arc<hmac::Key>,
@@ -67,9 +71,47 @@ struct Pending {
     sender: oneshot::Sender<DiscoveryResponse>,
 }
 
-pub(crate) struct DiscoverySocket {
+struct PendingTable {
+    discovery: [Option<Pending>; MAX_PENDING],
+    /// Browser-only sockets retain their original eight inline slots. Native
+    /// transaction capacity is allocated only when a native check is started.
+    peers: Option<Box<[Option<Pending>]>>,
+}
+
+impl PendingTable {
+    fn new() -> Self {
+        Self {
+            discovery: std::array::from_fn(|_| None),
+            peers: None,
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Option<Pending>> {
+        self.discovery
+            .iter()
+            .chain(self.peers.iter().flat_map(|slots| slots.iter()))
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Option<Pending>> {
+        self.discovery
+            .iter_mut()
+            .chain(self.peers.iter_mut().flat_map(|slots| slots.iter_mut()))
+    }
+
+    fn slots(&mut self, peer: bool) -> &mut [Option<Pending>] {
+        if peer {
+            self.peers
+                .get_or_insert_with(|| (0..PEER_PENDING).map(|_| None).collect())
+        } else {
+            &mut self.discovery
+        }
+    }
+}
+
+pub struct DiscoverySocket {
     inner: Arc<dyn AsyncUdpSocket>,
-    pending: Mutex<[Option<Pending>; MAX_PENDING]>,
+    pending: Mutex<PendingTable>,
+    pub(crate) checks: Mutex<Vec<std::sync::Weak<crate::check::Context>>>,
     contacts: Mutex<([Option<SocketAddr>; 64], bool)>,
 }
 
@@ -82,12 +124,22 @@ impl std::fmt::Debug for DiscoverySocket {
 }
 
 impl DiscoverySocket {
+    #[cfg(test)]
+    pub(crate) fn pending_is_empty(&self) -> bool {
+        self.pending.lock().unwrap().iter().all(Option::is_none)
+    }
     pub fn new(socket: std::net::UdpSocket) -> io::Result<Arc<Self>> {
-        Ok(Arc::new(Self {
-            inner: TokioRuntime.wrap_udp_socket(socket)?,
-            pending: Mutex::new(std::array::from_fn(|_| None)),
+        Ok(Self::from_abstract(TokioRuntime.wrap_udp_socket(socket)?))
+    }
+
+    /// Wraps an already-owned socket, including a simulator's socket/runtime.
+    pub fn from_abstract(inner: Arc<dyn AsyncUdpSocket>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            pending: Mutex::new(PendingTable::new()),
+            checks: Mutex::new(Vec::new()),
             contacts: Mutex::new(([None; 64], false)),
-        }))
+        })
     }
 
     // Discovery observers are reserved infrastructure, never application peers.
@@ -126,17 +178,48 @@ impl DiscoverySocket {
 
     /// Registration precedes send, including on loopback. The caller's future
     /// owns the guard, so timeout/interruption cannot leave an occupied slot.
-    pub(super) fn register(
+    pub fn register(
         self: &Arc<Self>,
         transaction: [u8; 12],
         source: ResponseSource,
         key: Arc<hmac::Key>,
         deadline: Instant,
     ) -> io::Result<(Registration, oneshot::Receiver<DiscoveryResponse>)> {
+        self.register_pool(transaction, source, key, deadline, None)
+    }
+
+    pub(crate) fn register_peer(
+        self: &Arc<Self>,
+        transaction: [u8; 12],
+        source: ResponseSource,
+        key: Arc<hmac::Key>,
+        deadline: Instant,
+        owner: std::sync::Weak<crate::check::Context>,
+    ) -> io::Result<(Registration, oneshot::Receiver<DiscoveryResponse>)> {
+        self.register_pool(transaction, source, key, deadline, Some(owner))
+    }
+
+    fn register_pool(
+        self: &Arc<Self>,
+        transaction: [u8; 12],
+        source: ResponseSource,
+        key: Arc<hmac::Key>,
+        deadline: Instant,
+        owner: Option<std::sync::Weak<crate::check::Context>>,
+    ) -> io::Result<(Registration, oneshot::Receiver<DiscoveryResponse>)> {
         let mut pending = self
             .pending
             .lock()
             .map_err(|_| io::Error::other("discovery lock poisoned"))?;
+        if owner
+            .as_ref()
+            .is_some_and(|owner| !owner.upgrade().is_some_and(|owner| owner.live()))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "check authority retired",
+            ));
+        }
         let now = Instant::now();
         for slot in pending.iter_mut() {
             if slot
@@ -157,11 +240,14 @@ impl DiscoverySocket {
                 "expired or duplicate discovery transaction",
             ));
         }
-        let index = pending.iter().position(Option::is_none).ok_or_else(|| {
+        let peer = owner.is_some();
+        let slots = pending.slots(peer);
+        let index = slots.iter().position(Option::is_none).ok_or_else(|| {
             io::Error::new(io::ErrorKind::WouldBlock, "discovery transaction capacity")
         })?;
         let (sender, receiver) = oneshot::channel();
-        pending[index] = Some(Pending {
+        slots[index] = Some(Pending {
+            owner,
             transaction,
             source,
             key,
@@ -172,13 +258,59 @@ impl DiscoverySocket {
             Registration {
                 socket: Arc::clone(self),
                 index,
+                peer,
                 transaction,
             },
             receiver,
         ))
     }
 
+    pub(crate) fn revoke_checks(&self, owner: &Arc<crate::check::Context>) {
+        if let Ok(mut pending) = self.pending.lock() {
+            for slot in pending.iter_mut() {
+                if slot.as_ref().is_some_and(|entry| {
+                    entry
+                        .owner
+                        .as_ref()
+                        .is_some_and(|entry| entry.ptr_eq(&Arc::downgrade(owner)))
+                }) {
+                    *slot = None;
+                }
+            }
+        }
+    }
+
     pub async fn send(&self, destination: SocketAddr, bytes: &[u8]) -> io::Result<()> {
+        self.send_from(destination, bytes, None).await
+    }
+
+    pub async fn send_from(
+        &self,
+        destination: SocketAddr,
+        bytes: &[u8],
+        source: Option<IpAddr>,
+    ) -> io::Result<()> {
+        self.send_inner(destination, bytes, source, None).await
+    }
+
+    pub(crate) async fn send_checked(
+        &self,
+        destination: SocketAddr,
+        bytes: &[u8],
+        source: Option<IpAddr>,
+        owner: &crate::check::Context,
+    ) -> io::Result<()> {
+        self.send_inner(destination, bytes, source, Some(owner))
+            .await
+    }
+
+    async fn send_inner(
+        &self,
+        destination: SocketAddr,
+        bytes: &[u8],
+        source: Option<IpAddr>,
+        owner: Option<&crate::check::Context>,
+    ) -> io::Result<()> {
         let destination = if self.inner.local_addr()?.is_ipv6() {
             match destination {
                 SocketAddr::V4(addr) => {
@@ -192,13 +324,19 @@ impl DiscoverySocket {
         let mut writable = Arc::clone(&self.inner).create_io_poller();
         std::future::poll_fn(|cx| {
             loop {
-                match self.inner.try_send(&udp::Transmit {
+                let transmit = udp::Transmit {
                     destination,
                     ecn: None,
                     contents: bytes,
                     segment_size: None,
-                    src_ip: None,
-                }) {
+                    src_ip: source.map(|ip| ip.to_canonical()),
+                };
+                let send = || self.inner.try_send(&transmit);
+                let result = match owner {
+                    Some(owner) => owner.try_send(send),
+                    None => send(),
+                };
+                match result {
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                         std::task::ready!(writable.as_mut().poll_writable(cx))?;
                     }
@@ -210,6 +348,10 @@ impl DiscoverySocket {
     }
 
     fn receive_discovery(&self, packet: &[u8], meta: &udp::RecvMeta) {
+        if packet.starts_with(&[0, 1]) {
+            crate::check::receive(self, packet, canonical_addr(meta.addr), meta.dst_ip);
+            return;
+        }
         // Exact message length, final full-length integrity attribute, and an
         // outstanding unpredictable transaction are all required before HMAC.
         if packet.len() < 56
@@ -223,7 +365,7 @@ impl DiscoverySocket {
         let Ok(mut pending) = self.pending.lock() else {
             return;
         };
-        let Some(index) = pending.iter().position(|entry| {
+        let Some(slot) = pending.iter_mut().find(|entry| {
             entry.as_ref().is_some_and(|entry| {
                 packet[8..20] == entry.transaction
                     && entry.source.accepts(meta.addr)
@@ -232,18 +374,19 @@ impl DiscoverySocket {
         }) else {
             return;
         };
-        let Some(entry) = pending[index].as_ref() else {
+        let Some(entry) = slot.as_ref() else {
             return;
         };
         if !verify_integrity(packet, &entry.key) {
             return;
         }
-        let Some(entry) = pending[index].take() else {
+        let Some(entry) = slot.take() else {
             return;
         };
         drop(pending);
         let mut response = DiscoveryResponse {
             source: canonical_addr(meta.addr),
+            local_ip: meta.dst_ip.map(|ip| ip.to_canonical()),
             bytes: [0; MAX_DISCOVERY_DATAGRAM],
             len: packet.len(),
         };
@@ -276,20 +419,22 @@ impl DiscoverySocket {
     }
 }
 
-pub(super) struct Registration {
+pub struct Registration {
     socket: Arc<DiscoverySocket>,
     index: usize,
+    peer: bool,
     transaction: [u8; 12],
 }
 
 impl Drop for Registration {
     fn drop(&mut self) {
         if let Ok(mut pending) = self.socket.pending.lock()
-            && pending[self.index]
+            && let Some(slot) = pending.slots(self.peer).get_mut(self.index)
+            && slot
                 .as_ref()
                 .is_some_and(|entry| entry.transaction == self.transaction)
         {
-            pending[self.index] = None;
+            *slot = None;
         }
     }
 }

@@ -501,6 +501,18 @@ impl Issuer for Server {
         ORIGIN
     }
 
+    fn stun(
+        &self,
+        _request: merkur_client::issuance::StunCredentialRequest,
+    ) -> BoxFuture<'_, Result<merkur_client_native::traversal::Credential, AccountError>> {
+        Box::pin(async {
+            Err(AccountError::Refused {
+                status: 503,
+                code: "stun_observers_unavailable".into(),
+            })
+        })
+    }
+
     fn issue(
         &self,
         request: IssuanceRequest,

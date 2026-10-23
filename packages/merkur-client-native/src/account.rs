@@ -611,6 +611,24 @@ impl Account {
             .ok_or(AccountError::Invalid("session issuance"))
     }
 
+    /// Obtains requester credentials after the daemon acknowledges the source-proof verifier.
+    pub async fn request_stun_credential(
+        &self,
+        access_token: &str,
+        request: &merkur_client::issuance::StunCredentialRequest,
+    ) -> Result<crate::traversal::Credential, AccountError> {
+        let response = self
+            .send(
+                merkur_client::issuance::STUN_CREDENTIAL_PATH,
+                Some(json(request)?),
+                Some(access_token),
+                None,
+            )
+            .await?;
+        let body = response.bytes().await?;
+        crate::traversal::Credential::parse(&body).ok_or(AccountError::Invalid("STUN credential"))
+    }
+
     /// Asks the server for a renewal capability bound to `request`'s intent.
     pub async fn request_renewal(
         &self,

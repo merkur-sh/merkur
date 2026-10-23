@@ -84,7 +84,7 @@ def sim_crates():
         tags = ["noclippy"],
         target_compatible_with = SIMULATING,
         version = "0.1.0",
-        deps = [":merkur_authorization", ":merkur_client", ":merkur_edge_protocol", ":merkur_wire", ":term_wasm"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-client-native"),
+        deps = [":merkur_authorization", ":merkur_client", ":merkur_e2e", ":merkur_edge_protocol", ":merkur_stun_protocol", ":merkur_traversal", ":merkur_wire", ":term_wasm"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-client-native"),
     )
     rust_library(
         name = "merkur_codec",
@@ -114,7 +114,7 @@ def sim_crates():
         tags = ["noclippy"],
         target_compatible_with = SIMULATING,
         version = "0.1.0",
-        deps = [":alacritty_terminal", ":merkur_authorization", ":merkur_codec", ":merkur_e2e", ":merkur_edge_protocol", ":merkur_fec", ":merkur_graphics", ":merkur_identity_seal", ":merkur_image_worker", ":merkur_stun_protocol", ":merkur_trace", ":merkur_wire"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/apps-daemon-dataplane") + ["//apps/daemon/dataplane:build_script"],
+        deps = [":alacritty_terminal", ":merkur_authorization", ":merkur_codec", ":merkur_e2e", ":merkur_edge_protocol", ":merkur_fec", ":merkur_graphics", ":merkur_identity_seal", ":merkur_image_worker", ":merkur_stun_protocol", ":merkur_trace", ":merkur_traversal", ":merkur_wire"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/apps-daemon-dataplane") + ["//apps/daemon/dataplane:build_script"],
     )
     rust_library(
         name = "merkur_e2e",
@@ -250,6 +250,21 @@ def sim_crates():
         target_compatible_with = SIMULATING,
         version = "0.1.0",
         deps = [] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-trace"),
+    )
+    rust_library(
+        name = "merkur_traversal",
+        srcs = ["//packages/merkur-traversal:srcs"],
+        aliases = aliases(package_name = "tools/bazel/sim/crates/packages-merkur-traversal"),
+        compile_data = ["//packages/merkur-traversal:files"],
+        crate_features = [],
+        crate_root = "//packages/merkur-traversal:src/lib.rs",
+        edition = "2024",
+        proc_macro_deps = all_crate_deps(proc_macro = True, package_name = "tools/bazel/sim/crates/packages-merkur-traversal"),
+        rustc_env = {"CARGO_MANIFEST_DIR": "$${pwd}/packages/merkur-traversal"},
+        tags = ["noclippy"],
+        target_compatible_with = SIMULATING,
+        version = "0.1.0",
+        deps = [":merkur_stun_protocol"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-traversal"),
     )
     rust_library(
         name = "merkur_wire",

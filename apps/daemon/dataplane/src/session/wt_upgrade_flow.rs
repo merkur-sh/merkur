@@ -338,7 +338,7 @@ pub(crate) fn admit_direct_path(
 /// Read once. The environment cannot change under a running process, and
 /// `env::var` allocates a `String` on every call — this one sat on the manifest
 /// path, which runs per peer per session and again on every change.
-fn wt_upgrade_disabled() -> bool {
+pub(crate) fn wt_upgrade_disabled() -> bool {
     static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *DISABLED.get_or_init(|| {
         std::env::var_os("MERKUR_DISABLE_WT_UPGRADE").is_some_and(|value| value == "1")
@@ -421,6 +421,13 @@ pub(crate) async fn emit_webtransport_manifest(
     peer: &mut crate::connection::PeerDisplayState,
     candidate: Option<&Arc<crate::edge_candidate::CandidateReply>>,
 ) -> bool {
+    if peer
+        .native_traversal
+        .as_ref()
+        .is_some_and(|native| native.announced())
+    {
+        return webtransport::native_traversal::refresh(wt_state, network_state, peer).await;
+    }
     let Some(browser_address) = peer.browser_address else {
         return false;
     };

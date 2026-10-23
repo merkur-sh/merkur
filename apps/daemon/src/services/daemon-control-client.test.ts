@@ -1677,6 +1677,10 @@ function createHarness(
       edgeWtUrl: string,
       edgeCertHashes: readonly string[],
     ): Effect.Effect<DataplaneCommandResult>;
+    registerTraversalEffect(
+      commandId: string,
+      registration: import('./dataplane-client').DataplaneTraversalRegistration,
+    ): Effect.Effect<DataplaneCommandResult>;
     cancelSessionEffect(
       commandId: string,
       sessionId: string,
@@ -1761,6 +1765,9 @@ function createHarness(
           signature: pair.mldsa,
           p256Signature: pair.p256,
         });
+      },
+      registerTraversalEffect(): Effect.Effect<DataplaneCommandResult> {
+        return Effect.succeed({ status: 'accepted' });
       },
       startSessionEffect(...args): Effect.Effect<DataplaneCommandResult> {
         starts.push([...args]);

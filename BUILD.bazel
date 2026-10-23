@@ -159,6 +159,7 @@ test_suite(
         "//packages/merkur-identity-seal:doc",
         "//packages/merkur-identity-seal:unit",
         "//packages/merkur-stun-protocol:unit",
+        "//packages/merkur-traversal:unit",
         "//packages/merkur-wire:doc",
         "//packages/merkur-wire:unit",
         "//packages/protocol:test",

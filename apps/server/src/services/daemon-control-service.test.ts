@@ -2433,6 +2433,59 @@ const TEST_SERVER_CONFIG = {
   stunServers: ['stun.test:3478', 'stun.test:3479'],
 } as unknown as ServerConfig;
 
+for (const remote of [false, true]) {
+  test(`native receipt registration waits for ${remote ? 'remote' : 'local'} daemon admission`, async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const coordination = createFakeCoordination('instance-owner', state);
+    const socket = new TestSocket();
+    const owner = createService(coordination, bus.redis);
+    const sender = remote
+      ? createService(createFakeCoordination('instance-requester', state), bus.redis)
+      : owner;
+    if (remote) {
+      bus.register('instance-owner', (frame) => Effect.runPromise(owner.processBrokerFrame(frame)));
+      bus.register('instance-requester', (frame) =>
+        Effect.runPromise(sender.processBrokerFrame(frame)),
+      );
+    }
+    await register(owner, socket);
+    const presence = requirePresence(state);
+    let accepted = false;
+    const registration = {
+      presence,
+      sessionId: 'session-native',
+      browserNodeId: 'native-1',
+      delegationId: 'delegation-1',
+      rebindCounter: 2,
+      generation: 4,
+      ticket: Buffer.alloc(41, 7).toString('base64url'),
+      receiptKey: Buffer.alloc(32, 8).toString('base64url'),
+      lifetimeMs: 90_000,
+    };
+    const pending = Effect.runPromise(sender.registerTraversal(registration)).then(() => {
+      accepted = true;
+    });
+    const message = await waitForMessage(socket, 'traversal_register');
+    expect(message.sessionId).toBe(registration.sessionId);
+    expect(message.rebindCounter).toBe(registration.rebindCounter);
+    expect(message.receiptKey).toBe(registration.receiptKey);
+    expect(accepted).toBe(false);
+    await Effect.runPromise(
+      owner.receive(
+        presence.connectionId,
+        encodeDaemonControlMessage(
+          createDaemonControlCommandAckMessage(message.commandId, { status: 'accepted' }),
+        ),
+      ),
+    );
+    await pending;
+    expect(accepted).toBe(true);
+    await Effect.runPromise(owner.shutdown);
+    if (remote) await Effect.runPromise(sender.shutdown);
+  });
+}
+
 function createService(
   coordination: RealtimeCoordinationService,
   redis: RedisService,

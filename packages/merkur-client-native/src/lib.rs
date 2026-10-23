@@ -9,6 +9,7 @@ mod credit;
 pub mod driver;
 pub mod grid;
 pub mod issuer;
+pub mod traversal;
 pub mod opaque;
 mod path_hints;
 #[cfg(merkur_sim)]

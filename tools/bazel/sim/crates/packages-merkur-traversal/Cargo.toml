@@ -1,0 +1,26 @@
+# Generated from packages/merkur-traversal/Cargo.toml by scripts/sim-workspace.ts: edit that manifest
+# and rerun the script.
+[package]
+name = "merkur-traversal"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../../../../../packages/merkur-traversal/src/lib.rs"
+
+[dependencies]
+merkur-stun-protocol = { path = "../packages-merkur-stun-protocol", "default-features" = false, features = [] }
+base64 = { version = "0.23" }
+wtransport = { version = "0.7", features = ["quinn"] }
+tokio = { version = "1", features = ["net","sync","time","io-util","macros","rt"] }
+ring = { version = "0.17" }
+netdev = { version = "0.46" }
+socket2 = { version = "0.6" }
+libc = { version = "0.2" }
+futures = { version = "0.3" }
+tracing = { version = "0.1" }
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true
