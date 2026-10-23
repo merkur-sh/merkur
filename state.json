@@ -1455,8 +1455,13 @@
       "run": "39872024449",
       "attempt": 1,
       "sequence": 123,
-      "phase": "reserved",
-      "events": [],
+      "phase": "signing",
+      "events": [
+        {
+          "phase": "signing",
+          "evidence": {}
+        }
+      ],
       "configuration": {
         "SERVER_ORIGIN": "https://app.merkur.sh",
         "OPAQUE_PIN": "qpMulzjGpC5aU5PgOeL9-H4_9qsCPbEMcCtae7N_UAM",
