@@ -639,8 +639,84 @@ pub const INPUT_RUN_FLAG_RETRANSMIT: u8 = 0x01;
 /// see `session::liveness::answer_input_probe`. Mirrored by
 /// `INPUT_RUN_FLAG_PROBE` in `packages/protocol`.
 pub const INPUT_RUN_FLAG_PROBE: u8 = 0x02;
+/// `flags` bit 2: a geometry intent follows the probe token, as
+/// `position:u32 | kind:u8 | body`. The client's latest viewport claim or
+/// resize rides every run while the input typed after it is unacknowledged,
+/// and the daemon applies it before it admits record `position`, so a command
+/// typed after a resize runs at the new size however the lanes reorder.
+pub const INPUT_RUN_FLAG_GEOMETRY: u8 = 0x04;
 const INPUT_RUN_HEADER_BYTES: usize = 4 + 1 + 1;
 const INPUT_RUN_PROBE_BYTES: usize = 8;
+/// `[action][generation:u64][cols][rows][seq][cell width][cell height]`.
+pub const GEOMETRY_CLAIM_BYTES: usize = 25;
+/// `[cols][rows][seq][cell width][cell height][generation:u64]`.
+pub const RESIZE_BYTES: usize = 24;
+
+/// A geometry intent: a claim that carries a viewport, or a resize. Both
+/// carry the client's viewport serial, which orders its intents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunGeometry {
+    /// The wire seq of the first record typed after the intent.
+    pub position: u32,
+    /// `MSG_TYPE_GEOMETRY_CLAIM` or `MSG_TYPE_RESIZE`.
+    pub kind: u8,
+    bytes: [u8; GEOMETRY_CLAIM_BYTES],
+}
+
+impl RunGeometry {
+    /// An intent from its frame body; `None` for anything but an acquire or
+    /// take with a viewport, or a resize, each with a nonzero serial.
+    pub fn new(position: u32, kind: u8, body: &[u8]) -> Option<Self> {
+        // A claim's action, then its viewport serial: acquire or take only.
+        if kind == MSG_TYPE_GEOMETRY_CLAIM && !matches!(body.first(), Some(1 | 2)) {
+            return None;
+        }
+        // `geometry_intent_seq` admits a claim with a viewport and a resize.
+        if geometry_intent_seq(kind, body)? == 0 {
+            return None;
+        }
+        let mut bytes = [0; GEOMETRY_CLAIM_BYTES];
+        bytes.get_mut(..body.len())?.copy_from_slice(body);
+        Some(Self {
+            position,
+            kind,
+            bytes,
+        })
+    }
+
+    pub fn body(&self) -> &[u8] {
+        if self.kind == MSG_TYPE_RESIZE {
+            &self.bytes[..RESIZE_BYTES]
+        } else {
+            &self.bytes
+        }
+    }
+
+    /// The intent's viewport serial.
+    pub fn seq(&self) -> u32 {
+        geometry_intent_seq(self.kind, self.body()).unwrap_or(0)
+    }
+
+    /// The bytes it adds to a run.
+    pub fn wire_len(&self) -> usize {
+        4 + 1 + self.body().len()
+    }
+}
+
+/// The viewport serial of a geometry intent's body: a claim's viewport, or a
+/// resize. `None` for any other frame, and for a claim without a viewport.
+pub fn geometry_intent_seq(kind: u8, body: &[u8]) -> Option<u32> {
+    let at = match (kind, body.len()) {
+        (MSG_TYPE_GEOMETRY_CLAIM, GEOMETRY_CLAIM_BYTES)
+            if body.get(9..)?.iter().any(|byte| *byte != 0) =>
+        {
+            13
+        }
+        (MSG_TYPE_RESIZE, RESIZE_BYTES) => 4,
+        _ => return None,
+    };
+    Some(u32::from_be_bytes(body.get(at..at + 4)?.try_into().ok()?))
+}
 
 /// The fixed prefix of a validated input run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -650,7 +726,10 @@ pub struct InputRunHeader {
     pub retransmit: bool,
     /// The liveness probe token, when the run carries one.
     pub probe: Option<u64>,
-    /// Where the shadow bitset starts in the body: past the token when present.
+    /// The geometry intent the run's later input waits for, when one is pending.
+    pub geometry: Option<RunGeometry>,
+    /// Where the shadow bitset starts in the body: past the token and the
+    /// geometry intent when present.
     pub shadow_offset: usize,
 }
 
@@ -665,6 +744,7 @@ impl InputRunHeader {
 
 /// Parses the input run layout:
 /// `base_seq:u32 | count:u8 | flags:u8 | [probe:u64 iff flags & 0x02] |
+/// [position:u32 | kind:u8 | body iff flags & 0x04] |
 /// shadow_bits:ceil(count/8) | repeated(len:u16 | payload)`.
 ///
 /// The complete body, canonical unused shadow bits, canonical flag bits and
@@ -675,16 +755,33 @@ impl InputRunHeader {
 pub fn parse_input_run(body: &[u8]) -> Option<(InputRunHeader, InputRunIter<'_>)> {
     let &[b0, b1, b2, b3, count, flags] = body.first_chunk::<INPUT_RUN_HEADER_BYTES>()?;
     let base_seq = u32::from_be_bytes([b0, b1, b2, b3]);
-    if flags & !(INPUT_RUN_FLAG_RETRANSMIT | INPUT_RUN_FLAG_PROBE) != 0 {
+    if flags & !(INPUT_RUN_FLAG_RETRANSMIT | INPUT_RUN_FLAG_PROBE | INPUT_RUN_FLAG_GEOMETRY) != 0 {
         return None;
     }
-    let (probe, shadow_offset) = if flags & INPUT_RUN_FLAG_PROBE != 0 {
+    let (probe, probe_end) = if flags & INPUT_RUN_FLAG_PROBE != 0 {
         let end = INPUT_RUN_HEADER_BYTES + INPUT_RUN_PROBE_BYTES;
         let token: [u8; INPUT_RUN_PROBE_BYTES] =
             body.get(INPUT_RUN_HEADER_BYTES..end)?.try_into().ok()?;
         (Some(u64::from_be_bytes(token)), end)
     } else {
         (None, INPUT_RUN_HEADER_BYTES)
+    };
+    let (geometry, shadow_offset) = if flags & INPUT_RUN_FLAG_GEOMETRY != 0 {
+        let &[p0, p1, p2, p3, kind] = body.get(probe_end..)?.first_chunk::<5>()?;
+        let len = match kind {
+            MSG_TYPE_GEOMETRY_CLAIM => GEOMETRY_CLAIM_BYTES,
+            MSG_TYPE_RESIZE => RESIZE_BYTES,
+            _ => return None,
+        };
+        let end = probe_end + 5 + len;
+        let intent = RunGeometry::new(
+            u32::from_be_bytes([p0, p1, p2, p3]),
+            kind,
+            body.get(probe_end + 5..end)?,
+        )?;
+        (Some(intent), end)
+    } else {
+        (None, probe_end)
     };
     let bitset_len = usize::from(count).div_ceil(8);
     let bitset_end = shadow_offset.checked_add(bitset_len)?;
@@ -714,6 +811,7 @@ pub fn parse_input_run(body: &[u8]) -> Option<(InputRunHeader, InputRunIter<'_>)
             count,
             retransmit: flags & INPUT_RUN_FLAG_RETRANSMIT != 0,
             probe,
+            geometry,
             shadow_offset,
         },
         InputRunIter {
@@ -728,14 +826,16 @@ pub fn parse_input_run(body: &[u8]) -> Option<(InputRunHeader, InputRunIter<'_>)
 /// Encodes one input run frame: what a client sends and [`parse_input_run`]
 /// reads back.
 pub fn encode_input_run(base_seq: u32, retransmit: bool, entries: &[(&[u8], bool)]) -> Vec<u8> {
-    encode_probed_input_run(base_seq, retransmit, None, entries)
+    encode_probed_input_run(base_seq, retransmit, None, None, entries)
 }
 
-/// `encode_input_run` with the liveness probe token the browser's emit carries.
+/// `encode_input_run` with the liveness probe token the browser's emit
+/// carries and the geometry intent its later input waits for.
 pub fn encode_probed_input_run(
     base_seq: u32,
     retransmit: bool,
     probe: Option<u64>,
+    geometry: Option<RunGeometry>,
     entries: &[(&[u8], bool)],
 ) -> Vec<u8> {
     let mut frame = Vec::new();
@@ -744,6 +844,7 @@ pub fn encode_probed_input_run(
         base_seq,
         retransmit,
         probe,
+        geometry,
         entries.iter().copied(),
     );
     frame
@@ -757,6 +858,7 @@ pub fn encode_probed_input_run_into<'a>(
     base_seq: u32,
     retransmit: bool,
     probe: Option<u64>,
+    geometry: Option<RunGeometry>,
     entries: impl ExactSizeIterator<Item = (&'a [u8], bool)> + Clone,
 ) {
     let count = entries.len();
@@ -764,6 +866,7 @@ pub fn encode_probed_input_run_into<'a>(
     let bitset_len = count.div_ceil(8);
     let body_len = INPUT_RUN_HEADER_BYTES
         + probe.map_or(0, |_| INPUT_RUN_PROBE_BYTES)
+        + geometry.as_ref().map_or(0, RunGeometry::wire_len)
         + bitset_len
         + entries
             .clone()
@@ -784,9 +887,18 @@ pub fn encode_probed_input_run_into<'a>(
     } else {
         0
     };
-    frame.push(retransmit_flag | probe.map_or(0, |_| INPUT_RUN_FLAG_PROBE));
+    frame.push(
+        retransmit_flag
+            | probe.map_or(0, |_| INPUT_RUN_FLAG_PROBE)
+            | geometry.map_or(0, |_| INPUT_RUN_FLAG_GEOMETRY),
+    );
     if let Some(token) = probe {
         frame.extend_from_slice(&token.to_be_bytes());
+    }
+    if let Some(intent) = &geometry {
+        frame.extend_from_slice(&intent.position.to_be_bytes());
+        frame.push(intent.kind);
+        frame.extend_from_slice(intent.body());
     }
     let bitset_start = frame.len();
     frame.resize(bitset_start + bitset_len, 0);
@@ -979,6 +1091,7 @@ mod tests {
                 count: 3,
                 retransmit: false,
                 probe: None,
+                geometry: None,
                 shadow_offset: 6,
             }
         );
@@ -1027,6 +1140,7 @@ mod tests {
                 count: 1,
                 retransmit: true,
                 probe: None,
+                geometry: None,
                 shadow_offset: 6,
             }
         );
@@ -1039,7 +1153,7 @@ mod tests {
         let d = build::press('d');
         let token = 0x0102_0304_0506_0708;
         let frame =
-            encode_probed_input_run(9, false, Some(token), &[(&a[..], true), (&d[..], false)]);
+            encode_probed_input_run(9, false, Some(token), None, &[(&a[..], true), (&d[..], false)]);
         // [base=9][count=2][flags=0x02][token][bits=0b01]
         assert_eq!(
             &frame[PROTO_HEADER_BYTES..PROTO_HEADER_BYTES + 15],
@@ -1069,6 +1183,7 @@ mod tests {
                 count: 2,
                 retransmit: false,
                 probe: Some(token),
+                geometry: None,
                 shadow_offset: 14,
             }
         );
@@ -1079,7 +1194,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(a.to_vec(), true), (d.to_vec(), false)]
         );
-        let marked = encode_probed_input_run(9, true, Some(token), &[(&a[..], true)]);
+        let marked = encode_probed_input_run(9, true, Some(token), None, &[(&a[..], true)]);
         let (header, _) = parse_input_run(&marked[PROTO_HEADER_BYTES..]).expect("run parses");
         assert!(header.retransmit);
         assert_eq!(header.probe, Some(token));
@@ -1097,11 +1212,84 @@ mod tests {
         assert_eq!(entries.count(), 0);
     }
 
+    fn claim_body(action: u8, seq: u32) -> [u8; GEOMETRY_CLAIM_BYTES] {
+        let mut body = [0; GEOMETRY_CLAIM_BYTES];
+        body[0] = action;
+        body[1..9].copy_from_slice(&3u64.to_be_bytes());
+        body[9..11].copy_from_slice(&100u16.to_be_bytes());
+        body[11..13].copy_from_slice(&30u16.to_be_bytes());
+        body[13..17].copy_from_slice(&seq.to_be_bytes());
+        body
+    }
+
+    #[test]
+    fn input_run_carries_a_geometry_intent_after_the_probe() {
+        let a = build::press('a');
+        let resize = {
+            let mut body = [0; RESIZE_BYTES];
+            body[..2].copy_from_slice(&100u16.to_be_bytes());
+            body[2..4].copy_from_slice(&30u16.to_be_bytes());
+            body[4..8].copy_from_slice(&6u32.to_be_bytes());
+            body[16..].copy_from_slice(&3u64.to_be_bytes());
+            body
+        };
+        for (kind, body) in [
+            (MSG_TYPE_GEOMETRY_CLAIM, &claim_body(2, 5)[..]),
+            (MSG_TYPE_RESIZE, &resize[..]),
+        ] {
+            let intent = RunGeometry::new(12, kind, body).expect("an intent");
+            assert_eq!(intent.body(), body);
+            let frame = encode_probed_input_run(11, false, Some(9), Some(intent), &[(&a[..], true)]);
+            let body_bytes = &frame[PROTO_HEADER_BYTES..];
+            assert_eq!(body_bytes[5], INPUT_RUN_FLAG_PROBE | INPUT_RUN_FLAG_GEOMETRY);
+            assert_eq!(&body_bytes[14..19], &[0, 0, 0, 12, kind]);
+            let (header, entries) = parse_input_run(body_bytes).expect("run parses");
+            assert_eq!(header.geometry, Some(intent));
+            assert_eq!(header.probe, Some(9));
+            assert_eq!(header.shadow_offset, 19 + body.len());
+            assert_eq!(intent.seq(), if kind == MSG_TYPE_RESIZE { 6 } else { 5 });
+            assert_eq!(entries.count(), 1);
+            // Cut anywhere inside the intent, the run is no run.
+            for cut in 15..19 + body.len() {
+                let mut truncated = body_bytes[..cut].to_vec();
+                truncated.extend_from_slice(&body_bytes[19 + body.len()..]);
+                assert!(parse_input_run(&truncated).is_none(), "cut at {cut}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_geometry_intent_is_an_acquire_or_take_with_a_viewport_or_a_resize() {
+        assert!(RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &claim_body(1, 1)).is_some());
+        // Observe carries no intent, and neither does a claim without a viewport.
+        assert!(RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &claim_body(0, 1)).is_none());
+        assert!(RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &claim_body(3, 1)).is_none());
+        let mut bare = claim_body(2, 0);
+        bare[9..].fill(0);
+        assert!(RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &bare).is_none());
+        // Serial zero is never minted.
+        assert!(RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &claim_body(2, 0)).is_none());
+        assert!(RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &claim_body(2, 1)[..24]).is_none());
+        assert!(RunGeometry::new(1, MSG_TYPE_RESIZE, &[0; RESIZE_BYTES]).is_none());
+        assert!(RunGeometry::new(1, MSG_TYPE_HEARTBEAT_PING, &claim_body(2, 1)).is_none());
+        // An unknown kind fails the whole run.
+        let mut run = encode_probed_input_run(
+            1,
+            false,
+            None,
+            RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &claim_body(2, 1)),
+            &[],
+        );
+        assert!(parse_input_run(&run[PROTO_HEADER_BYTES..]).is_some());
+        run[PROTO_HEADER_BYTES + 10] = MSG_TYPE_HEARTBEAT_PING;
+        assert!(parse_input_run(&run[PROTO_HEADER_BYTES..]).is_none());
+    }
+
     #[test]
     fn input_run_rejects_unknown_flag_bits_before_reading_entries() {
         // A well-formed one-entry run whose flags byte carries a reserved bit
         // beside the retransmit mark. Nothing after the header is consulted.
-        let reserved = [0, 0, 0, 1, 1, 0x05, 0x00, 0, 2, 0x00, b'a'];
+        let reserved = [0, 0, 0, 1, 1, 0x09, 0x00, 0, 2, 0x00, b'a'];
         assert!(parse_input_run(&reserved).is_none());
         // The same run with a reserved bit and an entry that would ALSO fail
         // is rejected by the flags check first — the body is never walked.

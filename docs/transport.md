@@ -960,9 +960,10 @@ copies the id byte without reading it.
 | `0x06` | Data-attachment handshake | Plaintext kind and 16-byte nonce on each data connection, matched to a post-Noise claim on signaling |
 | `0x07` | Graphics content | Finite one-transfer streams of sealed image content, keyed in the independent content domain ([graphics](graphics.md)) |
 
-An `input_run` is `base_seq:u32 | count:u8 | flags:u8 | [probe:u64] | shadow_modelled_bits |
-entries`; `flags` bit 0 is the retransmit mark, bit 1 says a liveness probe token follows the
-flags byte, and every other bit is rejected. The browser encodes a run straight
+An `input_run` is `base_seq:u32 | count:u8 | flags:u8 | [probe:u64] |
+[position:u32 | kind:u8 | intent] | shadow_modelled_bits | entries`; `flags` bit 0 is the
+retransmit mark, bit 1 says a liveness probe token follows the flags byte, bit 2 says a geometry
+intent follows it, and every other bit is rejected. The browser encodes a run straight
 from the input ring's held slots into the Noise session's output buffer and never holds an
 owning copy of a keystroke. No timer stands between a keystroke and the wire. The one timer on
 the input path is loss recovery for the last run before a pause (`merkur-client::input_retry`):
@@ -977,8 +978,23 @@ Each PTY has one geometry owner: `geometry_claim` (`0x3b`) observes, claims a va
 transfers ownership when the supplied generation still matches, and `geometry_state` (`0x3c`)
 reports vacant, owner, or observer. The focused browser window claims ownership when its geometry
 changes and when it gains focus, so the shell fits the window being typed into; observers keep
-the canonical grid. A client also takes ownership on the user's request, as `Ctrl-\` `f` does
-in the terminal client. A host that knows no cell pixels states both cell metrics
+the canonical grid. Before an authentication's first `geometry_state` a focused client takes
+ownership at generation zero, which the daemon honours as a take as of that authentication, so
+no round trip passes before the machine has its size. A client also takes ownership on the
+user's request, as `Ctrl-\` `f` does in the terminal client.
+
+A command typed after a resize runs at the new size. Every claim that carries a viewport, and
+every resize, is a geometry intent: it travels on the control lane, and the input typed after it
+waits for it. The client's newest intent rides every `input_run` (flag bit 2) with `position`,
+the wire sequence of the first record typed after it, until that record is acknowledged; an
+authentication's first intent takes the position of the first record still held, ahead of input
+carried over from the last daemon. The daemon admits no record from `position` until the intent
+is applied (`settle_geometry_fences`), and records before it reach the PTY first: the ordering
+SSH gets from carrying window changes and keystrokes on one channel, without a hold or a round
+trip. Each intent carries the client's viewport serial, so the control copy and the run copy
+apply once (`geometry_intent_seq`), whichever lane delivers first. A newer intent supersedes an
+older one at the older position, so input typed between them meets the newer viewport early,
+never late. A host that knows no cell pixels states both cell metrics
 as zero. The PTY's pixel extent is then zero, the operating system's "unknown", and the daemon
 places no image until a viewport states them; a single zero metric is refused.
 

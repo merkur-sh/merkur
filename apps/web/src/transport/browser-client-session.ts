@@ -274,8 +274,14 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     }
   }
 
+  /**
+   * Hand geometry intents to the session at once, never behind control
+   * credit: the session holds what control cannot take yet, and an intent
+   * must reach it before any keystroke typed after it, which the session
+   * orders behind it on the daemon.
+   */
   function flushHostIntents(): void {
-    if (session === null || !session.has_reliable_capacity(2)) return;
+    if (session === null) return;
     if (pendingViewport && viewport !== null) {
       pendingViewport = false;
       session.viewport(...viewport);

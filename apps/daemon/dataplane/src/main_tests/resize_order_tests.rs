@@ -124,3 +124,175 @@ fn resize_intent_wrap_duplicates_and_invalid_requests_preserve_latest_grid() {
         assert_eq!(peers["browser"].needs_full_diff, accepted);
     }
 }
+
+/// A peer that owns geometry generation 1 of an 80×24 terminal.
+fn fenced_owner() -> (portable_pty::PtyPair, TerminalState, PeerMap) {
+    let pair = portable_pty::native_pty_system()
+        .openpty(portable_pty::PtySize::default())
+        .expect("test PTY");
+    let (terminal_tx, _terminal_rx) = unbounded();
+    let mut terminal = TerminalState::new(80, 24, terminal_tx);
+    let mut peer = PeerDisplayState::new("browser".into(), PeerTransport::Edge);
+    peer.authenticated = true;
+    terminal.geometry_authority.claim(&peer, 1, 0);
+    (pair, terminal, PeerMap::from([("browser".into(), peer)]))
+}
+
+fn resize_to(cols: u16, rows: u16, seq: u32) -> [u8; RESIZE_BYTES] {
+    let mut body = [0; RESIZE_BYTES];
+    body[..2].copy_from_slice(&cols.to_be_bytes());
+    body[2..4].copy_from_slice(&rows.to_be_bytes());
+    body[4..8].copy_from_slice(&seq.to_be_bytes());
+    body[16..].copy_from_slice(&1_u64.to_be_bytes());
+    body
+}
+
+fn pty_lane(delivery: DeliveryMode) -> PeerMessage {
+    PeerMessage {
+        input_permit: None,
+        peer_node_id: "browser".into(),
+        channel_id: CHANNEL_PTY,
+        payload: bytes::Bytes::new(),
+        via_transport: PeerTransport::Edge,
+        delivery,
+        connection_id: 0,
+        edge_ingress: None,
+    }
+}
+
+fn settle(
+    pair: &portable_pty::PtyPair,
+    writer: &mut PtyWriter,
+    terminal: &mut TerminalState,
+    peers: &mut PeerMap,
+) {
+    settle_geometry_fences(
+        Some(&Arc::from("browser")),
+        &*pair.master,
+        writer,
+        terminal,
+        peers,
+        &mut ParkedPeers::new(),
+        &mut input::InputRefill::default(),
+        Instant::now(),
+        &mut PerfTimingTracker::default(),
+    );
+}
+
+/// `stty size` typed after a resize, in one datagram run with the record
+/// typed before it: the first record is admitted at once, the second only
+/// after the PTY has the new size, and the control copy that comes late is
+/// inert.
+#[tokio::test]
+async fn input_typed_after_a_resize_waits_for_it_on_the_datagram_lane() {
+    let (pair, mut terminal, mut peers) = fenced_owner();
+    let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
+    let resize = resize_to(100, 30, 1);
+    let fence = RunGeometry::new(2, MSG_TYPE_RESIZE, &resize).expect("a resize intent");
+    let a = input_record::build::press('a');
+    let b = input_record::build::press('b');
+    let run = encode_probed_input_run(1, false, None, Some(fence), &[(&a, false), (&b, false)]);
+    handle_pty_channel(
+        &pty_lane(DeliveryMode::Datagram),
+        &run,
+        &mut writer,
+        &mut terminal,
+        &mut peers,
+        Instant::now(),
+        &mut PerfTimingTracker::default(),
+    );
+    assert_eq!(peers["browser"].keystroke_next_queued_seq, 2);
+    assert_eq!(pair.master.get_size().unwrap().cols, 80);
+    settle(&pair, &mut writer, &mut terminal, &mut peers);
+    let size = pair.master.get_size().unwrap();
+    assert_eq!((size.cols, size.rows), (100, 30));
+    assert_eq!(peers["browser"].keystroke_next_queued_seq, 3);
+    assert!(peers["browser"].geometry_fence.is_none());
+    assert!(peers["browser"].keystroke_reorder_buf.is_empty());
+    // The control lane's copy of the same intent arrives last.
+    geometry::resize("browser", &resize, &*pair.master, &mut terminal, &mut peers);
+    assert_eq!(peers["browser"].last_resize_seq, 1);
+    assert_eq!(pair.master.get_size().unwrap().cols, 100);
+}
+
+#[tokio::test]
+async fn the_reliable_lane_retains_input_behind_a_resize_without_copying_it() {
+    let (pair, mut terminal, mut peers) = fenced_owner();
+    let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
+    let fence = RunGeometry::new(2, MSG_TYPE_RESIZE, &resize_to(100, 30, 1)).unwrap();
+    let a = input_record::build::press('a');
+    let b = input_record::build::press('b');
+    let mut plaintext =
+        encode_probed_input_run(1, false, None, Some(fence), &[(&a, false), (&b, false)]);
+    let len = plaintext.len();
+    let mut refill = input::InputRefill::default();
+    handle_reliable_input(
+        &mut pty_lane(DeliveryMode::Stream),
+        &mut plaintext,
+        len,
+        &mut writer,
+        &mut terminal,
+        &mut peers,
+        &mut refill,
+        Instant::now(),
+        &mut PerfTimingTracker::default(),
+    );
+    let peer = &peers["browser"];
+    assert_eq!(peer.keystroke_next_queued_seq, 2);
+    assert!(peer.reliable_inputs.has_pending());
+    assert!(peer.keystroke_reorder_buf.is_empty(), "no reorder copy");
+    settle(&pair, &mut writer, &mut terminal, &mut peers);
+    assert_eq!(pair.master.get_size().unwrap().cols, 100);
+    assert_eq!(peers["browser"].keystroke_next_queued_seq, 3);
+    assert!(!peers["browser"].reliable_inputs.has_pending());
+}
+
+/// A successor lineage restates its geometry ahead of input its predecessor
+/// already admitted: the intent is due at once, before the next record.
+#[tokio::test]
+async fn an_intent_whose_position_was_admitted_applies_before_the_next_record() {
+    let (pair, mut terminal, mut peers) = fenced_owner();
+    let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
+    peers.get_mut("browser").unwrap().keystroke_next_queued_seq = 5;
+    peers.get_mut("browser").unwrap().keystroke_next_expected_seq = 5;
+    let fence = RunGeometry::new(3, MSG_TYPE_RESIZE, &resize_to(120, 40, 4)).unwrap();
+    let e = input_record::build::press('e');
+    let run = encode_probed_input_run(5, false, None, Some(fence), &[(&e, false)]);
+    handle_pty_channel(
+        &pty_lane(DeliveryMode::Datagram),
+        &run,
+        &mut writer,
+        &mut terminal,
+        &mut peers,
+        Instant::now(),
+        &mut PerfTimingTracker::default(),
+    );
+    assert_eq!(peers["browser"].keystroke_next_queued_seq, 5);
+    settle(&pair, &mut writer, &mut terminal, &mut peers);
+    assert_eq!(pair.master.get_size().unwrap().cols, 120);
+    assert_eq!(peers["browser"].keystroke_next_queued_seq, 6);
+}
+
+/// The control copy first: the run's copy holds nothing back.
+#[tokio::test]
+async fn a_resize_applied_from_control_holds_no_input() {
+    let (pair, mut terminal, mut peers) = fenced_owner();
+    let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
+    let resize = resize_to(100, 30, 1);
+    geometry::resize("browser", &resize, &*pair.master, &mut terminal, &mut peers);
+    let fence = RunGeometry::new(2, MSG_TYPE_RESIZE, &resize).unwrap();
+    let a = input_record::build::press('a');
+    let b = input_record::build::press('b');
+    let run = encode_probed_input_run(1, false, None, Some(fence), &[(&a, false), (&b, false)]);
+    handle_pty_channel(
+        &pty_lane(DeliveryMode::Datagram),
+        &run,
+        &mut writer,
+        &mut terminal,
+        &mut peers,
+        Instant::now(),
+        &mut PerfTimingTracker::default(),
+    );
+    assert_eq!(peers["browser"].keystroke_next_queued_seq, 3);
+    assert!(peers["browser"].geometry_fence.is_none());
+}

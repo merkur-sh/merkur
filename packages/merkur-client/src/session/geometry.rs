@@ -6,8 +6,14 @@
 //! an unfocused one claims nothing. Every claim carries the viewport, so the
 //! grant and the first resize commit in one owner turn on the daemon. The
 //! daemon's state message names the owner and a generation, which authorizes
-//! the next claim and every resize; a claim cannot be minted before the first
-//! state arrives. Each authentication opens a new epoch.
+//! the next claim and every resize. Before an epoch's first state a focused
+//! client takes at generation zero, which the daemon reads as a take as of
+//! authentication, so the first command typed meets the client's viewport.
+//! Each authentication opens a new epoch.
+//!
+//! Every frame that carries a viewport is an intent the session also hands
+//! the input outbox (`take_intent`): input typed after it waits on the daemon
+//! until it is applied.
 
 use merkur_wire::protocol::{MSG_TYPE_GEOMETRY_CLAIM, MSG_TYPE_RESIZE, encode_proto_frame};
 
@@ -50,6 +56,14 @@ enum Claim {
     Take = 2,
 }
 
+/// The newest frame that carries a viewport, for the input outbox.
+pub(super) struct Intent {
+    pub(super) frame: Vec<u8>,
+    /// Made before the epoch's first state: it precedes every held input,
+    /// which the daemon this epoch authenticated to has not admitted.
+    pub(super) epoch: bool,
+}
+
 #[derive(Default)]
 pub(super) struct Geometry {
     desired: Option<Viewport>,
@@ -59,18 +73,22 @@ pub(super) struct Geometry {
     generation: u64,
     known: bool,
     controls: bool,
-    pending_take: bool,
     focused: bool,
     /// The viewport a claim was made for: a repeated edge for it is inert.
     claim_attempt: Option<Viewport>,
     /// The viewport a compound claim carried, and its serial.
     claimed: Option<(Viewport, u32)>,
     out: Vec<Vec<u8>>,
+    intent: Option<Intent>,
 }
 
 impl Geometry {
     pub(super) fn take_out(&mut self) -> Vec<Vec<u8>> {
         std::mem::take(&mut self.out)
+    }
+
+    pub(super) fn take_intent(&mut self) -> Option<Intent> {
+        self.intent.take()
     }
 
     fn next_seq(&mut self) -> u32 {
@@ -103,10 +121,6 @@ impl Geometry {
         if self.controls {
             return self.flush_resize(ready);
         }
-        if !self.known {
-            self.pending_take = true;
-            return;
-        }
         self.claim(Claim::Take);
     }
 
@@ -122,10 +136,10 @@ impl Geometry {
     }
 
     /// A carrier came or went: ask for the state again. Before the epoch's
-    /// first state, that is its acquire, and a focused client's viewport is
-    /// claimed again as the browser's main thread replays it at every
-    /// authentication: taken at the generation the acquire's answer names,
-    /// when another client holds the geometry.
+    /// first state, that is its claim: a focused client with a viewport takes
+    /// the geometry as of authentication, as the browser's main thread replays
+    /// its viewport at every authentication, and any other acquires it if
+    /// vacant.
     pub(super) fn refresh(&mut self, ready: bool) {
         if !ready {
             return;
@@ -133,8 +147,11 @@ impl Geometry {
         if self.known {
             return self.claim(Claim::Observe);
         }
+        if self.focused && self.desired.is_some() {
+            self.claim_attempt = self.desired;
+            return self.claim(Claim::Take);
+        }
         self.claim(Claim::Acquire);
-        self.claim_focused(ready);
     }
 
     /// The daemon's `[status][generation][accepted resize seq]`.
@@ -171,9 +188,6 @@ impl Geometry {
             self.last_sent = Some(viewport);
             self.claimed = None;
         }
-        if std::mem::take(&mut self.pending_take) && !owner {
-            self.claim(Claim::Take);
-        }
         self.flush_resize(ready);
         Some(status)
     }
@@ -189,32 +203,35 @@ impl Geometry {
             return;
         }
         self.claim_attempt = Some(desired);
-        // The generation authorizes a transfer: none can be claimed with
-        // before the first state.
-        if !self.known {
-            self.pending_take = true;
-            return;
-        }
         self.claim(Claim::Take);
     }
 
-    /// `[action][generation][viewport or zeros]`.
+    /// `[action][generation][viewport or zeros]`. The generation authorizes a
+    /// transfer; before the epoch's first state it is zero, a take as of
+    /// authentication.
     fn claim(&mut self, action: Claim) {
         let viewport = if action == Claim::Observe {
             None
         } else {
             self.desired
         };
+        let generation = if self.known { self.generation } else { 0 };
         let mut body = [0u8; 25];
         body[0] = action as u8;
-        body[1..9].copy_from_slice(&self.generation.to_be_bytes());
+        body[1..9].copy_from_slice(&generation.to_be_bytes());
         if let Some(viewport) = viewport {
             let seq = self.next_seq();
             body[9..].copy_from_slice(&viewport.encode(seq));
             self.claimed = Some((viewport, seq));
         }
-        self.out
-            .push(encode_proto_frame(MSG_TYPE_GEOMETRY_CLAIM, &body));
+        let frame = encode_proto_frame(MSG_TYPE_GEOMETRY_CLAIM, &body);
+        if viewport.is_some() {
+            self.intent = Some(Intent {
+                frame: frame.clone(),
+                epoch: !self.known,
+            });
+        }
+        self.out.push(frame);
     }
 
     fn flush_resize(&mut self, ready: bool) {
@@ -232,7 +249,12 @@ impl Geometry {
         let mut body = [0u8; 24];
         body[..16].copy_from_slice(&desired.encode(seq));
         body[16..].copy_from_slice(&self.generation.to_be_bytes());
-        self.out.push(encode_proto_frame(MSG_TYPE_RESIZE, &body));
+        let frame = encode_proto_frame(MSG_TYPE_RESIZE, &body);
+        self.intent = Some(Intent {
+            frame: frame.clone(),
+            epoch: false,
+        });
+        self.out.push(frame);
     }
 
     /// A new session: its daemon may be another process at its default size,
@@ -240,10 +262,10 @@ impl Geometry {
     pub(super) fn reset(&mut self) {
         self.controls = false;
         self.known = false;
-        self.pending_take = false;
         self.claimed = None;
         self.claim_attempt = None;
         self.last_sent = None;
+        self.intent = None;
     }
 }
 

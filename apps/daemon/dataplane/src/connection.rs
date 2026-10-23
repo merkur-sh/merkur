@@ -2961,6 +2961,14 @@ pub struct PeerDisplayState {
     /// Latest viewport intent, retained through carrier rebind; fresh auth resets it.
     /// Reliable streams on different carriers do not share delivery order.
     pub last_resize_seq: u32,
+    /// The newest geometry intent (a claim with a viewport, or a resize)
+    /// processed from this peer, whatever its outcome: the CTRL copy and the
+    /// input-run copy of one intent apply once. Fresh auth resets it.
+    pub geometry_intent_seq: u32,
+    /// The geometry intent input from `position` waits for: input runs carry
+    /// it while that input is unacknowledged, and the sequencer admits nothing
+    /// from `position` until `geometry_fence` settles it.
+    pub(crate) geometry_fence: Option<crate::network::protocol::RunGeometry>,
     pub(crate) geometry_reply: Option<Box<crate::geometry::Reply>>,
     pub authenticated: bool,
     pub(crate) pending_identity_signature:
@@ -3563,6 +3571,8 @@ impl PeerDisplayState {
         Self {
             peer_id,
             last_resize_seq: 0,
+            geometry_intent_seq: 0,
+            geometry_fence: None,
             geometry_reply: None,
             authenticated: false,
             pending_identity_signature: None,
@@ -4051,6 +4061,48 @@ impl PeerDisplayState {
         self.adaptive.flush_hint_active = true;
     }
 
+    /// Whether `seq` is a geometry intent newer than every one this peer's
+    /// intents have already passed.
+    pub(crate) fn geometry_intent_is_new(&self, seq: u32) -> bool {
+        seq != 0 && (self.geometry_intent_seq == 0 || seq_lt(self.geometry_intent_seq, seq))
+    }
+
+    /// An input run's geometry intent. A copy of one already processed is
+    /// inert. Otherwise the earliest record either fence waits for is held
+    /// behind the newer intent: the newest viewport supersedes, and records
+    /// typed between the two meet it early rather than late. A position the
+    /// sequencer has passed (a successor lineage restating its intent ahead
+    /// of input its predecessor admitted) is due at once.
+    pub(crate) fn note_geometry_fence(&mut self, fence: crate::network::protocol::RunGeometry) {
+        if !self.geometry_intent_is_new(fence.seq()) {
+            return;
+        }
+        let mut newest = fence;
+        if let Some(held) = self.geometry_fence {
+            if !seq_lt(held.seq(), fence.seq()) {
+                newest = held;
+            }
+            if seq_lt(held.position, fence.position) {
+                newest.position = held.position;
+            } else {
+                newest.position = fence.position;
+            }
+        }
+        self.geometry_fence = Some(newest);
+    }
+
+    /// Whether `seq` waits for the geometry fence.
+    pub(crate) fn fenced(&self, seq: u32) -> bool {
+        self.geometry_fence
+            .is_some_and(|fence| !seq_lt(seq, fence.position))
+    }
+
+    /// The fence, once every record before its position is admitted.
+    pub(crate) fn geometry_fence_due(&self) -> Option<crate::network::protocol::RunGeometry> {
+        self.geometry_fence
+            .filter(|fence| !seq_lt(self.keystroke_next_queued_seq, fence.position))
+    }
+
     /// Accept one keystroke through the shared single-frame/input-run dedup
     /// state machine. `enqueue` must return true only after the bytes entered
     /// the bounded PTY FIFO. Delivery and ACK state advance separately through
@@ -4072,7 +4124,9 @@ impl PeerDisplayState {
         if seq_lt(seq, self.keystroke_next_queued_seq) {
             return AppliedKeystroke::idle(ack_seq); // duplicate already in the FIFO
         }
-        if seq == self.keystroke_next_queued_seq {
+        // A record behind an unsettled geometry fence waits like one behind
+        // a gap: the fence settles before the reorder buffer drains.
+        if seq == self.keystroke_next_queued_seq && !self.fenced(seq) {
             if !enqueue(seq, data, shadow_modelled) {
                 return AppliedKeystroke {
                     ack_seq,
@@ -4110,6 +4164,9 @@ impl PeerDisplayState {
     {
         loop {
             let seq = self.keystroke_next_queued_seq;
+            if self.fenced(seq) {
+                return false;
+            }
             let Some((buffered, shadow_modelled)) = self.keystroke_reorder_buf.remove(&seq) else {
                 return false;
             };

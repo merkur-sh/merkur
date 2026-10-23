@@ -13,8 +13,8 @@ use tokio::sync::OwnedSemaphorePermit;
 use crate::connection::{PeerDisplayState, PeerTransport, seq_lt};
 use crate::network::peer::{MAX_INBOUND_FRAME_BYTES, PeerMessage};
 use crate::network::protocol::{
-    MSG_TYPE_INPUT_RUN, MSG_TYPE_SEQUENCED_KEYSTROKE, PROTO_HEADER_BYTES, decode_proto_frame,
-    parse_input_run,
+    MSG_TYPE_INPUT_RUN, MSG_TYPE_SEQUENCED_KEYSTROKE, PROTO_HEADER_BYTES, RunGeometry,
+    decode_proto_frame, parse_input_run,
 };
 
 /// Fully validated input frame, with the current entry's bounds already decoded.
@@ -30,6 +30,8 @@ pub(crate) struct InputCursor {
     pub(crate) retransmit: bool,
     /// The liveness probe token the run carried, answered on arrival.
     pub(crate) probe: Option<u64>,
+    /// The geometry intent the run carried, noted on arrival.
+    pub(crate) geometry: Option<RunGeometry>,
 }
 
 impl InputCursor {
@@ -60,6 +62,7 @@ impl InputCursor {
                     shadow_offset,
                     retransmit: header.retransmit,
                     probe: header.probe,
+                    geometry: header.geometry,
                 })
             }
             MSG_TYPE_SEQUENCED_KEYSTROKE => {
@@ -79,6 +82,7 @@ impl InputCursor {
                     shadow_offset: 0,
                     retransmit: false,
                     probe: None,
+                    geometry: None,
                 })
             }
             _ => None,
@@ -129,7 +133,9 @@ where
             cursor.advance(frame);
             continue;
         }
-        if seq != peer.keystroke_next_queued_seq {
+        // A gap, or a geometry fence that settles first: the record stays
+        // in its frame either way.
+        if seq != peer.keystroke_next_queued_seq || peer.fenced(seq) {
             break;
         }
         let applied = peer.apply_keystroke(seq, bytes, modelled, &mut |seq, bytes, modelled| {

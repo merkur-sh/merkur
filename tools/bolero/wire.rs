@@ -12,7 +12,7 @@ use bounded::bounded;
 #[test]
 fn fuzz_wire() {
     let focus = [(input_record::KIND_FOCUS << 5) | 1];
-    let input_run = encode_probed_input_run(1, false, Some(7), &[(&focus, false)]);
+    let input_run = encode_probed_input_run(1, false, Some(7), None, &[(&focus, false)]);
     let seeds = vec![
         (
             "encoder-proto",
@@ -55,10 +55,16 @@ fn fuzz_wire() {
             .map(|index| (&focus[..], index % 2 == 0))
             .collect();
         let probe = (kind & 2 != 0).then_some(u64::from(kind));
-        let encoded = encode_probed_input_run(1, kind & 1 != 0, probe, &entries);
+        let geometry = (kind & 4 != 0).then(|| {
+            let mut resize = [0; RESIZE_BYTES];
+            resize[..8].copy_from_slice(&[0, 80, 0, 24, 0, 0, 0, kind | 1]);
+            RunGeometry::new(u32::from(kind), MSG_TYPE_RESIZE, &resize).expect("a resize")
+        });
+        let encoded = encode_probed_input_run(1, kind & 1 != 0, probe, geometry, &entries);
         let (header, parsed) =
             parse_input_run(&encoded[PROTO_HEADER_BYTES..]).expect("bounded canonical input run");
         assert_eq!(header.probe, probe);
+        assert_eq!(header.geometry, geometry);
         assert_eq!(header.count as usize, entries.len());
         for (parsed, expected) in parsed.zip(entries) {
             assert_eq!(parsed.payload, expected.0);
@@ -86,8 +92,13 @@ fn fuzz_wire() {
                 })
                 .collect();
             assert_eq!(entries.len(), usize::from(header.count));
-            let encoded =
-                encode_probed_input_run(header.base_seq, header.retransmit, header.probe, &entries);
+            let encoded = encode_probed_input_run(
+                header.base_seq,
+                header.retransmit,
+                header.probe,
+                header.geometry,
+                &entries,
+            );
             assert_eq!(&encoded[PROTO_HEADER_BYTES..], bytes);
             let mut trailing = bytes.to_vec();
             trailing.push(0);
@@ -150,8 +161,13 @@ fn proof_input_run() {
                 })
                 .collect();
             assert_eq!(entries.len(), usize::from(header.count));
-            let encoded =
-                encode_probed_input_run(header.base_seq, header.retransmit, header.probe, &entries);
+            let encoded = encode_probed_input_run(
+                header.base_seq,
+                header.retransmit,
+                header.probe,
+                header.geometry,
+                &entries,
+            );
             assert_eq!(&encoded[PROTO_HEADER_BYTES..], bytes);
         }
     });

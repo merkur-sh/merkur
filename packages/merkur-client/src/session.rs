@@ -40,8 +40,9 @@ use merkur_wire::protocol::{
     MSG_TYPE_DISPLAY_RESYNC_ROWS, MSG_TYPE_DISPLAY_SNAPSHOT_REQUEST, MSG_TYPE_GEOMETRY_STATE,
     MSG_TYPE_GRAPHICS_UNAVAILABLE,
     MSG_TYPE_HEARTBEAT_PING, MSG_TYPE_HEARTBEAT_PONG, MSG_TYPE_INPUT_ACK, MSG_TYPE_OPEN_URL,
-    MSG_TYPE_OPEN_URL_ACK, OpenUrlId, decode_data_handshake_frame, decode_proto_frame,
-    encode_data_handshake_frame, encode_probed_input_run_into, encode_proto_frame, parse_open_url,
+    MSG_TYPE_OPEN_URL_ACK, MSG_TYPE_RESIZE, OpenUrlId, RunGeometry, decode_data_handshake_frame,
+    decode_proto_frame, encode_data_handshake_frame, encode_probed_input_run_into,
+    encode_proto_frame, parse_open_url,
 };
 use merkur_wire::signaling::{ClientSignal, DaemonSignal, DataClaim, DataLane};
 use merkur_wire::{protocol::MSG_TYPE_TERMINAL_UI, terminal_ui::TerminalUi};
@@ -1667,6 +1668,9 @@ impl Session {
     }
 
     fn drain_graphics(&mut self) {
+        if let Some(intent) = self.geometry.take_intent() {
+            self.outbox.fence(intent.frame, intent.epoch);
+        }
         for frame in self.geometry.take_out() {
             self.send_display_control(frame);
         }
@@ -1758,6 +1762,14 @@ impl Session {
     fn send_display_control(&mut self, frame: Vec<u8>) {
         if self.is_ready() && self.has_reliable_capacity(CHANNEL_CTRL) {
             self.send_sealed_reliable(CHANNEL_CTRL, &frame);
+        } else if frame.first() == Some(&MSG_TYPE_RESIZE)
+            && let Some(owed) = self
+                .display_owed
+                .iter_mut()
+                .find(|owed| owed.first() == Some(&MSG_TYPE_RESIZE))
+        {
+            // The newest viewport supersedes an owed one under the same grant.
+            *owed = frame;
         } else if !self.display_owed.contains(&frame) {
             self.display_owed.push(frame);
         }
@@ -2312,7 +2324,9 @@ impl Session {
                     self.outbox.reliable_sent = 0;
                     // New keys: nothing asked under the last can be answered.
                     self.graphics.restart();
-                    // No carrier yet: its readiness acquires.
+                    // No carrier yet: its readiness acquires, and its intent
+                    // goes ahead of the held input.
+                    self.outbox.clear_fence();
                     self.geometry.begin_epoch(false);
                     self.failures = 0;
                     // Renew at half the capability's stated lifetime.
@@ -2666,6 +2680,7 @@ impl Session {
         self.outbox.revoke_provenance();
         self.graphics.restart();
         let ready = self.is_ready();
+        self.outbox.clear_fence();
         self.geometry.begin_epoch(ready);
         self.drain_graphics();
         self.failures = 0;
@@ -3263,8 +3278,11 @@ impl Session {
         if !self.is_ready() || self.outbox.is_empty() {
             return;
         }
+        // The geometry intent the input after it waits for rides every run.
+        let geometry = self.outbox.run_geometry();
         // The cumulative datagram: everything unacknowledged that fits.
-        let mut budget = INPUT_RUN_DATAGRAM_BUDGET_BYTES;
+        let mut budget = INPUT_RUN_DATAGRAM_BUDGET_BYTES
+            - geometry.as_ref().map_or(0, |geometry| geometry.wire_len());
         let count = self
             .outbox
             .records()
@@ -3278,14 +3296,14 @@ impl Session {
             .count();
         if count > 0 {
             let top_seq = self.outbox.wire(count - 1);
-            self.send_input_run(0, count, |session, frame| {
+            self.send_input_run(0, count, geometry, |session, frame| {
                 session.send_sealed_datagram_inner(CHANNEL_PTY, frame, Some(top_seq));
             });
         }
         // The reliable backstop, from its own cursor.
         let from = self.outbox.reliable_sent;
         if from < self.outbox.len() && self.has_reliable_capacity(CHANNEL_PTY) {
-            self.send_input_run(from, self.outbox.len() - from, |session, frame| {
+            self.send_input_run(from, self.outbox.len() - from, geometry, |session, frame| {
                 session.send_sealed_reliable(CHANNEL_PTY, frame);
             });
             self.outbox.reliable_sent = self.outbox.len();
@@ -3297,13 +3315,20 @@ impl Session {
 
     /// Encode `count` held records from `from` into the reusable input frame,
     /// hand it to `send`, then wipe it, so no keystroke is left in plaintext.
-    fn send_input_run(&mut self, from: usize, count: usize, send: impl FnOnce(&mut Self, &[u8])) {
+    fn send_input_run(
+        &mut self,
+        from: usize,
+        count: usize,
+        geometry: Option<RunGeometry>,
+        send: impl FnOnce(&mut Self, &[u8]),
+    ) {
         let mut frame = std::mem::take(&mut self.input_frame);
         encode_probed_input_run_into(
             &mut frame,
             self.outbox.wire(from),
             false,
             None,
+            geometry,
             self.outbox.run(from, count),
         );
         send(self, &frame);

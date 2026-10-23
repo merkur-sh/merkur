@@ -294,14 +294,16 @@ fn a_probed_run_sequences_and_acknowledges_exactly_as_an_unprobed_one() {
     let (a, b) = (build::text("a"), build::text("b"));
     // The liveness token sits between the flags and the bitset; sequencing,
     // dedup and ACK authority read past it on both lanes.
-    let datagram = encode_probed_input_run(1, false, Some(7), &[(&a[..], false), (&b[..], true)]);
+    let datagram =
+        encode_probed_input_run(1, false, Some(7), None, &[(&a[..], false), (&b[..], true)]);
     let reply = oracle.command(Command::Deliver {
         frame: datagram,
         reliable: false,
     });
     assert_eq!(reply.queued, 1);
     assert!(reply.ack.is_none());
-    let twin = encode_probed_input_run(1, false, Some(7), &[(&a[..], false), (&b[..], true)]);
+    let twin =
+        encode_probed_input_run(1, false, Some(7), None, &[(&a[..], false), (&b[..], true)]);
     let reply = oracle.command(Command::Deliver {
         frame: twin,
         reliable: true,

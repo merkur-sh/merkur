@@ -81,9 +81,14 @@ WebTransport carrier and the loop.
   current frame's tile. Only a visible, moving timeline owns a deadline.
 - `session::geometry` (the port of `outbound-channels.ts`' geometry authority) claims the
   machine's terminal size for a focused host's viewport. Every claim carries the viewport,
-  so a grant and its first resize commit in one owner turn. Each authentication acquires
-  once its carrier is ready, and a focused host then takes the geometry from whoever holds
-  it, as the browser's main thread does by replaying its viewport at every `connected`.
+  so a grant and its first resize commit in one owner turn. Once its carrier is ready, each
+  authentication takes the geometry at generation zero for a focused host with a viewport
+  (as the browser's main thread replays its viewport at every `connected`) and acquires it
+  if vacant otherwise. Each frame with a viewport is also handed to `session::outbox` as the
+  geometry fence: every `input_run` carries it until the first record typed after it is
+  acknowledged, and the daemon applies it before admitting that record, so a command typed
+  after a resize runs at the new size. A host hands the session its viewport before any
+  later input, never behind control credit.
   `Session::take_geometry` takes it on the user's request, whoever holds it; the TUI's
   `Ctrl-\\` `f` sends it (`Command::TakeGeometry`). A viewport states one
   cell's pixels only when the host knows them (`set_viewport`'s `cell`); without them the

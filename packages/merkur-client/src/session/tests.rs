@@ -1013,8 +1013,37 @@ fn the_heartbeat_pings_from_ready_and_a_pong_ends_its_deadline() {
     );
 }
 
+/// The geometry intent each input run in `actions` carries.
+fn run_fences(
+    transport: &mut NoiseTransport,
+    actions: &[Action],
+) -> Vec<Option<merkur_wire::protocol::RunGeometry>> {
+    let lane = merkur_e2e::lane_for_channel(CHANNEL_PTY).unwrap();
+    actions
+        .iter()
+        .filter_map(|action| {
+            let plaintext = if let Action::SendDatagram { payload, .. }
+            | Action::SendInputDatagram { payload, .. } = action
+            {
+                transport.open_datagram(lane, &payload[1..]).unwrap()
+            } else if let Action::SendReliable {
+                channel: CHANNEL_PTY,
+                payload,
+                ..
+            } = action
+            {
+                transport.open_stream(lane, payload).unwrap()
+            } else {
+                return None;
+            };
+            let (_, body) = decode_proto_frame(&plaintext).unwrap();
+            Some(parse_input_run(body).expect("a canonical input run").0.geometry)
+        })
+        .collect()
+}
+
 #[test]
-fn a_focused_host_acquires_the_geometry_with_its_viewport_at_ready() {
+fn a_focused_host_takes_the_geometry_with_its_viewport_at_ready() {
     let mut harness = authenticating();
     harness.session.set_focused(true);
     harness.session.set_viewport(80, 24, Some((10.0, 20.5)));
@@ -1032,17 +1061,17 @@ fn a_focused_host_acquires_the_geometry_with_its_viewport_at_ready() {
         bytes.extend_from_slice(&((20u32 << 16) + (1 << 15)).to_be_bytes());
         bytes
     };
-    // The epoch's acquire carries the viewport, so a vacant geometry is
-    // granted and sized in one owner turn.
-    let mut acquire = vec![1];
-    acquire.extend_from_slice(&0u64.to_be_bytes());
-    acquire.extend_from_slice(&viewport(80, 24, 1));
+    // The epoch's take carries the viewport, so the geometry is granted and
+    // sized in one owner turn, whoever held it, with no round trip first.
+    let mut take = vec![2];
+    take.extend_from_slice(&0u64.to_be_bytes());
+    take.extend_from_slice(&viewport(80, 24, 1));
     let sent = ctrl_types(&mut daemon, &ack_hello(&mut harness, &nonce));
     assert_eq!(
         sent[0],
         (MSG_TYPE_CARRIER_PRIMARY, RELAY_UNMEASURED.encode().to_vec())
     );
-    assert_eq!(sent[1], (MSG_TYPE_GEOMETRY_CLAIM, acquire));
+    assert_eq!(sent[1], (MSG_TYPE_GEOMETRY_CLAIM, take));
 
     let lane = merkur_e2e::lane_for_channel(CHANNEL_CTRL).unwrap();
     let mut state = vec![1];
@@ -1071,8 +1100,18 @@ fn a_focused_host_acquires_the_geometry_with_its_viewport_at_ready() {
     resize.extend_from_slice(&1u64.to_be_bytes());
     assert_eq!(
         ctrl_types(&mut daemon, &drain(&mut harness.session)),
-        [(MSG_TYPE_RESIZE, resize)]
+        [(MSG_TYPE_RESIZE, resize.clone())]
     );
+
+    // Input typed after the resize carries it, positioned at its own wire
+    // sequence, on the datagram and on the reliable backstop.
+    harness
+        .session
+        .send_input(NOW + 50, 1, build::press('s'), false);
+    let fences = run_fences(&mut daemon, &drain(&mut harness.session));
+    let expected = merkur_wire::protocol::RunGeometry::new(1, MSG_TYPE_RESIZE, &resize);
+    assert!(!fences.is_empty());
+    assert!(fences.iter().all(|fence| *fence == expected), "{fences:?}");
 
     // A host that knows no cell pixels states its grid with zero metrics.
     harness.session.set_viewport(90, 28, None);

@@ -134,14 +134,49 @@ fn an_unfocused_client_claims_nothing_until_it_is_focused() {
 }
 
 #[test]
-fn a_focused_client_takes_the_geometry_another_holds_at_authentication() {
+fn a_focused_client_takes_the_geometry_as_of_authentication() {
     let mut geometry = Geometry::default();
     // Focus and layout arrive before any carrier: nothing can be claimed.
     geometry.set_focused(true, false);
     geometry.set_viewport(viewport(100, 30), false);
     geometry.begin_epoch(false);
     assert!(sent(&mut geometry).is_empty());
+    // Whoever holds it, the first claim takes it with the viewport: no round
+    // trip passes before the machine has the size someone is typing into.
     geometry.refresh(true);
+    assert_eq!(
+        sent(&mut geometry),
+        [Sent::Claim {
+            action: 2,
+            generation: 0,
+            viewport: Some((100, 30, 1))
+        }]
+    );
+    geometry.accept_state(&state(1, 4, 1), true);
+    assert!(
+        sent(&mut geometry).is_empty(),
+        "the take carried the resize"
+    );
+
+    // Every authentication takes again.
+    geometry.begin_epoch(true);
+    assert_eq!(
+        sent(&mut geometry),
+        [Sent::Claim {
+            action: 2,
+            generation: 0,
+            viewport: Some((100, 30, 2))
+        }]
+    );
+    geometry.accept_state(&state(1, 5, 2), true);
+    assert!(sent(&mut geometry).is_empty());
+}
+
+#[test]
+fn an_unfocused_client_acquires_only_a_vacant_geometry_at_authentication() {
+    let mut geometry = Geometry::default();
+    geometry.set_viewport(viewport(100, 30), false);
+    geometry.begin_epoch(true);
     assert_eq!(
         sent(&mut geometry),
         [Sent::Claim {
@@ -150,46 +185,52 @@ fn a_focused_client_takes_the_geometry_another_holds_at_authentication() {
             viewport: Some((100, 30, 1))
         }]
     );
-    // Another client kept it: taken at the generation the answer names.
     geometry.accept_state(&state(2, 3, 0), true);
-    assert_eq!(
-        sent(&mut geometry),
-        [Sent::Claim {
-            action: 2,
-            generation: 3,
-            viewport: Some((100, 30, 2))
-        }]
-    );
-    geometry.accept_state(&state(1, 4, 2), true);
-    assert!(sent(&mut geometry).is_empty());
-
-    // A vacant geometry is granted to the acquire: nothing is taken.
-    geometry.begin_epoch(true);
-    assert_eq!(sent(&mut geometry).len(), 1);
-    geometry.accept_state(&state(1, 1, 3), true);
     assert!(sent(&mut geometry).is_empty());
 }
 
 #[test]
-fn a_claim_before_the_first_state_waits_for_its_generation() {
+fn a_claim_before_the_first_state_takes_as_of_authentication() {
     let mut geometry = Geometry::default();
     geometry.set_focused(true, true);
     geometry.set_viewport(viewport(100, 30), true);
-    assert!(
-        sent(&mut geometry).is_empty(),
-        "no generation to authorize it"
-    );
-    geometry.accept_state(&state(2, 4, 0), true);
-    let [
-        Sent::Claim {
+    assert_eq!(
+        sent(&mut geometry),
+        [Sent::Claim {
             action: 2,
-            generation: 4,
-            ..
-        },
-    ] = &sent(&mut geometry)[..]
-    else {
-        panic!("the waiting claim");
-    };
+            generation: 0,
+            viewport: Some((100, 30, 1))
+        }]
+    );
+    // Another client took it after: this viewport is not claimed again.
+    geometry.accept_state(&state(2, 4, 0), true);
+    assert!(sent(&mut geometry).is_empty());
+}
+
+#[test]
+fn every_frame_with_a_viewport_is_an_intent_and_only_the_epochs_first_precedes_held_input() {
+    let mut geometry = Geometry::default();
+    geometry.set_focused(true, false);
+    geometry.set_viewport(viewport(100, 30), false);
+    geometry.begin_epoch(true);
+    let intent = geometry.take_intent().expect("the epoch's take");
+    assert!(intent.epoch);
+    assert_eq!(Some(&intent.frame), geometry.take_out().first());
+    assert!(geometry.take_intent().is_none());
+    geometry.accept_state(&state(1, 1, 1), true);
+    geometry.set_viewport(viewport(90, 20), true);
+    let intent = geometry.take_intent().expect("the resize");
+    assert!(!intent.epoch);
+    assert_eq!(intent.frame[0], MSG_TYPE_RESIZE);
+    // A state request carries no viewport, so it is no intent.
+    geometry.refresh(true);
+    assert!(geometry.take_intent().is_none());
+    // A takeover after the first state is an ordinary intent.
+    geometry.accept_state(&state(2, 2, 0), true);
+    geometry.take_control(true);
+    let intent = geometry.take_intent().expect("the take");
+    assert!(!intent.epoch);
+    assert_eq!(intent.frame[0], MSG_TYPE_GEOMETRY_CLAIM);
 }
 
 #[test]

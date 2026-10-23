@@ -216,3 +216,78 @@ fn admission_bounds_release_capacity_only_on_ack_or_genesis() {
     assert_eq!(outbox.released_local(), 2);
     assert!(outbox.admit(MAX_INPUT_ENTRIES as u32 + 2, vec![1], false));
 }
+
+fn resize(seq: u32) -> Vec<u8> {
+    let mut body = [0; merkur_wire::protocol::RESIZE_BYTES];
+    body[..2].copy_from_slice(&100u16.to_be_bytes());
+    body[2..4].copy_from_slice(&30u16.to_be_bytes());
+    body[4..8].copy_from_slice(&seq.to_be_bytes());
+    merkur_wire::protocol::encode_proto_frame(merkur_wire::protocol::MSG_TYPE_RESIZE, &body)
+}
+
+/// `(wire position, viewport serial)` of the fence a run carries.
+fn fence(outbox: &Outbox) -> Option<(u32, u32)> {
+    outbox
+        .run_geometry()
+        .map(|geometry| (geometry.position, geometry.seq()))
+}
+
+#[test]
+fn a_fence_waits_for_the_first_record_typed_after_it_and_retires_with_it() {
+    let mut outbox = outbox(&[(1, 1), (2, 2)]);
+    outbox.fence(resize(7), false);
+    assert_eq!(fence(&outbox), None, "nothing typed after it yet");
+    assert!(outbox.admit(3, vec![3], false));
+    assert!(outbox.admit(4, vec![4], false));
+    assert_eq!(fence(&outbox), Some((3, 7)));
+    // A newer intent supersedes the frame but keeps the held position.
+    outbox.fence(resize(8), false);
+    assert_eq!(fence(&outbox), Some((3, 8)));
+    outbox.ack(2);
+    assert_eq!(fence(&outbox), Some((3, 8)));
+    outbox.ack(3);
+    assert_eq!(fence(&outbox), None, "applied before record 3 was");
+    // Retired: the next intent waits for its own record.
+    outbox.fence(resize(9), false);
+    assert_eq!(fence(&outbox), None);
+    assert!(outbox.admit(5, vec![5], false));
+    assert_eq!(fence(&outbox), Some((5, 9)));
+}
+
+#[test]
+fn an_epochs_intent_precedes_every_held_record_and_follows_a_rebase() {
+    let mut outbox = outbox(&[(10, 1), (11, 2)]);
+    outbox.fence(resize(3), false);
+    assert!(outbox.admit(12, vec![3], false));
+    assert_eq!(fence(&outbox), Some((12, 3)));
+    // A fresh daemon numbers the held records from its own expectation, and
+    // its first intent goes ahead of all of them.
+    outbox.rebase(1);
+    outbox.clear_fence();
+    assert_eq!(fence(&outbox), None);
+    outbox.fence(resize(4), true);
+    assert_eq!(fence(&outbox), Some((1, 4)));
+    // With nothing held it waits for the next record, numbered on the rebase.
+    let mut empty = Outbox::new();
+    empty.rebase(40);
+    empty.fence(resize(5), true);
+    assert_eq!(fence(&empty), None);
+    assert!(empty.admit(2, vec![1], false));
+    assert_eq!(fence(&empty), Some((40, 5)));
+}
+
+#[test]
+fn a_rebase_past_the_fences_record_retires_it() {
+    let mut outbox = outbox(&[(1, 1)]);
+    outbox.fence(resize(2), false);
+    assert!(outbox.admit(2, vec![2], false));
+    // The last daemon admitted record 2 behind a lost ack, so it applied the
+    // fence first.
+    outbox.rebase(3);
+    assert_eq!(fence(&outbox), None);
+    outbox.discard();
+    outbox.fence(resize(3), false);
+    outbox.discard();
+    assert!(outbox.admit(3, vec![3], false));
+    assert_eq!(fence(&outbox), None, "a retired session's intent is gone");
+}

@@ -8,7 +8,10 @@ use tokio::sync::{mpsc, oneshot};
 use crate::assets::Carrier;
 use crate::connection::{PeerDisplayState, PeerMap, PeerTransport};
 use crate::network::peer::{DeliveryMode, PeerMessage, ReliablePayload};
-use crate::network::protocol::{CHANNEL_CTRL, MSG_TYPE_GEOMETRY_STATE, encode_proto_frame};
+use crate::network::protocol::{
+    CHANNEL_CTRL, MSG_TYPE_GEOMETRY_CLAIM, MSG_TYPE_GEOMETRY_STATE, MSG_TYPE_RESIZE, RunGeometry,
+    encode_proto_frame, geometry_intent_seq,
+};
 
 #[derive(Default)]
 pub(crate) struct Authority {
@@ -32,7 +35,10 @@ impl Authority {
         if !peer.authenticated || self.owns(peer) {
             return false;
         }
-        if !((action == 1 && self.owner.is_none()) || (action == 2 && expected == self.generation))
+        // A take at generation zero is made before the client's first state,
+        // as of its authentication: nothing it knew can be stale.
+        if !((action == 1 && self.owner.is_none())
+            || (action == 2 && (expected == 0 || expected == self.generation)))
         {
             return false;
         }
@@ -251,6 +257,7 @@ pub(crate) fn publish(authority: &Authority, peers: &mut PeerMap, now_ms: f64) {
     }
 }
 
+/// A claim on the reliable control lane.
 pub(crate) fn handle(
     msg: &PeerMessage,
     body: &[u8],
@@ -259,7 +266,82 @@ pub(crate) fn handle(
     peers: &mut PeerMap,
     now_ms: f64,
 ) {
-    if msg.delivery != DeliveryMode::Stream || body.len() != 25 || body[0] > 2 {
+    if msg.delivery != DeliveryMode::Stream {
+        return;
+    }
+    claim(
+        &msg.peer_node_id,
+        msg.via_transport,
+        body,
+        pty_master,
+        terminal,
+        peers,
+        now_ms,
+    );
+}
+
+/// A resize on the reliable control lane. Its input-run copy applies through
+/// `apply_fence`; whichever arrives first applies it.
+pub(crate) fn resize(
+    peer_id: &str,
+    body: &[u8],
+    pty_master: &(dyn portable_pty::MasterPty + Send),
+    terminal: &mut crate::pty::TerminalState,
+    peers: &mut PeerMap,
+) {
+    let Some(seq) = geometry_intent_seq(MSG_TYPE_RESIZE, body) else {
+        return;
+    };
+    let Some(peer) = peers.get_mut(peer_id) else {
+        return;
+    };
+    if !peer.geometry_intent_is_new(seq) {
+        return;
+    }
+    peer.geometry_intent_seq = seq;
+    crate::handle_resize_request(peer_id, body, pty_master, terminal, peers);
+}
+
+/// The geometry intent an input run's records wait for, once every record
+/// before them is admitted. A state it changes is told to the peer on its
+/// primary path, as `publish` tells every peer.
+pub(crate) fn apply_fence(
+    peer_id: &str,
+    fence: RunGeometry,
+    pty_master: &(dyn portable_pty::MasterPty + Send),
+    terminal: &mut crate::pty::TerminalState,
+    peers: &mut PeerMap,
+    now_ms: f64,
+) {
+    match fence.kind {
+        MSG_TYPE_RESIZE => resize(peer_id, fence.body(), pty_master, terminal, peers),
+        _ => {
+            let Some(via) = peers.get(peer_id).map(|peer| peer.primary_path(now_ms)) else {
+                return;
+            };
+            claim(
+                peer_id,
+                via,
+                fence.body(),
+                pty_master,
+                terminal,
+                peers,
+                now_ms,
+            );
+        }
+    }
+}
+
+fn claim(
+    peer_id: &str,
+    via: PeerTransport,
+    body: &[u8],
+    pty_master: &(dyn portable_pty::MasterPty + Send),
+    terminal: &mut crate::pty::TerminalState,
+    peers: &mut PeerMap,
+    now_ms: f64,
+) {
+    if body.len() != 25 || body[0] > 2 {
         return;
     }
     let mut viewport = [0; 24];
@@ -270,12 +352,16 @@ pub(crate) fn handle(
     if has_viewport && (body[0] == 0 || crate::pty::Viewport::decode(&viewport).is_none()) {
         return;
     }
-    let Some(peer) = peers
-        .get_mut(&*msg.peer_node_id)
-        .filter(|peer| peer.authenticated)
-    else {
+    let Some(peer) = peers.get_mut(peer_id).filter(|peer| peer.authenticated) else {
         return;
     };
+    if let Some(seq) = geometry_intent_seq(MSG_TYPE_GEOMETRY_CLAIM, body) {
+        // The other lane's copy of this intent, or an older one, applied.
+        if !peer.geometry_intent_is_new(seq) {
+            return;
+        }
+        peer.geometry_intent_seq = seq;
+    }
     let expected = u64::from_be_bytes(body[1..9].try_into().expect("checked geometry claim"));
     let authority = &mut terminal.geometry_authority;
     let changed = authority.claim(peer, body[0], expected);
@@ -287,16 +373,12 @@ pub(crate) fn handle(
     if owns && has_viewport {
         // Grant and first resize commit in one owner turn, without a round trip
         // or a second resize after the grant acknowledgement reaches the browser.
-        crate::handle_resize_request(&msg.peer_node_id, &viewport, pty_master, terminal, peers);
+        crate::handle_resize_request(peer_id, &viewport, pty_master, terminal, peers);
     }
     if changed {
         publish(&terminal.geometry_authority, peers, now_ms);
-    } else if let Some(peer) = peers.get_mut(&*msg.peer_node_id) {
-        enqueue(
-            peer,
-            terminal.geometry_authority.state(peer),
-            msg.via_transport,
-        );
+    } else if let Some(peer) = peers.get_mut(peer_id) {
+        enqueue(peer, terminal.geometry_authority.state(peer), via);
     }
 }
 
@@ -388,6 +470,7 @@ mod tests {
         assert_eq!(peers["b"].last_resize_seq, 0);
         body[0] = 2;
         body[1..9].copy_from_slice(&1u64.to_be_bytes());
+        body[13..17].copy_from_slice(&9u32.to_be_bytes());
         // Even an otherwise authorized takeover cannot partially commit a
         // malformed viewport (or consume the compare-and-swap generation).
         body[17..21].fill(0);
@@ -493,14 +576,86 @@ mod tests {
         assert!(authority.claim(&a, 1, 0));
         assert!(authority.permits(&a, 1));
         assert!(!authority.claim(&b, 1, 0));
-        assert!(!authority.claim(&b, 2, 0));
+        assert!(!authority.claim(&b, 2, 2), "a generation not yet granted");
         assert!(authority.claim(&b, 2, 1));
         assert!(!authority.permits(&a, 1));
         assert!(!authority.permits(&a, 2));
         assert!(authority.permits(&b, 2));
+        assert!(!authority.claim(&a, 2, 1), "a stale generation");
         assert!(authority.claim(&a, 2, 2));
         assert!(!authority.permits(&a, 1));
         assert!(authority.permits(&a, 3));
+        // Before its first state a client takes as of its authentication.
+        assert!(authority.claim(&b, 2, 0));
+        assert!(authority.permits(&b, 4));
+    }
+
+    fn claim_msg(peer: &str) -> PeerMessage {
+        PeerMessage {
+            input_permit: None,
+            peer_node_id: peer.into(),
+            channel_id: CHANNEL_CTRL,
+            payload: bytes::Bytes::new(),
+            via_transport: PeerTransport::Edge,
+            delivery: DeliveryMode::Stream,
+            connection_id: 0,
+            edge_ingress: None,
+        }
+    }
+
+    fn claim_body(action: u8, generation: u64, cols: u16, seq: u32) -> [u8; 25] {
+        let mut body = [0; 25];
+        body[0] = action;
+        body[1..9].copy_from_slice(&generation.to_be_bytes());
+        body[9..11].copy_from_slice(&cols.to_be_bytes());
+        body[11..13].copy_from_slice(&30u16.to_be_bytes());
+        body[13..17].copy_from_slice(&seq.to_be_bytes());
+        body
+    }
+
+    #[tokio::test]
+    async fn one_intent_applies_once_whichever_lane_brings_it_first() {
+        let pair = portable_pty::native_pty_system()
+            .openpty(portable_pty::PtySize::default())
+            .unwrap();
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut terminal = crate::pty::TerminalState::new(80, 24, tx);
+        let mut peers = PeerMap::from([("a".into(), peer("a")), ("b".into(), peer("b"))]);
+        // a takes as of its authentication through its input run's copy.
+        let take = claim_body(2, 0, 100, 1);
+        let fence = RunGeometry::new(1, MSG_TYPE_GEOMETRY_CLAIM, &take).unwrap();
+        apply_fence("a", fence, &*pair.master, &mut terminal, &mut peers, 0.0);
+        assert_eq!(terminal.cols, 100);
+        assert_eq!(terminal.geometry_authority.generation, 1);
+        // b takes it explicitly.
+        handle(
+            &claim_msg("b"),
+            &claim_body(2, 1, 60, 1),
+            &*pair.master,
+            &mut terminal,
+            &mut peers,
+            0.0,
+        );
+        assert_eq!(terminal.cols, 60);
+        // a's CTRL copy of the same uninformed take arrives late: inert.
+        handle(&claim_msg("a"), &take, &*pair.master, &mut terminal, &mut peers, 0.0);
+        assert_eq!(terminal.cols, 60);
+        assert_eq!(terminal.geometry_authority.generation, 2);
+        // b's resize, then its fence copy.
+        let mut resize_body = [0; 24];
+        resize_body[..2].copy_from_slice(&90u16.to_be_bytes());
+        resize_body[2..4].copy_from_slice(&30u16.to_be_bytes());
+        resize_body[4..8].copy_from_slice(&2u32.to_be_bytes());
+        resize_body[16..].copy_from_slice(&2u64.to_be_bytes());
+        resize("b", &resize_body, &*pair.master, &mut terminal, &mut peers);
+        assert_eq!(terminal.cols, 90);
+        assert_eq!(peers["b"].geometry_intent_seq, 2);
+        let copy = RunGeometry::new(5, MSG_TYPE_RESIZE, &resize_body).unwrap();
+        peers.get_mut("b").unwrap().note_geometry_fence(copy);
+        assert!(
+            peers["b"].geometry_fence.is_none(),
+            "a copy of an applied intent holds no input back"
+        );
     }
 
     #[test]

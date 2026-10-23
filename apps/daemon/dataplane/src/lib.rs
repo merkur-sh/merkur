@@ -1789,6 +1789,19 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                     Ok(turn) => input_ack_pending |= turn.input_ack_queued,
                     Err(()) => running = false,
                 }
+                // Completions drain held input up to a geometry fence; one
+                // they reached settles here.
+                settle_geometry_fences(
+                    None,
+                    pty_master.as_ref(),
+                    &mut pty_writer,
+                    &mut terminal,
+                    &mut registry.peers,
+                    &mut registry.parked,
+                    &mut registry.input_refill,
+                    start_instant,
+                    &mut perf_timing,
+                );
                 // A reordered line submission can enter the PTY FIFO while a
                 // prior write completion drains the peer buffer. Its
                 // prediction-safety revocation is display metadata and must
@@ -2189,6 +2202,17 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 Ok(turn) => input_ack_pending |= turn.input_ack_queued,
                                 Err(()) => running = false,
                             }
+                            settle_geometry_fences(
+                                None,
+                                pty_master.as_ref(),
+                                &mut pty_writer,
+                                &mut terminal,
+                                &mut registry.peers,
+                                &mut registry.parked,
+                                &mut registry.input_refill,
+                                start_instant,
+                                &mut perf_timing,
+                            );
                         }
                         if let Some((bytes, offset, _)) = &mut pending_pty_read {
                             let _span = merkur_trace::span!("pty.apply", (bytes.len() - *offset) as u64);
@@ -5444,6 +5468,17 @@ async fn handle_peer_message(
                 };
                 session::liveness::answer_input_probe(msg, probe, &mut registry.peers);
             }
+            settle_geometry_fences(
+                Some(&msg.peer_node_id),
+                pty_master,
+                pty_writer,
+                terminal,
+                &mut registry.peers,
+                &mut registry.parked,
+                &mut registry.input_refill,
+                start_instant,
+                perf_timing,
+            );
             return outcome.ack_pending;
         }
         let outcome = handle_pty_channel(
@@ -5473,6 +5508,17 @@ async fn handle_peer_message(
             };
             session::liveness::answer_input_probe(msg, probe, &mut registry.peers);
         }
+        settle_geometry_fences(
+            Some(&msg.peer_node_id),
+            pty_master,
+            pty_writer,
+            terminal,
+            &mut registry.peers,
+            &mut registry.parked,
+            &mut registry.input_refill,
+            start_instant,
+            perf_timing,
+        );
         return outcome.ack_pending;
     }
 
@@ -5995,6 +6041,90 @@ fn refill_waiting_input(
     }
 }
 
+/// Apply each geometry intent its peer's sequencer has reached, then admit the
+/// input it held back: records typed before the intent reached the PTY FIFO
+/// before it, records typed after it reach it after, as one SSH channel orders
+/// a window change. `only` names the one peer a PTY frame could have moved.
+fn settle_geometry_fences(
+    only: Option<&Arc<str>>,
+    pty_master: &(dyn portable_pty::MasterPty + Send),
+    writer: &mut PtyWriter,
+    terminal: &mut TerminalState,
+    peers: &mut PeerMap,
+    parked: &mut ParkedPeers,
+    refill: &mut input::InputRefill,
+    start: Instant,
+    perf: &mut PerfTimingTracker,
+) {
+    loop {
+        let due = match only {
+            Some(id) => peers
+                .get(&**id)
+                .and_then(PeerDisplayState::geometry_fence_due)
+                .map(|fence| (Arc::clone(id), fence)),
+            None => peers.values().find_map(|peer| {
+                peer.geometry_fence_due()
+                    .map(|fence| (Arc::clone(&peer.peer_id), fence))
+            }),
+        };
+        let Some((peer_id, fence)) = due else {
+            break;
+        };
+        let now_ms = now_ms_since(start);
+        if let Some(peer) = peers.get_mut(&*peer_id) {
+            peer.geometry_fence = None;
+        }
+        geometry::apply_fence(
+            &peer_id,
+            fence,
+            pty_master,
+            terminal,
+            peers,
+            now_ms,
+        );
+        if let Some(peer) = peers.get_mut(&*peer_id) {
+            readmit_peer_input(peer, writer, terminal, perf, now_ms);
+            refill.pending |= peer.reliable_inputs.has_pending();
+        }
+    }
+    // A parked peer is unauthenticated: its intent can change nothing.
+    if only.is_none() {
+        for peer in parked.states_mut() {
+            if peer.geometry_fence_due().is_some() {
+                peer.geometry_fence = None;
+                readmit_peer_input(peer, writer, terminal, perf, now_ms_since(start));
+                refill.pending |= peer.reliable_inputs.has_pending();
+            }
+        }
+    }
+}
+
+/// Admit what a settled geometry fence held back: datagram records from the
+/// reorder buffer, then retained reliable records.
+fn readmit_peer_input(
+    peer: &mut PeerDisplayState,
+    writer: &mut PtyWriter,
+    terminal: &mut TerminalState,
+    perf: &mut PerfTimingTracker,
+    now_ms: f64,
+) {
+    let peer_id = Arc::clone(&peer.peer_id);
+    let perf_owner = perf.owns(&peer_id, &peer.signal_session_id);
+    let origin = input::InputOrigin {
+        via: peer.primary_path(now_ms),
+        received_at: None,
+        observation_epoch: None,
+    };
+    peer.drain_keystroke_reorder(&mut |seq, bytes, modelled| {
+        enqueue_reliable_input(
+            writer, terminal, perf, perf_owner, &peer_id, origin, seq, bytes, modelled,
+        )
+    });
+    if peer.reliable_inputs.has_pending() {
+        resume_peer_input(peer, writer, terminal, perf);
+    }
+}
+
 fn resume_peer_input(
     peer: &mut PeerDisplayState,
     writer: &mut PtyWriter,
@@ -6071,6 +6201,9 @@ fn handle_reliable_input(
     let Some(peer) = peers.get_mut(&*msg.peer_node_id) else {
         return ReliableInputOutcome::default();
     };
+    if let Some(fence) = cursor.geometry {
+        peer.note_geometry_fence(fence);
+    }
     peer.last_input_at_ms = now_ms_since(start);
     let perf_owner = perf.owns(&msg.peer_node_id, &peer.signal_session_id);
     let origin = input::InputOrigin {
@@ -6242,6 +6375,9 @@ fn handle_pty_channel(
                 token,
                 top_seq: run.top_seq(),
             });
+            if let Some(fence) = run.geometry {
+                peer.note_geometry_fence(fence);
+            }
             peer.last_input_at_ms = now_ms_since(start_instant);
             let perf_owner = perf_timing.owns(&msg.peer_node_id, &peer.signal_session_id);
             // Sampled only when a browser is profiling: `PerfTimingTracker`
@@ -6457,7 +6593,7 @@ async fn handle_ctrl_channel(
         handle_explicit_peer_disconnect(msg, body, registry, network_state, event_tx).await;
     } else if msg_type == MSG_TYPE_RESIZE && body.len() == 24 {
         if msg.delivery == DeliveryMode::Stream {
-            handle_resize_request(&msg.peer_node_id, body, pty_master, terminal, peers);
+            geometry::resize(&msg.peer_node_id, body, pty_master, terminal, peers);
         }
     } else {
         warn_unhandled_wire_type("ctrl", msg_type, body.len());

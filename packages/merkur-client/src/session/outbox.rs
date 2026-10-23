@@ -8,8 +8,15 @@
 //! the daemon's next-expected sequence, and releases the records that daemon
 //! already applied, whose acknowledgement died with the carrier: renumbering
 //! them would apply them twice.
+//!
+//! The geometry fence orders the session's newest geometry intent with this
+//! input: every run carries it while the first record typed after it is held,
+//! and the daemon applies it before it admits that record, as SSH's one
+//! channel orders a window change with the keystrokes around it.
 
 use std::collections::VecDeque;
+
+use merkur_wire::protocol::{PROTO_HEADER_BYTES, RunGeometry};
 
 use crate::input_sequence::{InputMapping, input_sequence_delta};
 
@@ -27,8 +34,16 @@ impl Drop for Entry {
     }
 }
 
+/// A geometry intent frame, and the local number of the first record typed
+/// after it: `None` until that record is admitted.
+struct Fence {
+    frame: Vec<u8>,
+    position: Option<u32>,
+}
+
 pub(super) struct Outbox {
     entries: VecDeque<Entry>,
+    fence: Option<Fence>,
     offset: i64,
     /// A genesis that found nothing held anchors the offset on the next record.
     pending_rebase: Option<u32>,
@@ -45,6 +60,7 @@ impl Outbox {
     pub(super) fn new() -> Self {
         Self {
             entries: VecDeque::new(),
+            fence: None,
             offset: 0,
             pending_rebase: None,
             last_acked: 0,
@@ -79,8 +95,52 @@ impl Outbox {
     /// Retirement discards wiping input owners without inventing an ACK.
     pub(super) fn discard(&mut self) {
         self.entries.clear();
+        self.fence = None;
         self.bytes = 0;
         self.reliable_sent = 0;
+    }
+
+    /// The session's newest geometry intent. An epoch's first intent precedes
+    /// every held record, which the daemon it authenticated to has not
+    /// admitted. Any other is applied before the first record typed after it,
+    /// or, while an older intent's record is held, before that one: the newest
+    /// viewport supersedes, so it cannot come too early for that record.
+    pub(super) fn fence(&mut self, frame: Vec<u8>, epoch: bool) {
+        let position = if epoch {
+            self.entries.front().map(|entry| entry.local)
+        } else {
+            self.fence.as_ref().and_then(|fence| fence.position)
+        };
+        self.fence = Some(Fence { frame, position });
+    }
+
+    /// A new authentication: the last daemon's intent is not this one's.
+    pub(super) fn clear_fence(&mut self) {
+        self.fence = None;
+    }
+
+    /// The fence every run carries while its record is held.
+    pub(super) fn run_geometry(&self) -> Option<RunGeometry> {
+        let fence = self.fence.as_ref()?;
+        let position = u32::try_from(self.wire_of(fence.position?)).ok()?;
+        RunGeometry::new(
+            position,
+            *fence.frame.first()?,
+            fence.frame.get(PROTO_HEADER_BYTES..)?,
+        )
+    }
+
+    /// Released through wire `through`: a fence whose record went with it was
+    /// applied by the daemon before it admitted that record.
+    fn retire_fence(&mut self, through: i64) {
+        if self
+            .fence
+            .as_ref()
+            .and_then(|fence| fence.position)
+            .is_some_and(|position| self.wire_of(position) <= through)
+        {
+            self.fence = None;
+        }
     }
 
     /// Held entries from `from`, `count` at most, as an input run takes them.
@@ -128,6 +188,9 @@ impl Outbox {
         self.record_mapping(local, wire);
         self.bytes += entry.record.len();
         self.entries.push_back(entry);
+        if let Some(fence) = &mut self.fence {
+            fence.position.get_or_insert(local);
+        }
         true
     }
 
@@ -147,6 +210,7 @@ impl Outbox {
             self.last_released_local = entry.local;
         }
         self.reliable_sent = self.reliable_sent.saturating_sub(released);
+        self.retire_fence(i64::from(seq));
     }
 
     /// Re-align to a new session's next-expected sequence `next_expected`:
@@ -167,6 +231,7 @@ impl Outbox {
             self.last_released_local = entry.local;
         }
         self.reliable_sent = self.reliable_sent.saturating_sub(released);
+        self.retire_fence(expected - 1);
         self.last_acked = next_expected - 1;
 
         let previous = self.mapping;

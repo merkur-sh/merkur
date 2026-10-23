@@ -631,6 +631,9 @@ pub(crate) fn splice_resumed_peer(
     // A fresh authenticated session may come from a replacement browser worker.
     // Its viewport serial starts independently; carrier rebind does not splice.
     peer.last_resize_seq = 0;
+    peer.geometry_intent_seq = 0;
+    // A fence names a position in the input domain that just ended.
+    peer.geometry_fence = None;
     // An ack queued this turn names a seq from the domain that just ended; the
     // flush at the bottom of the turn must not send it into the new one.
     peer.pending_input_ack = None;
