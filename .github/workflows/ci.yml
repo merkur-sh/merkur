@@ -48,6 +48,16 @@ jobs:
           bazel test //... --test_env=DISPLAY=:99 --test_env=BENCH_HEADED=1
       - if: runner.os == 'macOS'
         run: bazel test //...
+      # Bazel's own trace of the run, which `bun run profile:query <file> bazel-critical-path` and
+      # the other `bazel-*` queries read.
+      - if: always()
+        run: cp "$(bazel info output_base)/command.profile.gz" "bazel-test-${RUNNER_OS}.profile.gz"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bazel-profile-${{ runner.os }}-${{ github.run_id }}
+          path: bazel-test-${{ runner.os }}.profile.gz
+          retention-days: 7
       # Two macOS runs lost a process with no message of its own: a checkout's receiving tar and
       # the Bazel server. What the server last logged and whether the kernel reclaimed memory by
       # killing processes then is the evidence that names the cause.
