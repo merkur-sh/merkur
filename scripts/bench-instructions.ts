@@ -20,6 +20,12 @@ const TARGET = '//apps/daemon/dataplane:unit_release';
 /** Samples each benchmark runs under Cachegrind, which runs a program tens of times slower. */
 const SAMPLES = '5';
 
+/**
+ * Benchmarks whose work depends on when another thread runs, which Cachegrind, running one thread
+ * at a time, does not reproduce: the owner loop's measures a real preparation worker's hand-off.
+ */
+const THREAD_TIMED = new Set(['bench:packing:whole-span:owner']);
+
 const Manifest = Schema.Struct({ scripts: Schema.Record(Schema.String, Schema.String) });
 const Counts = Schema.Record(Schema.String, Schema.Number);
 type Counts = typeof Counts.Type;
@@ -119,7 +125,7 @@ async function main(args: readonly string[]): Promise<void> {
   const binary = path.join(bazel(['info', 'execution_root']), file);
   const counts: Record<string, number> = {};
   for (const benchmark of dataplaneBenchmarks(scripts))
-    counts[benchmark.name] = await count(binary, benchmark);
+    if (!THREAD_TIMED.has(benchmark.name)) counts[benchmark.name] = await count(binary, benchmark);
   const baseline =
     baselineFile === undefined
       ? null

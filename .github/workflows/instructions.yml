@@ -43,7 +43,9 @@ jobs:
             gh run download "$run_id" --name instructions --dir previous
             echo "baseline=--baseline previous/counts.json" >> "$GITHUB_OUTPUT"
           fi
-      - env:
+      # `shell: bash` runs with pipefail, so a benchmark that fails fails the step through `tee`.
+      - shell: bash
+        env:
           BASELINE: ${{ steps.previous.outputs.baseline }}
         run: |
           mkdir -p instructions
