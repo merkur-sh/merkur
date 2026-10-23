@@ -138,10 +138,13 @@ test('native traversal carries an authenticated terminal across the configured N
   baseURL,
 }) => {
   const topology = process.env.MERKUR_NATLAB_CASE;
-  const pinhole = topology?.startsWith('ipv6-') && topology !== 'ipv6-pdf';
+  if (topology === undefined) {
+    test.skip(true, 'the controlled NAT topology is required');
+    return;
+  }
+  const pinhole = topology.startsWith('ipv6-') && topology !== 'ipv6-pdf';
   if (pinhole && topology.endsWith('-pcp')) test.setTimeout(210_000);
-  const direct = !['blocked', 'edm-pdf', 'edm-both', 'inner-lease'].includes(topology ?? '');
-  test.skip(topology === undefined, 'the controlled NAT topology is required');
+  const direct = !['blocked', 'edm-pdf', 'edm-both', 'inner-lease'].includes(topology);
   expect(process.platform).toBe('linux');
   expect(process.env.FORCE_EDGE).toBe('0');
   expect(process.env.MERKUR_E2E_DAEMON_NETNS).toBe('merkur-natlab-daemon');
