@@ -2,11 +2,11 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import path from 'node:path';
 import { nativeProgram } from '../native-artifacts';
+import { NATIVE_EDGE_URL } from './native-edge';
 import { playwrightCli } from './playwright-cli';
 
 const root = path.resolve(import.meta.dir, '../..');
 const edgeId = 'local-harness-1';
-const edgeUrl = 'https://127.0.0.1:4433';
 const appPort = 24_331;
 const EDGE_BIND_DEADLINE_MS = 15_000;
 const CHILD_STOP_DEADLINE_MS = 5_000;
@@ -31,7 +31,7 @@ const edge = spawn(nativeProgram(root, 'merkur-edge'), [], {
     MERKUR_EDGE_ATTACH_TICKET_KEY: Buffer.alloc(64, 0x74).toString('base64url'),
     MERKUR_EDGE_ID: edgeId,
     MERKUR_EDGE_REGION: 'local',
-    MERKUR_EDGE_PUBLIC_URL: edgeUrl,
+    MERKUR_EDGE_PUBLIC_URL: NATIVE_EDGE_URL,
     MERKUR_EDGE_DATA_BUDGET_GB: '1000000',
     MERKUR_EDGE_SIGNALING_RESERVE_GB: '100000',
     MERKUR_EDGE_EGRESS_INTERFACE: 'lo',
@@ -95,7 +95,7 @@ try {
         PW_E2E_PORT: String(appPort),
         PW_E2E_REDIS_PORT: String(appPort + 1),
         PW_E2E_EDGE_ID: edgeId,
-        PW_E2E_EDGE_URL: edgeUrl,
+        PW_E2E_EDGE_URL: NATIVE_EDGE_URL,
         PW_E2E_EDGE_CERT_HASH: certHash,
       },
       stdio: 'inherit',

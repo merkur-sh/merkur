@@ -365,10 +365,8 @@ fn serve(
         }
         if request.request_receipt {
             let receipt = merkur_stun_protocol::observation::Receipt::issue(
-                &config
-                    .ticket_key
-                    .observation_key(&ticket_bytes[..decoded_len]),
-                &ticket_bytes[..decoded_len],
+                &config.ticket_key.observation_key(&ticket_bytes),
+                &ticket_bytes,
                 request.transaction_id,
                 peer,
                 local_addr,
@@ -537,10 +535,8 @@ mod tests {
         });
         let responders = Arc::new([(bound, socket.clone())].into_iter().collect());
         let counters = Arc::new(Counters::default());
-        let (thread_config, thread_counters) = (config.clone(), counters.clone());
-        std::thread::spawn(move || {
-            serve(socket, bound, thread_config, thread_counters, responders)
-        });
+        let thread_config = config.clone();
+        std::thread::spawn(move || serve(socket, bound, thread_config, counters, responders));
         let ticket = config
             .ticket_key
             .issue(now_unix_secs() + 90, &SystemRandom::new())

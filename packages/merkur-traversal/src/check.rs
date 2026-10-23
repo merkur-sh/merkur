@@ -123,7 +123,7 @@ pub struct Binding {
 fn username(id: &[u8; 16], client: bool) -> [u8; 34] {
     let mut out = [0; 34];
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    for (pair, byte) in out[..32].chunks_exact_mut(2).zip(id) {
+    for (pair, byte) in out[..32].as_chunks_mut::<2>().0.iter_mut().zip(id) {
         pair[0] = HEX[usize::from(byte >> 4)];
         pair[1] = HEX[usize::from(byte & 15)];
     }

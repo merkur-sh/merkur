@@ -4,7 +4,10 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Schema } from 'effect';
+import { normalizeEdgeWebTransportUrl } from '../../packages/shared/src/edge-webtransport';
+import { waitForHarnessEdgeRegistration } from '../../tests/e2e/global-setup';
 import { runTestProcess } from '../test-process';
+import { NATIVE_EDGE_URL } from './native-edge';
 import { playwrightCli } from './playwright-cli';
 
 const packageVersion = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.String }));
@@ -30,8 +33,11 @@ const decodeConfiguration = Schema.decodeUnknownSync(
     }),
   ),
 );
-const node = Bun.which('node');
-if (node === null) throw new Error('the bootstrap proof requires Node');
+const node = (() => {
+  const executable = Bun.which('node');
+  if (executable === null) throw new Error('the bootstrap proof requires Node');
+  return executable;
+})();
 
 async function loadedConfiguration() {
   const loaded = await runTestProcess(
@@ -124,6 +130,27 @@ exec /bin/bash "$1" eim-pdf
 }
 
 describe('native NAT-lab bootstrap', () => {
+  test('readiness accepts the canonical registration produced for the native edge', async () => {
+    const certHash = Buffer.alloc(32, 0x91).toString('base64');
+    const record = JSON.stringify({
+      edgeId: 'local-harness-1',
+      edgeWtUrl: normalizeEdgeWebTransportUrl(NATIVE_EDGE_URL),
+      activeCertHash: certHash,
+      certHashes: [certHash],
+      updatedAt: 123,
+    });
+    let reads = 0;
+    await waitForHarnessEdgeRegistration(
+      async () => {
+        reads += 1;
+        return { record, score: 123 };
+      },
+      { edgeId: 'local-harness-1', edgeUrl: NATIVE_EDGE_URL, certHash },
+      AbortSignal.timeout(1_000),
+    );
+    expect(reads).toBe(1);
+  });
+
   test('Playwright resolves the nested config paths and lists its real spec from the nested cwd', async () => {
     const loaded = await loadedConfiguration();
     expect(loaded.globalSetup).toEqual([path.join(root, 'tests/e2e/global-setup.ts')]);
@@ -139,7 +166,11 @@ describe('native NAT-lab bootstrap', () => {
     ]);
     const listed = await runTestProcess(
       [node, playwrightCli, 'test', '--config', nativeConfiguration, '--list'],
-      { cwd: import.meta.dir },
+      {
+        cwd: import.meta.dir,
+        // The standalone CLI must not inherit the outer unit-test worker marker.
+        env: { ...process.env, JEST_WORKER_ID: undefined },
+      },
     );
     expect(listed.exitCode, listed.stderr).toBe(0);
     expect(listed.stdout).toContain('Total: 5 tests in 1 file');

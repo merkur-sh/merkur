@@ -3,17 +3,12 @@ use ring::hmac;
 use std::sync::Arc;
 use tokio::time::{Duration, Instant, timeout};
 
-/// Run by scripts/natlab/discovery.sh in a routed Linux namespace. Uses the
-/// actual observer binary, daemon accept loop, TLS pin, and STUN socket.
-#[tokio::test]
-#[ignore = "requires the isolated routed discovery NAT lab"]
-async fn natlab_live_discovery() {
+fn lab_credential() -> StunCredential {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    let mode = std::env::var("MERKUR_NATLAB_CASE").unwrap();
     let secret = URL_SAFE_NO_PAD
         .decode(std::env::var("MERKUR_STUN_TEST_SECRET").unwrap())
         .unwrap();
-    let credential = StunCredential {
+    StunCredential {
         servers: Arc::new(vec![
             "198.51.100.10:3478".into(),
             "198.51.100.11:3478".into(),
@@ -21,7 +16,16 @@ async fn natlab_live_discovery() {
         ticket: Arc::new(std::env::var("MERKUR_STUN_TEST_TICKET").unwrap()),
         integrity_key: Arc::new(hmac::Key::new(hmac::HMAC_SHA256, &secret)),
         expires_at: Instant::now() + Duration::from_secs(60),
-    };
+    }
+}
+
+/// Run by scripts/natlab/discovery.sh in a routed Linux namespace. Uses the
+/// actual observer binary, daemon accept loop, TLS pin, and STUN socket.
+#[tokio::test]
+#[ignore = "requires the isolated routed discovery NAT lab"]
+async fn natlab_live_discovery() {
+    let mode = std::env::var("MERKUR_NATLAB_CASE").unwrap();
+    let credential = lab_credential();
     let (endpoint, cert, info) = crate::webtransport::start_server(44300, None).unwrap();
     let endpoint = Arc::new(endpoint);
     let state = Arc::new(tokio::sync::RwLock::new(
