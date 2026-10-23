@@ -225,7 +225,7 @@ export function buildDaemonServiceProgramArguments(executablePath: string): read
   return [path.resolve(executablePath), 'daemon'];
 }
 
-function buildLaunchdPlist(programArguments: readonly string[]): string {
+export function buildLaunchdPlist(programArguments: readonly string[]): string {
   const programArgumentsXml = programArguments
     .map((argument) => `    <string>${escapeXml(argument)}</string>`)
     .join('\n');
@@ -244,6 +244,8 @@ ${programArgumentsXml}
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ExitTimeOut</key>
+  <integer>0</integer>
   <key>StandardOutPath</key>
   <string>/tmp/merkur-daemon.log</string>
   <key>StandardErrorPath</key>
@@ -264,6 +266,8 @@ After=network-online.target
 ExecStart=${execStart}
 Restart=always
 RestartSec=2
+KillMode=mixed
+TimeoutStopSec=infinity
 
 [Install]
 WantedBy=default.target

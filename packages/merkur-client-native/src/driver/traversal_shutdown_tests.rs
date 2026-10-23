@@ -54,7 +54,7 @@ async fn command_eof_waits_for_router_delete_before_the_driver_can_exit() {
         finish_delete,
         serving,
         ..
-    } = owned_pinhole(&["AddPinhole", "DeletePinhole"]).await;
+    } = owned_pinhole(&[("AddPinhole", true), ("DeletePinhole", true)]).await;
     drop(carrier);
     let (commands, input) = Commands::channel();
     drop(commands);

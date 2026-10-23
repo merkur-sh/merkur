@@ -1,9 +1,10 @@
 import { normalizeUnknownError } from '@merkur/shared';
-import { Clock, Effect } from 'effect';
+import { Effect } from 'effect';
 
 import { daemonInstanceLockPath, launchAgentPath, loadDaemonConfigEffect } from '../config';
 import type { Logger } from '../logger';
 import { isProcessAlive } from '../process-utils';
+import { resolveDataplaneBinaryPath } from '../services/dataplane-binary';
 import { readLockPidEffect, removeLockFileEffect } from '../single-instance';
 import { resolveLaunchctlUserId, runLaunchctlEffect } from './launchctl';
 import { DAEMON_LAUNCHD_LABEL, DAEMON_SYSTEMD_UNIT_NAME } from './service-identity';
@@ -11,8 +12,6 @@ import { runSystemctlEffect } from './systemctl';
 
 const LABEL = DAEMON_LAUNCHD_LABEL;
 const SYSTEMD_UNIT_NAME = DAEMON_SYSTEMD_UNIT_NAME;
-const STOP_TIMEOUT_MS = 3_000;
-const STOP_POLL_MS = 100;
 const MERKUR_PROCESS_MARKERS = ['merkur', 'apps/daemon', 'src/index.ts'];
 const LAUNCHCTL_EVENTS = {
   ignored: 'daemon_stop_launchctl_ignored',
@@ -33,74 +32,119 @@ export async function runStopCommand(logger: Logger): Promise<number> {
 }
 
 function runStopCommandEffect(logger: Logger): Effect.Effect<number, Error> {
-  return Effect.gen(function* () {
-    const config = yield* loadDaemonConfigEffect().pipe(Effect.catch(() => Effect.succeed(null)));
-    const lockPath = config === null ? null : daemonInstanceLockPath(config.daemon_id);
-    const lockPid = lockPath === null ? null : yield* readLockPidEffect(lockPath);
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const config = yield* loadDaemonConfigEffect().pipe(Effect.catch(() => Effect.succeed(null)));
+      const lockPath = config === null ? null : daemonInstanceLockPath(config.daemon_id);
+      const lockPid = lockPath === null ? null : yield* readLockPidEffect(lockPath);
 
-    if (process.platform === 'linux') {
-      yield* runSystemctlEffect(
-        logger,
-        ['disable', '--now', SYSTEMD_UNIT_NAME],
-        true,
-        SYSTEMCTL_EVENTS,
-      );
-    } else if (process.platform === 'darwin') {
-      const uid = resolveLaunchctlUserId();
-      const launchDomain = `gui/${uid}`;
-      const plistPath = launchAgentPath();
-      yield* runLaunchctlEffect(
-        logger,
-        ['bootout', `${launchDomain}/${LABEL}`],
-        true,
-        LAUNCHCTL_EVENTS,
-      );
-      yield* runLaunchctlEffect(
-        logger,
-        ['bootout', launchDomain, plistPath],
-        true,
-        LAUNCHCTL_EVENTS,
-      );
-    }
+      const stop = lockPid === null ? null : yield* prepareLockedProcessStop(lockPid);
 
-    if (lockPath !== null && lockPid === null) {
-      yield* removeLockFileEffect(lockPath);
-    } else if (lockPath !== null && lockPid !== null) {
-      yield* stopLockedProcessEffect(lockPath, lockPid, logger);
-    }
+      if (process.platform === 'linux') {
+        yield* runSystemctlEffect(
+          logger,
+          ['disable', '--now', SYSTEMD_UNIT_NAME],
+          true,
+          SYSTEMCTL_EVENTS,
+        );
+      } else if (process.platform === 'darwin') {
+        const uid = resolveLaunchctlUserId();
+        const launchDomain = `gui/${uid}`;
+        const plistPath = launchAgentPath();
+        yield* runLaunchctlEffect(
+          logger,
+          ['bootout', `${launchDomain}/${LABEL}`],
+          true,
+          LAUNCHCTL_EVENTS,
+        );
+        yield* runLaunchctlEffect(
+          logger,
+          ['bootout', launchDomain, plistPath],
+          true,
+          LAUNCHCTL_EVENTS,
+        );
+      }
 
-    logger.info('daemon_stop_success', { lockPid });
-    return 0;
-  });
+      if (lockPath !== null && lockPid === null) {
+        yield* removeLockFileEffect(lockPath);
+      } else if (lockPath !== null && lockPid !== null) {
+        if (stop !== null) {
+          yield* Effect.tryPromise({ try: stop, catch: normalizeUnknownError });
+        }
+        yield* removeLockFileEffect(lockPath);
+      }
+
+      logger.info('daemon_stop_success', { lockPid });
+      return 0;
+    }),
+  );
 }
 
-function stopLockedProcessEffect(
-  lockPath: string,
-  pid: number,
-  logger: Logger,
-): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    if (!isProcessAlive(pid)) {
-      yield* removeLockFileEffect(lockPath);
-      return;
-    }
+const prepareLockedProcessStop = Effect.fnUntraced(function* (pid: number) {
+  if (!isProcessAlive(pid)) return null;
+  const stop = yield* Effect.acquireRelease(
+    Effect.tryPromise({ try: () => prepareProcessStop(pid), catch: normalizeUnknownError }),
+    (stop) => Effect.promise(stop.close),
+  );
+  // Check ownership after capture: a stale numeric PID can never redirect the
+  // already-armed helper's signal to a successor process.
+  const processInfo = yield* inspectProcessEffect(pid);
+  if (processInfo === null || !isMerkurProcessInfo(processInfo)) {
+    return yield* Effect.fail(
+      new Error(`Refusing to stop pid ${pid}: unable to verify a Merkur daemon`),
+    );
+  }
+  return stop.finish;
+});
 
-    const processInfo = yield* inspectProcessEffect(pid);
-    if (processInfo === null) {
-      return yield* Effect.fail(
-        new Error(`Refusing to kill pid ${pid}: unable to verify it is a Merkur daemon`),
-      );
-    }
-
-    if (!isMerkurProcessInfo(processInfo)) {
-      return yield* Effect.fail(
-        new Error(`Refusing to kill pid ${pid}: process does not look like Merkur`),
-      );
-    }
-
-    yield* stopProcessEffect(pid, logger);
-    yield* removeLockFileEffect(lockPath);
+async function prepareProcessStop(pid: number): Promise<{
+  finish: () => Promise<void>;
+  close: () => Promise<void>;
+}> {
+  const binary = resolveDataplaneBinaryPath();
+  if (binary === null) throw new Error('Dataplane binary not found for graceful process stop');
+  const child = Bun.spawn([binary, 'process-stop', String(pid)], {
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
   });
+  const errors = new Response(child.stderr).text();
+  let requested = false;
+  const close = async (): Promise<void> => {
+    try {
+      if (!requested) child.stdin.end();
+    } finally {
+      await child.exited;
+      await errors;
+    }
+  };
+  try {
+    const reader = child.stdout.getReader();
+    let ready = '';
+    while (ready.length < 6) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(`Unable to watch daemon process: ${await errors}`);
+      ready += new TextDecoder().decode(chunk.value);
+    }
+    reader.releaseLock();
+    if (ready !== 'ready\n') throw new Error('Invalid process stop readiness');
+    return {
+      close,
+      finish: async () => {
+        if (!requested) {
+          requested = true;
+          child.stdin.write('s');
+          child.stdin.end();
+        }
+        const exitCode = await child.exited;
+        const error = await errors;
+        if (exitCode !== 0) throw new Error(`Graceful daemon stop failed: ${error}`);
+      },
+    };
+  } catch (error) {
+    await close();
+    throw error;
+  }
 }
 
 function inspectProcessEffect(pid: number): Effect.Effect<ProcessInfo | null, Error> {
@@ -145,37 +189,4 @@ export function parseProcessInfo(output: string): ProcessInfo | null {
 export function isMerkurProcessInfo(processInfo: ProcessInfo): boolean {
   const haystack = `${processInfo.command}\n${processInfo.args}`.toLowerCase();
   return MERKUR_PROCESS_MARKERS.some((marker) => haystack.includes(marker));
-}
-
-function stopProcessEffect(pid: number, logger: Logger): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    if (!isProcessAlive(pid)) {
-      return;
-    }
-
-    yield* Effect.try({
-      try: () => process.kill(pid, 'SIGTERM'),
-      catch: normalizeUnknownError,
-    }).pipe(Effect.catchIf(isProcessMissingError, () => Effect.void));
-
-    const deadline = (yield* Clock.currentTimeMillis) + STOP_TIMEOUT_MS;
-    while ((yield* Clock.currentTimeMillis) < deadline) {
-      if (!isProcessAlive(pid)) {
-        return;
-      }
-      yield* Effect.sleep(`${STOP_POLL_MS} millis`);
-    }
-
-    if (isProcessAlive(pid)) {
-      logger.warn('daemon_stop_force_kill', { pid });
-      yield* Effect.try({
-        try: () => process.kill(pid, 'SIGKILL'),
-        catch: normalizeUnknownError,
-      }).pipe(Effect.catchIf(isProcessMissingError, () => Effect.void));
-    }
-  });
-}
-
-function isProcessMissingError(error: Error): boolean {
-  return 'code' in error && error.code === 'ESRCH';
 }

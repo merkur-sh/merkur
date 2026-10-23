@@ -107,8 +107,7 @@
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/daemon/src/cli/stop.ts": {
-    "no-literal-timer-delay": 1,
-    "no-swallowed-error": 3
+    "no-swallowed-error": 1
   },
   "apps/daemon/src/index.ts": {
     "no-known-value-widening": 1
@@ -2444,7 +2443,7 @@
   },
   "tests/e2e/fixtures/daemon-process.ts": {
     "comment-defensive": 1,
-    "no-literal-timer-delay": 2,
+    "no-literal-timer-delay": 1,
     "no-runtime-typeof": 1,
     "no-swallowed-error": 3
   },

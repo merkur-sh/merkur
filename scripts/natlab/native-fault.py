@@ -219,31 +219,92 @@ def dynamic_chains(ruleset):
             and (chain['name'].endswith('_miniupnpd') or chain['name'] == 'miniupnpd')]
 
 
-def used_dnat(ruleset):
+def ipv4_udp_grants(ruleset):
     result = []
     for obj in ruleset.get('nftables', []):
         rule = obj.get('rule', {})
-        if not rule.get('chain', '').endswith('_miniupnpd'):
+        if rule.get('chain') != 'prerouting_miniupnpd':
             continue
         expressions = rule.get('expr', [])
-        if any('dnat' in expr for expr in expressions) and any(
-                expr.get('counter', {}).get('packets', 0) > 0 for expr in expressions):
-            result.append(rule)
+        matches = [expr['match'] for expr in expressions if 'match' in expr]
+        udp = False
+        external = None
+        incoming = False
+        for match in matches:
+            if match.get('op') != '==':
+                continue
+            left, right = match.get('left', {}), match.get('right')
+            payload = left.get('payload', {})
+            meta = left.get('meta', {})
+            incoming |= meta.get('key') in ('iif', 'iifname') and right == 'wan0'
+            udp |= ((meta.get('key') == 'l4proto' or
+                     payload.get('protocol') == 'ip' and payload.get('field') == 'protocol')
+                    and right in ('udp', 17))
+            udp |= (payload.get('base') == 'nh' and payload.get('offset') == 72
+                    and payload.get('len') == 8 and right == 17)
+            if payload.get('protocol') in ('th', 'udp') and payload.get('field') == 'dport':
+                external = right
+        for expression in expressions:
+            grant = expression.get('dnat', {})
+            if (not udp or not incoming or grant.get('family') != 'ip'
+                    or type(external) is not int or not 0 < external <= 65535
+                    or type(grant.get('port')) is not int or not 0 < grant['port'] <= 65535):
+                continue
+            inside = str(ipaddress.IPv4Address(grant['addr']))
+            result.append(dict(privateIP=inside, localPort=grant['port'], externalPort=external, rule=rule))
     return result
 
 
+def reacquired_grant(before, flushed, current):
+    previous = ipv4_udp_grants(before)
+    if len(previous) != 1 or ipv4_udp_grants(flushed):
+        raise ValueError('gateway reset requires one previous native grant and an empty flushed gateway')
+    matches = [grant for grant in ipv4_udp_grants(current)
+               if (grant['privateIP'], grant['localPort']) ==
+               (previous[0]['privateIP'], previous[0]['localPort'])]
+    if len(matches) > 1:
+        raise ValueError('gateway reset produced ambiguous replacement grants for one native binding')
+    return dict(previous=previous[0], current=matches[0]) if matches else None
+
+
+def inbound_lease_replied(grant, connections, public):
+    for line in connections.splitlines():
+        if '[UNREPLIED]' in line:
+            continue
+        for original, reply in tuples(line):
+            if (original.get('dst') == public and original.get('dport') == str(grant['externalPort'])
+                    and reply.get('src') == grant['privateIP'] and reply.get('sport') == str(grant['localPort'])
+                    and reply.get('dst') == original.get('src') and reply.get('dport') == original.get('sport')):
+                return True
+    return False
+
+
 def wait_lease(role):
-    if lifecycle().get('gatewayReboot', {}).get('role') != role:
+    reboot = lifecycle().get('gatewayReboot', {})
+    if reboot.get('role') != role:
         raise ValueError('lease reacquisition requires this role\'s completed real gateway reset')
+    before = json.loads((STATE / f'before-gateway-reboot-{role}-nft.json').read_text())
+    flushed = json.loads((STATE / f'flushed-gateway-reboot-{role}-nft.json').read_text())
+    previous = ipv4_udp_grants(before)
+    public = f'198.51.100.{1 if role == "daemon" else 2}'
+    connections = (STATE / f'before-gateway-reboot-{role}-conntrack.txt').read_text()
+    if len(previous) != 1 or not inbound_lease_replied(previous[0], connections, public):
+        raise ValueError('gateway reset has no previously used inbound native lease binding')
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         state = json.loads(run(cpe(role), 'nft', '-j', 'list', 'ruleset').stdout)
-        if used_dnat(state):
+        replacement = reacquired_grant(before, flushed, state)
+        if replacement:
             (STATE / f'reacquired-{role}-nft.json').write_text(json.dumps(state) + '\n')
+            (STATE / f'reacquired-{role}-lease.json').write_text(json.dumps(dict(
+                role=role, protocol=reboot['protocol'], publicIP=public, observedAtNs=time.time_ns(),
+                previousEpoch=reboot['previousEpoch'], currentEpoch=reboot['currentEpoch'],
+                previousPid=reboot['previousPid'], currentPid=reboot['currentPid'],
+                **replacement)) + '\n')
             lifecycle(leaseReacquiredAtNs=time.time_ns())
             return
         time.sleep(0.05)
-    raise RuntimeError('no used native router lease after gateway reset')
+    raise RuntimeError('no replacement native binding grant after the real gateway reset')
 
 
 def observe_announcement(inside, gateway, path):

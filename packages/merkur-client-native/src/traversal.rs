@@ -6,7 +6,7 @@ use std::sync::Arc;
 use base64::Engine;
 use futures::FutureExt;
 use merkur_client::session::{NativeTraversalSetup, Session};
-use merkur_wire::traversal::{Binding, Candidate, Snapshot};
+use merkur_wire::traversal::{Binding, Candidate, MAX_BINDINGS, Snapshot};
 use serde::Deserialize;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinHandle;
@@ -135,6 +135,10 @@ impl Drop for Tasks {
 }
 
 pub(super) enum Notice {
+    Retired {
+        binding: u64,
+    },
+    Capacity,
     Prepared {
         lineage: u32,
         network: u64,
@@ -142,6 +146,7 @@ pub(super) enum Notice {
         next_id: u64,
         credential: Arc<Credential>,
         credential_failed: bool,
+        capacity_blocked: bool,
         bindings: Vec<(Arc<SocketBinding>, Vec<Candidate>)>,
     },
     Checked {
@@ -212,7 +217,12 @@ pub(super) struct Owner {
     credential: Option<Arc<Credential>>,
     gather: Tasks,
     checks: Tasks,
-    workers: Vec<JoinHandle<()>>,
+    workers: Vec<socket::WorkerTask>,
+    quarantined: Vec<socket::Quarantine>,
+    budget: Arc<Semaphore>,
+    lifecycle_tx: mpsc::Sender<socket::Retirement>,
+    lifecycle_rx: mpsc::Receiver<socket::Retirement>,
+    capacity_blocked: bool,
     bindings: Vec<(Arc<SocketBinding>, Vec<Candidate>)>,
     generation: u64,
     next_id: u64,
@@ -234,6 +244,7 @@ pub(super) struct Owner {
 impl Owner {
     pub fn new() -> Self {
         let (events, received) = mpsc::channel(32);
+        let (lifecycle_tx, lifecycle_rx) = mpsc::channel(MAX_BINDINGS);
         Self {
             lineage: None,
             network: 1,
@@ -246,6 +257,14 @@ impl Owner {
             gather: Tasks::default(),
             checks: Tasks::default(),
             workers: Vec::new(),
+            quarantined: Vec::new(),
+            // Each physical scope, including pending cleanup and quarantine,
+            // charges this existing binding bound; each scope has at most
+            // MAX_BINDINGS owned or in-flight router allocations.
+            budget: Arc::new(Semaphore::new(MAX_BINDINGS)),
+            lifecycle_tx,
+            lifecycle_rx,
+            capacity_blocked: false,
             bindings: Vec::new(),
             generation: 0,
             next_id: 1,
@@ -288,6 +307,7 @@ impl Owner {
         self.clear_checks();
         self.gather.clear();
         self.received.close();
+        self.lifecycle_rx.close();
         while let Ok(notice) = self.received.try_recv() {
             drop(notice);
         }
@@ -306,19 +326,55 @@ impl Owner {
         while let Ok(notice) = self.received.try_recv() {
             drop(notice);
         }
-        drain_tasks(std::mem::take(&mut self.workers), "router_maintenance").await;
+        for task in std::mem::take(&mut self.workers) {
+            self.worker_completed(task.await);
+        }
     }
 
-    fn register_worker(&mut self, task: JoinHandle<()>) {
-        reap_finished(&mut self.workers, "router_maintenance");
+    fn register_worker(&mut self, task: socket::WorkerTask) {
+        let mut completed = Vec::new();
+        self.workers.retain_mut(|worker| {
+            if !worker.is_finished() {
+                return true;
+            }
+            match worker.now_or_never() {
+                Some(result) => {
+                    completed.push(result);
+                    false
+                }
+                None => true,
+            }
+        });
+        for result in completed {
+            self.worker_completed(result);
+        }
         self.workers.push(task);
+    }
+
+    fn worker_completed(
+        &mut self,
+        result: Result<Option<socket::Quarantine>, tokio::task::JoinError>,
+    ) {
+        match result {
+            Ok(Some(quarantine)) => {
+                tracing::warn!(
+                    grants = quarantine.count(),
+                    "router deletions unacknowledged; retaining socket custody"
+                );
+                self.quarantined.push(quarantine);
+            }
+            Ok(None) => {}
+            Err(error) => observe_completion(Err(error), "router_maintenance"),
+        }
     }
 
     pub fn synchronize(&mut self, session: &Session, issuer: &Arc<dyn Issuer>) {
         let Some(lineage) = self.synchronize_scope(session) else {
             return;
         };
-        if self.requested != Some((lineage, self.network)) {
+        if self.requested != Some((lineage, self.network))
+            && !(self.capacity_blocked && self.bindings.is_empty())
+        {
             self.begin_gather(session, issuer, lineage);
         }
         self.refresh_checks(session, lineage);
@@ -401,7 +457,7 @@ impl Owner {
         self.setup = Some(setup);
         let setup = self.setup.as_ref().expect("installed setup");
         let request = setup.request.clone();
-        let existing = self
+        let existing: Vec<_> = self
             .bindings
             .iter()
             .map(|(binding, _)| binding.clone())
@@ -413,36 +469,53 @@ impl Owner {
             self.work,
             self.next_id,
         );
+        let (budget, blocked) = (self.budget.clone(), self.capacity_blocked);
         self.gather.0.push(tokio::spawn(async move {
-            let (credential, credential_failed) = match issuer.stun(request).await {
-                Ok(credential) => (credential, false),
-                Err(error) if error.authorization_denied() => {
-                    let _delivery = events
-                        .send(Notice::Denied {
-                            lineage,
-                            network,
-                            work,
-                            error,
-                        })
-                        .await;
-                    return;
+            let opened = if blocked {
+                socket::Opened {
+                    bindings: existing
+                        .into_iter()
+                        .filter(|binding: &Arc<SocketBinding>| !binding.is_retired())
+                        .collect(),
+                    capacity_blocked: true,
                 }
-                Err(_) => {
-                    tracing::debug!(
-                        lineage,
-                        network,
-                        work,
-                        stage = "credential",
-                        outcome = "unavailable"
-                    );
-                    (Credential::without_observers(), true)
-                }
+            } else {
+                socket::open(existing, &mut next_id, &budget)
             };
+            let (credential, credential_failed) =
+                if opened.bindings.is_empty() && opened.capacity_blocked {
+                    (Credential::without_observers(), false)
+                } else {
+                    match issuer.stun(request).await {
+                        Ok(credential) => (credential, false),
+                        Err(error) if error.authorization_denied() => {
+                            let _delivery = events
+                                .send(Notice::Denied {
+                                    lineage,
+                                    network,
+                                    work,
+                                    error,
+                                })
+                                .await;
+                            return;
+                        }
+                        Err(_) => {
+                            tracing::debug!(
+                                lineage,
+                                network,
+                                work,
+                                stage = "credential",
+                                outcome = "unavailable"
+                            );
+                            (Credential::without_observers(), true)
+                        }
+                    }
+                };
             let credential = Arc::new(credential);
-            let sockets = socket::open(existing, &mut next_id);
             // Socket descriptors permit LAN/overlay checks immediately.
             // Public observation and router admission run beside them.
-            let bindings = sockets
+            let bindings = opened
+                .bindings
                 .into_iter()
                 .map(|binding| (binding, Vec::new()))
                 .collect();
@@ -454,6 +527,7 @@ impl Owner {
                     next_id,
                     credential,
                     credential_failed,
+                    capacity_blocked: opened.capacity_blocked,
                     bindings,
                 })
                 .await;
@@ -555,7 +629,7 @@ impl Owner {
     pub fn binding(&self, id: u64) -> Option<Arc<SocketBinding>> {
         self.bindings
             .iter()
-            .find(|(binding, _)| binding.id == id)
+            .find(|(binding, _)| binding.id == id && !binding.is_retired())
             .map(|(binding, _)| binding.clone())
     }
 
@@ -581,6 +655,7 @@ impl Owner {
                 .iter()
                 .all(|binding| self.finished.contains(binding));
         if self.credential.is_some()
+            && !(self.capacity_blocked && self.bindings.is_empty())
             && (credential_retry || checks_complete)
             && !session.native_direct_live()
             && !session.native_direct_attempt_pending()
@@ -647,14 +722,27 @@ impl Owner {
             return None;
         }
         match notice {
+            Notice::Retired { binding } => self.retire_binding(session, binding),
+            Notice::Capacity => {
+                self.capacity_blocked = false;
+                self.requested = None;
+            }
             Notice::Prepared {
                 next_id,
                 credential,
                 credential_failed,
+                capacity_blocked,
                 bindings,
                 ..
             } => {
-                self.prepared(session, next_id, credential, credential_failed, bindings);
+                self.prepared(
+                    session,
+                    next_id,
+                    credential,
+                    credential_failed,
+                    capacity_blocked,
+                    bindings,
+                );
             }
             Notice::Checked {
                 lineage,
@@ -718,28 +806,56 @@ impl Owner {
                 self.finished.retain(|done| *done != binding);
                 self.retry_at = None;
             }
-            Notice::Retry { .. } => {
-                self.retry_at = None;
-                if !session.native_direct_live()
-                    && !session.native_direct_attempt_pending()
-                    && (self.credential_failed
-                        || self.opening_failed
-                        || !self
-                            .authorities
-                            .iter()
-                            .any(|authority| authority.is_checking()))
-                {
-                    self.failures = self.failures.saturating_add(1);
-                    self.requested = None;
-                }
-            }
+            Notice::Retry { .. } => self.retry(session),
             Notice::Denied { error, .. } => return Some(error),
         }
         None
     }
 
+    fn retry(&mut self, session: &Session) {
+        self.retry_at = None;
+        if !session.native_direct_live()
+            && !session.native_direct_attempt_pending()
+            && (self.credential_failed
+                || self.opening_failed
+                || !self
+                    .authorities
+                    .iter()
+                    .any(|authority| authority.is_checking()))
+        {
+            self.failures = self.failures.saturating_add(1);
+            self.requested = None;
+        }
+    }
+
+    fn retire_binding(&mut self, session: &mut Session, binding: u64) {
+        self.bindings.retain(|(held, _)| held.id != binding);
+        session.native_network_changed();
+        self.clear_checks();
+        self.gather.clear();
+        self.work = self
+            .work
+            .checked_add(1)
+            .expect("native discovery work generation exhausted");
+        self.updates = None;
+        self.offered = None;
+        self.requested = None;
+        self.retry_at = None;
+    }
+
     fn notice_current(&self, notice: &Notice) -> bool {
         match notice {
+            Notice::Retired { binding } => self
+                .bindings
+                .iter()
+                .any(|(held, _)| held.id == *binding && held.is_retired()),
+            Notice::Capacity => self.capacity_blocked,
+            Notice::Observed { binding, .. } | Notice::Candidates { binding, .. }
+                if self.binding(*binding).is_none() =>
+            {
+                false
+            }
+
             Notice::Prepared {
                 lineage,
                 network,
@@ -768,7 +884,7 @@ impl Owner {
                 if !self
                     .bindings
                     .iter()
-                    .any(|(socket, _)| socket.id == *binding) =>
+                    .any(|(socket, _)| socket.id == *binding && !socket.is_retired()) =>
             {
                 false
             }
@@ -840,7 +956,8 @@ impl Owner {
         }
         socket::commit_observations(&binding, gathered);
         if let Some(updates) = self.updates.clone()
-            && let Some(worker) = socket::maintain(&binding, credential, updates)
+            && let Some(worker) =
+                socket::maintain(&binding, credential, updates, self.lifecycle_tx.clone())
         {
             self.register_worker(worker);
         }
@@ -854,6 +971,7 @@ impl Owner {
         next_id: u64,
         credential: Arc<Credential>,
         credential_failed: bool,
+        capacity_blocked: bool,
         bindings: Vec<(Arc<SocketBinding>, Vec<Candidate>)>,
     ) {
         let Some(lineage) = self.lineage else { return };
@@ -868,8 +986,12 @@ impl Owner {
             outcome = "prepared"
         );
         self.next_id = next_id;
-        self.bindings = bindings;
-        self.opening_failed = self.bindings.is_empty();
+        self.bindings = bindings
+            .into_iter()
+            .filter(|(binding, _)| !binding.is_retired())
+            .collect();
+        self.capacity_blocked = capacity_blocked;
+        self.opening_failed = self.bindings.is_empty() && !capacity_blocked;
         self.observing = self
             .bindings
             .iter()
@@ -932,6 +1054,11 @@ impl Owner {
                 lineage: self.lineage.unwrap_or(0), network: self.network,
                 work: self.work, generation: self.generation,
             },
+            Some(retired) = self.lifecycle_rx.recv() => Notice::Retired { binding: retired.binding },
+            permit = self.budget.clone().acquire_owned(), if self.capacity_blocked => {
+                drop(permit);
+                Notice::Capacity
+            },
             Some(notice) = self.received.recv() => notice,
             () = wait_deadline(self.retry_at) => Notice::Retry {
                 lineage: self.lineage.unwrap_or(0), network: self.network,
@@ -982,7 +1109,7 @@ impl Owner {
         if let Some((_, held)) = self
             .bindings
             .iter_mut()
-            .find(|(binding, _)| binding.id == id)
+            .find(|(binding, _)| binding.id == id && !binding.is_retired())
             && *held != candidates
         {
             *held = candidates;
@@ -1045,7 +1172,7 @@ mod tests {
         }
     }
 
-    fn idle_session() -> Session {
+    pub(super) fn idle_session() -> Session {
         let certificate = serde_json::from_value(serde_json::json!({
             "userId": "owner", "rootKeyCommitment": "root", "delegationId": "delegate",
             "delegatePublicKey": "key", "scopes": ["terminal-session", "session-revoke"],
@@ -1072,7 +1199,12 @@ mod tests {
         credential.ticket = "current-ticket".into();
         credential.expires_at = Instant::now() + std::time::Duration::from_secs(90);
         let mut next = 1;
-        let sockets = socket::open(Vec::new(), &mut next);
+        let sockets = socket::open(
+            Vec::new(),
+            &mut next,
+            &Arc::new(Semaphore::new(MAX_BINDINGS)),
+        )
+        .bindings;
         let binding = sockets.into_iter().next().expect("owned loopback route");
         let candidate = Candidate {
             address: "198.51.100.1:50000".parse().unwrap(),
@@ -1177,6 +1309,7 @@ mod tests {
                 next_id: 1,
                 credential: Arc::new(Credential::without_observers()),
                 credential_failed: false,
+                capacity_blocked: false,
                 bindings: Vec::new(),
             },
             &mut session,
@@ -1253,10 +1386,15 @@ mod tests {
         let credential =
             Credential::parse(&serde_json::to_vec(&wire_credential()).unwrap()).unwrap();
         let mut next_id = 1;
-        let held = socket::open(Vec::new(), &mut next_id)
-            .into_iter()
-            .next()
-            .expect("owned family socket");
+        let held = socket::open(
+            Vec::new(),
+            &mut next_id,
+            &Arc::new(Semaphore::new(MAX_BINDINGS)),
+        )
+        .bindings
+        .into_iter()
+        .next()
+        .expect("owned family socket");
         let checks = merkur_traversal::check::Binding::install(
             held.socket.clone(),
             [1; 16],

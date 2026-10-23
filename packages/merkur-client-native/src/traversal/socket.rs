@@ -3,6 +3,7 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -20,7 +21,7 @@ use merkur_wire::{
     traversal::{Candidate, MAX_BINDINGS, Observation},
 };
 use ring::hmac;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::time::{Duration, Instant};
 use wtransport::quinn::{AsyncUdpSocket, UdpPoller, udp};
 #[cfg(not(merkur_sim))]
@@ -69,6 +70,19 @@ struct ObservedPath {
 /// including QUIC replies whose receive metadata supplied a previous local IP.
 struct NativeSocket {
     inner: Arc<dyn AsyncUdpSocket>,
+    _allocation: OwnedSemaphorePermit,
+}
+
+#[derive(Debug)]
+struct NativePoller {
+    inner: Pin<Box<dyn UdpPoller>>,
+    _socket: Arc<NativeSocket>,
+}
+
+impl UdpPoller for NativePoller {
+    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        self.get_mut().inner.as_mut().poll_writable(cx)
+    }
 }
 
 impl std::fmt::Debug for NativeSocket {
@@ -81,7 +95,10 @@ impl std::fmt::Debug for NativeSocket {
 
 impl AsyncUdpSocket for NativeSocket {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
-        self.inner.clone().create_io_poller()
+        Box::pin(NativePoller {
+            inner: self.inner.clone().create_io_poller(),
+            _socket: self,
+        })
     }
 
     fn try_send(&self, transmit: &udp::Transmit<'_>) -> io::Result<()> {
@@ -124,19 +141,35 @@ pub struct SocketBinding {
     pub socket: Arc<DiscoverySocket>,
     observations: Arc<Mutex<Observations>>,
     maintenance: Mutex<Option<Maintenance>>,
+    retired: Arc<AtomicBool>,
 }
 
 impl SocketBinding {
     /// Family support is the only preflight fact. The kernel applies its real
     /// UDP flow policy to every send; authenticated checks prove reachability.
     pub fn routes(&self, destination: SocketAddr) -> bool {
-        (self.family == 4) == destination.is_ipv4()
+        !self.is_retired() && (self.family == 4) == destination.is_ipv4()
+    }
+
+    pub fn is_retired(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
     }
 }
 
 /// One stable wildcard port per family, independent of observer availability.
 /// An unavailable IPv6 stack simply cannot create that family's binding.
-pub fn open(mut existing: Vec<Arc<SocketBinding>>, next_id: &mut u64) -> Vec<Arc<SocketBinding>> {
+pub struct Opened {
+    pub bindings: Vec<Arc<SocketBinding>>,
+    pub capacity_blocked: bool,
+}
+
+pub fn open(
+    mut existing: Vec<Arc<SocketBinding>>,
+    next_id: &mut u64,
+    budget: &Arc<Semaphore>,
+) -> Opened {
+    existing.retain(|binding| !binding.is_retired());
+    let mut capacity_blocked = false;
     for family in [4, 6] {
         if existing.iter().any(|binding| binding.family == family) {
             continue;
@@ -147,15 +180,30 @@ pub fn open(mut existing: Vec<Arc<SocketBinding>>, next_id: &mut u64) -> Vec<Arc
         else {
             break;
         };
-        if let Ok(binding) = create(id, family) {
+        let Ok(allocation) = budget.clone().try_acquire_owned() else {
+            capacity_blocked = true;
+            break;
+        };
+        if let Ok(binding) = create(id, family, allocation) {
             *next_id = id;
             existing.push(Arc::new(binding));
         }
     }
-    existing
+    Opened {
+        bindings: existing,
+        capacity_blocked,
+    }
 }
 
-fn create(id: u64, family: u8) -> io::Result<SocketBinding> {
+#[cfg(test)]
+fn test_binding(id: u64, family: u8) -> io::Result<SocketBinding> {
+    let allocation = Arc::new(Semaphore::new(MAX_BINDINGS))
+        .try_acquire_owned()
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    create(id, family, allocation)
+}
+
+fn create(id: u64, family: u8, allocation: OwnedSemaphorePermit) -> io::Result<SocketBinding> {
     let address = if family == 4 {
         SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, 0))
     } else {
@@ -180,7 +228,10 @@ fn create(id: u64, family: u8) -> io::Result<SocketBinding> {
         raw.set_nonblocking(true)?;
         let inner = TokioRuntime.wrap_udp_socket(raw.into())?;
         (
-            DiscoverySocket::from_abstract(Arc::new(NativeSocket { inner })),
+            DiscoverySocket::from_abstract(Arc::new(NativeSocket {
+                inner,
+                _allocation: allocation,
+            })),
             Arc::new(TokioRuntime) as Arc<dyn wtransport::quinn::Runtime>,
         )
     };
@@ -195,6 +246,7 @@ fn create(id: u64, family: u8) -> io::Result<SocketBinding> {
             config,
             DiscoverySocket::from_abstract(Arc::new(NativeSocket {
                 inner: bound.socket,
+                _allocation: allocation,
             })),
             bound.runtime,
         )
@@ -209,6 +261,7 @@ fn create(id: u64, family: u8) -> io::Result<SocketBinding> {
         socket,
         observations: Arc::new(Mutex::new(Observations::default())),
         maintenance: Mutex::new(None),
+        retired: Arc::new(AtomicBool::new(false)),
     })
 }
 
@@ -413,7 +466,6 @@ fn router_path(local: IpAddr) -> Option<RouterPath> {
 
 struct Mapping {
     path: RouterPath,
-    mapped: IpAddr,
     lease: Option<Box<portmap::Lease>>,
     pinhole: Option<Box<portmap::Pinhole>>,
     announcements: Option<Arc<tokio::net::UdpSocket>>,
@@ -431,12 +483,21 @@ impl Mapping {
             .min()
             .map(|delay| Instant::now() + delay);
     }
-    async fn release(mut self) {
-        if let Some(lease) = self.lease.take() {
-            portmap::release(*lease).await;
+    async fn release(mut self) -> Result<(), Self> {
+        if let Some(lease) = self.lease.as_ref()
+            && portmap::release((**lease).clone()).await
+        {
+            self.lease = None;
         }
-        if let Some(pinhole) = self.pinhole.take() {
-            portmap::release_pinhole(*pinhole).await;
+        if let Some(pinhole) = self.pinhole.as_ref()
+            && portmap::release_pinhole((**pinhole).clone()).await
+        {
+            self.pinhole = None;
+        }
+        if self.lease.is_none() && self.pinhole.is_none() {
+            Ok(())
+        } else {
+            Err(self)
         }
     }
 }
@@ -444,7 +505,6 @@ impl Mapping {
 async fn acquire(path: RouterPath, observed: ObservedPath, port: u16) -> Mapping {
     let mut mapping = Mapping {
         path,
-        mapped: observed.mapped,
         lease: None,
         pinhole: None,
         announcements: None,
@@ -473,6 +533,24 @@ async fn acquire(path: RouterPath, observed: ObservedPath, port: u16) -> Mapping
     mapping
 }
 
+#[derive(Clone, Copy)]
+pub struct Retirement {
+    pub binding: u64,
+}
+
+pub struct Quarantine {
+    _socket: Arc<DiscoverySocket>,
+    _grants: Vec<Mapping>,
+}
+
+impl Quarantine {
+    pub(super) fn count(&self) -> usize {
+        self._grants.len()
+    }
+}
+
+pub type WorkerTask = tokio::task::JoinHandle<Option<Quarantine>>;
+
 /// The worker captures the socket, never its binding. Last-carrier drop closes
 /// its input; deletion completes before the internal UDP port can be reused.
 /// A new worker returns its task to the session owner for the shutdown drain.
@@ -480,7 +558,8 @@ pub fn maintain(
     binding: &Arc<SocketBinding>,
     credential: Arc<Credential>,
     updates: CandidateUpdates,
-) -> Option<tokio::task::JoinHandle<()>> {
+    retirements: mpsc::Sender<Retirement>,
+) -> Option<WorkerTask> {
     let Ok(mut owner) = binding.maintenance.lock() else {
         return None;
     };
@@ -515,6 +594,8 @@ pub fn maintain(
         socket: binding.socket.clone(),
         observations: binding.observations.clone(),
         mappings: Vec::new(),
+        retired: binding.retired.clone(),
+        retirements,
     };
     Some(tokio::spawn(worker.run(receiver)))
 }
@@ -526,6 +607,8 @@ struct Worker {
     socket: Arc<DiscoverySocket>,
     observations: Arc<Mutex<Observations>>,
     mappings: Vec<Mapping>,
+    retired: Arc<AtomicBool>,
+    retirements: mpsc::Sender<Retirement>,
 }
 
 struct Round {
@@ -543,7 +626,7 @@ enum Wake {
 }
 
 impl Worker {
-    async fn run(mut self, mut input: watch::Receiver<MaintenanceInput>) {
+    async fn run(mut self, mut input: watch::Receiver<MaintenanceInput>) -> Option<Quarantine> {
         let mut acquire_paths = true;
         let mut keepalive = None;
         let mut keepalive_targets = Vec::new();
@@ -586,7 +669,12 @@ impl Worker {
                     acquire_paths = true;
                 }
                 Wake::Renew => {
-                    acquire_paths = renew_paths(&mut self.mappings).await;
+                    if renew_paths(&mut self.mappings).await
+                        && !self.retired.swap(true, Ordering::AcqRel)
+                    {
+                        let _delivery =
+                            self.retirements.send(Retirement { binding: self.id }).await;
+                    }
                     publish(
                         self.id,
                         &round.current,
@@ -614,33 +702,62 @@ impl Worker {
         for mapping in self.mappings {
             releasing.push(mapping.release());
         }
-        while releasing.next().await.is_some() {}
+        let mut unresolved = Vec::new();
+        while let Some(result) = releasing.next().await {
+            if let Err(mapping) = result {
+                unresolved.push(mapping);
+            }
+        }
+        if unresolved.is_empty() {
+            None
+        } else {
+            Some(Quarantine {
+                _socket: self.socket,
+                _grants: unresolved,
+            })
+        }
+    }
+
+    fn owns(&self, local: IpAddr) -> bool {
+        self.mappings
+            .iter()
+            .any(|mapping| mapping.path.local.to_canonical() == local.to_canonical())
     }
 
     async fn add_paths(&mut self, round: &Round, input: &watch::Receiver<MaintenanceInput>) {
+        let paths = round
+            .gathered
+            .paths
+            .iter()
+            .filter(|observed| !self.owns(observed.local))
+            .filter_map(|observed| router_path(observed.local).map(|path| (path, observed.clone())))
+            .collect();
+        self.admit_paths(paths, round, input).await;
+    }
+
+    async fn admit_paths(
+        &mut self,
+        paths: Vec<(RouterPath, ObservedPath)>,
+        round: &Round,
+        input: &watch::Receiver<MaintenanceInput>,
+    ) {
+        if self.retired.load(Ordering::Acquire) {
+            return;
+        }
         let mut pending = FuturesUnordered::new();
         let mut acquiring = Vec::new();
-        for observed in &round.gathered.paths {
+        for (path, observed) in paths {
             if self.mappings.len() + pending.len() >= MAX_BINDINGS {
                 break;
             }
-            let Some(path) = router_path(observed.local) else {
-                continue;
-            };
-            // Same-address gateway/interface or outer NAT changes must not be
-            // suppressed by a previous provider's still-owned control context.
-            if self
-                .mappings
-                .iter()
-                .any(|mapping| mapping.path == path && mapping.mapped == observed.mapped)
-                || acquiring
-                    .iter()
-                    .any(|(old_path, mapped)| old_path == &path && *mapped == observed.mapped)
-            {
+            let local = observed.local.to_canonical();
+            // Every allocation on this worker owns the same UDP port. Gateway
+            // and outer-address changes do not create an independent tuple.
+            if self.owns(local) || acquiring.contains(&local) {
                 continue;
             }
-            acquiring.push((path.clone(), observed.mapped));
-            pending.push(acquire(path, observed.clone(), self.port));
+            acquiring.push(local);
+            pending.push(acquire(path, observed, self.port));
         }
         while let Some(mapping) = pending.next().await {
             self.mappings.push(mapping);
@@ -671,7 +788,9 @@ impl Worker {
         input: &watch::Receiver<MaintenanceInput>,
     ) {
         let lost_local = self.mappings[index].path.local;
-        self.mappings.remove(index).release().await;
+        // next_wake matched this reset's gateway source and older epoch.
+        // The old allocation is already gone; a delayed Delete could erase its successor.
+        self.mappings.remove(index);
         let unaffected: Vec<_> =
             round
                 .gathered
@@ -776,9 +895,9 @@ async fn next_wake(
     }
 }
 
-async fn renew_paths(mappings: &mut Vec<Mapping>) -> bool {
-    let mut lost = Vec::new();
-    for (index, mapping) in mappings.iter_mut().enumerate() {
+async fn renew_paths(mappings: &mut [Mapping]) -> bool {
+    let mut failed = false;
+    for mapping in mappings.iter_mut() {
         if mapping
             .renewal
             .is_none_or(|deadline| deadline > Instant::now())
@@ -796,14 +915,11 @@ async fn renew_paths(mappings: &mut Vec<Mapping>) -> bool {
         if lease_ok && pinhole_ok {
             mapping.schedule();
         } else {
-            lost.push(index);
+            mapping.renewal = None;
+            failed = true;
         }
     }
-    let reacquire = !lost.is_empty();
-    for index in lost.into_iter().rev() {
-        mappings.remove(index).release().await;
-    }
-    reacquire
+    failed
 }
 
 async fn publish(
@@ -859,11 +975,34 @@ mod tests {
     use wtransport::endpoint::endpoint_side::Server;
 
     #[tokio::test]
+    async fn physical_socket_capacity_survives_its_last_handle_until_the_io_poller_drops() {
+        let budget = Arc::new(Semaphore::new(1));
+        let raw = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+        let address = raw.local_addr().unwrap();
+        raw.set_nonblocking(true).unwrap();
+        let socket = Arc::new(NativeSocket {
+            inner: TokioRuntime.wrap_udp_socket(raw).unwrap(),
+            _allocation: budget.clone().try_acquire_owned().unwrap(),
+        });
+        let poller = socket.clone().create_io_poller();
+        drop(socket);
+        assert!(budget.clone().try_acquire_owned().is_err());
+        assert_eq!(
+            std::net::UdpSocket::bind(address).unwrap_err().kind(),
+            io::ErrorKind::AddrInUse
+        );
+        drop(poller);
+        assert!(budget.try_acquire_owned().is_ok());
+        assert!(std::net::UdpSocket::bind(address).is_ok());
+    }
+
+    #[tokio::test]
     async fn wildcard_sends_clear_stale_source_hints_and_preserve_the_owned_port() {
         let receiving = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let raw = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
         raw.set_nonblocking(true).unwrap();
         let socket = Arc::new(NativeSocket {
+            _allocation: Arc::new(Semaphore::new(1)).try_acquire_owned().unwrap(),
             inner: TokioRuntime.wrap_udp_socket(raw).unwrap(),
         });
         assert!(socket.local_addr().unwrap().ip().is_unspecified());
@@ -1011,7 +1150,8 @@ mod tests {
         );
         let credential = Credential::without_observers();
         let mut next_id = 0;
-        let mut bindings = open(Vec::new(), &mut next_id);
+        let budget = Arc::new(Semaphore::new(MAX_BINDINGS));
+        let mut bindings = open(Vec::new(), &mut next_id, &budget).bindings;
         assert!(bindings.iter().any(|binding| binding.family == 4));
         let binding = bindings.remove(
             bindings
@@ -1028,7 +1168,7 @@ mod tests {
             .candidates
             .is_empty()
         );
-        let reused = open(vec![binding.clone()], &mut next_id);
+        let reused = open(vec![binding.clone()], &mut next_id, &budget).bindings;
         assert!(Arc::ptr_eq(&reused[0], &binding));
         assert!(next_id <= 3);
         drop(reused);
@@ -1140,7 +1280,7 @@ mod tests {
             assert_eq!(&bytes[..len], &[0]);
             preserved_from
         });
-        let binding = Arc::new(create(1, 4).unwrap());
+        let binding = Arc::new(test_binding(1, 4).unwrap());
         let (progress, mut progressing) = mpsc::channel(2);
         let gathering_binding = binding.clone();
         let gathering_credential = credential.clone();
@@ -1178,7 +1318,8 @@ mod tests {
         );
         commit_observations(&binding, gathered);
         let (updates, mut updated) = mpsc::channel(2);
-        let maintaining = maintain(&binding, credential, updates).unwrap();
+        let (retirements, _retired) = mpsc::channel(MAX_BINDINGS);
+        let maintaining = maintain(&binding, credential, updates, retirements).unwrap();
         updated.recv().await.unwrap();
         tokio::time::pause();
         tokio::time::advance(Duration::from_secs(15)).await;

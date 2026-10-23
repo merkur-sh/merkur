@@ -357,7 +357,8 @@ def quic_long_header(payload: bytes) -> tuple[bytes, bytes] | None:
 
 
 def quic_packets(packets: list[Packet], case: str,
-                 lifecycle: dict[str, Any] | None = None) -> list[Packet]:
+                 lifecycle: dict[str, Any] | None = None,
+                 gateway_pairs: dict[Pair, Pair] | None = None) -> list[Packet]:
     # A CID identifies the endpoint across a NAT source-port change. Keeping the
     # tuple out of this key detects migrated packets; admission below still
     # requires checks or the exact controlled migration's socket evidence.
@@ -365,6 +366,7 @@ def quic_packets(packets: list[Packet], case: str,
     result: list[Packet] = []
     migration = rebind_pairs(lifecycle) if lifecycle is not None and "portRebind" in lifecycle else None
     migration_client_seen = False
+    gateway_seen: set[Pair] = set()
     for packet in sorted(packets, key=lambda value: value.timestamp_ns):
         pair = oriented_pair(packet, case)
         if pair is None:
@@ -384,6 +386,9 @@ def quic_packets(packets: list[Packet], case: str,
             if (migration is not None and pair == migration[1] and packet.source == pair[1]
                     and packet.timestamp_ns >= migration[3]):
                 migration_client_seen = True
+            if (gateway_pairs is not None and pair in gateway_pairs and packet.source == pair[1]
+                    and lifecycle is not None and packet.timestamp_ns >= lifecycle["gatewayRebootStartedAtNs"]):
+                gateway_seen.add(pair)
         elif (migration is not None and migration_client_seen and pair == migration[1]
               and packet.source == pair[0] and packet.timestamp_ns >= migration[3]
               and len(packet.payload) >= 21 and packet.payload[0] & 0x80 == 0
@@ -395,6 +400,11 @@ def quic_packets(packets: list[Packet], case: str,
             # requires both unchanged private sockets. The companion real-session
             # assertion proves sealed terminal I/O on a Direct provider after
             # the controlled socket migration.
+            result.append(packet)
+        elif (pair in gateway_seen and packet.source == pair[0] and len(packet.payload) >= 21
+              and packet.payload[0] & 0x80 == 0 and packet.payload[4:8] != COOKIE):
+            # The reset-scoped pair has exact old/new private-socket witnesses
+            # and an old client-to-daemon CID. Its reverse CID can rotate.
             result.append(packet)
     return result
 
@@ -555,47 +565,130 @@ def observer_mapping_ports(state: Path, role: str, local: dict[str, Any]) -> set
     return ports
 
 
-def lease_rule_hits(path: Path, public_port: int, local: dict[str, Any]) -> int:
+def lease_rule_ports(path: Path, local: dict[str, Any]) -> set[int]:
     contents = json.loads(path.read_text())
     require(isinstance(contents, dict) and isinstance(contents.get("nftables"), list),
             f"{path.name}: invalid nftables JSON")
-    hits = 0
-    for entry in contents.get("nftables", []):
-        if not isinstance(entry, dict) or not isinstance(entry.get("rule"), dict):
-            continue
-        rule = entry["rule"]
+    ports = set()
+    for entry in contents["nftables"]:
+        rule = entry.get("rule", {})
         if rule.get("chain") != "prerouting_miniupnpd":
             continue
-        external_port = False
-        destination = False
-        packets = 0
+        port, udp, destination = None, False, False
         for expression in rule.get("expr", []):
-            if not isinstance(expression, dict):
-                continue
-            match = expression.get("match")
-            if isinstance(match, dict) and match.get("op") == "==":
-                left = match.get("left")
-                payload = left.get("payload") if isinstance(left, dict) else None
-                if (isinstance(payload, dict) and payload.get("protocol") == "udp" and payload.get("field") == "dport"
-                        and match.get("right") == public_port):
-                    external_port = True
-            dnat = expression.get("dnat")
-            if isinstance(dnat, dict):
+            match = expression.get("match", {})
+            if match.get("op") == "==":
+                payload = match.get("left", {}).get("payload", {})
+                field = payload.get("protocol"), payload.get("field")
+                raw = payload.get("base"), payload.get("offset"), payload.get("len")
+                right = match.get("right")
+                if field in {("udp", "dport"), ("th", "dport")} or raw == ("th", 16, 16):
+                    port = int(right, 0) if isinstance(right, str) else right
+                    udp = udp or field[0] == "udp"
+                elif field == ("ip", "protocol") or raw == ("nh", 72, 8):
+                    udp = udp or right in {17, "udp", "0x11"}
+                elif match.get("left", {}).get("meta", {}).get("key") == "l4proto":
+                    udp = udp or right in {17, "udp", "0x11"}
+            dnat = expression.get("dnat", {})
+            if isinstance(dnat, dict) and dnat:
                 destination = (dnat.get("addr") == local["privateAddress"]
                                and dnat.get("port") == local["privatePort"])
-            counter = expression.get("counter")
-            if isinstance(counter, dict) and isinstance(counter.get("packets"), int):
-                packets += counter["packets"]
-        if external_port and destination:
-            hits += packets
-    return hits
+        if udp and destination and isinstance(port, int) and 0 < port < 65536:
+            ports.add(port)
+    return ports
 
 
-def lease_from_snapshots(state: Path, role: str, public_port: int, local: dict[str, Any]) -> int:
-    paths = snapshot_paths(state, role, "nft.json")
-    hits = max((lease_rule_hits(path, public_port, local) for path in paths if path.is_file()), default=0)
-    require(hits > 0, f"{role}: winning mapping has no used miniupnpd lease rule")
-    return hits
+def inbound_dnat_seen(paths: list[Path], own: Endpoint, peer: Endpoint, local: dict[str, Any]) -> bool:
+    for path in paths:
+        if not path.is_file():
+            continue
+        for line in path.read_text().splitlines():
+            if re.search(r"\budp\b", line) is None or "[UNREPLIED]" in line:
+                continue
+            fields: dict[str, list[str]] = defaultdict(list)
+            for key, value in re.findall(r"\b(src|dst|sport|dport)=([^\s]+)", line):
+                fields[key].append(value)
+            if (fields["src"] == [peer[0], local["privateAddress"]]
+                    and fields["dst"] == [own[0], peer[0]]
+                    and fields["sport"] == [str(peer[1]), str(local["privatePort"])]
+                    and fields["dport"] == [str(own[1]), str(peer[1])]):
+                return True
+    return False
+
+
+def lease_from_snapshots(state: Path, role: str, winner: Pair, local: dict[str, Any],
+                         trips: list[RoundTrip], case: str, *, rule_paths: list[Path] | None = None,
+                         conntrack_paths: list[Path] | None = None, after: int = 0,
+                         quic: list[Packet] | None = None) -> dict[str, Any]:
+    rules = rule_paths if rule_paths is not None else snapshot_paths(state, role, "nft.json")
+    ports = set().union(*(lease_rule_ports(path, local) for path in rules if path.is_file()))
+    paths = conntrack_paths if conntrack_paths is not None else snapshot_paths(state, role, "conntrack.txt")
+    contexts = {check.context for trip in trips if oriented_pair(trip.request, case) == winner
+                and (check := peer_check(trip.request.payload)) is not None}
+    for trip in trips:
+        pair = oriented_pair(trip.request, case)
+        if pair is None:
+            continue
+        own, peer = (pair[1], pair[0]) if role == "client" else pair
+        check = peer_check(trip.request.payload)
+        if (own[1] not in ports or trip.request.destination != own or check is None
+                or check.context not in contexts or not inbound_dnat_seen(paths, own, peer, local)):
+            continue
+        if trip.response.timestamp_ns < after and not bidirectional_after(quic or [], pair, after):
+            continue
+        return {"externalPort": own[1], "peerEndpoint": list(peer),
+                "checkRoundTripVerified": True, "conntrackDnatVerified": True,
+                "sameCheckContextAsQuic": True}
+    raise VerificationError(f"{role}: no exact miniupnpd lease rule and DNAT/check admission on the winning binding/context")
+
+
+def gateway_migrations(packets: list[Packet], trips: list[RoundTrip], case: str,
+                        lifecycle: dict[str, Any] | None, state: Path) -> dict[Pair, Pair]:
+    if (lifecycle is None or not case.startswith("client-lease-")
+            or lifecycle.get("gatewayReboot", {}).get("role") != "client"):
+        return {}
+    started, _ = event_interval(lifecycle, "gatewayRebootStartedAtNs", "gatewayRebootedAtNs")
+    before = state / "topology" / "before-gateway-reboot-client-nft.json"
+    before_ct = state / "topology" / "before-gateway-reboot-client-conntrack.txt"
+    old_trips = [trip for trip in trips if trip.response.timestamp_ns < started]
+    old_quic = [packet for packet in quic_packets(packets, case) if packet.timestamp_ns < started]
+    result = {}
+    for old in {oriented_pair(trip.request, case) for trip in old_trips if trip.direction == "c"}:
+        if old is None or not bidirectional_after(old_quic, old, 0):
+            continue
+        try:
+            client = mapping_from_snapshots(state, "client", old[1], old[0], {"10.20.2.2"}, False)
+            daemon = mapping_from_snapshots(state, "daemon", old[0], old[1], {"10.20.1.2"}, False)
+            lease_from_snapshots(state, "client", old, client, old_trips, case,
+                                 rule_paths=[before], conntrack_paths=[before_ct])
+        except VerificationError:
+            continue
+        server_ids = set()
+        for packet in old_quic:
+            if oriented_pair(packet, case) != old:
+                continue
+            header = quic_long_header(packet.payload)
+            if header is not None:
+                cid = header[0] if packet.source == old[1] else header[1]
+                if cid:
+                    server_ids.add(cid)
+        for packet in packets:
+            pair = oriented_pair(packet, case)
+            if (pair is None or pair == old or pair[0] != old[0] or packet.source != pair[1]
+                    or packet.timestamp_ns < started or len(packet.payload) < 21
+                    or packet.payload[0] & 0x80 or packet.payload[4:8] == COOKIE
+                    or not any(packet.payload[1:].startswith(cid) for cid in server_ids)):
+                continue
+            try:
+                new_client = mapping_from_snapshots(state, "client", pair[1], pair[0], {"10.20.2.2"}, False)
+                new_daemon = mapping_from_snapshots(state, "daemon", pair[0], pair[1], {"10.20.1.2"}, False)
+            except VerificationError:
+                continue
+            if all(previous["privateAddress"] == current["privateAddress"]
+                   and previous["privatePort"] == current["privatePort"]
+                   for previous, current in ((client, new_client), (daemon, new_daemon))):
+                result[pair] = old
+    return result
 
 
 def snapshot_paths(state: Path, role: str, suffix: str) -> list[Path]:
@@ -865,6 +958,32 @@ def inner_lease_rejection(packets: list[Packet]) -> dict[str, Any] | None:
     return None
 
 
+def gateway_pcp4(packets: list[Packet], local: str, gateway: Endpoint,
+                  internal_port: int, public_ip: str) -> list[dict[str, Any]]:
+    requests: dict[tuple[Endpoint, bytes], Packet] = {}
+    result = []
+    for packet in sorted(packets, key=lambda value: value.timestamp_ns):
+        wire = packet.payload
+        if (len(wire) < 60 or wire[36:40] != b"\x11\0\0\0"
+                or struct.unpack_from("!H", wire, 40)[0] != internal_port):
+            continue
+        if (packet.source[0] == local and packet.destination == gateway and wire[:4] == b"\x02\x01\0\0"
+                and canonical_ip(wire[8:24]) == local and canonical_ip(wire[44:60]) == public_ip):
+            requests[(packet.source, wire[24:36])] = packet
+        elif packet.source == gateway and packet.destination[0] == local and wire[:4] == b"\x02\x81\0\0":
+            request = requests.get((packet.destination, wire[24:36]))
+            if request is None:
+                continue
+            requested = struct.unpack_from("!I", request.payload, 4)[0]
+            granted = struct.unpack_from("!I", wire, 4)[0]
+            port = struct.unpack_from("!H", wire, 42)[0]
+            if requested > 0 and granted > 0 and port > 0 and canonical_ip(wire[44:60]) == public_ip:
+                result.append({"identity": wire[24:36].hex(), "externalPort": port,
+                    "epoch": struct.unpack_from("!I", wire, 8)[0], "sentAtNs": request.timestamp_ns,
+                    "receivedAtNs": packet.timestamp_ns})
+    return result
+
+
 def pinhole_tuple(rule: dict[str, Any]) -> tuple[str | None, int | None, bool]:
     address, port, udp = None, None, False
     for expression in rule.get("expr", []):
@@ -875,13 +994,15 @@ def pinhole_tuple(rule: dict[str, Any]) -> tuple[str | None, int | None, bool]:
         right = match.get("right")
         raw = payload.get("base"), payload.get("offset"), payload.get("len")
         field = payload.get("protocol"), payload.get("field")
-        if field == ("ip6", "daddr") or raw == ("network header", 24, 16):
-            if isinstance(right, str):
+        if field == ("ip6", "daddr") or raw == ("nh", 192, 128):
+            if isinstance(right, int):
+                address = str(ipaddress.IPv6Address(right))
+            elif isinstance(right, str):
                 address = str(ipaddress.IPv6Address(int(right, 16) if right.startswith("0x") else right))
-        elif field in {("udp", "dport"), ("th", "dport")} or raw == ("transport header", 2, 2):
+        elif field in {("udp", "dport"), ("th", "dport")} or raw == ("th", 16, 16):
             port = int(right, 0) if isinstance(right, str) else right
             udp = udp or field[0] == "udp"
-        elif field == ("ip6", "nexthdr") or raw == ("network header", 6, 1):
+        elif field == ("ip6", "nexthdr") or raw == ("nh", 48, 8):
             udp = udp or right in {17, "udp", "0x11"}
         elif match.get("left", {}).get("meta", {}).get("key") == "l4proto":
             udp = udp or right in {17, "udp", "0x11"}
@@ -1242,7 +1363,8 @@ def verify_committed_rebind(lifecycle: dict[str, Any], packets: list[Packet],
             "committed rebind has no QUIC after its successor client-check round trip")
 
 
-def verify_gateway_reboot(lifecycle: dict[str, Any], quic: list[Packet], case: str, state: Path) -> None:
+def verify_gateway_reboot(lifecycle: dict[str, Any], quic: list[Packet], case: str, state: Path,
+                           trips: list[RoundTrip], packets: list[Packet]) -> None:
     started, completed = event_interval(lifecycle, "gatewayRebootStartedAtNs", "gatewayRebootedAtNs")
     details = lifecycle.get("gatewayReboot")
     require(isinstance(details, dict), "gateway reboot has no process/epoch evidence")
@@ -1284,17 +1406,60 @@ def verify_gateway_reboot(lifecycle: dict[str, Any], quic: list[Packet], case: s
     reacquired = lifecycle.get("leaseReacquiredAtNs")
     require(isinstance(reacquired, int) and reacquired >= completed,
             "gateway reboot has no reacquired router lease")
+    require(protocol == "pcp", "gateway reboot proof requires a fresh PCP grant nonce")
+    record = json.loads((topology / f"reacquired-{role}-lease.json").read_text())
+    public_ip = DAEMON4 if role == "daemon" else CLIENT4
+    require(record.get("role") == role and record.get("protocol") == protocol
+            and record.get("publicIP") == public_ip and completed <= record.get("observedAtNs", 0) <= reacquired
+            and all(record.get(key) == details.get(key)
+                    for key in ("previousEpoch", "currentEpoch", "previousPid", "currentPid")),
+            "reacquired lease metadata does not match the actual gateway reset")
+    prior, successor = record.get("previous"), record.get("current")
+    require(isinstance(prior, dict) and isinstance(successor, dict)
+            and prior.get("privateIP") == successor.get("privateIP") == f"10.20.{number}.2"
+            and isinstance(prior.get("localPort"), int) and prior["localPort"] == successor.get("localPort"),
+            "gateway reboot reacquired a different native UDP binding")
+    local = {"privateAddress": prior["privateIP"], "privatePort": prior["localPort"]}
+    before_path = topology / f"before-gateway-reboot-{role}-nft.json"
+    after_path = topology / f"reacquired-{role}-nft.json"
+    require(prior.get("externalPort") in lease_rule_ports(before_path, local)
+            and successor.get("externalPort") in lease_rule_ports(after_path, local),
+            "gateway reboot has no exact previous and reacquired kernel router leases")
+    for item, path in ((prior, before_path), (successor, after_path)):
+        rules = [entry["rule"] for entry in json.loads(path.read_text()).get("nftables", []) if "rule" in entry]
+        require(item.get("rule") in rules, "gateway lease metadata names a rule absent from its kernel snapshot")
+    controls = gateway_pcp4(packets, local["privateAddress"], (f"10.20.{number}.1", 5351),
+                            local["privatePort"], public_ip)
+    old_nonces = {control["identity"] for control in controls if control["receivedAtNs"] < started
+                  and control["externalPort"] == prior["externalPort"]}
+    require(bool(old_nonces), "gateway reboot has no actual initial PCP grant nonce")
+    require(any(control["sentAtNs"] >= started and control["identity"] not in old_nonces
+                and control["externalPort"] == successor["externalPort"]
+                and control["epoch"] >= current for control in controls),
+            "gateway reboot has no fresh same-binding PCP nonce/grant after its wire epoch reset")
     pairs = {oriented_pair(packet, case) for packet in quic}
-    used = False
+    initial_used = False
+    recovered = False
     for pair in pairs:
-        if pair is None or not bidirectional_after(quic, pair, reacquired):
+        if pair is None:
             continue
         own, peer = (pair[0], pair[1]) if role == "daemon" else (pair[1], pair[0])
-        local = mapping_from_snapshots(state, role, own, peer, {f"10.20.{number}.2"}, False)
-        if lease_rule_hits(topology / f"reacquired-{role}-nft.json", own[1], local) > 0:
-            used = True
-            break
-    require(used, "gateway reboot has no bidirectional QUIC using its reacquired exact router lease")
+        try:
+            lease_from_snapshots(state, role, pair, local,
+                [trip for trip in trips if trip.response.timestamp_ns < started], case,
+                rule_paths=[before_path],
+                conntrack_paths=[topology / f"before-gateway-reboot-{role}-conntrack.txt"])
+            initial_used = True
+        except VerificationError:
+            pass
+        if bidirectional_after(quic, pair, reacquired):
+            try:
+                mapping = mapping_from_snapshots(state, role, own, peer, {local["privateAddress"]}, False)
+                recovered = recovered or mapping["privatePort"] == local["privatePort"]
+            except VerificationError:
+                pass
+    require(initial_used, "gateway reboot has no exact lease admission on its previously used native binding")
+    require(recovered, "gateway reboot has no bidirectional QUIC recovery on the same native binding")
 
 
 def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
@@ -1330,7 +1495,8 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
             peer_packets = [packet for packet in peer_packets if packet.timestamp_ns >= marker]
             require(bool(peer_packets), "no peer traffic followed the native-session phase boundary")
     trips, request_count = round_trips(peer_packets, case)
-    quic = quic_packets(peer_packets, case, lifecycle)
+    gateway_pairs = gateway_migrations(peer_packets, trips, case, lifecycle, state)
+    quic = quic_packets(peer_packets, case, lifecycle, gateway_pairs)
     if case == "ipv6-pdf" or case in IPV6_PINHOLE_CASES:
         v4_packets = [packet for packet in packets if oriented_pair(packet, "eim-pdf") is not None
                       and (lifecycle is None or "nativeSessionsStartedAtNs" not in lifecycle
@@ -1343,6 +1509,8 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
     }
     if case in NEGATIVE_CASES:
         drops = named_drop_count(state / "daemon-nft.json") + named_drop_count(state / "client-nft.json")
+        if case == "inner-lease":
+            drops += named_drop_count(state / "outer-nft.json")
         require(request_count > 0, "negative case contains no native peer-check attempt")
         require(drops > 0, "negative topology did not record a peer packet being filtered")
         require(not quic, "an unverified direct QUIC dial escaped the negative topology")
@@ -1365,10 +1533,14 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
         if pair is None:
             continue
         candidate_trips = [trip for trip in trips if oriented_pair(trip.request, case) == pair]
-        if pair == migrated:
+        if pair == migrated or pair in gateway_pairs:
+            recovery_headers = [packet for packet in quic if oriented_pair(packet, case) == pair
+                                and quic_long_header(packet.payload) is not None]
             first_fresh_dial = min((packet.timestamp_ns for packet in quic
                                    if oriented_pair(packet, case) == pair and packet.source == pair[1]
                                    and quic_long_header(packet.payload) is not None), default=None)
+            require(not recovery_headers or first_fresh_dial is not None,
+                    "recovery QUIC handshake has no checked client dial")
             if first_fresh_dial is not None:
                 require(any(trip.direction == "c" and trip.response.timestamp_ns <= first_fresh_dial
                             for trip in candidate_trips), "recovery QUIC dial preceded its successful client check")
@@ -1377,7 +1549,8 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
                             and (check := peer_check(packet.payload)) is not None
                             and check.request and check.direction == "d" for packet in peer_packets),
                         "recovery QUIC dial preceded its daemon filter-opening check")
-            winners.append((pair, candidate_trips))
+            if pair not in gateway_pairs or bidirectional_after(quic, pair, lifecycle["gatewayRebootStartedAtNs"]):
+                winners.append((pair, candidate_trips))
             continue
         directions = {trip.direction for trip in candidate_trips}
         require("c" in directions and (case == "lan" or pair in punched_pairs),
@@ -1412,7 +1585,7 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
             verify_same_ip_route(lifecycle, peer_packets, quic, case, state)
             summary["sameIPRouteVerified"] = True
         if "gatewayReboot" in lifecycle:
-            verify_gateway_reboot(lifecycle, quic, case, state)
+            verify_gateway_reboot(lifecycle, quic, case, state, trips, packets)
             summary["gatewayRebootVerified"] = True
         if "rebindCommittedAtNs" in lifecycle:
             require(case == "eim-pdf", "committed rebind belongs to the EIM topology")
@@ -1461,6 +1634,12 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
     verified_pairs = []
     for pair, _ in sorted(winners):
         evidence = {"daemonEndpoint": list(pair[0]), "clientEndpoint": list(pair[1])}
+        if pair in gateway_pairs:
+            authority = gateway_pairs[pair]
+            evidence["checkAuthorityInheritedFrom"] = {
+                "daemonEndpoint": list(authority[0]), "clientEndpoint": list(authority[1]),
+                "knownClientCidAndSamePrivateSocketsVerified": True,
+            }
         if case not in {"lan", "ipv6-pdf"} | IPV6_PINHOLE_CASES:
             evidence["daemonMapping"] = mapping_from_snapshots(
                 state, "daemon", pair[0], pair[1], {"10.20.1.2"},
@@ -1485,8 +1664,11 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
             if "-lease-" in case:
                 lease_role = "client" if case.startswith("client-") else "daemon"
                 mapping = evidence[f"{lease_role}Mapping"]
-                evidence["leaseRulePackets"] = lease_from_snapshots(
-                    state, lease_role, mapping["publicPort"], mapping)
+                evidence["leaseAdmission"] = lease_from_snapshots(
+                    state, lease_role, gateway_pairs.get(pair, pair), mapping, trips, case)
+                if pair in gateway_pairs:
+                    evidence["leaseAdmission"].pop("sameCheckContextAsQuic")
+                    evidence["leaseAdmission"]["retainedConnectionVerified"] = True
         verified_pairs.append(evidence)
     summary.update({"outcome": "direct", "verifiedPairs": verified_pairs})
     return summary

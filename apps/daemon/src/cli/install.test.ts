@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   buildDaemonServiceProgramArguments,
+  buildLaunchdPlist,
   buildSystemdUnit,
   resolveProgramArguments,
 } from './install';
@@ -18,6 +19,8 @@ After=network-online.target
 ExecStart=/home/user/.merkur/current/merkur
 Restart=always
 RestartSec=2
+KillMode=mixed
+TimeoutStopSec=infinity
 
 [Install]
 WantedBy=default.target
@@ -40,6 +43,11 @@ WantedBy=default.target
 });
 
 describe('CLI and daemon service dispatch', () => {
+  test('launchd lets the daemon finish its owned child cleanup', () => {
+    const plist = buildLaunchdPlist(['/home/user/merkur', 'daemon']);
+    expect(plist).toContain('<key>ExitTimeOut</key>\n  <integer>0</integer>');
+    expect(plist).toContain('<key>KeepAlive</key>\n  <true/>');
+  });
   test('source CLI arguments leave the subcommand to their caller', () => {
     const program = resolveProgramArguments();
     expect(program.at(-1)).toBe('src/index.ts');

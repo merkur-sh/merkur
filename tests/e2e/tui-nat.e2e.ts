@@ -216,6 +216,7 @@ test.describe('strict-filtering lifecycle', () => {
     linkedDaemon,
     baseURL,
   }) => {
+    await topologyCommand('native-phase');
     await topologyCommand('clear-peer-flows');
     await withHeadlessClient(linkedDaemon, baseURL, async (client) => {
       await client.next((event) => event.event === 'path' && event.path === 'Direct', 30_000);
@@ -261,6 +262,7 @@ test.describe('strict-filtering lifecycle', () => {
     linkedDaemon,
     baseURL,
   }) => {
+    await topologyCommand('native-phase');
     await withHeadlessClient(linkedDaemon, baseURL, async (first) => {
       await first.next((event) => event.event === 'path' && event.path === 'Direct', 30_000);
       await withHeadlessClient(linkedDaemon, baseURL, async (second) => {
@@ -280,6 +282,7 @@ test.describe('strict-filtering lifecycle', () => {
     linkedDaemon,
     baseURL,
   }) => {
+    await topologyCommand('native-phase');
     await withHeadlessClient(linkedDaemon, baseURL, async (client) => {
       await client.next((event) => event.event === 'path' && event.path === 'Direct', 30_000);
       const file = path.join(linkedDaemon.daemonHome, 'native-rebind-input-once');

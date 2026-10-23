@@ -40,6 +40,8 @@ mod ipc;
 mod network;
 mod perf_timing;
 mod perf_trace;
+#[cfg(not(merkur_sim))]
+mod process_stop;
 mod pty;
 mod session;
 #[cfg(merkur_sim)]
@@ -1053,6 +1055,9 @@ pub fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "identity-seal") {
         std::process::exit(identity_cli::run(&args[1..]));
+    }
+    if args.first().is_some_and(|arg| arg == "process-stop") {
+        std::process::exit(process_stop::run(&args[1..]));
     }
     tracing_subscriber::fmt()
         .with_env_filter(

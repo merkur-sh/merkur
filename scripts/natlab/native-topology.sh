@@ -274,12 +274,21 @@ fault() {
 
 native_phase() {
   [[ -f $STATE/case ]] || { echo 'native phase requires an active topology' >&2; return 1; }
-  python3 - "$STATE/lifecycle.json" <<'PY'
+  local recorded
+  recorded=$(python3 - "$STATE/lifecycle.json" <<'PY'
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
-if path.exists() and 'nativeSessionsStartedAtNs' in json.loads(path.read_text()):
-    raise SystemExit('native session phase already recorded for this topology')
+state = json.loads(path.read_text()) if path.exists() else {}
+if 'nativeSessionsStartedAtNs' in state:
+    value = state['nativeSessionsStartedAtNs']
+    if type(value) is not int or value <= 0:
+        raise SystemExit('native session phase has an invalid timestamp')
+    print('present')
+else:
+    print('absent')
 PY
+)
+  [[ $recorded == absent ]] || return 0
   local selected role
   selected=$(cat "$STATE/case")
   case "$selected" in
@@ -339,9 +348,18 @@ add rule inet filter forward iifname "lan0" accept
 add rule inet filter forward ct state established,related accept
 add rule inet filter forward jump miniupnpd
 NFT
+  local external
+  external=$(ip -n "$namespace" -j -4 address show dev wan0 | python3 -c '
+import json, sys
+addresses = [item["local"] for link in json.load(sys.stdin) for item in link.get("addr_info", []) if item.get("family") == "inet"]
+if len(addresses) != 1:
+    raise SystemExit("gateway requires one exact IPv4 address on wan0")
+print(addresses[0])
+')
   cat > "$STATE/$role-miniupnpd.conf" <<CONF
 ext_ifname=wan0
 ext_ifname6=wan0
+ext_ip=$external
 listening_ip=lan0
 ipv6_disable=no
 enable_upnp=$upnp

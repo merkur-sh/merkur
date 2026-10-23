@@ -321,6 +321,17 @@ class NativeEvidence(unittest.TestCase):
         with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
             self.prove("inner-lease")
 
+    def test_inner_nat_counts_its_actual_outer_router_filter(self):
+        self.write_capture(self._inner_lease())
+        for role in ("client", "daemon"):
+            (self.root / f"{role}-nft.json").write_text(json.dumps({"nftables": [
+                {"counter": {"name": "peer_drop", "packets": 0}}]}))
+        self.assertEqual(self.prove("inner-lease")["filteredPeerPackets"], 8)
+        (self.root / "outer-nft.json").write_text(json.dumps({"nftables": [
+            {"counter": {"name": "peer_drop", "packets": 0}}]}))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "did not record a peer packet"):
+            self.prove("inner-lease")
+
     def test_inner_nat_delete_must_match_nonce_and_internal_binding_port(self):
         for nonce, port in ((b"x" * 12, 39000), (b"n" * 12, 39001)):
             with self.subTest(port=port, changed_nonce=nonce != b"n" * 12):
@@ -362,6 +373,7 @@ class NativeEvidence(unittest.TestCase):
 
     def _inner_lease(self, delete_nonce=b"n" * 12, delete_port=39000, receipt=True,
                      assigned="172.30.2.2", observed_port=39000):
+        (self.root / "outer-nft.json").write_text(json.dumps({"nftables": [{"counter": {"name": "peer_drop", "packets": 8}}]}))
         binding, observer = ("10.20.2.2", observed_port), ("198.51.100.10", 3478)
         control, cleanup, gateway = ("10.20.2.2", 44000), ("10.20.2.2", 44001), ("10.20.2.1", 5351)
         acquire, grant = pcp4_map(39000, 3600, 120, assigned=assigned)
@@ -531,14 +543,14 @@ class NativeEvidence(unittest.TestCase):
     def test_raw_pinhole_transport_port_requires_an_independent_udp_protocol_match(self):
         rule = {"chain": "miniupnpd", "expr": [
             {"match": {"op": "==", "left": {"payload": {
-                "base": "network header", "offset": 24, "len": 16}},
+                "base": "nh", "offset": 192, "len": 128}},
                 "right": hex(int(ipaddress.IPv6Address(VERIFY.CLIENT6)))}},
             {"match": {"op": "==", "left": {"payload": {
-                "base": "transport header", "offset": 2, "len": 2}}, "right": "0x9858"}},
+                "base": "th", "offset": 16, "len": 16}}, "right": "0x9858"}},
             {"accept": None}]}
         self.assertEqual(VERIFY.pinhole_tuple(rule), (VERIFY.CLIENT6, 39000, False))
         rule["expr"].insert(0, {"match": {"op": "==", "left": {"payload": {
-            "base": "network header", "offset": 6, "len": 1}}, "right": "0x11"}})
+            "base": "nh", "offset": 48, "len": 8}}, "right": "0x11"}})
         self.assertEqual(VERIFY.pinhole_tuple(rule), (VERIFY.CLIENT6, 39000, True))
 
     def test_native_igd_http_reassembly_handles_segmentation_reordering_and_retransmission(self):
@@ -683,25 +695,63 @@ class NativeEvidence(unittest.TestCase):
         self.assertEqual(capture.packets[0].source, CLIENT)
         self.assertEqual(capture.packets[0].destination, DAEMON)
 
-    def test_used_router_lease_must_name_winning_external_and_local_ports(self):
-        local = {"privateAddress": "10.20.2.2", "privatePort": 39000, "publicPort": 52000}
-        rule = {"nftables": [{"rule": {
-            "chain": "prerouting_miniupnpd", "expr": [
-                {"match": {"op": "==", "left": {"payload": {
-                    "protocol": "udp", "field": "dport"}}, "right": 52000}},
-                {"counter": {"packets": 2, "bytes": 100}},
-                {"dnat": {"addr": "10.20.2.2", "port": 39000}},
-            ],
-        }}]}
+    def test_counterfree_lease_requires_exact_rule_dnat_and_authenticated_check_witness(self):
+        local, trips = self._lease_admission()
+        proof = VERIFY.lease_from_snapshots(self.root, "client", (DAEMON, CLIENT), local, trips, "eim-pdf")
+        self.assertEqual(proof["externalPort"], 52000)
+        self.assertTrue(proof["conntrackDnatVerified"])
+        self.assertTrue(proof["sameCheckContextAsQuic"])
         path = self.root / "initial-client-nft.json"
-        path.write_text(json.dumps(rule))
-        self.assertEqual(VERIFY.lease_from_snapshots(self.root, "client", 52000, local), 2)
-        with self.assertRaisesRegex(VERIFY.VerificationError, "no used miniupnpd"):
-            VERIFY.lease_from_snapshots(self.root, "client", 52001, local)
-        rule["nftables"][0]["rule"]["expr"][1]["counter"]["packets"] = 0
-        path.write_text(json.dumps(rule))
-        with self.assertRaisesRegex(VERIFY.VerificationError, "no used miniupnpd"):
-            VERIFY.lease_from_snapshots(self.root, "client", 52000, local)
+        path.write_text(path.read_text().replace('"right": 52000', '"right": 52001'))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "DNAT/check admission"):
+            VERIFY.lease_from_snapshots(self.root, "client", (DAEMON, CLIENT), local, trips, "eim-pdf")
+
+    def test_a_lease_rule_plus_outbound_snat_does_not_prove_lease_admission(self):
+        local, trips = self._lease_admission()
+        (self.root / "client-conntrack.txt").write_text(
+            "udp 17 179 src=10.20.2.2 dst=198.51.100.1 sport=39000 dport=51000 "
+            "src=198.51.100.1 dst=198.51.100.2 sport=51000 dport=52000 [ASSURED]\n")
+        with self.assertRaisesRegex(VERIFY.VerificationError, "DNAT/check admission"):
+            VERIFY.lease_from_snapshots(self.root, "client", (DAEMON, CLIENT), local, trips, "eim-pdf")
+
+    def test_raw_th_lease_rule_needs_its_explicit_ipv4_udp_protocol_selector(self):
+        local, trips = self._lease_admission()
+        path = self.root / "initial-client-nft.json"
+        ruleset = json.loads(path.read_text())
+        ruleset["nftables"][0]["rule"]["expr"].pop(0)
+        path.write_text(json.dumps(ruleset))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "DNAT/check admission"):
+            VERIFY.lease_from_snapshots(self.root, "client", (DAEMON, CLIENT), local, trips, "eim-pdf")
+
+    def test_lease_assisted_check_can_authorize_generic_winner_only_on_same_binding_and_context(self):
+        for context in (b"0" * 32, b"1" * 32):
+            with self.subTest(same_context=context == b"0" * 32):
+                local, _ = self._lease_admission()
+                generic = (VERIFY.CLIENT4, 53000)
+                self.write_capture(valid_frames() + valid_frames(DAEMON, generic, context))
+                packets = list(VERIFY.read_capture(self.capture).packets)
+                trips, _ = VERIFY.round_trips(packets, "eim-pdf")
+                if context == b"0" * 32:
+                    proof = VERIFY.lease_from_snapshots(self.root, "client", (DAEMON, generic), local, trips, "eim-pdf")
+                    self.assertEqual(proof["externalPort"], 52000)
+                else:
+                    with self.assertRaisesRegex(VERIFY.VerificationError, "DNAT/check admission"):
+                        VERIFY.lease_from_snapshots(self.root, "client", (DAEMON, generic), local, trips, "eim-pdf")
+
+    def _lease_admission(self):
+        self.write_capture(valid_frames())
+        local = {"privateAddress": "10.20.2.2", "privatePort": 39000, "publicPort": 52000}
+        rule = {"nftables": [{"rule": {"family": "inet", "table": "filter",
+            "chain": "prerouting_miniupnpd", "expr": [
+                {"match": {"op": "==", "left": {"payload": {"base": "nh", "offset": 72, "len": 8}}, "right": 17}},
+                {"match": {"op": "==", "left": {"payload": {"protocol": "th", "field": "dport"}}, "right": 52000}},
+                {"dnat": {"family": "ip", "addr": "10.20.2.2", "port": 39000}}]}}]}
+        (self.root / "initial-client-nft.json").write_text(json.dumps(rule))
+        (self.root / "client-conntrack.txt").write_text(
+            "udp 17 179 src=198.51.100.1 dst=198.51.100.2 sport=51000 dport=52000 "
+            "src=10.20.2.2 dst=198.51.100.1 sport=39000 dport=51000 [ASSURED]\n")
+        packets = list(VERIFY.read_capture(self.capture).packets)
+        return local, VERIFY.round_trips(packets, "eim-pdf")[0]
 
     def test_an_explicit_router_lease_may_preserve_the_internal_port(self):
         path = self.root / "client-conntrack.txt"
@@ -980,33 +1030,149 @@ class NativeEvidence(unittest.TestCase):
             self.prove()
 
     def test_gateway_reboot_proves_epoch_loss_and_quic_on_the_reacquired_lease(self):
-        lifecycle, quic_packets = self._gateway_reboot()
-        VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root)
+        lifecycle, quic_packets, packets, trips = self._gateway_reboot()
+        VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root, trips, packets)
 
     def test_gateway_reboot_cannot_count_a_lease_hit_without_post_reacquire_quic(self):
-        lifecycle, quic_packets = self._gateway_reboot()
+        lifecycle, quic_packets, packets, trips = self._gateway_reboot()
         with self.assertRaisesRegex(VERIFY.VerificationError, "bidirectional QUIC"):
-            VERIFY.verify_gateway_reboot(lifecycle, quic_packets[:2], "client-lease-pcp", self.root)
+            VERIFY.verify_gateway_reboot(lifecycle, quic_packets[:2], "client-lease-pcp", self.root, trips, packets)
 
     def test_gateway_reboot_cannot_use_predecessor_mapping_rules(self):
-        lifecycle, quic_packets = self._gateway_reboot()
+        lifecycle, quic_packets, packets, trips = self._gateway_reboot()
         path = self.root / "topology" / "reacquired-client-nft.json"
-        path.write_text(path.read_text().replace('"packets": 2', '"packets": 0'))
-        with self.assertRaisesRegex(VERIFY.VerificationError, "reacquired exact router lease"):
-            VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root)
+        path.write_text(path.read_text().replace('"port": 39000', '"port": 39001'))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "reacquired kernel router leases"):
+            VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root, trips, packets)
 
     def test_gateway_reboot_rejects_a_claimed_announcement_epoch_that_is_not_on_wire(self):
-        lifecycle, quic_packets = self._gateway_reboot()
+        lifecycle, quic_packets, packets, trips = self._gateway_reboot()
         path = self.root / "topology" / "gateway-announcement.json"
         value = json.loads(path.read_text())
         value["epoch"] = 1
         path.write_text(json.dumps(value))
         with self.assertRaisesRegex(VERIFY.VerificationError, "epoch-loss announcement"):
-            VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root)
+            VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root, trips, packets)
 
-    def _gateway_reboot(self):
-        self.write_capture(valid_frames() + valid_frames(context=b"1" * 32))
-        chain = {"family": "ip", "table": "nat", "name": "prerouting_miniupnpd"}
+    def test_gateway_reboot_requires_a_fresh_actual_pcp_nonce(self):
+        lifecycle, quic_packets, packets, trips = self._gateway_reboot(new_nonce=b"o" * 12)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "fresh same-binding PCP nonce"):
+            VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root, trips, packets)
+
+    def test_rebooted_gateway_epoch_may_advance_past_the_previous_process_before_grant(self):
+        lifecycle, quic_packets, packets, trips = self._gateway_reboot()
+        lifecycle["leaseReacquiredAtNs"] += 12_000_000_000
+        path = self.root / "topology" / "reacquired-client-lease.json"
+        record = json.loads(path.read_text())
+        record["observedAtNs"] += 12_000_000_000
+        path.write_text(json.dumps(record))
+        delayed = []
+        for packet in packets:
+            if packet.payload[:2] in {b"\x02\x01", b"\x02\x81"} and packet.timestamp_ns > 100_005_500_000:
+                wire = bytearray(packet.payload)
+                if wire[1] == 0x81:
+                    struct.pack_into("!I", wire, 8, 12)
+                delayed.append(VERIFY.Packet(packet.timestamp_ns + 12_000_000_000,
+                    packet.source, packet.destination, bytes(wire)))
+            else:
+                delayed.append(packet)
+        quic_packets = [VERIFY.Packet(packet.timestamp_ns + 12_000_000_000, packet.source,
+                        packet.destination, packet.payload) if packet.timestamp_ns > 100_005_500_000 else packet
+                        for packet in quic_packets]
+        VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root, trips, delayed)
+
+    def test_gateway_reboot_cannot_reacquire_a_different_private_socket(self):
+        lifecycle, quic_packets, packets, trips = self._gateway_reboot()
+        path = self.root / "topology" / "reacquired-client-lease.json"
+        facts = json.loads(path.read_text())
+        facts["current"]["localPort"] += 1
+        path.write_text(json.dumps(facts))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "different native UDP binding"):
+            VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root, trips, packets)
+
+    def test_gateway_reboot_allows_verified_generic_provider_after_fresh_unused_lease(self):
+        lifecycle, _, packets, _ = self._gateway_reboot()
+        generic = (VERIFY.CLIENT4, 53000)
+        self.write_capture(valid_frames() + valid_frames(DAEMON, generic))
+        peers = list(VERIFY.read_capture(self.capture).packets)
+        quic_packets = VERIFY.quic_packets(peers, "client-lease-pcp")
+        trips = VERIFY.round_trips(peers, "client-lease-pcp")[0]
+        path = self.root / "client-conntrack.txt"
+        path.write_text(path.read_text() +
+            "udp 17 179 src=10.20.2.2 dst=198.51.100.1 sport=39000 dport=51000 "
+            "src=198.51.100.1 dst=198.51.100.2 sport=51000 dport=53000 [ASSURED]\n")
+        VERIFY.verify_gateway_reboot(lifecycle, quic_packets, "client-lease-pcp", self.root, trips, packets)
+
+    def test_whole_verifier_inherits_checked_lease_authority_for_controlled_gateway_migration(self):
+        self._gateway_continuity()
+        proof = self.prove("client-lease-pcp")
+        self.assertTrue(proof["gatewayRebootVerified"])
+        migrated = next(pair for pair in proof["verifiedPairs"] if pair["clientEndpoint"][1] == 53000)
+        self.assertEqual(migrated["checkAuthorityInheritedFrom"]["clientEndpoint"], list(CLIENT))
+        self.assertTrue(migrated["leaseAdmission"]["retainedConnectionVerified"])
+        self.assertNotIn("sameCheckContextAsQuic", migrated["leaseAdmission"])
+
+    def test_gateway_migration_cannot_change_either_private_udp_socket(self):
+        for role, previous, current in (("client", "sport=39000", "sport=39001"),
+                                         ("daemon", "sport=24400", "sport=24401")):
+            with self.subTest(role=role):
+                self._gateway_continuity()
+                path = self.root / f"{role}-conntrack.txt"
+                lines = [line.replace(previous, current) if "53000" in line else line
+                         for line in path.read_text().splitlines()]
+                path.write_text("\n".join(lines) + "\n")
+                with self.assertRaisesRegex(VERIFY.VerificationError, "matching two-sided check authority"):
+                    self.prove("client-lease-pcp")
+
+    def test_gateway_migration_requires_the_original_client_to_daemon_connection_id(self):
+        self._gateway_continuity(client_cid=b"x" * 8)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "bidirectional QUIC recovery"):
+            self.prove("client-lease-pcp")
+
+    def test_gateway_migration_is_not_a_verified_winner_without_reverse_quic_continuity(self):
+        self._gateway_continuity()
+        records = self.gateway_records[:-1]
+        self.capture.write_bytes(timed_pcap(sorted(records)))
+        (self.root / "capture.stderr").write_text(f"{len(records)} packets captured\n0 packets dropped by kernel\n")
+        with self.assertRaisesRegex(VERIFY.VerificationError, "bidirectional QUIC recovery"):
+            self.prove("client-lease-pcp")
+
+    def test_gateway_continuity_never_authorizes_an_unchecked_new_long_header(self):
+        for source, destination in (((VERIFY.CLIENT4, 53000), DAEMON),
+                                     (DAEMON, (VERIFY.CLIENT4, 53000))):
+            with self.subTest(client_dial=source[0] == VERIFY.CLIENT4):
+                self._gateway_continuity()
+                records = self.gateway_records + [(100_012_000_000, ipv4_udp(source, destination, quic()))]
+                self.capture.write_bytes(timed_pcap(sorted(records)))
+                (self.root / "capture.stderr").write_text(
+                    f"{len(records)} packets captured\n0 packets dropped by kernel\n")
+                with self.assertRaisesRegex(VERIFY.VerificationError, "recovery QUIC"):
+                    self.prove("client-lease-pcp")
+
+    def _gateway_continuity(self, client_cid=b"d" * 8):
+        _, _, packets, _ = self._gateway_reboot()
+        generic = (VERIFY.CLIENT4, 53000)
+        records = [(packet.timestamp_ns, ipv4_udp(packet.source, packet.destination, packet.payload))
+                   for packet in packets if packet.payload[:2] in {b"\x02\x01", b"\x02\x81"}]
+        records += [(100_000_000_000 + index * 1_000_000, frame) for index, frame in enumerate(valid_frames())]
+        records += [(100_010_000_000, ipv4_udp(generic, DAEMON, b"\x00" + client_cid + bytes(24))),
+                    (100_011_000_000, ipv4_udp(DAEMON, generic, b"\x00" + b"z" * 8 + bytes(24)))]
+        self.gateway_records = records
+        self.capture.write_bytes(timed_pcap(sorted(records)))
+        (self.root / "capture.stderr").write_text(f"{len(records)} packets captured\n0 packets dropped by kernel\n")
+        path = self.root / "client-conntrack.txt"
+        path.write_text(path.read_text() +
+            "udp 17 179 src=10.20.2.2 dst=198.51.100.1 sport=39000 dport=51000 "
+            "src=198.51.100.1 dst=198.51.100.2 sport=51000 dport=53000 [ASSURED]\n")
+        path = self.root / "daemon-conntrack.txt"
+        path.write_text(path.read_text() +
+            "udp 17 179 src=10.20.1.2 dst=198.51.100.2 sport=24400 dport=53000 "
+            "src=198.51.100.2 dst=198.51.100.1 sport=53000 dport=51000 [ASSURED]\n" +
+            "udp 17 179 src=10.20.1.2 dst=198.51.100.10 sport=24400 dport=3478 "
+            "src=198.51.100.10 dst=198.51.100.1 sport=3478 dport=51110 [ASSURED]\n")
+
+    def _gateway_reboot(self, new_nonce=b"n" * 12):
+        chain = {"family": "inet", "table": "filter", "name": "prerouting_miniupnpd"}
         lifecycle = self._write_lifecycle({
             "gatewayRebootStartedAtNs": 100_005_500_000, "gatewayRebootedAtNs": 100_005_900_000,
             "leaseReacquiredAtNs": 100_006_500_000,
@@ -1020,15 +1186,39 @@ class NativeEvidence(unittest.TestCase):
         (topology / "gateway-announcement.json").write_text(json.dumps(notice))
         (topology / "flushed-gateway-reboot-client-nft.json").write_text(json.dumps({
             "nftables": [{"chain": chain}]}))
-        (topology / "reacquired-client-nft.json").write_text(json.dumps({"nftables": [{"rule": {
-            "chain": "prerouting_miniupnpd", "expr": [
-                {"match": {"op": "==", "left": {"payload": {
-                    "protocol": "udp", "field": "dport"}}, "right": 52000}},
-                {"counter": {"packets": 2}}, {"dnat": {"addr": "10.20.2.2", "port": 39000}},
-            ],
-        }}]}))
+        previous_rule = {"family": "inet", "table": "filter", "chain": "prerouting_miniupnpd", "handle": 14,
+            "expr": [{"match": {"op": "==", "left": {"payload": {
+                "protocol": "udp", "field": "dport"}}, "right": 52000}},
+                {"dnat": {"addr": "10.20.2.2", "port": 39000}}]}
+        current_rule = {**previous_rule, "handle": 15}
+        (topology / "before-gateway-reboot-client-nft.json").write_text(json.dumps({
+            "nftables": [{"rule": previous_rule}]}))
+        (topology / "reacquired-client-nft.json").write_text(json.dumps({
+            "nftables": [{"rule": current_rule}]}))
+        (topology / "reacquired-client-lease.json").write_text(json.dumps({
+            "role": "client", "protocol": "pcp", "publicIP": VERIFY.CLIENT4, "observedAtNs": 100_006_400_000,
+            "previousEpoch": 9, "currentEpoch": 0, "previousPid": 123, "currentPid": 124,
+            "previous": {"privateIP": "10.20.2.2", "localPort": 39000, "externalPort": 52000,
+                         "rule": previous_rule},
+            "current": {"privateIP": "10.20.2.2", "localPort": 39000, "externalPort": 52000,
+                        "rule": current_rule}}))
+        conntrack = ("udp 17 179 src=198.51.100.1 dst=198.51.100.2 sport=51000 dport=52000 "
+                     "src=10.20.2.2 dst=198.51.100.1 sport=39000 dport=51000 [ASSURED]\n")
+        (self.root / "client-conntrack.txt").write_text(conntrack)
+        (topology / "before-gateway-reboot-client-conntrack.txt").write_text(conntrack)
+        records = [(100_000_000_000 + index * 1_000_000, frame)
+                   for index, frame in enumerate(valid_frames() + valid_frames(context=b"1" * 32))]
+        for sent, nonce in ((99_990_000_000, b"o" * 12), (100_006_100_000, new_nonce)):
+            request_bytes, response_bytes = pcp4_map(39000, 3600, 240, assigned=VERIFY.CLIENT4, nonce=nonce)
+            response_bytes = bytearray(response_bytes)
+            struct.pack_into("!H", response_bytes, 42, 52000)
+            source, gateway = ("10.20.2.2", 44000), ("10.20.2.1", 5351)
+            records += [(sent, ipv4_udp(source, gateway, request_bytes)),
+                        (sent + 100_000, ipv4_udp(gateway, source, bytes(response_bytes)))]
+        self.capture.write_bytes(timed_pcap(sorted(records)))
+        (self.root / "capture.stderr").write_text(f"{len(records)} packets captured\n0 packets dropped by kernel\n")
         packets = list(VERIFY.read_capture(self.capture).packets)
-        return lifecycle, VERIFY.quic_packets(packets, "client-lease-pcp")
+        return lifecycle, VERIFY.quic_packets(packets, "client-lease-pcp"), packets, VERIFY.round_trips(packets, "client-lease-pcp")[0]
 
     def _route_replacement(self, context):
         client = (VERIFY.CLIENT4, 14200)

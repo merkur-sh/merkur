@@ -221,7 +221,7 @@ def pinholes(ruleset, local, probe_only=True):
 
 
 def rule_tuple(rule):
-    """Decode semantic or byte-offset payloads emitted by miniupnpd's nft backend."""
+    """Decode semantic or raw bit-offset payloads from libnftables JSON."""
     address, port, udp = None, None, False
     for expression in rule.get("expr", []):
         match = expression.get("match", {})
@@ -231,13 +231,14 @@ def rule_tuple(rule):
         right = match.get("right")
         raw = (payload.get("base"), payload.get("offset"), payload.get("len"))
         field = (payload.get("protocol"), payload.get("field"))
-        if field == ("ip6", "daddr") or raw == ("network header", 24, 16):
-            if isinstance(right, str):
-                address = str(ipaddress.IPv6Address(int(right, 16) if right.startswith("0x") else right))
-        elif field in (("udp", "dport"), ("th", "dport")) or raw == ("transport header", 2, 2):
+        if field == ("ip6", "daddr") or raw == ("nh", 192, 128):
+            if isinstance(right, (str, int)):
+                value = int(right, 16) if isinstance(right, str) and right.startswith("0x") else right
+                address = str(ipaddress.IPv6Address(value))
+        elif field in (("udp", "dport"), ("th", "dport")) or raw == ("th", 16, 16):
             port = int(right, 0) if isinstance(right, str) else right
             udp = udp or field[0] == "udp"
-        elif (field == ("ip6", "nexthdr") or raw == ("network header", 6, 1)
+        elif (field == ("ip6", "nexthdr") or raw == ("nh", 48, 8)
               or match.get("left", {}).get("meta", {}).get("key") == "l4proto"):
             udp = udp or right in (17, "udp", "0x11")
     return address, port, udp
@@ -344,11 +345,28 @@ def prove(role, protocol, output):
                 facts["afterExpiry"] = counters(expired)
                 facts["expiredState"] = expired
         Path(output).write_text(json.dumps(facts, indent=2) + "\n")
-        print(f"NATIVE_V6_GATEWAY=PASS role={role} protocol={protocol}", flush=True)
+    except Exception as error:
+        facts["failure"] = {"type": type(error).__name__, "message": str(error)}
+        try:
+            facts["failureState"] = kernel(namespace)
+        except Exception as snapshot_error:
+            facts["failureStateError"] = str(snapshot_error)
+        Path(output).write_text(json.dumps(facts, indent=2) + "\n")
+        raise
     finally:
-        if opened:
-            owner.command("delete")
-        owner.close()
+        failure = sys.exc_info()[1]
+        try:
+            try:
+                if opened:
+                    owner.command("delete")
+            finally:
+                owner.close()
+        except Exception as cleanup_error:
+            facts["cleanupFailure"] = str(cleanup_error)
+            Path(output).write_text(json.dumps(facts, indent=2) + "\n")
+            if failure is None:
+                raise
+    print(f"NATIVE_V6_GATEWAY=PASS role={role} protocol={protocol}", flush=True)
 
 
 def wait_native(operation, role, output):

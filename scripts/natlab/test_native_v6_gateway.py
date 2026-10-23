@@ -2,9 +2,12 @@
 
 import importlib.util
 import ipaddress
+import json
 from pathlib import Path
 import struct
+import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 
 SPEC = importlib.util.spec_from_file_location(
@@ -26,10 +29,10 @@ def match(left, right):
 
 
 def rule(port=GATEWAY.PORT, address=LOCAL, raw=False, protocol=17):
-    fields = ([match({"base": "transport header", "offset": 2, "len": 2}, hex(port)),
-               match({"base": "network header", "offset": 24, "len": 16},
+    fields = ([match({"base": "th", "offset": 16, "len": 16}, hex(port)),
+               match({"base": "nh", "offset": 192, "len": 128},
                      hex(int(ipaddress.IPv6Address(address)))),
-               match({"base": "network header", "offset": 6, "len": 1}, protocol)]
+               match({"base": "nh", "offset": 48, "len": 8}, protocol)]
               if raw else
               [match({"protocol": "udp", "field": "dport"}, port),
                match({"protocol": "ip6", "field": "daddr"}, address)])
@@ -67,6 +70,43 @@ class GatewayEvidence(unittest.TestCase):
         rejected["expr"].pop()
         with self.assertRaises(AssertionError):
             GATEWAY.pinholes({"nftables": [{"rule": rejected}]}, LOCAL)
+
+    def test_raw_bit_fields_require_ipv6_destination_and_separate_udp_constraint(self):
+        expected = rule(raw=True)
+        expected["expr"][1]["match"]["right"] = int(ipaddress.IPv6Address(LOCAL))
+        state = {"nftables": [{"rule": expected}]}
+        self.assertEqual(GATEWAY.pinholes(state, LOCAL), [expected])
+        expected["expr"].pop(2)
+        self.assertEqual(GATEWAY.pinholes(state, LOCAL), [])
+        expected["expr"].insert(2, {"match": {"op": "==", "left": {
+            "meta": {"key": "l4proto"}}, "right": "udp"}})
+        self.assertEqual(GATEWAY.pinholes(state, LOCAL), [expected])
+        expected["expr"][1]["match"]["left"]["payload"]["offset"] = 64
+        self.assertEqual(GATEWAY.pinholes(state, LOCAL), [])
+
+    def test_failed_preflight_preserves_grant_and_kernel_state_before_cleanup(self):
+        state = {"nftables": [{"counter": {"name": name, "packets": 0}}
+                              for name in ("pinhole_attempt", "pinhole_denied")]}
+        failure_state = {"nftables": state["nftables"] + [{"rule": rule(raw=True)}]}
+        owner = Mock()
+        grant = {"requestedLifetime": 120, "lifetime": 120}
+        owner.command.side_effect = [grant, RuntimeError("cleanup failed")]
+        failure = AssertionError("gateway kernel state did not reach its expected state")
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "gateway-preflight.json"
+            with patch.object(GATEWAY, "Endpoint", return_value=owner), \
+                    patch.object(GATEWAY.socket, "socket"), \
+                    patch.object(GATEWAY, "kernel", side_effect=[state, failure_state]), \
+                    patch.object(GATEWAY, "await_kernel", side_effect=[state, failure]):
+                with self.assertRaises(AssertionError) as caught:
+                    GATEWAY.prove("client", "pcp", output)
+            self.assertIs(caught.exception, failure)
+            evidence = json.loads(output.read_text())
+            self.assertEqual(evidence["acquire"], grant)
+            self.assertEqual(evidence["failureState"], failure_state)
+            self.assertEqual(evidence["failure"]["message"], str(failure))
+            self.assertEqual(evidence["cleanupFailure"], "cleanup failed")
+            owner.close.assert_called_once_with()
 
     def test_native_rule_monitor_excludes_the_independent_preflight_port(self):
         probe, native = rule(), rule(port=24400)

@@ -368,6 +368,12 @@ for the child's actual close. The adopted IPC connection remains readable throug
 writable completion and timer expiry do not complete that fence. Explicit force-stop remains a
 separate operation.
 
+`merkur stop` arms the dataplane binary's cold `process-stop` helper before asking the service
+manager to stop. Linux uses a pidfd; macOS couples a kernel exit watch to the process audit token.
+The helper signals that captured process and waits for its actual exit before the CLI removes
+the instance lock. Service definitions preserve the owner's child cleanup: systemd terminates
+the main process first, and both systemd and launchd allow the cleanup to finish.
+
 An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). On `upgrade`,
 the dataplane binds an owner socket, stops its PTY reader with a `SIGURG` that ends its blocking
 `read` and applies every byte it had read, writes the handoff (`handoff.rs`), and `execve`s the
@@ -694,6 +700,10 @@ The native driver owns its discovery, dial and router-maintenance task joins. Gr
 revokes checks, closes and drains producer channels, retires carriers and joins cancelled
 producers before draining router workers. A router worker retains its UDP socket through lease
 or pinhole deletion, and the driver waits for that cleanup before returning to its runtime.
+Failed renewal retires the binding from cold discovery while an admitted carrier retains its
+socket and grant. A failed deletion retains both until the driver's scope ends. Each physical
+socket counts against the binding budget until its last carrier, Quinn I/O poller or cleanup
+owner releases it. New allocation waits for actual resource release when that budget is full.
 
 Hardware identity opening occurs before control authentication. A bounded Rust signing worker owns
 both proof halves; HTTP/WSS callers request proofs through IPC `0x10` and receive `0x94` before the

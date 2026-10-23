@@ -62,6 +62,27 @@ async function redirectBrowserToItsProxyListener(
 
 type DaemonChildProcess = ChildProcessByStdio<Writable, Readable, Readable>;
 
+interface DaemonShutdownProcess {
+  readonly exitCode: number | null;
+  readonly signalCode: NodeJS.Signals | null;
+  kill(signal: NodeJS.Signals): boolean;
+  once(event: 'close', listener: () => void): this;
+}
+
+interface DaemonCloseFence {
+  readonly closed: Promise<void>;
+  requested: boolean;
+}
+
+const daemonCloses = new WeakMap<DaemonShutdownProcess, DaemonCloseFence>();
+
+export function observeDaemonClose(proc: DaemonShutdownProcess): void {
+  daemonCloses.set(proc, {
+    closed: new Promise<void>((resolve) => proc.once('close', resolve)),
+    requested: false,
+  });
+}
+
 interface SpawnedProcess {
   readonly process: DaemonChildProcess;
   readonly logChunks: string[];
@@ -192,6 +213,7 @@ async function spawnMerkur(
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  observeDaemonClose(proc);
   // No command reads stdin; closing it gives the first read EOF.
   proc.stdin.end();
 
@@ -218,24 +240,14 @@ function spawnDaemon(daemonHome: string, logChunks: string[]): Promise<SpawnedPr
   return spawnMerkur(['daemon'], daemonHome, logChunks);
 }
 
-async function killDaemon(proc: DaemonChildProcess): Promise<void> {
-  if (proc.exitCode !== null || proc.signalCode !== null) {
-    return;
+export async function killDaemon(proc: DaemonShutdownProcess): Promise<void> {
+  const fence = daemonCloses.get(proc);
+  if (fence === undefined) throw new Error('Daemon process was not observed from spawn');
+  if (!fence.requested && proc.exitCode === null && proc.signalCode === null) {
+    fence.requested = true;
+    proc.kill('SIGTERM');
   }
-  proc.kill('SIGTERM');
-  const result = await new Promise<'exited' | 'timeout'>((resolve) => {
-    const timer = setTimeout(() => resolve('timeout'), 5_000);
-    proc.once('close', () => {
-      clearTimeout(timer);
-      resolve('exited');
-    });
-  });
-  if (result === 'timeout') {
-    proc.kill('SIGKILL');
-    if (proc.exitCode === null && proc.signalCode === null) {
-      await new Promise<void>((resolve) => proc.once('close', () => resolve()));
-    }
-  }
+  await fence.closed;
 }
 
 /**

@@ -152,18 +152,44 @@ class NativeTopologyTests(unittest.TestCase):
         self.assertIsNone(fault.epoch_packet(bytes.fromhex('0080000100000007c6336402'), 'natpmp'))
         self.assertIsNone(fault.epoch_packet(bytes(24), 'pcp'))
 
-    def test_reboot_flushes_only_actual_gateway_chains_and_requires_used_dnat(self):
+    def test_previous_lease_use_requires_inbound_dnat_and_the_exact_replied_native_socket(self):
+        grant = dict(privateIP='10.20.2.2', localPort=47038, externalPort=47038)
+        # Counterless Debian gateway evidence from the real client-PCP reset case.
+        connection = (
+            'ipv4 2 udp 17 29 src=198.51.100.1 dst=198.51.100.2 sport=51130 dport=47038 '
+            'src=10.20.2.2 dst=198.51.100.1 sport=47038 dport=51130 mark=0 use=1'
+        )
+        self.assertTrue(fault.inbound_lease_replied(grant, connection, '198.51.100.2'))
+        self.assertFalse(fault.inbound_lease_replied(grant, connection + ' [UNREPLIED]', '198.51.100.2'))
+        self.assertFalse(fault.inbound_lease_replied(dict(grant, localPort=47039), connection, '198.51.100.2'))
+        self.assertFalse(fault.inbound_lease_replied(dict(grant, externalPort=47039), connection, '198.51.100.2'))
+        self.assertFalse(fault.inbound_lease_replied(grant, connection, '198.51.100.1'))
+
+    def test_reboot_flushes_only_actual_gateway_chains_and_matches_real_counterless_grants(self):
         fixture = {"nftables": [
             {"chain": {"family": "ip", "table": "nat", "name": "prerouting_miniupnpd"}},
             {"chain": {"family": "ip", "table": "natlab", "name": "prerouting"}},
             {"rule": {"chain": "prerouting_miniupnpd", "expr": [
-                {"counter": {"packets": 0, "bytes": 0}}, {"dnat": {"addr": "10.20.2.2", "port": 41000}}]}},
+                {"match": {"op": "==", "left": {"meta": {"key": "iif"}}, "right": "wan0"}},
+                {"match": {"op": "==", "left": {"payload": {"base": "nh", "offset": 72, "len": 8}}, "right": 17}},
+                {"match": {"op": "==", "left": {"payload": {"protocol": "th", "field": "dport"}}, "right": 41000}},
+                {"dnat": {"family": "ip", "addr": "10.20.2.2", "port": 41000}}]}},
         ]}
         self.assertEqual(fault.dynamic_chains(fixture), [dict(
             family="ip", table="nat", name="prerouting_miniupnpd")])
-        self.assertFalse(fault.used_dnat(fixture))
-        fixture['nftables'][2]['rule']['expr'][0]['counter']['packets'] = 1
-        self.assertEqual(len(fault.used_dnat(fixture)), 1)
+        grants = fault.ipv4_udp_grants(fixture)
+        self.assertEqual(len(grants), 1)
+        self.assertEqual((grants[0]['privateIP'], grants[0]['localPort'], grants[0]['externalPort']),
+                         ('10.20.2.2', 41000, 41000))
+        self.assertEqual(fault.reacquired_grant(fixture, {'nftables': []}, fixture)['current'], grants[0])
+        with self.assertRaises(ValueError):
+            fault.reacquired_grant(fixture, fixture, fixture)
+        rule = fixture['nftables'][2]['rule']
+        rule['expr'][1]['match']['right'] = 6
+        self.assertFalse(fault.ipv4_udp_grants(fixture))
+        rule['expr'][1]['match']['right'] = 17
+        rule['chain'] = 'prerouting'
+        self.assertFalse(fault.ipv4_udp_grants(fixture))
         fixture['nftables'].append({"chain": {"family": "inet", "table": "filter", "name": "miniupnpd"}})
         self.assertEqual(len(fault.dynamic_chains(fixture)), 2)
 

@@ -47,6 +47,15 @@ proxy() {
   ready "$pid" "$directory/$name.log" NATLAB_PROXY_READY
 }
 
+gateway_capture() {
+  local role="$1" family="$2" name="$3" directory="$4"
+  ip netns exec "merkur-natlab-$role-cpe" tcpdump -i lan0 -n -s 0 -U \
+    -w "$directory/$name.pcap" "$family and (udp port 5351 or udp port 1900 or tcp)" \
+    2> "$directory/$name.stderr" &
+  captures+=("$!")
+  ready "$!" "$directory/$name.stderr" 'listening on'
+}
+
 cases=("$@")
 if [ "${#cases[@]}" -eq 0 ]; then
   while IFS= read -r topology; do cases+=("$topology"); done < <(bash "$LAB_DIR/native-topology.sh" cases)
@@ -100,13 +109,13 @@ for topology in "${cases[@]}"; do
   if [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
     role="${topology#ipv6-}"
     role="${role%-*}"
-    ip netns exec "merkur-natlab-$role-cpe" tcpdump -i lan0 -n -s 0 -U \
-      -w "$directory/v6-gateway.pcap" 'ip6 and (udp port 5351 or udp port 1900 or tcp)' \
-      2> "$directory/v6-gateway.stderr" &
-    captures+=("$!")
-    ready "$!" "$directory/v6-gateway.stderr" 'listening on'
+    gateway_capture "$role" ip6 v6-gateway "$directory"
     python3 "$LAB_DIR/native-v6-gateway.py" "$role" "${topology##*-}" \
       "$directory/gateway-preflight.json"
+  elif [[ "$topology" == *-lease-* || "$topology" == inner-lease ]]; then
+    role="${topology%%-*}"
+    if [ "$role" = inner ]; then role=client; fi
+    gateway_capture "$role" ip lease-gateway "$directory"
   fi
   status=0
   bun run "$LAB_DIR/run-native.ts" > >(tee "$directory/session.log") 2> >(tee "$directory/session.stderr" >&2) || status=$?
@@ -120,6 +129,8 @@ for topology in "${cases[@]}"; do
     control_capture=()
     if [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
       control_capture=(--peer-capture "$directory/v6-gateway.pcap")
+    elif [[ "$topology" == *-lease-* || "$topology" == inner-lease ]]; then
+      control_capture=(--peer-capture "$directory/lease-gateway.pcap")
     fi
     python3 "$LAB_DIR/verify-native.py" --case "$topology" --capture "$directory/wan.pcap" \
       --peer-capture "$directory/client.pcap" ${control_capture[@]+"${control_capture[@]}"} \
