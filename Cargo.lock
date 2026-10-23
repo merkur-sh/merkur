@@ -2109,7 +2109,6 @@ dependencies = [
  "merkur-authorization",
  "merkur-client",
  "merkur-codec",
- "merkur-e2e",
  "merkur-edge-protocol",
  "merkur-stun-protocol",
  "merkur-traversal",

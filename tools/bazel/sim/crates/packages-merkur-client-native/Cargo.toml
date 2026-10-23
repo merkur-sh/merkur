@@ -11,7 +11,6 @@ path = "../../../../../packages/merkur-client-native/src/lib.rs"
 
 [dependencies]
 merkur-traversal = { path = "../packages-merkur-traversal", "default-features" = false, features = [] }
-merkur-e2e = { path = "../packages-merkur-e2e", "default-features" = false, features = ["std"] }
 merkur-stun-protocol = { path = "../packages-merkur-stun-protocol", "default-features" = false, features = [] }
 ring = { version = "0.17" }
 netdev = { version = "0.46" }

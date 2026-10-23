@@ -84,7 +84,7 @@ def sim_crates():
         tags = ["noclippy"],
         target_compatible_with = SIMULATING,
         version = "0.1.0",
-        deps = [":merkur_authorization", ":merkur_client", ":merkur_e2e", ":merkur_edge_protocol", ":merkur_stun_protocol", ":merkur_traversal", ":merkur_wire", ":term_wasm"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-client-native"),
+        deps = [":merkur_authorization", ":merkur_client", ":merkur_edge_protocol", ":merkur_stun_protocol", ":merkur_traversal", ":merkur_wire", ":term_wasm"] + all_crate_deps(normal = True, package_name = "tools/bazel/sim/crates/packages-merkur-client-native"),
     )
     rust_library(
         name = "merkur_codec",

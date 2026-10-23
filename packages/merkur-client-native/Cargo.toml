@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 merkur-traversal = { path = "../merkur-traversal" }
-merkur-e2e = { path = "../merkur-e2e" }
 merkur-stun-protocol = { path = "../merkur-stun-protocol" }
 ring = "0.17"
 netdev = "0.46"

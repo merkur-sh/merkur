@@ -1845,7 +1845,6 @@ dependencies = [
  "libc",
  "merkur-authorization",
  "merkur-client",
- "merkur-e2e",
  "merkur-edge-protocol",
  "merkur-stun-protocol",
  "merkur-traversal",
