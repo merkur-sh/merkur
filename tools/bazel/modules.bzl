@@ -6404,6 +6404,16 @@ MODULES = {
             ":perf/harness.ts.module",
             ":tsconfig.json.module",
         ],
+        "bench-instructions.test.ts": [
+            "//:package.json.module",
+            ":bench-instructions.ts.module",
+            ":tsconfig.json.module",
+        ],
+        "bench-instructions.ts": [
+            "//:node_modules/effect",
+            "//:package.json.module",
+            ":tsconfig.json.module",
+        ],
         "bench-kernels-row-geometry.test.ts": [
             "//:package.json.module",
             ":bench-kernels-row-geometry.ts.module",
@@ -10220,6 +10230,8 @@ TYPE_INPUTS = {
             "bench-input-ring.ts",
             "bench-input-send-path.test.ts",
             "bench-input-send-path.ts",
+            "bench-instructions.test.ts",
+            "bench-instructions.ts",
             "bench-kernels-row-geometry.test.ts",
             "bench-kernels-row-geometry.ts",
             "bench-keyboard-hotpaths.test.ts",

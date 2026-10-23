@@ -1,0 +1,56 @@
+name: Instructions
+
+# The instructions each dataplane benchmark executes, counted by Cachegrind for every push to main
+# and set beside the previous push's in the job summary (`scripts/bench-instructions.ts`). A count
+# does not move with a shared runner's load the way a time does. It reports; it gates nothing.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The previous run's counts are its artifact.
+  actions: read
+
+concurrency:
+  group: instructions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  count:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust: 'false'
+          rust-cache: 'false'
+          bazel: 'true'
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - run: sudo apt-get install -y --no-install-recommends valgrind
+      - name: The previous push's counts
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="$(gh run list --workflow instructions.yml --branch main --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')"
+          if [[ -n "$run_id" ]]; then
+            gh run download "$run_id" --name instructions --dir previous
+            echo "baseline=--baseline previous/counts.json" >> "$GITHUB_OUTPUT"
+          fi
+      - env:
+          BASELINE: ${{ steps.previous.outputs.baseline }}
+        run: |
+          mkdir -p instructions
+          # shellcheck disable=SC2086 # BASELINE is a flag and its value, or nothing.
+          bun run scripts/bench-instructions.ts --out instructions/counts.json $BASELINE \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: instructions
+          path: instructions
