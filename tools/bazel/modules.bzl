@@ -6,7 +6,18 @@ MODULES = {
     "": {
         ".bazelrc": [],
         "deploy/service-hosts.json": [],
-        "package.json": [],
+        "package.json": [
+            "//:node_modules/@biomejs/biome",
+            "//:node_modules/@noble/post-quantum",
+            "//:node_modules/@playwright/test",
+            "//:node_modules/bun-types",
+            "//:node_modules/effect",
+            "//:node_modules/fallow",
+            "//:node_modules/oxc-parser",
+            "//:node_modules/rolldown",
+            "//:node_modules/typescript",
+            "//:node_modules/vite",
+        ],
         "playwright.edge.config.mjs": [
             ":package.json.module",
             ":tsconfig.json.module",
@@ -19,7 +30,11 @@ MODULES = {
     },
     "apps/daemon": {
         "NOTICES.txt": [],
-        "package.json": [],
+        "package.json": [
+            "//apps/daemon:node_modules/@elysia/eden",
+            "//apps/daemon:node_modules/effect",
+            "//apps/daemon:node_modules/uqr",
+        ],
         "src/cli/cli-output.test.ts": [
             ":package.json.module",
             ":src/cli/cli-output.ts.module",
@@ -501,7 +516,18 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
-        "package.json": [],
+        "package.json": [
+            "//apps/server:node_modules/@block65/webcrypto-web-push",
+            "//apps/server:node_modules/@libsql/client",
+            "//apps/server:node_modules/@serenity-kit/opaque",
+            "//apps/server:node_modules/disposable-email-domains-js",
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
+            "//apps/server:node_modules/exact-mirror",
+            "//apps/server:node_modules/fakefilter",
+            "//apps/server:node_modules/kysely",
+            "//apps/server:node_modules/typebox",
+        ],
         "scripts/benchmark-effect-scope.test.ts": [
             ":package.json.module",
             ":scripts/benchmark-effect-scope.ts.module",
@@ -1873,7 +1899,21 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "index.html": [],
-        "package.json": [],
+        "package.json": [
+            "//apps/site:node_modules/@mdx-js/rollup",
+            "//apps/site:node_modules/@playwright/test",
+            "//apps/site:node_modules/@solidjs/vite-plugin",
+            "//apps/site:node_modules/@solidjs/web",
+            "//apps/site:node_modules/@unocss/preset-uno",
+            "//apps/site:node_modules/motion",
+            "//apps/site:node_modules/remark-frontmatter",
+            "//apps/site:node_modules/remark-gfm",
+            "//apps/site:node_modules/remark-mdx-frontmatter",
+            "//apps/site:node_modules/shiki",
+            "//apps/site:node_modules/solid-js",
+            "//apps/site:node_modules/unocss",
+            "//apps/site:node_modules/vite",
+        ],
         "server/build.test.ts": [
             ":package.json.module",
             ":server/build.ts.module",
@@ -2092,7 +2132,19 @@ MODULES = {
         ],
     },
     "apps/web": {
-        "package.json": [],
+        "package.json": [
+            "//apps/web:node_modules/@elysia/eden",
+            "//apps/web:node_modules/@serenity-kit/opaque",
+            "//apps/web:node_modules/@solidjs/vite-plugin",
+            "//apps/web:node_modules/@solidjs/web",
+            "//apps/web:node_modules/@unocss/preset-uno",
+            "//apps/web:node_modules/effect",
+            "//apps/web:node_modules/linkify-it",
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
+            "//apps/web:node_modules/unocss",
+            "//apps/web:node_modules/vite",
+        ],
         "public/fonts/JetBrainsMonoNF-Regular.ttf": [],
         "src/api.refresh.test.ts": [
             ":package.json.module",
@@ -4881,7 +4933,10 @@ MODULES = {
         ],
     },
     "packages/auth": {
-        "package.json": [],
+        "package.json": [
+            "//packages/auth:node_modules/@serenity-kit/opaque",
+            "//packages/auth:node_modules/nanoid",
+        ],
         "src/access-token.test.ts": [
             ":package.json.module",
             ":src/index.ts.module",
@@ -4949,7 +5004,9 @@ MODULES = {
         ],
     },
     "packages/config": {
-        "package.json": [],
+        "package.json": [
+            "//packages/config:node_modules/effect",
+        ],
         "src/daemon-config.test.ts": [
             ":package.json.module",
             ":src/daemon-config.ts.module",
@@ -5144,7 +5201,9 @@ MODULES = {
         ],
     },
     "packages/logger": {
-        "package.json": [],
+        "package.json": [
+            "//packages/logger:node_modules/effect",
+        ],
         "src/effect-logger.ts": [
             ":package.json.module",
             ":src/sink.ts.module",
@@ -5210,7 +5269,9 @@ MODULES = {
         "src/protocol.rs": [],
     },
     "packages/profile": {
-        "package.json": [],
+        "package.json": [
+            "//packages/profile:node_modules/effect",
+        ],
         "src/cli.test.ts": [
             ":package.json.module",
             ":src/cli.ts.module",
@@ -5312,7 +5373,11 @@ MODULES = {
         "fonts/OFL-Geist.txt": [],
         "fonts/OFL-InstrumentSerif.txt": [],
         "fonts/OFL-JetBrainsMono.txt": [],
-        "package.json": [],
+        "package.json": [
+            "//packages/quicksilver:node_modules/@unocss/preset-uno",
+            "//packages/quicksilver:node_modules/unocss",
+            "//packages/quicksilver:node_modules/vite",
+        ],
         "src/assets.ts": [
             ":assets/orb-still.webp.module",
             ":package.json.module",
@@ -5390,7 +5455,10 @@ MODULES = {
         ],
     },
     "packages/shared": {
-        "package.json": [],
+        "package.json": [
+            "//packages/shared:node_modules/effect",
+            "//packages/shared:node_modules/typebox",
+        ],
         "src/api-contract.test.ts": [
             ":package.json.module",
             ":src/api-contract.ts.module",
@@ -5995,6 +6063,7 @@ MODULES = {
         "bench-display-encoding.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6025,6 +6094,7 @@ MODULES = {
         "bench-input-send-path.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6033,6 +6103,7 @@ MODULES = {
         "bench-kernels-row-geometry.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6062,6 +6133,7 @@ MODULES = {
         "bench-retained-wire-payload-pool.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6070,6 +6142,7 @@ MODULES = {
         "bench-session-crypto-startup.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6078,6 +6151,7 @@ MODULES = {
         "bench-shadow-terminal.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6117,6 +6191,7 @@ MODULES = {
         "bench-terminal-latency-report.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6125,6 +6200,7 @@ MODULES = {
         "bench-wasm-font-init.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6133,6 +6209,7 @@ MODULES = {
         "bench-wasm-font-style-upgrade.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6141,6 +6218,7 @@ MODULES = {
         "bench-web-input-keystroke.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6149,6 +6227,7 @@ MODULES = {
         "bench-web-startup-assets.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6157,6 +6236,7 @@ MODULES = {
         "bench-webgpu-renderer.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":perf/webgpu-renderer-benchmark.ts.module",
@@ -6178,6 +6258,7 @@ MODULES = {
         "bench-webtransport-frame-parser.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/harness.ts.module",
             ":test-process.ts.module",
@@ -6604,6 +6685,7 @@ MODULES = {
         "perf/historical-webgl.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":test-process.ts.module",
             ":tsconfig.json.module",
@@ -6653,6 +6735,7 @@ MODULES = {
         "perf/row-layout-plan.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":perf/row-layout-plan.ts.module",
             ":test-process.ts.module",
@@ -6680,6 +6763,7 @@ MODULES = {
         "profile-project.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             ":profile-project.ts.module",
             ":test-process.ts.module",
@@ -7378,6 +7462,7 @@ MODULES = {
         "e2e/playwright-edge-config.test.ts": [
             "//:package.json.module",
             "//:sources",
+            "//:test_node_modules",
             "//:wasm_packages",
             "//scripts:test-process.ts.module",
             ":tsconfig.json.module",

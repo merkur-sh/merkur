@@ -244,22 +244,18 @@ _BROWSERS = {
     "//tools/bazel/playwright:chromium_headless_shell": "chromium_headless_shell-" + CHROMIUM_REVISION,
 }
 
-# The whole repository: every package's files, whose TypeScript holds Rust and prose to the same
-# contracts, and the WebAssembly packages the sources import.
-_REPOSITORY = [
+# A whole-repository checkout: every package's files, whose TypeScript holds Rust and prose to the
+# same contracts, the WebAssembly packages the sources import, and every installed third-party
+# package.
+_CHECKOUT_DATA = [
     "//:sources",
+    "//:test_node_modules",
     "//:wasm_packages",
 ]
 
-# A whole-repository checkout: the repository and the installed third-party packages.
-_CHECKOUT_DATA = _REPOSITORY + ["//:test_node_modules"]
-
-# What every Bun test loads beyond its own file: `bunfig.toml` and the preloads it names, and the
-# installed third-party packages.
-_TEST_BASE = [
-    "//:bun_test_config",
-    "//:test_node_modules",
-]
+# What every Bun test loads beyond its own file: `bunfig.toml` and the preloads it names. A
+# module's installed third-party packages come with its package's manifest.
+_TEST_BASE = ["//:bun_test_config"]
 
 _NEEDS = ["browsers", "checkout", "data", "size", "tools"]
 
@@ -297,7 +293,7 @@ def bun_test_files(name = "test", tests = [], files = {}):
             name = target,
             args_ = ["test"],
             browsers = _BROWSERS if needs.get("browsers", False) else {},
-            data = [":%s.module" % test] + _TEST_BASE + (_REPOSITORY if checkout else []) +
+            data = [":%s.module" % test] + _TEST_BASE + (_CHECKOUT_DATA if checkout else []) +
                    needs.get("data", []),
             links = SYMLINKS if checkout else {},
             mounts = _VENDORED if checkout else {},

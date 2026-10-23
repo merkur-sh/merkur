@@ -14,7 +14,7 @@
 import { readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Schema } from 'effect';
-import { bazelModules, MODULES } from './bazel-modules';
+import { bazelModules, importerDependencies, MODULES } from './bazel-modules';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 export const SOURCES = 'tools/bazel/sources.bzl';
@@ -54,51 +54,6 @@ function workspaceNames(directories: readonly string[], root: string): [string, 
       ).name,
       directory,
     ])
-    .sort(([a], [b]) => a.localeCompare(b));
-}
-
-const Importer = Schema.Struct({
-  dependencies: Schema.optional(
-    Schema.Record(Schema.String, Schema.Struct({ version: Schema.String })),
-  ),
-  devDependencies: Schema.optional(
-    Schema.Record(Schema.String, Schema.Struct({ version: Schema.String })),
-  ),
-  optionalDependencies: Schema.optional(
-    Schema.Record(Schema.String, Schema.Struct({ version: Schema.String })),
-  ),
-});
-const Lockfile = Schema.Struct({ importers: Schema.Record(Schema.String, Importer) });
-
-/**
- * Each pnpm importer's direct dependencies, by its directory (the root's is ''): the third-party
- * ones, which its `:node_modules` links from the store, and the workspace packages it links.
- */
-function importerDependencies(root: string): [string, string[], string[]][] {
-  const { importers } = Schema.decodeUnknownSync(Lockfile)(
-    Bun.YAML.parse(readFileSync(path.join(root, 'pnpm-lock.yaml'), 'utf8')),
-    { onExcessProperty: 'ignore' },
-  );
-  return Object.entries(importers)
-    .map(([directory, importer]): [string, string[], string[]] => {
-      const dependencies = Object.entries({
-        ...importer.dependencies,
-        ...importer.devDependencies,
-        ...importer.optionalDependencies,
-      });
-      const workspace = ({ version }: { version: string }) => version.startsWith('link:');
-      return [
-        directory === '.' ? '' : directory,
-        dependencies
-          .filter(([, spec]) => !workspace(spec))
-          .map(([name]) => name)
-          .sort(),
-        dependencies
-          .filter(([, spec]) => workspace(spec))
-          .map(([name]) => name)
-          .sort(),
-      ];
-    })
     .sort(([a], [b]) => a.localeCompare(b));
 }
 

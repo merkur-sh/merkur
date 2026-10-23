@@ -35,8 +35,11 @@ const WASM_PACKAGES: readonly (readonly [string, string])[] = [
   ['packages/term-wasm/pkg', '//packages/term-wasm:pkg_files'],
 ];
 
-/** What a module that names the repository's root directory reads: the whole checkout. */
-const CHECKOUT = ['//:sources', '//:wasm_packages'];
+/**
+ * What a module that names the repository's root directory reads: the whole checkout, with every
+ * package's installed dependencies, as a test declaring `checkout` holds it.
+ */
+const CHECKOUT = ['//:sources', '//:test_node_modules', '//:wasm_packages'];
 
 const CODE = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 const TEST = /\.test\.tsx?$/;
@@ -53,6 +56,45 @@ const TsconfigOptions = Schema.Struct({
   extends: Schema.optional(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
 });
 type TsconfigOptions = typeof TsconfigOptions.Type;
+
+const Importer = Schema.Struct({
+  dependencies: Schema.optional(
+    Schema.Record(Schema.String, Schema.Struct({ version: Schema.String })),
+  ),
+  devDependencies: Schema.optional(
+    Schema.Record(Schema.String, Schema.Struct({ version: Schema.String })),
+  ),
+  optionalDependencies: Schema.optional(
+    Schema.Record(Schema.String, Schema.Struct({ version: Schema.String })),
+  ),
+});
+const Lockfile = Schema.Struct({ importers: Schema.Record(Schema.String, Importer) });
+
+/**
+ * Each pnpm importer's direct dependencies, by its directory (the root's is ''): the third-party
+ * ones, which its `:node_modules` links from the store, and the workspace packages it links.
+ */
+export function importerDependencies(root: string): [string, string[], string[]][] {
+  const { importers } = Schema.decodeUnknownSync(Lockfile)(
+    Bun.YAML.parse(readFileSync(path.join(root, 'pnpm-lock.yaml'), 'utf8')),
+    { onExcessProperty: 'ignore' },
+  );
+  return Object.entries(importers)
+    .map(([directory, importer]): [string, string[], string[]] => {
+      const dependencies = Object.entries({
+        ...importer.dependencies,
+        ...importer.devDependencies,
+        ...importer.optionalDependencies,
+      });
+      const workspace = ({ version }: { version: string }) => version.startsWith('link:');
+      return [
+        directory === '.' ? '' : directory,
+        dependencies.flatMap(([name, spec]) => (workspace(spec) ? [] : [name])).sort(),
+        dependencies.flatMap(([name, spec]) => (workspace(spec) ? [name] : [])).sort(),
+      ];
+    })
+    .sort(([a], [b]) => a.localeCompare(b));
+}
 
 /** A name a module gives another file: an import or `import.meta.resolve`, or a literal URL. */
 type Reference =
@@ -134,6 +176,8 @@ class Graph {
   readonly #packages: string[];
   readonly #transpilers = new Map<string, Bun.Transpiler>();
   readonly #configs = new Map<string, TsconfigOptions>();
+  /** Each pnpm importer's third-party dependencies, by its directory. */
+  readonly #installed: Map<string, string[]>;
   /** Each module, by its path, with the targets of what it loads. */
   readonly modules = new Map<string, Set<string>>();
   readonly errors: string[] = [];
@@ -142,6 +186,9 @@ class Graph {
     this.#root = root;
     this.#files = gitFiles(root);
     this.#packages = [...packages].sort((a, b) => b.length - a.length);
+    this.#installed = new Map(
+      importerDependencies(root).map(([directory, thirdParty]) => [directory, thirdParty]),
+    );
   }
 
   /** The package that owns `file`: the nearest directory above it with a `BUILD.bazel`. */
@@ -215,6 +262,15 @@ class Graph {
   /** The repository files `file` loads; the generated packages and checkouts go in `targets`. */
   #loads(file: string, targets: Set<string>): string[] {
     if (TSCONFIG.test(file)) return this.#extended(file);
+    // A package's manifest brings the third-party packages its `node_modules` links, which Bun
+    // resolves the package's bare imports through.
+    if (path.posix.basename(file) === 'package.json') {
+      const directory = path.posix.dirname(file);
+      const importer = directory === '.' ? '' : directory;
+      for (const dependency of this.#installed.get(importer) ?? [])
+        targets.add(`//${importer}:node_modules/${dependency}`);
+      return [];
+    }
     if (!CODE.test(file)) return [];
     const absolute = path.join(this.#root, file);
     const source = readFileSync(absolute, 'utf8');
