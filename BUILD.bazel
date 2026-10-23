@@ -1,8 +1,8 @@
 load("@npm//:defs.bzl", "npm_link_all_packages")
-load("//tools/bazel:files.bzl", "IGNORED", "module_targets")
+load("//tools/bazel:files.bzl", "IGNORED", "ROOT_IGNORED", "ROOT_KEPT", "module_targets")
 load("//tools/bazel:modules.bzl", "PRELOADS")
 load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "THIRD_PARTY_DEPENDENCIES")
-load("//tools/bazel/bun:bun.bzl", "lint_checks", "repo_check", "slop_checks", "type_checks")
+load("//tools/bazel/bun:bun.bzl", "checkout_snapshot", "lint_checks", "repo_check", "slop_checks", "type_checks")
 load("//tools/bazel/rust:clippy.bzl", "clippy_manifest")
 
 npm_link_all_packages(name = "node_modules")
@@ -32,10 +32,14 @@ filegroup(
     name = "root_files",
     srcs = glob(
         ["**"],
-        exclude = IGNORED + [link + suffix for link in SYMLINKS for suffix in ["", "/**"]],
+        exclude = IGNORED + ROOT_IGNORED +
+                  [link + suffix for link in SYMLINKS for suffix in ["", "/**"]],
         allow_empty = True,
-    ),
+    ) + ROOT_KEPT,
 )
+
+# The whole repository as one Git checkout, which every test that reads it as a whole clones.
+checkout_snapshot(name = "checkout")
 
 # The checkout's source files, which the static gates and the scripts' tests read as a whole.
 filegroup(

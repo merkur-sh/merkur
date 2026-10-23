@@ -92,7 +92,14 @@ file's module target, such as a script it runs or a fixture it reads by a comput
 the checkout does not hold the file. Bun, Node, Redis, OpenSSL and Chromium are hermetic.
 
 A static gate is a `repo_check`: the gate's `package.json` script over a checkout of the whole
-repository, made a Git repository so the gate sees what Git ignores. `check:types` is one test
+repository, made a Git repository so the gate sees what Git ignores. That checkout is built once,
+`//:checkout` (`repo_snapshot`, `tools/bazel/bun/snapshot.ts`): every package's files, the
+WebAssembly packages, the vendored crates and the tracked symlinks, committed. Each gate, and each
+test that declares `checkout`, clones it (copy-on-write on macOS) rather than copying and
+committing the repository itself; it stays out of the remote and disk caches. The globs that
+gather a package's files leave out what `.gitignore` does (`IGNORED` and `ROOT_IGNORED` in
+`tools/bazel/files.bzl`, the local-state directories in `REPO.bazel`), so a local tool's cache or
+key never becomes a test's input. `check:types` is one test
 per TypeScript project (`type_checks`): `scripts/check-types.ts --project <tsconfig>` over the
 files `tsc --listFilesOnly` lists for that project, each one's nearest `package.json`, and the
 project's configuration chain (`TYPE_PROJECTS` in `tools/bazel/modules.bzl`). `check:slop` is one

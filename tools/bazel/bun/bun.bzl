@@ -78,6 +78,20 @@ def _bun_test_impl(ctx):
     ])
     launcher = ctx.actions.declare_file(ctx.label.name)
 
+    # A whole-repository checkout is cloned from the snapshot built once (`repo_snapshot`), its
+    # files and its repository, and only what else the run declares is copied beside it. macOS
+    # clones copy-on-write, as Linux does where its filesystem can.
+    snapshot = ctx.file.snapshot
+    checkout = 'tar -C "$main" --exclude=node_modules -chf - . | tar -C "$tree" -xf -'
+    if snapshot:
+        checkout = """if [ "$(uname -s)" = Darwin ]; then clone=-c; else clone=--reflink=auto; fi
+cp -R -L $clone "$main/{snapshot}/." "$tree/"
+# Bazel seals what an action wrote read-only; a working tree is the owner's to write.
+chmod -R u+w "$tree"
+tar -C "$main" --exclude=node_modules --exclude="./{snapshot}" -chf - . | tar -C "$tree" -xf -""".format(
+            snapshot = snapshot.short_path,
+        )
+
     # The declared files become a checkout of their own in the test's scratch: real files, so a
     # walk or Bun's test discovery sees them as in a working tree, and nothing outside them is
     # reachable by a relative path. Installed packages stay links into rules_js's store.
@@ -90,7 +104,7 @@ main="$runfiles/_main"
 # A test's scratch; a build action running this as a tool names one with `TEST_TMPDIR` too.
 tree="$TEST_TMPDIR/checkout"
 mkdir -p "$tree"
-tar -C "$main" --exclude=node_modules -chf - . | tar -C "$tree" -xf -
+{checkout}
 modules_dirs=()
 while read -r modules; do
   mkdir -p "$tree/$modules"
@@ -143,6 +157,7 @@ exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}} "$@"
             args = " ".join(ctx.attr.args_),
             browsers = browsers,
             bun = bun.short_path,
+            checkout = checkout,
             link_bins = ctx.file._link_bins.short_path,
             mounts = mounts,
             git = "" if not ctx.attr.git else "(cd \"$tree\" && export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 && git init -q && git add -A && git -c user.name=bazel -c user.email=bazel@localhost commit -qm checkout)",
@@ -166,7 +181,9 @@ exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}} "$@"
         sources = depset(ctx.files.tests),
         data = ctx.attr.data,
         deps = [],
-    ).merge(ctx.runfiles(files = [bun, ctx.file._link_bins, node.node] + node.tool_files))
+    ).merge(ctx.runfiles(
+        files = [bun, ctx.file._link_bins, node.node] + node.tool_files + ([snapshot] if snapshot else []),
+    ))
     for target in ctx.attr.tools:
         runfiles = runfiles.merge(target[DefaultInfo].default_runfiles)
     for target in list(ctx.attr.browsers) + list(ctx.attr.mounts):
@@ -181,6 +198,10 @@ _CHECKOUT_ATTRS = {
     "data": attr.label_list(allow_files = True),
     "git": attr.bool(),
     "links": attr.string_dict(doc = "Symlinks to recreate, by path, with their targets."),
+    "snapshot": attr.label(
+        allow_single_file = True,
+        doc = "A whole-repository checkout (`repo_snapshot`) the run's checkout is cloned from.",
+    ),
     "mounts": attr.label_keyed_string_dict(
         doc = "Other repositories' files, by the checkout directory they sit in.",
     ),
@@ -224,6 +245,54 @@ A build action runs it as a tool, naming a scratch directory in `TEST_TMPDIR`.""
     toolchains = ["@rules_nodejs//nodejs:toolchain_type"],
 )
 
+def _snapshot_file(file):
+    return "file\t%s\t%s" % (file.path, file.short_path)
+
+def _repo_snapshot_impl(ctx):
+    output = ctx.actions.declare_directory(ctx.label.name)
+    manifest = ctx.actions.args()
+    manifest.set_param_file_format("multiline")
+    manifest.use_param_file("%s", use_always = True)
+    files = depset(transitive = [target.files for target in ctx.attr.srcs])
+    manifest.add_all(files, map_each = _snapshot_file)
+    mounted = []
+    for target, directory in ctx.attr.mounts.items():
+        for file in target.files.to_list():
+            # `../<repository>/<path>`: the file at its path in the repository's checkout directory.
+            within = file.short_path.split("/", 2)[2]
+            manifest.add("file\t%s\t%s/%s" % (file.path, directory, within))
+            mounted.append(file)
+    for path, link in sorted(ctx.attr.links.items()):
+        manifest.add("link\t%s\t%s" % (path, link))
+    ctx.actions.run(
+        executable = ctx.file._bun,
+        arguments = [ctx.file._script.path, output.path, manifest],
+        inputs = depset(mounted + [ctx.file._script], transitive = [files]),
+        outputs = [output],
+        mnemonic = "RepoSnapshot",
+        progress_message = "Checking out the repository for %{label}",
+        # Hundreds of megabytes a commit, rebuilt in seconds: kept in the output tree only.
+        execution_requirements = {"no-remote-cache": "1"},
+    )
+    return [DefaultInfo(files = depset([output]))]
+
+repo_snapshot = rule(
+    implementation = _repo_snapshot_impl,
+    doc = """The whole repository as one checkout (`snapshot.ts`): `srcs` at their paths, `mounts`'
+files under their directories, and `links`, committed to a Git repository. A test that reads the
+repository as a whole clones it.""",
+    attrs = {
+        "links": attr.string_dict(doc = "Symlinks to commit, by path, with their targets."),
+        "mounts": attr.label_keyed_string_dict(
+            allow_files = True,
+            doc = "Other repositories' files, by the checkout directory they sit in.",
+        ),
+        "srcs": attr.label_list(allow_files = True),
+        "_bun": attr.label(default = "//tools/bazel/bun", allow_single_file = True, cfg = "exec"),
+        "_script": attr.label(default = "//tools/bazel/bun:snapshot.ts", allow_single_file = True),
+    },
+)
+
 # The vendored transport crates, which Bazel loads only as these repositories (`MODULE.bazel`).
 _VENDORED = {
     "@vendored_quinn_patch//:files": "packages/quinn-patch",
@@ -244,14 +313,24 @@ _BROWSERS = {
     "//tools/bazel/playwright:chromium_headless_shell": "chromium_headless_shell-" + CHROMIUM_REVISION,
 }
 
-# A whole-repository checkout: every package's files, whose TypeScript holds Rust and prose to the
-# same contracts, the WebAssembly packages the sources import, and every installed third-party
-# package.
-_CHECKOUT_DATA = [
-    "//:sources",
-    "//:test_node_modules",
-    "//:wasm_packages",
-]
+# The whole repository as every test that reads it as a whole clones it (`checkout_snapshot`).
+_SNAPSHOT = "//:checkout"
+
+def checkout_snapshot(name):
+    """The whole repository as one checkout: every package's files, whose TypeScript holds Rust
+    and prose to the same contracts, the WebAssembly packages the sources import, the vendored
+    crates and the tracked symlinks, committed to a Git repository.
+
+    Args:
+      name: the snapshot's name.
+    """
+    repo_snapshot(
+        name = name,
+        srcs = ["//:sources", "//:wasm_packages"],
+        links = SYMLINKS,
+        mounts = _VENDORED,
+        visibility = ["//visibility:public"],
+    )
 
 # What every Bun test loads beyond its own file: `bunfig.toml` and the preloads it names. A
 # module's installed third-party packages come with its package's manifest.
@@ -293,11 +372,11 @@ def bun_test_files(name = "test", tests = [], files = {}):
             name = target,
             args_ = ["test"],
             browsers = _BROWSERS if needs.get("browsers", False) else {},
-            data = [":%s.module" % test] + _TEST_BASE + (_CHECKOUT_DATA if checkout else []) +
-                   needs.get("data", []),
+            data = [":%s.module" % test] + _TEST_BASE +
+                   (["//:test_node_modules"] if checkout else []) + needs.get("data", []),
             links = SYMLINKS if checkout else {},
-            mounts = _VENDORED if checkout else {},
             size = needs.get("size", "medium"),
+            snapshot = _SNAPSHOT if checkout else None,
             tests = [test],
             tools = needs.get("tools", {}),
             workspace = _WORKSPACE,
@@ -381,7 +460,8 @@ def lint_checks(name, data):
 def repo_check(name, script, data = [], **kwargs):
     """`bun run <script>`, a `package.json` gate, over a checkout of the whole repository.
 
-    The checkout is a Git repository, so the gates see what Git ignores as a working tree does.
+    The checkout, cloned from `//:checkout`, is a Git repository, so the gates see what Git
+    ignores as a working tree does.
 
     Args:
       name: the test's name.
@@ -392,10 +472,9 @@ def repo_check(name, script, data = [], **kwargs):
     bun_test(
         name = name,
         args_ = ["run", script],
-        data = _CHECKOUT_DATA + data,
-        git = True,
+        data = ["//:test_node_modules"] + data,
         links = SYMLINKS,
-        mounts = _VENDORED,
+        snapshot = _SNAPSHOT,
         workspace = _WORKSPACE,
         **kwargs
     )
@@ -409,9 +488,9 @@ def repo_checkout(name, **kwargs):
     """
     bun_checkout(
         name = name,
-        data = _CHECKOUT_DATA,
+        data = ["//:test_node_modules"],
         links = SYMLINKS,
-        mounts = _VENDORED,
+        snapshot = _SNAPSHOT,
         workspace = _WORKSPACE,
         **kwargs
     )

@@ -7,6 +7,7 @@ package_files()
 exports_files([
     "bun.bzl",
     "link-bins.ts",
+    "snapshot.ts",
 ])
 
 # The Bun release for the platform a target runs on.

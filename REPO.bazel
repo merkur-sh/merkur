@@ -3,6 +3,13 @@
 ignore_directories([
     # Git's own directory, where a checkout may keep Bazel's repository cache.
     ".git",
+    # Local state Git ignores, which holds no tracked file: tool caches and downloads, the cloud
+    # tester's home, the offline-signed deployment bundle, OpenTofu's working state.
+    ".cloud-tester",
+    ".fallow",
+    ".tools",
+    "deployment",
+    "infra/.terraform",
     "**/node_modules",
     "**/target",
     "**/dist",
