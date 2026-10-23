@@ -143,7 +143,7 @@
     },
     "apps/daemon/dataplane/src/lib.rs": {
       "clippy::cast_possible_truncation": 2,
-      "clippy::let_underscore_must_use": 11,
+      "clippy::let_underscore_must_use": 10,
       "clippy::map_err_ignore": 4,
       "clippy::too_many_lines": 10,
       "clippy::wildcard_enum_match_arm": 1
@@ -1083,7 +1083,7 @@
     },
     "packages/merkur-traversal/src/portmap/mod.rs": {
       "clippy::cast_possible_truncation": 1,
-      "clippy::let_underscore_must_use": 7,
+      "clippy::let_underscore_must_use": 6,
       "clippy::too_many_lines": 1
     },
     "packages/merkur-traversal/src/portmap/natpmp.rs": {

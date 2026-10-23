@@ -942,9 +942,13 @@ does not open an intervening NAT that the service does not control.
 IPv6 has no NAT, so a `host6` candidate is dialable exactly when the gateway's stateful firewall
 admits the browser's first datagram. The daemon asks for a pinhole with PCP `MAP` over IPv6 and
 with IGDv2 `WANIPv6FirewallControl:1 AddPinhole`, probed together the same way. `scripts/natlab`
-(`bun run test:natlab`) proves both mechanisms in isolated Linux namespaces, where the lab owns
-the firewall, and runs the lease against a real miniupnpd: every protocol on, UPnP only, NAT-PMP
-and PCP silently dropped, and double NAT.
+(`bun run test:natlab`) runs real miniupnpd gateways in isolated Linux namespaces. Its IPv4
+mapping cases cover every protocol on, UPnP only, NAT-PMP and PCP silently dropped, and double
+NAT. Its native IPv6 cases require a control-driven kernel pinhole on either peer before checked
+QUIC and sealed terminal traffic, then observe deletion when the native owner closes. The PCPv6
+cases wait for native renewal and post-renewal traffic; IGDv2 automatic renewal is tested through
+the production maintenance worker with an advanced test clock. Independent gateway preflights
+exercise acquisition, renewal, deletion and expiry separately from native session evidence.
 IPv6 PCP discovery includes the RFC 7723 address `2001:1::1`, with the request bound to the
 interface owning the global address. A PCP pinhole must retain that exact address and port.
 A granted translation to another address or port is deleted rather than advertised as a

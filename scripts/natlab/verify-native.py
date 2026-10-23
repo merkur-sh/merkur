@@ -19,6 +19,7 @@ import struct
 import sys
 import time
 from typing import Any
+import xml.etree.ElementTree as ET
 
 
 class VerificationError(Exception):
@@ -41,7 +42,9 @@ POSITIVE_CASES = {
     "eim-pdf", "edm-daemon-eif", "edm-daemon-adf", "edm-client-eif", "edm-client-adf",
     "client-lease-pcp", "client-lease-natpmp", "client-lease-upnp",
     "daemon-lease-pcp", "daemon-lease-natpmp", "daemon-lease-upnp", "ipv6-pdf", "lan",
+    "ipv6-client-pcp", "ipv6-daemon-pcp", "ipv6-client-igd", "ipv6-daemon-igd",
 }
+IPV6_PINHOLE_CASES = {"ipv6-client-pcp", "ipv6-daemon-pcp", "ipv6-client-igd", "ipv6-daemon-igd"}
 NEGATIVE_CASES = {"blocked", "edm-pdf", "edm-both", "inner-lease"}
 
 
@@ -54,9 +57,20 @@ class Packet:
 
 
 @dataclass(frozen=True)
+class TcpPacket:
+    timestamp_ns: int
+    source: Endpoint
+    destination: Endpoint
+    sequence: int
+    flags: int
+    payload: bytes
+
+
+@dataclass(frozen=True)
 class Capture:
     packets: tuple[Packet, ...]
     records: int
+    tcp: tuple[TcpPacket, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -109,7 +123,7 @@ def decode_link(frame: bytes, link_type: int) -> tuple[int, bytes] | None:
     raise VerificationError(f"unsupported PCAP link type {link_type}")
 
 
-def udp_packet(frame: bytes, link_type: int, timestamp_ns: int) -> Packet | None:
+def ip_payload(frame: bytes, link_type: int) -> tuple[str, str, int, bytes] | None:
     decoded = decode_link(frame, link_type)
     if decoded is None:
         return None
@@ -119,12 +133,12 @@ def udp_packet(frame: bytes, link_type: int, timestamp_ns: int) -> Packet | None
         header_len = (body[0] & 15) * 4
         total_len = struct.unpack_from("!H", body, 2)[0]
         require(header_len >= 20 and header_len <= total_len <= len(body), "invalid IPv4 length")
-        if body[9] != 17:
+        if body[9] not in {6, 17}:
             return None
         require(struct.unpack_from("!H", body, 6)[0] & 0x3FFF == 0,
                 "fragmented UDP cannot establish a complete peer exchange")
         source, destination = canonical_ip(body[12:16]), canonical_ip(body[16:20])
-        datagram = body[header_len:total_len]
+        return source, destination, body[9], body[header_len:total_len]
     elif protocol == 0x86DD:
         require(len(body) >= 40 and body[0] >> 4 == 6, "truncated or invalid IPv6 header")
         total_len = 40 + struct.unpack_from("!H", body, 4)[0]
@@ -138,16 +152,35 @@ def udp_packet(frame: bytes, link_type: int, timestamp_ns: int) -> Packet | None
             require(cursor + extension_len <= total_len, "invalid IPv6 extension length")
             next_header, cursor = body[cursor], cursor + extension_len
         require(next_header != 44, "fragmented IPv6 cannot establish a complete peer exchange")
-        if next_header != 17:
+        if next_header not in {6, 17}:
             return None
-        datagram = body[cursor:total_len]
+        return source, destination, next_header, body[cursor:total_len]
     else:
         return None
+
+
+def udp_packet(frame: bytes, link_type: int, timestamp_ns: int) -> Packet | None:
+    decoded = ip_payload(frame, link_type)
+    return udp_payload(decoded, timestamp_ns) if decoded is not None and decoded[2] == 17 else None
+
+
+def udp_payload(decoded: tuple[str, str, int, bytes], timestamp_ns: int) -> Packet:
+    source, destination, _, datagram = decoded
     require(len(datagram) >= 8, "truncated UDP header")
     source_port, destination_port, length, _ = struct.unpack_from("!HHHH", datagram)
     require(8 <= length <= len(datagram), "invalid UDP length")
     return Packet(timestamp_ns, (source, source_port), (destination, destination_port),
                   datagram[8:length])
+
+
+def tcp_payload(decoded: tuple[str, str, int, bytes], timestamp_ns: int) -> TcpPacket:
+    source, destination, _, segment = decoded
+    require(len(segment) >= 20, "truncated TCP header")
+    source_port, destination_port, sequence = struct.unpack_from("!HHI", segment)
+    header_length = (segment[12] >> 4) * 4
+    require(20 <= header_length <= len(segment), "invalid TCP data offset")
+    return TcpPacket(timestamp_ns, (source, source_port), (destination, destination_port),
+                     sequence, segment[13], segment[header_length:])
 
 
 def read_capture(path: Path, live: bool = False) -> Capture:
@@ -165,6 +198,7 @@ def read_capture(path: Path, live: bool = False) -> Capture:
         link_type = network & 0xFFFF
         records = 0
         packets: list[Packet] = []
+        tcp: list[TcpPacket] = []
         while record := stream.read(16):
             if live and len(record) < 16:
                 break
@@ -177,10 +211,14 @@ def read_capture(path: Path, live: bool = False) -> Capture:
                 break
             require(len(frame) == captured_len, f"{path.name}: truncated PCAP packet")
             records += 1
-            packet = udp_packet(frame, link_type, seconds * 1_000_000_000 + fraction * fraction_scale)
-            if packet is not None:
-                packets.append(packet)
-    return Capture(tuple(packets), records)
+            decoded = ip_payload(frame, link_type)
+            timestamp = seconds * 1_000_000_000 + fraction * fraction_scale
+            if decoded is not None:
+                if decoded[2] == 17:
+                    packets.append(udp_payload(decoded, timestamp))
+                else:
+                    tcp.append(tcp_payload(decoded, timestamp))
+    return Capture(tuple(packets), records, tuple(tcp))
 
 
 def wait_for_rebind_context(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
@@ -214,6 +252,19 @@ def wait_for_port_rebind(case: str, captures: list[Path], state: Path) -> dict[s
             return {"case": case, "portRebindObserved": True}
         remaining = deadline - time.monotonic()
         require(remaining > 0, "port rebind has no checked handshake or previous-CID continuity")
+        time.sleep(min(0.05, remaining))
+
+
+def wait_for_inner_lease_rejection(case: str, captures: list[Path]) -> dict[str, Any]:
+    require(case == "inner-lease", "inner-lease observation requires its controlled two-router topology")
+    deadline = time.monotonic() + 30
+    while True:
+        packets = [packet for path in captures for packet in read_capture(path, live=True).packets]
+        proof = inner_lease_rejection(packets)
+        if proof is not None:
+            return {"case": case, "innerLeaseRejected": proof}
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, "no mismatched inner PCP grant was deleted while its native binding remained live")
         time.sleep(min(0.05, remaining))
 
 
@@ -350,7 +401,7 @@ def quic_packets(packets: list[Packet], case: str,
 
 def oriented_pair(packet: Packet, case: str) -> Pair | None:
     daemon, client = (DAEMON_LAN, CLIENT_LAN) if case == "lan" else (
-        (DAEMON6, CLIENT6) if case == "ipv6-pdf" else (DAEMON4, CLIENT4))
+        (DAEMON6, CLIENT6) if case == "ipv6-pdf" or case in IPV6_PINHOLE_CASES else (DAEMON4, CLIENT4))
     if (packet.source[0], packet.destination[0]) == (daemon, client):
         return packet.source, packet.destination
     if (packet.source[0], packet.destination[0]) == (client, daemon):
@@ -552,6 +603,476 @@ def snapshot_paths(state: Path, role: str, suffix: str) -> list[Path]:
             *sorted((state / "topology").glob(f"*-{role}-{suffix}"))]
 
 
+def pcp6_exchange(request: bytes, response: bytes, address: str, port: int) -> dict[str, Any]:
+    require(len(request) == 60 and len(response) >= 60 and request[:4] == b"\x02\x01\0\0"
+            and response[:4] == b"\x02\x81\0\0", "pinhole PCP MAP exchange is not successful")
+    packed = ipaddress.IPv6Address(address).packed
+    require(request[8:24] == packed and request[36:40] == b"\x11\0\0\0"
+            and response[36:40] == request[36:40]
+            and request[40:44] == struct.pack("!HH", port, port)
+            and response[40:44] == request[40:44]
+            and request[44:60] == packed and response[44:60] == packed,
+            "pinhole PCP MAP changed the native IPv6 address or socket port")
+    require(response[24:36] == request[24:36], "pinhole PCP response belongs to another nonce")
+    requested = struct.unpack_from("!I", request, 4)[0]
+    granted = struct.unpack_from("!I", response, 4)[0]
+    require((requested == 0 and granted == 0) or (requested > 0 and 0 < granted <= requested),
+            "pinhole PCP lifetime does not match acquire/renew/delete")
+    return {"identity": request[24:36].hex(), "requestedLifetimeSeconds": requested,
+            "grantedLifetimeSeconds": granted, "epoch": struct.unpack_from("!I", response, 8)[0]}
+
+
+def igd6_exchange(action: str, request: str, response: str, address: str, port: int,
+                  source: str) -> dict[str, Any]:
+    require(source == address, "pinhole IGD control did not originate at its InternalClient")
+    require(action in {"AddPinhole", "UpdatePinhole", "DeletePinhole"}, "unexpected IGD pinhole action")
+    service = "urn:schemas-upnp-org:service:WANIPv6FirewallControl:1"
+    envelope = "{http://schemas.xmlsoap.org/soap/envelope/}"
+
+    def body(xml: str, name: str) -> dict[str, str]:
+        try:
+            root = ET.fromstring(xml)
+        except ET.ParseError as error:
+            raise VerificationError("pinhole IGD control has malformed SOAP") from error
+        element = root.find(f"{envelope}Body")
+        require(element is not None and len(element) == 1
+                and element[0].tag == f"{{{service}}}{name}", "pinhole IGD SOAP action/response mismatch")
+        fields: dict[str, str] = {}
+        for child in element[0]:
+            key = child.tag.rsplit("}", 1)[-1]
+            require(key not in fields, "pinhole IGD SOAP contains duplicate arguments")
+            fields[key] = child.text or ""
+        return fields
+
+    sent, answered = body(request, action), body(response, action + "Response")
+    if action == "AddPinhole":
+        require(sent.get("RemoteHost") == "" and sent.get("RemotePort") == "0"
+                and sent.get("InternalClient") == address and sent.get("InternalPort") == str(port)
+                and sent.get("Protocol") == "17", "pinhole IGD request changed its native UDP socket")
+        identity, lifetime = answered.get("UniqueID"), sent.get("LeaseTime")
+    else:
+        identity = sent.get("UniqueID")
+        lifetime = sent.get("NewLeaseTime") if action == "UpdatePinhole" else "0"
+    require(isinstance(identity, str) and identity.isdigit() and 0 <= int(identity) <= 65535,
+            "pinhole IGD action has no valid UniqueID")
+    require(isinstance(lifetime, str) and lifetime.isdigit()
+            and (int(lifetime) == 0 if action == "DeletePinhole" else 0 < int(lifetime) <= 86400),
+            "pinhole IGD action has no valid requested lifetime")
+    return {"identity": identity, "requestedLifetimeSeconds": int(lifetime),
+            "grantedLifetimeSeconds": int(lifetime)}
+
+
+def gateway_http(tcp: list[TcpPacket], local: str, gateway: str) -> list[dict[str, Any]]:
+    connections: list[dict[Endpoint, dict[str, Any]]] = []
+    active: dict[tuple[Endpoint, Endpoint], dict[Endpoint, dict[str, Any]]] = {}
+    for packet in sorted(tcp, key=lambda value: value.timestamp_ns):
+        if {packet.source[0], packet.destination[0]} != {local, gateway}:
+            continue
+        key = tuple(sorted((packet.source, packet.destination)))
+        connection = active.get(key)
+        if packet.flags & 2 and not packet.flags & 16:
+            if (connection is None or packet.source not in connection
+                    or connection[packet.source]["base"] != (packet.sequence + 1) & 0xFFFFFFFF):
+                connection = {}
+                connections.append(connection)
+                active[key] = connection
+        if connection is None:
+            require(not packet.payload, "gateway HTTP capture starts after its TCP handshake")
+            continue
+        if packet.flags & 2:
+            connection.setdefault(packet.source, {"base": (packet.sequence + 1) & 0xFFFFFFFF,
+                                                   "segments": [], "destination": packet.destination})
+        if not packet.payload:
+            continue
+        require(packet.source in connection, "gateway HTTP response has no captured TCP handshake")
+        flow = connection[packet.source]
+        sequence = packet.sequence + (1 if packet.flags & 2 else 0)
+        offset = (sequence - flow["base"]) & 0xFFFFFFFF
+        require(offset < 0x80000000, "gateway TCP sequence precedes its handshake")
+        flow["segments"].append((offset, packet.payload, packet.timestamp_ns))
+
+    def stream(flow: dict[str, Any]) -> tuple[bytes, int, int]:
+        data = bytearray()
+        stamps = []
+        for offset, payload, stamp in sorted(flow["segments"]):
+            require(offset <= len(data), "gateway HTTP capture has missing TCP bytes")
+            overlap = min(len(data) - offset, len(payload))
+            require(data[offset:offset + overlap] == payload[:overlap],
+                    "gateway HTTP capture has conflicting TCP retransmissions")
+            data.extend(payload[overlap:])
+            stamps.append(stamp)
+        return bytes(data), min(stamps, default=0), max(stamps, default=0)
+
+    def messages(data: bytes) -> list[tuple[str, dict[str, str], str]]:
+        result = []
+        while data:
+            end = data.find(b"\r\n\r\n")
+            require(end >= 0, "gateway HTTP capture has incomplete headers")
+            lines = data[:end].decode("ascii").split("\r\n")
+            headers: dict[str, str] = {}
+            for line in lines[1:]:
+                require(":" in line, "gateway HTTP contains an invalid header")
+                name, value = line.split(":", 1)
+                name = name.strip().lower()
+                require(name not in headers, "gateway HTTP contains duplicate headers")
+                headers[name] = value.strip()
+            require("transfer-encoding" not in headers, "gateway uses unsupported HTTP transfer coding")
+            length = headers.get("content-length", "0")
+            require(length.isdigit(), "gateway HTTP has an invalid Content-Length")
+            body_end = end + 4 + int(length)
+            require(body_end <= len(data), "gateway HTTP capture has incomplete body")
+            result.append((lines[0], headers, data[end + 4:body_end].decode("utf-8")))
+            data = data[body_end:]
+        return result
+
+    result: list[dict[str, Any]] = []
+    for connection in connections:
+        clients = [endpoint for endpoint in connection if endpoint[0] == local]
+        servers = [endpoint for endpoint in connection if endpoint[0] == gateway]
+        if not clients or not servers:
+            continue
+        client, server = clients[0], servers[0]
+        request_bytes, sent, _ = stream(connection[client])
+        response_bytes, _, received = stream(connection[server])
+        if not request_bytes or not response_bytes:
+            continue
+        requests, responses = messages(request_bytes), messages(response_bytes)
+        require(len(requests) == len(responses), "gateway HTTP request/response counts differ")
+        for (line, headers, request), (status, _, response) in zip(requests, responses):
+            if not line.startswith("POST ") or "soapaction" not in headers:
+                continue
+            action = headers["soapaction"].strip('"').rsplit("#", 1)[-1]
+            if action not in {"AddPinhole", "UpdatePinhole", "DeletePinhole"}:
+                continue
+            require(status.split(" ")[1] == "200", "native IGD pinhole action failed")
+            result.append({"action": action, "requestBody": request, "responseBody": response,
+                           "source": client, "responder": server, "sentAtNs": sent,
+                           "receivedAtNs": received})
+    return result
+
+
+def gateway_pcp(packets: list[Packet], local: str, gateway: str,
+                 port: int) -> list[dict[str, Any]]:
+    requests: dict[tuple[Endpoint, Endpoint, bytes], list[Packet]] = defaultdict(list)
+    result = []
+    for packet in sorted(packets, key=lambda value: value.timestamp_ns):
+        wire = packet.payload
+        if len(wire) < 60 or wire[0] != 2 or wire[1] not in {1, 0x81}:
+            continue
+        if struct.unpack_from("!H", wire, 40)[0] != port:
+            continue
+        if (packet.source[0] == local and packet.destination == (gateway, 5351)
+                and wire[1] == 1):
+            requests[(packet.source, packet.destination, wire[24:36])].append(packet)
+        elif (packet.source == (gateway, 5351) and packet.destination[0] == local and wire[1] == 0x81):
+            key = packet.destination, packet.source, wire[24:36]
+            prior = requests.get(key, [])
+            if prior:
+                request = prior[-1]
+                proof = pcp6_exchange(request.payload, wire, local, port)
+                result.append({**proof, "source": request.source, "responder": packet.source,
+                               "sentAtNs": request.timestamp_ns, "receivedAtNs": packet.timestamp_ns})
+    return result
+
+
+def stun_attributes(payload: bytes, message_type: int) -> dict[int, bytes] | None:
+    if (len(payload) < 56 or len(payload) > 1200 or len(payload) % 4
+            or payload[:2] != struct.pack("!H", message_type) or payload[4:8] != COOKIE
+            or struct.unpack_from("!H", payload, 2)[0] + 20 != len(payload)):
+        return None
+    attributes: dict[int, bytes] = {}
+    cursor = 20
+    while cursor < len(payload):
+        if cursor + 4 > len(payload) or 0x1C in attributes:
+            return None
+        kind, length = struct.unpack_from("!HH", payload, cursor)
+        start, end = cursor + 4, cursor + 4 + length
+        cursor = start + ((length + 3) & ~3)
+        if kind in attributes or cursor > len(payload):
+            return None
+        attributes[kind] = payload[start:end]
+    return attributes if len(attributes.get(0x1C, b"")) == 32 else None
+
+
+def outer_observations(packets: list[Packet], binding: Endpoint) -> list[tuple[Packet, Packet, Endpoint]]:
+    requests: dict[tuple[Endpoint, bytes], Packet] = {}
+    results = []
+    for packet in sorted(packets, key=lambda value: value.timestamp_ns):
+        if packet.source == binding and packet.destination[0] in {"198.51.100.10", "198.51.100.11"}:
+            attributes = stun_attributes(packet.payload, 1)
+            if (attributes is not None and re.fullmatch(rb"[A-Za-z0-9_-]{55}", attributes.get(6, b""))
+                    and attributes.get(0xC002) == b""):
+                requests[(packet.destination, packet.payload[8:20])] = packet
+        elif packet.destination == binding:
+            request = requests.get((packet.source, packet.payload[8:20]))
+            attributes = stun_attributes(packet.payload, 0x101)
+            if request is None or attributes is None or len(packet.payload) > len(request.payload):
+                continue
+            mapped = xor_address(attributes.get(0x20, b""), packet.payload[8:20])
+            receipt = attributes.get(0xC001, b"")
+            if (mapped is not None and mapped[0] == CLIENT4 and len(receipt) == 51
+                    and receipt[0] == 4 and canonical_ip(receipt[1:17]) in {"198.51.100.10", "198.51.100.11"}
+                    and struct.unpack_from("!H", receipt, 17)[0] > 0):
+                results.append((request, packet, mapped))
+    return results
+
+
+def inner_lease_rejection(packets: list[Packet]) -> dict[str, Any] | None:
+    local, gateway, assigned = "10.20.2.2", ("10.20.2.1", 5351), "172.30.2.2"
+    requests: dict[tuple[Endpoint, bytes, int], Packet] = {}
+    exchanges: list[tuple[Packet, Packet, int, int]] = []
+    for packet in sorted(packets, key=lambda value: value.timestamp_ns):
+        wire = packet.payload
+        if len(wire) < 60 or wire[0] != 2 or wire[1] not in {1, 0x81} or wire[36:40] != b"\x11\0\0\0":
+            continue
+        port = struct.unpack_from("!H", wire, 40)[0]
+        if port == 0:
+            continue
+        if (packet.source[0] == local and packet.destination == gateway and wire[:4] == b"\x02\x01\0\0"
+                and canonical_ip(wire[8:24]) == local and canonical_ip(wire[44:60]) == CLIENT4):
+            requests[(packet.source, wire[24:36], port)] = packet
+        elif (packet.source == gateway and packet.destination[0] == local and wire[:4] == b"\x02\x81\0\0"):
+            request = requests.get((packet.destination, wire[24:36], port))
+            if request is not None:
+                requested = struct.unpack_from("!I", request.payload, 4)[0]
+                granted = struct.unpack_from("!I", wire, 4)[0]
+                exchanges.append((request, packet, requested, granted))
+    for acquire, grant, requested, lifetime in exchanges:
+        if requested == 0 or lifetime == 0 or canonical_ip(grant.payload[44:60]) != assigned:
+            continue
+        port = struct.unpack_from("!H", acquire.payload, 40)[0]
+        binding = local, port
+        observations = [observed for observed in outer_observations(packets, binding)
+                        if observed[1].timestamp_ns <= acquire.timestamp_ns]
+        if not observations:
+            continue
+        for delete, acknowledgement, delete_lifetime, returned_lifetime in exchanges:
+            if (delete_lifetime != 0 or returned_lifetime != 0
+                    or delete.timestamp_ns < grant.timestamp_ns
+                    or delete.payload[24:36] != acquire.payload[24:36]
+                    or delete.payload[40:42] != acquire.payload[40:42]):
+                continue
+            still_checking = any(packet.source == binding and packet.timestamp_ns > acknowledgement.timestamp_ns
+                                 and packet.destination[0] in {DAEMON4, "10.20.1.2"}
+                                 and (check := peer_check(packet.payload)) is not None
+                                 and check.request and check.direction == "c" for packet in packets)
+            still_observing = any(observed[0].timestamp_ns > acknowledgement.timestamp_ns
+                                  for observed in outer_observations(packets, binding))
+            if still_checking or still_observing:
+                return {"privateAddress": local, "privatePort": port,
+                        "observedOuterAddress": observations[0][2][0], "rejectedAssignedAddress": assigned,
+                        "cleanupWhileBindingLive": True}
+    return None
+
+
+def pinhole_tuple(rule: dict[str, Any]) -> tuple[str | None, int | None, bool]:
+    address, port, udp = None, None, False
+    for expression in rule.get("expr", []):
+        match = expression.get("match", {})
+        if match.get("op") != "==":
+            continue
+        payload = match.get("left", {}).get("payload", {})
+        right = match.get("right")
+        raw = payload.get("base"), payload.get("offset"), payload.get("len")
+        field = payload.get("protocol"), payload.get("field")
+        if field == ("ip6", "daddr") or raw == ("network header", 24, 16):
+            if isinstance(right, str):
+                address = str(ipaddress.IPv6Address(int(right, 16) if right.startswith("0x") else right))
+        elif field in {("udp", "dport"), ("th", "dport")} or raw == ("transport header", 2, 2):
+            port = int(right, 0) if isinstance(right, str) else right
+            udp = udp or field[0] == "udp"
+        elif field == ("ip6", "nexthdr") or raw == ("network header", 6, 1):
+            udp = udp or right in {17, "udp", "0x11"}
+        elif match.get("left", {}).get("meta", {}).get("key") == "l4proto":
+            udp = udp or right in {17, "udp", "0x11"}
+    return address, port, udp
+
+
+def matching_pinholes(ruleset: dict[str, Any], address: str, port: int) -> list[dict[str, Any]]:
+    return [rule for entry in ruleset.get("nftables", []) if isinstance(rule := entry.get("rule"), dict)
+            and rule.get("chain") == "miniupnpd" and pinhole_tuple(rule) == (address, port, True)
+            and any("accept" in expression for expression in rule.get("expr", []))]
+
+
+def pinhole_counters(ruleset: dict[str, Any]) -> dict[str, int]:
+    result = {entry["counter"].get("name"): entry["counter"].get("packets")
+              for entry in ruleset.get("nftables", []) if isinstance(entry.get("counter"), dict)}
+    names = ("pinhole_attempt", "pinhole_denied")
+    require(all(isinstance(result.get(name), int) and not isinstance(result[name], bool)
+                and result[name] >= 0 for name in names), "pinhole evidence omits real named counters")
+    return {name: result[name] for name in names}
+
+
+def verify_pinhole_gate(ruleset: dict[str, Any], address: str) -> None:
+    rules = [entry["rule"] for entry in ruleset.get("nftables", [])
+             if isinstance(entry.get("rule"), dict) and entry["rule"].get("family") == "inet"
+             and entry["rule"].get("table") == "filter" and entry["rule"].get("chain") == "forward"]
+    if rules and {"accept": None} in rules[0].get("expr", []):
+        require(observer_bootstrap_rule(rules[0], address),
+                "pinhole gate has a broad or mismatched infrastructure exception")
+        rules = rules[1:]
+    require(len(rules) >= 2, "pinhole firewall has no forced admission gate")
+    for index, name in enumerate(("pinhole_attempt", "pinhole_denied")):
+        expressions = rules[index].get("expr", [])
+        matches = [expression["match"] for expression in expressions if "match" in expression]
+        require(any(match.get("left") == {"meta": {"key": "iifname"}}
+                    and match.get("op") == "==" and match.get("right") == "wan0" for match in matches)
+                and any(match.get("left") == {"payload": {"protocol": "ip6", "field": "daddr"}}
+                        and match.get("op") == "==" and match.get("right") == address for match in matches)
+                and any(match.get("left") == {"meta": {"key": "l4proto"}}
+                        and match.get("op") == "==" and match.get("right") in {17, "udp"} for match in matches),
+                "pinhole gate does not select the exact owner GUA and inbound UDP")
+        require(any(expression.get("counter") == name or expression.get("counter") == {"name": name}
+                    for expression in expressions), "pinhole gate omits its named attempt/denial counter")
+        verdict = {"jump": {"target": "miniupnpd"}} if index == 0 else {"drop": None}
+        require(verdict in expressions, "pinhole gate allows conntrack to bypass the actual gateway")
+
+
+def observer_bootstrap_rule(rule: dict[str, Any], address: str) -> bool:
+    expected = {
+        json.dumps({"meta": {"key": "iifname"}}, sort_keys=True): {"wan0"},
+        json.dumps({"payload": {"protocol": "ip6", "field": "daddr"}}, sort_keys=True): {address},
+        json.dumps({"payload": {"protocol": "ip6", "field": "saddr"}}, sort_keys=True): {
+            "2001:db8:ffff::10", "2001:db8:ffff::11"},
+        json.dumps({"payload": {"protocol": "udp", "field": "sport"}}, sort_keys=True): {3478, 3479, 3480},
+        json.dumps({"ct": {"key": "state"}}, sort_keys=True): {"established"},
+    }
+    observed = {}
+    verdicts = []
+    for expression in rule.get("expr", []):
+        match = expression.get("match")
+        if not isinstance(match, dict):
+            verdicts.append(expression)
+            continue
+        if match.get("op") not in {"==", "in"}:
+            return False
+        key = json.dumps(match.get("left"), sort_keys=True)
+        if key in observed:
+            return False
+        value = match.get("right")
+        values = value.get("set") if isinstance(value, dict) else [value]
+        if not isinstance(values, list) or not all(isinstance(item, (str, int)) for item in values):
+            return False
+        observed[key] = set(values)
+    # Some nft listings retain the UDP dependency selector generated by `udp sport`.
+    protocol = observed.pop(json.dumps({"meta": {"key": "l4proto"}}, sort_keys=True), None)
+    if protocol is not None and protocol not in ({17}, {"udp"}):
+        return False
+    return observed == expected and verdicts == [{"accept": None}]
+
+
+def verify_gateway_preflight(state: Path, role: str, protocol: str, address: str,
+                              gateway: str) -> None:
+    facts = json.loads((state / "gateway-preflight.json").read_text())
+    require(facts.get("kind") == "independent-real-gateway-preflight" and facts.get("role") == role
+            and facts.get("protocol") == protocol and facts.get("local") == address
+            and facts.get("gateway") == gateway and facts.get("port") == 24021,
+            "gateway preflight belongs to another endpoint/protocol")
+    controls = []
+    for operation, action in (("acquire", "AddPinhole"), ("renew", "UpdatePinhole"),
+                              ("delete", "DeletePinhole")):
+        fact = facts[operation]
+        require(fact["source"][0] == address and fact["responder"][0] == gateway
+                and fact["sentAtNs"] <= fact["receivedAtNs"], "gateway preflight control endpoint/time mismatch")
+        if protocol == "pcp":
+            require(fact["responder"][1] == 5351, "PCP preflight answered on another service")
+            proof = pcp6_exchange(bytes.fromhex(fact["request"]), bytes.fromhex(fact["response"]), address, 24021)
+        else:
+            proof = igd6_exchange(action, fact["requestBody"], fact["responseBody"], address, 24021, fact["source"][0])
+        controls.append(proof)
+    require(len({proof["identity"] for proof in controls}) == 1
+            and all(proof["grantedLifetimeSeconds"] > 0 for proof in controls[:2])
+            and controls[2]["grantedLifetimeSeconds"] == 0,
+            "gateway preflight did not acquire/renew/delete the same real pinhole")
+    for key in ("acquiredRule", "renewedRule"):
+        require(pinhole_tuple(facts[key]) == (address, 24021, True)
+                and any("accept" in expression for expression in facts[key].get("expr", [])),
+                "gateway preflight kernel rule names another socket")
+    require(facts["acquiredRule"].get("handle") != facts["renewedRule"].get("handle"),
+            "gateway preflight did not replace its kernel rule on renewal")
+    require(not matching_pinholes(facts["beforeGrantState"], address, 24021)
+            and not matching_pinholes(facts["deletedState"], address, 24021),
+            "gateway preflight pinhole remained before grant or after deletion")
+    before, arrived, deleted = facts["beforeGrant"], facts["afterArrival"]["counters"], facts["afterDelete"]
+    require(before["pinhole_denied"] > 0 and arrived["pinhole_attempt"] > before["pinhole_attempt"]
+            and arrived["pinhole_denied"] == before["pinhole_denied"]
+            and deleted["pinhole_denied"] > arrived["pinhole_denied"],
+            "gateway preflight did not enforce denial/admission/deletion in the real firewall")
+    if protocol == "igd":
+        expiring = facts["expiringAcquire"]
+        proof = igd6_exchange("AddPinhole", expiring["requestBody"], expiring["responseBody"],
+                              address, 24021, expiring["source"][0])
+        require(proof["grantedLifetimeSeconds"] == 2
+                and matching_pinholes(facts["expiringState"], address, 24021)
+                and not matching_pinholes(facts["expiredState"], address, 24021)
+                and facts["expiredAtNs"] > expiring["receivedAtNs"],
+                "IGD preflight has no actual short-lived kernel pinhole expiry")
+
+
+def verify_native_pinhole(case: str, packets: list[Packet], tcp: list[TcpPacket], quic: list[Packet],
+                          winners: list[tuple[Pair, list[RoundTrip]]], state: Path) -> dict[str, Any]:
+    _, role, protocol = case.split("-")
+    address = CLIENT6 if role == "client" else DAEMON6
+    gateway = "2001:db8:2::1" if role == "client" else "2001:db8:1::1"
+    verify_gateway_preflight(state, role, protocol, address, gateway)
+    facts = json.loads((state / "native-pinhole.json").read_text())
+    require(facts.get("kind") == "native-kernel-pinhole-lifecycle" and facts.get("case") == case
+            and facts.get("role") == role and facts.get("local") == address,
+            "native pinhole kernel lifecycle belongs to another endpoint")
+    selected_address, port, udp = pinhole_tuple(facts["acquiredRule"])
+    require(selected_address == address and udp and isinstance(port, int) and port != 24021
+            and any("accept" in expression for expression in facts["acquiredRule"].get("expr", []))
+            and all(pair[1 if role == "client" else 0] == (address, port) for pair, _ in winners),
+            "native pinhole was not the authenticated winning UDP socket")
+    current = json.loads((state / f"{role}-nft.json").read_text())
+    verify_pinhole_gate(current, address)
+    baseline = pinhole_counters(json.loads((state / "topology" / "pinhole-native-start-nft.json").read_text()))
+    require(facts.get("nativeStartCounters") == baseline, "native pinhole admission baseline differs")
+    counters = pinhole_counters(current)
+    require(all(counters[name] >= baseline[name] for name in baseline),
+            "native pinhole counters were reset after their phase boundary")
+    admitted = (counters["pinhole_attempt"] - baseline["pinhole_attempt"]
+                - counters["pinhole_denied"] + baseline["pinhole_denied"])
+    require(admitted > 0, "actual native traffic never used the required gateway pinhole")
+    require(not matching_pinholes(current, address, port) and isinstance(facts.get("deletedAtNs"), int),
+            "native owner did not delete its actual kernel pinhole on shutdown")
+    if protocol == "pcp":
+        controls = gateway_pcp(packets, address, gateway, port)
+    else:
+        controls = []
+        for fact in gateway_http(tcp, address, gateway):
+            try:
+                proof = igd6_exchange(fact["action"], fact["requestBody"], fact["responseBody"],
+                                      address, port, fact["source"][0])
+            except VerificationError:
+                continue  # Other preflight/native sockets have their own exact controls.
+            controls.append({**proof, **{key: fact[key] for key in ("sentAtNs", "receivedAtNs", "action")}})
+    grants = [fact for fact in controls if fact["grantedLifetimeSeconds"] > 0
+              and (protocol == "pcp" or fact.get("action") == "AddPinhole")]
+    require(bool(grants), "native pinhole has no successful real control grant in its LAN capture")
+    grant = min(grants, key=lambda fact: fact["receivedAtNs"])
+    first_quic = min(packet.timestamp_ns for packet in quic)
+    require(grant["receivedAtNs"] <= min(first_quic, facts["acquiredAtNs"]),
+            "native direct QUIC preceded its actual gateway pinhole grant")
+    deleted = [fact for fact in controls if fact["grantedLifetimeSeconds"] == 0
+               and fact["identity"] == grant["identity"] and fact["sentAtNs"] >= grant["receivedAtNs"]
+               and fact["receivedAtNs"] <= facts["deletedAtNs"]]
+    require(bool(deleted), "native pinhole deletion has no matching successful real control request")
+    if protocol == "pcp":
+        renewals = [fact for fact in controls if fact["grantedLifetimeSeconds"] > 0
+                    and fact["identity"] == grant["identity"] and fact["sentAtNs"] > grant["receivedAtNs"]
+                    and fact["sentAtNs"] <= facts.get("renewedAtNs", 0)]
+        require(bool(renewals) and isinstance(facts.get("renewedAtNs"), int)
+                and pinhole_tuple(facts["renewedRule"]) == (address, port, True)
+                and facts["renewedRule"].get("handle") != facts["acquiredRule"].get("handle"),
+                "native PCPv6 pinhole has no same-nonce wire renewal and replaced kernel rule")
+        require(any(bidirectional_after(quic, pair, facts["renewedAtNs"]) for pair, _ in winners),
+                "native PCPv6 renewal has no subsequent authenticated direct traffic")
+    return {"role": role, "protocol": protocol, "address": address, "port": port,
+            "admittedNativePackets": admitted, "nativeRenewalVerified": protocol == "pcp",
+            "nativeDeletionVerified": True, "independentGatewayLifecycleVerified": True}
+
+
 def event_interval(lifecycle: dict[str, Any], start: str, end: str) -> tuple[int, int]:
     first, last = lifecycle.get(start), lifecycle.get(end)
     require(isinstance(first, int) and not isinstance(first, bool)
@@ -598,13 +1119,13 @@ def port_rebind_packet_proof(lifecycle: dict[str, Any], quic: list[Packet],
     # A fresh connection must complete its own checks. A short-header migration
     # must retain a CID visible before the intervention; encrypted NEW_CONNECTION_ID
     # contents are deliberately not guessed from arbitrary UDP bytes.
-    first = min(packet.timestamp_ns for packet in quic
-                if oriented_pair(packet, case) == new and packet.source == new[1])
-    new_trips = [trip for trip in trips if trip.direction == "c"
-                 and oriented_pair(trip.request, case) == new
-                 and trip.response.timestamp_ns <= first]
     new_long = [packet for packet in quic if oriented_pair(packet, case) == new
                 and quic_long_header(packet.payload) is not None]
+    first_client_long = min((packet.timestamp_ns for packet in new_long if packet.source == new[1]),
+                            default=None)
+    new_trips = [trip for trip in trips if trip.direction == "c"
+                 and oriented_pair(trip.request, case) == new and first_client_long is not None
+                 and trip.response.timestamp_ns <= first_client_long]
     if new_long and not new_trips:
         return None
     known: dict[str, set[bytes]] = defaultdict(set)
@@ -780,11 +1301,13 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
     require(case in POSITIVE_CASES | NEGATIVE_CASES, f"unknown native NAT case {case}")
     require(bool(captures), "at least one capture is required")
     packets: list[Packet] = []
+    tcp: list[TcpPacket] = []
     records = 0
     for path in captures:
         capture = read_capture(path)
         verify_capture_summary(state / f"{path.stem}.stderr", capture.records)
         packets.extend(capture.packets)
+        tcp.extend(capture.tcp)
         records += capture.records
     peer_packets = [packet for packet in packets if oriented_pair(packet, case) is not None]
     require(bool(peer_packets), "capture contains no traffic between the configured terminal peers")
@@ -808,6 +1331,12 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
             require(bool(peer_packets), "no peer traffic followed the native-session phase boundary")
     trips, request_count = round_trips(peer_packets, case)
     quic = quic_packets(peer_packets, case, lifecycle)
+    if case == "ipv6-pdf" or case in IPV6_PINHOLE_CASES:
+        v4_packets = [packet for packet in packets if oriented_pair(packet, "eim-pdf") is not None
+                      and (lifecycle is None or "nativeSessionsStartedAtNs" not in lifecycle
+                           or packet.timestamp_ns >= lifecycle["nativeSessionsStartedAtNs"])]
+        require(not quic_packets(v4_packets, "eim-pdf"),
+                "strict IPv6 topology emitted a direct IPv4 QUIC dial")
     summary: dict[str, Any] = {
         "case": case, "captureRecords": records, "peerCheckRequests": request_count,
         "checkRoundTrips": len(trips), "peerQuicPackets": len(quic),
@@ -818,6 +1347,11 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
         require(drops > 0, "negative topology did not record a peer packet being filtered")
         require(not quic, "an unverified direct QUIC dial escaped the negative topology")
         summary.update({"outcome": "relay", "filteredPeerPackets": drops})
+        if case == "inner-lease":
+            inner = inner_lease_rejection(packets)
+            require(inner is not None,
+                    "inner NAT has no mismatched PCP grant/deletion proof while the native binding remains live")
+            summary["innerLeaseRejected"] = inner
         return summary
     pairs = {oriented_pair(packet, case) for packet in quic}
     punched_pairs = daemon_check_targets(peer_packets, case)
@@ -831,8 +1365,18 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
         if pair is None:
             continue
         candidate_trips = [trip for trip in trips if oriented_pair(trip.request, case) == pair]
-        if pair == migrated and not any(quic_long_header(packet.payload) is not None
-                                        for packet in quic if oriented_pair(packet, case) == pair):
+        if pair == migrated:
+            first_fresh_dial = min((packet.timestamp_ns for packet in quic
+                                   if oriented_pair(packet, case) == pair and packet.source == pair[1]
+                                   and quic_long_header(packet.payload) is not None), default=None)
+            if first_fresh_dial is not None:
+                require(any(trip.direction == "c" and trip.response.timestamp_ns <= first_fresh_dial
+                            for trip in candidate_trips), "recovery QUIC dial preceded its successful client check")
+                require(any(packet.source == pair[0] and packet.destination == pair[1]
+                            and packet.timestamp_ns <= first_fresh_dial
+                            and (check := peer_check(packet.payload)) is not None
+                            and check.request and check.direction == "d" for packet in peer_packets),
+                        "recovery QUIC dial preceded its daemon filter-opening check")
             winners.append((pair, candidate_trips))
             continue
         directions = {trip.direction for trip in candidate_trips}
@@ -856,6 +1400,8 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
         if sent_by_daemon and sent_by_client:
             winners.append((pair, candidate_trips))
     require(bool(winners), "no checked peer tuple carries bidirectional QUIC")
+    if case in IPV6_PINHOLE_CASES:
+        summary["pinhole"] = verify_native_pinhole(case, packets, tcp, quic, winners, state)
     if lifecycle is not None:
         if "impairment" in lifecycle:
             require(case == "eim-pdf", "impairment belongs to the EIM topology")
@@ -915,7 +1461,7 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
     verified_pairs = []
     for pair, _ in sorted(winners):
         evidence = {"daemonEndpoint": list(pair[0]), "clientEndpoint": list(pair[1])}
-        if case not in {"lan", "ipv6-pdf"}:
+        if case not in {"lan", "ipv6-pdf"} | IPV6_PINHOLE_CASES:
             evidence["daemonMapping"] = mapping_from_snapshots(
                 state, "daemon", pair[0], pair[1], {"10.20.1.2"},
                 require_translation=not case.startswith("daemon-lease-"))
@@ -953,14 +1499,18 @@ def main() -> int:
     parser.add_argument("--state", required=True, type=Path)
     parser.add_argument("--wait-for-rebind-context", action="store_true")
     parser.add_argument("--wait-for-port-rebind", action="store_true")
+    parser.add_argument("--wait-for-inner-lease-rejection", action="store_true")
     args = parser.parse_args()
     try:
-        require(not (args.wait_for_rebind_context and args.wait_for_port_rebind),
+        require(sum((args.wait_for_rebind_context, args.wait_for_port_rebind,
+                     args.wait_for_inner_lease_rejection)) <= 1,
                 "select one live evidence observer")
         if args.wait_for_rebind_context:
             summary = wait_for_rebind_context(args.case, args.capture, args.state)
         elif args.wait_for_port_rebind:
             summary = wait_for_port_rebind(args.case, args.capture, args.state)
+        elif args.wait_for_inner_lease_rejection:
+            summary = wait_for_inner_lease_rejection(args.case, args.capture)
         else:
             summary = verify(args.case, args.capture, args.state)
     except (OSError, ValueError, VerificationError) as error:

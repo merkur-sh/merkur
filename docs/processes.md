@@ -342,7 +342,7 @@ retained as undelivered, keeps the daemon unavailable for sessions, and is retri
 newly linked daemons also receive retained signed revocations with still-live targets before they
 become session-ready.
 
-The dataplane's WebTransport maintenance owner serialises four kinds of work on one detached
+The dataplane's WebTransport maintenance owner serialises four kinds of work on one owned
 task at a time — startup, certificate rotation, the STUN reprobe, and the mapping cycle — with a
 generation on each so a stale completion cannot publish. The mapping cycle acquires or renews the
 v4 gateway lease and the v6 firewall pinhole concurrently, using discovery bound to each
@@ -350,11 +350,23 @@ address family; its next run is due at
 half the shorter granted lifetime, checked on the heartbeat tick rather than by a timer. Its egress
 interface also owns the gateway-announcement socket (`224.0.0.1:5350`, address-reused, joined on
 that interface), a detached reader that turns a NAT-PMP address change or PCP `ANNOUNCE` into one
-capacity-1 message; the owner loop compares the announced epoch and address against the leases it
-holds and requests a cycle that skips renewal and the fencing delete. The listener is rebound when a
-cycle reports a different egress interface and aborted at shutdown with the network-path watcher.
+capacity-1 message. The owner validates the announcement against the IPv4 lease and the listener's
+exact egress path. A verified reset retires only that allocation without a delayed deletion that
+could remove its successor; an in-flight renewal retains cleanup authority until it finishes.
+An IPv4 announcement does not invalidate an IPv6 pinhole. The listener is rebound when a cycle
+reports a different egress interface and aborted at shutdown with the network-path watcher.
+
+Router grants carry shared cleanup authority across publication, renewal and authenticated
+provider adoption. Stale or unpublished results release their authority; a live provider keeps
+the grant it actually uses. Conflicting allocations wait for acknowledged retirement, and an
+unacknowledged deletion keeps its allocation lane reserved. Shutdown joins grant-creating work,
+retires providers and drains deletion before closing the event writer or handing off to an upgrade.
 
 The daemon owns the dataplane; the dataplane owns the shell. Shutdown proceeds in that order.
+On orderly shutdown or restart, Bun ends the command stream after accepted FIFO bytes and waits
+for the child's actual close. The adopted IPC connection remains readable through Rust cleanup;
+writable completion and timer expiry do not complete that fence. Explicit force-stop remains a
+separate operation.
 
 An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). On `upgrade`,
 the dataplane binds an owner socket, stops its PTY reader with a `SIGURG` that ends its blocking
@@ -677,6 +689,11 @@ joins the outstanding batch, and topology invalidation aborts queued work. A run
 most 16 packets. IPv4 mapping and IPv6 pinhole acquisition run concurrently in the maintenance
 owner's task, outside terminal traffic. Browser direct races run in the transport worker, own
 all connection/timer lifetimes, and leave the edge relay available during discovery.
+
+The native driver owns its discovery, dial and router-maintenance task joins. Graceful exit
+revokes checks, closes and drains producer channels, retires carriers and joins cancelled
+producers before draining router workers. A router worker retains its UDP socket through lease
+or pinhole deletion, and the driver waits for that cleanup before returning to its runtime.
 
 Hardware identity opening occurs before control authentication. A bounded Rust signing worker owns
 both proof halves; HTTP/WSS callers request proofs through IPC `0x10` and receive `0x94` before the

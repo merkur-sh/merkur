@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use base64::Engine;
+use futures::FutureExt;
 use merkur_client::session::{NativeTraversalSetup, Session};
 use merkur_wire::traversal::{Binding, Candidate, Snapshot};
 use serde::Deserialize;
@@ -81,11 +82,49 @@ impl Credential {
 }
 
 #[derive(Default)]
-struct Tasks(Vec<JoinHandle<()>>);
+struct Tasks(Vec<JoinHandle<()>>, Vec<JoinHandle<()>>);
 impl Tasks {
     fn clear(&mut self) {
         for task in self.0.drain(..) {
             task.abort();
+            self.1.push(task);
+        }
+        reap_finished(&mut self.1, "discovery");
+    }
+
+    async fn stop(&mut self) {
+        self.clear();
+        drain_tasks(std::mem::take(&mut self.1), "discovery").await;
+    }
+}
+
+pub(super) fn reap_finished(tasks: &mut Vec<JoinHandle<()>>, kind: &'static str) {
+    tasks.retain_mut(|task| {
+        if !task.is_finished() {
+            return true;
+        }
+        match task.now_or_never() {
+            Some(result) => {
+                observe_completion(result, kind);
+                false
+            }
+            None => true,
+        }
+    });
+}
+
+pub(super) async fn drain_tasks(tasks: Vec<JoinHandle<()>>, kind: &'static str) {
+    for task in tasks {
+        observe_completion(task.await, kind);
+    }
+}
+
+fn observe_completion(result: Result<(), tokio::task::JoinError>, kind: &'static str) {
+    if let Err(error) = result {
+        if error.is_cancelled() {
+            tracing::debug!(kind, "native task cancelled");
+        } else {
+            tracing::warn!(kind, %error, "native task failed");
         }
     }
 }
@@ -173,6 +212,7 @@ pub(super) struct Owner {
     credential: Option<Arc<Credential>>,
     gather: Tasks,
     checks: Tasks,
+    workers: Vec<JoinHandle<()>>,
     bindings: Vec<(Arc<SocketBinding>, Vec<Candidate>)>,
     generation: u64,
     next_id: u64,
@@ -205,6 +245,7 @@ impl Owner {
             credential: None,
             gather: Tasks::default(),
             checks: Tasks::default(),
+            workers: Vec::new(),
             bindings: Vec::new(),
             generation: 0,
             next_id: 1,
@@ -241,6 +282,36 @@ impl Owner {
         self.retry_at = None;
         self.failures = 0;
         session.native_network_changed();
+    }
+
+    pub fn quiesce(&mut self) {
+        self.clear_checks();
+        self.gather.clear();
+        self.received.close();
+        while let Ok(notice) = self.received.try_recv() {
+            drop(notice);
+        }
+        self.updates = None;
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.quiesce();
+        self.bindings.clear();
+        self.setup = None;
+        self.credential = None;
+        self.gather.stop().await;
+        self.checks.stop().await;
+        // A producer may have reserved channel capacity before close. Joining
+        // every producer closes that handoff before its last bindings drain.
+        while let Ok(notice) = self.received.try_recv() {
+            drop(notice);
+        }
+        drain_tasks(std::mem::take(&mut self.workers), "router_maintenance").await;
+    }
+
+    fn register_worker(&mut self, task: JoinHandle<()>) {
+        reap_finished(&mut self.workers, "router_maintenance");
+        self.workers.push(task);
     }
 
     pub fn synchronize(&mut self, session: &Session, issuer: &Arc<dyn Issuer>) {
@@ -768,8 +839,10 @@ impl Owner {
             self.observing.retain(|binding| *binding != id);
         }
         socket::commit_observations(&binding, gathered);
-        if let Some(updates) = self.updates.clone() {
-            socket::maintain(&binding, credential, updates);
+        if let Some(updates) = self.updates.clone()
+            && let Some(worker) = socket::maintain(&binding, credential, updates)
+        {
+            self.register_worker(worker);
         }
         self.update_candidates(session, id, candidates);
         Some(())

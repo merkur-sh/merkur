@@ -958,48 +958,47 @@ fn accept_epoch(lease: &mut Lease, epoch: u32, lifetime_secs: u32) -> bool {
 /// delete racing a freshly created replacement destroys the replacement. Making
 /// retirement explicit is what lets the caller order it against re-acquisition
 /// instead of hoping a detached destructor lands first.
-pub async fn release(lease: Lease) {
+/// Returns true only for an acknowledged deletion, never for timeout or refusal.
+pub async fn release(lease: Lease) -> bool {
     match lease.inner {
         LeaseHandle::Pcp {
             server,
             nonce,
             internal_port,
-        } => {
-            if let Err(error) = pcp::map(
-                IpAddr::V4(lease.local_ipv4),
-                server,
-                internal_port,
-                0,
-                nonce,
-                lease.external.ip(),
-                RetransmitSchedule::DELETE,
-            )
-            .await
-            {
-                debug!("pcp lease delete failed, letting it expire: {error:?}");
-            }
-        }
+        } => pcp::map(
+            IpAddr::V4(lease.local_ipv4),
+            server,
+            internal_port,
+            0,
+            nonce,
+            lease.external.ip(),
+            RetransmitSchedule::DELETE,
+        )
+        .await
+        .is_ok_and(|mapping| mapping.lifetime_secs == 0),
         LeaseHandle::NatPmp {
             server,
             internal_port,
-        } => {
-            if let Err(error) = natpmp::map(
-                lease.local_ipv4,
-                server,
-                internal_port,
-                0,
-                RetransmitSchedule::DELETE,
-            )
-            .await
-            {
-                debug!("natpmp lease delete failed, letting it expire: {error:?}");
-            }
-        }
-        LeaseHandle::Upnp { control, external_port, .. } => {
-            if let Err(error) = upnp::delete_port_mapping(&control, external_port).await {
+        } => natpmp::map(
+            lease.local_ipv4,
+            server,
+            internal_port,
+            0,
+            RetransmitSchedule::DELETE,
+        )
+        .await
+        .is_ok_and(|mapping| mapping.lifetime_secs == 0),
+        LeaseHandle::Upnp {
+            control,
+            external_port,
+            ..
+        } => match upnp::delete_port_mapping(&control, external_port).await {
+            Ok(()) => true,
+            Err(error) => {
                 upnp::log_refusal("DeletePortMapping", error);
+                false
             }
-        }
+        },
     }
 }
 
@@ -1315,7 +1314,9 @@ async fn open_pcp_pinhole(
     }
 }
 
-async fn open_upnp_pinhole(
+/// Open an IPv6 UDP pinhole through an already discovered firewall control
+/// service, retaining its exact source, gateway and returned UniqueID for renewal.
+pub async fn open_upnp_pinhole(
     egress: &EgressPath6,
     gateway: Ipv6Addr,
     control: upnp::ControlUrl,
@@ -1402,23 +1403,27 @@ pub async fn renew_pinhole(pinhole: &mut Pinhole) -> bool {
 
 /// Request pinhole deletion with bounded retries. Explicit for the same
 /// ordering reason as [`release`].
-pub async fn release_pinhole(pinhole: Pinhole) {
+/// Returns true only for an acknowledged deletion.
+pub async fn release_pinhole(pinhole: Pinhole) -> bool {
     match pinhole.inner {
-        PinholeHandle::Pcp { server, nonce } => {
-            let _ = pcp::map(
-                IpAddr::V6(pinhole.address),
-                server,
-                pinhole.port,
-                0,
-                nonce,
-                IpAddr::V6(pinhole.address),
-                RetransmitSchedule::DELETE,
-            )
-            .await;
-        }
+        PinholeHandle::Pcp { server, nonce } => pcp::map(
+            IpAddr::V6(pinhole.address),
+            server,
+            pinhole.port,
+            0,
+            nonce,
+            IpAddr::V6(pinhole.address),
+            RetransmitSchedule::DELETE,
+        )
+        .await
+        .is_ok_and(|mapping| mapping.lifetime_secs == 0),
         PinholeHandle::Upnp { control, unique_id } => {
-            if let Err(error) = upnp::delete_pinhole(&control, unique_id).await {
-                upnp::log_refusal("DeletePinhole", error);
+            match upnp::delete_pinhole(&control, unique_id).await {
+                Ok(()) => true,
+                Err(error) => {
+                    upnp::log_refusal("DeletePinhole", error);
+                    false
+                }
             }
         }
     }
@@ -1483,3 +1488,6 @@ mod fixture_tests;
 #[cfg(test)]
 #[path = "natlab_tests.rs"]
 mod natlab_tests;
+
+#[cfg(test)]
+mod release_tests;

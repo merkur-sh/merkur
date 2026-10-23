@@ -1,0 +1,14 @@
+diff --git a/crate_universe/private/local_crate_mirror.bzl b/crate_universe/private/local_crate_mirror.bzl
+--- a/crate_universe/private/local_crate_mirror.bzl
++++ b/crate_universe/private/local_crate_mirror.bzl
+@@ -9 +9,3 @@
+-    path = repository_ctx.path(repository_ctx.attr.path)
++    path = repository_ctx.path(repository_ctx.attr.path).realpath
++    # Local mirrors include source edits and nested file additions through workspace symlinks.
++    repository_ctx.watch_tree(path)
+@@ -19,5 +20,0 @@
+-
+-    paths_to_track = execute(repository_ctx, ["find", path, "-type", "f"]).stdout.strip().split("\n")
+-    for path_to_track in paths_to_track:
+-        if path_to_track:
+-            repository_ctx.read(path_to_track)

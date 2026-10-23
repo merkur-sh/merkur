@@ -30,6 +30,10 @@ daemon-lease-natpmp
 daemon-lease-upnp
 inner-lease
 ipv6-pdf
+ipv6-client-pcp
+ipv6-daemon-pcp
+ipv6-client-igd
+ipv6-daemon-igd
 lan
 CASES
 }
@@ -276,6 +280,15 @@ path = pathlib.Path(sys.argv[1])
 if path.exists() and 'nativeSessionsStartedAtNs' in json.loads(path.read_text()):
     raise SystemExit('native session phase already recorded for this topology')
 PY
+  local selected role
+  selected=$(cat "$STATE/case")
+  case "$selected" in
+    ipv6-client-*|ipv6-daemon-*)
+      role=${selected#ipv6-}; role=${role%-*}
+      # Exclude the real gateway preflight's packets from native-session admission proof.
+      ip netns exec "merkur-natlab-$role-cpe" nft -j list table inet filter > "$STATE/pinhole-native-start-nft.json"
+      ;;
+  esac
   record_lifecycle nativeSessionsStartedAtNs
 }
 
@@ -295,18 +308,51 @@ PY
 
 miniupnpd() {
   local role=$1 namespace=$2 number=$3 protocol=$4
-  local upnp=no pcp=yes
-  [[ $protocol == upnp ]] && upnp=yes && pcp=no
+  local upnp=no pcp=yes v6=no
+  [[ $protocol == upnp || $protocol == igdv6 ]] && upnp=yes && pcp=no
+  [[ $protocol == pcpv6 || $protocol == igdv6 ]] && v6=yes
   ip netns exec "$namespace" sh /etc/miniupnpd/nft_init.sh > "$STATE/$role-miniupnpd-init.log" 2>&1
+  # Debian's real gateway table defaults to drop. Permit normal LAN egress and
+  # existing replies, while keeping the pinhole owner's IPv6 inbound path strict.
+  ip netns exec "$namespace" nft flush chain inet filter forward
+  if [[ $v6 == yes ]]; then
+    ip netns exec "$namespace" nft -f - <<NFT
+add counter inet filter pinhole_attempt { }
+add counter inet filter pinhole_denied { }
+add rule inet filter forward iifname "wan0" ip6 daddr 2001:db8:$number::2 ip6 saddr { 2001:db8:ffff::10, 2001:db8:ffff::11 } udp sport { 3478, 3479, 3480 } ct state established accept
+add rule inet filter forward iifname "wan0" ip6 daddr 2001:db8:$number::2 meta l4proto udp counter name pinhole_attempt jump miniupnpd
+add rule inet filter forward iifname "wan0" ip6 daddr 2001:db8:$number::2 meta l4proto udp counter name pinhole_denied drop
+NFT
+    # Admission is decided by the real gateway chain even after both peers sent checks.
+    ip netns exec "$namespace" nft insert rule inet natlab forward iifname wan0 meta nfproto ipv6 meta l4proto udp accept
+    ip netns exec "$namespace" nft -f - <<'NFT'
+table inet v6_gateway_protocol {
+  chain input {
+    type filter hook input priority -20; policy accept;
+    meta nfproto ipv4 udp dport { 1900, 5351 } drop
+  }
+}
+NFT
+  fi
+  ip netns exec "$namespace" nft -f - <<'NFT'
+add rule inet filter forward iifname "lan0" accept
+add rule inet filter forward ct state established,related accept
+add rule inet filter forward jump miniupnpd
+NFT
   cat > "$STATE/$role-miniupnpd.conf" <<CONF
 ext_ifname=wan0
+ext_ifname6=wan0
 listening_ip=lan0
+ipv6_disable=no
 enable_upnp=$upnp
 enable_pcp_pmp=$pcp
 secure_mode=yes
 ext_allow_private_ipv4=yes
 uuid=3d3cec3a-8cf0-11e0-98ee-001a6bd2d0${number}b
 CONF
+  if [[ $protocol == pcpv6 ]]; then
+    printf 'min_lifetime=120\nmax_lifetime=240\n' >> "$STATE/$role-miniupnpd.conf"
+  fi
   if [[ $role == daemon ]]; then
     printf 'allow 24400 10.20.%s.0/24 24400\n' "$number" >> "$STATE/$role-miniupnpd.conf"
   fi
@@ -315,7 +361,7 @@ allow 30000-34999 10.20.$number.0/24 30000-34999
 allow 40000-49999 10.20.$number.0/24 40000-49999
 deny 0-65535 0.0.0.0/0 0-65535
 CONF
-  if [[ $protocol != upnp ]]; then
+  if [[ $protocol == pcp || $protocol == natpmp ]]; then
     local rejected=0
     [[ $protocol == natpmp ]] && rejected=2
     # PCP starts with version 2, NAT-PMP with version 0, after the UDP header.
@@ -336,7 +382,7 @@ NFT
     sleep 0.05
   done
   if [[ $ready != yes ]]; then cat "$STATE/$role-miniupnpd.log" >&2; return 1; fi
-  if [[ $protocol != upnp ]]; then
+  if [[ $protocol == pcp || $protocol == natpmp ]]; then
     # A positive real epoch in the first native grant makes a subsequent reset observable.
     ip netns exec "merkur-natlab-$role" python3 "$SCRIPT_DIR/native-fault.py" epoch \
       "$protocol" "10.20.$number.2" "10.20.$number.1" 2 > "$STATE/$role-initial-epoch.txt"
@@ -425,7 +471,7 @@ NFT
   pair daemon 1 "$DAEMON" "$DAEMON_CPE"
   pair client 2 "$CLIENT" "$CLIENT_CPE"
   local daemon_map=eim client_map=eim daemon_filter=pdf client_filter=pdf
-  local block=no daemon_lease=no client_lease=no
+  local block=no daemon_lease=no client_lease=no v6_role= v6_protocol=
   case "$selected" in
     blocked) block=yes ;;
     edm-daemon-eif) daemon_map=edm; client_filter=eif ;;
@@ -437,6 +483,11 @@ NFT
     client-lease-*) daemon_map=edm; client_lease=yes ;;
     daemon-lease-*) client_map=edm; daemon_lease=yes ;;
     ipv6-pdf) block=yes ;;
+    ipv6-client-*|ipv6-daemon-*)
+      block=yes
+      v6_role=${selected#ipv6-}; v6_role=${v6_role%-*}
+      v6_protocol=${selected##*-}
+      ;;
   esac
   # Lease fixtures reserve the native local port outside the EIM generic public domain.
   # An EDM/lease combination needs a different allocation model and is not this matrix.
@@ -451,15 +502,20 @@ NFT
   local client_public=198.51.100.2
   [[ $selected == inner-lease ]] && client_public=172.30.2.2
   mapping "$CLIENT_CPE" "$client_public" 52000 "$client_map" 198.51.100.1 10.20.2.2
+  if [[ $selected == ipv6-* ]]; then
+    ipv6 1 "$DAEMON" "$DAEMON_CPE"
+    ipv6 2 "$CLIENT" "$CLIENT_CPE"
+  fi
   if [[ $daemon_lease == yes ]]; then miniupnpd daemon "$DAEMON_CPE" 1 "${selected##*-}"; fi
   if [[ $client_lease == yes ]]; then
     local protocol=${selected##*-}
     [[ $selected == inner-lease ]] && protocol=pcp
     miniupnpd client "$CLIENT_CPE" 2 "$protocol"
   fi
-  if [[ $selected == ipv6-pdf ]]; then
-    ipv6 1 "$DAEMON" "$DAEMON_CPE"
-    ipv6 2 "$CLIENT" "$CLIENT_CPE"
+  if [[ -n $v6_role ]]; then
+    local v6_number=1
+    [[ $v6_role == client ]] && v6_number=2
+    miniupnpd "$v6_role" "merkur-natlab-$v6_role-cpe" "$v6_number" "${v6_protocol}v6"
   fi
   [[ $selected != lan ]] || same_lan
   printf 'NATIVE_NATLAB_CASE=%s\nDAEMON_WT_PORT=%s\n' "$selected" "$DAEMON_PORT"

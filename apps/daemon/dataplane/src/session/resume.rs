@@ -212,6 +212,12 @@ pub(crate) fn park_disconnected_peer(
         tunnel.close();
     }
     state.bulk_delivery_confirmed = false;
+    if let Some(direct) = state.direct_session.take()
+        && let Some(connection) = direct.connection()
+    {
+        connection.close(wtransport::VarInt::from_u32(0), b"session-parked");
+    }
+    state.paths.webtransport.available = false;
     // Parking is the end of the rebind fast path, not a pause in it. A parked
     // peer has no tunnel and no rendezvous, so the chaining secret can no
     // longer be used for anything and must not sit in memory for the

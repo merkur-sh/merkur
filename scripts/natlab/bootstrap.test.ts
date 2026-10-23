@@ -13,6 +13,9 @@ import { playwrightCli } from './playwright-cli';
 const packageVersion = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.String }));
 const root = path.resolve(import.meta.dir, '../..');
 const nativeConfiguration = path.join(import.meta.dir, 'playwright.native.config.mjs');
+const CLI_PROCESS_TIMEOUT_MS = 10_000;
+// Each CLI test starts two children; its outer budget also covers cold-runner scheduling.
+const CLI_TEST_TIMEOUT_MS = 30_000;
 const decodeConfiguration = Schema.decodeUnknownSync(
   Schema.fromJsonString(
     Schema.Struct({
@@ -64,6 +67,7 @@ process.stdout.write(JSON.stringify({
     ],
     {
       cwd: import.meta.dir,
+      timeout: CLI_PROCESS_TIMEOUT_MS,
       env: {
         ...process.env,
         PW_E2E_OUTPUT_DIR: 'test-results/native-config-proof',
@@ -151,58 +155,79 @@ describe('native NAT-lab bootstrap', () => {
     expect(reads).toBe(1);
   });
 
-  test('Playwright resolves the nested config paths and lists its real spec from the nested cwd', async () => {
-    const loaded = await loadedConfiguration();
-    expect(loaded.globalSetup).toEqual([path.join(root, 'tests/e2e/global-setup.ts')]);
-    expect(loaded.globalTeardown).toEqual([path.join(root, 'tests/e2e/global-teardown.ts')]);
-    expect(loaded.projects).toEqual([
-      {
-        testDir: path.join(root, 'tests/e2e'),
-        snapshotDir: path.join(root, 'tests/e2e'),
-        outputDir: path.join(root, 'test-results/native-config-proof'),
-        baseURL: 'http://127.0.0.1:24331',
-        executablePath: path.join(import.meta.dir, 'browser.sh'),
-      },
-    ]);
-    const listed = await runTestProcess(
-      [node, playwrightCli, 'test', '--config', nativeConfiguration, '--list'],
-      {
-        cwd: import.meta.dir,
-        // The standalone CLI must not inherit the outer unit-test worker marker.
-        env: { ...process.env, JEST_WORKER_ID: undefined },
-      },
-    );
-    expect(listed.exitCode, listed.stderr).toBe(0);
-    expect(listed.stdout).toContain('Total: 5 tests in 1 file');
-  });
+  test(
+    'Playwright resolves the nested config paths and lists its real spec from the nested cwd',
+    async () => {
+      const loaded = await loadedConfiguration();
+      expect(loaded.globalSetup).toEqual([path.join(root, 'tests/e2e/global-setup.ts')]);
+      expect(loaded.globalTeardown).toEqual([path.join(root, 'tests/e2e/global-teardown.ts')]);
+      expect(loaded.projects).toEqual([
+        {
+          testDir: path.join(root, 'tests/e2e'),
+          snapshotDir: path.join(root, 'tests/e2e'),
+          outputDir: path.join(root, 'test-results/native-config-proof'),
+          baseURL: 'http://127.0.0.1:24331',
+          executablePath: path.join(import.meta.dir, 'browser.sh'),
+        },
+      ]);
+      const listed = await runTestProcess(
+        [node, playwrightCli, 'test', '--config', nativeConfiguration, '--list'],
+        {
+          cwd: import.meta.dir,
+          timeout: CLI_PROCESS_TIMEOUT_MS,
+          // The standalone CLI must not inherit the outer unit-test worker marker.
+          env: { ...process.env, JEST_WORKER_ID: undefined },
+        },
+      );
+      expect(listed.exitCode, listed.stderr).toBe(0);
+      expect(listed.stdout).toContain('Total: 5 tests in 1 file');
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
 
-  test('the inherited web server loads its actual entry from the canonical repository cwd', async () => {
-    const loaded = await loadedConfiguration();
-    expect(loaded.servers).toHaveLength(1);
-    for (const server of loaded.servers) {
-      expect(server.cwd).toBe(root);
-      expect(server.databasePath).toBe(path.join(root, 'data/native-config-proof.db'));
-      // Missing configuration stops before Redis or application startup. Reaching
-      // this exact guard proves the real command and all entry imports resolved.
-      const started = await runTestProcess(['/bin/bash', '-c', server.command], {
-        cwd: server.cwd,
-        env: { ...process.env, PW_E2E_PORT: '' },
+  test(
+    'the inherited web server loads its actual entry from the canonical repository cwd',
+    async () => {
+      const loaded = await loadedConfiguration();
+      expect(loaded.servers).toHaveLength(1);
+      for (const server of loaded.servers) {
+        expect(server.cwd).toBe(root);
+        expect(server.databasePath).toBe(path.join(root, 'data/native-config-proof.db'));
+        // Missing configuration stops before Redis or application startup. Reaching
+        // this exact guard proves the real command and all entry imports resolved.
+        const started = await runTestProcess(['/bin/bash', '-c', server.command], {
+          cwd: server.cwd,
+          timeout: CLI_PROCESS_TIMEOUT_MS,
+          env: { ...process.env, PW_E2E_PORT: '' },
+        });
+        expect(started.exitCode).not.toBe(0);
+        expect(started.stderr).toContain('PW_E2E_PORT must be set by the Playwright config');
+      }
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
+
+  test(
+    'Node runs the CLI exported by the declared Playwright package',
+    async () => {
+      const packagePath = createRequire(import.meta.url).resolve('@playwright/test/package.json');
+      const version = packageVersion(JSON.parse(readFileSync(packagePath, 'utf8'))).version;
+      const resolved = await runTestProcess(
+        [node, '-p', 'require.resolve("@playwright/test/cli")'],
+        {
+          timeout: CLI_PROCESS_TIMEOUT_MS,
+        },
+      );
+      expect(resolved.exitCode).toBe(0);
+      expect(resolved.stdout.trim()).toBe(playwrightCli);
+      const cli = await runTestProcess([node, playwrightCli, '--version'], {
+        timeout: CLI_PROCESS_TIMEOUT_MS,
       });
-      expect(started.exitCode).not.toBe(0);
-      expect(started.stderr).toContain('PW_E2E_PORT must be set by the Playwright config');
-    }
-  });
-
-  test('Node runs the CLI exported by the declared Playwright package', async () => {
-    const packagePath = createRequire(import.meta.url).resolve('@playwright/test/package.json');
-    const version = packageVersion(JSON.parse(readFileSync(packagePath, 'utf8'))).version;
-    const resolved = await runTestProcess([node, '-p', 'require.resolve("@playwright/test/cli")']);
-    expect(resolved.exitCode).toBe(0);
-    expect(resolved.stdout.trim()).toBe(playwrightCli);
-    const cli = await runTestProcess([node, playwrightCli, '--version']);
-    expect(cli.exitCode).toBe(0);
-    expect(cli.stdout.trim()).toBe(`Version ${version}`);
-  });
+      expect(cli.exitCode).toBe(0);
+      expect(cli.stdout.trim()).toBe(`Version ${version}`);
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
 
   test('a session failure returns only evidence ownership and preserves its exit', async () => {
     const result = await bootstrap(37, 0);

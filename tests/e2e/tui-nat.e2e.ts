@@ -35,15 +35,17 @@ async function captureEvidence(prefix: string): Promise<void> {
 }
 
 async function waitForPacketEvidence(
-  mode: '--wait-for-rebind-context' | '--wait-for-port-rebind',
+  mode: '--wait-for-rebind-context' | '--wait-for-port-rebind' | '--wait-for-inner-lease-rejection',
 ): Promise<void> {
   const output = process.env.PW_E2E_OUTPUT_DIR;
   if (output === undefined) throw new Error('NAT-lab evidence directory is required');
+  const topology = process.env.MERKUR_NATLAB_CASE;
+  if (topology === undefined) throw new Error('NAT-lab topology is required');
   const directory = path.dirname(output);
   await promisify(execFile)('python3', [
     path.resolve(__dirname, '../../scripts/natlab/verify-native.py'),
     '--case',
-    'eim-pdf',
+    topology,
     '--capture',
     path.join(directory, 'wan.pcap'),
     '--peer-capture',
@@ -90,6 +92,31 @@ async function waitForPathTransition(
   );
 }
 
+async function pinholeKernelState(phase: 'acquired' | 'renewed', topology: string): Promise<void> {
+  const output = process.env.PW_E2E_OUTPUT_DIR;
+  if (output === undefined) throw new Error('NAT-lab evidence directory is required');
+  const role = topology.split('-')[1];
+  if (role !== 'client' && role !== 'daemon') throw new Error('IPv6 pinhole role is required');
+  await promisify(execFile)('python3', [
+    path.resolve(__dirname, '../../scripts/natlab/native-v6-gateway.py'),
+    `--wait-native-${phase}`,
+    role,
+    path.join(path.dirname(output), 'native-pinhole.json'),
+  ]);
+}
+
+async function verifyLivePinhole(client: HeadlessClient, topology: string): Promise<void> {
+  await pinholeKernelState('acquired', topology);
+  if (topology.endsWith('-pcp')) {
+    // miniupnpd negotiates 240 seconds; the native owner renews that real grant
+    // at its half-life. Wait for the actual kernel replacement, never a timer proxy.
+    await pinholeKernelState('renewed', topology);
+    await expectSelectedDirect(client);
+    await floodAndSee(client, `nat-pinhole-renewed-${process.pid}`, 40);
+  }
+  await captureEvidence('pinhole-used');
+}
+
 test.describe('constrained browser baseline', () => {
   test.skip(process.env.MERKUR_NATLAB_CASE !== 'eim-pdf', 'the constrained browser baseline');
   test('the constrained browser retains authenticated relay input and display', async ({
@@ -111,6 +138,8 @@ test('native traversal carries an authenticated terminal across the configured N
   baseURL,
 }) => {
   const topology = process.env.MERKUR_NATLAB_CASE;
+  const pinhole = topology?.startsWith('ipv6-') && topology !== 'ipv6-pdf';
+  if (pinhole && topology.endsWith('-pcp')) test.setTimeout(210_000);
   const direct = !['blocked', 'edm-pdf', 'edm-both', 'inner-lease'].includes(topology ?? '');
   test.skip(topology === undefined, 'the controlled NAT topology is required');
   expect(process.platform).toBe('linux');
@@ -135,6 +164,12 @@ test('native traversal carries an authenticated terminal across the configured N
     } else {
       expect(paths).toContain('Direct');
       await captureEvidence('initial');
+    }
+    if (pinhole) await verifyLivePinhole(client, topology);
+    if (topology === 'inner-lease') {
+      await waitForPacketEvidence('--wait-for-inner-lease-rejection');
+      await floodAndSee(client, `nat-inner-lease-rejected-${process.pid}`, 40);
+      expect(client.events.filter((event) => event.event === 'path').at(-1)?.path).toBe('Relay');
     }
     if (topology === 'eim-pdf') {
       const file = path.join(linkedDaemon.daemonHome, 'native-network-input-once');
@@ -229,6 +264,8 @@ test.describe('strict-filtering lifecycle', () => {
         await second.next((event) => event.event === 'path' && event.path === 'Direct', 30_000);
         await floodAndSee(first, `nat-first-${process.pid}`, 40);
         await floodAndSee(second, `nat-second-${process.pid}`, 40);
+        // Both private sockets must still exist when their translated tuples are recorded.
+        await captureEvidence('concurrent');
       });
       // Closing the second context must leave the first context's socket/check authority alive.
       await floodAndSee(first, `nat-survivor-${process.pid}`, 40);

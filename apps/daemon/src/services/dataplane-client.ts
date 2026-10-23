@@ -40,7 +40,6 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
 const SIDECAR_STABLE_UPTIME_MS = 10_000;
 const SIDECAR_COMMAND_DRAIN_TIMEOUT_MS = 5_000;
 const SIDECAR_COMMAND_ACK_TIMEOUT_MS = 5_000;
-const SIDECAR_SHUTDOWN_GRACE_PERIOD_MS = 3_000;
 const SIDECAR_SHUTDOWN_REAP_TIMEOUT_MS = 2_000;
 const SIDECAR_READINESS_TIMEOUT_MS = 15_000;
 const MAX_CONSECUTIVE_AMBIGUOUS_EXITS = 3;
@@ -500,7 +499,6 @@ export interface DataplaneClientDependencies {
   readonly stableUptimeMs?: number;
   readonly commandDrainTimeoutMs?: number;
   readonly commandAckTimeoutMs?: number;
-  readonly shutdownGracePeriodMs?: number;
   readonly shutdownReapTimeoutMs?: number;
   readonly readinessTimeoutMs?: number;
   readonly maxConsecutiveCrashes?: number;
@@ -569,7 +567,7 @@ interface SidecarCloseSignal {
 interface SidecarRestartTermination {
   readonly closeSignal: SidecarCloseSignal;
   readonly reason: string;
-  phase: 'grace' | 'reap';
+  phase: 'orderly' | 'reap';
   timer: DataplaneTimerHandle | null;
 }
 
@@ -656,12 +654,6 @@ function makeDataplaneClient(
     Number.isFinite(configuredCommandAckTimeoutMs) && configuredCommandAckTimeoutMs >= 0
       ? configuredCommandAckTimeoutMs
       : SIDECAR_COMMAND_ACK_TIMEOUT_MS;
-  const configuredShutdownGracePeriodMs =
-    dependencies.shutdownGracePeriodMs ?? SIDECAR_SHUTDOWN_GRACE_PERIOD_MS;
-  const shutdownGracePeriodMs =
-    Number.isFinite(configuredShutdownGracePeriodMs) && configuredShutdownGracePeriodMs >= 0
-      ? configuredShutdownGracePeriodMs
-      : SIDECAR_SHUTDOWN_GRACE_PERIOD_MS;
   const configuredShutdownReapTimeoutMs =
     dependencies.shutdownReapTimeoutMs ?? SIDECAR_SHUTDOWN_REAP_TIMEOUT_MS;
   const shutdownReapTimeoutMs =
@@ -725,7 +717,16 @@ function makeDataplaneClient(
       clearStableUptimeTimer();
       clearReadinessWatchdog();
       rejectAllPendingCommands('dataplane_unavailable');
+      const detached = Array.from(unreapedSidecars).filter((pending) => pending.child !== sidecar);
+      const terminating = restartTermination;
+      if (terminating !== null) {
+        terminating.timer?.cancel();
+        restartTermination = null;
+      }
       shutdownSidecar();
+      for (const pending of detached) {
+        forceKillSidecar(pending.child);
+      }
     },
 
     shutdown(): Effect.Effect<void> {
@@ -1599,71 +1600,30 @@ function makeDataplaneClient(
         rejectAllPendingCommands('dataplane_unavailable');
 
         const activeChild = sidecar;
-        const closeSignal =
-          activeSidecarCloseSignal?.child === activeChild ? activeSidecarCloseSignal : null;
-
-        if (activeChild !== null && closeSignal !== null) {
-          const writer = activeCommandWriter;
-          const commandLaneAvailable =
-            isSidecarInputWritable(activeChild) &&
-            writer !== null &&
-            isActiveCommandWriter(writer) &&
-            !writer.blocked &&
-            commandWriterQueueSize(writer) === 0;
-
-          if (commandLaneAvailable) {
-            let shutdownWritten = false;
-            try {
-              activeChild.stdin.write(createSidecarFrame(CMD_SHUTDOWN));
-              shutdownWritten = true;
-            } catch {
-              logger.warn('dataplane_shutdown_force_kill', {
-                reason: 'shutdown_write_failed',
-              });
-            }
-
-            if (shutdownWritten) {
-              const closedGracefully = yield* awaitSidecarClose(closeSignal, shutdownGracePeriodMs);
-              if (!closedGracefully) {
-                logger.warn('dataplane_shutdown_force_kill', {
-                  reason: 'grace_period_expired',
-                  timeoutMs: shutdownGracePeriodMs,
-                });
-              }
-            }
-          } else {
-            logger.warn('dataplane_shutdown_force_kill', {
-              reason: 'command_lane_unavailable',
-            });
+        const pendingCloses = Array.from(unreapedSidecars);
+        if (activeChild !== null) {
+          detachSidecarState(activeChild);
+        }
+        for (const pending of pendingCloses) {
+          if (!isSidecarInputWritable(pending.child)) continue;
+          try {
+            // Writable owns bytes already accepted by write(false). Ending its
+            // FIFO appends shutdown after those bytes without replaying the
+            // application's unsubmitted queue or closing the event read side.
+            pending.child.stdin.end(
+              pending.child === activeChild ? createSidecarFrame(CMD_SHUTDOWN) : undefined,
+            );
+          } catch (error) {
+            logger.warn('dataplane_shutdown_input_end_failed', { error: String(error) });
           }
         }
 
-        // A child can emit `error` while the graceful timer is running. That
-        // event detaches the command lane but is not process termination. Only
-        // the child's `close` event completes its Deferred, so every still
-        // unreaped generation is force-killed and then observed here.
-        const pendingReaps = Array.from(unreapedSidecars);
-        if (pendingReaps.length === 0) {
-          return;
-        }
-
-        yield* Effect.sync(() => {
-          for (const pending of pendingReaps) {
-            if (sidecar === pending.child) {
-              cleanupSidecar(pending.child, true);
-            } else {
-              forceKillSidecar(pending.child);
-            }
-          }
-        });
-
-        const reaped = yield* awaitAllSidecarCloses(pendingReaps, shutdownReapTimeoutMs);
-        if (!reaped) {
-          logger.error('dataplane_shutdown_reap_timeout', {
-            timeoutMs: shutdownReapTimeoutMs,
-            remaining: pendingReaps.filter((pending) => unreapedSidecars.has(pending)).length,
-          });
-        }
+        // Rust retains the event writer through router cleanup. Only child
+        // close (including the adopted IPC peer's FIN) releases this fence.
+        yield* Effect.all(
+          pendingCloses.map((pending) => Deferred.await(pending.closed)),
+          { concurrency: 'unbounded' },
+        );
       }),
     );
   }
@@ -1756,18 +1716,12 @@ function makeDataplaneClient(
 
     clearReadinessWatchdog();
     clearStableUptimeTimer();
-    const writer = activeCommandWriter;
     const canRequestGracefulShutdown =
-      (reason === 'readiness_timeout' || reason === 'spawn_error') &&
-      isSidecarInputWritable(child) &&
-      writer !== null &&
-      isActiveCommandWriter(writer) &&
-      !writer.blocked &&
-      commandWriterQueueSize(writer) === 0;
+      (reason === 'readiness_timeout' || reason === 'spawn_error') && isSidecarInputWritable(child);
     const termination: SidecarRestartTermination = {
       closeSignal,
       reason,
-      phase: canRequestGracefulShutdown ? 'grace' : 'reap',
+      phase: canRequestGracefulShutdown ? 'orderly' : 'reap',
       timer: null,
     };
     restartTermination = termination;
@@ -1775,10 +1729,7 @@ function makeDataplaneClient(
 
     if (canRequestGracefulShutdown) {
       try {
-        child.stdin.write(createSidecarFrame(CMD_SHUTDOWN));
-        if (restartTermination === termination) {
-          armRestartTerminationGrace(termination);
-        }
+        child.stdin.end(createSidecarFrame(CMD_SHUTDOWN));
         return;
       } catch (error) {
         logger.warn('dataplane_restart_graceful_write_failed', {
@@ -1788,17 +1739,6 @@ function makeDataplaneClient(
       }
     }
     forceKillAndArmReap(termination);
-  }
-
-  function armRestartTerminationGrace(termination: SidecarRestartTermination): void {
-    armRestartTerminationTimer(termination, shutdownGracePeriodMs, () => {
-      if (restartTermination !== termination || termination.phase !== 'grace') return;
-      logger.warn('dataplane_restart_force_kill', {
-        reason: termination.reason,
-        timeoutMs: shutdownGracePeriodMs,
-      });
-      forceKillAndArmReap(termination);
-    });
   }
 
   function forceKillAndArmReap(termination: SidecarRestartTermination): void {
@@ -2705,27 +2645,6 @@ function createSidecarCloseSignal(child: DataplaneSidecarProcess): SidecarCloseS
       Deferred.doneUnsafe(closed, Effect.void);
     },
   };
-}
-
-function awaitSidecarClose(signal: SidecarCloseSignal, timeoutMs: number): Effect.Effect<boolean> {
-  return Effect.raceFirst(
-    Deferred.await(signal.closed).pipe(Effect.as(true)),
-    Effect.sleep(Duration.millis(timeoutMs)).pipe(Effect.as(false)),
-  );
-}
-
-function awaitAllSidecarCloses(
-  signals: readonly SidecarCloseSignal[],
-  timeoutMs: number,
-): Effect.Effect<boolean> {
-  const awaitAll = Effect.all(
-    signals.map((signal) => Deferred.await(signal.closed)),
-    { concurrency: 'unbounded' },
-  ).pipe(Effect.as(true));
-  return Effect.raceFirst(
-    awaitAll,
-    Effect.sleep(Duration.millis(timeoutMs)).pipe(Effect.as(false)),
-  );
 }
 
 function classifySpawnFailure(error: unknown): DataplaneFatalReason | 'transient' {

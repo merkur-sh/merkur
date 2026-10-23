@@ -321,21 +321,12 @@ struct WtMaintenanceOwner {
     next_generation: WtMaintenanceGeneration,
     pending: Option<WtMaintenanceRequest>,
     queued: WtMaintenanceQueue,
-    /// A gateway announcement said the held lease is already gone. Consumed by
-    /// the next `Mapping` cycle, which then skips renewal and the delete that
-    /// would otherwise fence re-acquisition — see `MappingInputs`.
-    gateway_rebooted: bool,
 }
 
 impl WtMaintenanceOwner {
     /// Request a mapping cycle because the gateway announced a reset.
     fn request_mapping_after_reboot(&mut self) {
-        self.gateway_rebooted = true;
-        self.request(WtMaintenanceKind::Mapping);
-    }
-
-    fn take_gateway_rebooted(&mut self) -> bool {
-        std::mem::take(&mut self.gateway_rebooted)
+        self.request_trailing(WtMaintenanceKind::Mapping);
     }
 
     fn request(&mut self, kind: WtMaintenanceKind) {
@@ -597,10 +588,10 @@ impl Args {
 
 /// The live-state snapshot a `Mapping` cycle runs on, taken under one lock.
 struct MappingSnapshot {
-    lease: Option<Arc<webtransport::portmap::Lease>>,
-    pinhole: Option<Arc<webtransport::portmap::Pinhole>>,
+    grants: webtransport::router_grants::Factory,
+    lease: Option<webtransport::router_grants::Lease>,
+    pinhole: Option<webtransport::router_grants::Pinhole>,
     host6: Option<std::net::Ipv6Addr>,
-    gateway_rebooted: bool,
 }
 
 fn spawn_wt_maintenance(
@@ -609,7 +600,7 @@ fn spawn_wt_maintenance(
     discovery_socket: Option<Arc<webtransport::discovery_socket::DiscoverySocket>>,
     stun_credential: Option<webtransport::stun::StunCredential>,
     prior_reflexive: Option<webtransport::PriorReflexive>,
-    prior_lease: Option<Arc<webtransport::portmap::Lease>>,
+    prior_lease: Option<webtransport::router_grants::Lease>,
     mapping: Option<MappingSnapshot>,
     completion_tx: mpsc::Sender<WtMaintenanceCompletion<WtMaintenanceResult>>,
 ) -> tokio::task::JoinHandle<()> {
@@ -657,9 +648,11 @@ fn spawn_wt_maintenance(
                     "WebTransport reprobe requested without a live server".to_string(),
                 ),
             },
-            WtMaintenanceKind::Mapping => match (wt_port, mapping) {
-                (Some(port), Some(snapshot)) => WtMaintenanceResult::Mapping(
+            WtMaintenanceKind::Mapping => match (wt_port, mapping, discovery_socket) {
+                (Some(port), Some(snapshot), Some(discovery_socket)) => WtMaintenanceResult::Mapping(
                     webtransport::run_mapping_cycle(webtransport::MappingInputs {
+                        grants: snapshot.grants,
+                        discovery_socket,
                         port,
                         stun_local_ip: prior_reflexive
                             .as_ref()
@@ -670,7 +663,6 @@ fn spawn_wt_maintenance(
                             .as_ref()
                             .and_then(|prior| prior.daemon_srflx),
                         host6: snapshot.host6,
-                        gateway_rebooted: snapshot.gateway_rebooted,
                     })
                     .await,
                 ),
@@ -696,6 +688,7 @@ async fn start_next_wt_maintenance(
     binding: WtBinding,
     stun_credential: Option<&webtransport::stun::StunCredential>,
     completion_tx: &mpsc::Sender<WtMaintenanceCompletion<WtMaintenanceResult>>,
+    router_grants: &webtransport::router_grants::Owner,
 ) {
     let Some(request) = owner.begin_next() else {
         return;
@@ -716,13 +709,12 @@ async fn start_next_wt_maintenance(
         match wt_state {
             Some(state) => {
                 let state = state.read().await;
-                let mapping =
-                    (request.kind == WtMaintenanceKind::Mapping).then(|| MappingSnapshot {
-                        lease: state.port_lease.clone(),
-                        pinhole: state.v6_pinhole.clone(),
-                        host6: state.top_global_host6(),
-                        gateway_rebooted: owner.take_gateway_rebooted(),
-                    });
+                let mapping = (request.kind == WtMaintenanceKind::Mapping).then(|| MappingSnapshot {
+                    grants: router_grants.factory(),
+                    lease: state.port_lease.clone(),
+                    pinhole: state.v6_pinhole.clone(),
+                    host6: state.top_global_host6(),
+                });
                 (
                     Some(webtransport::PriorReflexive::from_state(&state)),
                     state.port_lease.clone(),
@@ -747,6 +739,57 @@ async fn start_next_wt_maintenance(
         completion_tx.clone(),
     );
     *task = Some((generation, handle));
+}
+
+fn forget_announced_router_grant(
+    state: &WebTransportState,
+    source: &webtransport::egress::EgressPath,
+    announcement: &webtransport::portmap::announce::Announcement,
+) -> bool {
+    state.port_lease.as_ref().is_some_and(|lease| {
+        let matches_source = lease.local_ipv4 == source.local_ipv4
+            && lease.interface_index == source.interface_index
+            && Some(lease.gateway) == source.gateway;
+        if matches_source && lease.lost_to(announcement) {
+            lease.forget();
+            true
+        } else {
+            false
+        }
+    })
+}
+
+fn retire_router_providers(registry: &mut PeerRegistry) {
+    for peer in registry
+        .peers
+        .values_mut()
+        .chain(registry.parked.states_mut())
+    {
+        peer.direct_session = None;
+        peer.native_traversal = None;
+    }
+}
+
+/// Close publication before joining a side-effectful producer, then drain any
+/// result admitted by a channel permit reserved before receiver closure.
+async fn drain_wt_maintenance(
+    task: Option<(WtMaintenanceGeneration, tokio::task::JoinHandle<()>)>,
+    mapping_in_flight: bool,
+    receiver: &mut mpsc::Receiver<WtMaintenanceCompletion<WtMaintenanceResult>>,
+) {
+    receiver.close();
+    while let Ok(completion) = receiver.try_recv() {
+        drop(completion);
+    }
+    if let Some((_, task)) = task {
+        if !mapping_in_flight {
+            task.abort();
+        }
+        drop(task.await);
+    }
+    while let Ok(completion) = receiver.try_recv() {
+        drop(completion);
+    }
 }
 
 /// Takes the fields it publishes rather than a `WebTransportServerInfo`, so the
@@ -1194,6 +1237,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
         mpsc::channel::<WtMaintenanceCompletion<WtMaintenanceResult>>(
             WT_MAINTENANCE_COMPLETION_QUEUE_DEPTH,
         );
+    let mut router_grants = webtransport::router_grants::Owner::new();
     let mut wt_maintenance_owner = WtMaintenanceOwner::default();
     let mut wt_maintenance_task: Option<(WtMaintenanceGeneration, tokio::task::JoinHandle<()>)> =
         None;
@@ -1820,6 +1864,15 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
+            () = router_grants.retired() => {
+                wt_maintenance_owner.request_trailing(WtMaintenanceKind::Mapping);
+                start_next_wt_maintenance(
+                    &mut wt_maintenance_owner, &mut wt_maintenance_task, &wt_state,
+                    args.wt_binding(), stun_credential.as_ref(),
+                    &wt_maintenance_completion_tx, &router_grants,
+                ).await;
+            }
+
             completion = wt_maintenance_completion_rx.recv() => {
                 let Some(completion) = completion else {
                     error!("WebTransport maintenance completion channel closed");
@@ -1837,8 +1890,9 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 if wt_maintenance_task
                     .as_ref()
                     .is_some_and(|(generation, _)| *generation == completion_generation)
+                    && let Some((_, task)) = wt_maintenance_task.take()
                 {
-                    wt_maintenance_task.take();
+                    drop(task.await);
                 }
 
                 match (accepted.kind, accepted.result) {
@@ -2055,22 +2109,13 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         let pinhole_key = cycle.pinhole.metric_key();
                         let lease = cycle.lease.lease();
                         let pinhole = cycle.pinhole.pinhole();
-                        // Every arm is reported, including the ones that sent no
-                        // request. "Not attempted, and why" must stay separable
-                        // from "the gateway refused" — collapsing them is what
-                        // let thirty days of zeroes read as a protocol verdict
-                        // when it was a routing one. The v4 lease and the v6
-                        // pinhole are separate leases, so two outcomes.
-                        send_json_event(
-                            &event_tx,
-                            EVT_NAT_MAPPING_OUTCOME,
-                            &NatMappingOutcomeEvt { outcome: lease_key },
-                        );
-                        send_json_event(
-                            &event_tx,
-                            EVT_NAT_MAPPING_OUTCOME,
-                            &NatMappingOutcomeEvt { outcome: pinhole_key },
-                        );
+                        // Report completed router attempts and explicit skips.
+                        // A retained allocation defers work until retirement;
+                        // it yields no new router outcome.
+                        for outcome in [lease_key, pinhole_key].into_iter().flatten() {
+                            send_json_event(&event_tx, EVT_NAT_MAPPING_OUTCOME,
+                                &NatMappingOutcomeEvt { outcome });
+                        }
 
                         let changed = if let Some(state) = wt_state.as_ref() {
                             let mut state = state.write().await;
@@ -2149,8 +2194,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         }
 
                         info!(
-                            lease = %lease_key,
-                            pinhole = %pinhole_key,
+                            lease = lease_key.unwrap_or("retained"),
+                            pinhole = pinhole_key.unwrap_or("retained"),
                             reoffer = changed,
                             "port-mapping cycle complete"
                         );
@@ -2179,6 +2224,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                     args.wt_binding(),
                     stun_credential.as_ref(),
                     &wt_maintenance_completion_tx,
+                    &router_grants,
                 )
                 .await;
             }
@@ -2420,6 +2466,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                     args.wt_binding(),
                                     stun_credential.as_ref(),
                                     &wt_maintenance_completion_tx,
+                                    &router_grants,
                                 )
                                 .await;
                             } else {
@@ -2615,6 +2662,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 args.wt_binding(),
                                 stun_credential.as_ref(),
                                 &wt_maintenance_completion_tx,
+                                &router_grants,
                             )
                             .await;
                         }
@@ -3076,6 +3124,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 args.wt_binding(),
                                 stun_credential.as_ref(),
                                 &wt_maintenance_completion_tx,
+                                &router_grants,
                             )
                             .await;
                         }
@@ -3666,6 +3715,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             args.wt_binding(),
                             stun_credential.as_ref(),
                             &wt_maintenance_completion_tx,
+                            &router_grants,
                         )
                         .await;
                     }
@@ -3679,19 +3729,12 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 let Some(announcement) = announcement else {
                     continue;
                 };
-                let lost = match wt_state.as_ref() {
-                    Some(state) => {
+                let lost = match (wt_state.as_ref(), announce_listener.as_ref()) {
+                    (Some(state), Some(listener)) => {
                         let state = state.read().await;
-                        state
-                            .port_lease
-                            .as_ref()
-                            .is_some_and(|lease| lease.lost_to(&announcement))
-                            || state
-                                .v6_pinhole
-                                .as_ref()
-                                .is_some_and(|pinhole| pinhole.lost_to(&announcement))
+                        forget_announced_router_grant(&state, &listener.egress, &announcement)
                     }
-                    None => false,
+                    _ => false,
                 };
                 if lost {
                     info!(
@@ -3708,6 +3751,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         args.wt_binding(),
                         stun_credential.as_ref(),
                         &wt_maintenance_completion_tx,
+                        &router_grants,
                     )
                     .await;
                 }
@@ -3803,6 +3847,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                     args.wt_binding(),
                     stun_credential.as_ref(),
                     &wt_maintenance_completion_tx,
+                    &router_grants,
                 )
                 .await;
             }
@@ -3880,6 +3925,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         args.wt_binding(),
                         stun_credential.as_ref(),
                         &wt_maintenance_completion_tx,
+                        &router_grants,
                     )
                     .await;
                 }
@@ -4065,18 +4111,26 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     // the terminal's reservations disappear, including IPC/read-error exits.
     terminal.shutdown_graphics().await;
 
-    // Invalidate WebTransport maintenance ownership before endpoint teardown.
-    // A late preparation result owns its endpoint/mapping guards and is safely
-    // dropped after the completion receiver closes.
+    // Stop publication first, then close providers before dropping their grant
+    // pins. A side-effectful mapping RPC always runs to its bounded response.
+    let mapping_in_flight = wt_maintenance_owner.pending
+        .is_some_and(|pending| pending.kind == WtMaintenanceKind::Mapping);
     wt_maintenance_owner.cancel_pending();
-    if let Some((_, task)) = wt_maintenance_task.take() {
-        task.abort();
-        let _ = task.await;
+    if let Some(mut server) = wt_server.take() {
+        drop(server.shutdown().await);
     }
+    retire_router_providers(&mut registry);
     wt_maintenance_completion_rx.close();
-    while let Ok(completion) = wt_maintenance_completion_rx.try_recv() {
-        drop(completion);
+    drain_wt_maintenance(wt_maintenance_task.take(), mapping_in_flight,
+        &mut wt_maintenance_completion_rx).await;
+    if let Some(state) = &wt_state {
+        let mut state = state.write().await;
+        state.port_lease = None;
+        state.v6_pinhole = None;
     }
+    // Last-owner drops enqueue cleanup; only producer closure plus joined
+    // Delete completion permits releasing the shared UDP port and runtime.
+    let router_cleanup_result = router_grants.shutdown().await;
 
     // On Apple targets the watcher owns a thread running a CFRunLoop, which may
     // outlive the abort until process exit. The process is exiting.
@@ -4159,6 +4213,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
 
     management_signatures.abort_all();
     let output_result = event_output.shutdown().await;
+    if let Err(error) = router_cleanup_result { return Err(error.into()); }
     if let Some(failure) = fatal_identity_failure {
         return Err(Box::new(failure));
     }

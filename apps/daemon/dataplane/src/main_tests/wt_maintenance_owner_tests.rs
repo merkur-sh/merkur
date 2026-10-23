@@ -684,3 +684,39 @@ async fn rotation_cleanup_cannot_demote_or_unmap_newer_b() {
         0
     );
 }
+
+#[test]
+fn a_gateway_reset_during_mapping_preserves_one_trailing_generation() {
+    let mut owner = WtMaintenanceOwner::default();
+    owner.request(WtMaintenanceKind::Mapping);
+    let current = owner.begin_next().unwrap();
+    owner.request_mapping_after_reboot();
+    owner.request_mapping_after_reboot();
+    assert!(
+        owner.begin_next().is_none(),
+        "mapping remains single-flight"
+    );
+    owner
+        .accept(WtMaintenanceCompletion {
+            generation: current.generation,
+            kind: current.kind,
+            result: (),
+        })
+        .unwrap();
+    let trailing = owner
+        .begin_next()
+        .expect("the reset requires a fresh mapping generation");
+    assert_eq!(trailing.kind, WtMaintenanceKind::Mapping);
+    assert_ne!(trailing.generation, current.generation);
+    owner
+        .accept(WtMaintenanceCompletion {
+            generation: trailing.generation,
+            kind: trailing.kind,
+            result: (),
+        })
+        .unwrap();
+    assert!(
+        owner.begin_next().is_none(),
+        "a reset burst has one trailing edge"
+    );
+}

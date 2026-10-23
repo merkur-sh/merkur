@@ -548,9 +548,20 @@ describe('performance harness statistics', () => {
           '-e',
           [
             'const child = Bun.spawn(',
-            '["bun", "-e", "process.on(\\"SIGTERM\\", () => {}); await Bun.sleep(60000)"],',
-            '{ stdout: "inherit" });',
-            'child.unref(); await Bun.sleep(100)',
+            JSON.stringify([
+              'bun',
+              '-e',
+              [
+                'import { writeSync, closeSync } from "node:fs";',
+                'process.on("SIGTERM", () => {});',
+                'writeSync(2, "ready"); closeSync(2);',
+                'await Bun.sleep(60000)',
+              ].join(''),
+            ]),
+            ', { stdout: "inherit", stderr: "pipe" });',
+            'const ready = await new Response(child.stderr).text();',
+            'if (ready !== "ready") throw new Error("missing signal-handler readiness");',
+            'child.unref()',
           ].join(''),
         ],
         cwd: import.meta.dir,

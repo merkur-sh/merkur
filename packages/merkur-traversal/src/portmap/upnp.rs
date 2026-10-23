@@ -1190,3 +1190,7 @@ pub mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "upnp_pinhole_tests.rs"]
+mod pinhole_tests;

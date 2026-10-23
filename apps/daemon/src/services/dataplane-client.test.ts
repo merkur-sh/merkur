@@ -336,63 +336,102 @@ describe('DataplaneClient lifecycle', () => {
     client.stop();
   });
 
-  test('gracefully shuts down before the bounded force-kill fallback', async () => {
+  test.each(['active', 'restarting'])(
+    'graceful shutdown waits for actual child close across virtual deadlines (sidecar: %s)',
+    async (state) => {
+      const sidecars: FakeSidecar[] = [];
+      const client = createClient(logger, createHandlers(), createDependencies(sidecars));
+      client.start();
+      const sidecar = required(sidecars[0]);
+      if (state === 'restarting')
+        sidecar.emitError(withErrorCode('temporary process pressure', 'EAGAIN'));
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const shutdownFiber = yield* client.shutdown().pipe(Effect.forkChild);
+          let completed = false;
+          shutdownFiber.addObserver(() => {
+            completed = true;
+          });
+          yield* TestClock.adjust('5 seconds');
+          const completedBeforeClose = completed;
+          const signalsBeforeClose = [...sidecar.killSignals];
+          sidecar.emitClose(0);
+          yield* Fiber.join(shutdownFiber);
+
+          expect(readFrames(sidecar.inputChunks).map((frame) => frame.kind)).toEqual([
+            CMD_CONFIGURE,
+            CMD_SHUTDOWN,
+          ]);
+          expect(completedBeforeClose).toBe(false);
+          expect(signalsBeforeClose).toEqual([]);
+          expect(completed).toBe(true);
+        }).pipe(Effect.provide(TestClock.layer())),
+      );
+    },
+  );
+
+  test.each(['active', 'restarting'])(
+    'shutdown drains accepted bytes before its final frame and drops unsubmitted work (sidecar: %s)',
+    async (state) => {
+      const sidecars: FakeSidecar[] = [];
+      const streams: ManualBackpressureWritable[] = [];
+      const client = createClient(
+        logger,
+        createHandlers(),
+        createBackpressuredDependencies(sidecars, streams),
+      );
+      client.start();
+      const sidecar = required(sidecars[0]);
+      const input = required(streams[0]);
+      client.updateRevocation(7);
+      client.updateRevocation(8);
+      if (state === 'restarting')
+        sidecar.emitError(withErrorCode('temporary process pressure', 'EAGAIN'));
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const shutdownFiber = yield* client.shutdown().pipe(Effect.forkChild);
+          let completed = false;
+          shutdownFiber.addObserver(() => {
+            completed = true;
+          });
+          yield* TestClock.adjust('5 seconds');
+          const framesBeforeDrain = readFrames(input.inputChunks);
+          yield* Effect.promise(() => input.releaseNext());
+          yield* Effect.promise(() => input.releaseNext());
+          const completedAfterFinish = completed;
+          sidecar.emitClose(0);
+          yield* Fiber.join(shutdownFiber);
+
+          expect(framesBeforeDrain.map((frame) => frame.kind)).toEqual([CMD_UPDATE_REVOCATION]);
+          expect(readFrames(input.inputChunks).map((frame) => frame.kind)).toEqual([
+            CMD_UPDATE_REVOCATION,
+            CMD_SHUTDOWN,
+          ]);
+          expect(completedAfterFinish).toBe(false);
+          expect(sidecar.killSignals).toEqual([]);
+        }).pipe(Effect.provide(TestClock.layer())),
+      );
+    },
+  );
+
+  test('explicit stop force-kills a child held by graceful shutdown', async () => {
     const sidecars: FakeSidecar[] = [];
-    const client = createClient(logger, createHandlers(), {
-      ...createDependencies(sidecars),
-      shutdownGracePeriodMs: 25,
-    });
+    const client = createClient(logger, createHandlers(), createDependencies(sidecars));
     client.start();
     const sidecar = required(sidecars[0]);
-
-    const gracefulFiber = Effect.runFork(client.shutdown());
-    await waitFor(() =>
-      readFrames(sidecar.inputChunks).some((frame) => frame.kind === CMD_SHUTDOWN),
-    );
-    expect(sidecar.killSignals).toEqual([]);
+    const shutdownFiber = Effect.runFork(client.shutdown());
+    await waitFor(() => sidecar.child.stdin.writableFinished);
+    client.stop();
     sidecar.emitClose(0);
-    await Effect.runPromise(Fiber.join(gracefulFiber));
-    expect(sidecar.killSignals).toEqual([]);
-
-    const forcedSidecars: FakeSidecar[] = [];
-    const forced = createClient(logger, createHandlers(), {
-      ...createDependencies(forcedSidecars),
-      shutdownGracePeriodMs: 25,
-      shutdownReapTimeoutMs: 25,
-    });
-    forced.start();
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const shutdownFiber = yield* forced.shutdown().pipe(Effect.forkChild);
-        yield* Effect.promise(() =>
-          waitFor(() =>
-            readFrames(required(forcedSidecars[0]).inputChunks).some(
-              (frame) => frame.kind === CMD_SHUTDOWN,
-            ),
-          ),
-        );
-        yield* TestClock.adjust('25 millis');
-        expect(required(forcedSidecars[0]).killSignals).toEqual(['SIGKILL']);
-        let reaped = false;
-        shutdownFiber.addObserver(() => {
-          reaped = true;
-        });
-        yield* Effect.yieldNow;
-        expect(reaped).toBe(false);
-        yield* TestClock.adjust('25 millis');
-        yield* Fiber.join(shutdownFiber);
-      }).pipe(Effect.provide(TestClock.layer())),
-    );
-    expect(required(forcedSidecars[0]).killSignals).toEqual(['SIGKILL']);
+    await Effect.runPromise(Fiber.join(shutdownFiber));
+    expect(sidecar.killSignals).toEqual(['SIGKILL']);
   });
 
   test('an error during graceful shutdown does not impersonate process close', async () => {
     const sidecars: FakeSidecar[] = [];
-    const client = createClient(logger, createHandlers(), {
-      ...createDependencies(sidecars),
-      shutdownGracePeriodMs: 25,
-      shutdownReapTimeoutMs: 25,
-    });
+    const client = createClient(logger, createHandlers(), createDependencies(sidecars));
     client.start();
     const sidecar = required(sidecars[0]);
 
@@ -414,8 +453,8 @@ describe('DataplaneClient lifecycle', () => {
         yield* Effect.yieldNow;
         expect(completed).toBe(false);
 
-        yield* TestClock.adjust('25 millis');
-        expect(sidecar.killSignals).toEqual(['SIGKILL']);
+        yield* TestClock.adjust('5 seconds');
+        expect(sidecar.killSignals).toEqual([]);
         yield* Effect.yieldNow;
         expect(completed).toBe(false);
 
@@ -557,7 +596,6 @@ describe('DataplaneClient lifecycle', () => {
     const client = createClient(logger, createHandlers(), {
       ...createDependencies(sidecars),
       readinessTimeoutMs: 1_000,
-      shutdownGracePeriodMs: 10,
       shutdownReapTimeoutMs: 10,
       scheduleTimer(delayMs, callback) {
         return scheduleCallback(lifecycleTimers, delayMs, callback);
@@ -576,8 +614,8 @@ describe('DataplaneClient lifecycle', () => {
     client.start();
     expect(sidecars).toHaveLength(1);
 
-    required(lifecycleTimers.find((timer) => timer.delayMs === 10 && !timer.cancelled)).run();
-    expect(first.killSignals).toEqual(['SIGKILL']);
+    for (const timer of lifecycleTimers) timer.run();
+    expect(first.killSignals).toEqual([]);
     expect(reconnectTimers).toHaveLength(0);
     expect(sidecars).toHaveLength(1);
 
@@ -706,7 +744,6 @@ describe('DataplaneClient lifecycle', () => {
     const client = createClient(logger, createHandlers(), {
       ...createDependencies(sidecars),
       readinessTimeoutMs: 10,
-      shutdownGracePeriodMs: 10,
       shutdownReapTimeoutMs: 10,
       maxConsecutiveCrashes: 2,
       scheduleTimer(delayMs, callback) {
@@ -743,7 +780,6 @@ describe('DataplaneClient lifecycle', () => {
         Effect.gen(function* () {
           yield* createDataplaneClientScoped(createDataplaneConfig(), logger, createHandlers(), {
             ...createDependencies(sidecars),
-            shutdownGracePeriodMs: 0,
             shutdownReapTimeoutMs: 0,
           });
           expect(sidecars).toHaveLength(1);
@@ -800,7 +836,6 @@ describe('DataplaneClient lifecycle', () => {
         Effect.gen(function* () {
           yield* createDataplaneClientScoped(createDataplaneConfig(), logger, createHandlers(), {
             ...createDependencies(sidecars),
-            shutdownGracePeriodMs: 0,
             shutdownReapTimeoutMs: 0,
             updateHealth: (state) =>
               Effect.sync(() => {
@@ -820,6 +855,8 @@ describe('DataplaneClient lifecycle', () => {
           yield* Effect.sleep('1 millis');
           expect((yield* Metric.value(daemonDataplaneReady)).value).toBe(1);
           expect(healthStates.at(-1)).toBe('ready');
+          const sidecar = required(sidecars[0]);
+          sidecar.child.stdin.once('finish', () => sidecar.emitClose(0));
         }),
       ),
     );
@@ -839,7 +876,6 @@ describe('DataplaneClient lifecycle', () => {
             createHandlers(),
             {
               ...createDependencies(sidecars),
-              shutdownGracePeriodMs: 0,
               shutdownReapTimeoutMs: 0,
               recordMetricEffect: () => Effect.die(new Error('metric backend defect')),
             },
@@ -847,6 +883,7 @@ describe('DataplaneClient lifecycle', () => {
           const failure = yield* client.awaitCriticalFailure().pipe(Effect.flip);
           expect(failure.reason).toBe('internal_defect');
           expect(String(failure.cause)).toContain('state worker failed');
+          required(sidecars[0]).emitClose(1);
         }),
       ),
     );

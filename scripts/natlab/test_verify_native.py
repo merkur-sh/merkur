@@ -39,6 +39,52 @@ def quic():
     return b"\xc0" + struct.pack("!I", 1) + b"\x08" + b"d" * 8 + b"\x08" + b"s" * 8 + bytes(20)
 
 
+def pcp6_map(address, port, requested=3600, granted=8, nonce=b"n" * 12):
+    request_bytes = bytearray(60)
+    request_bytes[:2] = b"\x02\x01"
+    struct.pack_into("!I", request_bytes, 4, requested)
+    request_bytes[8:24] = ipaddress.IPv6Address(address).packed
+    request_bytes[24:36] = nonce
+    request_bytes[36] = 17
+    struct.pack_into("!HH", request_bytes, 40, port, port)
+    request_bytes[44:60] = ipaddress.IPv6Address(address).packed
+    response_bytes = bytearray(request_bytes)
+    response_bytes[1] = 0x81
+    response_bytes[8:24] = bytes(16)
+    struct.pack_into("!I", response_bytes, 4, granted)
+    return bytes(request_bytes), bytes(response_bytes)
+
+
+def soap6(action, fields, response=False):
+    name = action + ("Response" if response else "")
+    arguments = "".join(f"<{key}>{value}</{key}>" for key, value in fields.items())
+    return ('<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>'
+            f'<u:{name} xmlns:u="urn:schemas-upnp-org:service:WANIPv6FirewallControl:1">'
+            f'{arguments}</u:{name}></s:Body></s:Envelope>')
+
+
+def observation_request(transaction):
+    attributes = (attribute(6, b"t" * 55) + attribute(0xC002, b"")
+                  + attribute(0x26, bytes(80)) + attribute(0x1C, bytes(32)))
+    return struct.pack("!HH", 1, len(attributes)) + VERIFY.COOKIE + transaction + attributes
+
+
+def observation_response(transaction, mapped, receipt=True):
+    packet = response(transaction, mapped)
+    identity = (b"\x04" + ipaddress.IPv6Address("::ffff:198.51.100.10").packed
+                + struct.pack("!H", 3478) + bytes(32))
+    attributes = packet[20:-36] + (attribute(0xC001, identity) if receipt else b"") + packet[-36:]
+    return struct.pack("!HH", 0x101, len(attributes)) + VERIFY.COOKIE + transaction + attributes
+
+
+def pcp4_map(port, lifetime, granted, assigned="172.30.2.2", nonce=b"n" * 12):
+    sent, answered = pcp6_map("::ffff:10.20.2.2", port, lifetime, granted, nonce)
+    sent, answered = bytearray(sent), bytearray(answered)
+    sent[44:60] = ipaddress.IPv6Address("::ffff:198.51.100.2").packed
+    answered[44:60] = ipaddress.IPv6Address(f"::ffff:{assigned}").packed
+    return bytes(sent), bytes(answered)
+
+
 def ipv4_udp(source, destination, payload):
     udp = struct.pack("!HHHH", source[1], destination[1], len(payload) + 8, 0) + payload
     ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, len(udp) + 20, 1, 0, 64, 17, 0,
@@ -51,6 +97,57 @@ def ipv6_udp(source, destination, payload):
     ip = struct.pack("!IHBB16s16s", 6 << 28, len(udp), 17, 64,
                      ipaddress.ip_address(source[0]).packed, ipaddress.ip_address(destination[0]).packed)
     return bytes(12) + b"\x86\xdd" + ip + udp
+
+
+def ipv6_tcp(source, destination, sequence, flags, payload=b""):
+    tcp = struct.pack("!HHIIBBHHH", source[1], destination[1], sequence, 0, 0x50,
+                      flags, 65535, 0, 0) + payload
+    ip = struct.pack("!IHBB16s16s", 6 << 28, len(tcp), 6, 64,
+                     ipaddress.IPv6Address(source[0]).packed, ipaddress.IPv6Address(destination[0]).packed)
+    return bytes(12) + b"\x86\xdd" + ip + tcp
+
+
+def timed_pcap(records):
+    out = struct.pack("<IHHIIII", 0xA1B23C4D, 2, 4, 0, 0, 262144, 1)
+    for timestamp, frame in records:
+        seconds, fraction = divmod(timestamp, 1_000_000_000)
+        out += struct.pack("<IIII", seconds, fraction, len(frame), len(frame)) + frame
+    return out
+
+
+def pinhole_rule(address, port, handle):
+    return {"family": "inet", "table": "filter", "chain": "miniupnpd", "handle": handle,
+            "expr": [{"match": {"op": "==", "left": {"payload": {
+                "protocol": "ip6", "field": "daddr"}}, "right": address}},
+                {"match": {"op": "==", "left": {"payload": {"protocol": "udp", "field": "dport"}},
+                           "right": port}}, {"accept": None}]}
+
+
+def pinhole_state(address, attempted, denied, rules=()):
+    predicate = [{"match": {"op": "==", "left": {"meta": {"key": "iifname"}}, "right": "wan0"}},
+                 {"match": {"op": "==", "left": {"payload": {"protocol": "ip6", "field": "daddr"}},
+                            "right": address}},
+                 {"match": {"op": "==", "left": {"meta": {"key": "l4proto"}}, "right": "udp"}}]
+    forward = [{"family": "inet", "table": "filter", "chain": "forward",
+                "expr": predicate + [{"counter": name}, verdict]}
+               for name, verdict in (("pinhole_attempt", {"jump": {"target": "miniupnpd"}}),
+                                      ("pinhole_denied", {"drop": None}))]
+    counters = [{"counter": {"name": name, "packets": value}}
+                for name, value in (("pinhole_attempt", attempted), ("pinhole_denied", denied))]
+    return {"nftables": counters + [{"rule": rule} for rule in forward + list(rules)]}
+
+
+def observer_bootstrap(address):
+    return {"family": "inet", "table": "filter", "chain": "forward", "expr": [
+        {"match": {"op": "==", "left": {"meta": {"key": "iifname"}}, "right": "wan0"}},
+        {"match": {"op": "==", "left": {"payload": {"protocol": "ip6", "field": "daddr"}},
+                   "right": address}},
+        {"match": {"op": "==", "left": {"payload": {"protocol": "ip6", "field": "saddr"}},
+                   "right": {"set": ["2001:db8:ffff::10", "2001:db8:ffff::11"]}}},
+        {"match": {"op": "==", "left": {"payload": {"protocol": "udp", "field": "sport"}},
+                   "right": {"set": [3478, 3479, 3480]}}},
+        {"match": {"op": "in", "left": {"ct": {"key": "state"}}, "right": "established"}},
+        {"accept": None}]}
 
 
 def pcap(frames, link_type=1):
@@ -104,7 +201,10 @@ class NativeEvidence(unittest.TestCase):
             "0 packets dropped by kernel\n")
 
     def prove(self, case="eim-pdf"):
-        return VERIFY.verify(case, [self.capture], self.root)
+        captures = [self.capture]
+        if case in VERIFY.IPV6_PINHOLE_CASES:
+            captures.append(self.gateway_capture)
+        return VERIFY.verify(case, captures, self.root)
 
     def test_bilateral_checks_and_quic_share_both_translated_endpoints(self):
         self.write_capture(valid_frames())
@@ -206,6 +306,74 @@ class NativeEvidence(unittest.TestCase):
         with self.assertRaisesRegex(VERIFY.VerificationError, "unverified direct QUIC"):
             self.prove("blocked")
 
+    def test_inner_nat_requires_actual_mismatched_grant_deleted_while_binding_stays_live(self):
+        frames = self._inner_lease()
+        self.write_capture(frames)
+        proof = self.prove("inner-lease")["innerLeaseRejected"]
+        self.assertEqual(proof["rejectedAssignedAddress"], "172.30.2.2")
+        self.assertEqual(proof["observedOuterAddress"], VERIFY.CLIENT4)
+        self.assertEqual(proof["privatePort"], 39000)
+        self.assertTrue(proof["cleanupWhileBindingLive"])
+        self.assertIn("innerLeaseRejected", VERIFY.wait_for_inner_lease_rejection("inner-lease", [self.capture]))
+
+    def test_inner_nat_cannot_pass_with_only_filtered_peer_checks(self):
+        self.write_capture([self._inner_lease()[0]])
+        with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
+            self.prove("inner-lease")
+
+    def test_inner_nat_delete_must_match_nonce_and_internal_binding_port(self):
+        for nonce, port in ((b"x" * 12, 39000), (b"n" * 12, 39001)):
+            with self.subTest(port=port, changed_nonce=nonce != b"n" * 12):
+                frames = self._inner_lease(delete_nonce=nonce, delete_port=port)
+                self.write_capture(frames)
+                with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
+                    self.prove("inner-lease")
+
+    def test_inner_nat_cannot_count_normal_close_cleanup_after_the_binding_stopped(self):
+        frames = self._inner_lease()
+        self.write_capture(frames[:-1])
+        with self.assertRaisesRegex(VERIFY.VerificationError, "native binding remains live"):
+            self.prove("inner-lease")
+
+    def test_inner_nat_cannot_substitute_a_different_live_udp_binding(self):
+        frames = self._inner_lease()
+        frames[-1] = ipv4_udp(("10.20.2.2", 39001), (VERIFY.DAEMON4, 51110), request(b"p" * 12, "c"))
+        self.write_capture(frames)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "native binding remains live"):
+            self.prove("inner-lease")
+
+    def test_inner_nat_observation_requires_its_responder_receipt(self):
+        frames = self._inner_lease(receipt=False)
+        self.write_capture(frames)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
+            self.prove("inner-lease")
+
+    def test_a_real_edge_grant_does_not_prove_an_inner_nat_rejection(self):
+        frames = self._inner_lease(assigned=VERIFY.CLIENT4)
+        self.write_capture(frames)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
+            self.prove("inner-lease")
+
+    def test_inner_nat_does_not_use_an_observation_from_another_udp_binding(self):
+        frames = self._inner_lease(observed_port=39001)
+        self.write_capture(frames)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
+            self.prove("inner-lease")
+
+    def _inner_lease(self, delete_nonce=b"n" * 12, delete_port=39000, receipt=True,
+                     assigned="172.30.2.2", observed_port=39000):
+        binding, observer = ("10.20.2.2", observed_port), ("198.51.100.10", 3478)
+        control, cleanup, gateway = ("10.20.2.2", 44000), ("10.20.2.2", 44001), ("10.20.2.1", 5351)
+        acquire, grant = pcp4_map(39000, 3600, 120, assigned=assigned)
+        delete, acknowledgement = pcp4_map(delete_port, 0, 0, assigned=assigned, nonce=delete_nonce)
+        transaction = b"o" * 12
+        return [ipv4_udp(CLIENT, (VERIFY.DAEMON4, 51110), request(b"p" * 12, "c")),
+                ipv4_udp(binding, observer, observation_request(transaction)),
+                ipv4_udp(observer, binding, observation_response(transaction, CLIENT, receipt)),
+                ipv4_udp(control, gateway, acquire), ipv4_udp(gateway, control, grant),
+                ipv4_udp(cleanup, gateway, delete), ipv4_udp(gateway, cleanup, acknowledgement),
+                ipv4_udp(("10.20.2.2", 39000), (VERIFY.DAEMON4, 51110), request(b"q" * 12, "c"))]
+
     def test_ipv6_checks_preserve_full_addresses_and_need_no_nat_translation(self):
         daemon, client = (VERIFY.DAEMON6, 24400), (VERIFY.CLIENT6, 39000)
         first, second = b"c" * 12, b"d" * 12
@@ -218,6 +386,284 @@ class NativeEvidence(unittest.TestCase):
         ])
         proof = self.prove("ipv6-pdf")
         self.assertEqual(proof["verifiedPairs"][0]["clientEndpoint"], list(client))
+
+    def test_strict_ipv6_cannot_hide_an_ipv4_constructor_in_the_same_session(self):
+        daemon, client = (VERIFY.DAEMON6, 24400), (VERIFY.CLIENT6, 39000)
+        self.write_capture([
+            ipv6_udp(client, daemon, request(b"c" * 12, "c")),
+            ipv6_udp(daemon, client, response(b"c" * 12, client)),
+            ipv6_udp(daemon, client, request(b"d" * 12, "d")),
+            ipv6_udp(client, daemon, quic()), ipv6_udp(daemon, client, quic()),
+            ipv4_udp(CLIENT, DAEMON, quic()),
+        ])
+        with self.assertRaisesRegex(VERIFY.VerificationError, "direct IPv4 QUIC"):
+            self.prove("ipv6-pdf")
+
+    def test_pcpv6_proof_binds_nonce_native_address_and_unchanged_udp_port(self):
+        request_bytes, response_bytes = pcp6_map(VERIFY.CLIENT6, 39000)
+        grant = VERIFY.pcp6_exchange(request_bytes, response_bytes, VERIFY.CLIENT6, 39000)
+        self.assertEqual(grant["grantedLifetimeSeconds"], 8)
+        for mutation in (24, 43, 59):
+            with self.subTest(mutation=mutation):
+                corrupted = bytearray(response_bytes)
+                corrupted[mutation] ^= 1
+                with self.assertRaises(VERIFY.VerificationError):
+                    VERIFY.pcp6_exchange(request_bytes, bytes(corrupted), VERIFY.CLIENT6, 39000)
+
+    def test_pcpv6_delete_requires_a_real_zero_lifetime_reply(self):
+        request_bytes, response_bytes = pcp6_map(VERIFY.DAEMON6, 24400, requested=0, granted=0)
+        self.assertEqual(VERIFY.pcp6_exchange(request_bytes, response_bytes, VERIFY.DAEMON6, 24400)[
+            "grantedLifetimeSeconds"], 0)
+        corrupted = bytearray(response_bytes)
+        struct.pack_into("!I", corrupted, 4, 8)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "lifetime"):
+            VERIFY.pcp6_exchange(request_bytes, bytes(corrupted), VERIFY.DAEMON6, 24400)
+
+    def test_igdv2_pinhole_proof_binds_source_socket_and_renew_delete_unique_id(self):
+        address, port = VERIFY.CLIENT6, 39000
+        arguments = {"RemoteHost": "", "RemotePort": 0, "InternalClient": address,
+                     "InternalPort": port, "Protocol": 17, "LeaseTime": 3600}
+        opened = VERIFY.igd6_exchange("AddPinhole", soap6("AddPinhole", arguments),
+            soap6("AddPinhole", {"UniqueID": 23}, response=True), address, port, address)
+        self.assertEqual(opened["identity"], "23")
+        self.assertEqual(opened["grantedLifetimeSeconds"], 3600)
+        for action, fields in (("UpdatePinhole", {"UniqueID": 23, "NewLeaseTime": 3600}),
+                               ("DeletePinhole", {"UniqueID": 23})):
+            proof = VERIFY.igd6_exchange(action, soap6(action, fields),
+                soap6(action, {}, response=True), address, port, address)
+            self.assertEqual(proof["identity"], opened["identity"])
+        with self.assertRaisesRegex(VERIFY.VerificationError, "InternalClient"):
+            VERIFY.igd6_exchange("AddPinhole", soap6("AddPinhole", arguments),
+                soap6("AddPinhole", {"UniqueID": 23}, response=True), address, port, VERIFY.DAEMON6)
+
+    def test_all_four_native_ipv6_pinhole_cases_require_real_control_and_used_kernel_gate(self):
+        for role in ("client", "daemon"):
+            for protocol in ("pcp", "igd"):
+                with self.subTest(role=role, protocol=protocol):
+                    case = self._native_pinhole(role, protocol)
+                    proof = self.prove(case)
+                    self.assertEqual(proof["pinhole"]["role"], role)
+                    self.assertTrue(proof["pinhole"]["nativeDeletionVerified"])
+                    self.assertEqual(proof["pinhole"]["nativeRenewalVerified"], protocol == "pcp")
+
+    def test_native_ipv6_cannot_substitute_independent_probe_for_native_wire_controls(self):
+        case = self._native_pinhole("client", "pcp")
+        self.gateway_capture.write_bytes(timed_pcap([]))
+        (self.root / "v6-gateway.stderr").write_text("0 packets captured\n0 packets dropped by kernel\n")
+        with self.assertRaisesRegex(VERIFY.VerificationError, "real control grant"):
+            self.prove(case)
+
+    def test_native_ipv6_requires_pinhole_before_conntrack_acceptance(self):
+        case = self._native_pinhole("client", "igd")
+        path = self.root / "client-nft.json"
+        state = json.loads(path.read_text())
+        state["nftables"].insert(2, {"rule": {"family": "inet", "table": "filter", "chain": "forward",
+            "expr": [{"match": {"op": "==", "left": {"ct": {"key": "state"}},
+                                   "right": "established"}}, {"accept": None}]}})
+        path.write_text(json.dumps(state))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "pinhole gate"):
+            self.prove(case)
+
+    def test_pinhole_gate_allows_only_established_replies_from_exact_stun_infrastructure(self):
+        state = pinhole_state(VERIFY.CLIENT6, 12, 3)
+        state["nftables"].insert(2, {"rule": observer_bootstrap(VERIFY.CLIENT6)})
+        VERIFY.verify_pinhole_gate(state, VERIFY.CLIENT6)
+
+    def test_pinhole_bootstrap_cannot_allow_peer_addresses_or_other_ports(self):
+        for field, value in (("saddr", {"set": ["2001:db8:ffff::10", VERIFY.DAEMON6]}),
+                             ("sport", {"set": [3478, 3479, 4433]})):
+            with self.subTest(field=field):
+                state = pinhole_state(VERIFY.CLIENT6, 12, 3)
+                rule = observer_bootstrap(VERIFY.CLIENT6)
+                match = next(expression["match"] for expression in rule["expr"]
+                             if expression.get("match", {}).get("left", {}).get("payload", {}).get("field") == field)
+                match["right"] = value
+                state["nftables"].insert(2, {"rule": rule})
+                with self.assertRaisesRegex(VERIFY.VerificationError, "infrastructure exception"):
+                    VERIFY.verify_pinhole_gate(state, VERIFY.CLIENT6)
+
+    def test_pinhole_bootstrap_requires_exact_destination_and_established_only(self):
+        for removed in ("destination", "state"):
+            with self.subTest(removed=removed):
+                state = pinhole_state(VERIFY.CLIENT6, 12, 3)
+                rule = observer_bootstrap(VERIFY.CLIENT6)
+                rule["expr"] = [expression for expression in rule["expr"]
+                                if not (expression.get("match", {}).get("left", {}) == (
+                                    {"payload": {"protocol": "ip6", "field": "daddr"}}
+                                    if removed == "destination" else {"ct": {"key": "state"}}))]
+                state["nftables"].insert(2, {"rule": rule})
+                with self.assertRaisesRegex(VERIFY.VerificationError, "infrastructure exception"):
+                    VERIFY.verify_pinhole_gate(state, VERIFY.CLIENT6)
+
+    def test_pinhole_bootstrap_cannot_put_a_second_established_accept_before_the_gate(self):
+        state = pinhole_state(VERIFY.CLIENT6, 12, 3)
+        bypass = {"family": "inet", "table": "filter", "chain": "forward", "expr": [
+            {"match": {"op": "in", "left": {"ct": {"key": "state"}}, "right": "established"}},
+            {"accept": None}]}
+        state["nftables"][2:2] = [{"rule": observer_bootstrap(VERIFY.CLIENT6)}, {"rule": bypass}]
+        with self.assertRaisesRegex(VERIFY.VerificationError, "pinhole gate"):
+            VERIFY.verify_pinhole_gate(state, VERIFY.CLIENT6)
+
+    def test_pinhole_bootstrap_does_not_accept_new_related_or_untracked_packets(self):
+        for verdict in ("new", "untracked", {"set": ["established", "related"]}):
+            with self.subTest(state=verdict):
+                state = pinhole_state(VERIFY.CLIENT6, 12, 3)
+                rule = observer_bootstrap(VERIFY.CLIENT6)
+                rule["expr"][-2]["match"]["right"] = verdict
+                state["nftables"].insert(2, {"rule": rule})
+                with self.assertRaisesRegex(VERIFY.VerificationError, "infrastructure exception"):
+                    VERIFY.verify_pinhole_gate(state, VERIFY.CLIENT6)
+
+    def test_native_pcpv6_renewal_cannot_replace_its_nonce_with_another_grant(self):
+        case = self._native_pinhole("daemon", "pcp", renewal_nonce=b"x" * 12)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "same-nonce wire renewal"):
+            self.prove(case)
+
+    def test_native_ipv6_deletion_requires_actual_kernel_rule_removal(self):
+        case = self._native_pinhole("daemon", "igd")
+        path = self.root / "daemon-nft.json"
+        state = json.loads(path.read_text())
+        state["nftables"].append({"rule": pinhole_rule(VERIFY.DAEMON6, 24400, 10)})
+        path.write_text(json.dumps(state))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "delete its actual kernel pinhole"):
+            self.prove(case)
+
+    def test_raw_pinhole_transport_port_requires_an_independent_udp_protocol_match(self):
+        rule = {"chain": "miniupnpd", "expr": [
+            {"match": {"op": "==", "left": {"payload": {
+                "base": "network header", "offset": 24, "len": 16}},
+                "right": hex(int(ipaddress.IPv6Address(VERIFY.CLIENT6)))}},
+            {"match": {"op": "==", "left": {"payload": {
+                "base": "transport header", "offset": 2, "len": 2}}, "right": "0x9858"}},
+            {"accept": None}]}
+        self.assertEqual(VERIFY.pinhole_tuple(rule), (VERIFY.CLIENT6, 39000, False))
+        rule["expr"].insert(0, {"match": {"op": "==", "left": {"payload": {
+            "base": "network header", "offset": 6, "len": 1}}, "right": "0x11"}})
+        self.assertEqual(VERIFY.pinhole_tuple(rule), (VERIFY.CLIENT6, 39000, True))
+
+    def test_native_igd_http_reassembly_handles_segmentation_reordering_and_retransmission(self):
+        self._native_pinhole("client", "igd")
+        captured = list(VERIFY.read_capture(self.gateway_capture).tcp)
+        index = next(index for index, packet in enumerate(captured)
+                     if packet.source[0] == VERIFY.CLIENT6 and packet.payload)
+        original = captured.pop(index)
+        first = VERIFY.TcpPacket(original.timestamp_ns + 2, original.source, original.destination,
+                                  original.sequence, original.flags, original.payload[:37])
+        second = VERIFY.TcpPacket(original.timestamp_ns + 1, original.source, original.destination,
+                                   original.sequence + 37, original.flags, original.payload[37:])
+        captured += [second, first, first]
+        facts = VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1")
+        self.assertEqual([fact["action"] for fact in facts], ["AddPinhole", "DeletePinhole"])
+
+    def test_native_igd_http_rejects_conflicting_retransmission_bytes(self):
+        self._native_pinhole("client", "igd")
+        captured = list(VERIFY.read_capture(self.gateway_capture).tcp)
+        original = next(packet for packet in captured if packet.source[0] == VERIFY.CLIENT6 and packet.payload)
+        captured.append(VERIFY.TcpPacket(original.timestamp_ns + 1, original.source, original.destination,
+            original.sequence, original.flags, bytes([original.payload[0] ^ 1]) + original.payload[1:]))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "conflicting TCP retransmissions"):
+            VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1")
+
+    def test_native_igd_http_rejects_missing_bytes_in_a_successful_control_stream(self):
+        self._native_pinhole("client", "igd")
+        captured = list(VERIFY.read_capture(self.gateway_capture).tcp)
+        index = next(index for index, packet in enumerate(captured)
+                     if packet.source[0] == VERIFY.CLIENT6 and packet.payload)
+        original = captured[index]
+        captured[index] = VERIFY.TcpPacket(original.timestamp_ns, original.source, original.destination,
+            original.sequence + 1, original.flags, original.payload[1:])
+        with self.assertRaisesRegex(VERIFY.VerificationError, "missing TCP bytes"):
+            VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1")
+
+    def _native_pinhole(self, role, protocol, renewal_nonce=b"n" * 12):
+        case = f"ipv6-{role}-{protocol}"
+        local = VERIFY.CLIENT6 if role == "client" else VERIFY.DAEMON6
+        gateway = "2001:db8:2::1" if role == "client" else "2001:db8:1::1"
+        port = 39000 if role == "client" else 24400
+        daemon, client = (VERIFY.DAEMON6, 24400), (VERIFY.CLIENT6, 39000)
+        self.write_capture([ipv6_udp(client, daemon, request(b"c" * 12, "c")),
+                            ipv6_udp(daemon, client, response(b"c" * 12, client)),
+                            ipv6_udp(daemon, client, request(b"d" * 12, "d")),
+                            ipv6_udp(client, daemon, quic()), ipv6_udp(daemon, client, quic())])
+        peer_records = [(100_000_000_000 + index * 1_000_000, frame)
+                        for index, frame in enumerate([
+                            ipv6_udp(client, daemon, request(b"c" * 12, "c")),
+                            ipv6_udp(daemon, client, response(b"c" * 12, client)),
+                            ipv6_udp(daemon, client, request(b"d" * 12, "d")),
+                            ipv6_udp(client, daemon, quic()), ipv6_udp(daemon, client, quic())])]
+        peer_records += [(220_000_000_000, ipv6_udp(client, daemon, b"\x40" + b"d" * 8 + bytes(24))),
+                         (220_001_000_000, ipv6_udp(daemon, client, b"\x40" + b"s" * 8 + bytes(24)))]
+        self.capture.write_bytes(timed_pcap(peer_records))
+        (self.root / "capture.stderr").write_text("7 packets captured\n0 packets dropped by kernel\n")
+        self._write_lifecycle({})
+        baseline = pinhole_state(local, 3, 2)
+        (self.root / "topology" / "pinhole-native-start-nft.json").write_text(json.dumps(baseline))
+        (self.root / f"{role}-nft.json").write_text(json.dumps(pinhole_state(local, 12, 3)))
+        native = {"kind": "native-kernel-pinhole-lifecycle", "role": role, "case": case, "local": local,
+                  "acquiredAtNs": 100_005_000_000, "acquiredRule": pinhole_rule(local, port, 10),
+                  "nativeStartCounters": {"pinhole_attempt": 3, "pinhole_denied": 2},
+                  "deletedAtNs": 222_000_000_000}
+        if protocol == "pcp":
+            native.update(renewedAtNs=219_005_000_000, renewedRule=pinhole_rule(local, port, 11))
+        (self.root / "native-pinhole.json").write_text(json.dumps(native))
+
+        def fact(operation, selected_port, sent, lifetime=0, nonce=b"p" * 12):
+            result = {"source": [local, 44000], "responder": [gateway, 5351 if protocol == "pcp" else 5000],
+                      "sentAtNs": sent, "receivedAtNs": sent + 1_000_000}
+            if protocol == "pcp":
+                request_bytes, response_bytes = pcp6_map(local, selected_port, lifetime, lifetime, nonce)
+                result.update(request=request_bytes.hex(), response=response_bytes.hex())
+            else:
+                action = {"acquire": "AddPinhole", "renew": "UpdatePinhole", "delete": "DeletePinhole"}[operation]
+                arguments = ({"RemoteHost": "", "RemotePort": 0, "InternalClient": local,
+                              "InternalPort": selected_port, "Protocol": 17, "LeaseTime": lifetime}
+                             if operation == "acquire" else {"UniqueID": 23, **(
+                                 {"NewLeaseTime": lifetime} if operation == "renew" else {})})
+                result.update(action=action, requestBody=soap6(action, arguments),
+                              responseBody=soap6(action, {"UniqueID": 23} if operation == "acquire" else {}, True))
+            return result
+
+        preflight = {"kind": "independent-real-gateway-preflight", "role": role, "protocol": protocol,
+                     "local": local, "gateway": gateway, "port": 24021,
+                     "beforeGrantState": pinhole_state(local, 1, 1),
+                     "deletedState": pinhole_state(local, 3, 2),
+                     "beforeGrant": {"pinhole_attempt": 1, "pinhole_denied": 1},
+                     "afterArrival": {"counters": {"pinhole_attempt": 2, "pinhole_denied": 1}},
+                     "afterDelete": {"pinhole_attempt": 3, "pinhole_denied": 2},
+                     "acquiredRule": pinhole_rule(local, 24021, 1), "renewedRule": pinhole_rule(local, 24021, 2),
+                     "acquire": fact("acquire", 24021, 80_000_000_000, 120),
+                     "renew": fact("renew", 24021, 81_000_000_000, 240),
+                     "delete": fact("delete", 24021, 82_000_000_000)}
+        if protocol == "igd":
+            preflight.update(expiringAcquire=fact("acquire", 24021, 83_000_000_000, 2),
+                expiringState=pinhole_state(local, 3, 2, [pinhole_rule(local, 24021, 3)]),
+                expiredState=pinhole_state(local, 3, 2), expiredAtNs=85_100_000_000)
+        (self.root / "gateway-preflight.json").write_text(json.dumps(preflight))
+        controls = [fact("acquire", port, 99_000_000_000, 240 if protocol == "pcp" else 3600, b"n" * 12)]
+        if protocol == "pcp":
+            controls.append(fact("renew", port, 219_000_000_000, 240, renewal_nonce))
+        controls.append(fact("delete", port, 221_000_000_000, nonce=b"n" * 12))
+        records = []
+        for index, control in enumerate(controls):
+            source, server = (local, 45000 + index), (gateway, 5351 if protocol == "pcp" else 5000)
+            sent = control["sentAtNs"]
+            if protocol == "pcp":
+                records += [(sent, ipv6_udp(source, server, bytes.fromhex(control["request"]))),
+                            (control["receivedAtNs"], ipv6_udp(server, source, bytes.fromhex(control["response"])))]
+            else:
+                body, answer = control["requestBody"].encode(), control["responseBody"].encode()
+                service = "urn:schemas-upnp-org:service:WANIPv6FirewallControl:1"
+                post = (f'POST /ctl HTTP/1.1\r\nSOAPAction: "{service}#{control["action"]}"\r\n'
+                        f'Content-Length: {len(body)}\r\n\r\n').encode() + body
+                reply = f"HTTP/1.1 200 OK\r\nContent-Length: {len(answer)}\r\n\r\n".encode() + answer
+                records += [(sent, ipv6_tcp(source, server, 100, 2)),
+                            (sent + 1000, ipv6_tcp(server, source, 200, 18)),
+                            (sent + 2000, ipv6_tcp(source, server, 101, 16, post)),
+                            (control["receivedAtNs"], ipv6_tcp(server, source, 201, 16, reply))]
+        self.gateway_capture = self.root / "v6-gateway.pcap"
+        self.gateway_capture.write_bytes(timed_pcap(records))
+        (self.root / "v6-gateway.stderr").write_text(f"{len(records)} packets captured\n0 packets dropped by kernel\n")
+        return case
 
     def test_lan_needs_no_unsolicited_daemon_check(self):
         daemon, client = (VERIFY.DAEMON_LAN, 24400), (VERIFY.CLIENT_LAN, 39000)
@@ -425,6 +871,14 @@ class NativeEvidence(unittest.TestCase):
         rebound = (VERIFY.CLIENT4, 20000)
         self.write_capture(valid_frames() + [ipv4_udp(rebound, DAEMON, b"\x00" + b"d" * 8 + bytes(24)),
                                              ipv4_udp(DAEMON, rebound, b"\x00" + b"n" * 8 + bytes(24))])
+        self.assertTrue(self.prove()["portRebindVerified"])
+
+    def test_port_rebind_can_migrate_then_check_and_recover_on_the_same_public_tuple(self):
+        self._port_rebind()
+        rebound = (VERIFY.CLIENT4, 20000)
+        self.write_capture(valid_frames() + [ipv4_udp(rebound, DAEMON, b"\x00" + b"d" * 8 + bytes(24)),
+                                             ipv4_udp(DAEMON, rebound, b"\x00" + b"n" * 8 + bytes(24))]
+                           + valid_frames(DAEMON, rebound, b"1" * 32))
         self.assertTrue(self.prove()["portRebindVerified"])
 
     def test_committed_rebind_proves_fresh_context_roundtrip_before_successor_quic(self):

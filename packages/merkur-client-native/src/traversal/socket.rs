@@ -475,13 +475,14 @@ async fn acquire(path: RouterPath, observed: ObservedPath, port: u16) -> Mapping
 
 /// The worker captures the socket, never its binding. Last-carrier drop closes
 /// its input; deletion completes before the internal UDP port can be reused.
+/// A new worker returns its task to the session owner for the shutdown drain.
 pub fn maintain(
     binding: &Arc<SocketBinding>,
     credential: Arc<Credential>,
     updates: CandidateUpdates,
-) {
+) -> Option<tokio::task::JoinHandle<()>> {
     let Ok(mut owner) = binding.maintenance.lock() else {
-        return;
+        return None;
     };
     let observation_generation = binding
         .observations
@@ -499,11 +500,11 @@ pub fn maintain(
             && old.updates.same_channel(&input.updates)
             && old.observation_generation == observation_generation
         {
-            return;
+            return None;
         }
         drop(old);
         maintenance.input.send_replace(input);
-        return;
+        return None;
     }
     let (sender, receiver) = watch::channel(input);
     *owner = Some(Maintenance { input: sender });
@@ -513,8 +514,9 @@ pub fn maintain(
         port: binding.local.port(),
         socket: binding.socket.clone(),
         observations: binding.observations.clone(),
+        mappings: Vec::new(),
     };
-    tokio::spawn(worker.run(receiver));
+    Some(tokio::spawn(worker.run(receiver)))
 }
 
 struct Worker {
@@ -523,6 +525,7 @@ struct Worker {
     port: u16,
     socket: Arc<DiscoverySocket>,
     observations: Arc<Mutex<Observations>>,
+    mappings: Vec<Mapping>,
 }
 
 struct Round {
@@ -540,8 +543,7 @@ enum Wake {
 }
 
 impl Worker {
-    async fn run(self, mut input: watch::Receiver<MaintenanceInput>) {
-        let mut mappings = Vec::new();
+    async fn run(mut self, mut input: watch::Receiver<MaintenanceInput>) {
         let mut acquire_paths = true;
         let mut keepalive = None;
         let mut keepalive_targets = Vec::new();
@@ -569,26 +571,27 @@ impl Worker {
                 // path's preservation deadline while slower observers finish.
                 keepalive = (!keepalive_targets.is_empty())
                     .then(|| keepalive.unwrap_or_else(|| Instant::now() + Duration::from_secs(14)));
-                self.add_paths(&mut mappings, &round, &input).await;
+                self.add_paths(&round, &input).await;
             }
-            match next_wake(&mut mappings, &mut input, keepalive).await {
+            match next_wake(&mut self.mappings, &mut input, keepalive).await {
                 Wake::Closed => break,
                 Wake::Credentials => {
                     // Retry unsupported control contexts only after new evidence.
-                    mappings.retain(|mapping| mapping.lease.is_some() || mapping.pinhole.is_some());
+                    self.mappings
+                        .retain(|mapping| mapping.lease.is_some() || mapping.pinhole.is_some());
                     acquire_paths = true;
                 }
                 Wake::Announce(index) => {
-                    self.lost_path(index, &mut mappings, &round, &input).await;
+                    self.lost_path(index, &round, &input).await;
                     acquire_paths = true;
                 }
                 Wake::Renew => {
-                    acquire_paths = renew_paths(&mut mappings).await;
+                    acquire_paths = renew_paths(&mut self.mappings).await;
                     publish(
                         self.id,
                         &round.current,
                         &round.gathered.candidates,
-                        &mappings,
+                        &self.mappings,
                         &input,
                     )
                     .await;
@@ -608,22 +611,17 @@ impl Worker {
         // Deletion completes before the socket is dropped, so the internal
         // port cannot be reused by a replacement while old deletion is in flight.
         let mut releasing = FuturesUnordered::new();
-        for mapping in mappings {
+        for mapping in self.mappings {
             releasing.push(mapping.release());
         }
         while releasing.next().await.is_some() {}
     }
 
-    async fn add_paths(
-        &self,
-        mappings: &mut Vec<Mapping>,
-        round: &Round,
-        input: &watch::Receiver<MaintenanceInput>,
-    ) {
+    async fn add_paths(&mut self, round: &Round, input: &watch::Receiver<MaintenanceInput>) {
         let mut pending = FuturesUnordered::new();
         let mut acquiring = Vec::new();
         for observed in &round.gathered.paths {
-            if mappings.len() + pending.len() >= MAX_BINDINGS {
+            if self.mappings.len() + pending.len() >= MAX_BINDINGS {
                 break;
             }
             let Some(path) = router_path(observed.local) else {
@@ -631,7 +629,8 @@ impl Worker {
             };
             // Same-address gateway/interface or outer NAT changes must not be
             // suppressed by a previous provider's still-owned control context.
-            if mappings
+            if self
+                .mappings
                 .iter()
                 .any(|mapping| mapping.path == path && mapping.mapped == observed.mapped)
                 || acquiring
@@ -644,13 +643,13 @@ impl Worker {
             pending.push(acquire(path, observed.clone(), self.port));
         }
         while let Some(mapping) = pending.next().await {
-            mappings.push(mapping);
+            self.mappings.push(mapping);
             // Publish each acquisition without waiting for another router.
             publish(
                 self.id,
                 &round.current,
                 &round.gathered.candidates,
-                mappings,
+                &self.mappings,
                 input,
             )
             .await;
@@ -659,21 +658,20 @@ impl Worker {
             self.id,
             &round.current,
             &round.gathered.candidates,
-            mappings,
+            &self.mappings,
             input,
         )
         .await;
     }
 
     async fn lost_path(
-        &self,
+        &mut self,
         index: usize,
-        mappings: &mut Vec<Mapping>,
         round: &Round,
         input: &watch::Receiver<MaintenanceInput>,
     ) {
-        let lost_local = mappings[index].path.local;
-        mappings.remove(index).release().await;
+        let lost_local = self.mappings[index].path.local;
+        self.mappings.remove(index).release().await;
         let unaffected: Vec<_> =
             round
                 .gathered
@@ -688,8 +686,8 @@ impl Worker {
                 })
                 .cloned()
                 .collect();
-        publish(self.id, &round.current, &unaffected, mappings, input).await;
-        self.refresh(mappings, round, input).await;
+        publish(self.id, &round.current, &unaffected, &self.mappings, input).await;
+        self.refresh(&self.mappings, round, input).await;
     }
 
     async fn refresh(
@@ -1180,7 +1178,7 @@ mod tests {
         );
         commit_observations(&binding, gathered);
         let (updates, mut updated) = mpsc::channel(2);
-        maintain(&binding, credential, updates);
+        let maintaining = maintain(&binding, credential, updates).unwrap();
         updated.recv().await.unwrap();
         tokio::time::pause();
         tokio::time::advance(Duration::from_secs(15)).await;
@@ -1192,5 +1190,11 @@ mod tests {
             .unwrap();
         assert_eq!(source.port(), binding.local.port());
         assert!(binding.local.ip().is_unspecified());
+        drop(binding);
+        maintaining.await.unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "socket/pinhole_tests.rs"]
+pub(crate) mod pinhole_tests;

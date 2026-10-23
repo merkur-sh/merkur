@@ -268,7 +268,7 @@ pub(crate) async fn handle_wt_upgrade_proof(
     }
 
     let admission_claim = wt.read().await.admission_claims.get(raw_peer_id).cloned();
-    let Some((upgrade_outcome, direct_session)) =
+    let Some((upgrade_outcome, mut direct_session)) =
         webtransport::upgrade_peer(wt, raw_peer_id, &browser_node_id).await
     else {
         warn!(
@@ -276,6 +276,7 @@ pub(crate) async fn handle_wt_upgrade_proof(
         );
         return;
     };
+    direct_session.retain_router_grant(&*wt.read().await, &browser_node_id);
     wt_temp_to_real.insert(raw_peer_id.to_string(), Arc::from(browser_node_id.as_str()));
     webtransport::note_direct_wt_admitted();
 

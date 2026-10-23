@@ -88,6 +88,9 @@ ignores.
   and `bun run test:sim:update-lock` re-locks; its libraries build only in the configuration
   its tests set, with `--cfg merkur_sim`. The ownership proofs and the edge's kernel profiler
   are workspaces of their own with crate hubs of their own.
+- Local crate mirrors watch the canonical source tree, including nested additions and deletions.
+  A simulator workspace symlink therefore consumes the same current transport source as the
+  checkout's other builds.
 - The vendored transport crates (`Cargo.toml`'s `exclude`) test from a workspace of their own
   under `tools/bazel/vendored`, each a member with its dev-dependencies, which
   `bun run build:vendored-workspace` regenerates and `--update-lock` re-locks from the release

@@ -2,6 +2,7 @@ pub use merkur_traversal::{AddressCandidate, CandidateFlavor, discovery_socket, 
 pub(crate) mod admission;
 mod direct_session;
 pub(crate) mod native_traversal;
+pub(crate) mod router_grants;
 
 pub mod pairing;
 
@@ -449,9 +450,9 @@ pub struct WebTransportState {
     /// must carry it forward rather than retract a candidate it cannot
     /// re-derive) and the renewal read it under the same lock the offer builder
     /// already takes.
-    pub port_lease: Option<Arc<portmap::Lease>>,
+    pub port_lease: Option<router_grants::Lease>,
     /// The live IPv6 firewall pinhole, for the same reasons as `port_lease`.
-    pub v6_pinhole: Option<Arc<portmap::Pinhole>>,
+    pub v6_pinhole: Option<router_grants::Pinhole>,
     /// The local address that provably reached a STUN observer, from the last
     /// successful probe. The mapping cycle resolves its egress interface from
     /// it; `None` until a probe has answered.
@@ -524,6 +525,40 @@ impl WebTransportState {
             v6_pinhole: None,
             stun_local_ip: None,
         }
+    }
+
+    pub(crate) fn pin_router_grant(
+        &self,
+        connection: &wtransport::Connection,
+        peer_id: &str,
+    ) -> Option<router_grants::Pin> {
+        let routed = self.peer_connections.get(peer_id)?;
+        if self.connection_listeners.get(&routed.connection_id) != Some(&0)
+            || self
+                .sessions
+                .get(peer_id)
+                .is_none_or(|current| !std::ptr::eq(current.as_ref(), connection))
+        {
+            return None;
+        }
+        let remote = connection.remote_address().ip().to_canonical();
+        let local = connection
+            .quic_connection()
+            .local_ip()
+            .map(|ip| ip.to_canonical());
+        if remote.is_ipv4()
+            && let Some(lease) = &self.port_lease
+            && local.is_none_or(|ip| ip == IpAddr::V4(lease.local_ipv4))
+        {
+            return Some(lease.pin());
+        }
+        if remote.is_ipv6()
+            && let Some(pinhole) = &self.v6_pinhole
+            && local.is_none_or(|ip| ip == IpAddr::V6(pinhole.address))
+        {
+            return Some(pinhole.pin());
+        }
+        None
     }
 
     /// Production constructor: carries the side channel across from the freshly
@@ -942,28 +977,23 @@ fn srflx_is_dialable(result: &stun::StunResult) -> bool {
 /// Everything one mapping cycle needs from the live state, snapshotted under
 /// one lock by the run loop and moved onto the maintenance task.
 pub struct MappingInputs {
+    pub(crate) grants: router_grants::Factory,
+    pub(crate) discovery_socket: Arc<discovery_socket::DiscoverySocket>,
     pub port: u16,
     pub stun_local_ip: Option<IpAddr>,
-    pub existing_lease: Option<Arc<portmap::Lease>>,
-    pub existing_pinhole: Option<Arc<portmap::Pinhole>>,
+    pub existing_lease: Option<router_grants::Lease>,
+    pub existing_pinhole: Option<router_grants::Pinhole>,
     /// The reflexive address the lease is published under.
     pub reflexive: Option<IpAddr>,
     /// The global IPv6 address a pinhole is worth opening for.
     pub host6: Option<Ipv6Addr>,
-    /// A gateway announcement said the lease is already gone (epoch went
-    /// backwards or the external address moved). Renewal is skipped and so is
-    /// the delete that would otherwise fence re-acquisition: there is nothing
-    /// on the gateway to delete, and RFC 6886 deletion removes every mapping
-    /// for the internal port, so sending one after the replacement lands
-    /// would destroy the replacement.
-    pub gateway_rebooted: bool,
 }
 
 /// What one mapping cycle produced: the v4 lease and the v6 pinhole, each with
 /// its own reportable outcome, plus the egress paths the cycle used.
 pub struct MappingCycle {
     pub lease: LeaseOutcome,
-    pub pinhole: portmap::PinholeCycle,
+    pub pinhole: PinholeOutcome,
     pub egress: Option<egress::EgressPath>,
 }
 
@@ -981,87 +1011,8 @@ pub struct MappingCycle {
 /// paths, acquired concurrently with source-bound discovery in each family.
 pub async fn run_mapping_cycle(inputs: MappingInputs) -> MappingCycle {
     let egress = egress::resolve_egress_path(inputs.stun_local_ip);
-    let lease = async {
-        let lease = match inputs.existing_lease {
-            Some(existing)
-                if !inputs.gateway_rebooted
-                    && egress.as_ref().is_some_and(|path| {
-                        path.gateway.unwrap_or(Ipv4Addr::UNSPECIFIED) == existing.gateway
-                            && path.interface_index == existing.interface_index
-                            && path.local_ipv4 == existing.local_ipv4
-                    }) =>
-            {
-                // `Arc` is shared with the offer builder, so renewal needs its own
-                // copy to mutate. A lease is a handful of `Copy` fields plus the
-                // client handle; cloning it is cheaper than holding the state lock
-                // across a gateway round trip.
-                let mut lease = (*existing).clone();
-                if portmap::renew(&mut lease).await {
-                    Some(LeaseOutcome::Renewed(Arc::new(lease)))
-                } else {
-                    // Renewal failed or the gateway rebooted. Retire explicitly and
-                    // in order before re-acquiring: RFC 6886 deletion removes every
-                    // mapping for the internal port, so an unfenced delete would
-                    // destroy the replacement this is about to create.
-                    portmap::release(lease).await;
-                    None
-                }
-            }
-            Some(existing) => {
-                if !inputs.gateway_rebooted {
-                    portmap::release((*existing).clone()).await;
-                }
-                None
-            }
-            None => None,
-        };
-        match lease {
-            Some(renewed) => renewed,
-            None => match portmap::acquire(inputs.port, egress.as_ref(), inputs.reflexive).await {
-                portmap::Outcome::Mapped(lease) => LeaseOutcome::Acquired(Arc::new(*lease)),
-                other => LeaseOutcome::None(other),
-            },
-        }
-    };
-    let pinhole = async {
-        let egress6 = inputs.host6.and_then(egress::resolve_egress_path_v6);
-        let pinhole = match inputs.existing_pinhole {
-            Some(existing)
-                if !inputs.gateway_rebooted
-                    && egress6.as_ref().is_some_and(|path| {
-                        path.local == existing.address
-                            && path.gateway.unwrap_or(Ipv6Addr::UNSPECIFIED) == existing.gateway
-                            && path.interface_index == existing.interface_index
-                    }) =>
-            {
-                let mut pinhole = (*existing).clone();
-                if portmap::renew_pinhole(&mut pinhole).await {
-                    Some(portmap::PinholeCycle::Renewed(Arc::new(pinhole)))
-                } else {
-                    portmap::release_pinhole(pinhole).await;
-                    None
-                }
-            }
-            Some(existing) => {
-                // The address moved out from under the hole (SLAAC rotation, a
-                // path edge) or the gateway forgot it. Close what can be closed.
-                if !inputs.gateway_rebooted {
-                    portmap::release_pinhole((*existing).clone()).await;
-                }
-                None
-            }
-            None => None,
-        };
-        match pinhole {
-            Some(renewed) => renewed,
-            None => match portmap::acquire_pinhole(inputs.port, egress6.as_ref()).await {
-                portmap::PinholeOutcome::Pinholed(pinhole) => {
-                    portmap::PinholeCycle::Opened(Arc::new(*pinhole))
-                }
-                other => portmap::PinholeCycle::None(other),
-            },
-        }
-    };
+    let lease = mapping_lease(&inputs, egress.as_ref());
+    let pinhole = mapping_pinhole(&inputs);
     let (lease, pinhole) = tokio::join!(lease, pinhole);
     MappingCycle {
         lease,
@@ -1070,26 +1021,134 @@ pub async fn run_mapping_cycle(inputs: MappingInputs) -> MappingCycle {
     }
 }
 
-/// What one lease cycle produced. Every arm carries a reportable metric key.
+async fn mapping_lease(
+    inputs: &MappingInputs,
+    egress: Option<&egress::EgressPath>,
+) -> LeaseOutcome {
+    if let Some(existing) = &inputs.existing_lease
+        && existing.is_owned()
+        && egress.is_some_and(|path| {
+            path.gateway.unwrap_or(Ipv4Addr::UNSPECIFIED) == existing.gateway
+                && path.interface_index == existing.interface_index
+                && path.local_ipv4 == existing.local_ipv4
+        })
+        && let Some(_renewing) = existing.renewing()
+    {
+        let mut lease = (**existing).clone();
+        if portmap::renew(&mut lease).await {
+            return LeaseOutcome::Renewed(existing.renewed(lease));
+        }
+    }
+    // Publication and admitted providers retain an old grant until their last
+    // drop and its Delete ACK. Reservation below defers a conflicting successor.
+    let Some(path) = egress else {
+        return LeaseOutcome::None(portmap::Outcome::NotAttempted(
+            portmap::SkipReason::NoEgressPath,
+        ));
+    };
+    let Some(reservation) = inputs.grants.reserve(
+        IpAddr::V4(path.local_ipv4),
+        inputs.port,
+        inputs.discovery_socket.clone(),
+    ) else {
+        return LeaseOutcome::Deferred;
+    };
+    match portmap::acquire(inputs.port, egress, inputs.reflexive).await {
+        portmap::Outcome::Mapped(lease) => {
+            LeaseOutcome::Acquired(inputs.grants.lease(*lease, reservation))
+        }
+        other => LeaseOutcome::None(other),
+    }
+}
+
+async fn mapping_pinhole(inputs: &MappingInputs) -> PinholeOutcome {
+    let egress = inputs.host6.and_then(egress::resolve_egress_path_v6);
+    if let Some(existing) = &inputs.existing_pinhole
+        && existing.is_owned()
+        && egress.as_ref().is_some_and(|path| {
+            path.local == existing.address
+                && path.gateway.unwrap_or(Ipv6Addr::UNSPECIFIED) == existing.gateway
+                && path.interface_index == existing.interface_index
+        })
+        && let Some(_renewing) = existing.renewing()
+    {
+        let mut pinhole = (**existing).clone();
+        if portmap::renew_pinhole(&mut pinhole).await {
+            return PinholeOutcome::Renewed(existing.renewed(pinhole));
+        }
+    }
+    let Some(path) = egress.as_ref() else {
+        return PinholeOutcome::None(portmap::PinholeOutcome::NotAttempted(
+            portmap::PinholeSkip::NoV6Path,
+        ));
+    };
+    let Some(reservation) = inputs.grants.reserve(
+        IpAddr::V6(path.local),
+        inputs.port,
+        inputs.discovery_socket.clone(),
+    ) else {
+        return PinholeOutcome::Deferred;
+    };
+    match portmap::acquire_pinhole(inputs.port, egress.as_ref()).await {
+        portmap::PinholeOutcome::Pinholed(pinhole) => {
+            PinholeOutcome::Opened(inputs.grants.pinhole(*pinhole, reservation))
+        }
+        other => PinholeOutcome::None(other),
+    }
+}
+
+pub enum PinholeOutcome {
+    Opened(router_grants::Pinhole),
+    Renewed(router_grants::Pinhole),
+    None(portmap::PinholeOutcome),
+    Deferred,
+}
+
+impl PinholeOutcome {
+    pub fn metric_key(&self) -> Option<&'static str> {
+        match self {
+            Self::Opened(pinhole) => Some(match pinhole.protocol {
+                portmap::PinholeProtocol::Pcp6 => "pcp6:pinholed",
+                portmap::PinholeProtocol::Upnp6 => "upnp6:pinholed",
+            }),
+            Self::Renewed(pinhole) => Some(match pinhole.protocol {
+                portmap::PinholeProtocol::Pcp6 => "pcp6:renewed",
+                portmap::PinholeProtocol::Upnp6 => "upnp6:renewed",
+            }),
+            Self::None(outcome) => Some(outcome.metric_key()),
+            Self::Deferred => None,
+        }
+    }
+    pub fn pinhole(&self) -> Option<router_grants::Pinhole> {
+        match self {
+            Self::Opened(pinhole) | Self::Renewed(pinhole) => Some(pinhole.clone()),
+            Self::None(_) | Self::Deferred => None,
+        }
+    }
+}
+
+/// A lease cycle result. Deferred lanes await their exact retirement event.
 pub enum LeaseOutcome {
-    Acquired(Arc<portmap::Lease>),
-    Renewed(Arc<portmap::Lease>),
+    Acquired(router_grants::Lease),
+    Renewed(router_grants::Lease),
     None(portmap::Outcome),
+    Deferred,
 }
 
 impl LeaseOutcome {
-    pub fn metric_key(&self) -> &'static str {
+    pub fn metric_key(&self) -> Option<&'static str> {
         match self {
-            Self::Acquired(lease) => lease.protocol.mapped_key(),
-            Self::Renewed(lease) => lease.protocol.renewed_key(),
-            Self::None(outcome) => outcome.metric_key(),
+            Self::Acquired(lease) => Some(lease.protocol.mapped_key()),
+            Self::Renewed(lease) => Some(lease.protocol.renewed_key()),
+            Self::None(outcome) => Some(outcome.metric_key()),
+            Self::Deferred => None,
         }
     }
 
-    pub fn lease(&self) -> Option<Arc<portmap::Lease>> {
+    pub fn lease(&self) -> Option<router_grants::Lease> {
         match self {
-            Self::Acquired(lease) | Self::Renewed(lease) => Some(Arc::clone(lease)),
-            Self::None(_) => None,
+            Self::Acquired(lease) | Self::Renewed(lease) => Some(lease.clone()),
+            Self::None(_) | Self::Deferred => None,
         }
     }
 }

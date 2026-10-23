@@ -69,12 +69,13 @@ for filtering in eif adf; do
   bash "$LAB_DIR/native-topology.sh" teardown
 done
 
+failed_cases=()
 for topology in "${cases[@]}"; do
   directory="$evidence/$topology"
   bash "$LAB_DIR/native-topology.sh" setup "$topology"
   mkdir -p "$directory"
   export MERKUR_NATLAB_CASE="$topology" PW_E2E_OUTPUT_DIR="$directory/playwright"
-  if [ "$topology" = ipv6-pdf ]; then
+  if [[ "$topology" == ipv6-* ]]; then
     export MERKUR_STUN_BIND=198.51.100.10,198.51.100.11,2001:db8:ffff::10,2001:db8:ffff::11
     export STUN_SERVERS='198.51.100.10:3478,198.51.100.11:3478,[2001:db8:ffff::10]:3478,[2001:db8:ffff::11]:3478'
   else
@@ -96,13 +97,42 @@ for topology in "${cases[@]}"; do
   ip netns exec merkur-natlab-client tcpdump -i any -n -s 0 -U -w "$directory/client.pcap" udp 2> "$directory/client.stderr" &
   captures+=("$!")
   ready "$!" "$directory/client.stderr" 'listening on'
+  if [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
+    role="${topology#ipv6-}"
+    role="${role%-*}"
+    ip netns exec "merkur-natlab-$role-cpe" tcpdump -i lan0 -n -s 0 -U \
+      -w "$directory/v6-gateway.pcap" 'ip6 and (udp port 5351 or udp port 1900 or tcp)' \
+      2> "$directory/v6-gateway.stderr" &
+    captures+=("$!")
+    ready "$!" "$directory/v6-gateway.stderr" 'listening on'
+    python3 "$LAB_DIR/native-v6-gateway.py" "$role" "${topology##*-}" \
+      "$directory/gateway-preflight.json"
+  fi
   status=0
   bun run "$LAB_DIR/run-native.ts" > >(tee "$directory/session.log") 2> >(tee "$directory/session.stderr" >&2) || status=$?
+  if [ "$status" -eq 0 ] && [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
+    python3 "$LAB_DIR/native-v6-gateway.py" --wait-native-deleted "$role" \
+      "$directory/native-pinhole.json" || status=$?
+  fi
   bash "$LAB_DIR/native-topology.sh" evidence "$directory"
   stop_children
-  if [ "$status" -ne 0 ]; then exit "$status"; fi
-  python3 "$LAB_DIR/verify-native.py" --case "$topology" --capture "$directory/wan.pcap" \
-    --peer-capture "$directory/client.pcap" --state "$directory" | tee "$directory/verified.json"
+  if [ "$status" -eq 0 ]; then
+    control_capture=()
+    if [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
+      control_capture=(--peer-capture "$directory/v6-gateway.pcap")
+    fi
+    python3 "$LAB_DIR/verify-native.py" --case "$topology" --capture "$directory/wan.pcap" \
+      --peer-capture "$directory/client.pcap" ${control_capture[@]+"${control_capture[@]}"} \
+      --state "$directory" | tee "$directory/verified.json" || status=$?
+  fi
   bash "$LAB_DIR/native-topology.sh" teardown
+  if [ "$status" -ne 0 ]; then
+    failed_cases+=("$topology")
+    printf 'NATIVE_NATLAB_CASE=FAIL case=%s status=%s\n' "$topology" "$status" >&2
+  fi
 done
+if [ "${#failed_cases[@]}" -ne 0 ]; then
+  printf 'NATIVE_NATLAB=FAIL cases=%s\n' "${failed_cases[*]}" >&2
+  exit 1
+fi
 echo 'NATIVE_NATLAB=PASS'

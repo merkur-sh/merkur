@@ -17,6 +17,7 @@ use crate::network::peer::{ChannelSenders, ReliablePayload, select_channel_sende
 
 pub struct DirectSession {
     carrier: Carrier,
+    router_grant: Option<super::router_grants::Pin>,
 }
 
 enum Carrier {
@@ -37,11 +38,18 @@ enum Carrier {
 impl DirectSession {
     pub(crate) fn new(connection: Arc<wtransport::Connection>, senders: ChannelSenders) -> Self {
         Self {
+            router_grant: None,
             carrier: Carrier::Live {
                 connection,
                 senders,
             },
         }
+    }
+
+    pub(crate) fn retain_router_grant(&mut self, state: &super::WebTransportState, peer_id: &str) {
+        self.router_grant = self
+            .connection()
+            .and_then(|connection| state.pin_router_grant(connection, peer_id));
     }
 
     /// The QUIC session, for the planner's quotes and blocked-state reads.
@@ -136,6 +144,7 @@ impl DirectSession {
         reliable: Option<mpsc::UnboundedSender<(u8, String, Vec<u8>)>>,
     ) -> Self {
         Self {
+            router_grant: None,
             carrier: Carrier::Capture {
                 peer_id,
                 datagrams,

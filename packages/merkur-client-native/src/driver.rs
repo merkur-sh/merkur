@@ -186,12 +186,28 @@ enum TaskOwner {
     PathWatcher,
 }
 #[derive(Default)]
-struct OwnedTasks(HashMap<TaskOwner, tokio::task::JoinHandle<()>>);
+struct OwnedTasks(
+    HashMap<TaskOwner, tokio::task::JoinHandle<()>>,
+    Vec<tokio::task::JoinHandle<()>>,
+);
 impl OwnedTasks {
     fn abort(&mut self, owner: TaskOwner) {
         if let Some(task) = self.0.remove(&owner) {
             task.abort();
+            self.1.push(task);
         }
+        crate::traversal::reap_finished(&mut self.1, "driver");
+    }
+    fn abort_all(&mut self) {
+        for (_, task) in self.0.drain() {
+            task.abort();
+            self.1.push(task);
+        }
+        crate::traversal::reap_finished(&mut self.1, "driver");
+    }
+    async fn stop(&mut self) {
+        self.abort_all();
+        crate::traversal::drain_tasks(std::mem::take(&mut self.1), "driver").await;
     }
     fn spawn(
         &mut self,
@@ -209,12 +225,18 @@ impl OwnedTasks {
             Task::Dialed(conn, _) => TaskOwner::Dial(*conn),
             Task::Carrier(_) => return,
         };
-        self.0.remove(&owner);
+        if let Some(task) = self.0.remove(&owner) {
+            self.1.push(task);
+        }
+        crate::traversal::reap_finished(&mut self.1, "driver");
     }
 }
 impl Drop for OwnedTasks {
     fn drop(&mut self) {
         for (_, task) in self.0.drain() {
+            task.abort();
+        }
+        for task in self.1.drain(..) {
             task.abort();
         }
     }
@@ -228,7 +250,28 @@ impl Drop for OwnedTasks {
 /// its proxy gives each peer role its own listener, and the edge registers the
 /// daemon's.
 pub async fn run(
-    mut session: Session,
+    session: Session,
+    daemon_id: &str,
+    issuer: Arc<dyn Issuer>,
+    delegate: Arc<dyn MlDsa87Signer>,
+    edge_port: Option<u16>,
+    commands: CommandReceiver,
+    output: Outputs,
+) {
+    drive_session(
+        (session, crate::traversal::Owner::new()),
+        daemon_id,
+        issuer,
+        delegate,
+        edge_port,
+        commands,
+        output,
+    )
+    .await;
+}
+
+async fn drive_session(
+    (mut session, mut traversal): (Session, crate::traversal::Owner),
     daemon_id: &str,
     issuer: Arc<dyn Issuer>,
     delegate: Arc<dyn MlDsa87Signer>,
@@ -256,20 +299,17 @@ pub async fn run(
     let mut ready_lease = None;
     let mut ingress_leases: [Option<crate::credit::Lease>; 2] = [None, None];
     let mut issuance_refused = None;
-    let mut traversal = crate::traversal::Owner::new();
     session.enable_native_traversal();
     session.connect(daemon_id, &mut entropy);
-    loop {
+    'driver: loop {
         if output.is_closed() {
-            return;
+            break 'driver;
         }
         if session.is_closed() {
             // A terminal failure is definitive even while its host status waits
             // for receive credit. Refuse/wipe unpublished host commands now.
             commands.close();
-            for (_, task) in owned_tasks.0.drain() {
-                task.abort();
-            }
+            owned_tasks.abort_all();
             while let Ok(command) = commands.try_recv() {
                 drop(command);
             }
@@ -282,7 +322,7 @@ pub async fn run(
             if let Some(lease) = ready_lease.take().or_else(|| output.try_reserve(bytes)) {
                 input_released = released;
                 if !output.publish(Output::InputAcknowledged(released), lease) {
-                    return;
+                    break 'driver;
                 }
             } else {
                 blocked_bytes = Some(bytes);
@@ -292,7 +332,7 @@ pub async fn run(
             let bytes = output::error_bytes(&error);
             if let Some(lease) = ready_lease.take().or_else(|| output.try_reserve(bytes)) {
                 if !output.publish(Output::IssuanceRefused(error), lease) {
-                    return;
+                    break 'driver;
                 }
             } else {
                 issuance_refused = Some(error);
@@ -479,7 +519,7 @@ pub async fn run(
                 };
                 let closed = matches!(event, Output::Status(Status::Closed(_)));
                 if !output.publish(event, lease) || closed {
-                    return;
+                    break 'driver;
                 }
             }
         }
@@ -511,7 +551,7 @@ pub async fn run(
                 deliver(&mut session, Task::Carrier(event), now_ms(), &mut carriers, &mut dialing, &mut issuance_refused, &mut entropy);
             }
             command = commands.input.recv(), if !session.is_closed() => {
-                let Some(command) = command else { return; };
+                let Some(command) = command else { break 'driver; };
                 apply_command(&mut session, command, now_ms());
             },
             Some(command) = commands.pulse.recv(), if !session.is_closed() => apply_command(&mut session, command, now_ms()),
@@ -549,12 +589,22 @@ pub async fn run(
                 session.connectivity_hint(now_ms(), &mut entropy);
             },
             lease = wait_output(&output, blocked_bytes), if blocked_bytes.is_some() => {
-                let Some(lease) = lease else { return; };
+                let Some(lease) = lease else { break 'driver; };
                 ready_lease = Some(lease);
             },
             () = sleep_until(deadline) => session.handle_timeout(now_ms(), &mut entropy),
         }
     }
+    traversal.quiesce();
+    commands.close();
+    owned_tasks.abort_all();
+    task_events.close();
+    drop(task_events);
+    drop(tasks);
+    drop(carriers);
+    drop(writes);
+    owned_tasks.stop().await;
+    traversal.shutdown().await;
 }
 
 fn apply_command(session: &mut Session, delivery: CommandDelivery, now_ms: u64) {
@@ -957,3 +1007,7 @@ mod tests {
         assert_eq!(with_port("https://[::1]", 8443), None);
     }
 }
+
+#[cfg(test)]
+#[path = "driver/traversal_shutdown_tests.rs"]
+mod traversal_shutdown_tests;
