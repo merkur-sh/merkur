@@ -36,11 +36,13 @@ jobs:
         id: previous
         env:
           GH_TOKEN: ${{ github.token }}
+        # The newest counts a push to main recorded, whichever run wrote them.
         run: |
-          run_id="$(gh run list --workflow instructions.yml --branch main --status success --limit 1 \
-            --json databaseId --jq '.[0].databaseId // empty')"
-          if [[ -n "$run_id" ]]; then
-            gh run download "$run_id" --name instructions --dir previous
+          artifact="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=instructions&per_page=30" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")][0].id // empty')"
+          if [[ -n "$artifact" ]]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact}/zip" > previous.zip
+            unzip -q previous.zip -d previous
             echo "baseline=--baseline previous/counts.json" >> "$GITHUB_OUTPUT"
           fi
       # `shell: bash` runs with pipefail, so a benchmark that fails fails the step through `tee`.
