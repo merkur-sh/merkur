@@ -95,6 +95,40 @@ fn background_output_never_schedules_a_foreground_grant() {
     );
 }
 #[test]
+fn the_status_row_is_painted_when_it_changes_or_the_screen_is_unknown() {
+    let mut workspace = Workspace {
+        tabs: vec![tab(1)],
+        selected: Some(1),
+        ..Workspace::default()
+    };
+    let (commands, _receiver) = driver::Commands::channel();
+    workspace.tabs[0].commands = Some(commands);
+    let status_row = format!("\x1b[{};1H\x1b[m\x1b[2K", size().rows);
+    let frame = |workspace: &mut Workspace| {
+        let mut paint = Vec::new();
+        workspace
+            .frame(size(), 0.0, false, &mut Chrome::default(), &mut paint)
+            .unwrap();
+        String::from_utf8_lossy(&paint).contains(&status_row)
+    };
+    assert!(frame(&mut workspace));
+    assert!(
+        !frame(&mut workspace),
+        "an unchanged status row is not repainted"
+    );
+    workspace.tabs[0].status = "Closed".into();
+    assert!(frame(&mut workspace));
+    workspace.tabs[0].view.invalidate();
+    assert!(
+        frame(&mut workspace),
+        "an unknown screen repaints its status row"
+    );
+    workspace.show_help(0.0);
+    assert!(!frame(&mut workspace));
+    workspace.close_dialog(0.0).unwrap();
+    assert!(frame(&mut workspace), "chrome took the screen");
+}
+#[test]
 fn snapshots_keep_selection_by_identity_and_removed_selection_chooses_a_real_machine() {
     let mut workspace = Workspace::default();
     workspace

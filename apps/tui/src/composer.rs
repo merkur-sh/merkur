@@ -104,6 +104,11 @@ impl Composer {
         self.stale = true;
     }
 
+    /// The next composition paints the whole area: the host's screen is unknown.
+    pub fn is_stale(&self) -> bool {
+        self.stale
+    }
+
     /// Whether the composer holds exactly what `source` presents now, row for
     /// row: what a composition that read every row would have left.
     #[cfg(test)]

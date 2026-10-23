@@ -143,14 +143,16 @@ impl Carrier {
         origin: &str,
         inbound: InboundSender,
     ) -> Result<Self, String> {
-        let config = ClientConfig::builder()
-            .with_bind_default()
-            .with_server_certificate_hashes(
-                cert_hashes
-                    .iter()
-                    .map(|hash| wtransport::tls::Sha256Digest::new(*hash)),
-            )
-            .build();
+        let config = client_config(
+            ClientConfig::builder()
+                .with_bind_default()
+                .with_server_certificate_hashes(
+                    cert_hashes
+                        .iter()
+                        .map(|hash| wtransport::tls::Sha256Digest::new(*hash)),
+                )
+                .build(),
+        );
         let endpoint = Endpoint::client(config).map_err(|error| error.to_string())?;
         let connection = endpoint
             .connect(connect_options(url, origin))
@@ -211,10 +213,12 @@ impl Carrier {
         if !binding.routes(addr) {
             return Err("direct binding address family mismatch".to_string());
         }
-        let config = ClientConfig::builder()
-            .with_bind_default()
-            .with_server_certificate_hashes([wtransport::tls::Sha256Digest::new(cert_hash)])
-            .build();
+        let config = client_config(
+            ClientConfig::builder()
+                .with_bind_default()
+                .with_server_certificate_hashes([wtransport::tls::Sha256Digest::new(cert_hash)])
+                .build(),
+        );
         let connection = binding
             .endpoint
             .connect_with_config(connect_options(&format!("https://{addr}"), origin), config)
@@ -674,6 +678,18 @@ async fn read_record_credited(
     let mut body = vec![0u8; len];
     source.read_exact(&mut body).await?;
     Ok(Some((body, lease)))
+}
+
+/// Quinn's 333 ms initial RTT holds a lost client Initial for about a second
+/// before the first probe; the edge and the daemon start from 100 ms, and so
+/// does the client.
+fn client_config(mut config: ClientConfig) -> ClientConfig {
+    let mut transport = wtransport::config::QuicTransportConfig::default();
+    transport.initial_rtt(std::time::Duration::from_millis(100));
+    config
+        .quic_config_mut()
+        .transport_config(std::sync::Arc::new(transport));
+    config
 }
 
 fn connect_options(url: &str, origin: &str) -> wtransport::endpoint::ConnectOptions {

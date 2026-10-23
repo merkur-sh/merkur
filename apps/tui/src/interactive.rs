@@ -135,11 +135,9 @@ pub async fn connect(mut options: Connect) -> io::Result<u8> {
     let account = Arc::new(
         Account::new(&origin, pin).map_err(|error| io::Error::other(format!("{error:?}")))?,
     );
-    if let Some(successor) = crate::release::converged_client(&account).await? {
-        // Restores the host terminal before the converged client takes it.
-        drop(host);
-        return Err(crate::release::replace(&successor));
-    }
+    // A stored account opens its machine list while the release check runs; a
+    // sign-in waits for it before asking for the password.
+    let mut release = Some(crate::release::check(&account));
     let mut password_prompt = "Password";
     loop {
         let (delegation, delegate, credentials, store) = if let Some(resumed) = resumed.take() {
@@ -152,6 +150,13 @@ pub async fn connect(mut options: Connect) -> io::Result<u8> {
                 resumed.store,
             )
         } else {
+            if let Some(check) = release.take()
+                && let Some(successor) = check.await.map_err(io::Error::other)??
+            {
+                // Restores the host terminal before the converged client takes it.
+                drop(host);
+                return Err(crate::release::replace(&successor));
+            }
             let backend = if let Some(backend) = options.identity_backend {
                 backend
             } else {
@@ -320,10 +325,15 @@ pub async fn connect(mut options: Connect) -> io::Result<u8> {
                 relay_only: options.relay_only,
             },
             options.machine.take(),
+            &mut release,
         )
         .await?
         {
             crate::workspace::Exit::Quit(code) => return Ok(code),
+            crate::workspace::Exit::Replace(successor) => {
+                drop(host);
+                return Err(crate::release::replace(&successor));
+            }
             crate::workspace::Exit::Revoked(current_size) => {
                 size = current_size;
                 password_prompt = "Session revoked · Password to sign in";

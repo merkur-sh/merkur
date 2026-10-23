@@ -179,7 +179,11 @@ WebTransport carrier and the loop.
   are ordered, so by then the `CSI 16 t` before it is answered or never will be, and no
   session's first viewport precedes that fact. A window change keeps the last stated cell
   until the host states another. Remote modes route pointer reports, and reports over
-  chrome never enter the remote terminal.
+  chrome never enter the remote terminal. The status row is written when its text or the
+  host size changes, or when the content area repaints whole; the workspace reconciles
+  each tab's presentation once per batch of queued driver output.
+- The release check (`release::check`) runs beside a stored account's machine list; no
+  session dials and no sign-in asks for a password before it answers.
 - A password never travels in argv or the environment. `merkur-tui headless` reads it
   from standard input and refuses a terminal. `--edge-port` and `--relay-only` exist only
   for the e2e harness: its proxy gives each peer role its own listener, and the fixture
@@ -193,7 +197,9 @@ WebTransport carrier and the loop.
   cannot cut them between rotation and publication. macOS uses the login Keychain, one item
   named by the directory's canonical path; Linux authenticates encrypted tokens against the
   entire public profile. File ownership, private modes, and link counts are checked before
-  reading. A changed delegation never reuses an older process's credentials. Software
+  reading. A changed delegation never reuses an older process's credentials. Requests use
+  the access token the process last read or rotated, without the lock or the Keychain; a
+  refusal reads the store again. Software
   custody is explicit; a pinned backend never changes. A record this build cannot parse or
   verify, or whose credentials or custody material are invalid (`InvalidData`), is removed
   with them and reads as signed out, so a cutover of the record or custody shape costs one

@@ -100,6 +100,9 @@ pub struct Store {
     directory: PathBuf,
     delegation_id: String,
     origin: String,
+    /// The access token this process last read or rotated. Requests use it
+    /// without the lock or the Keychain; a refusal reads the store again.
+    current: Arc<std::sync::Mutex<Option<Arc<str>>>>,
 }
 
 pub struct Resumed {
@@ -148,6 +151,9 @@ impl Store {
             directory,
             delegation_id: profile.certificate.delegation_id.clone(),
             origin: profile.origin.clone(),
+            current: Arc::new(std::sync::Mutex::new(Some(Arc::from(
+                signed_in.session.access_token.as_str(),
+            )))),
         });
         let mut record = Record {
             profile,
@@ -176,6 +182,7 @@ impl Store {
             directory,
             delegation_id: record.profile.certificate.delegation_id,
             origin: record.profile.origin,
+            current: Arc::default(),
         })))
     }
 
@@ -258,6 +265,9 @@ impl Store {
             directory,
             delegation_id: record.profile.certificate.delegation_id.clone(),
             origin: record.profile.origin.clone(),
+            current: Arc::new(std::sync::Mutex::new(Some(Arc::from(
+                tokens.access_token.as_str(),
+            )))),
         });
         Ok(Some(Resumed {
             profile: record.profile,
@@ -320,6 +330,22 @@ impl Store {
         Ok(())
     }
 
+    fn cached(&self) -> Option<Arc<str>> {
+        self.current
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn cache(&self, token: &str) -> Arc<str> {
+        let token: Arc<str> = Arc::from(token);
+        *self
+            .current
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::clone(&token));
+        token
+    }
+
     fn locked(&self) -> Result<Locked, AccountError> {
         let file = lock(&self.directory).map_err(storage_error)?;
         let record = self.record().map_err(storage_error)?;
@@ -345,9 +371,12 @@ impl CredentialSource for Store {
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<Arc<str>, AccountError>> + Send + '_>> {
         let store = self.clone();
         Box::pin(async move {
+            if let Some(token) = store.cached() {
+                return Ok(token);
+            }
             tokio::task::spawn_blocking(move || {
                 let locked = store.locked()?;
-                Ok(Arc::from(locked.tokens.access_token.as_str()))
+                Ok(store.cache(&locked.tokens.access_token))
             })
             .await
             .map_err(|_| AccountError::Invalid("credential worker"))?
@@ -370,7 +399,7 @@ impl CredentialSource for Store {
                 if locked.tokens.access_token.as_str() == &*refused {
                     store.rotate(&account, &mut locked)?;
                 }
-                Ok(Arc::from(locked.tokens.access_token.as_str()))
+                Ok(store.cache(&locked.tokens.access_token))
             })
             .await
             .map_err(|_| AccountError::Invalid("credential worker"))?
