@@ -21,6 +21,7 @@ import { playQuestions } from './motion/questions';
 import { playArrival } from './motion/reveal';
 import { playSecurity } from './motion/security';
 import { playSimulator } from './motion/sim';
+import { playSquares } from './motion/squares';
 
 /**
  * Motion itself, for the blog. Its pages fetch this module as every page does,
@@ -103,6 +104,7 @@ export function startMotion(): void {
   if (reducedMotion.matches) return;
   playCards();
   playArrival();
+  for (const root of document.querySelectorAll<HTMLElement>('[data-mz-squares]')) playSquares(root);
   playQuestions();
   for (const caret of document.querySelectorAll<HTMLElement>('[data-sp-caret], [data-t-caret]')) {
     blink(caret);

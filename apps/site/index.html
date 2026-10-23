@@ -287,16 +287,35 @@
         <p class="how-text">Each update carries just the rows that changed. A full screen is a few KB.</p>
       </li>
       <li class="how-card">
-        <div class="how-fx" aria-hidden="true"><div class="fx-zstd" data-fx="zstd"><span>changed rows</span><span class="fx-bar"></span><span>on the wire</span><span class="fx-bar fx-bar-wire" data-z></span></div></div>
-        <h3 class="how-title">Compressed for your screen</h3>
-        <p class="how-text">zstd with a dictionary built from your own screen, so an update fits in one packet.</p>
-      </li>
-      <li class="how-card">
         <div class="how-fx" aria-hidden="true"><div class="fx-fec" data-fx="fec"><div class="fx-packets"><span data-p>1</span><span data-p>2</span><span data-p>3</span><span data-p>4</span><span class="fx-parity">P</span></div><span class="fx-note" data-fec-note>4 packets + 1 parity</span></div></div>
         <h3 class="how-title">Repaired, not resent</h3>
         <p class="how-text">Packets travel in groups with a parity shard. Lose one and it is rebuilt on arrival.</p>
       </li>
     </ul>
+  </section>
+
+  <section id="codec" class="sec wrap split" aria-labelledby="codec-h">
+    <div class="split-copy mz-copy">
+      <div class="mz-head" data-reveal>
+        <h2 id="codec-h" class="h-sec">The same screens, <span class="serif-i">a fraction of the bytes.</span></h2>
+        <p class="sec-deck">MZ is our own codec for terminal screens. It learns your session as you work and reuses what your browser already holds.</p>
+      </div>
+      <dl class="mz-key" data-reveal>
+        <div class="mz-row"><dt><i class="mz-swatch mz-swatch-raw"></i>Raw</dt><dd class="mz-size">[[fig:mz.raw]]</dd><dd class="mz-note">every changed row as it is</dd></div>
+        <div class="mz-row"><dt><i class="mz-swatch mz-swatch-zstd"></i>zstd</dt><dd class="mz-size">[[fig:mz.zstd]]</dd><dd class="mz-note">[[fig:mz.zstdTimes]] smaller</dd></div>
+        <div class="mz-row mz-row-mz"><dt><i class="mz-swatch mz-swatch-mz"></i>MZ</dt><dd class="mz-size">[[fig:mz.mz]]</dd><dd class="mz-note">[[fig:mz.mzTimes]] smaller</dd></div>
+      </dl>
+      <p class="mz-cap" data-reveal>Areas to scale. [[figcap:mz]]</p>
+    </div>
+    <style>.mz-squares{--mz-raw:[[fig:mz.rawMb]];--mz-zstd:[[fig:mz.zstdMb]];--mz-mz:[[fig:mz.mzMb]]}</style>
+    <div class="mz-squares" aria-hidden="true" data-mz-squares data-reveal>
+      <div class="mz-sq mz-sq-raw"></div>
+      <span class="mz-label mz-label-raw">raw · [[fig:mz.raw]]</span>
+      <div class="mz-sq mz-sq-zstd" data-mz-shrink="zstd"></div>
+      <span class="mz-label mz-label-zstd" data-mz-label>zstd · [[fig:mz.zstd]]</span>
+      <div class="mz-sq mz-sq-mz" data-mz-shrink="mz"></div>
+      <span class="mz-label-mz" data-mz-label><span class="mz-label-size">[[fig:mz.mz]]</span>MZ</span>
+    </div>
   </section>
 
   <section id="hood" class="sec wrap" aria-labelledby="hood-h">

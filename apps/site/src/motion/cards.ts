@@ -1,14 +1,13 @@
 /**
- * The four small pictures under the simulator: cells changing one at a time,
- * one row of six being sent, a bar squeezed for the wire, a packet lost and
- * rebuilt. Each repaints a few pixels a few times a second, and only while it
- * is on screen. They are Motion animations handed to the browser whole
- * (`animateMini`), so no script runs between one step and the next.
+ * The three small pictures under the simulator: cells changing one at a time,
+ * one row of six being sent, a packet lost and rebuilt. Each repaints a few
+ * pixels a few times a second, and only while it is on screen. They are Motion
+ * animations handed to the browser whole (`animateMini`), so no script runs
+ * between one step and the next.
  */
 import { animateMini } from 'motion';
 
 import { createAgenda, EASE_OUT, onScreen } from './clock';
-import { squeeze } from './loops';
 
 const CELL_CHARACTERS = 'abcdefghijklmnopqrstuvwxyz0123456789{}[]<>=+-*/$#@';
 const pick = <T>(from: ArrayLike<T>): T | undefined =>
@@ -121,5 +120,4 @@ export function playCards(): void {
     else if (kind === 'rows') playRows(element);
     else if (kind === 'fec') playParity(element);
   }
-  for (const bar of document.querySelectorAll<HTMLElement>('[data-z]')) squeeze(bar);
 }

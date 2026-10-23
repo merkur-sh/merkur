@@ -35,4 +35,29 @@ export interface Figure {
   readonly caption: FigureCaption;
 }
 
-export const FIGURES: readonly Figure[] = [];
+export const FIGURES: readonly Figure[] = [
+  {
+    id: 'mz',
+    text: 'raw 79.6 MB, zstd 25.1 MB (3.2× smaller), MZ 14.0 MB (5.7× smaller)',
+    ledger: 'ledger/2026-10-23-mz-site-figure.md',
+    // `rawMb`, `zstdMb` and `mzMb` size the squares that draw the three
+    // (`.mz-squares` in `index.html`), so the picture moves with the figure.
+    values: {
+      rawMb: '79.6',
+      zstdMb: '25.1',
+      mzMb: '14.0',
+      raw: '79.6 MB',
+      zstd: '25.1 MB',
+      zstdTimes: '3.2×',
+      mz: '14.0 MB',
+      mzTimes: '5.7×',
+    },
+    caption: {
+      measurement: 'Display bytes of recorded terminal sessions MZ never trained on',
+      environment: 'lab',
+      version: 'main 48066b34, zstd from v0.74.8',
+      sample: '36 recordings at 0% loss',
+      date: '2026-10-23',
+    },
+  },
+];

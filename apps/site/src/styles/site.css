@@ -1562,11 +1562,11 @@
   transform: scale(1.14);
 }
 
-/* What makes it fast: four cards */
+/* What makes it fast: three cards */
 
 .how {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-top: 64px;
 }
@@ -1672,30 +1672,6 @@
   opacity: 0;
 }
 
-.fx-zstd {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
-  height: 100%;
-  color: var(--note);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.fx-bar {
-  display: block;
-  height: 10px;
-  border-radius: 3px;
-  background: #45475a;
-}
-
-.fx-bar-wire {
-  background: #cba6f7;
-  transform: scaleX(0.24);
-  transform-origin: 0 50%;
-}
-
 .fx-fec {
   display: flex;
   flex-direction: column;
@@ -1730,6 +1706,175 @@
 
 .fx-note {
   color: var(--note);
+}
+
+/* The codec: raw, zstd and MZ as three squares, areas to scale */
+
+.mz-head {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.mz-key {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  border-top: 1px solid var(--line1);
+}
+
+.mz-row {
+  display: grid;
+  grid-template-columns: 112px 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line1);
+}
+
+.mz-row dt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.mz-row dd {
+  margin: 0;
+}
+
+.mz-size {
+  color: var(--body);
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.mz-note {
+  color: var(--note);
+  font-size: 14px;
+}
+
+.mz-row-mz dt {
+  font-weight: 500;
+}
+
+.mz-row-mz dd {
+  color: #dcd0ff;
+}
+
+.mz-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+.mz-swatch-raw {
+  border: 1px dashed #6c7086;
+}
+
+.mz-swatch-zstd {
+  background: #585b70;
+}
+
+.mz-swatch-mz {
+  background: #cba6f7;
+}
+
+.mz-cap {
+  max-width: 460px;
+  color: var(--note);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* The page sets the three sizes from the figure (`--mz-raw`, `--mz-zstd`,
+   `--mz-mz`, in MB); a square's side is the root of its share of raw. Raw's
+   square is in flow and gives the box its height: WebKit stretches a flex
+   item's own aspect ratio. */
+.mz-squares {
+  container-type: inline-size;
+  position: relative;
+  justify-self: end;
+  width: min(520px, 100%);
+}
+
+.mz-sq {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  aspect-ratio: 1;
+  transform-origin: 0 100%;
+}
+
+.mz-sq-raw {
+  position: relative;
+  width: 100%;
+  border: 1.5px dashed #585b70;
+  border-radius: 18px;
+  corner-shape: superellipse(1.6);
+  box-sizing: border-box;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.025) 0 1px,
+    transparent 1px 10px
+  );
+}
+
+.mz-sq-zstd {
+  width: calc(sqrt(var(--mz-zstd) / var(--mz-raw)) * 100%);
+  border-radius: 14px;
+  corner-shape: superellipse(1.6);
+  background: #45475a;
+}
+
+.mz-sq-mz {
+  width: calc(sqrt(var(--mz-mz) / var(--mz-raw)) * 100%);
+  border-radius: 12px;
+  corner-shape: superellipse(1.6);
+  background: #cba6f7;
+  box-shadow: 0 0 60px rgba(203, 166, 247, 0.35);
+}
+
+.mz-label {
+  position: absolute;
+  color: var(--meta);
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.mz-label-raw {
+  top: 18px;
+  right: 22px;
+}
+
+.mz-label-zstd {
+  bottom: calc(sqrt(var(--mz-zstd) / var(--mz-raw)) * 100% + 10px);
+  left: 0;
+  width: calc(sqrt(var(--mz-zstd) / var(--mz-raw)) * 100%);
+  color: var(--body);
+  text-align: right;
+}
+
+.mz-label-mz {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 3.5cqi;
+  color: #1e1e2e;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.mz-label-size {
+  font-size: 8.4cqi;
+  letter-spacing: -0.04em;
+  line-height: 1;
 }
 
 /* Not just another web terminal: four cards around the planet */
@@ -3576,10 +3721,6 @@
     line-height: 1.06;
   }
 
-  .how {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .split {
     grid-template-columns: minmax(0, 1fr);
     justify-items: center;
@@ -3588,6 +3729,10 @@
 
   .split-copy {
     justify-self: stretch;
+  }
+
+  .mz-squares {
+    justify-self: center;
   }
 
   .lost-body {
@@ -3872,8 +4017,57 @@
     height: 6px;
   }
 
-  .fx-bar {
-    height: 8px;
+  /* The squares come straight after the deck, before the key and its source. */
+  .mz-copy {
+    display: contents;
+  }
+
+  .mz-head {
+    gap: 16px;
+  }
+
+  .mz-squares {
+    order: 1;
+    width: 100%;
+  }
+
+  .mz-key,
+  .mz-cap {
+    order: 2;
+  }
+
+  .mz-key {
+    margin-top: 0;
+  }
+
+  .mz-row {
+    grid-template-columns: 76px 76px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 0;
+  }
+
+  .mz-row dt {
+    gap: 10px;
+    font-size: 15px;
+  }
+
+  .mz-size,
+  .mz-note {
+    font-size: 13px;
+  }
+
+  .mz-label {
+    font-size: 11px;
+  }
+
+  .mz-label-raw {
+    top: 12px;
+    right: 14px;
+  }
+
+  .mz-label-mz {
+    gap: 4px;
+    font-size: 12px;
   }
 
   .bento {
