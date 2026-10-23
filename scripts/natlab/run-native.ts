@@ -2,6 +2,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import path from 'node:path';
 import { nativeProgram } from '../native-artifacts';
+import { playwrightCli } from './playwright-cli';
 
 const root = path.resolve(import.meta.dir, '../..');
 const edgeId = 'local-harness-1';
@@ -79,7 +80,7 @@ try {
   const playwright = spawn(
     'node',
     [
-      path.join(root, 'node_modules/playwright/cli.js'),
+      playwrightCli,
       'test',
       'tui-nat.e2e.ts',
       '--config',

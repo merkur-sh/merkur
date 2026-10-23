@@ -58,16 +58,10 @@ cp "$snapshot/bin/merkur-edge" "$snapshot/repo/apps/edge/dist/merkur-edge"
 evidence="$REPO_ROOT/test-results/natlab-native/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 mkdir -p "$evidence"
 docker run --rm --init --privileged \
-  -v "$snapshot/repo:/repo" -v "$snapshot/runtime:/runtime:ro" \
+  -v "$snapshot/repo:/source:ro" --mount type=volume,dst=/repo,volume-nocopy \
+  -v "$snapshot/runtime:/runtime:ro" \
   -v "$snapshot/bin:/natlab:ro" -v "$evidence:/evidence" -w /repo \
+  -e "MERKUR_NATLAB_UID=$(id -u)" -e "MERKUR_NATLAB_GID=$(id -g)" \
   mirror.gcr.io/library/debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f \
-  bash -c '
-    set -euo pipefail
-    export DEBIAN_FRONTEND=noninteractive PATH=/runtime:/usr/sbin:/usr/bin:/sbin:/bin
-    apt-get update -qq
-    apt-get install -y -qq nftables iproute2 conntrack python3 miniupnpd-nftables procps tcpdump redis-server ca-certificates >/dev/null
-    bun x "$(bun -p "JSON.parse(require(\"fs\").readFileSync(\"package.json\", \"utf8\")).packageManager")" install --frozen-lockfile
-    node node_modules/playwright/cli.js install --with-deps chromium
-    bash scripts/natlab/native.sh "$@"
-  ' bash "$@"
+  bash /source/scripts/natlab/native-container.sh "$@"
 echo "NATIVE_NATLAB_EVIDENCE=$evidence"
