@@ -22,11 +22,16 @@ inputs:
 runs:
   using: composite
   steps:
-    # The Secure Enclave bridge compiles against CryptoKit's SecureEnclave.MLDSA87, which the
-    # macOS 26 SDK declares; the image's default Xcode carries the macOS 15 SDK.
+    # The Xcode `.xcode-version` names, whose macOS 26 SDK declares CryptoKit's
+    # SecureEnclave.MLDSA87 for the Secure Enclave bridge. Bazel's macOS actions name the SDK by
+    # its real path, so it moves to where Xcodes installs it on a workstation, which then reads
+    # these jobs' results from the remote cache.
     - if: runner.os == 'macOS' && (inputs.rust == 'true' || inputs.bazel == 'true')
       shell: bash
-      run: sudo xcode-select --switch /Applications/Xcode_26.3.app
+      run: |
+        version=$(cat .xcode-version)
+        sudo mv "/Applications/Xcode_${version%.0}.app" "/Applications/Xcode-$version.app"
+        sudo xcode-select --switch "/Applications/Xcode-$version.app"
     - if: inputs.bazel == 'true'
       uses: ./.github/actions/setup-bazel
       with:

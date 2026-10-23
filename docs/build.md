@@ -58,7 +58,12 @@ Every toolchain is prebuilt and pinned by digest, with one source of truth each,
 | Chromium | the revision `playwright-core` names (`tools/bazel/playwright/extensions.bzl`) |
 | Redis, OpenSSL | the Bazel Central Registry, Redis with TLS (`tools/bazel/redis/redis-tls.patch`) |
 
-The macOS Secure Enclave bridge compiles with the selected Xcode's Swift.
+macOS builds use the selected Xcode's SDK, and the Secure Enclave bridge its Swift.
+`.xcode-version` names the Xcode: CI moves its copy to `/Applications/Xcode-<version>.app`, where
+Xcodes installs it on a workstation (`xcodes install <version> --select`), because the SDK's real
+path is in every macOS link's and C build script's key; another Xcode builds correctly but reads
+nothing of CI's from the remote cache (`bun run dev:doctor` says so). `.bazelrc` pins the
+minimum macOS to the daemon's, 13, rather than the SDK's version.
 
 `//tools/bazel/native:natlab_runtime` copies the pinned target-platform Bun and Node executables
 into declared build outputs. The NAT lab stages these files with its Linux native programs into

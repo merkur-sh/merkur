@@ -27,6 +27,7 @@ if (process.argv.includes('--sources') && environment._tag === 'Success') {
   process.stdout.write(`${environmentSources(environment.success.sources)}\n`);
 }
 const pinnedBun = (await Bun.file(path.join(REPO_ROOT, '.bun-version')).text()).trim();
+const pinnedXcode = (await Bun.file(path.join(REPO_ROOT, '.xcode-version')).text()).trim();
 
 checks.push(await checkFile('apps/server/.env', true, 'create with: bun run setup'));
 checks.push(await checkServerConfiguration());
@@ -40,7 +41,10 @@ checks.push({
 // Bazel brings Rust, Node and the WebAssembly tools; the Secure Enclave bridge compiles with the
 // selected Xcode's Swift.
 checks.push(await checkCommand('bazel', true));
-if (process.platform === 'darwin') checks.push(await checkCommand('swiftc', true));
+if (process.platform === 'darwin') {
+  checks.push(await checkCommand('swiftc', true));
+  checks.push(checkXcode());
+}
 checks.push(await checkRedis());
 
 checks.push(
@@ -94,6 +98,21 @@ async function checkCommand(command: string, critical: boolean) {
     ok: typeof resolved === 'string' && resolved.length > 0,
     details: resolved ?? 'not found in PATH',
     critical,
+  };
+}
+
+// Bazel's macOS actions name the SDK by its real path, so CI's results apply only to the Xcode CI
+// selects, where Xcodes installs it.
+function checkXcode(): CheckResult {
+  const expected = `/Applications/Xcode-${pinnedXcode}.app/Contents/Developer`;
+  const selected = Bun.spawnSync(['/usr/bin/xcode-select', '--print-path'])
+    .stdout.toString()
+    .trim();
+  return {
+    label: 'Xcode',
+    ok: selected === expected,
+    critical: false,
+    details: `${selected}; CI's macOS results need ${expected} (xcodes install ${pinnedXcode} --select)`,
   };
 }
 

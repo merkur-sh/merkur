@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-26.04, macos-15]
+        os: [ubuntu-26.04, macos-26]
     runs-on: ${{ matrix.os }}
     # A change that moves every Rust action's key (a toolchain bump, a rules_rust setting) leaves
     # the remote cache cold, and a four-CPU runner then builds the whole crate graph.
