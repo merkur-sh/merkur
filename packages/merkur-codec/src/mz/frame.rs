@@ -1113,7 +1113,7 @@ fn best_copy(
             &source,
             usize::from(candidate.item),
         );
-        visited < 8 && !best.is_some_and(|(_, len)| len == target.items.len() - index)
+        visited < 8 && best.is_none_or(|(_, len)| len != target.items.len() - index)
     });
     best
 }
