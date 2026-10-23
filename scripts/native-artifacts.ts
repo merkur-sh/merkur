@@ -68,7 +68,6 @@ export async function syncNativeArtifacts(
     'bazel',
     [
       'run',
-      '--config=release',
       ...(tpmSim ? ['--//packages/merkur-identity-seal:tpm_sim'] : []),
       '//tools/bazel/native:sync',
     ],

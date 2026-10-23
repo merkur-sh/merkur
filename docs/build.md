@@ -16,11 +16,14 @@ targets. Cargo's manifests and lockfile stay the source of the Rust dependency g
 | `bazel test //:rust_lint` | `rust:lint`: Clippy as a Bazel aspect over every first-party Rust target, cached per crate and held to its baseline; part of `bazel test //...`. |
 | `bun run gates` | What the working tree's changes earn: `bazel test //...` plus the gates and suites outside Bazel (`scripts/gate-policy.ts`). |
 | `bun run build:wasm` | `bazel run //tools/bazel/wasm:sync`: the WebAssembly packages into the `pkg/` directories Vite and Bun import. |
-| `bun run build:native` | `bazel run --config=release //tools/bazel/native:sync`: the dataplane, image worker and terminal client into apps/daemon/dist, the edge and the harnesses' network peers into apps/edge/dist. |
+| `bun run build:native` | `bazel run //tools/bazel/native:sync`: in Cargo's release profile, whatever the command line's configuration, the dataplane, image worker and terminal client into apps/daemon/dist, the edge and the harnesses' network peers into apps/edge/dist. |
 
 `bazel` is Bazelisk at `.bazelversion`. Tests use `fastbuild`, which `.bazelrc` and
-`MODULE.bazel` make Cargo's test profile; `--config=release` is Cargo's release profile, which
-the native sync, the harnesses and shipped binaries use.
+`MODULE.bazel` make Cargo's test profile; `--config=release` is Cargo's release profile. The
+native sync, the benchmarks (`//apps/daemon/dataplane:unit_release`) and shipped binaries are
+`release_binary` targets (`tools/bazel/release/defs.bzl`), which build in the release profile
+from any command line, so a workstation alternating `bazel test` and `bun run build:native` keeps
+one analysis cache; a different `--config` on the command line would discard it.
 
 ## The cache
 

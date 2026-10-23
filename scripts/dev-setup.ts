@@ -43,12 +43,7 @@ async function buildDevelopmentArtifacts(): Promise<void> {
   if (wasmExitCode !== 0) throw new Error(`WASM build failed with exit code ${wasmExitCode}`);
   steps.push('built and synchronized the WASM packages');
 
-  const nativeExitCode = await run([
-    'bazel',
-    'run',
-    '--config=release',
-    '//tools/bazel/native:sync',
-  ]);
+  const nativeExitCode = await run(['bazel', 'run', '//tools/bazel/native:sync']);
   if (nativeExitCode !== 0) throw new Error(`native build failed with exit code ${nativeExitCode}`);
   steps.push('built and installed the edge, dataplane, image worker and terminal client');
 }

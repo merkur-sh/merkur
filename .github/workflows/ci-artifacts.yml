@@ -21,4 +21,4 @@ jobs:
         with:
           buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
       - run: bazel build //tools/bazel/wasm:sync
-      - run: bazel build --config=release //tools/bazel/native:sync
+      - run: bazel build //tools/bazel/native:sync

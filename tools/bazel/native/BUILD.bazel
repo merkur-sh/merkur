@@ -1,5 +1,6 @@
 load("//tools/bazel:files.bzl", "package_files")
 load("//tools/bazel:sync.bzl", "checkout_sync")
+load("//tools/bazel/release:defs.bzl", "release_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -18,18 +19,30 @@ genrule(
           "chmod +x \"$(@D)/bun\" \"$(@D)/node\"",
 )
 
-# The native programs a checkout runs: the daemon's sidecars beside each other where the daemon
-# looks for them, and the edge with the harnesses' network peers. `bun run build:native` runs it
-# in the release profile; the browser e2e suites and the harnesses run it before they start.
+# The native programs a checkout runs, each in Cargo's release profile whatever the command
+# line's configuration, by the name it installs under, with where it installs: the daemon's
+# sidecars beside each other where the daemon looks for them, and the edge with the harnesses'
+# network peers.
+_PROGRAMS = {
+    "//apps/daemon/dataplane:merkur-dataplane": "apps/daemon/dist",
+    "//apps/edge:bulk_competitor": "apps/edge/dist",
+    "//apps/edge:delay_proxy": "apps/edge/dist",
+    "//apps/edge:merkur-edge": "apps/edge/dist",
+    "//apps/tui:merkur-tui": "apps/daemon/dist",
+    "//packages/merkur-image-worker:merkur-image-worker": "apps/daemon/dist",
+}
+
+[release_binary(
+    name = program.rpartition(":")[2],
+    binary = program,
+) for program in _PROGRAMS]
+
+# `bun run build:native`; the browser e2e suites and the harnesses run it before they start.
 checkout_sync(
     name = "sync",
     executable = True,
     sources = {
-        "//apps/daemon/dataplane:merkur-dataplane": "apps/daemon/dist",
-        "//apps/edge:bulk_competitor": "apps/edge/dist",
-        "//apps/edge:delay_proxy": "apps/edge/dist",
-        "//apps/edge:merkur-edge": "apps/edge/dist",
-        "//apps/tui:merkur-tui": "apps/daemon/dist",
-        "//packages/merkur-image-worker:merkur-image-worker": "apps/daemon/dist",
+        ":" + program.rpartition(":")[2]: destination
+        for program, destination in _PROGRAMS.items()
     },
 )

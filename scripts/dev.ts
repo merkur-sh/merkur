@@ -491,7 +491,7 @@ export async function runDevelopmentStack(
 if (import.meta.main) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const environment = toolEnvironment(process.env);
-  const NATIVE_SYNC = ['bazel', 'run', '--config=release', '//tools/bazel/native:sync'];
+  const NATIVE_SYNC = ['bazel', 'run', '//tools/bazel/native:sync'];
   async function prerequisite(
     command: string[],
     signal: AbortSignal,

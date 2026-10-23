@@ -188,7 +188,7 @@ Cold, or after a broad Rust change, the builds grow by an order of magnitude.
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | one filtered dataplane run, the `real_helper` modules included when the filter selects them: the test target builds the sandboxed image helper and hands its path over | seconds warm |
 | `rust:test` | `bazel test` over every Rust target: each crate's unit, integration and doc tests, the dataplane's `real_helper` modules, and `term-wasm` again in the release profile | seconds when nothing changed |
 | `test:graphics:long` | 64-seed convergence, both drivers, seeds across cores | ~20 s (2026-09-29) |
-| `build:native` | `bazel run --config=release //tools/bazel/native:sync`: the dataplane, image worker and terminal client into apps/daemon/dist, the edge, delay proxy and bulk competitor into apps/edge/dist | seconds when nothing changed |
+| `build:native` | `bazel run //tools/bazel/native:sync`, in the release profile whatever the command line's configuration: the dataplane, image worker and terminal client into apps/daemon/dist, the edge, delay proxy and bulk competitor into apps/edge/dist | seconds when nothing changed |
 | `build:web` `build:server` `build:daemon` `build:wasm` | artifacts | — |
 | `bench:reconnect` | carrier-recovery latency per failure scenario, in process | ~3.5 min |
 | `--cwd apps/server telemetry:smoke` | server telemetry wire contract | — |
@@ -228,8 +228,10 @@ test profile: opt-level 1 with line tables for workspace crates, opt-level 3 for
 dependencies, debug assertions and overflow checks on. The
 suites are CPU-bound simulations, so this took the dataplane suite from 78 s to 7 s with a
 one-file incremental rebuild unchanged at ~3 s. The first build after a checkout or a
-worktree is cold for dependencies unless the remote cache holds them. `--config=release`, which
-the edge harness and shipped binaries use, is Cargo's release profile.
+worktree is cold for dependencies unless the remote cache holds them. Cargo's release profile is
+`--config=release`, or a `release_binary` target that takes it from any command line: the native
+sync, `//apps/daemon/dataplane:unit_release` for the benchmarks, and shipped binaries. Prefer the
+target: changing `--config` between commands discards Bazel's analysis cache.
 
 ## What the cheap gates cannot tell you
 

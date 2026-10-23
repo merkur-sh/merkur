@@ -3,6 +3,7 @@ load("@rules_rust//cargo:defs.bzl", "cargo_build_script", "extract_cargo_lints")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 load("//tools/bazel/rust:defs.bzl", "rust_e2e_testing_binary", "rust_e2e_testing_test")
 load("//tools/bazel:files.bzl", "package_files")
+load("//tools/bazel/release:defs.bzl", "release_binary")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -94,6 +95,16 @@ rust_e2e_testing_test(
     rustc_env = {"MERKUR_IMAGE_WORKER": "$(rootpath //packages/merkur-image-worker:merkur-image-worker)"},
     tags = ["no-sandbox"],
     deps = _DEV_DEPS + all_crate_deps(normal_dev = True),
+)
+
+# The unit suite in Cargo's release profile, whatever the command line's configuration: the
+# `bench:*` scripts run its ignored benchmarks with
+# `bazel run //apps/daemon/dataplane:unit_release -- --ignored --exact <benchmark>`.
+release_binary(
+    name = "unit_release",
+    testonly = True,
+    binary = ":unit",
+    tags = ["manual"],
 )
 
 # The unit suite's harness as a binary, for the profile-guided release build to train on

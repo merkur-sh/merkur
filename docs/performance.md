@@ -471,15 +471,15 @@ model then needs the browser calibration fixtures and test grids regenerated wit
 `MERKUR_WRITE_CALIBRATION_FIXTURES=1` on `//packages/display-fixture:unit`:
 
 ```sh
-MERKUR_DISPLAY_RECORDINGS=<dir> bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_census
-MERKUR_DISPLAY_RECORDINGS=<dir> bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_train_model
+MERKUR_DISPLAY_RECORDINGS=<dir> bazel run //apps/daemon/dataplane:unit_release -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_census
+MERKUR_DISPLAY_RECORDINGS=<dir> bazel run //apps/daemon/dataplane:unit_release -- --ignored --nocapture --test-threads=1 display::sim::mz_census::mz_train_model
 ```
 
 The paired planner profiles run serially:
 
 ```sh
-bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_close_cache_profile
-bazel run --config=release //apps/daemon/dataplane:unit -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_group_bound_profile
+bazel run //apps/daemon/dataplane:unit_release -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_close_cache_profile
+bazel run //apps/daemon/dataplane:unit_release -- --ignored --nocapture --test-threads=1 display::planner::profile::planner_group_bound_profile
 ```
 
 The paired planner profiles compare exact close-price reuse and the unavoidable open-group
