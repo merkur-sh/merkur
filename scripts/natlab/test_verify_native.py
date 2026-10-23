@@ -35,8 +35,9 @@ def response(transaction, mapped):
     return struct.pack("!HH", 0x101, len(attributes)) + VERIFY.COOKIE + transaction + attributes
 
 
-def quic():
-    return b"\xc0" + struct.pack("!I", 1) + b"\x08" + b"d" * 8 + b"\x08" + b"s" * 8 + bytes(20)
+def quic(destination_id=b"d" * 8, source_id=b"s" * 8):
+    return (b"\xc0" + struct.pack("!I", 1) + bytes([len(destination_id)]) + destination_id
+            + bytes([len(source_id)]) + source_id + bytes(20))
 
 
 def pcp6_map(address, port, requested=3600, granted=8, nonce=b"n" * 12):
@@ -199,6 +200,12 @@ class NativeEvidence(unittest.TestCase):
         (self.root / "capture.stderr").write_text(
             f"{len(frames)} packets captured\n{len(frames)} packets received by filter\n"
             "0 packets dropped by kernel\n")
+
+    def write_timed_capture(self, records, path=None):
+        target = self.capture if path is None else path
+        target.write_bytes(timed_pcap(sorted(records)))
+        (self.root / f"{target.stem}.stderr").write_text(
+            f"{len(records)} packets captured\n0 packets dropped by kernel\n")
 
     def prove(self, case="eim-pdf"):
         captures = [self.capture]
@@ -458,6 +465,121 @@ class NativeEvidence(unittest.TestCase):
                     self.assertTrue(proof["pinhole"]["nativeDeletionVerified"])
                     self.assertEqual(proof["pinhole"]["nativeRenewalVerified"], protocol == "pcp")
 
+    def test_unchanged_ipv6_pair_retains_direct_after_encrypted_reverse_cid_rotation(self):
+        case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+        self.assertTrue(self.prove(case)["pinhole"]["nativeRenewalVerified"])
+
+    def test_opaque_ipv6_reverse_requires_successful_check_and_daemon_opening(self):
+        for omitted in (1, 2):
+            with self.subTest(omitted=omitted):
+                case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+                records = [record for index, record in enumerate(self.peer_records) if index != omitted]
+                self.write_timed_capture(records)
+                with self.assertRaisesRegex(VERIFY.VerificationError, "matching two-sided check"):
+                    self.prove(case)
+
+    def test_opaque_ipv6_reverse_requires_server_handshake_on_that_exact_pair(self):
+        case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+        self.write_timed_capture([record for index, record in enumerate(self.peer_records) if index != 4])
+        with self.assertRaisesRegex(VERIFY.VerificationError, "bidirectional QUIC"):
+            self.prove(case)
+
+    def test_opaque_ipv6_reverse_requires_client_scid_server_dcid_handshake_continuity(self):
+        for broken in ("missing-client", "wrong-server-dcid"):
+            with self.subTest(broken=broken):
+                case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+                records = self.peer_records.copy()
+                if broken == "missing-client":
+                    records.pop(3)
+                else:
+                    records[4] = (records[4][0], ipv6_udp((VERIFY.DAEMON6, 24400), (VERIFY.CLIENT6, 39000),
+                        quic(b"q" * 8, b"d" * 8)))
+                self.write_timed_capture(records)
+                with self.assertRaisesRegex(VERIFY.VerificationError, "subsequent authenticated direct traffic"):
+                    self.prove(case)
+
+    def test_opaque_ipv6_reverse_requires_pair_local_known_client_cid_echo(self):
+        case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+        records = self.peer_records.copy()
+        records[-2] = (220_000_000_000, ipv6_udp((VERIFY.CLIENT6, 39000), (VERIFY.DAEMON6, 24400),
+                        b"\x40" + b"x" * 8 + bytes(24)))
+        self.write_timed_capture(records)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "subsequent authenticated direct traffic"):
+            self.prove(case)
+
+    def test_a_cid_learned_on_another_port_cannot_anchor_opaque_ipv6_reverse(self):
+        case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+        records = self.peer_records.copy()
+        records[-2] = (220_000_000_000, ipv6_udp((VERIFY.CLIENT6, 39000), (VERIFY.DAEMON6, 24400),
+                        b"\x40" + b"x" * 8 + bytes(24)))
+        records.append((219_000_000_000, ipv6_udp((VERIFY.DAEMON6, 24400), (VERIFY.CLIENT6, 39001),
+                        quic(b"q" * 8, b"x" * 8))))
+        self.write_timed_capture(records)
+        packets = list(VERIFY.read_capture(self.capture).packets)
+        trips = VERIFY.round_trips(packets, case)[0]
+        classified = VERIFY.quic_packets(packets, case,
+            steady_authorities=VERIFY.check_authorities(packets, trips, case))
+        self.assertFalse(any(packet.timestamp_ns == 220_001_000_000 for packet in classified))
+
+    def test_opaque_ipv6_reverse_never_grants_a_new_udp_tuple_an_exception(self):
+        case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+        records = self.peer_records[:-2] + [
+            (220_000_000_000, ipv6_udp((VERIFY.CLIENT6, 39001), (VERIFY.DAEMON6, 24400), b"\x40" + b"d" * 8 + bytes(24))),
+            (220_001_000_000, ipv6_udp((VERIFY.DAEMON6, 24400), (VERIFY.CLIENT6, 39001), b"\x40" + b"z" * 8 + bytes(24)))]
+        self.write_timed_capture(records)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "matching two-sided check"):
+            self.prove(case)
+
+    def test_native_renewal_needs_both_postrenew_directions_and_actual_wire_ack(self):
+        for missing in ("reverse", "ack"):
+            with self.subTest(missing=missing):
+                case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+                if missing == "reverse":
+                    self.write_timed_capture(self.peer_records[:-1])
+                else:
+                    packets = VERIFY.read_capture(self.gateway_capture).packets
+                    records = [(packet.timestamp_ns, ipv6_udp(packet.source, packet.destination, packet.payload))
+                               for packet in packets if packet.timestamp_ns != 219_001_000_000]
+                    self.write_timed_capture(records, self.gateway_capture)
+                with self.assertRaisesRegex(VERIFY.VerificationError,
+                        "subsequent authenticated direct traffic|same-nonce wire renewal"):
+                    self.prove(case)
+
+    def test_a_second_quic_constructor_cannot_use_the_predecessor_context_before_its_current_check(self):
+        case = self._native_pinhole("daemon", "pcp", reverse_cid=b"z" * 8)
+        client, daemon = (VERIFY.CLIENT6, 39000), (VERIFY.DAEMON6, 24400)
+        transaction = b"r" * 12
+        records = self.peer_records + [
+            (219_000_000_000, ipv6_udp(client, daemon, request(transaction, "c", b"1" * 32))),
+            (219_001_000_000, ipv6_udp(daemon, client, request(b"v" * 12, "d", b"1" * 32))),
+            (219_002_000_000, ipv6_udp(client, daemon, quic(source_id=b"u" * 8))),
+            (219_003_000_000, ipv6_udp(daemon, client, response(transaction, client)))]
+        self.write_timed_capture(records)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "constructor preceded its current successful client check"):
+            self.prove(case)
+
+    def test_delete_ack_may_follow_kernel_poll_but_request_and_identity_must_match(self):
+        grant = {"identity": "owned", "grantedLifetimeSeconds": 240, "sentAtNs": 100, "receivedAtNs": 101}
+        delete = {"identity": "owned", "grantedLifetimeSeconds": 0, "sentAtNs": 109, "receivedAtNs": 111}
+        self.assertTrue(VERIFY.matching_pinhole_delete([grant, delete], 110))
+        for replacement in (None, {**delete, "identity": "other"}, {**delete, "sentAtNs": 112},
+                            {**delete, "receivedAtNs": 108}):
+            with self.subTest(replacement=replacement):
+                self.assertFalse(VERIFY.matching_pinhole_delete([grant] + ([] if replacement is None else [replacement]), 110))
+        unrelated = {**grant, "identity": "later", "sentAtNs": 112, "receivedAtNs": 113}
+        self.assertFalse(VERIFY.matching_pinhole_delete([grant, unrelated,
+            {**delete, "identity": "later", "sentAtNs": 114, "receivedAtNs": 115}], 110))
+
+    def test_live_delete_fence_observes_real_wire_even_when_ack_follows_kernel_poll(self):
+        case = self._native_pinhole("client", "pcp")
+        path = self.root / "native-pinhole.json"
+        facts = json.loads(path.read_text())
+        facts["deletedAtNs"] = 221_000_500_000
+        path.write_text(json.dumps(facts))
+        self.assertTrue(self.prove(case)["pinhole"]["nativeDeletionVerified"])
+        proof = VERIFY.wait_for_native_pinhole_delete(case, [self.capture, self.gateway_capture], self.root)
+        self.assertTrue(proof["nativePinholeDeleteObserved"])
+
     def test_native_ipv6_cannot_substitute_independent_probe_for_native_wire_controls(self):
         case = self._native_pinhole("client", "pcp")
         self.gateway_capture.write_bytes(timed_pcap([]))
@@ -573,8 +695,24 @@ class NativeEvidence(unittest.TestCase):
         original = next(packet for packet in captured if packet.source[0] == VERIFY.CLIENT6 and packet.payload)
         captured.append(VERIFY.TcpPacket(original.timestamp_ns + 1, original.source, original.destination,
             original.sequence, original.flags, bytes([original.payload[0] ^ 1]) + original.payload[1:]))
-        with self.assertRaisesRegex(VERIFY.VerificationError, "conflicting TCP retransmissions"):
+        for live in (False, True):
+            with self.subTest(live=live), self.assertRaisesRegex(VERIFY.VerificationError, "conflicting TCP retransmissions"):
+                VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1", live=live)
+
+    def test_live_delete_observer_waits_for_complete_http_ack_without_weakening_final_capture(self):
+        self._native_pinhole("client", "igd")
+        captured = list(VERIFY.read_capture(self.gateway_capture).tcp)
+        index = next(index for index, packet in enumerate(captured)
+                     if packet.source[0] == "2001:db8:2::1" and packet.payload)
+        original = captured[index]
+        captured[index] = VERIFY.TcpPacket(original.timestamp_ns, original.source, original.destination,
+            original.sequence, original.flags, original.payload[:-5])
+        self.assertEqual(len(VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1", live=True)), 1)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "incomplete body"):
             VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1")
+        captured.append(VERIFY.TcpPacket(original.timestamp_ns + 1, original.source, original.destination,
+            original.sequence + len(original.payload) - 5, original.flags, original.payload[-5:]))
+        self.assertEqual(len(VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1", live=True)), 2)
 
     def test_native_igd_http_rejects_missing_bytes_in_a_successful_control_stream(self):
         self._native_pinhole("client", "igd")
@@ -587,7 +725,7 @@ class NativeEvidence(unittest.TestCase):
         with self.assertRaisesRegex(VERIFY.VerificationError, "missing TCP bytes"):
             VERIFY.gateway_http(captured, VERIFY.CLIENT6, "2001:db8:2::1")
 
-    def _native_pinhole(self, role, protocol, renewal_nonce=b"n" * 12):
+    def _native_pinhole(self, role, protocol, renewal_nonce=b"n" * 12, reverse_cid=b"s" * 8):
         case = f"ipv6-{role}-{protocol}"
         local = VERIFY.CLIENT6 if role == "client" else VERIFY.DAEMON6
         gateway = "2001:db8:2::1" if role == "client" else "2001:db8:1::1"
@@ -596,15 +734,18 @@ class NativeEvidence(unittest.TestCase):
         self.write_capture([ipv6_udp(client, daemon, request(b"c" * 12, "c")),
                             ipv6_udp(daemon, client, response(b"c" * 12, client)),
                             ipv6_udp(daemon, client, request(b"d" * 12, "d")),
-                            ipv6_udp(client, daemon, quic()), ipv6_udp(daemon, client, quic())])
+                            ipv6_udp(client, daemon, quic()),
+                            ipv6_udp(daemon, client, quic(b"s" * 8, b"d" * 8))])
         peer_records = [(100_000_000_000 + index * 1_000_000, frame)
                         for index, frame in enumerate([
                             ipv6_udp(client, daemon, request(b"c" * 12, "c")),
                             ipv6_udp(daemon, client, response(b"c" * 12, client)),
                             ipv6_udp(daemon, client, request(b"d" * 12, "d")),
-                            ipv6_udp(client, daemon, quic()), ipv6_udp(daemon, client, quic())])]
+                            ipv6_udp(client, daemon, quic()),
+                            ipv6_udp(daemon, client, quic(b"s" * 8, b"d" * 8))])]
         peer_records += [(220_000_000_000, ipv6_udp(client, daemon, b"\x40" + b"d" * 8 + bytes(24))),
-                         (220_001_000_000, ipv6_udp(daemon, client, b"\x40" + b"s" * 8 + bytes(24)))]
+                         (220_001_000_000, ipv6_udp(daemon, client, b"\x40" + reverse_cid + bytes(24)))]
+        self.peer_records = peer_records
         self.capture.write_bytes(timed_pcap(peer_records))
         (self.root / "capture.stderr").write_text("7 packets captured\n0 packets dropped by kernel\n")
         self._write_lifecycle({})
@@ -768,6 +909,17 @@ class NativeEvidence(unittest.TestCase):
             path = self.root / f"{role}-conntrack.txt"
             path.write_text(path.read_text().replace("[ASSURED]", ""))
         self.assertEqual(self.prove()["outcome"], "direct")
+
+    def test_recovered_live_checkpoint_retains_both_nat_proofs_before_flow_clear(self):
+        self.write_capture(valid_frames())
+        for role in ("client", "daemon"):
+            current = self.root / f"{role}-conntrack.txt"
+            (self.root / f"recovered-{role}-conntrack.txt").write_text(current.read_text())
+            current.write_text("")
+        self.assertEqual(self.prove()["outcome"], "direct")
+        (self.root / "recovered-daemon-conntrack.txt").write_text("")
+        with self.assertRaisesRegex(VERIFY.VerificationError, "daemon: selected peer tuple"):
+            self.prove()
 
     def test_unreplied_mapping_cannot_correlate_a_checked_carrier(self):
         self.write_capture(valid_frames())

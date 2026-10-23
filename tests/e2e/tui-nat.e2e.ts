@@ -191,6 +191,7 @@ test('native traversal carries an authenticated terminal across the configured N
       await appendOnce(client, file, lines, 'during-network-change');
       await waitForPathTransition(client, since, 'Direct', 30_000);
       await floodAndSee(client, `nat-recovered-${process.pid}`, 40);
+      await captureEvidence('recovered');
       expect(readFileSync(file, 'utf8').trim().split('\n')).toEqual(lines);
     }
     if (topology === 'client-lease-pcp') {

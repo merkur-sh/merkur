@@ -268,6 +268,28 @@ def wait_for_inner_lease_rejection(case: str, captures: list[Path]) -> dict[str,
         time.sleep(min(0.05, remaining))
 
 
+def wait_for_native_pinhole_delete(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
+    require(case in IPV6_PINHOLE_CASES, "native pinhole delete observation requires its IPv6 topology")
+    facts = json.loads((state / "native-pinhole.json").read_text())
+    require(facts.get("case") == case and isinstance(facts.get("deletedAtNs"), int),
+            "native pinhole delete observation requires the actual kernel deletion first")
+    address, port, udp = pinhole_tuple(facts["acquiredRule"])
+    require(udp and address == facts.get("local") and isinstance(port, int), "invalid native pinhole binding")
+    deadline = time.monotonic() + 30
+    while True:
+        packets, tcp = [], []
+        for path in captures:
+            capture = read_capture(path, live=True)
+            packets.extend(capture.packets)
+            tcp.extend(capture.tcp)
+        controls = captured_pinhole_controls(case, packets, tcp, address, port, live=True)
+        if matching_pinhole_delete(controls, facts["deletedAtNs"]):
+            return {"case": case, "nativePinholeDeleteObserved": True}
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, "native pinhole deletion acknowledgement was not retained in the live capture")
+        time.sleep(min(0.05, remaining))
+
+
 def verify_capture_summary(path: Path, records: int) -> None:
     text = path.read_text()
     captured = re.findall(r"(?m)^(\d+) packets? captured\s*$", text)
@@ -358,7 +380,8 @@ def quic_long_header(payload: bytes) -> tuple[bytes, bytes] | None:
 
 def quic_packets(packets: list[Packet], case: str,
                  lifecycle: dict[str, Any] | None = None,
-                 gateway_pairs: dict[Pair, Pair] | None = None) -> list[Packet]:
+                 gateway_pairs: dict[Pair, Pair] | None = None,
+                 steady_authorities: dict[Pair, int] | None = None) -> list[Packet]:
     # A CID identifies the endpoint across a NAT source-port change. Keeping the
     # tuple out of this key detects migrated packets; admission below still
     # requires checks or the exact controlled migration's socket evidence.
@@ -367,6 +390,9 @@ def quic_packets(packets: list[Packet], case: str,
     migration = rebind_pairs(lifecycle) if lifecycle is not None and "portRebind" in lifecycle else None
     migration_client_seen = False
     gateway_seen: set[Pair] = set()
+    steady_server_ids: dict[Pair, set[bytes]] = defaultdict(set)
+    steady_client_ids: dict[Pair, set[bytes]] = defaultdict(set)
+    steady_seen: set[Pair] = set()
     for packet in sorted(packets, key=lambda value: value.timestamp_ns):
         pair = oriented_pair(packet, case)
         if pair is None:
@@ -378,6 +404,12 @@ def quic_packets(packets: list[Packet], case: str,
                 connection_ids[packet.destination[0]].add(destination_id)
             if source_id:
                 connection_ids[packet.source[0]].add(source_id)
+            if (steady_authorities is not None and pair in steady_authorities
+                    and packet.timestamp_ns >= steady_authorities[pair] and source_id):
+                if packet.source == pair[1]:
+                    steady_client_ids[pair].add(source_id)
+                elif destination_id in steady_client_ids[pair]:
+                    steady_server_ids[pair].add(source_id)
             result.append(packet)
         elif (len(packet.payload) >= 21 and packet.payload[0] & 0x80 == 0
               and any(packet.payload[1:].startswith(connection_id)
@@ -389,6 +421,10 @@ def quic_packets(packets: list[Packet], case: str,
             if (gateway_pairs is not None and pair in gateway_pairs and packet.source == pair[1]
                     and lifecycle is not None and packet.timestamp_ns >= lifecycle["gatewayRebootStartedAtNs"]):
                 gateway_seen.add(pair)
+            if (steady_authorities is not None and pair in steady_authorities
+                    and packet.source == pair[1] and packet.timestamp_ns >= steady_authorities[pair]
+                    and any(packet.payload[1:].startswith(cid) for cid in steady_server_ids[pair])):
+                steady_seen.add(pair)
         elif (migration is not None and migration_client_seen and pair == migration[1]
               and packet.source == pair[0] and packet.timestamp_ns >= migration[3]
               and len(packet.payload) >= 21 and packet.payload[0] & 0x80 == 0
@@ -406,7 +442,60 @@ def quic_packets(packets: list[Packet], case: str,
             # The reset-scoped pair has exact old/new private-socket witnesses
             # and an old client-to-daemon CID. Its reverse CID can rotate.
             result.append(packet)
+        elif (pair in steady_seen and packet.source == pair[0] and len(packet.payload) >= 21
+              and packet.payload[0] & 0x80 == 0 and packet.payload[4:8] != COOKIE):
+            # The exact unchanged IPv6 socket pair completed its checks and a
+            # server handshake, then sent the server's known CID back. Its
+            # reverse CID is opaque; Direct sealed-terminal I/O is the separate
+            # application authentication witness.
+            result.append(packet)
     return result
+
+
+def check_authorities(packets: list[Packet], trips: list[RoundTrip], case: str) -> dict[Pair, int]:
+    result = {}
+    for trip in trips:
+        if trip.direction != "c":
+            continue
+        pair = oriented_pair(trip.request, case)
+        check = peer_check(trip.request.payload)
+        if pair is None or check is None:
+            continue
+        punches = [packet.timestamp_ns for packet in packets
+                   if packet.source == pair[0] and packet.destination == pair[1]
+                   and (punch := peer_check(packet.payload)) is not None
+                   and punch.request and punch.direction == "d" and punch.context == check.context]
+        if punches:
+            completed = max(trip.response.timestamp_ns, min(punches))
+            result[pair] = min(result.get(pair, completed), completed)
+    return result
+
+
+def verify_client_constructors(packets: list[Packet], trips: list[RoundTrip],
+                                quic: list[Packet], case: str) -> None:
+    seen = set()
+    for packet in sorted(quic, key=lambda value: value.timestamp_ns):
+        pair = oriented_pair(packet, case)
+        header = quic_long_header(packet.payload)
+        if pair is None or packet.source != pair[1] or header is None or (pair, header[1]) in seen:
+            continue
+        seen.add((pair, header[1]))
+        current = [(request.timestamp_ns, check.context) for request in packets
+                   if request.source == pair[1] and request.destination == pair[0]
+                   and request.timestamp_ns <= packet.timestamp_ns
+                   and (check := peer_check(request.payload)) is not None
+                   and check.request and check.direction == "c"]
+        context = max(current, default=(0, None))[1]
+        require(context is not None and any(trip.direction == "c"
+                and oriented_pair(trip.request, case) == pair and trip.response.timestamp_ns <= packet.timestamp_ns
+                and (check := peer_check(trip.request.payload)) is not None and check.context == context for trip in trips),
+                "fresh QUIC constructor preceded its current successful client check")
+        if case != "lan":
+            require(any(request.source == pair[0] and request.destination == pair[1]
+                        and request.timestamp_ns <= packet.timestamp_ns
+                        and (check := peer_check(request.payload)) is not None and check.request
+                        and check.direction == "d" and check.context == context for request in packets),
+                    "fresh QUIC constructor preceded its current daemon filter-opening check")
 
 
 def oriented_pair(packet: Packet, case: str) -> Pair | None:
@@ -755,7 +844,8 @@ def igd6_exchange(action: str, request: str, response: str, address: str, port: 
             "grantedLifetimeSeconds": int(lifetime)}
 
 
-def gateway_http(tcp: list[TcpPacket], local: str, gateway: str) -> list[dict[str, Any]]:
+def gateway_http(tcp: list[TcpPacket], local: str, gateway: str,
+                   live: bool = False) -> list[dict[str, Any]]:
     connections: list[dict[Endpoint, dict[str, Any]]] = []
     active: dict[tuple[Endpoint, Endpoint], dict[Endpoint, dict[str, Any]]] = {}
     for packet in sorted(tcp, key=lambda value: value.timestamp_ns):
@@ -825,12 +915,19 @@ def gateway_http(tcp: list[TcpPacket], local: str, gateway: str) -> list[dict[st
         if not clients or not servers:
             continue
         client, server = clients[0], servers[0]
-        request_bytes, sent, _ = stream(connection[client])
-        response_bytes, _, received = stream(connection[server])
-        if not request_bytes or not response_bytes:
-            continue
-        requests, responses = messages(request_bytes), messages(response_bytes)
-        require(len(requests) == len(responses), "gateway HTTP request/response counts differ")
+        try:
+            request_bytes, sent, _ = stream(connection[client])
+            response_bytes, _, received = stream(connection[server])
+            if not request_bytes or not response_bytes:
+                continue
+            requests, responses = messages(request_bytes), messages(response_bytes)
+            require(len(requests) == len(responses), "gateway HTTP request/response counts differ")
+        except VerificationError as error:
+            if live and str(error) in {
+                    "gateway HTTP capture has missing TCP bytes", "gateway HTTP capture has incomplete headers",
+                    "gateway HTTP capture has incomplete body", "gateway HTTP request/response counts differ"}:
+                continue
+            raise
         for (line, headers, request), (status, _, response) in zip(requests, responses):
             if not line.startswith("POST ") or "soapaction" not in headers:
                 continue
@@ -1130,6 +1227,34 @@ def verify_gateway_preflight(state: Path, role: str, protocol: str, address: str
                 "IGD preflight has no actual short-lived kernel pinhole expiry")
 
 
+def captured_pinhole_controls(case: str, packets: list[Packet], tcp: list[TcpPacket],
+                               address: str, port: int, live: bool = False) -> list[dict[str, Any]]:
+    _, role, protocol = case.split("-")
+    gateway = "2001:db8:2::1" if role == "client" else "2001:db8:1::1"
+    if protocol == "pcp":
+        return gateway_pcp(packets, address, gateway, port)
+    controls = []
+    for fact in gateway_http(tcp, address, gateway, live=live):
+        try:
+            proof = igd6_exchange(fact["action"], fact["requestBody"], fact["responseBody"],
+                                  address, port, fact["source"][0])
+        except VerificationError:
+            continue
+        controls.append({**proof, **{key: fact[key] for key in ("sentAtNs", "receivedAtNs", "action")}})
+    return controls
+
+
+def matching_pinhole_delete(controls: list[dict[str, Any]], deleted_at: int) -> bool:
+    grants = [fact for fact in controls if fact["grantedLifetimeSeconds"] > 0
+              and fact.get("action", "AddPinhole") == "AddPinhole"]
+    if not grants:
+        return False
+    grant = min(grants, key=lambda fact: fact["receivedAtNs"])
+    return any(fact["grantedLifetimeSeconds"] == 0 and fact["identity"] == grant["identity"]
+               and grant["receivedAtNs"] <= fact["sentAtNs"] <= deleted_at
+               and fact["receivedAtNs"] >= fact["sentAtNs"] for fact in controls)
+
+
 def verify_native_pinhole(case: str, packets: list[Packet], tcp: list[TcpPacket], quic: list[Packet],
                           winners: list[tuple[Pair, list[RoundTrip]]], state: Path) -> dict[str, Any]:
     _, role, protocol = case.split("-")
@@ -1157,17 +1282,7 @@ def verify_native_pinhole(case: str, packets: list[Packet], tcp: list[TcpPacket]
     require(admitted > 0, "actual native traffic never used the required gateway pinhole")
     require(not matching_pinholes(current, address, port) and isinstance(facts.get("deletedAtNs"), int),
             "native owner did not delete its actual kernel pinhole on shutdown")
-    if protocol == "pcp":
-        controls = gateway_pcp(packets, address, gateway, port)
-    else:
-        controls = []
-        for fact in gateway_http(tcp, address, gateway):
-            try:
-                proof = igd6_exchange(fact["action"], fact["requestBody"], fact["responseBody"],
-                                      address, port, fact["source"][0])
-            except VerificationError:
-                continue  # Other preflight/native sockets have their own exact controls.
-            controls.append({**proof, **{key: fact[key] for key in ("sentAtNs", "receivedAtNs", "action")}})
+    controls = captured_pinhole_controls(case, packets, tcp, address, port)
     grants = [fact for fact in controls if fact["grantedLifetimeSeconds"] > 0
               and (protocol == "pcp" or fact.get("action") == "AddPinhole")]
     require(bool(grants), "native pinhole has no successful real control grant in its LAN capture")
@@ -1175,10 +1290,8 @@ def verify_native_pinhole(case: str, packets: list[Packet], tcp: list[TcpPacket]
     first_quic = min(packet.timestamp_ns for packet in quic)
     require(grant["receivedAtNs"] <= min(first_quic, facts["acquiredAtNs"]),
             "native direct QUIC preceded its actual gateway pinhole grant")
-    deleted = [fact for fact in controls if fact["grantedLifetimeSeconds"] == 0
-               and fact["identity"] == grant["identity"] and fact["sentAtNs"] >= grant["receivedAtNs"]
-               and fact["receivedAtNs"] <= facts["deletedAtNs"]]
-    require(bool(deleted), "native pinhole deletion has no matching successful real control request")
+    require(matching_pinhole_delete(controls, facts["deletedAtNs"]),
+            "native pinhole deletion has no matching successful real control request")
     if protocol == "pcp":
         renewals = [fact for fact in controls if fact["grantedLifetimeSeconds"] > 0
                     and fact["identity"] == grant["identity"] and fact["sentAtNs"] > grant["receivedAtNs"]
@@ -1496,7 +1609,8 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
             require(bool(peer_packets), "no peer traffic followed the native-session phase boundary")
     trips, request_count = round_trips(peer_packets, case)
     gateway_pairs = gateway_migrations(peer_packets, trips, case, lifecycle, state)
-    quic = quic_packets(peer_packets, case, lifecycle, gateway_pairs)
+    steady = check_authorities(peer_packets, trips, case) if case in IPV6_PINHOLE_CASES else None
+    quic = quic_packets(peer_packets, case, lifecycle, gateway_pairs, steady)
     if case == "ipv6-pdf" or case in IPV6_PINHOLE_CASES:
         v4_packets = [packet for packet in packets if oriented_pair(packet, "eim-pdf") is not None
                       and (lifecycle is None or "nativeSessionsStartedAtNs" not in lifecycle
@@ -1573,6 +1687,7 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
         if sent_by_daemon and sent_by_client:
             winners.append((pair, candidate_trips))
     require(bool(winners), "no checked peer tuple carries bidirectional QUIC")
+    verify_client_constructors(peer_packets, trips, quic, case)
     if case in IPV6_PINHOLE_CASES:
         summary["pinhole"] = verify_native_pinhole(case, packets, tcp, quic, winners, state)
     if lifecycle is not None:
@@ -1682,10 +1797,11 @@ def main() -> int:
     parser.add_argument("--wait-for-rebind-context", action="store_true")
     parser.add_argument("--wait-for-port-rebind", action="store_true")
     parser.add_argument("--wait-for-inner-lease-rejection", action="store_true")
+    parser.add_argument("--wait-for-native-pinhole-delete", action="store_true")
     args = parser.parse_args()
     try:
         require(sum((args.wait_for_rebind_context, args.wait_for_port_rebind,
-                     args.wait_for_inner_lease_rejection)) <= 1,
+                     args.wait_for_inner_lease_rejection, args.wait_for_native_pinhole_delete)) <= 1,
                 "select one live evidence observer")
         if args.wait_for_rebind_context:
             summary = wait_for_rebind_context(args.case, args.capture, args.state)
@@ -1693,6 +1809,8 @@ def main() -> int:
             summary = wait_for_port_rebind(args.case, args.capture, args.state)
         elif args.wait_for_inner_lease_rejection:
             summary = wait_for_inner_lease_rejection(args.case, args.capture)
+        elif args.wait_for_native_pinhole_delete:
+            summary = wait_for_native_pinhole_delete(args.case, args.capture, args.state)
         else:
             summary = verify(args.case, args.capture, args.state)
     except (OSError, ValueError, VerificationError) as error:

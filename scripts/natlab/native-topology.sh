@@ -342,6 +342,14 @@ table inet v6_gateway_protocol {
   }
 }
 NFT
+    if [[ $protocol == igdv6 ]]; then
+      # Debian 2.3.9 opens its IPv6 PCP socket even when enable_pcp_pmp=no.
+      # Enforce this case's real IGDv2-only service boundary in the CPE input path.
+      ip netns exec "$namespace" nft -f - <<'NFT'
+add counter inet v6_gateway_protocol pcp_disabled { }
+insert rule inet v6_gateway_protocol input udp dport 5351 counter name pcp_disabled drop
+NFT
+    fi
   fi
   ip netns exec "$namespace" nft -f - <<'NFT'
 add rule inet filter forward iifname "lan0" accept

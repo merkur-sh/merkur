@@ -944,8 +944,9 @@ admits the browser's first datagram. The daemon asks for a pinhole with PCP `MAP
 with IGDv2 `WANIPv6FirewallControl:1 AddPinhole`, probed together the same way. `scripts/natlab`
 (`bun run test:natlab`) runs real miniupnpd gateways in isolated Linux namespaces. Its IPv4
 mapping cases cover every protocol on, UPnP only, NAT-PMP and PCP silently dropped, and double
-NAT. Its native IPv6 cases require a control-driven kernel pinhole on either peer before checked
-QUIC and sealed terminal traffic, then observe deletion when the native owner closes. The PCPv6
+NAT. Its native IPv6 cases admit only the selected control protocol and require a control-driven
+kernel pinhole on either peer before checked QUIC and sealed terminal traffic. Captures retain the
+matching native grant and acknowledged deletion when the native owner closes. The PCPv6
 cases wait for native renewal and post-renewal traffic; IGDv2 automatic renewal is tested through
 the production maintenance worker with an advanced test clock. Independent gateway preflights
 exercise acquisition, renewal, deletion and expiry separately from native session evidence.

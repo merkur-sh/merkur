@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -102,6 +103,30 @@ class NativeTopologyStateTests(unittest.TestCase):
                                              addresses=addresses)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn('client-miniupnpd.conf', files)
+
+    def test_igd_only_gateway_blocks_real_pcp_input_without_blocking_ssdp_or_soap(self):
+        addresses = [{'addr_info': [{'family': 'inet', 'local': '198.51.100.2'}]}]
+        for protocol in ('igdv6', 'pcpv6'):
+            with self.subTest(protocol=protocol):
+                result, files = self.execute(
+                    f'miniupnpd client merkur-natlab-client-cpe 2 {protocol}\n', addresses=addresses)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                input_rules = [shlex.split(line)[5:] for line in files['emitted-nft'].splitlines()
+                               if line.startswith('insert rule inet v6_gateway_protocol input ')]
+                if protocol == 'pcpv6':
+                    self.assertEqual(input_rules, [])
+                    continue
+                self.assertEqual(len(input_rules), 1)
+                predicate = input_rules[0]
+                self.assertEqual(predicate[0], 'udp')
+                self.assertEqual(predicate[1], 'dport')
+                blocked_port = int(predicate[2])
+                self.assertEqual(predicate[3:], ['counter', 'name', 'pcp_disabled', 'drop'])
+                # The emitted INPUT predicate has no address or family restriction:
+                # locally owned anycast and unicast PCP are equally disabled.
+                self.assertEqual(blocked_port, 5351)
+                self.assertNotEqual(blocked_port, 1900, 'IPv6 SSDP must remain available')
+                self.assertNotEqual(predicate[0], 'tcp', 'SOAP must remain available')
 
 
 if __name__ == '__main__':

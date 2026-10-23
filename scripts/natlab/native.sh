@@ -117,24 +117,28 @@ for topology in "${cases[@]}"; do
     if [ "$role" = inner ]; then role=client; fi
     gateway_capture "$role" ip lease-gateway "$directory"
   fi
+  verification_args=(--case "$topology" --capture "$directory/wan.pcap"
+    --peer-capture "$directory/client.pcap" --state "$directory")
+  if [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
+    verification_args+=(--peer-capture "$directory/v6-gateway.pcap")
+  elif [[ "$topology" == *-lease-* || "$topology" == inner-lease ]]; then
+    verification_args+=(--peer-capture "$directory/lease-gateway.pcap")
+  fi
   status=0
   bun run "$LAB_DIR/run-native.ts" > >(tee "$directory/session.log") 2> >(tee "$directory/session.stderr" >&2) || status=$?
   if [ "$status" -eq 0 ] && [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
     python3 "$LAB_DIR/native-v6-gateway.py" --wait-native-deleted "$role" \
       "$directory/native-pinhole.json" || status=$?
+    if [ "$status" -eq 0 ]; then
+      python3 "$LAB_DIR/verify-native.py" "${verification_args[@]}" \
+        --wait-for-native-pinhole-delete || status=$?
+    fi
   fi
   bash "$LAB_DIR/native-topology.sh" evidence "$directory"
   stop_children
   if [ "$status" -eq 0 ]; then
-    control_capture=()
-    if [[ "$topology" == ipv6-*-pcp || "$topology" == ipv6-*-igd ]]; then
-      control_capture=(--peer-capture "$directory/v6-gateway.pcap")
-    elif [[ "$topology" == *-lease-* || "$topology" == inner-lease ]]; then
-      control_capture=(--peer-capture "$directory/lease-gateway.pcap")
-    fi
-    python3 "$LAB_DIR/verify-native.py" --case "$topology" --capture "$directory/wan.pcap" \
-      --peer-capture "$directory/client.pcap" ${control_capture[@]+"${control_capture[@]}"} \
-      --state "$directory" | tee "$directory/verified.json" || status=$?
+    python3 "$LAB_DIR/verify-native.py" "${verification_args[@]}" \
+      | tee "$directory/verified.json" || status=$?
   fi
   bash "$LAB_DIR/native-topology.sh" teardown
   if [ "$status" -ne 0 ]; then

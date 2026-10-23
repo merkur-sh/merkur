@@ -62,6 +62,13 @@ bun() {
 python3() {
   case "$1" in
     "$LAB_DIR/verify-native.py")
+      for argument in "$@"; do
+        if [[ "$argument" == --wait-for-native-pinhole-delete ]]; then
+          fixture_record wire-delete
+          [[ "$NATLAB_FIXTURE_FAILURE" != wire-delete ]] || return 36
+          return 0
+        fi
+      done
       fixture_record verifier
       if [[ "$NATLAB_FIXTURE_FAILURE" == mixed && "$fixture_current" == edm-pdf ]]; then
         return 23
@@ -133,6 +140,13 @@ class NativeAggregationTests(unittest.TestCase):
         self.assertEqual(evidence, set(cases))
         self.assertEqual([case for event, case in events if event == 'preflight'], cases[:2])
         self.assertEqual([case for event, case in events if event == 'native-delete'], cases[:2])
+        self.assertEqual([case for event, case in events if event == 'wire-delete'], cases[:2])
+        for case in cases[:2]:
+            kernel_deleted = events.index(('native-delete', case))
+            wire_captured = events.index(('wire-delete', case))
+            stopped = events.index(('stop', case), wire_captured)
+            self.assertLess(kernel_deleted, wire_captured)
+            self.assertLess(wire_captured, stopped)
         self.assertEqual([case for event, case in events if event == 'verifier'], cases)
         self.assertIn('NATIVE_NATLAB=PASS', result.stdout)
         self.assertNotIn('NATIVE_NATLAB=FAIL', result.stderr)
@@ -145,6 +159,18 @@ class NativeAggregationTests(unittest.TestCase):
         self.assertEqual(evidence, set(cases))
         self.assertEqual([case for event, case in events if event == 'verifier'], ['lan'])
         self.assertIn('NATIVE_NATLAB_CASE=FAIL case=ipv6-client-pcp status=35', result.stderr)
+        self.assertIn('NATIVE_NATLAB=FAIL cases=ipv6-client-pcp', result.stderr)
+
+    def test_missing_captured_delete_acknowledgment_fails_the_case_before_capture_stop(self):
+        cases = ['ipv6-client-pcp', 'lan']
+        result, events, evidence = self.execute('wire-delete', cases)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual([case for event, case in events if event == 'setup'], cases)
+        self.assertEqual(evidence, set(cases))
+        captured = events.index(('wire-delete', cases[0]))
+        self.assertLess(captured, events.index(('stop', cases[0]), captured))
+        self.assertEqual([case for event, case in events if event == 'verifier'], ['lan'])
+        self.assertIn('NATIVE_NATLAB_CASE=FAIL case=ipv6-client-pcp status=36', result.stderr)
         self.assertIn('NATIVE_NATLAB=FAIL cases=ipv6-client-pcp', result.stderr)
 
     def test_infrastructure_errors_abort_before_the_next_case_and_run_cleanup(self):
