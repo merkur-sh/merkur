@@ -7426,6 +7426,9 @@ MODULES = {
             "//:tsconfig.base.json.module",
         ],
     },
+    "tools/bazel": {
+        "sources.bzl": [],
+    },
 }
 
 # The preloads `bunfig.toml` names, which every Bun test loads first.

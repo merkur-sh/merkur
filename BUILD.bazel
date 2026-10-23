@@ -2,7 +2,7 @@ load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED", "module_targets")
 load("//tools/bazel:modules.bzl", "PRELOADS")
 load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "THIRD_PARTY_DEPENDENCIES")
-load("//tools/bazel/bun:bun.bzl", "repo_check", "type_checks")
+load("//tools/bazel/bun:bun.bzl", "repo_check", "slop_checks", "type_checks")
 load("//tools/bazel/rust:clippy.bzl", "clippy_manifest")
 
 npm_link_all_packages(name = "node_modules")
@@ -79,15 +79,10 @@ filegroup(
     visibility = ["//visibility:public"],
 )
 
-# The anti-slop gate lints every file of a fresh checkout, about 115 CPU-seconds, which CI's
-# runners spread over 85 to more than 300 seconds beside the other tests.
-_GATE_SIZES = {"check-slop": "large"}
-
 # The static gates, each the `package.json` script of its name over the whole checkout.
 [repo_check(
     name = gate.replace("-", "_"),
     script = gate.replace("check-", "check:"),
-    size = _GATE_SIZES.get(gate, "medium"),
 ) for gate in [
     "check-bazel-sources",
     "check-dead",
@@ -95,7 +90,6 @@ _GATE_SIZES = {"check-slop": "large"}
     "check-latency-boundaries",
     "check-lint",
     "check-ratchet",
-    "check-slop",
     "check-span-attributes",
     "check-span-lifetimes",
 ]]
@@ -104,6 +98,17 @@ _GATE_SIZES = {"check-slop": "large"}
 type_checks(
     name = "check_types",
     script = "//scripts:check-types.ts.module",
+)
+
+# `check:slop`, one test per Bazel package over the package's own files.
+slop_checks(
+    name = "check_slop",
+    data = [
+        "biome.slop.json",
+        "lint-baselines/anti-slop.json",
+        "//tools/bazel:sources.bzl.module",
+    ] + glob(["tools/biome/slop/**"]),
+    script = "//scripts:check-slop.ts.module",
 )
 
 # `rust:lint`: Clippy over every first-party Rust target, each package's report cached per crate,

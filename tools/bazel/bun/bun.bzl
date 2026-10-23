@@ -2,7 +2,7 @@
 
 load("@aspect_rules_js//js:libs.bzl", "js_lib_helpers")
 load("//tools/bazel:modules.bzl", "MODULES", "TYPE_PROJECTS")
-load("//tools/bazel:sources.bzl", "SYMLINKS", "WORKSPACE_DEPENDENCIES", "WORKSPACE_LINKS")
+load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "WORKSPACE_DEPENDENCIES", "WORKSPACE_LINKS")
 load("//tools/bazel/playwright:extensions.bzl", "CHROMIUM_REVISION")
 
 def _bun_binary_impl(ctx):
@@ -327,6 +327,32 @@ def type_checks(name, script):
             name = target,
             args_ = ["run", "scripts/check-types.ts", "--project", project],
             data = [script, "//:test_node_modules"] + inputs,
+            workspace = _WORKSPACE,
+        )
+        targets.append(":" + target)
+    native.test_suite(name = name, tests = targets)
+
+def slop_checks(name, script, data):
+    """`check:slop` as one test per Bazel package, `<name>/<package>/BUILD.bazel`.
+
+    Each runs `script --package <directory>` over a checkout of the package's own files and the
+    gate's rules and baseline, so a package's findings are measured again only when one of its
+    files, a rule or the baseline changes. The anti-slop rules read one file at a time.
+
+    Args:
+      name: a suite of every package's test.
+      script: the module target of `scripts/check-slop.ts`.
+      data: the rules, the baseline and the package list the gate reads.
+    """
+    targets = []
+    for package in [""] + [label.removeprefix("//") for label in PACKAGES]:
+        target = "%s/%sBUILD.bazel" % (name, package + "/" if package else "")
+        bun_test(
+            name = target,
+            args_ = ["run", "scripts/check-slop.ts", "--package", package or "."],
+            data = [script, "//%s:%s" % (package, "files" if package else "root_files")] +
+                   data + ["//:test_node_modules"],
+            git = True,
             workspace = _WORKSPACE,
         )
         targets.append(":" + target)

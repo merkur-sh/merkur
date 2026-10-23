@@ -65,7 +65,9 @@ checkout of the whole repository that is a Git repository, so the gates see what
 as a working tree does. `//:check_types` is instead a suite of one test per TypeScript
 project (`//:check_types/apps/web/tsconfig.json`), each over the files that project's `tsc`
 lists (`TYPE_PROJECTS` in `tools/bazel/modules.bzl`), so only the projects a change reaches
-check again. `//:static_gates` is all of them; `bun run check` is them plus
+check again, and `//:check_slop` is one test per Bazel package
+(`//:check_slop/apps/web/BUILD.bazel`, `//:check_slop/BUILD.bazel` for the root's), each over
+that package's own files against the baseline entries it owns. `//:static_gates` is all of them; `bun run check` is them plus
 `check:protocol`. CI runs them on every push inside `bazel test //...`:
 
 ```

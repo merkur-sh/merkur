@@ -182,11 +182,8 @@ class Graph {
       throw new Error(`tsc --listFilesOnly -p ${project}: ${listing.stderr.toString()}`);
     const files = new Set<string>();
     for (const listed of listing.stdout.toString().split('\n').filter(Boolean)) {
-      const place = this.#place(listed);
-      if (place === 'nowhere')
-        this.errors.push(`${project}: tsc reads ${listed}, no file Git sees`);
-      else if (place !== 'installed' && 'target' in place) targets.add(place.target);
-      else if (place !== 'installed') files.add(place.file);
+      const file = this.#fileAt(listed, targets, `${project}: tsc reads ${listed}`);
+      if (file !== undefined) files.add(file);
     }
     for (const file of [...files]) {
       const manifest = this.#nearest(file, 'package.json');
@@ -227,13 +224,27 @@ class Graph {
       .imports.map(({ path: specifier }): Reference => ({ kind: 'specifier', specifier }));
     for (const reference of [...imports, ...namedReferences(file, source)]) {
       for (const [name, target] of this.#targets(reference, absolute, targets)) {
-        const place = target === undefined ? 'nowhere' : this.#place(target);
-        if (place === 'nowhere') this.errors.push(`${file}: ${name} names no file Git sees`);
-        else if (place !== 'installed' && 'target' in place) targets.add(place.target);
-        else if (place !== 'installed' && place.file !== file) loaded.push(place.file);
+        const named = this.#fileAt(
+          target,
+          targets,
+          `${file}: ${name} names ${target ?? 'nothing'}`,
+        );
+        if (named !== file) loaded.push(named);
       }
     }
     return loaded.filter(Predicate.isNotUndefined);
+  }
+
+  /**
+   * The file Git sees at `target`. A generated package goes in `targets` instead, installed code
+   * is no file of the checkout, and anything else is an error, which `reference` names.
+   */
+  #fileAt(target: string | undefined, targets: Set<string>, reference: string): string | undefined {
+    const place = target === undefined ? 'nowhere' : this.#place(target);
+    if (place === 'nowhere') this.errors.push(`${reference}, no file Git sees`);
+    else if (place !== 'installed' && 'target' in place) targets.add(place.target);
+    else if (place !== 'installed') return place.file;
+    return undefined;
   }
 
   /** The absolute paths a reference from `absolute` names, by what it named them. */

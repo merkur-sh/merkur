@@ -11,6 +11,9 @@
  *   bun run check:slop --tighten         lower or drop entries to today's counts; never raises or adds one
  *   bun run check:slop --write-baseline  write the whole baseline from this tree; for adoption only,
  *                                        refused while a baseline exists
+ *   bun run scripts/check-slop.ts --package <directory>
+ *                                        one Bazel package's files against the entries it owns,
+ *                                        `.` for the root's; each test of `//:check_slop` is one
  *
  * A file or rule the baseline does not name is allowed no finding, so new code is held to every
  * rule. A count above its entry fails with each finding and the rule's own message, which is the
@@ -627,6 +630,34 @@ async function checkStaged(): Promise<number> {
   return conclude(judge(GATE, 'staged files', measured, baseline, scope));
 }
 
+/** The Bazel packages, as `scripts/bazel-sources.ts` lists them in `tools/bazel/sources.bzl`. */
+function bazelPackageDirectories(): string[] {
+  const sources = readFileSync(path.join(ROOT, 'tools/bazel/sources.bzl'), 'utf8');
+  const list = /^PACKAGES = \[\n([^\]]*)\]/m.exec(sources)?.[1];
+  if (list === undefined) throw new UnverifiedError('tools/bazel/sources.bzl lists no PACKAGES');
+
+  return [...list.matchAll(/"\/\/([^"]+)"/g)].flatMap(([, directory]) =>
+    directory === undefined ? [] : [directory],
+  );
+}
+
+/**
+ * One Bazel package's own files against the baseline entries it owns, `.` naming the root's:
+ * what one test of `//:check_slop` answers for. A file belongs to the nearest package above it.
+ */
+async function checkPackage(directory: string): Promise<number> {
+  const packages = bazelPackageDirectories().sort((a, b) => b.length - a.length);
+  const own = directory === '.' ? '' : directory;
+  const owned = (file: string) =>
+    (packages.find((candidate) => file.startsWith(`${candidate}/`)) ?? '') === own;
+  const measured = await measure((await treeFiles()).filter(owned), false);
+  const baseline = parseBaseline(GATE, readFileSync(path.join(ROOT, GATE.baseline), 'utf8'));
+
+  return conclude(
+    judge(GATE, `package ${directory}`, measured, baseline, { inScope: owned, exists: onDisk }),
+  );
+}
+
 async function run(mode: Mode): Promise<number> {
   if (mode === 'staged') return checkStaged();
 
@@ -640,5 +671,12 @@ const MODES = new Map<string, Mode>([
 ]);
 
 if (import.meta.main) {
-  await main(GATE, () => run(selectMode(process.argv.slice(2), MODES, 'check')));
+  const [first, directory, ...rest] = process.argv.slice(2);
+  await main(GATE, () => {
+    if (first !== '--package') return run(selectMode(process.argv.slice(2), MODES, 'check'));
+    if (directory === undefined || rest.length > 0)
+      throw new UnverifiedError('--package takes one package directory, or . for the root');
+
+    return checkPackage(directory);
+  });
 }
