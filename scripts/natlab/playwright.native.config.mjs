@@ -4,6 +4,8 @@ import { chromium, defineConfig } from '@playwright/test';
 import edge from '../../playwright.edge.config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const databasePath = path.resolve(root, edge.webServer.env.PW_E2E_DB_PATH);
+process.env.PW_E2E_DB_PATH = databasePath;
 
 export default defineConfig({
   ...edge,
@@ -11,6 +13,12 @@ export default defineConfig({
   testMatch: ['**/tui-nat.e2e.ts'],
   globalSetup: path.join(root, 'tests/e2e/global-setup.ts'),
   globalTeardown: path.join(root, 'tests/e2e/global-teardown.ts'),
+  outputDir: path.resolve(root, edge.outputDir),
+  webServer: {
+    ...edge.webServer,
+    cwd: root,
+    env: { ...edge.webServer.env, PW_E2E_DB_PATH: databasePath },
+  },
   workers: 1,
   timeout: 120_000,
   use: {

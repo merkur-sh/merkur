@@ -8,8 +8,68 @@ import { runTestProcess } from '../test-process';
 import { playwrightCli } from './playwright-cli';
 
 const packageVersion = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.String }));
+const root = path.resolve(import.meta.dir, '../..');
+const nativeConfiguration = path.join(import.meta.dir, 'playwright.native.config.mjs');
+const decodeConfiguration = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      globalSetup: Schema.Array(Schema.String),
+      globalTeardown: Schema.Array(Schema.String),
+      projects: Schema.Array(
+        Schema.Struct({
+          testDir: Schema.String,
+          outputDir: Schema.String,
+          snapshotDir: Schema.String,
+          baseURL: Schema.String,
+          executablePath: Schema.String,
+        }),
+      ),
+      servers: Schema.Array(
+        Schema.Struct({ command: Schema.String, cwd: Schema.String, databasePath: Schema.String }),
+      ),
+    }),
+  ),
+);
 const node = Bun.which('node');
 if (node === null) throw new Error('the bootstrap proof requires Node');
+
+async function loadedConfiguration() {
+  const loaded = await runTestProcess(
+    [
+      node,
+      '--input-type=module',
+      '-e',
+      `import { createRequire } from 'node:module';
+const { configLoader: { loadConfigFromFile } } = createRequire(process.argv[1])('playwright/lib/common');
+const loaded = await loadConfigFromFile(process.argv[2], {});
+process.stdout.write(JSON.stringify({
+  globalSetup: loaded.globalSetups,
+  globalTeardown: loaded.globalTeardowns,
+  projects: loaded.config.projects.map(project => ({
+    testDir: project.testDir, outputDir: project.outputDir, snapshotDir: project.snapshotDir,
+    baseURL: project.use.baseURL, executablePath: project.use.launchOptions.executablePath,
+  })),
+  servers: loaded.webServers.map(server => ({
+    command: server.command, cwd: server.cwd, databasePath: server.env.PW_E2E_DB_PATH,
+  })),
+}));`,
+      playwrightCli,
+      nativeConfiguration,
+    ],
+    {
+      cwd: import.meta.dir,
+      env: {
+        ...process.env,
+        PW_E2E_OUTPUT_DIR: 'test-results/native-config-proof',
+        PW_E2E_DB_PATH: 'data/native-config-proof.db',
+        PW_E2E_PORT: '24331',
+        PW_E2E_BROWSER: 'chromium',
+      },
+    },
+  );
+  expect(loaded.exitCode, loaded.stderr).toBe(0);
+  return decodeConfiguration(loaded.stdout);
+}
 
 async function bootstrap(nativeExit: number, cleanupExit: number, installExit = 0) {
   const directory = mkdtempSync(path.join(tmpdir(), 'merkur-natlab-bootstrap-'));
@@ -44,7 +104,7 @@ exec /bin/bash "$1" eim-pdf
         path.join(import.meta.dir, 'native-container.sh'),
       ],
       {
-        cwd: path.resolve(import.meta.dir, '../..'),
+        cwd: root,
         env: {
           ...process.env,
           MERKUR_NATLAB_UID: '1001',
@@ -64,6 +124,44 @@ exec /bin/bash "$1" eim-pdf
 }
 
 describe('native NAT-lab bootstrap', () => {
+  test('Playwright resolves the nested config paths and lists its real spec from the nested cwd', async () => {
+    const loaded = await loadedConfiguration();
+    expect(loaded.globalSetup).toEqual([path.join(root, 'tests/e2e/global-setup.ts')]);
+    expect(loaded.globalTeardown).toEqual([path.join(root, 'tests/e2e/global-teardown.ts')]);
+    expect(loaded.projects).toEqual([
+      {
+        testDir: path.join(root, 'tests/e2e'),
+        snapshotDir: path.join(root, 'tests/e2e'),
+        outputDir: path.join(root, 'test-results/native-config-proof'),
+        baseURL: 'http://127.0.0.1:24331',
+        executablePath: path.join(import.meta.dir, 'browser.sh'),
+      },
+    ]);
+    const listed = await runTestProcess(
+      [node, playwrightCli, 'test', '--config', nativeConfiguration, '--list'],
+      { cwd: import.meta.dir },
+    );
+    expect(listed.exitCode, listed.stderr).toBe(0);
+    expect(listed.stdout).toContain('Total: 5 tests in 1 file');
+  });
+
+  test('the inherited web server loads its actual entry from the canonical repository cwd', async () => {
+    const loaded = await loadedConfiguration();
+    expect(loaded.servers).toHaveLength(1);
+    for (const server of loaded.servers) {
+      expect(server.cwd).toBe(root);
+      expect(server.databasePath).toBe(path.join(root, 'data/native-config-proof.db'));
+      // Missing configuration stops before Redis or application startup. Reaching
+      // this exact guard proves the real command and all entry imports resolved.
+      const started = await runTestProcess(['/bin/bash', '-c', server.command], {
+        cwd: server.cwd,
+        env: { ...process.env, PW_E2E_PORT: '' },
+      });
+      expect(started.exitCode).not.toBe(0);
+      expect(started.stderr).toContain('PW_E2E_PORT must be set by the Playwright config');
+    }
+  });
+
   test('Node runs the CLI exported by the declared Playwright package', async () => {
     const packagePath = createRequire(import.meta.url).resolve('@playwright/test/package.json');
     const version = packageVersion(JSON.parse(readFileSync(packagePath, 'utf8'))).version;
