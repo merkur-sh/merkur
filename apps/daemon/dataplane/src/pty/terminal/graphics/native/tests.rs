@@ -1,6 +1,6 @@
 use super::*;
 use merkur_graphics::processing::DecodeRequest;
-use std::io::{Read, Write};
+use std::io::Write;
 
 async fn image(shared: &Shared) -> DecodedImage {
     let charge = Usage {
@@ -147,12 +147,13 @@ fn send_rights(stream: i32, marker: u8, descriptors: &[i32]) {
     assert_eq!(sent, 1);
 }
 
-#[test]
-fn malformed_or_surplus_ancillary_messages_close_every_received_right() {
+#[tokio::test]
+async fn malformed_or_surplus_ancillary_messages_close_every_received_right() {
     for (marker, count) in [(0, 1), (1, 2), (1, 253)] {
         let (sender, receiver) = std::os::unix::net::UnixStream::pair().unwrap();
-        let (mut observer, transferred) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (observer, transferred) = std::os::unix::net::UnixStream::pair().unwrap();
         observer.set_nonblocking(true).unwrap();
+        let mut observer = UnixStream::from_std(observer).unwrap();
         send_rights(
             sender.as_raw_fd(),
             marker,
@@ -161,8 +162,9 @@ fn malformed_or_surplus_ancillary_messages_close_every_received_right() {
         drop(transferred);
         assert!(receive_descriptor(receiver.as_raw_fd()).is_err());
         // EOF is an exact kernel proof that no received copy of the endpoint
-        // survives. A leaked right would return WouldBlock here.
-        assert_eq!(observer.read(&mut [0]).unwrap(), 0);
+        // survives. Wait for its readiness: WouldBlock before EOF is readable
+        // says nothing about whether another received copy survives.
+        assert_eq!(observer.read(&mut [0]).await.unwrap(), 0);
     }
 }
 
