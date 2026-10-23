@@ -125,6 +125,7 @@ fn older_process_cannot_read_a_replaced_delegation() {
         directory: directory.0.clone(),
         origin: record.profile.origin.clone(),
         delegation_id: record.profile.certificate.delegation_id.clone(),
+        current: Arc::default(),
     };
     publish(&directory.0, &record).unwrap();
     store.record().unwrap();
@@ -138,6 +139,32 @@ fn older_process_cannot_read_a_replaced_delegation() {
     assert_eq!(
         store.record().err().unwrap().kind(),
         io::ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn requests_take_the_token_this_process_holds_without_reading_the_store() {
+    let directory = Directory::new();
+    let store = Store {
+        directory: directory.0.clone(),
+        origin: "http://localhost:3000".into(),
+        delegation_id: "22222222-2222-4222-8222-222222222222".into(),
+        current: Arc::default(),
+    };
+    // A clone, as each request task holds one, reads the token this one cached.
+    let request = store.clone();
+    store.cache("held-access-token");
+    // No record exists: a read of the store would fail as signed out.
+    let token = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(CredentialSource::current(&request))
+        .unwrap();
+    assert_eq!(&*token, "held-access-token");
+    assert!(
+        store
+            .cached()
+            .is_some_and(|cached| Arc::ptr_eq(&cached, &token))
     );
 }
 
