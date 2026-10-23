@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Generate deterministic EIM/EDM source-port translations for controlled socket ranges."""
+"""Generate the controlled CPE's bijective forward and reverse NAT translations."""
 
 import ipaddress
 import sys
+
+UNCONTROLLED_PORTS = range(62000, 64000)
 
 
 def port_map(base, offset, daemon):
@@ -18,35 +20,101 @@ def port_map(base, offset, daemon):
     return mapping
 
 
-def render(public, base, dependent, peer):
+def outer_port_map():
+    # The second CPE sees the first CPE's translated ports, not the host's socket ports.
+    inner = port_map(52000, 0, False)
+    return {translated: (20000 + local - 40000 if local >= 40000 else 35000 + local - 30000)
+            for local, translated in inner.items()}
+
+
+def inverse(mapping):
+    result = {external: local for local, external in mapping.items()}
+    if len(result) != len(mapping):
+        raise ValueError("reverse NAT translation is not injective")
+    return result
+
+
+def profile_maps(base, dependent, outer=False):
+    if outer:
+        return {"ordinary": outer_port_map()}
+    if not dependent:
+        return {"ordinary": port_map(base, 0, base == 51000)}
+    # Every inside binding owns four globally distinct external slots. Destination
+    # selection changes mapping; permission to use any slot remains a filter decision.
+    locals_ = list(range(40000, 50000)) + list(range(30000, 35000))
+    if base == 51000:
+        locals_.append(24400)
+    names = ("ordinary", "first", "second", "peer")
+    profiles = {name: {local: 1 + 4 * index + slot for index, local in enumerate(locals_)}
+                for slot, name in enumerate(names)}
+    if base == 51000:
+        owners = {external: (name, local) for name, ports in profiles.items()
+                  for local, external in ports.items()}
+        # Preserve the fixture's main-listener tuples by swapping complete ownership.
+        for name, desired in zip(names, (51000, 51110, 51120, 51130)):
+            previous = profiles[name][24400]
+            owner_name, owner_local = owners[desired]
+            profiles[owner_name][owner_local] = previous
+            profiles[name][24400] = desired
+            owners[previous] = (owner_name, owner_local)
+            owners[desired] = (name, 24400)
+    values = [external for ports in profiles.values() for external in ports.values()]
+    if len(values) != len(set(values)) or any(not 0 < port <= 65535 for port in values):
+        raise ValueError("EDM profiles do not own globally unique UDP slots")
+    if any(local == external for ports in profiles.values() for local, external in ports.items()):
+        raise ValueError("EDM translation must change every controlled port")
+    return profiles
+
+
+def render(public, base, dependent, peer, inside, outer=False):
     public = str(ipaddress.IPv4Address(public))
     peer = str(ipaddress.IPv4Address(peer))
+    inside = str(ipaddress.IPv4Address(inside))
     if base not in (51000, 52000):
         raise ValueError("unknown lab mapping range")
-    profiles = [("ordinary", 0)]
-    if dependent:
-        profiles.extend([("first", 110), ("second", 120), ("peer", 130)])
+    if outer and (base != 52000 or dependent):
+        raise ValueError("the controlled outer CPE requires the client's EIM mapping")
+    profiles = profile_maps(base, dependent, outer)
     lines = ["table ip natlab {"]
-    for name, offset in profiles:
-        mapping = port_map(base, offset, base == 51000)
+    lines.extend([
+        "  map inside {",
+        "    type ipv4_addr : ipv4_addr;",
+        f"    elements = {{ {public} : {inside} }}",
+        "  }",
+    ])
+    reverse = {}
+    for mapping in profiles.values():
+        reverse.update(inverse(mapping))
+    reverse_name = "reverse_all" if dependent else "reverse_ordinary"
+    uncontrolled = f"{UNCONTROLLED_PORTS.start}-{UNCONTROLLED_PORTS.stop - 1}"
+    for name, entries in [*profiles.items(), (reverse_name, reverse)]:
         lines.extend([
             f"  map {name} {{",
             "    type inet_service : inet_service;",
-            "    elements = { " + ", ".join(f"{local} : {external}" for local, external in sorted(mapping.items())) + " }",
+            "    elements = { " + ", ".join(f"{key} : {value}" for key, value in sorted(entries.items())) + " }",
             "  }",
         ])
+    targets = [("198.51.100.10", "first"), ("198.51.100.11", "second"), (peer, "peer")]
     lines.extend([
-        "  chain prerouting { type nat hook prerouting priority -110; }",
+        # Real miniupnpd grants at dstnat/-100 take precedence over the generic static map.
+        "  chain prerouting {",
+        "    type nat hook prerouting priority -90;",
+    ])
+    lines.extend([
+        f'    iifname "wan0" ip daddr {public} meta l4proto udp udp dport map @{reverse_name} != 0 ct mark set 1 dnat to ip daddr map @inside : udp dport map @{reverse_name}',
+        "  }",
         "  chain postrouting {",
         "    type nat hook postrouting priority 110;",
         # Coordination proxies own separate sockets. They do not consume native mappings.
-        '    oifname "wan0" ip daddr 198.51.100.254 masquerade',
+        f'    oifname "wan0" ip daddr 198.51.100.254 meta l4proto {{ tcp, udp }} masquerade to :{uncontrolled}',
     ])
     if dependent:
-        for target, name in [("198.51.100.10", "first"), ("198.51.100.11", "second"), (peer, "peer")]:
+        for target, name in targets:
             lines.append(f'    oifname "wan0" ip daddr {target} meta l4proto udp snat to {public} : udp sport map @{name}')
+    excluded = "ip daddr != { " + ", ".join(target for target, _ in targets) + " } " if dependent else ""
     lines.extend([
-        f'    oifname "wan0" meta l4proto udp snat to {public} : udp sport map @ordinary',
+        f'    oifname "wan0" {excluded}meta l4proto udp snat to {public} : udp sport map @ordinary',
+        f'    oifname "wan0" meta l4proto {{ tcp, udp }} masquerade to :{uncontrolled}',
         '    oifname "wan0" masquerade',
         "  }",
         "}",
@@ -55,7 +123,9 @@ def render(public, base, dependent, peer):
 
 
 if __name__ == "__main__":
-    public, base, dependent, peer = sys.argv[1:]
+    public, base, dependent, peer, inside, *layer = sys.argv[1:]
     if dependent not in ("eim", "edm"):
         raise SystemExit("mapping must be eim or edm")
-    sys.stdout.write(render(public, int(base), dependent == "edm", peer))
+    if layer not in ([], ["outer"]):
+        raise SystemExit("only the explicit outer CPE layer is supported")
+    sys.stdout.write(render(public, int(base), dependent == "edm", peer, inside, bool(layer)))

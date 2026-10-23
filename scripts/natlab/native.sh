@@ -59,6 +59,15 @@ export MERKUR_E2E_CLIENT_NETNS=merkur-natlab-client
 export PW_E2E_GPU=swiftshader FORCE_EDGE=0
 PYTHONDONTWRITEBYTECODE=1 python3 "$LAB_DIR/native-topology.test.py"
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$LAB_DIR" -p 'test_*.py'
+bash "$LAB_DIR/native-topology.sh" setup eim-pdf
+python3 "$LAB_DIR/native-cpe-boundary.py" pdf "$evidence/cpe-boundary-pdf.json"
+bash "$LAB_DIR/native-topology.sh" teardown
+for filtering in eif adf; do
+  bash "$LAB_DIR/native-topology.sh" setup edm-daemon-eif
+  bash "$LAB_DIR/native-topology.sh" boundary-filter daemon "$filtering"
+  python3 "$LAB_DIR/native-cpe-boundary.py" "$filtering" "$evidence/cpe-boundary-$filtering.json"
+  bash "$LAB_DIR/native-topology.sh" teardown
+done
 
 for topology in "${cases[@]}"; do
   directory="$evidence/$topology"

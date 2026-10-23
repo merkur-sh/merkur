@@ -14,7 +14,6 @@ def module(name):
 
 
 table = module("native-nat-table")
-watch = module("native-map-watch")
 fault = module("native-fault")
 
 
@@ -28,12 +27,27 @@ class NativeTopologyTests(unittest.TestCase):
 
     def test_edm_observers_and_peer_have_distinct_mappings_for_every_socket(self):
         for base in (51000, 52000):
-            profiles = [table.port_map(base, offset, base == 51000) for offset in (110, 120, 130)]
-            self.assertTrue(all(len({profile[local] for profile in profiles}) == 3 for local in profiles[0]))
+            profiles = list(table.profile_maps(base, True).values())
+            self.assertTrue(all(len({profile[local] for profile in profiles}) == 4 for local in profiles[0]))
         self.assertEqual(
-            [table.port_map(51000, offset, True)[24400] for offset in (110, 120, 130)],
-            [51110, 51120, 51130],
+            [profile[24400] for profile in table.profile_maps(51000, True).values()],
+            [51000, 51110, 51120, 51130],
         )
+
+    def test_all_edm_profiles_have_one_global_inverse_for_concurrent_bindings(self):
+        for base in (51000, 52000):
+            profiles = table.profile_maps(base, True)
+            inverse = {}
+            for ports in profiles.values():
+                for local, external in ports.items():
+                    self.assertNotIn(external, inverse)
+                    self.assertNotEqual(local, external)
+                    self.assertTrue(0 < external <= 65535)
+                    inverse[external] = local
+            self.assertEqual(len(inverse), 60004 if base == 51000 else 60000)
+            # Any remote gets the same private socket for a port owned by any profile.
+            self.assertTrue(all(inverse[external] == local
+                                for ports in profiles.values() for local, external in ports.items()))
 
     def test_route_successor_uses_a_disjoint_mapping_space(self):
         for base in (51000, 52000):
@@ -42,14 +56,48 @@ class NativeTopologyTests(unittest.TestCase):
             new = {ports[local] for local in range(30000, 35000)}
             self.assertTrue(old.isdisjoint(new))
 
-    def test_reverse_mapping_uses_the_original_stun_and_reply_destination_tuple(self):
-        row = (
-            "udp 17 179 src=10.20.2.2 dst=198.51.100.10 sport=42000 dport=3478 "
-            "src=198.51.100.10 dst=198.51.100.2 sport=3478 dport=54000 [ASSURED] mark=0 use=1"
-        )
-        self.assertEqual(watch.mappings(row, "10.20.2.2", "198.51.100.10"), {(42000, "198.51.100.2", 54000)})
-        self.assertFalse(watch.mappings(row, "10.20.1.2", "198.51.100.10"))
-        self.assertFalse(watch.mappings(row.replace("sport=42000", "sport=invalid"), "10.20.2.2", "198.51.100.10"))
+    def test_eim_generic_ports_reserve_the_lease_and_rebind_domains(self):
+        reserved = {24400} | set(range(30000, 35000)) | set(range(40000, 50000)) | set(range(20000, 25000))
+        for base in (51000, 52000):
+            public = set(table.profile_maps(base, False)['ordinary'].values())
+            self.assertTrue(public.isdisjoint(reserved))
+
+    def test_all_profiles_reserve_coordination_and_uncontrolled_socket_ports(self):
+        for base in (51000, 52000):
+            for dependent in (False, True):
+                for ports in table.profile_maps(base, dependent).values():
+                    self.assertTrue(set(ports.values()).isdisjoint(table.UNCONTROLLED_PORTS))
+        outer = table.outer_port_map()
+        self.assertTrue(set(outer.values()).isdisjoint(table.UNCONTROLLED_PORTS))
+        self.assertEqual(set(outer.values()), set(range(20000, 30000)) | set(range(35000, 40000)))
+
+    def test_inverse_restores_every_controlled_binding_before_the_first_peer_packet(self):
+        for base in (51000, 52000):
+            for offset in (0, 110, 120, 130):
+                forward = table.port_map(base, offset, base == 51000)
+                reverse = table.inverse(forward)
+                self.assertEqual(len(forward), len(reverse))
+                self.assertTrue(all(reverse[external] == local for local, external in forward.items()))
+        with self.assertRaises(ValueError):
+            table.inverse({40000: 52000, 40001: 52000})
+
+    def test_outer_mapping_composes_two_independent_translations_in_both_directions(self):
+        inner = table.port_map(52000, 0, False)
+        outer = table.outer_port_map()
+        inner_reverse, outer_reverse = table.inverse(inner), table.inverse(outer)
+        self.assertEqual(set(inner.values()), set(outer))
+        self.assertTrue(all(inside != outer[inside] for inside in outer))
+        self.assertTrue(all(inner_reverse[outer_reverse[outer[translated]]] == local
+                            for local, translated in inner.items()))
+
+    def test_static_inverse_rules_separate_edm_mapping_from_filtering_and_preserve_lease_precedence(self):
+        rendered = table.render('198.51.100.1', 51000, True, '198.51.100.2', '10.20.1.2')
+        self.assertIn('type nat hook prerouting priority -90;', rendered)
+        self.assertIn('elements = { 198.51.100.1 : 10.20.1.2 }', rendered)
+        for remote, profile in [('198.51.100.10', 'first'), ('198.51.100.11', 'second'), ('198.51.100.2', 'peer')]:
+            self.assertIn(f'ip daddr {remote} meta l4proto udp snat to 198.51.100.1 : udp sport map @{profile}', rendered)
+        self.assertNotIn('ip saddr', rendered)
+        self.assertIn('ct mark set 1 dnat to ip daddr map @inside : udp dport map @reverse_all', rendered)
 
     def test_port_rebind_uses_exact_socket_after_address_move_and_avoids_owned_ports(self):
         row = (

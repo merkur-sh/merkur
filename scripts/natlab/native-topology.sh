@@ -121,6 +121,11 @@ table inet natlab {
   counter peer_drop { }
   counter other_drop { }
   set contacted4 { type ipv4_addr . inet_service . ipv4_addr; flags dynamic; size 1024; }
+  chain input {
+    type filter hook input priority 0; policy accept;
+    iifname "wan0" ip saddr $peer meta l4proto udp counter name peer_drop drop
+    iifname "wan0" meta l4proto udp counter name other_drop drop
+  }
   chain forward {
     type filter hook forward priority 0; policy drop;
     iifname "lan0" meta l4proto udp update @contacted4 { ip saddr . udp sport . ip daddr }
@@ -134,7 +139,10 @@ NFT
 add rule inet natlab forward ct state established,related accept
 add rule inet natlab forward iifname "lan0" accept
 NFT
-  if [[ $lease == yes || $filtering == eif ]]; then
+  if [[ $lease == yes ]]; then
+    # Static inverse mappings carry mark 1. Only a real earlier miniupnpd grant opens PDF.
+    ip netns exec "$namespace" nft add rule inet natlab forward iifname wan0 ct status dnat ct mark 0 accept
+  elif [[ $filtering == eif ]]; then
     ip netns exec "$namespace" nft add rule inet natlab forward iifname wan0 ct status dnat accept
   elif [[ $filtering == adf ]]; then
     ip netns exec "$namespace" nft -f - <<'NFT'
@@ -148,10 +156,26 @@ NFT
 }
 
 mapping() {
-  local namespace=$1 public=$2 base=$3 mapping=$4 peer=$5
+  local namespace=$1 public=$2 base=$3 mapping=$4 peer=$5 inside=$6
   local rules="$STATE/$namespace-mapping.nft"
-  python3 "$SCRIPT_DIR/native-nat-table.py" "$public" "$base" "$mapping" "$peer" > "$rules"
+  python3 "$SCRIPT_DIR/native-nat-table.py" "$public" "$base" "$mapping" "$peer" "$inside" "${@:7}" > "$rules"
   ip netns exec "$namespace" nft -f "$rules"
+}
+
+boundary_filter() {
+  local role=$1 requested=$2 namespace peer
+  [[ -f $STATE/case ]] || { echo 'boundary filter requires an active topology' >&2; return 1; }
+  case "$role" in
+    daemon) namespace=$DAEMON_CPE; peer=198.51.100.2 ;;
+    client) namespace=$CLIENT_CPE; peer=198.51.100.1 ;;
+    *) echo 'boundary filter role must be daemon or client' >&2; return 1 ;;
+  esac
+  [[ $requested == eif || $requested == adf ]] || {
+    echo 'boundary filter must be eif or adf' >&2; return 1;
+  }
+  # The kernel preflight changes filtering independently of the installed NAT maps.
+  ip netns exec "$namespace" nft delete table inet natlab
+  filter "$namespace" "$peer" "$requested" no no
 }
 
 record_lifecycle() {
@@ -206,6 +230,11 @@ move_client() {
   record_lifecycle routeChangeStartedAtNs
   # Select the successor's disjoint port space before emitting its first address event.
   ip netns exec "$CLIENT" sysctl -qw 'net.ipv4.ip_local_port_range=30000 34999'
+  # Replace forward ownership before the successor can send its first peer packet.
+  ip netns exec "$CLIENT_CPE" nft -f - <<'NFT'
+delete element ip natlab inside { 198.51.100.2 }
+add element ip natlab inside { 198.51.100.2 : 10.20.2.3 }
+NFT
   ip -n "$CLIENT" addr del 10.20.2.2/24 dev eth0
   ip -n "$CLIENT" addr add 10.20.2.3/24 dev eth0
   ip -n "$CLIENT" route replace default via 10.20.2.1
@@ -264,12 +293,6 @@ PY
   record_lifecycle rebindCommittedAtNs
 }
 
-reverse_mapping() {
-  local role=$1 namespace=$2 inside=$3 public=$4
-  python3 "$SCRIPT_DIR/native-map-watch.py" "$namespace" "$inside" "$public" "$STATE/$role-reverse.json" > "$STATE/$role-reverse.log" 2>&1 &
-  echo "$!" > "$STATE/$role-reverse.pid"
-}
-
 miniupnpd() {
   local role=$1 namespace=$2 number=$3 protocol=$4
   local upnp=no pcp=yes
@@ -283,7 +306,13 @@ enable_pcp_pmp=$pcp
 secure_mode=yes
 ext_allow_private_ipv4=yes
 uuid=3d3cec3a-8cf0-11e0-98ee-001a6bd2d0${number}b
-allow 1024-65535 10.20.$number.0/24 1024-65535
+CONF
+  if [[ $role == daemon ]]; then
+    printf 'allow 24400 10.20.%s.0/24 24400\n' "$number" >> "$STATE/$role-miniupnpd.conf"
+  fi
+  cat >> "$STATE/$role-miniupnpd.conf" <<CONF
+allow 30000-34999 10.20.$number.0/24 30000-34999
+allow 40000-49999 10.20.$number.0/24 40000-49999
 deny 0-65535 0.0.0.0/0 0-65535
 CONF
   if [[ $protocol != upnp ]]; then
@@ -327,7 +356,7 @@ inner_nat() {
   wan "$OUTER" mw-outer 198.51.100.2 2001:db8:ffff::2
   ip netns exec "$OUTER" sysctl -qw net.ipv4.ip_forward=1
   filter "$OUTER" 198.51.100.1 pdf no no
-  mapping "$OUTER" 198.51.100.2 52000 eim 198.51.100.1
+  mapping "$OUTER" 198.51.100.2 52000 eim 198.51.100.1 172.30.2.2 outer
 }
 
 same_lan() {
@@ -409,15 +438,19 @@ NFT
     daemon-lease-*) client_map=edm; daemon_lease=yes ;;
     ipv6-pdf) block=yes ;;
   esac
+  # Lease fixtures reserve the native local port outside the EIM generic public domain.
+  # An EDM/lease combination needs a different allocation model and is not this matrix.
+  if [[ $daemon_lease == yes && $daemon_map != eim || $client_lease == yes && $client_map != eim ]]; then
+    echo 'native lease topology requires an EIM mapping on its lease-owning CPE' >&2
+    return 1
+  fi
   if [[ $selected == inner-lease ]]; then inner_nat; client_lease=yes; fi
   filter "$DAEMON_CPE" 198.51.100.2 "$daemon_filter" "$block" "$daemon_lease"
   filter "$CLIENT_CPE" 198.51.100.1 "$client_filter" "$block" "$client_lease"
-  mapping "$DAEMON_CPE" 198.51.100.1 51000 "$daemon_map" 198.51.100.2
+  mapping "$DAEMON_CPE" 198.51.100.1 51000 "$daemon_map" 198.51.100.2 10.20.1.2
   local client_public=198.51.100.2
   [[ $selected == inner-lease ]] && client_public=172.30.2.2
-  mapping "$CLIENT_CPE" "$client_public" 52000 "$client_map" 198.51.100.1
-  [[ $daemon_filter == pdf ]] || reverse_mapping daemon "$DAEMON_CPE" 10.20.1.2 198.51.100.1
-  [[ $client_filter == pdf ]] || reverse_mapping client "$CLIENT_CPE" 10.20.2.2 198.51.100.2
+  mapping "$CLIENT_CPE" "$client_public" 52000 "$client_map" 198.51.100.1 10.20.2.2
   if [[ $daemon_lease == yes ]]; then miniupnpd daemon "$DAEMON_CPE" 1 "${selected##*-}"; fi
   if [[ $client_lease == yes ]]; then
     local protocol=${selected##*-}
@@ -454,6 +487,7 @@ case ${1:-} in
   setup) setup "${2:?native NAT case required}" ;;
   teardown) teardown ;;
   evidence) evidence "${2:?evidence directory required}" ;;
+  boundary-filter) boundary_filter "${2:?boundary role required}" "${3:?boundary filter required}" ;;
   block-peer) block_peer ;;
   unblock-peer) unblock_peer ;;
   move-client) move_client ;;
@@ -462,5 +496,5 @@ case ${1:-} in
   rebind-committed) rebind_committed ;;
   impair-peer|clear-impair|port-rebind|same-ip-route|gateway-reboot|clear-peer-flows) fault "$1" ;;
   wait-reacquired-lease) fault "$1" "${2:?lease role required}" ;;
-  *) echo 'usage: native-topology.sh cases|setup CASE|teardown|evidence DIRECTORY|native-phase|block-peer|unblock-peer|move-client|partition-established|rebind-committed|impair-peer|clear-impair|port-rebind|same-ip-route|gateway-reboot|wait-reacquired-lease ROLE|clear-peer-flows' >&2; exit 2 ;;
+  *) echo 'usage: native-topology.sh cases|setup CASE|teardown|evidence DIRECTORY|boundary-filter ROLE eif|adf|native-phase|block-peer|unblock-peer|move-client|partition-established|rebind-committed|impair-peer|clear-impair|port-rebind|same-ip-route|gateway-reboot|wait-reacquired-lease ROLE|clear-peer-flows' >&2; exit 2 ;;
 esac

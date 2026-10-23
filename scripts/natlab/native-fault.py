@@ -82,13 +82,32 @@ def snapshot(prefix):
 
 
 def port_rebind():
+    if (STATE / 'case').read_text().strip() != 'eim-pdf':
+        raise ValueError('port-only rebinding requires the supported EIM mapping domain')
+    if 'portReboundAtNs' in lifecycle():
+        raise ValueError('port-only rebinding already applied to this topology')
     snapshot('before-port-rebind')
     info = select_rebind((STATE / 'before-port-rebind-client-conntrack.txt').read_text(), current_ip())
+    ruleset = json.loads((STATE / 'before-port-rebind-client-nft.json').read_text())
+    maps = {value['name']: value for obj in ruleset.get('nftables', [])
+            if (value := obj.get('map')) and value.get('table') == 'natlab' and value.get('family') == 'ip'}
+    if set(maps) != {'inside', 'ordinary', 'reverse_ordinary'}:
+        raise ValueError('port-only rebinding requires only EIM forward and inverse maps')
+    forward = dict(maps['ordinary'].get('elem', []))
+    reverse = dict(maps['reverse_ordinary'].get('elem', []))
+    controlled = set(range(30000, 35000)) | set(range(40000, 50000))
+    reserved = set(range(20000, 25000))
+    if (set(forward) != controlled or not set(forward.values()).isdisjoint(controlled | reserved)
+            or reverse != {external: local for local, external in forward.items()}
+            or forward.get(info['localPort']) != info['previousExternalPort']):
+        raise ValueError('port-only rebinding found an unsupported or conflicting EIM mapping domain')
     lifecycle(portRebindStartedAtNs=time.time_ns(), portRebind=info)
     local, external = info['localPort'], info['currentExternalPort']
     # One netlink transaction replaces only this socket's controlled SNAT entry.
     rules = (f'delete element ip natlab ordinary {{ {local} }}\n'
-             f'add element ip natlab ordinary {{ {local} : {external} }}\n')
+             f'add element ip natlab ordinary {{ {local} : {external} }}\n'
+             f'delete element ip natlab reverse_ordinary {{ {info["previousExternalPort"]} }}\n'
+             f'add element ip natlab reverse_ordinary {{ {external} : {local} }}\n')
     run(cpe('client'), 'nft', '-f', '-', input=rules)
     run(cpe('client'), 'conntrack', '-D', '-p', 'udp', '--orig-src', info['privateIP'],
         '--sport', str(local))
