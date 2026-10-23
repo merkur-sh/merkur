@@ -52,6 +52,8 @@ pub struct AccountState {
 pub(crate) enum Exit {
     Quit(u8),
     Revoked(HostSize),
+    /// The server runs another release; its client is installed here.
+    Replace(std::path::PathBuf),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -158,6 +160,10 @@ struct Workspace {
     next_request: u64,
     graphics_cleanup: Vec<u8>,
     terminal_ui: terminal_ui::Effects,
+    /// Tabs that took output since their presentation last reconciled.
+    undrained: Vec<u64>,
+    /// The status row the host shows under a remote screen, at its size.
+    footer_shown: Option<(String, HostSize)>,
 }
 impl Default for Workspace {
     fn default() -> Self {
@@ -178,10 +184,20 @@ impl Default for Workspace {
             next_request: 1,
             graphics_cleanup: Vec::new(),
             terminal_ui: terminal_ui::Effects::default(),
+            undrained: Vec::new(),
+            footer_shown: None,
         }
     }
 }
 impl Workspace {
+    /// Reconciles every tab that took output, once, after the queue drained.
+    fn drained(&mut self, at: f64) {
+        for id in self.undrained.drain(..) {
+            if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id) {
+                tab.view.drained(at);
+            }
+        }
+    }
     fn active(&mut self) -> Option<&mut Tab> {
         let id = self.selected?;
         self.tabs.iter_mut().find(|tab| tab.id == id)
@@ -708,7 +724,9 @@ impl Workspace {
                             _ => {}
                         }
                     }
-                    tab.view.drained(at);
+                    if !self.undrained.contains(&id) {
+                        self.undrained.push(id);
+                    }
                     changed &= self.selected.is_none() || self.selected == Some(id);
                 }
             }
@@ -760,11 +778,13 @@ impl Workspace {
             }
         }
         if let Some(dialog) = &self.dialog {
+            self.footer_shown = None;
             chrome.present(size, |screen| dialog.frame(size, screen), out);
             return Ok(());
         }
         let footer = self.footer(size, prefix);
         if !self.tabs.iter().any(|tab| self.selected == Some(tab.id)) {
+            self.footer_shown = None;
             chrome.present(
                 size,
                 |screen| {
@@ -784,21 +804,33 @@ impl Workspace {
             return Ok(());
         }
         chrome.invalidate();
+        // The status row is painted when it reads differently, or when the
+        // host's screen is unknown and the content area repaints whole too.
+        let mut repaint_footer = true;
         if let Some(tab) = self.active() {
+            repaint_footer = tab.view.repaints_all();
             tab.view.frame(at, out)?;
             let end = b"\x1b[?2026l\x1b[5n";
             if out.ends_with(end) {
                 out.truncate(out.len() - end.len());
             }
         }
-        crate::ui::paint(
-            out,
-            size,
-            (size.rows, 1),
-            size.cols,
-            &footer,
-            crate::ui::Style::Bar,
-        );
+        if repaint_footer
+            || self
+                .footer_shown
+                .as_ref()
+                .is_none_or(|(text, shown)| *text != footer || *shown != size)
+        {
+            crate::ui::paint(
+                out,
+                size,
+                (size.rows, 1),
+                size.cols,
+                &footer,
+                crate::ui::Style::Bar,
+            );
+            self.footer_shown = Some((footer, size));
+        }
         if let Some(tab) = self.active()
             && let Some(cursor) = tab.view.viewer().grid().terminal().displayed_cursor()
             && cursor.row < size.rows.saturating_sub(1)
@@ -1168,6 +1200,7 @@ pub(crate) async fn run(
     epoch: Instant,
     state: AccountState,
     mut initial: Option<String>,
+    release: &mut Option<crate::release::Check>,
 ) -> io::Result<Exit> {
     let state = Arc::new(state);
     let mut workspace = Workspace {
@@ -1203,16 +1236,36 @@ pub(crate) async fn run(
                 },
                 message = incoming.recv() => {
                     if let Some(message) = message {
-                        match workspace.message(now(epoch), message)? {
-                            MessageEffect::Revoked => return Ok(Exit::Revoked(size)),
-                            MessageEffect::Changed => dirty = true,
-                            MessageEffect::Quiet => {},
+                        // What was queued when the batch began is one batch:
+                        // each tab reconciles its presentation once, after the
+                        // last. Later arrivals wait for the next turn.
+                        let queued = incoming.len();
+                        let ready = std::iter::from_fn(|| incoming.try_recv().ok()).take(queued);
+                        for next in std::iter::once(message).chain(ready) {
+                            match workspace.message(now(epoch), next)? {
+                                MessageEffect::Revoked => return Ok(Exit::Revoked(size)),
+                                MessageEffect::Changed => dirty = true,
+                                MessageEffect::Quiet => {},
+                            }
                         }
-                        if workspace.list_live && let Some(name) = initial.take() {
+                        workspace.drained(now(epoch));
+                        if workspace.list_live && release.is_none() && let Some(name) = initial.take() {
                             let machine = workspace.resolve_machine(&name)?;
                             workspace.open(machine, size, now(epoch), &state, &messages)?;
                             dirty = true;
                         }
+                    }
+                },
+                // No session dials before this client is the server's release.
+                checked = async { release.as_mut().expect("guarded by is_some").await }, if release.is_some() => {
+                    *release = None;
+                    if let Some(successor) = checked.map_err(io::Error::other)?? {
+                        return Ok(Exit::Replace(successor));
+                    }
+                    if workspace.list_live && let Some(name) = initial.take() {
+                        let machine = workspace.resolve_machine(&name)?;
+                        workspace.open(machine, size, now(epoch), &state, &messages)?;
+                        dirty = true;
                     }
                 },
                 event = host.read_event(&mut read) => match event? {
@@ -1330,7 +1383,10 @@ pub(crate) async fn run(
                                     (Some(crate::host_input::functional::UP), _) | (_, Some('k')) => workspace.move_machine(-1),
                                     (Some(crate::host_input::functional::DOWN), _) | (_, Some('j')) => workspace.move_machine(1),
                                     (Some(keys::ENTER), _) if workspace.list_live => {
-                                        if let Some(machine) = workspace.machine_selection.clone() { workspace.open(machine, size, now(epoch), &state, &messages)?; }
+                                        if let Some(machine) = workspace.machine_selection.clone() {
+                                            if release.is_some() { initial = Some(machine); }
+                                            else { workspace.open(machine, size, now(epoch), &state, &messages)?; }
+                                        }
                                     }
                                     _ => {},
                                 }

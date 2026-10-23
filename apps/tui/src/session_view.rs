@@ -172,6 +172,11 @@ impl SessionView {
         self.mouse_mode = None;
     }
 
+    /// The next frame paints the whole content area, not only what changed.
+    pub fn repaints_all(&self) -> bool {
+        self.composer.is_stale()
+    }
+
     /// Driver termination retires unsent records and speculative presentation.
     pub fn disconnected(&mut self) {
         self.deferred.clear();

@@ -181,7 +181,7 @@ binary, so the server is only transport. The manifest's sequence number is writt
 sequence is refused even if its signature is valid. It then switches the `current` symlink,
 and the dataplane and daemon replace themselves in place: the shell and everything running in
 it carry on, the screen and scrollback come back, and connected browsers reconnect. The
-terminal client converges the same way before it signs in. The signing key, manifest format,
+terminal client converges the same way before it signs in or dials a session. The signing key, manifest format,
 the handover and the release pipeline are in [`docs/releases.md`](../docs/releases.md).
 
 [Back to Merkur](../README.md).

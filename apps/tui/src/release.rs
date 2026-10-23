@@ -1,7 +1,8 @@
 //! The terminal client runs exactly its server's release, as the daemon does: a client of
 //! another release cannot read what that server's machines send (docs/releases.md,
-//! Convergence). It learns the release from the server before signing in, has the install
-//! converge with `merkur update` beside it, and replaces itself with the converged client.
+//! Convergence). It learns the release from the server before it signs in or dials a session,
+//! while a stored account's machine list loads, has the install converge with `merkur update`
+//! beside it, and replaces itself with the converged client.
 
 use std::io;
 use std::os::unix::process::CommandExt;
@@ -12,6 +13,16 @@ use merkur_client_native::account::Account;
 /// This build's release: the tag a release build stamps, or `dev` from source.
 pub fn own_release() -> &'static str {
     option_env!("MERKUR_VERSION").unwrap_or("dev")
+}
+
+/// A release check in flight, beside the account's other first requests.
+pub type Check = tokio::task::JoinHandle<io::Result<Option<PathBuf>>>;
+
+/// Starts [`converged_client`] at once. A stored account opens its machine list while it
+/// runs, and no session dials before it answers.
+pub fn check(account: &std::sync::Arc<Account>) -> Check {
+    let account = std::sync::Arc::clone(account);
+    tokio::spawn(async move { converged_client(&account).await })
 }
 
 /// The client of the server's release, when it is not this one: installed first, through the
