@@ -24,6 +24,10 @@ the native sync, the harnesses and shipped binaries use.
 
 ## The cache
 
+Every checkout and worktree on a machine shares one disk cache, `~/.cache/merkur-bazel/disk`,
+which Bazel collects past 30 GB or 14 days of disuse; a new worktree starts from what the others
+built. A CI runner keeps none.
+
 BuildBuddy's remote cache holds what CI built. A workstation reads it and uploads nothing:
 `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
 `--remote_header=x-buildbuddy-api-key=...` line, the key coming from the Keychain. CI writes

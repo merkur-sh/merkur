@@ -56,6 +56,14 @@ common:remote-cache --noremote_upload_local_results
 common:remote-cache --guard_against_concurrent_changes=lite
 common:ci --config=remote-cache
 common:ci --remote_upload_local_results
+
+# One action cache for every checkout and worktree on a machine, so a new worktree starts from what
+# the others built. Bazel collects it past these bounds while idle. A CI runner starts empty and
+# ends with the job, so it keeps none.
+common --disk_cache=~/.cache/merkur-bazel/disk
+common --experimental_disk_cache_gc_max_size=30G
+common --experimental_disk_cache_gc_max_age=14d
+common:ci --disk_cache=
 common:ci --bes_backend=grpcs://remote.buildbuddy.io
 common:ci --bes_results_url=https://app.buildbuddy.io/invocation/
 common:ci --color=yes

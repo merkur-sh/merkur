@@ -22,12 +22,62 @@
 //! * typing and repair never wait for a grant, and a blocked peer parks the
 //!   owner loop instead of spinning.
 
+use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
 use merkur_client::viewer::demand::{Demand, FrameGrant};
 
 use super::credit::DISPLAY_DEMAND_MAX_WINDOW;
 use super::sim::{DisplaySim, SimWake, sim_peer_id};
 use super::viewer::SimViewers;
 
+/// Runs every case to completion in a simulation of its own, on as many threads as the
+/// machine has, each with a runtime of its own, and returns the results in case order. A
+/// comparison's cases share nothing, and run one after another they made these the unit
+/// suite's longest tests.
+fn run_cases<C, R, F>(cases: &[C], run: impl Fn(&C) -> F + Sync) -> Vec<R>
+where
+    C: Sync,
+    R: Send,
+    F: Future<Output = R>,
+{
+    let next = AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, NonZeroUsize::get)
+        .min(cases.len());
+    let mut results: Vec<Option<R>> = (0..cases.len()).map(|_| None).collect();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("a case runtime");
+                    let mut done = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, Relaxed);
+                        let Some(case) = cases.get(index) else { break };
+                        done.push((index, runtime.block_on(run(case))));
+                    }
+                    done
+                })
+            })
+            .collect();
+        for handle in handles {
+            let done = handle
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            for (index, result) in done {
+                results[index] = Some(result);
+            }
+        }
+    });
+    results
+        .into_iter()
+        .map(|result| result.expect("every case ran"))
+        .collect()
+}
 
 const COLS: u16 = 120;
 const ROWS: u16 = 40;
@@ -210,16 +260,22 @@ async fn run_flood(hz: f64, one_way_ms: f64, flood_ms: f64, demand: bool) -> Loo
     run
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn a_flood_delivers_one_state_per_presented_frame() {
+#[test]
+fn a_flood_delivers_one_state_per_presented_frame() {
     // Round trips off exact frame multiples. The simulator has no processing
     // or network jitter, so a round trip of exactly k frames lands every
     // state on a frame boundary, where only floating-point rounding decides
     // which frame it joins; a real path always has some sub-frame phase.
-    for (hz, one_way_ms) in [(60.0, 22.0), (60.0, 71.0), (120.0, 22.0), (120.0, 71.0)] {
-        let flood_ms = 1_000.0;
-        let paced = run_flood(hz, one_way_ms, flood_ms, true).await;
-        let unbounded = run_flood(hz, one_way_ms, flood_ms, false).await;
+    let paths = [(60.0, 22.0), (60.0, 71.0), (120.0, 22.0), (120.0, 71.0)];
+    let flood_ms = 1_000.0;
+    let cases: Vec<(f64, f64, bool)> = paths
+        .iter()
+        .flat_map(|&(hz, one_way_ms)| [(hz, one_way_ms, true), (hz, one_way_ms, false)])
+        .collect();
+    let runs = run_cases(&cases, |&(hz, one_way_ms, demand)| {
+        Box::pin(run_flood(hz, one_way_ms, flood_ms, demand))
+    });
+    for (&(hz, one_way_ms), [paced, unbounded]) in paths.iter().zip(runs.as_chunks::<2>().0) {
         eprintln!(
             "credit loop {hz} Hz / {} ms RTT: paced states={} datagrams={} bytes={} \
              changed={}/{} max/frame={} | unbounded states={} datagrams={} bytes={} changed={}/{}",
@@ -534,18 +590,31 @@ async fn burst_final_latency_ms(hz: f64, one_way_ms: f64, burst_ms: f64, demand:
     f64::INFINITY
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn a_burst_ends_on_screen_within_one_frame_of_unpaced_delivery() {
+#[test]
+fn a_burst_ends_on_screen_within_one_frame_of_unpaced_delivery() {
     // A burst shorter than one frame and one delivery loop is never paced:
     // the browser cannot have granted against it yet. A longer one is paced
     // one state per frame with the browser's grant clock already running, so
     // its final screen is at most the one frame a grant-timed capture costs,
     // never a round trip spent waiting for the first grants of the run.
-    for (hz, one_way_ms) in [(120.0, 0.5), (120.0, 25.0), (60.0, 25.0), (120.0, 60.0)] {
+    let paths = [(120.0, 0.5), (120.0, 25.0), (60.0, 25.0), (120.0, 60.0)];
+    let bursts = [4.0, 24.0, 96.0];
+    let cases: Vec<(f64, f64, f64, bool)> = paths
+        .iter()
+        .flat_map(|&(hz, one_way_ms)| {
+            bursts.iter().flat_map(move |&burst_ms| {
+                [true, false].map(|demand| (hz, one_way_ms, burst_ms, demand))
+            })
+        })
+        .collect();
+    let latencies = run_cases(&cases, |&(hz, one_way_ms, burst_ms, demand)| {
+        Box::pin(burst_final_latency_ms(hz, one_way_ms, burst_ms, demand))
+    });
+    let mut pairs = latencies.as_chunks::<2>().0.iter();
+    for (hz, one_way_ms) in paths {
         let period_ms = 1_000.0 / hz;
-        for burst_ms in [4.0, 24.0, 96.0] {
-            let paced = burst_final_latency_ms(hz, one_way_ms, burst_ms, true).await;
-            let unbounded = burst_final_latency_ms(hz, one_way_ms, burst_ms, false).await;
+        for burst_ms in bursts {
+            let &[paced, unbounded] = pairs.next().expect("a result per case");
             eprintln!(
                 "burst tail {hz} Hz / {} ms RTT / {burst_ms} ms burst: paced {paced:.1} ms, \
                  unbounded {unbounded:.1} ms",
@@ -717,35 +786,40 @@ async fn burst_final_on_screen_ms(
         .map_or(f64::INFINITY, |(frame_ms, _)| frame_ms + period_ms - last_write_ms)
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn a_paced_burst_is_on_screen_no_later_than_unpaced_delivery() {
+#[test]
+fn a_paced_burst_is_on_screen_no_later_than_unpaced_delivery() {
     // The capture a grant times costs up to a frame after the last write; the
     // paced close gives it back by committing the final state as it lands,
     // not at the next animation frame. Without it (the control) a burst that
     // outlasts its free window ends a frame late.
+    let paths = [
+        (120.0, 0.5),
+        (60.0, 0.5),
+        (120.0, 25.0),
+        (60.0, 25.0),
+        (120.0, 60.0),
+    ];
+    let bursts = [24.0, 96.0];
+    // Paced, the control without the paced close, and unbounded delivery.
+    let arms = [(true, true), (true, false), (false, true)];
+    let cases: Vec<(f64, f64, f64, bool, bool)> = paths
+        .iter()
+        .flat_map(|&(hz, one_way_ms)| {
+            bursts.iter().flat_map(move |&burst_ms| {
+                arms.map(|(demand, paced_rule)| (hz, one_way_ms, burst_ms, demand, paced_rule))
+            })
+        })
+        .collect();
+    let on_screen = run_cases(&cases, |&(hz, one_way_ms, burst_ms, demand, paced_rule)| {
+        Box::pin(burst_final_on_screen_ms(
+            hz, one_way_ms, burst_ms, demand, paced_rule,
+        ))
+    });
+    let mut triples = on_screen.as_chunks::<3>().0.iter();
     let mut control_later = 0;
-    for (hz, one_way_ms) in [(120.0, 0.5), (60.0, 0.5), (120.0, 25.0), (60.0, 25.0), (120.0, 60.0)]
-    {
-        for burst_ms in [24.0, 96.0] {
-            let paced = Box::pin(burst_final_on_screen_ms(
-                hz,
-                one_way_ms,
-                burst_ms,
-                true,
-                true,
-            ))
-            .await;
-            let control =
-                Box::pin(burst_final_on_screen_ms(hz, one_way_ms, burst_ms, true, false))
-                    .await;
-            let unbounded = Box::pin(burst_final_on_screen_ms(
-                hz,
-                one_way_ms,
-                burst_ms,
-                false,
-                true,
-            ))
-            .await;
+    for (hz, one_way_ms) in paths {
+        for burst_ms in bursts {
+            let &[paced, control, unbounded] = triples.next().expect("a result per case");
             eprintln!(
                 "burst on screen {hz} Hz / {} ms RTT / {burst_ms} ms: paced {paced:.1} ms, \
                  without the paced close {control:.1} ms, unbounded {unbounded:.1} ms",
@@ -842,15 +916,24 @@ async fn sustained(
     }
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn sustained_paced_output_is_no_staler_on_screen_than_unpaced_delivery() {
+#[test]
+fn sustained_paced_output_is_no_staler_on_screen_than_unpaced_delivery() {
+    let paths = [(120.0, 0.5), (60.0, 0.5), (60.0, 25.0), (120.0, 60.0)];
+    // Paced, the control without the paced close, and unbounded delivery.
+    let arms = [(true, true), (true, false), (false, true)];
+    let cases: Vec<(f64, f64, bool, bool)> = paths
+        .iter()
+        .flat_map(|&(hz, one_way_ms)| {
+            arms.map(|(demand, paced_rule)| (hz, one_way_ms, demand, paced_rule))
+        })
+        .collect();
+    let runs = run_cases(&cases, |&(hz, one_way_ms, demand, paced_rule)| {
+        Box::pin(sustained(hz, one_way_ms, 0.5, 0.0, demand, paced_rule))
+    });
     let mut control_staler = 0;
-    for (hz, one_way_ms) in [(120.0, 0.5), (60.0, 0.5), (60.0, 25.0), (120.0, 60.0)] {
-        let paced =
-            Box::pin(sustained(hz, one_way_ms, 0.5, 0.0, true, true)).await;
-        let control = Box::pin(sustained(hz, one_way_ms, 0.5, 0.0, true, false)).await;
-        let unbounded =
-            Box::pin(sustained(hz, one_way_ms, 0.5, 0.0, false, true)).await;
+    for (&(hz, one_way_ms), [paced, control, unbounded]) in
+        paths.iter().zip(runs.as_chunks::<3>().0)
+    {
         eprintln!(
             "sustained age {hz} Hz / {} ms RTT (mean/p95): paced {:.1}/{:.1} ({} frames with a \
              second commit), without the paced close {:.1}/{:.1}, unbounded {:.1}/{:.1}",
@@ -878,20 +961,30 @@ async fn sustained_paced_output_is_no_staler_on_screen_than_unpaced_delivery() {
     assert!(control_staler > 0, "the control must show the regression this closes");
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn a_flood_that_outruns_preparation_presents_every_paid_state() {
+#[test]
+fn a_flood_that_outruns_preparation_presents_every_paid_state() {
     // With encode time modelled every flood capture sees the terminal move on
     // and stays open. The frame rule (the control) holds each for its deadline
     // and folds in its successor: one commit every two frames. The paced
     // close commits every paid state as it lands, one per frame.
-    for (hz, one_way_ms) in [(120.0, 0.5), (60.0, 0.5), (120.0, 25.0), (60.0, 25.0)] {
+    let paths = [(120.0, 0.5), (60.0, 0.5), (120.0, 25.0), (60.0, 25.0)];
+    // Paced, the control under the frame rule, and unpaced delivery under the
+    // frame rule: with early commits an unpaced flood presents up to two
+    // captures a frame, a render cost pacing is not meant to match.
+    let arms = [(true, true), (true, false), (false, false)];
+    let cases: Vec<(f64, f64, bool, bool)> = paths
+        .iter()
+        .flat_map(|&(hz, one_way_ms)| {
+            arms.map(|(demand, paced_rule)| (hz, one_way_ms, demand, paced_rule))
+        })
+        .collect();
+    let runs = run_cases(&cases, |&(hz, one_way_ms, demand, paced_rule)| {
+        Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, demand, paced_rule))
+    });
+    for (&(hz, one_way_ms), [paced, control, unbounded]) in
+        paths.iter().zip(runs.as_chunks::<3>().0)
+    {
         let period_ms = 1_000.0 / hz;
-        let paced = Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, true, true)).await;
-        let control = Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, true, false)).await;
-        // Unpaced delivery under the frame rule: with early commits an
-        // unpaced flood presents up to two captures a frame, a render cost
-        // pacing is not meant to match.
-        let unbounded = Box::pin(sustained(hz, one_way_ms, 0.25, 0.4, false, false)).await;
         eprintln!(
             "flood with encode time {hz} Hz / {} ms RTT (age mean/p95, commits per frame): \
              paced {:.1}/{:.1} {:.2} ({} of {} early), frame rule {:.1}/{:.1} {:.2}, \
@@ -1181,16 +1274,19 @@ async fn clipped_screens(paced_rule: bool) -> (usize, usize, usize, usize) {
     (carrying, commits.len(), paced, torn)
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn a_clipped_paced_state_is_never_committed_before_its_remainder() {
+#[test]
+fn a_clipped_paced_state_is_never_committed_before_its_remainder() {
     // The admitted prefix of each capture goes out first and its remainder
     // follows without a grant, so the prefix never carries the awaits-grant
     // flag and nothing commits it alone. A remainder carries its rows as they
     // are when it is sent, so either rule can show a mixture of two written
     // screens; the paced close must never show more of them than the frame
     // rule it replaces.
-    let (carrying, commits, paced, torn) = Box::pin(clipped_screens(true)).await;
-    let (_, control_commits, _, control_torn) = Box::pin(clipped_screens(false)).await;
+    let runs = run_cases(&[true, false], |&paced_rule| {
+        Box::pin(clipped_screens(paced_rule))
+    });
+    let ((carrying, commits, paced, torn), (_, control_commits, _, control_torn)) =
+        (runs[0], runs[1]);
     eprintln!(
         "clipped screens: {carrying} carrying flushes; paced {commits} commits ({paced} paced), \
          {torn} mixed; frame rule {control_commits} commits, {control_torn} mixed"
