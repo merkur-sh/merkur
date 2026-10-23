@@ -47,7 +47,11 @@ carries them.
 - The analytics host keeps `/etc/merkur-analytics/secrets.env`, with the Rybbit, Postgres,
   ClickHouse and Redis credentials `analytics/compose.yaml` names, and its data under
   `/var/lib/merkur-analytics`.
-- Every host with the app or analytics role runs Caddy from Debian with `caddy/Caddyfile` as
+- Every host with the app or analytics role runs Caddy from Caddy's own apt repository
+  (`https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main`, signed by
+  `/usr/share/keyrings/caddy-stable-archive-keyring.gpg`, key `65760C51EDEA2017CEA2CA15155B6D79CA56EA34`),
+  never Debian's `caddy`, whose stable build bundles a years-old quic-go. `apt upgrade` keeps it
+  current. It runs with `caddy/Caddyfile` as
   `/etc/caddy/Caddyfile` and each of its roles' site files in `/etc/caddy/sites`
   (`app/app.caddy`, `analytics/analytics.caddy`). Caddy obtains `app.merkur.sh`'s certificate
   from Let's Encrypt itself. For the names behind Cloudflare it needs the zone's Origin CA
