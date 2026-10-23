@@ -18,7 +18,6 @@ targets=(
   //apps/stun:merkur-stun
 )
 bazel build "$platform" --config=release "${targets[@]}"
-bun run build:wasm
 execution_root="$(bazel info "$platform" execution_root)"
 snapshot="$(mktemp -d)"
 trap 'rm -rf "$snapshot"' EXIT
@@ -37,10 +36,8 @@ for name in files.decode().split('\0'):
     destination = target / name
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source / name, destination)
-for package in (source / 'packages').glob('*/pkg'):
-    if package.is_dir():
-        shutil.copytree(package, target / package.relative_to(source), dirs_exist_ok=True)
 PY
+bazel run //tools/bazel/wasm:sync -- --output-root "$snapshot/repo"
 
 for file in $(bazel cquery "$platform" --config=release --output=files //tools/bazel/native:natlab_runtime); do
   cp "$execution_root/$file" "$snapshot/runtime/$(basename "$file")"

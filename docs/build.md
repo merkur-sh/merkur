@@ -53,6 +53,10 @@ into declared build outputs. The NAT lab stages these files with its Linux nativ
 a disposable source snapshot; building a Linux lab on macOS does not replace the checkout's host
 executables.
 
+The sync targets accept `--output-root DIRECTORY` to install their declared destinations into
+a disposable checkout. The NAT lab uses the WASM sync target this way, including both terminal
+WASM import locations, before starting its packaged web server.
+
 ## How a Bun test runs
 
 `bun_tests` (`tools/bazel/bun/bun.bzl`) runs `bun test` over a package's test files, sharded

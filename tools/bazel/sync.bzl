@@ -21,7 +21,15 @@ def _checkout_sync_impl(ctx):
 # server watching it does not reload and a running program keeps its executable.
 set -euo pipefail
 runfiles="$(cd "${{RUNFILES_DIR:-$0.runfiles}}" && pwd)/_main"
-cd "$BUILD_WORKSPACE_DIRECTORY"
+if (( $# == 0 )); then
+  output_root="$BUILD_WORKSPACE_DIRECTORY"
+elif (( $# == 2 )) && [[ "$1" == --output-root ]]; then
+  output_root="$2"
+else
+  echo "usage: $0 [--output-root DIRECTORY]" >&2
+  exit 1
+fi
+cd "$output_root"
 sync() {{
   local destination="$1"
   shift
@@ -47,7 +55,7 @@ sync() {{
 
 checkout_sync = rule(
     implementation = _checkout_sync_impl,
-    doc = "Copies each target's files into its space-separated checkout destinations.",
+    doc = "Copies target files into checkout destinations, or --output-root DIRECTORY.",
     attrs = {
         "executable": attr.bool(doc = "Whether the files are programs, installed executable."),
         "sources": attr.label_keyed_string_dict(mandatory = True),
