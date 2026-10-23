@@ -6,19 +6,9 @@ MODULES = {
     "": {
         ".bazelrc": [],
         "deploy/service-hosts.json": [],
-        "package.json": [
-            "//:node_modules/@biomejs/biome",
-            "//:node_modules/@noble/post-quantum",
-            "//:node_modules/@playwright/test",
-            "//:node_modules/bun-types",
-            "//:node_modules/effect",
-            "//:node_modules/fallow",
-            "//:node_modules/oxc-parser",
-            "//:node_modules/rolldown",
-            "//:node_modules/typescript",
-            "//:node_modules/vite",
-        ],
+        "package.json": [],
         "playwright.edge.config.mjs": [
+            "//:node_modules/@playwright/test",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -30,11 +20,7 @@ MODULES = {
     },
     "apps/daemon": {
         "NOTICES.txt": [],
-        "package.json": [
-            "//apps/daemon:node_modules/@elysia/eden",
-            "//apps/daemon:node_modules/effect",
-            "//apps/daemon:node_modules/uqr",
-        ],
+        "package.json": [],
         "src/cli/cli-output.test.ts": [
             ":package.json.module",
             ":src/cli/cli-output.ts.module",
@@ -56,6 +42,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/identity-seal.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/config:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -68,6 +55,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/install.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/cli/launchctl.ts.module",
@@ -77,16 +65,19 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/launchctl.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/cli/legacy-daemon-config-migration.test.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/cli/legacy-daemon-config-migration.ts.module",
             ":tsconfig.json.module",
         ],
         "src/cli/legacy-daemon-config-migration.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/config:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
@@ -102,6 +93,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/link.test.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -110,6 +102,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/link.ts": [
+            "//apps/daemon:node_modules/effect",
+            "//apps/daemon:node_modules/uqr",
             "//packages/auth:src/index.ts.module",
             "//packages/config:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -122,6 +116,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/linux-tpm-access.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -133,6 +128,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/open.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/cli/install.ts.module",
             ":src/config.ts.module",
@@ -149,6 +145,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/profile.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/config.ts.module",
             ":src/services/profile-socket.ts.module",
@@ -164,6 +161,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/setup.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/release-signature.ts.module",
             ":package.json.module",
@@ -182,11 +180,13 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/shell-integration.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/config.ts.module",
             ":tsconfig.json.module",
         ],
         "src/cli/start.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/cli/launchctl.ts.module",
             ":src/cli/service-identity.ts.module",
@@ -200,6 +200,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/stop.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/cli/launchctl.ts.module",
@@ -212,16 +213,19 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/systemctl.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/cli/tui.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/cli/update.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -229,18 +233,21 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/config.test.ts": [
+            "//apps/daemon:node_modules/effect",
             "//scripts:test-process.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
             ":tsconfig.json.module",
         ],
         "src/config.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/config:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/index.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/e2e-wasm-bun.ts.module",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/node-signals.ts.module",
@@ -275,6 +282,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/observability/telemetry.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/services/daemon-fetch.ts.module",
@@ -290,15 +298,18 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/bell-report-scheduler.test.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/services/bell-report-scheduler.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/bell-report-scheduler.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-client.test.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -307,6 +318,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-client.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -318,6 +330,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-convergence.test.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/logger.ts.module",
             ":src/services/daemon-convergence.ts.module",
@@ -325,6 +338,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-convergence.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/logger.ts.module",
@@ -334,23 +348,28 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-fetch.test.ts": [
+            "//apps/daemon:node_modules/@elysia/eden",
+            "//apps/daemon:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/services/daemon-fetch.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-fetch.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-metrics.test.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/services/daemon-metrics.ts.module",
             ":src/services/daemon-perf-reporter.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-metrics.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/logger.ts.module",
@@ -362,6 +381,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-perf-reporter.ts": [
+            "//apps/daemon:node_modules/@elysia/eden",
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/logger.ts.module",
             ":src/services/daemon-fetch.ts.module",
@@ -369,10 +390,12 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-proof-signer.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-release.test.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/release-signature.ts.module",
             ":package.json.module",
@@ -382,6 +405,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-release.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/release-signature.ts.module",
@@ -390,12 +414,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-runtime.test.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/services/daemon-proof-signer.ts.module",
             ":src/services/daemon-runtime.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-runtime.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/node-sidecar.ts.module",
             "//packages/shared:src/node-signals.ts.module",
             ":package.json.module",
@@ -429,6 +455,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/dataplane-client.test.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/node-sidecar.ts.module",
             ":package.json.module",
             ":src/services/daemon-metrics.ts.module",
@@ -436,6 +463,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/dataplane-client.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/node-sidecar.ts.module",
             ":package.json.module",
@@ -444,24 +472,29 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/profile-socket.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/config.ts.module",
             ":src/logger.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/terminal-bell-reporter.ts": [
+            "//apps/daemon:node_modules/@elysia/eden",
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/services/bell-report-scheduler.ts.module",
             ":src/services/daemon-fetch.ts.module",
             ":tsconfig.json.module",
         ],
         "src/single-instance.test.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/logger.ts.module",
             ":src/single-instance.ts.module",
             ":tsconfig.json.module",
         ],
         "src/single-instance.ts": [
+            "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/process-utils.ts.module",
@@ -485,6 +518,7 @@ MODULES = {
     },
     "apps/server": {
         "migrations/001_initial_schema.ts": [
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -513,31 +547,24 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "migrations/008_data_retention.ts": [
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
-        "package.json": [
-            "//apps/server:node_modules/@block65/webcrypto-web-push",
-            "//apps/server:node_modules/@libsql/client",
-            "//apps/server:node_modules/@serenity-kit/opaque",
-            "//apps/server:node_modules/disposable-email-domains-js",
-            "//apps/server:node_modules/effect",
-            "//apps/server:node_modules/elysia",
-            "//apps/server:node_modules/exact-mirror",
-            "//apps/server:node_modules/fakefilter",
-            "//apps/server:node_modules/kysely",
-            "//apps/server:node_modules/typebox",
-        ],
+        "package.json": [],
         "scripts/benchmark-effect-scope.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":scripts/benchmark-effect-scope.ts.module",
             ":scripts/tsconfig.json.module",
         ],
         "scripts/benchmark-effect-scope.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":scripts/tsconfig.json.module",
         ],
         "scripts/database-backup.test.ts": [
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":scripts/database-backup.ts.module",
             ":scripts/tsconfig.json.module",
@@ -569,16 +596,21 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/db/client.ts": [
+            "//apps/server:node_modules/@libsql/client",
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":src/config.ts.module",
             ":src/db/libsql-dialect.ts.module",
             ":tsconfig.json.module",
         ],
         "src/db/libsql-dialect.ts": [
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/db/migrate.test.ts": [
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/libsql-dialect.ts.module",
@@ -586,6 +618,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/db/migrate.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             ":migrations/001_initial_schema.ts.module",
             ":migrations/002_box_identity.ts.module",
             ":migrations/003_account_privilege.ts.module",
@@ -602,6 +636,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/db/transaction.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/libsql-dialect.ts.module",
@@ -609,26 +645,34 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/db/transaction.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/errors.ts.module",
             ":tsconfig.json.module",
         ],
         "src/elysia-runtime.ts": [
+            "//apps/server:node_modules/elysia",
+            "//apps/server:node_modules/exact-mirror",
+            "//apps/server:node_modules/typebox",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/http/api-errors.ts": [
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/middleware/authenticated-user.ts.module",
             ":tsconfig.json.module",
         ],
         "src/http/api-models.ts": [
+            "//apps/server:node_modules/elysia",
+            "//apps/server:node_modules/typebox",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/http/authenticated-api.ts": [
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/middleware/authenticated-user.ts.module",
             ":tsconfig.json.module",
@@ -663,6 +707,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/daemon-auth-fixture.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -674,6 +719,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/daemon-request-auth.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/http/daemon-auth-fixture.ts.module",
@@ -682,6 +728,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/daemon-request-auth.test.ts": [
+            "//apps/server:node_modules/elysia",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/http/daemon-auth-fixture.ts.module",
@@ -690,6 +737,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/daemon-request-auth.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -705,16 +753,20 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/edge-registration-auth.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/http/effect-route.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/http/effect-route.ts.module",
             ":src/logger.ts.module",
             ":tsconfig.json.module",
         ],
         "src/http/effect-route.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/logger.ts.module",
@@ -722,6 +774,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/elysia-standalone.test.ts": [
+            "//apps/server:node_modules/elysia",
             "//scripts:test-process.ts.module",
             ":package.json.module",
             ":src/elysia-runtime.ts.module",
@@ -738,6 +791,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/account-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-models.ts.module",
             ":src/http/authenticated-api.ts.module",
@@ -747,6 +802,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/auth-routes.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-errors.ts.module",
             ":src/http/routes/auth-routes.ts.module",
@@ -759,6 +816,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/auth-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-models.ts.module",
             ":src/http/authenticated-api.ts.module",
@@ -777,6 +836,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/box-access-routes.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/migrate.ts.module",
@@ -792,6 +853,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/box-access-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-models.ts.module",
             ":src/http/authenticated-api.ts.module",
@@ -802,6 +865,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/box-waitlist-routes.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/http/api-errors.ts.module",
@@ -812,6 +877,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/box-waitlist-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-models.ts.module",
             ":src/http/client-ip.ts.module",
@@ -823,6 +890,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/browser-session-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-models.ts.module",
             ":src/http/authenticated-api.ts.module",
@@ -832,6 +901,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/daemon-control-auth.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/http/daemon-auth-fixture.ts.module",
@@ -839,11 +909,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/daemon-control-routes.test.ts": [
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/routes/daemon-control-routes.ts.module",
             ":tsconfig.json.module",
         ],
         "src/http/routes/daemon-control-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/auth:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -857,6 +930,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/daemon-link-claim-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/http/api-models.ts.module",
@@ -870,6 +945,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/device-routes.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/migrate.ts.module",
@@ -883,6 +959,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/device-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/db/client.ts.module",
@@ -905,6 +983,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/edge-routes.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -918,6 +998,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/edge-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -929,12 +1011,16 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/health-routes.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/routes/health-routes.ts.module",
             ":src/services/health-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/http/routes/health-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/observability/metrics.ts.module",
@@ -942,6 +1028,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/keyboard-settings-routes.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-errors.ts.module",
             ":src/http/routes/keyboard-settings-routes.ts.module",
@@ -950,6 +1038,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/keyboard-settings-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/http/api-models.ts.module",
@@ -959,6 +1049,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/notification-routes.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/typebox",
             "//packages/shared:src/api-schema.ts.module",
             ":package.json.module",
             ":src/http/routes/notification-routes.ts.module",
@@ -967,6 +1059,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/notification-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-models.ts.module",
             ":src/http/authenticated-api.ts.module",
@@ -977,6 +1071,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/release-routes.ts": [
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/http/api-models.ts.module",
@@ -985,6 +1080,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/session-routes.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1001,6 +1097,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/session-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -1011,6 +1109,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/telemetry-routes.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -1024,6 +1123,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/telemetry-routes.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1044,6 +1145,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/routes/web-routes.ts": [
+            "//apps/server:node_modules/elysia",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/http/install-script.ts.module",
@@ -1051,6 +1153,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/server-app.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/typebox",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/api-schema.ts.module",
             ":package.json.module",
@@ -1067,6 +1171,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/server-app.ts": [
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/api-errors.ts.module",
             ":src/http/build-identity.ts.module",
@@ -1090,17 +1195,21 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/http/sse-shutdown.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/elysia-runtime.ts.module",
             ":src/http/sse.ts.module",
             ":tsconfig.json.module",
         ],
         "src/http/sse.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/http/sse.ts.module",
             ":tsconfig.json.module",
         ],
         "src/http/sse.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
@@ -1122,6 +1231,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/middleware/authenticated-user.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/services/auth-service.ts.module",
@@ -1133,25 +1243,30 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/middleware/cookie-origin.ts": [
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/middleware/security-headers.test.ts": [
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/web-ui.ts.module",
             ":src/middleware/security-headers.ts.module",
             ":tsconfig.json.module",
         ],
         "src/middleware/security-headers.ts": [
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/observability/metrics.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/observability/metrics.ts.module",
             ":tsconfig.json.module",
         ],
         "src/observability/metrics.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -1165,31 +1280,38 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/observability/tail-sampling-tracer.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/observability/tail-sampling-tracer.ts.module",
             ":tsconfig.json.module",
         ],
         "src/observability/tail-sampling-tracer.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/observability/trace-topology.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/elysia",
             ":package.json.module",
             ":src/http/effect-route.ts.module",
             ":src/logger.ts.module",
             ":tsconfig.json.module",
         ],
         "src/observability/traceparent.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/observability/traceparent.ts.module",
             ":tsconfig.json.module",
         ],
         "src/observability/traceparent.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/services/account-deletion-sweep.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/account-deletion-sweep.ts.module",
             ":src/services/auth-service.ts.module",
@@ -1198,6 +1320,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/account-deletion-sweep.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/logger.ts.module",
             ":src/services/auth-service.ts.module",
@@ -1210,18 +1333,22 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/auth-flow-store.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/auth-flow-store.ts.module",
             ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/auth-flow-store.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/services/redis-reply.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/auth-service-account.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/typebox",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -1229,11 +1356,15 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/auth-service-email.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/auth-service-fixture.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/auth-service-fixture.ts": [
+            "//apps/server:node_modules/@serenity-kit/opaque",
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/typebox",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/opaque-password-policy.ts.module",
@@ -1245,6 +1376,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/auth-service-password.test.ts": [
+            "//apps/server:node_modules/@serenity-kit/opaque",
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             "//packages/shared:src/opaque-password-policy.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -1252,6 +1386,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/auth-service-reset.test.ts": [
+            "//apps/server:node_modules/@serenity-kit/opaque",
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/typebox",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/opaque-password-policy.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
@@ -1264,6 +1401,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/auth-service.test.ts": [
+            "//apps/server:node_modules/@serenity-kit/opaque",
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/opaque-password-policy.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
@@ -1274,6 +1414,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/auth-service.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -1296,28 +1438,33 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/box-access-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/services/box-access-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/box-access-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/services/errors.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/box-host-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/box-host-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/box-host-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/config.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/box-removal.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/migrate.ts.module",
@@ -1327,6 +1474,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/box-removal.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/logger.ts.module",
@@ -1335,6 +1483,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/box-waitlist-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/services/box-waitlist-service.ts.module",
@@ -1342,6 +1491,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/box-waitlist-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/services/account-identifier.ts.module",
@@ -1350,17 +1500,20 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/browser-session-presence.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/browser-session-presence.ts.module",
             ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/browser-session-presence.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/browser-session-presence.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/browser-session-presence.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/services/redis-script.ts.module",
@@ -1368,6 +1521,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-service.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             ":package.json.module",
@@ -1383,6 +1537,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-service.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/daemon-control-protocol:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1397,6 +1552,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-service.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
@@ -1417,6 +1573,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-link-claim-service.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/typebox",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
@@ -1427,6 +1585,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-link-claim-service.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -1446,6 +1606,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/daemon-release-store.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/release-signature.ts.module",
             ":package.json.module",
@@ -1453,6 +1614,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/data-retention.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/services/auth-service-fixture.ts.module",
@@ -1461,6 +1624,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/data-retention.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/config.ts.module",
             ":src/db/client.ts.module",
@@ -1473,17 +1637,21 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/device-events-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/device-events-service.ts.module",
             ":src/services/realtime-coordination-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/device-events-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/realtime-coordination-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/device-service.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/db/migrate.ts.module",
@@ -1491,6 +1659,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/device-service.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -1511,6 +1680,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/edge-registry-service.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1520,12 +1690,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/edge-registry-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/edge-registry-service.ts.module",
             ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/edge-registry-service.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/services/redis-reply.ts.module",
@@ -1545,25 +1717,31 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/email-admission.test.ts": [
+            "//apps/server:node_modules/fakefilter",
             ":package.json.module",
             ":src/services/email-admission.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/email-admission.ts": [
+            "//apps/server:node_modules/disposable-email-domains-js",
+            "//apps/server:node_modules/fakefilter",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/services/errors.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/services/health-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/health-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/health-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/observability/metrics.ts.module",
             ":tsconfig.json.module",
@@ -1584,12 +1762,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/keyboard-settings-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/services/keyboard-settings-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/keyboard-settings-service.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/db/client.ts.module",
@@ -1597,6 +1777,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/machine-usage.ts": [
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -1613,12 +1794,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/mail-sender.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/errors.ts.module",
             ":src/services/mail-message.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/notification-outbox-service.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/db/transaction.ts.module",
@@ -1628,6 +1811,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/notification-outbox-service.test.ts": [
+            "//apps/server:node_modules/effect",
+            "//apps/server:node_modules/kysely",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/migrate.ts.module",
@@ -1638,6 +1823,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/notification-outbox-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/logger.ts.module",
@@ -1647,6 +1833,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/push-notification-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/logger.ts.module",
@@ -1655,6 +1842,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/push-notification-service.ts": [
+            "//apps/server:node_modules/@block65/webcrypto-web-push",
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1664,6 +1853,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/rate-limit-service.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1672,6 +1862,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/rate-limit-service.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/logger:src/index.ts.module",
             ":package.json.module",
             ":src/services/rate-limit-service.ts.module",
@@ -1679,6 +1870,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/rate-limit-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/logger.ts.module",
             ":src/services/redis-reply.ts.module",
@@ -1687,6 +1879,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/realtime-coordination-service.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1695,12 +1888,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/realtime-coordination-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/realtime-coordination-service.ts.module",
             ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/realtime-coordination-service.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/logger.ts.module",
@@ -1727,17 +1922,20 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/redis-service.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/redis-script.ts.module",
             ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/redis-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/redis-service.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/config.ts.module",
@@ -1746,6 +1944,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/refresh-token-store.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":src/db/migrate.ts.module",
@@ -1758,11 +1957,13 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/rybbit-events.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/rybbit-events.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/rybbit-events.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/config.ts.module",
             ":src/logger.ts.module",
@@ -1778,10 +1979,12 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/session-issuance-contract.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/services/session-issuance-service.dragonfly.test.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             ":package.json.module",
             ":scripts/benchmark-effect-scope.ts.module",
@@ -1792,6 +1995,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/session-issuance-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/redis-service.ts.module",
             ":src/services/session-issuance-codec.ts.module",
@@ -1800,6 +2004,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/session-issuance-service.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/redis-service.ts.module",
             ":src/services/session-issuance-codec.ts.module",
@@ -1808,6 +2013,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/session-issuance-store.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/services/redis-reply.ts.module",
             ":src/services/redis-script.ts.module",
@@ -1817,11 +2023,13 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/session-retirement.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/logger.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/session-service.test.ts": [
+            "//apps/server:node_modules/effect",
             ":package.json.module",
             ":src/config.ts.module",
             ":src/services/daemon-control-service.ts.module",
@@ -1834,6 +2042,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/session-service.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -1854,6 +2063,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/services/session-test-fixture.ts": [
+            "//apps/server:node_modules/effect",
             "//packages/auth:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
@@ -1899,21 +2109,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "index.html": [],
-        "package.json": [
-            "//apps/site:node_modules/@mdx-js/rollup",
-            "//apps/site:node_modules/@playwright/test",
-            "//apps/site:node_modules/@solidjs/vite-plugin",
-            "//apps/site:node_modules/@solidjs/web",
-            "//apps/site:node_modules/@unocss/preset-uno",
-            "//apps/site:node_modules/motion",
-            "//apps/site:node_modules/remark-frontmatter",
-            "//apps/site:node_modules/remark-gfm",
-            "//apps/site:node_modules/remark-mdx-frontmatter",
-            "//apps/site:node_modules/shiki",
-            "//apps/site:node_modules/solid-js",
-            "//apps/site:node_modules/unocss",
-            "//apps/site:node_modules/vite",
-        ],
+        "package.json": [],
         "server/build.test.ts": [
             ":package.json.module",
             ":server/build.ts.module",
@@ -2132,19 +2328,7 @@ MODULES = {
         ],
     },
     "apps/web": {
-        "package.json": [
-            "//apps/web:node_modules/@elysia/eden",
-            "//apps/web:node_modules/@serenity-kit/opaque",
-            "//apps/web:node_modules/@solidjs/vite-plugin",
-            "//apps/web:node_modules/@solidjs/web",
-            "//apps/web:node_modules/@unocss/preset-uno",
-            "//apps/web:node_modules/effect",
-            "//apps/web:node_modules/linkify-it",
-            "//apps/web:node_modules/motion",
-            "//apps/web:node_modules/solid-js",
-            "//apps/web:node_modules/unocss",
-            "//apps/web:node_modules/vite",
-        ],
+        "package.json": [],
         "public/fonts/JetBrainsMonoNF-Regular.ttf": [],
         "src/api.refresh.test.ts": [
             ":package.json.module",
@@ -2152,6 +2336,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/api.ts": [
+            "//apps/web:node_modules/@elysia/eden",
+            "//apps/web:node_modules/effect",
             "//packages/shared:src/api-schema.ts.module",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/schema-check.ts.module",
@@ -2162,6 +2348,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/App.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/app/commands.ts.module",
             ":src/app/createAppController.ts.module",
@@ -2182,16 +2369,20 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/app/box-access-controller.ts": [
+            "//apps/web:node_modules/effect",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/api.ts.module",
             ":tsconfig.json.module",
         ],
         "src/app/browser-sessions-controller.test.ts": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/app/browser-sessions-controller.ts.module",
             ":tsconfig.json.module",
         ],
         "src/app/browser-sessions-controller.ts": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/auth/account-api.ts.module",
             ":src/auth/account-workflow.ts.module",
@@ -2213,6 +2404,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/app/createAppController.ts": [
+            "//apps/web:node_modules/solid-js",
             "//packages/logger:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -2257,6 +2449,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/app/createDeviceListController.ts": [
+            "//apps/web:node_modules/effect",
+            "//apps/web:node_modules/solid-js",
             "//packages/logger:src/index.ts.module",
             ":package.json.module",
             ":src/api.ts.module",
@@ -2291,6 +2485,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/app/link-command-refresh.ts": [
+            "//apps/web:node_modules/effect",
             ":package.json.module",
             ":src/lib/async-task-ownership.ts.module",
             ":tsconfig.json.module",
@@ -2305,11 +2500,13 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/app/navigation.test.ts": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/app/navigation.ts.module",
             ":tsconfig.json.module",
         ],
         "src/app/navigation.ts": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -2356,23 +2553,27 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/auth/account-opaque-worker.ts": [
+            "//apps/web:node_modules/@serenity-kit/opaque",
             "//packages/shared:src/opaque-password-policy.ts.module",
             ":package.json.module",
             ":src/auth/encoding.ts.module",
             ":tsconfig.json.module",
         ],
         "src/auth/account-opaque.test.ts": [
+            "//apps/web:node_modules/@serenity-kit/opaque",
             ":package.json.module",
             ":src/auth/account-opaque.ts.module",
             ":tsconfig.json.module",
         ],
         "src/auth/account-opaque.ts": [
+            "//apps/web:node_modules/@serenity-kit/opaque",
             ":package.json.module",
             ":src/auth/account-opaque-finish.ts.module",
             ":src/auth/encoding.ts.module",
             ":tsconfig.json.module",
         ],
         "src/auth/account-workflow.recovery.test.ts": [
+            "//apps/web:node_modules/@serenity-kit/opaque",
             "//packages/shared:src/opaque-password-policy.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
@@ -2500,6 +2701,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/BuildVerification.tsx": [
+            "//apps/web:node_modules/effect",
+            "//apps/web:node_modules/solid-js",
             "//packages/shared:src/build-identity.ts.module",
             ":package.json.module",
             ":src/components/tooltip.ts.module",
@@ -2512,6 +2715,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/CommandPalette.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/overlay-controls.ts.module",
             ":src/lib/aria.ts.module",
@@ -2520,12 +2724,15 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/HoldButton.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             "//packages/quicksilver:src/motion.ts.module",
             ":package.json.module",
             ":src/lib/motion.ts.module",
             ":tsconfig.json.module",
         ],
         "src/components/KeyboardHelp.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/hooks/createKeybinds.ts.module",
             ":src/lib/keybinds.ts.module",
@@ -2545,6 +2752,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/LinkStatus.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/link-strip.ts.module",
             ":src/lib/owned-scheduled-callback.ts.module",
@@ -2552,12 +2760,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/MailedCodeForm.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/BusyLabel.tsx.module",
             ":src/lib/aria.ts.module",
             ":tsconfig.json.module",
         ],
         "src/components/MerkurOrb.tsx": [
+            "//apps/web:node_modules/solid-js",
             "//packages/logger:src/index.ts.module",
             "//packages/quicksilver:src/orb.ts.module",
             ":package.json.module",
@@ -2567,14 +2777,18 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/MessageSlot.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/components/NoticeRail.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/components/OpenUrlToast.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/lib/motion.ts.module",
             ":tsconfig.json.module",
@@ -2584,6 +2798,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/OverlayHost.tsx": [
+            "//apps/web:node_modules/@solidjs/web",
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/CommandPalette.tsx.module",
             ":src/components/KeyboardHelp.tsx.module",
@@ -2597,12 +2814,17 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/PhaseHost.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/lib/aria.ts.module",
             ":src/lib/motion.ts.module",
             ":tsconfig.json.module",
         ],
         "src/components/Sheet.tsx": [
+            "//apps/web:node_modules/@solidjs/web",
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             "//packages/quicksilver:src/motion.ts.module",
             ":package.json.module",
             ":src/hooks/createKeybinds.ts.module",
@@ -2612,10 +2834,13 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/StatusGlyph.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/components/SwUpdateBanner.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/lib/motion.ts.module",
             ":tsconfig.json.module",
@@ -2630,6 +2855,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/TerminalHost.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/ViewLayer.tsx.module",
             ":src/components/terminal-view-lifetime.ts.module",
@@ -2642,14 +2868,18 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/tooltip.ts": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/components/view-visibility.ts": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/components/ViewLayer.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/view-visibility.ts.module",
             ":src/lib/aria.ts.module",
@@ -2716,6 +2946,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/hooks/createAuth.ts": [
+            "//apps/web:node_modules/solid-js",
             "//packages/logger:src/index.ts.module",
             ":package.json.module",
             ":src/api.ts.module",
@@ -2729,12 +2960,14 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/hooks/createKeybinds.ts": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/lib/keybinds.ts.module",
             ":src/lib/right-meta.ts.module",
             ":tsconfig.json.module",
         ],
         "src/hooks/device-events-atoms.ts": [
+            "//apps/web:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/api.ts.module",
@@ -2745,11 +2978,13 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/hooks/device-events-reconnect.ts": [
+            "//apps/web:node_modules/effect",
             "//packages/config:src/retry-schedules.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/hooks/device-events-recovery.test.ts": [
+            "//apps/web:node_modules/effect",
             "//packages/config:src/retry-schedules.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -2761,6 +2996,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/hooks/device-events-recovery.ts": [
+            "//apps/web:node_modules/effect",
             ":package.json.module",
             ":src/hooks/device-events-atoms.ts.module",
             ":src/hooks/device-events-reconnect.ts.module",
@@ -2769,6 +3005,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/hooks/device-events-source.ts": [
+            "//apps/web:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/event-stream-worker-client.ts.module",
@@ -2776,6 +3013,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/hooks/device-events-status.test.ts": [
+            "//apps/web:node_modules/effect",
             ":package.json.module",
             ":src/hooks/device-events-atoms.ts.module",
             ":tsconfig.json.module",
@@ -2786,6 +3024,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/hooks/useServiceWorkerLifecycle.ts": [
+            "//apps/web:node_modules/effect",
+            "//apps/web:node_modules/solid-js",
             "//packages/logger:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
@@ -2818,6 +3058,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/lib/atom-solid.ts": [
+            "//apps/web:node_modules/effect",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -2925,10 +3167,12 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/lib/lifecycle-runtime.ts": [
+            "//apps/web:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/lib/motion.ts": [
+            "//apps/web:node_modules/motion",
             "//packages/quicksilver:src/motion.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
@@ -3002,6 +3246,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/main.tsx": [
+            "//apps/web:node_modules/@solidjs/web",
             ":package.json.module",
             ":src/App.tsx.module",
             ":src/lib/atom-solid.ts.module",
@@ -3227,6 +3472,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/AccountSettings.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/BuildVerification.tsx.module",
             ":src/components/ToggleSwitch.tsx.module",
@@ -3235,6 +3481,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/AuthScreen.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/auth/account-opaque.ts.module",
             ":src/components/BusyLabel.tsx.module",
@@ -3245,6 +3493,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/ChangePasswordForm.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/auth/account-opaque.ts.module",
             ":src/auth/password-policy.ts.module",
@@ -3255,6 +3504,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/CreateBoxDialog.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/BusyLabel.tsx.module",
             ":src/components/MessageSlot.tsx.module",
@@ -3263,6 +3513,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/DaemonLinkApprovalDialog.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/BusyLabel.tsx.module",
             ":src/components/MessageSlot.tsx.module",
@@ -3271,6 +3522,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/DeleteAccountForm.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/auth/account-opaque.ts.module",
             ":src/components/BusyLabel.tsx.module",
@@ -3280,6 +3532,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/DeviceList.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             "//packages/quicksilver:src/motion.ts.module",
             "//packages/quicksilver:src/tokens.ts.module",
             ":package.json.module",
@@ -3296,6 +3550,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/KeyboardKeyPicker.tsx": [
+            "//apps/web:node_modules/solid-js",
             "//packages/keyboard:src/layouts/terminal-us.ts.module",
             ":package.json.module",
             ":src/lib/aria.ts.module",
@@ -3303,6 +3558,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/KeyboardMacrosEditor.tsx": [
+            "//apps/web:node_modules/solid-js",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/lib/aria.ts.module",
@@ -3311,6 +3567,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/KeyboardPreferencesEditor.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             "//packages/keyboard:src/index.ts.module",
             "//packages/keyboard:src/layouts/terminal-us.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -3328,6 +3586,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/PasswordResetScreen.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/BusyLabel.tsx.module",
             ":src/components/MailedCodeForm.tsx.module",
@@ -3337,6 +3597,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/RenameDeviceDialog.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/BusyLabel.tsx.module",
             ":src/components/MessageSlot.tsx.module",
@@ -3345,6 +3606,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/SessionSettings.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/HoldButton.tsx.module",
             ":src/components/StatusGlyph.tsx.module",
@@ -3352,6 +3614,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/SettingsScreen.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             "//packages/quicksilver:src/motion.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
@@ -3373,6 +3637,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/TerminalPanel.tsx": [
+            "//apps/web:node_modules/effect",
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             "//packages/logger:src/index.ts.module",
             "//packages/quicksilver:src/motion.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -3397,6 +3664,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/TerminalSettings.tsx": [
+            "//apps/web:node_modules/solid-js",
             ":package.json.module",
             ":src/components/ToggleSwitch.tsx.module",
             ":src/terminal/appearance.ts.module",
@@ -3405,6 +3673,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/TerminalStatusOverlay.tsx": [
+            "//apps/web:node_modules/motion",
+            "//apps/web:node_modules/solid-js",
             "//packages/quicksilver:src/motion.ts.module",
             ":package.json.module",
             ":src/lib/motion.ts.module",
@@ -3412,6 +3682,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/screens/VirtualTerminalKeyboard.tsx": [
+            "//apps/web:node_modules/solid-js",
             "//packages/keyboard:src/cupertino.css.module",
             "//packages/keyboard:src/dom.ts.module",
             "//packages/keyboard:src/index.ts.module",
@@ -3952,6 +4223,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/keyboard-settings-sync.test.ts": [
+            "//apps/web:node_modules/effect",
             "//tests:helpers/lifecycle-clock.ts.module",
             ":package.json.module",
             ":src/terminal/keyboard-settings-sync.ts.module",
@@ -3959,6 +4231,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/keyboard-settings-sync.ts": [
+            "//apps/web:node_modules/effect",
             ":package.json.module",
             ":src/api.ts.module",
             ":src/lib/lifecycle-runtime.ts.module",
@@ -4255,6 +4528,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/terminal/url-matcher.ts": [
+            "//apps/web:node_modules/linkify-it",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -4332,6 +4606,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/transport-worker-client.ts": [
+            "//apps/web:node_modules/effect",
             "//packages/config:src/reconnect-policy.ts.module",
             "//packages/logger:src/index.ts.module",
             ":package.json.module",
@@ -4531,6 +4806,7 @@ MODULES = {
             "//:tsconfig.base.json.module",
         ],
         "uno.config.test.ts": [
+            "//apps/web:node_modules/unocss",
             "//packages/quicksilver:src/tokens.ts.module",
             ":package.json.module",
             ":src/App.tsx.module",
@@ -4918,6 +5194,8 @@ MODULES = {
             ":uno.config.ts.module",
         ],
         "uno.config.ts": [
+            "//apps/web:node_modules/@unocss/preset-uno",
+            "//apps/web:node_modules/unocss",
             "//packages/quicksilver:src/assets.ts.module",
             "//packages/quicksilver:src/motion.ts.module",
             "//packages/quicksilver:src/preset.ts.module",
@@ -4926,6 +5204,9 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "vite.config.ts": [
+            "//apps/web:node_modules/@solidjs/vite-plugin",
+            "//apps/web:node_modules/unocss",
+            "//apps/web:node_modules/vite",
             "//packages/quicksilver:src/vite.ts.module",
             "//packages/shared:src/build-identity.ts.module",
             ":package.json.module",
@@ -4933,10 +5214,7 @@ MODULES = {
         ],
     },
     "packages/auth": {
-        "package.json": [
-            "//packages/auth:node_modules/@serenity-kit/opaque",
-            "//packages/auth:node_modules/nanoid",
-        ],
+        "package.json": [],
         "src/access-token.test.ts": [
             ":package.json.module",
             ":src/index.ts.module",
@@ -4965,6 +5243,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/index.ts": [
+            "//packages/auth:node_modules/nanoid",
             "//packages/shared:src/parsing.ts.module",
             ":package.json.module",
             ":src/daemon-proof.ts.module",
@@ -4978,6 +5257,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/opaque.ts": [
+            "//packages/auth:node_modules/@serenity-kit/opaque",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -5004,26 +5284,28 @@ MODULES = {
         ],
     },
     "packages/config": {
-        "package.json": [
-            "//packages/config:node_modules/effect",
-        ],
+        "package.json": [],
         "src/daemon-config.test.ts": [
+            "//packages/config:node_modules/effect",
             ":package.json.module",
             ":src/daemon-config.ts.module",
             ":tsconfig.json.module",
         ],
         "src/daemon-config.ts": [
+            "//packages/config:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/environment.test.ts": [
+            "//packages/config:node_modules/effect",
             ":package.json.module",
             ":src/environment.ts.module",
             ":tsconfig.json.module",
         ],
         "src/environment.ts": [
+            "//packages/config:node_modules/effect",
             ":package.json.module",
             ":src/server-environment.ts.module",
             ":tsconfig.json.module",
@@ -5045,21 +5327,25 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/retry-schedules.ts": [
+            "//packages/config:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/server-config.test.ts": [
+            "//packages/config:node_modules/effect",
             ":package.json.module",
             ":src/server-config.ts.module",
             ":tsconfig.json.module",
         ],
         "src/server-config.ts": [
             "//packages/auth:src/index.ts.module",
+            "//packages/config:node_modules/effect",
             ":package.json.module",
             ":src/server-environment.ts.module",
             ":tsconfig.json.module",
         ],
         "src/server-environment.ts": [
+            "//packages/config:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -5084,6 +5370,7 @@ MODULES = {
     },
     "packages/e2e-wasm": {
         "conformance.test.ts": [
+            "//:node_modules/@noble/post-quantum",
             "//:package.json.module",
             "//:tsconfig.json.module",
             "//packages/auth:src/daemon-proof.ts.module",
@@ -5201,20 +5488,21 @@ MODULES = {
         ],
     },
     "packages/logger": {
-        "package.json": [
-            "//packages/logger:node_modules/effect",
-        ],
+        "package.json": [],
         "src/effect-logger.ts": [
+            "//packages/logger:node_modules/effect",
             ":package.json.module",
             ":src/sink.ts.module",
             ":tsconfig.json.module",
         ],
         "src/index.test.ts": [
+            "//packages/logger:node_modules/effect",
             ":package.json.module",
             ":src/index.ts.module",
             ":tsconfig.json.module",
         ],
         "src/index.ts": [
+            "//packages/logger:node_modules/effect",
             ":package.json.module",
             ":src/effect-logger.ts.module",
             ":src/sink.ts.module",
@@ -5231,15 +5519,18 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/span-tree-tracer.test.ts": [
+            "//packages/logger:node_modules/effect",
             ":package.json.module",
             ":src/span-tree-tracer.ts.module",
             ":tsconfig.json.module",
         ],
         "src/span-tree-tracer.ts": [
+            "//packages/logger:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
         "src/trace-correlation.test.ts": [
+            "//packages/logger:node_modules/effect",
             ":package.json.module",
             ":src/index.ts.module",
             ":tsconfig.json.module",
@@ -5269,15 +5560,14 @@ MODULES = {
         "src/protocol.rs": [],
     },
     "packages/profile": {
-        "package.json": [
-            "//packages/profile:node_modules/effect",
-        ],
+        "package.json": [],
         "src/cli.test.ts": [
             ":package.json.module",
             ":src/cli.ts.module",
             ":tsconfig.json.module",
         ],
         "src/cli.ts": [
+            "//packages/profile:node_modules/effect",
             ":package.json.module",
             ":src/mtrace.ts.module",
             ":src/perfetto.ts.module",
@@ -5313,6 +5603,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/samply.ts": [
+            "//packages/profile:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -5322,6 +5613,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/sim.ts": [
+            "//packages/profile:node_modules/effect",
             ":package.json.module",
             ":src/tools.ts.module",
             ":tsconfig.json.module",
@@ -5373,11 +5665,7 @@ MODULES = {
         "fonts/OFL-Geist.txt": [],
         "fonts/OFL-InstrumentSerif.txt": [],
         "fonts/OFL-JetBrainsMono.txt": [],
-        "package.json": [
-            "//packages/quicksilver:node_modules/@unocss/preset-uno",
-            "//packages/quicksilver:node_modules/unocss",
-            "//packages/quicksilver:node_modules/vite",
-        ],
+        "package.json": [],
         "src/assets.ts": [
             ":assets/orb-still.webp.module",
             ":package.json.module",
@@ -5397,6 +5685,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/preset.test.ts": [
+            "//packages/quicksilver:node_modules/@unocss/preset-uno",
+            "//packages/quicksilver:node_modules/unocss",
             ":FONTS.json.module",
             ":fonts/Geist-latin-ext.woff2.module",
             ":fonts/Geist-latin.woff2.module",
@@ -5455,10 +5745,7 @@ MODULES = {
         ],
     },
     "packages/shared": {
-        "package.json": [
-            "//packages/shared:node_modules/effect",
-            "//packages/shared:node_modules/typebox",
-        ],
+        "package.json": [],
         "src/api-contract.test.ts": [
             ":package.json.module",
             ":src/api-contract.ts.module",
@@ -5471,6 +5758,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/api-schema.ts": [
+            "//packages/shared:node_modules/typebox",
             ":package.json.module",
             ":src/browser-client.ts.module",
             ":tsconfig.json.module",
@@ -5670,6 +5958,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/node-signals.ts": [
+            "//packages/shared:node_modules/effect",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -5724,6 +6013,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/schema-check.test.ts": [
+            "//packages/shared:node_modules/typebox",
             ":package.json.module",
             ":src/api-schema.ts.module",
             ":src/parsing.ts.module",
@@ -6020,6 +6310,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "analyze-terminal-gpu-trace.test.ts": [
+            "//:node_modules/@playwright/test",
             "//:package.json.module",
             ":analyze-terminal-gpu-trace.ts.module",
             ":test-process.ts.module",
@@ -6036,6 +6327,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "bazel-modules.ts": [
+            "//:node_modules/effect",
+            "//:node_modules/oxc-parser",
             "//:package.json.module",
             ":check-types.ts.module",
             ":tsconfig.json.module",
@@ -6075,6 +6368,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "bench-immutable-image.ts": [
+            "//:node_modules/@playwright/test",
             "//:package.json.module",
             ":perf/historical-webgl.ts.module",
             ":tsconfig.json.module",
@@ -6249,6 +6543,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "bench-webgpu-terminal.ts": [
+            "//:node_modules/@playwright/test",
             "//:package.json.module",
             ":bench-immutable-image.ts.module",
             ":perf/harness.ts.module",
@@ -6265,6 +6560,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "cargo-graph.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":tsconfig.json.module",
         ],
@@ -6284,6 +6580,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "check-docs.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":generate-docs.ts.module",
             ":prose-rules.ts.module",
@@ -6295,6 +6592,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "check-js-dependency-policy.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":tsconfig.json.module",
         ],
@@ -6330,6 +6628,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "check-slop.test.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":check-slop.ts.module",
             ":comment-rules.ts.module",
@@ -6337,6 +6636,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "check-slop.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":check-ratchet.ts.module",
             ":comment-rules.ts.module",
@@ -6371,6 +6671,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "ci-release-verify.test.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//apps/daemon:src/services/daemon-release.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -6379,6 +6680,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "ci-release-verify.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//apps/daemon:src/services/daemon-release.ts.module",
             "//packages/shared:src/e2e-wasm-bun.ts.module",
@@ -6402,6 +6704,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "comment-rules.ts": [
+            "//:node_modules/oxc-parser",
             "//:package.json.module",
             ":lint-ratchet.ts.module",
             ":tsconfig.json.module",
@@ -6449,12 +6752,14 @@ MODULES = {
             ":web-build-signature.ts.module",
         ],
         "dev-environment.test.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":dev-environment.ts.module",
             ":dev-server-env.ts.module",
             ":tsconfig.json.module",
         ],
         "dev-environment.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//packages/config:src/environment.ts.module",
             "//packages/config:src/server-config.ts.module",
@@ -6463,20 +6768,24 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "dev-redis.test.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":dev-redis.ts.module",
             ":tsconfig.json.module",
         ],
         "dev-redis.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":tsconfig.json.module",
         ],
         "dev-server-env.test.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":dev-server-env.ts.module",
             ":tsconfig.json.module",
         ],
         "dev-server-env.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//packages/auth:src/index.ts.module",
             "//packages/config:src/environment.ts.module",
@@ -6558,6 +6867,8 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "gates.ts": [
+            "//:node_modules/effect",
+            "//:node_modules/oxc-parser",
             "//:package.json.module",
             ":gate-policy.ts.module",
             ":generate-docs.ts.module",
@@ -6570,6 +6881,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "generate-docs.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//packages/config:src/server-environment.ts.module",
             ":gate-policy.ts.module",
@@ -6605,6 +6917,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "lint-ratchet.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":tsconfig.json.module",
         ],
@@ -6613,6 +6926,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "natlab/bootstrap.test.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//packages/shared:src/edge-webtransport.ts.module",
             "//tests:e2e/global-setup.ts.module",
@@ -6746,6 +7060,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "perf/webgpu-renderer-benchmark.ts": [
+            "//:node_modules/@playwright/test",
             "//:package.json.module",
             "//apps/web:src/terminal/cell-records.ts.module",
             ":perf/harness.ts.module",
@@ -6894,6 +7209,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "rust-lint.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":lint-ratchet.ts.module",
             ":tsconfig.json.module",
@@ -6916,6 +7232,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "service-hosts.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//apps/server:src/services/ip-region.ts.module",
             ":tsconfig.json.module",
@@ -6938,6 +7255,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "sim-workspace.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":cargo-graph.ts.module",
             ":generated-cargo-workspace.ts.module",
@@ -6976,6 +7294,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "test-preload.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//packages/logger:src/index.ts.module",
             "//packages/shared:src/e2e-wasm-bun.ts.module",
@@ -7000,6 +7319,7 @@ MODULES = {
             ":vendored-workspace.ts.module",
         ],
         "vendored-workspace.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":cargo-graph.ts.module",
             ":generated-cargo-workspace.ts.module",
@@ -7012,11 +7332,13 @@ MODULES = {
             ":wasm-artifact-manifests.ts.module",
         ],
         "wasm-artifact-manifests.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":cargo-graph.ts.module",
             ":tsconfig.json.module",
         ],
         "web-build-signature.test.ts": [
+            "//:node_modules/@noble/post-quantum",
             "//:package.json.module",
             "//packages/shared:src/release-signature.ts.module",
             ":tsconfig.json.module",
@@ -7053,6 +7375,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "e2e/fixtures/daemon-perf-trace-capture.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//packages/profile:src/mtrace.ts.module",
             ":tsconfig.json.module",
@@ -7405,6 +7728,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "e2e/fixtures/test.ts": [
+            "//:node_modules/@playwright/test",
             "//:package.json.module",
             "//apps/web:src/perf/terminal-latency.ts.module",
             "//apps/web:src/telemetry-worker-protocol.ts.module",
@@ -7418,6 +7742,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "e2e/fixtures/transport-worker-prelude.test.ts": [
+            "//:node_modules/@playwright/test",
             "//:package.json.module",
             ":e2e/fixtures/transport-worker-prelude.ts.module",
             ":tsconfig.json.module",
@@ -7498,11 +7823,13 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "helpers/lifecycle-clock.test.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             ":helpers/lifecycle-clock.ts.module",
             ":tsconfig.json.module",
         ],
         "helpers/lifecycle-clock.ts": [
+            "//:node_modules/effect",
             "//:package.json.module",
             "//apps/web:src/lib/lifecycle-runtime.ts.module",
             ":tsconfig.json.module",

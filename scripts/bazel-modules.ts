@@ -262,15 +262,6 @@ class Graph {
   /** The repository files `file` loads; the generated packages and checkouts go in `targets`. */
   #loads(file: string, targets: Set<string>): string[] {
     if (TSCONFIG.test(file)) return this.#extended(file);
-    // A package's manifest brings the third-party packages its `node_modules` links, which Bun
-    // resolves the package's bare imports through.
-    if (path.posix.basename(file) === 'package.json') {
-      const directory = path.posix.dirname(file);
-      const importer = directory === '.' ? '' : directory;
-      for (const dependency of this.#installed.get(importer) ?? [])
-        targets.add(`//${importer}:node_modules/${dependency}`);
-      return [];
-    }
     if (!CODE.test(file)) return [];
     const absolute = path.join(this.#root, file);
     const source = readFileSync(absolute, 'utf8');
@@ -311,6 +302,11 @@ class Graph {
   ): [string, string | undefined][] {
     if (reference.kind === 'specifier') {
       if (NOT_FILES.test(reference.specifier)) return [];
+      const link = this.#installedLink(reference.specifier, absolute);
+      if (link !== undefined) {
+        targets.add(link);
+        return [];
+      }
       const target = this.#resolve(reference.specifier, path.dirname(absolute));
       // A builtin resolves to its bare name.
       return target !== undefined && !path.isAbsolute(target)
@@ -327,6 +323,25 @@ class Graph {
       return [];
     }
     return this.#within(named).map((inside) => [reference.relative, inside]);
+  }
+
+  /**
+   * The installed package a bare specifier from `absolute` names, as its `node_modules` link
+   * target: the first directory above the file whose pnpm importer depends on that package, the
+   * one Bun's walk up the tree reaches. A workspace package is no installed one: its files are the
+   * checkout's own.
+   */
+  #installedLink(specifier: string, absolute: string): string | undefined {
+    if (specifier.startsWith('.') || path.isAbsolute(specifier)) return undefined;
+    const segments = specifier.split('/');
+    const name = segments.slice(0, specifier.startsWith('@') ? 2 : 1).join('/');
+    for (let directory = path.posix.dirname(this.#relative(absolute)); ; ) {
+      const importer = directory === '.' ? '' : directory;
+      if (this.#installed.get(importer)?.includes(name) === true)
+        return `//${importer}:node_modules/${name}`;
+      if (importer === '') return undefined;
+      directory = path.posix.dirname(directory);
+    }
   }
 
   #resolve(specifier: string, directory: string): string | undefined {
