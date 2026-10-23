@@ -94,6 +94,12 @@ def render(public, base, dependent, peer, inside, outer=False):
             "    elements = { " + ", ".join(f"{key} : {value}" for key, value in sorted(entries.items())) + " }",
             "  }",
         ])
+    lines.extend([
+        "  set reverse_ports {",
+        "    type inet_service;",
+        "    elements = { " + ", ".join(map(str, sorted(reverse))) + " }",
+        "  }",
+    ])
     targets = [("198.51.100.10", "first"), ("198.51.100.11", "second"), (peer, "peer")]
     lines.extend([
         # Real miniupnpd grants at dstnat/-100 take precedence over the generic static map.
@@ -101,7 +107,7 @@ def render(public, base, dependent, peer, inside, outer=False):
         "    type nat hook prerouting priority -90;",
     ])
     lines.extend([
-        f'    iifname "wan0" ip daddr {public} meta l4proto udp udp dport map @{reverse_name} != 0 ct mark set 1 dnat to ip daddr map @inside : udp dport map @{reverse_name}',
+        f'    iifname "wan0" ip daddr {public} meta l4proto udp udp dport @reverse_ports ct mark set 1 dnat to ip daddr map @inside : udp dport map @{reverse_name}',
         "  }",
         "  chain postrouting {",
         "    type nat hook postrouting priority 110;",

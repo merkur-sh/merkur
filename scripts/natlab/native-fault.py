@@ -81,6 +81,24 @@ def snapshot(prefix):
             run(cpe(role), 'nft', '-j', 'list', 'ruleset').stdout)
 
 
+def eim_mapping_state(ruleset):
+    maps = {value['name']: value for obj in ruleset.get('nftables', [])
+            if (value := obj.get('map')) and value.get('table') == 'natlab' and value.get('family') == 'ip'}
+    sets = {value['name']: value for obj in ruleset.get('nftables', [])
+            if (value := obj.get('set')) and value.get('table') == 'natlab' and value.get('family') == 'ip'}
+    if set(maps) != {'inside', 'ordinary', 'reverse_ordinary'} or set(sets) != {'reverse_ports'}:
+        raise ValueError('port-only rebinding requires exact EIM maps and inverse-domain set')
+    forward = dict(maps['ordinary'].get('elem', []))
+    reverse = dict(maps['reverse_ordinary'].get('elem', []))
+    guard = sets['reverse_ports']
+    ports = set(guard.get('elem', []))
+    if (guard.get('type') != 'inet_service' or guard.get('flags')
+            or len(reverse) != len(forward) or reverse != {value: key for key, value in forward.items()}
+            or ports != set(reverse)):
+        raise ValueError('EIM forward, inverse and inverse-domain ownership disagree')
+    return forward, reverse, ports
+
+
 def port_rebind():
     if (STATE / 'case').read_text().strip() != 'eim-pdf':
         raise ValueError('port-only rebinding requires the supported EIM mapping domain')
@@ -89,16 +107,10 @@ def port_rebind():
     snapshot('before-port-rebind')
     info = select_rebind((STATE / 'before-port-rebind-client-conntrack.txt').read_text(), current_ip())
     ruleset = json.loads((STATE / 'before-port-rebind-client-nft.json').read_text())
-    maps = {value['name']: value for obj in ruleset.get('nftables', [])
-            if (value := obj.get('map')) and value.get('table') == 'natlab' and value.get('family') == 'ip'}
-    if set(maps) != {'inside', 'ordinary', 'reverse_ordinary'}:
-        raise ValueError('port-only rebinding requires only EIM forward and inverse maps')
-    forward = dict(maps['ordinary'].get('elem', []))
-    reverse = dict(maps['reverse_ordinary'].get('elem', []))
+    forward, _, _ = eim_mapping_state(ruleset)
     controlled = set(range(30000, 35000)) | set(range(40000, 50000))
     reserved = set(range(20000, 25000))
     if (set(forward) != controlled or not set(forward.values()).isdisjoint(controlled | reserved)
-            or reverse != {external: local for local, external in forward.items()}
             or forward.get(info['localPort']) != info['previousExternalPort']):
         raise ValueError('port-only rebinding found an unsupported or conflicting EIM mapping domain')
     lifecycle(portRebindStartedAtNs=time.time_ns(), portRebind=info)
@@ -107,12 +119,17 @@ def port_rebind():
     rules = (f'delete element ip natlab ordinary {{ {local} }}\n'
              f'add element ip natlab ordinary {{ {local} : {external} }}\n'
              f'delete element ip natlab reverse_ordinary {{ {info["previousExternalPort"]} }}\n'
-             f'add element ip natlab reverse_ordinary {{ {external} : {local} }}\n')
+             f'add element ip natlab reverse_ordinary {{ {external} : {local} }}\n'
+             f'delete element ip natlab reverse_ports {{ {info["previousExternalPort"]} }}\n'
+             f'add element ip natlab reverse_ports {{ {external} }}\n')
     run(cpe('client'), 'nft', '-f', '-', input=rules)
     run(cpe('client'), 'conntrack', '-D', '-p', 'udp', '--orig-src', info['privateIP'],
         '--sport', str(local))
     lifecycle(portReboundAtNs=time.time_ns())
     snapshot('after-port-rebind')
+    updated, _, _ = eim_mapping_state(json.loads((STATE / 'after-port-rebind-client-nft.json').read_text()))
+    if updated.get(local) != external:
+        raise ValueError('kernel did not publish the replacement EIM ownership')
 
 
 def impairment(clear):

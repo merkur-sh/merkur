@@ -99,6 +99,38 @@ class NativeTopologyTests(unittest.TestCase):
         self.assertNotIn('ip saddr', rendered)
         self.assertIn('ct mark set 1 dnat to ip daddr map @inside : udp dport map @reverse_all', rendered)
 
+    def test_inverse_domain_membership_owns_exactly_every_mapped_port(self):
+        for base, dependent, outer in ((51000, False, False), (52000, False, False),
+                                        (51000, True, False), (52000, True, False), (52000, False, True)):
+            rendered = table.render('198.51.100.1', base, dependent, '198.51.100.2', '10.20.1.2', outer)
+            declaration = rendered.split('set reverse_ports {', 1)[1].split('}', 1)[0]
+            elements = declaration.split('elements = {', 1)[1]
+            ports = {int(port.strip()) for port in elements.split(',')}
+            expected = {external for mapping in table.profile_maps(base, dependent, outer).values()
+                        for external in mapping.values()}
+            self.assertEqual(ports, expected)
+            self.assertNotIn('flags', declaration)
+            self.assertIn('udp dport @reverse_ports ct mark set 1 dnat', rendered)
+
+    def test_rebind_rejects_stale_or_wrong_inverse_domain_ownership(self):
+        fixture = {'nftables': [
+            {'map': {'name': 'inside', 'table': 'natlab', 'family': 'ip', 'elem': []}},
+            {'map': {'name': 'ordinary', 'table': 'natlab', 'family': 'ip', 'elem': [[40001, 52001], [40002, 52002]]}},
+            {'map': {'name': 'reverse_ordinary', 'table': 'natlab', 'family': 'ip', 'elem': [[52001, 40001], [52002, 40002]]}},
+            {'set': {'name': 'reverse_ports', 'table': 'natlab', 'family': 'ip', 'type': 'inet_service', 'elem': [52001, 52002]}},
+        ]}
+        self.assertEqual(fault.eim_mapping_state(fixture), (
+            {40001: 52001, 40002: 52002}, {52001: 40001, 52002: 40002}, {52001, 52002}))
+        guard = fixture['nftables'][3]['set']
+        for bad in ([52001], [52001, 52002, 20000]):
+            guard['elem'] = bad
+            with self.assertRaises(ValueError):
+                fault.eim_mapping_state(fixture)
+        guard['elem'] = [52001, 52002]
+        guard['flags'] = ['interval']
+        with self.assertRaises(ValueError):
+            fault.eim_mapping_state(fixture)
+
     def test_port_rebind_uses_exact_socket_after_address_move_and_avoids_owned_ports(self):
         row = (
             "udp 17 179 src=10.20.2.3 dst=198.51.100.1 sport=31000 dport=51000 "
