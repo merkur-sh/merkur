@@ -7,9 +7,9 @@
   "dependencies": {
     "@merkur/logger": "workspace:*",
     "@merkur/quicksilver": "workspace:*",
-    "@solidjs/web": "2.0.0-rc.14",
+    "@solidjs/web": "2.0.0-rc.15",
     "motion": "^14.0.0",
-    "solid-js": "2.0.0-rc.14"
+    "solid-js": "2.0.0-rc.15"
   },
   "devDependencies": {
     "@mdx-js/rollup": "^3.1.1",
