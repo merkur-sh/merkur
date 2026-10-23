@@ -17,7 +17,7 @@ pub fn run(args: &[String]) -> i32 {
                 io::stdout().flush()?;
                 let mut request = [0];
                 io::stdin().read_exact(&mut request)?;
-                if request != [b's'] {
+                if request != *b"s" {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "expected stop request",

@@ -483,7 +483,7 @@ impl Mapping {
             .min()
             .map(|delay| Instant::now() + delay);
     }
-    async fn release(mut self) -> Result<(), Self> {
+    async fn release(mut self) -> Result<(), Box<Self>> {
         if let Some(lease) = self.lease.as_ref()
             && portmap::release((**lease).clone()).await
         {
@@ -497,7 +497,7 @@ impl Mapping {
         if self.lease.is_none() && self.pinhole.is_none() {
             Ok(())
         } else {
-            Err(self)
+            Err(Box::new(self))
         }
     }
 }
@@ -705,7 +705,7 @@ impl Worker {
         let mut unresolved = Vec::new();
         while let Some(result) = releasing.next().await {
             if let Err(mapping) = result {
-                unresolved.push(mapping);
+                unresolved.push(*mapping);
             }
         }
         if unresolved.is_empty() {
