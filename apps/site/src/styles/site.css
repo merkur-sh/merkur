@@ -1789,10 +1789,9 @@
   line-height: 1.55;
 }
 
-/* The page sets the three sizes from the figure (`--mz-raw`, `--mz-zstd`,
-   `--mz-mz`, in MB); a square's side is the root of its share of raw. Raw's
-   square is in flow and gives the box its height: WebKit stretches a flex
-   item's own aspect ratio. */
+/* The page sets zstd's and MZ's sides from the figure (`--mz-zstd-side`,
+   `--mz-mz-side`: `codecSquaresStyle`). Raw's square is in flow and gives the
+   box its height: WebKit stretches a flex item's own aspect ratio. */
 .mz-squares {
   container-type: inline-size;
   position: relative;
@@ -1823,14 +1822,14 @@
 }
 
 .mz-sq-zstd {
-  width: calc(sqrt(var(--mz-zstd) / var(--mz-raw)) * 100%);
+  width: var(--mz-zstd-side);
   border-radius: 14px;
   corner-shape: superellipse(1.6);
   background: #45475a;
 }
 
 .mz-sq-mz {
-  width: calc(sqrt(var(--mz-mz) / var(--mz-raw)) * 100%);
+  width: var(--mz-mz-side);
   border-radius: 12px;
   corner-shape: superellipse(1.6);
   background: #cba6f7;
@@ -1851,9 +1850,9 @@
 }
 
 .mz-label-zstd {
-  bottom: calc(sqrt(var(--mz-zstd) / var(--mz-raw)) * 100% + 10px);
+  bottom: calc(var(--mz-zstd-side) + 10px);
   left: 0;
-  width: calc(sqrt(var(--mz-zstd) / var(--mz-raw)) * 100%);
+  width: var(--mz-zstd-side);
   color: var(--body);
   text-align: right;
 }

@@ -2,7 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { fillPageFacts, readMachineLimit, readReleaseFingerprint } from './page-facts';
+import type { Figure } from '../content/figures';
+import {
+  codecSquaresStyle,
+  fillPageFacts,
+  readMachineLimit,
+  readReleaseFingerprint,
+} from './page-facts';
 import { readSiteApiOrigin, readSiteEnvironment } from './site-environment';
 
 const repo = (path: string): string =>
@@ -61,6 +67,23 @@ describe('facts read from their sources', () => {
       word: 'three',
     });
     expect(() => readMachineLimit('const MAX_LINKED_MACHINES = 3;')).toThrow('no single-digit');
+  });
+
+  test('the codec squares take their sides from the sizes the mz figure prints', () => {
+    const figure = (values: Record<string, string>): Figure => ({
+      id: 'mz',
+      text: '',
+      ledger: '',
+      values,
+      caption: { measurement: '', environment: 'lab', version: '', sample: '', date: '' },
+    });
+    // A quarter of raw's bytes is half its side, a ninth a third.
+    expect(codecSquaresStyle([figure({ raw: '36.0 MB', zstd: '9.0 MB', mz: '4.0 MB' })])).toBe(
+      '<style>.mz-squares{--mz-zstd-side:50.00%;--mz-mz-side:33.33%}</style>',
+    );
+    expect(() => codecSquaresStyle([figure({ raw: '36.0 MB', zstd: '9.0 MB' })])).toThrow(
+      'prints no size as mz',
+    );
   });
 });
 

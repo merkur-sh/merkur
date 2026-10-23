@@ -15,6 +15,8 @@
  * - `color.ground`: the ground token, for the `theme-color` meta.
  * - `retrograde.*`: the still of the sky on the page for an address with
  *   nothing at it (`retrograde-still.ts`).
+ * - `codec.squares`: the sides of the codec section's squares, from the `mz`
+ *   figure (`content/figures.ts`).
  *
  * A name with no fact stops the build, and so does a fact whose source is
  * missing or malformed. Loaded by Vite's config bundler: relative imports,
@@ -25,6 +27,7 @@ import { join } from 'node:path';
 import { COLORS } from '@merkur/quicksilver/tokens';
 import type { Plugin } from 'vite';
 
+import { FIGURES, type Figure } from '../content/figures';
 import { stripStill } from '../link-strip';
 import { simScriptMarkup } from '../sim-script';
 import { escapeHtml } from './html';
@@ -85,6 +88,23 @@ export function readLegalBody(html: string): string {
   const main = /<main>([\s\S]*?)<\/main>/.exec(html)?.[1];
   if (main === undefined) throw new Error('page facts: a legal page has no <main>');
   return main.replace(/<footer>[\s\S]*?<\/footer>/, '').trim();
+}
+
+/**
+ * The codec section's squares as a stylesheet. Raw's square is the box, and
+ * zstd's and MZ's sides are the roots of their shares of raw, read from the
+ * sizes the `mz` figure prints, so the picture moves with the numbers it draws.
+ */
+export function codecSquaresStyle(figures: readonly Figure[]): string {
+  const values = figures.find((figure) => figure.id === 'mz')?.values;
+  const megabytes = (key: string): number => {
+    const size = Number.parseFloat(values?.[key] ?? '');
+    if (!(size > 0)) throw new Error(`page facts: the mz figure prints no size as ${key}`);
+    return size;
+  };
+  const side = (key: string): string =>
+    `${(Math.sqrt(megabytes(key) / megabytes('raw')) * 100).toFixed(2)}%`;
+  return `<style>.mz-squares{--mz-zstd-side:${side('zstd')};--mz-mz-side:${side('mz')}}</style>`;
 }
 
 export interface PageFactPaths {
@@ -149,6 +169,7 @@ export function collectPageFacts(
     ['limit.value', { text: String(limit.value) }],
     ['limit.word', { text: limit.word }],
     ['blog.link', { html: paths.blog ? BLOG_LINK : '' }],
+    ['codec.squares', { html: codecSquaresStyle(FIGURES) }],
   ]);
   // A part names facts of its own, so it is filled before any page asks for it.
   for (const [part, name] of Object.entries(PARTS)) {

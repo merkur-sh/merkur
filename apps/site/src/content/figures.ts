@@ -40,12 +40,9 @@ export const FIGURES: readonly Figure[] = [
     id: 'mz',
     text: 'raw 79.6 MB, zstd 25.1 MB (3.2× smaller), MZ 14.0 MB (5.7× smaller)',
     ledger: 'ledger/2026-10-23-mz-site-figure.md',
-    // `rawMb`, `zstdMb` and `mzMb` size the squares that draw the three
-    // (`.mz-squares` in `index.html`), so the picture moves with the figure.
+    // `raw`, `zstd` and `mz` also size the codec section's squares
+    // (`codecSquaresStyle` in `vite/page-facts.ts`).
     values: {
-      rawMb: '79.6',
-      zstdMb: '25.1',
-      mzMb: '14.0',
       raw: '79.6 MB',
       zstd: '25.1 MB',
       zstdTimes: '3.2×',
