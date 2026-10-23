@@ -15,6 +15,7 @@ targets. Cargo's manifests and lockfile stay the source of the Rust dependency g
 | `bazel test //:static_gates` | The static gates, each also a `package.json` script (`bun run check:types`). `check:types` is one test per TypeScript project, over the files its `tsc` lists; `check:slop` one per Bazel package, over its own files. |
 | `bazel test //:rust_lint` | `rust:lint`: Clippy as a Bazel aspect over every first-party Rust target, cached per crate and held to its baseline; part of `bazel test //...`. |
 | `bun run gates` | What the working tree's changes earn: `bazel test //...` plus the gates and suites outside Bazel (`scripts/gate-policy.ts`). |
+| `bun run profile:query bazel <query>` | SQL over the last command's own profile (`command.profile.gz`): `bazel-phases`, `bazel-critical-path`, `bazel-slow-actions`, `bazel-waits`, `bazel-categories` (`packages/profile/queries/`). |
 | `bun run build:wasm` | `bazel run //tools/bazel/wasm:sync`: the WebAssembly packages into the `pkg/` directories Vite and Bun import. |
 | `bun run build:native` | `bazel run //tools/bazel/native:sync`: in Cargo's release profile, whatever the command line's configuration, the dataplane, image worker and terminal client into apps/daemon/dist, the edge and the harnesses' network peers into apps/edge/dist. |
 

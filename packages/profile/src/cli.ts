@@ -8,6 +8,9 @@
  *   profile:perfetto <dir>                 write <dir>/trace.perfetto-trace
  *   profile:query <dir|trace> <query> [--span <name>] [--threshold-us <n>] [--limit <n>] [--json]
  *   profile:diff <dir|trace> <dir|trace> <query> [options]
+ *
+ * A Bazel command's own profile (`command.profile.gz`, Chrome's trace format) is a trace too:
+ * `bazel` names this checkout's last one, and the `bazel-*` queries read it.
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -108,7 +111,16 @@ export function parseQueryOutput(output: string): Table {
   };
 }
 
+/** The profile Bazel wrote for this checkout's last command, which `trace_processor` reads as is. */
+async function bazelProfile(): Promise<string> {
+  const child = Bun.spawn(['bazel', 'info', 'output_base'], { stdout: 'pipe', stderr: 'inherit' });
+  const [output, exit] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  if (exit !== 0) throw new Error(`bazel info output_base exited ${exit}`);
+  return path.join(output.trim(), 'command.profile.gz');
+}
+
 async function tracePath(target: string): Promise<string> {
+  if (target === 'bazel') return bazelProfile();
   if (!(await stat(target)).isDirectory()) return target;
   const traceFile = path.join(target, TRACE_FILE);
   const built = await stat(traceFile).then(
