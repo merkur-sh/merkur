@@ -1186,21 +1186,22 @@ mod tests {
             reserve_pair(&path, 49153).unwrap_err().kind(),
             std::io::ErrorKind::InvalidInput
         );
-        let (port, occupied) = (61000..62000)
+        let (media, occupied) = (61000..62000)
             .step_by(2)
             .find_map(|port| {
                 let guard = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, port + 1)).ok()?;
                 let media = bind(&path, port).ok()?;
-                drop(media);
-                Some((port, guard))
+                Some((media, guard))
             })
             .unwrap();
         assert_eq!(
-            reserve_pair(&path, port).unwrap_err().kind(),
+            reserve_companion(&path, media).unwrap_err().kind(),
             std::io::ErrorKind::AddrInUse
         );
         drop(occupied);
-        let (media, companion) = reserve_pair(&path, port).unwrap();
+        let owner = Retirement::new();
+        let (media, companion) = pair(&path, &owner).unwrap();
+        let port = media.local_addr().unwrap().port();
         assert_eq!(media.local_addr().unwrap().port() % 2, 0);
         assert_eq!(companion.local_addr().unwrap().port(), port + 1);
         assert_eq!(
