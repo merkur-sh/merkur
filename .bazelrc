@@ -15,6 +15,10 @@ build --@rules_rust//rust/settings:per_crate_rustc_flag=external/@-Cdebuginfo=0
 build:release --compilation_mode=opt
 build:release --@rules_rust//rust/settings:extra_rustc_flags=
 
+# A crate's dependents compile against its metadata as soon as rustc has written it, while its
+# code generation finishes, as Cargo's pipelining does.
+build --@rules_rust//rust/settings:pipelined_compilation=True
+
 # Clippy, which `//:rust_lint` runs over every first-party target: the repository's
 # `clippy.toml`, JSON diagnostics for the ratchet to read, and each lint `scripts/rust-lint.ts`
 # ratchets as a warning. The test fails unless these are exactly the script's `RATCHETED_LINTS`.
