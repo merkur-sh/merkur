@@ -1760,7 +1760,7 @@
 }
 
 .mz-row-mz dd {
-  color: #dcd0ff;
+  color: var(--accentink);
 }
 
 .mz-swatch {
@@ -1779,7 +1779,7 @@
 }
 
 .mz-swatch-mz {
-  background: #cba6f7;
+  background: var(--accent);
 }
 
 /* The page sets zstd's and MZ's sides from the figure (`--mz-zstd-side`,
@@ -1825,8 +1825,8 @@
   width: var(--mz-mz-side);
   border-radius: 12px;
   corner-shape: superellipse(1.6);
-  background: #cba6f7;
-  box-shadow: 0 0 60px rgba(203, 166, 247, 0.35);
+  background: var(--accent);
+  box-shadow: 0 0 60px rgba(127, 90, 240, 0.45);
 }
 
 .mz-label {
@@ -1858,7 +1858,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 3.5cqi;
-  color: #1e1e2e;
+  color: #fff;
   font-size: 14px;
   font-weight: 500;
 }
