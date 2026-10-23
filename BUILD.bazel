@@ -2,7 +2,7 @@ load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED", "module_targets")
 load("//tools/bazel:modules.bzl", "PRELOADS")
 load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "THIRD_PARTY_DEPENDENCIES")
-load("//tools/bazel/bun:bun.bzl", "repo_check", "slop_checks", "type_checks")
+load("//tools/bazel/bun:bun.bzl", "lint_checks", "repo_check", "slop_checks", "type_checks")
 load("//tools/bazel/rust:clippy.bzl", "clippy_manifest")
 
 npm_link_all_packages(name = "node_modules")
@@ -88,7 +88,6 @@ filegroup(
     "check-dead",
     "check-docs",
     "check-latency-boundaries",
-    "check-lint",
     "check-ratchet",
     "check-span-attributes",
     "check-span-lifetimes",
@@ -98,6 +97,16 @@ filegroup(
 type_checks(
     name = "check_types",
     script = "//scripts:check-types.ts.module",
+)
+
+# `check:lint`, one test per Bazel package over the package's own files.
+lint_checks(
+    name = "check_lint",
+    data = [
+        ".gitignore",
+        "biome.json",
+        ":node_modules/@biomejs/biome",
+    ],
 )
 
 # `check:slop`, one test per Bazel package over the package's own files.

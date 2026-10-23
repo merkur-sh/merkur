@@ -12,7 +12,7 @@ targets. Cargo's manifests and lockfile stay the source of the Rust dependency g
 | `bazel test //...` | Every test and static gate. Bazel runs the ones whose inputs changed and answers the rest from its cache. |
 | `bazel test //apps/web:test` | One package's Bun tests: a suite of one test per test file (`//apps/web:src/api.refresh.test` for `src/api.refresh.test.ts`). The Rust crates add `unit`, integration and `doc` targets. |
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | One filtered libtest run. |
-| `bazel test //:static_gates` | The static gates, each also a `package.json` script (`bun run check:types`). `check:types` is one test per TypeScript project, over the files its `tsc` lists; `check:slop` one per Bazel package, over its own files. |
+| `bazel test //:static_gates` | The static gates, each also a `package.json` script (`bun run check:types`). `check:types` is one test per TypeScript project, over the files its `tsc` lists; `check:lint` and `check:slop` one per Bazel package, over its own files. |
 | `bazel test //:rust_lint` | `rust:lint`: Clippy as a Bazel aspect over every first-party Rust target, cached per crate and held to its baseline; part of `bazel test //...`. |
 | `bun run gates` | What the working tree's changes earn: `bazel test //...` plus the gates and suites outside Bazel (`scripts/gate-policy.ts`). |
 | `bun run profile:query bazel <query>` | SQL over the last command's own profile (`command.profile.gz`): `bazel-phases`, `bazel-critical-path`, `bazel-slow-actions`, `bazel-waits`, `bazel-categories` (`packages/profile/queries/`). |
@@ -98,7 +98,9 @@ files `tsc --listFilesOnly` lists for that project, each one's nearest `package.
 project's configuration chain (`TYPE_PROJECTS` in `tools/bazel/modules.bzl`). `check:slop` is one
 test per Bazel package (`slop_checks`): `scripts/check-slop.ts --package <directory>` over the
 package's own files, the rules and the baseline, judging only the entries that package owns; its
-rules read one file at a time.
+rules read one file at a time. `check:lint` is likewise one test per Bazel package
+(`lint_checks`): `biome check .` over the package's own files, `biome.json` and `.gitignore`,
+since no rule `biome.json` enables reads another file.
 
 ## Adding code
 

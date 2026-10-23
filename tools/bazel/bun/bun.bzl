@@ -354,6 +354,30 @@ def slop_checks(name, script, data):
         targets.append(":" + target)
     native.test_suite(name = name, tests = targets)
 
+def lint_checks(name, data):
+    """`check:lint` as one test per Bazel package, `<name>/<package>/BUILD.bazel`.
+
+    Each runs `biome check .` over a checkout of the package's own files and Biome's
+    configuration, so a package is linted and format-checked again only when one of its files or
+    the configuration changes. No rule the configuration enables reads more than one file.
+
+    Args:
+      name: a suite of every package's test.
+      data: Biome's configuration and installed package.
+    """
+    targets = []
+    for package in [""] + [label.removeprefix("//") for label in PACKAGES]:
+        target = "%s/%sBUILD.bazel" % (name, package + "/" if package else "")
+        bun_test(
+            name = target,
+            args_ = ["x", "biome", "check", "."],
+            data = ["//%s:%s" % (package, "files" if package else "root_files")] + data,
+            git = True,
+            workspace = _WORKSPACE,
+        )
+        targets.append(":" + target)
+    native.test_suite(name = name, tests = targets)
+
 def repo_check(name, script, data = [], **kwargs):
     """`bun run <script>`, a `package.json` gate, over a checkout of the whole repository.
 
