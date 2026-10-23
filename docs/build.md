@@ -12,7 +12,7 @@ targets. Cargo's manifests and lockfile stay the source of the Rust dependency g
 | `bazel test //...` | Every test and static gate. Bazel runs the ones whose inputs changed and answers the rest from its cache. |
 | `bazel test //apps/web:test` | One package's Bun tests: a suite of one test per test file (`//apps/web:src/api.refresh.test` for `src/api.refresh.test.ts`). The Rust crates add `unit`, integration and `doc` targets. |
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | One filtered libtest run. |
-| `bazel test //:static_gates` | The nine static gates, each also a `package.json` script (`bun run check:types`). |
+| `bazel test //:static_gates` | The static gates, each also a `package.json` script (`bun run check:types`). `check:types` is one test per TypeScript project, over the files its `tsc` lists. |
 | `bazel test //:rust_lint` | `rust:lint`: Clippy as a Bazel aspect over every first-party Rust target, cached per crate and held to its baseline; part of `bazel test //...`. |
 | `bun run gates` | What the working tree's changes earn: `bazel test //...` plus the gates and suites outside Bazel (`scripts/gate-policy.ts`). |
 | `bun run build:wasm` | `bazel run //tools/bazel/wasm:sync`: the WebAssembly packages into the `pkg/` directories Vite and Bun import. |
@@ -88,7 +88,10 @@ file's module target, such as a script it runs or a fixture it reads by a comput
 the checkout does not hold the file. Bun, Node, Redis, OpenSSL and Chromium are hermetic.
 
 A static gate is a `repo_check`: the gate's `package.json` script over a checkout of the whole
-repository, made a Git repository so the gate sees what Git ignores.
+repository, made a Git repository so the gate sees what Git ignores. `check:types` is one test
+per TypeScript project (`type_checks`): `scripts/check-types.ts --project <tsconfig>` over the
+files `tsc --listFilesOnly` lists for that project, each one's nearest `package.json`, and the
+project's configuration chain (`TYPE_PROJECTS` in `tools/bazel/modules.bzl`).
 
 ## Adding code
 

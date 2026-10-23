@@ -1,7 +1,7 @@
 """Bun programs, run from the repository root in their runfiles."""
 
 load("@aspect_rules_js//js:libs.bzl", "js_lib_helpers")
-load("//tools/bazel:modules.bzl", "MODULES")
+load("//tools/bazel:modules.bzl", "MODULES", "TYPE_PROJECTS")
 load("//tools/bazel:sources.bzl", "SYMLINKS", "WORKSPACE_DEPENDENCIES", "WORKSPACE_LINKS")
 load("//tools/bazel/playwright:extensions.bzl", "CHROMIUM_REVISION")
 
@@ -304,6 +304,29 @@ def bun_test_files(name = "test", tests = [], files = {}):
             size = needs.get("size", "medium"),
             tests = [test],
             tools = needs.get("tools", {}),
+            workspace = _WORKSPACE,
+        )
+        targets.append(":" + target)
+    native.test_suite(name = name, tests = targets)
+
+def type_checks(name, script):
+    """`check:types` as one test per TypeScript project, `<name>/<its tsconfig.json>`.
+
+    Each runs `script --project <tsconfig>` over a checkout of what that project's `tsc` reads
+    (`TYPE_PROJECTS`), so it reruns only when one of those files changes.
+
+    Args:
+      name: a suite of every project's test.
+      script: the module target of `scripts/check-types.ts`.
+    """
+    targets = []
+    for project, inputs in TYPE_PROJECTS.items():
+        # The whole path: a project's directory can hold another's (`apps/server/scripts`).
+        target = "%s/%s" % (name, project)
+        bun_test(
+            name = target,
+            args_ = ["run", "scripts/check-types.ts", "--project", project],
+            data = [script, "//:test_node_modules"] + inputs,
             workspace = _WORKSPACE,
         )
         targets.append(":" + target)

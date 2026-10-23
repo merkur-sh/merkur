@@ -60,9 +60,12 @@ See `docs/security.md` for the failure policy and full-history audit command.
 
 Native tsc, Biome over the whole repo, five single-process source scans, the fallow
 ratchet, and the anti-slop baseline. Each is the `package.json` script of its name and a
-Bazel test of the same name with `-` for `:` (`//:check_types`), which runs the script over a
+Bazel test of the same name with `-` for `:` (`//:check_lint`), which runs the script over a
 checkout of the whole repository that is a Git repository, so the gates see what Git ignores
-as a working tree does. `//:static_gates` is all nine; `bun run check` is them plus
+as a working tree does. `//:check_types` is instead a suite of one test per TypeScript
+project (`//:check_types/apps/web/tsconfig.json`), each over the files that project's `tsc`
+lists (`TYPE_PROJECTS` in `tools/bazel/modules.bzl`), so only the projects a change reaches
+check again. `//:static_gates` is all of them; `bun run check` is them plus
 `check:protocol`. CI runs them on every push inside `bazel test //...`:
 
 ```

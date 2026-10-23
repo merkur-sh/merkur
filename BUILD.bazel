@@ -2,7 +2,7 @@ load("@npm//:defs.bzl", "npm_link_all_packages")
 load("//tools/bazel:files.bzl", "IGNORED", "module_targets")
 load("//tools/bazel:modules.bzl", "PRELOADS")
 load("//tools/bazel:sources.bzl", "PACKAGES", "SYMLINKS", "THIRD_PARTY_DEPENDENCIES")
-load("//tools/bazel/bun:bun.bzl", "repo_check")
+load("//tools/bazel/bun:bun.bzl", "repo_check", "type_checks")
 load("//tools/bazel/rust:clippy.bzl", "clippy_manifest")
 
 npm_link_all_packages(name = "node_modules")
@@ -98,8 +98,13 @@ _GATE_SIZES = {"check-slop": "large"}
     "check-slop",
     "check-span-attributes",
     "check-span-lifetimes",
-    "check-types",
 ]]
+
+# `check:types`, one test per TypeScript project over what its `tsc` reads.
+type_checks(
+    name = "check_types",
+    script = "//scripts:check-types.ts.module",
+)
 
 # `rust:lint`: Clippy over every first-party Rust target, each package's report cached per crate,
 # held to `lint-baselines/clippy.json` by `scripts/rust-lint.ts`.

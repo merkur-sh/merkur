@@ -1,6 +1,6 @@
 """Every package's source files, for the tests that read the checkout as a whole."""
 
-load("//tools/bazel:modules.bzl", "MODULES")
+load("//tools/bazel:modules.bzl", "MODULES", "TYPE_INPUTS")
 load("//tools/bazel/rust:clippy.bzl", "lint_targets")
 
 # What `.gitignore` keeps out of the checkout: installed dependencies, build outputs, local
@@ -33,12 +33,20 @@ _KEPT = ["**/.env.example"]
 def module_targets():
     """`<path>.module` for each file of the package a Bun test loads: the file and what it loads.
 
-    `tools/bazel/modules.bzl` lists them, which `scripts/bazel-modules.ts` generates.
+    And `type_inputs/<project>`, the package's files a TypeScript project's `tsc` reads.
+    `tools/bazel/modules.bzl` lists both, which `scripts/bazel-modules.ts` generates.
     """
-    for file, loads in MODULES.get(native.package_name(), {}).items():
+    package = native.package_name()
+    for file, loads in MODULES.get(package, {}).items():
         native.filegroup(
             name = file + ".module",
             srcs = [file] + loads,
+            visibility = ["//visibility:public"],
+        )
+    for project, files in TYPE_INPUTS.get(package, {}).items():
+        native.filegroup(
+            name = "type_inputs/" + project,
+            srcs = files,
             visibility = ["//visibility:public"],
         )
 
