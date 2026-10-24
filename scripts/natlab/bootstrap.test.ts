@@ -13,8 +13,8 @@ import { playwrightCli } from './playwright-cli';
 const packageVersion = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.String }));
 const root = path.resolve(import.meta.dir, '../..');
 const nativeConfiguration = path.join(import.meta.dir, 'playwright.native.config.mjs');
-const CLI_PROCESS_TIMEOUT_MS = 10_000;
-// Each CLI test starts two children; its outer budget also covers cold-runner scheduling.
+// Each CLI test starts two children, which Bun kills when the test's budget ends. That budget is
+// their only bound: a loaded CI runner transforms and lists the spec cold, past any per-child cap.
 const CLI_TEST_TIMEOUT_MS = 30_000;
 const decodeConfiguration = Schema.decodeUnknownSync(
   Schema.fromJsonString(
@@ -67,7 +67,6 @@ process.stdout.write(JSON.stringify({
     ],
     {
       cwd: import.meta.dir,
-      timeout: CLI_PROCESS_TIMEOUT_MS,
       env: {
         ...process.env,
         PW_E2E_OUTPUT_DIR: 'test-results/native-config-proof',
@@ -174,7 +173,6 @@ describe('native NAT-lab bootstrap', () => {
         [node, playwrightCli, 'test', '--config', nativeConfiguration, '--list'],
         {
           cwd: import.meta.dir,
-          timeout: CLI_PROCESS_TIMEOUT_MS,
           // The standalone CLI must not inherit the outer unit-test worker marker.
           env: { ...process.env, JEST_WORKER_ID: undefined },
         },
@@ -197,7 +195,6 @@ describe('native NAT-lab bootstrap', () => {
         // this exact guard proves the real command and all entry imports resolved.
         const started = await runTestProcess(['/bin/bash', '-c', server.command], {
           cwd: server.cwd,
-          timeout: CLI_PROCESS_TIMEOUT_MS,
           env: { ...process.env, PW_E2E_PORT: '' },
         });
         expect(started.exitCode).not.toBe(0);
@@ -212,17 +209,14 @@ describe('native NAT-lab bootstrap', () => {
     async () => {
       const packagePath = createRequire(import.meta.url).resolve('@playwright/test/package.json');
       const version = packageVersion(JSON.parse(readFileSync(packagePath, 'utf8'))).version;
-      const resolved = await runTestProcess(
-        [node, '-p', 'require.resolve("@playwright/test/cli")'],
-        {
-          timeout: CLI_PROCESS_TIMEOUT_MS,
-        },
-      );
+      const resolved = await runTestProcess([
+        node,
+        '-p',
+        'require.resolve("@playwright/test/cli")',
+      ]);
       expect(resolved.exitCode).toBe(0);
       expect(resolved.stdout.trim()).toBe(playwrightCli);
-      const cli = await runTestProcess([node, playwrightCli, '--version'], {
-        timeout: CLI_PROCESS_TIMEOUT_MS,
-      });
+      const cli = await runTestProcess([node, playwrightCli, '--version']);
       expect(cli.exitCode).toBe(0);
       expect(cli.stdout.trim()).toBe(`Version ${version}`);
     },
