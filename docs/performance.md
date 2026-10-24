@@ -10,10 +10,11 @@ the frame's opportunity. The claim costs 8 header bytes on each display frame th
 universal latency or GPU-contention guarantee.
 
 The terminal worker owns one WebGPU canvas, WASM terminal and renderer. Transport decode/apply and
-selective ACK never wait for presentation or GPU completion. Received rows accumulate in a bounded,
-deduplicated viewport dirty set; an eligible grid and matching header advance at a presentation
-commit. Predictions, provisional touch feedback, cursor and decorations render against that
-eligible base in one text pass, with no per-frame main-thread handoff or bitmap copy.
+selective ACK never wait for presentation or GPU completion. Received rows retain bounding
+intervals of changed cells in bounded per-row storage; an eligible grid and matching header
+advance at a presentation commit, copying those intervals. Predictions, provisional touch feedback,
+cursor and decorations render against that eligible base in one text pass, with no per-frame
+main-thread handoff or bitmap copy.
 
 Eligible work submits in the current task when no prior GPU work remains unconfirmed. While a
 prior submission is unconfirmed, continuous changes replace one pending scene until a worker
@@ -111,10 +112,15 @@ claim that the browser API allocates nothing.
 The terminal grid is one fixed record per cell: twelve bytes at `row * cols + col` holding a
 glyph id (or a builtin block shape), the text colour, the background colour, the cell's column
 and row, and wide, underline, strikeout, background, glyph-alpha and preedit flags
-(`apps/web/src/terminal/cell-records.ts`, written by `write_row_cells`). A damaged row rewrites
-only the records whose words changed, and the dirty range spans only those, so a keystroke into a
-blank cell uploads one record; every record is rewritten only on resize or a theme, font or
-glyph-id change. Glyph rectangles and bearings live in an append-only glyph table in atlas
+(`apps/web/src/terminal/cell-records.ts`, written by `write_row_cells`). Cell-damage intervals
+accumulate through held arrivals and eligible commits until geometry is built. Record generation
+uses eligible cell flags and retained record carry to close each interval's right edge before
+entering a fixed loop over that closed interval. Differing carry persists through lead-capable wide
+cells and resets at the first other cell. Changed records determine the upload range, so a keystroke
+into a blank cell uploads one record. Projection changes explicitly invalidate their whole row;
+overlays and preedit retain their own buffers. Resize, theme, font and glyph-table epoch changes
+rebuild all records. Row versions, native link ownership and row hashes advance independently of
+these visual intervals. Glyph rectangles and bearings live in an append-only glyph table in atlas
 pixels, indexed by id: atlas growth keeps every coordinate and rewrites no record, and only the
 table entries added since the last upload of its epoch are uploaded. Cell size, baseline and the
 preedit highlight travel in the uniform. Visible predictions over the blank tail and the IME
@@ -528,6 +534,15 @@ exercise dirty uploads, retained buffers and full replacement; final untimed RGB
 background, glyph, decoration and all cursor shapes. Fake-device tests separately pin upload
 ranges, two-owner capacity, out-of-order retirement and device recovery. These component checks
 are not network, compositor, or physical input-to-photon measurements.
+
+The ignored `tests::presentation_damage_experiment_benchmark` test in
+`//packages/term-wasm:release_unit` exercises production frame validation, application, eligible
+commit and cell-record generation. `DAMAGE_BENCH_CASE` and `DAMAGE_BENCH_COLS` select one workload
+per process; `DAMAGE_BENCH_ITERATIONS` and `DAMAGE_BENCH_SAMPLES` control the repeated warm loops.
+`DAMAGE_BENCH_HASHES=1` includes the dirty-row hash refresh. Each sample compares incremental
+records with a forced full rebuild outside timing. The test reports warm allocator requests;
+`DAMAGE_EXPORT_DIR` exports the same encoded frames for a Wasm receiver. These are component
+measurements, excluding transport, GPU execution and physical presentation.
 
 The terminal render-reader benchmark instantiates the production terminal Wasm adapter and measures
 the cursor snapshot reader used by every ordinary frame. Besides timing, it reports whether the

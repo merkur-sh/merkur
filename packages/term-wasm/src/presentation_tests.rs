@@ -459,7 +459,8 @@ fn presentation_sparse_commit_reuses_rows_and_copies_no_unchanged_row() {
             }],
         );
         assert!(terminal.apply_delta_seq(&unchanged, sequence + 200));
-        assert_eq!(terminal.presentation_dirty_set[0], 1);
+        assert!(terminal.presentation_dirty_set[0]);
+        assert!(terminal.presentation_dirty_cells[0].is_none());
         terminal.commit_presentation_state();
         assert!(terminal.damaged_rows.is_empty());
         assert_eq!(terminal.presentation_row_version(0), sequence + 200);
@@ -734,4 +735,491 @@ fn a_row_under_a_speculative_echo_says_so_until_the_echo_is_gone() {
     let revoked = test_cursor_frame(20, 2, 2, 0, CURSOR_SHAPE_HIDDEN, 0);
     assert!(terminal.apply_delta_seq(&revoked, 2));
     assert!(!terminal.row_holds_prediction(0));
+}
+
+#[test]
+fn presentation_sparse_damage_matches_full_record_rebuilds() {
+    let mut terminal = terminal_with_atlas(32, 3);
+    let snapshot = test_frame_with_entries(FrameKind::Snapshot, 32, 3, 0, 0, &[]);
+    assert!(terminal.apply_presented_state_seq(&snapshot, 1));
+    terminal.build_geometry();
+    let mut seq = 2;
+    // Independent absolute cell writes include wide flags with and without
+    // their partner, edges, disjoint held spans, and wrapping metadata.
+    for round in 0..96usize {
+        let mut changed = test_cell(if round % 2 == 0 { 'a' } else { '界' });
+        if round % 3 == 0 {
+            changed.attrs |= CellAttrs::WIDE;
+        }
+        if round % 5 == 0 {
+            changed.attrs |= CellAttrs::UNDERLINE;
+        }
+        let col = u16::try_from(round * 13 % 32).expect("bounded column");
+        changed.set_wrapped(col == 31 && round % 7 == 0);
+        let row = u16::try_from(round % 3).expect("bounded row");
+        let held = test_frame_with_entries(
+            FrameKind::Delta,
+            32,
+            3,
+            0,
+            0,
+            &[RowRef {
+                graphics: &[],
+                row_index: row,
+                left: col,
+                cells: &[changed],
+            }],
+        );
+        let before = terminal.cell_buf.clone();
+        assert!(
+            terminal.apply_delta_seq(&held, seq),
+            "{:?}",
+            terminal.last_error
+        );
+        seq += 1;
+        terminal.full_damage = true;
+        terminal.build_geometry();
+        assert_eq!(
+            before, terminal.cell_buf,
+            "received pixels escaped the hold"
+        );
+        let mut distant = test_cell('\u{301}');
+        distant.link = u32::try_from(round).expect("bounded test round") + 1;
+        let other = test_frame_with_entries(
+            FrameKind::Delta,
+            32,
+            3,
+            0,
+            0,
+            &[RowRef {
+                graphics: &[],
+                row_index: row,
+                left: (col + 17) % 32,
+                cells: &[distant],
+            }],
+        );
+        assert!(terminal.apply_delta_seq(&other, seq));
+        seq += 1;
+        terminal.commit_presentation_state();
+        terminal.build_geometry();
+        let incremental = terminal.cell_buf.clone();
+        terminal.full_damage = true;
+        terminal.build_geometry();
+        assert_eq!(incremental, terminal.cell_buf, "round {round}");
+        assert_received_matches_presentation(&terminal);
+        // A link-only change advances authority without repainting the row.
+        distant.link += 1000;
+        let link_only = test_frame_with_entries(
+            FrameKind::Delta,
+            32,
+            3,
+            0,
+            0,
+            &[RowRef {
+                graphics: &[],
+                row_index: row,
+                left: (col + 17) % 32,
+                cells: &[distant],
+            }],
+        );
+        assert!(terminal.apply_delta_seq(&link_only, seq));
+        seq += 1;
+        terminal.commit_presentation_state();
+        terminal.build_geometry();
+        assert_eq!(incremental, terminal.cell_buf);
+        assert_received_matches_presentation(&terminal);
+    }
+}
+
+fn assert_received_matches_presentation(terminal: &Terminal) {
+    assert_eq!(
+        terminal.presentation_viewport_rows(),
+        terminal.viewport_rows()
+    );
+    assert_eq!(
+        terminal.presentation_viewport_wrap_bits(),
+        terminal.viewport_wrap_bits()
+    );
+    for row in 0..terminal.term.grid().screen_lines() {
+        let line = Line(i32::try_from(row).expect("bounded test row"));
+        assert_eq!(
+            terminal.presentation_grid[line][..],
+            terminal.term.grid()[line][..]
+        );
+    }
+    assert_eq!(
+        terminal.presentation_cell_links,
+        terminal.display_cell_links
+    );
+}
+
+#[test]
+fn presentation_damage_follows_wide_carry_until_it_converges() {
+    for cols in 2..18u16 {
+        let mut terminal = terminal_with_atlas(cols, 1);
+        let mut wide = test_cell('a');
+        wide.attrs |= CellAttrs::WIDE;
+        let cells = vec![wide; usize::from(cols)];
+        let snapshot = test_frame_with_entries(
+            FrameKind::Snapshot,
+            cols,
+            1,
+            0,
+            0,
+            &[RowRef {
+                graphics: &[],
+                row_index: 0,
+                left: 0,
+                cells: &cells,
+            }],
+        );
+        let mut sequence = 1;
+        for col in 0..cols {
+            assert!(terminal.apply_presented_state_seq(&snapshot, sequence));
+            sequence += 1;
+            terminal.build_geometry();
+            let before = terminal.cell_buf.clone();
+            let patch = test_frame_with_entries(
+                FrameKind::Delta,
+                cols,
+                1,
+                0,
+                0,
+                &[RowRef {
+                    graphics: &[],
+                    row_index: 0,
+                    left: col,
+                    cells: &[test_cell('b')],
+                }],
+            );
+            assert!(terminal.apply_presented_delta_seq(&patch, sequence));
+            sequence += 1;
+            terminal.build_geometry();
+            let incremental = terminal.cell_buf.clone();
+            assert_eq!(
+                &incremental[..usize::from(col) * CELL_WORDS],
+                &before[..usize::from(col) * CELL_WORDS]
+            );
+            terminal.full_damage = true;
+            terminal.build_geometry();
+            assert_eq!(incremental, terminal.cell_buf, "wide carry {cols}/{col}");
+        }
+    }
+}
+
+#[test]
+fn presentation_damage_unions_commits_and_rejects_older_disjoint_rows() {
+    let mut terminal = terminal_with_atlas(32, 2);
+    let snapshot = test_frame_with_entries(FrameKind::Snapshot, 32, 2, 0, 0, &[]);
+    assert!(terminal.apply_presented_state_seq(&snapshot, 1));
+    terminal.build_geometry();
+    for (col, character, sequence) in [(0, 'a', 2), (31, 'b', 3), (15, 'X', 2)] {
+        let frame = test_frame_with_entries(
+            FrameKind::Delta,
+            32,
+            2,
+            0,
+            0,
+            &[RowRef {
+                graphics: &[],
+                row_index: 0,
+                left: col,
+                cells: &[test_cell(character)],
+            }],
+        );
+        assert!(terminal.apply_delta_seq(&frame, sequence));
+        terminal.commit_presentation_state();
+    }
+    terminal.build_geometry();
+    assert_eq!(terminal.presentation_grid[Line(0)][Column(0)].c, 'a');
+    assert_eq!(terminal.presentation_grid[Line(0)][Column(31)].c, 'b');
+    assert_eq!(terminal.presentation_grid[Line(0)][Column(15)].c, ' ');
+    let incremental = terminal.cell_buf.clone();
+    terminal.full_damage = true;
+    terminal.build_geometry();
+    assert_eq!(incremental, terminal.cell_buf);
+}
+
+#[test]
+fn presentation_damage_removes_only_the_replaced_combining_payload() {
+    let mut terminal = terminal_with_atlas(8, 1);
+    let snapshot = test_frame_with_entries(
+        FrameKind::Snapshot,
+        8,
+        1,
+        0,
+        0,
+        &[RowRef {
+            graphics: &[],
+            row_index: 0,
+            left: 0,
+            cells: &[test_cell('a'); 8],
+        }],
+    );
+    assert!(terminal.apply_presented_state_seq(&snapshot, 1));
+    for col in [2, 6] {
+        terminal.term.grid_mut()[Point::new(Line(0), Column(col))].push_zerowidth('\u{301}');
+    }
+    terminal.note_damaged_row(0);
+    terminal.build_presented_geometry();
+    assert!(
+        terminal.presentation_grid[Line(0)][Column(2)]
+            .extra
+            .is_some()
+    );
+    assert!(
+        terminal.presentation_grid[Line(0)][Column(6)]
+            .extra
+            .is_some()
+    );
+    let patch = test_frame_with_entries(
+        FrameKind::Delta,
+        8,
+        1,
+        0,
+        0,
+        &[RowRef {
+            graphics: &[],
+            row_index: 0,
+            left: 2,
+            cells: &[test_cell('a')],
+        }],
+    );
+    assert!(terminal.apply_presented_delta_seq(&patch, 2));
+    terminal.build_geometry();
+    assert!(
+        terminal.presentation_grid[Line(0)][Column(2)]
+            .extra
+            .is_none()
+    );
+    assert!(
+        terminal.presentation_grid[Line(0)][Column(6)]
+            .extra
+            .is_some()
+    );
+    let incremental = terminal.cell_buf.clone();
+    terminal.full_damage = true;
+    terminal.build_geometry();
+    assert_eq!(incremental, terminal.cell_buf);
+}
+
+#[test]
+fn presentation_damage_seeds_wide_carry_from_unchanged_prefix() {
+    let mut terminal = terminal_with_atlas(16, 1);
+    let mut wide = test_cell('a');
+    wide.attrs |= CellAttrs::WIDE;
+    let mut cells = vec![wide; 16];
+    cells[4] = test_cell('a');
+    let snapshot = test_frame_with_entries(
+        FrameKind::Snapshot,
+        16,
+        1,
+        0,
+        0,
+        &[RowRef {
+            graphics: &[],
+            row_index: 0,
+            left: 0,
+            cells: &cells,
+        }],
+    );
+    assert!(terminal.apply_presented_state_seq(&snapshot, 1));
+    terminal.build_geometry();
+    let before = terminal.cell_buf.clone();
+    for (column, character, sequence) in [(1, 'b', 2), (4, 'a', 3)] {
+        let mut cell = test_cell(character);
+        cell.attrs |= CellAttrs::WIDE;
+        let patch = test_frame_with_entries(
+            FrameKind::Delta,
+            16,
+            1,
+            0,
+            0,
+            &[RowRef {
+                graphics: &[],
+                row_index: 0,
+                left: column,
+                cells: &[cell],
+            }],
+        );
+        assert!(terminal.apply_delta_seq(&patch, sequence));
+    }
+    terminal.commit_presentation_state();
+    terminal.build_geometry();
+    let incremental = terminal.cell_buf.clone();
+    assert_eq!(&incremental[..CELL_WORDS], &before[..CELL_WORDS]);
+    terminal.full_damage = true;
+    terminal.build_geometry();
+    assert_eq!(incremental, terminal.cell_buf);
+}
+
+fn projected_damage_terminal() -> Terminal {
+    let mut terminal = terminal_with_atlas(20, 2);
+    train_shadow_text(&mut terminal, "a");
+    assert_ne!(terminal.predict_cursor_shift(-1, 101.0, 2), 0);
+    assert_ne!(terminal.predict_printable('x' as u32, 102.0, 3, true), 0);
+    assert!(terminal.shadow_requires_row_projection());
+    terminal.build_geometry();
+    assert!(terminal.shadow_row_projected);
+    assert!(terminal.damaged_rows.is_empty());
+    terminal
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProjectionEnd {
+    Discard,
+    ExpiredStalled,
+    ExpiredCovered,
+    SealedExpiry,
+    RevokedMode,
+    AnchorChanged,
+    Resize,
+    Snapshot,
+    ReconcileMatch,
+    SealedMatch,
+    ReconcileMismatch,
+    ReconcileAppendTail,
+}
+
+fn end_projected_damage(terminal: &mut Terminal, transition: ProjectionEnd) {
+    use ProjectionEnd::*;
+    match transition {
+        Discard => terminal.predict_discard(),
+        ExpiredStalled => terminal.predict_reconcile(1000.0, 500.0, 1, 1),
+        ExpiredCovered => terminal.predict_reconcile(1000.0, 500.0, 3, 3),
+        SealedExpiry => {
+            terminal.predict_seal(4);
+            terminal.predict_reconcile(1000.0, 500.0, 1, 1);
+        }
+        RevokedMode => {
+            let revoked = test_cursor_frame(20, 2, 1, 0, CURSOR_SHAPE_HIDDEN, 0);
+            assert!(terminal.apply_delta_seq(&revoked, 2));
+        }
+        AnchorChanged => terminal.set_editor_anchor(1, 1, 0, 1),
+        Resize => terminal.resize(21, 2),
+        Snapshot => {
+            let frame = test_frame_with_entries(FrameKind::Snapshot, 20, 2, 1, 1, &[]);
+            assert!(terminal.apply_state_seq(&frame, 2));
+        }
+        ReconcileMatch | SealedMatch | ReconcileMismatch | ReconcileAppendTail => {
+            if transition == ReconcileAppendTail {
+                assert_ne!(terminal.predict_cursor_shift(1, 103.0, 4), 0);
+                assert_ne!(terminal.predict_printable('b' as u32, 104.0, 5, true), 0);
+                terminal.build_geometry();
+                assert!(terminal.shadow_row_projected);
+            }
+            if transition == SealedMatch {
+                terminal.predict_seal(4);
+            }
+            let cells = if transition == ReconcileMismatch {
+                [test_cell('q'), test_cell('a')]
+            } else {
+                [test_cell('x'), test_cell('a')]
+            };
+            let echo = test_frame_with_entries(
+                FrameKind::Delta,
+                20,
+                2,
+                1,
+                0,
+                &[RowRef {
+                    graphics: &[],
+                    row_index: 0,
+                    left: 0,
+                    cells: &cells,
+                }],
+            );
+            assert!(terminal.apply_delta_seq(&echo, 2));
+            terminal.commit_presentation_state();
+            let covered = if transition == ReconcileAppendTail {
+                3
+            } else {
+                4
+            };
+            terminal.predict_reconcile(110.0, 500.0, covered, covered);
+            terminal.predict_reconcile(
+                110.0 + PREDICTION_MISMATCH_GRACE_MS,
+                500.0,
+                covered,
+                covered,
+            );
+        }
+    }
+}
+
+#[test]
+fn presentation_damage_clears_old_projection_before_sparse_authority() {
+    use ProjectionEnd::*;
+    for transition in [
+        Discard,
+        ExpiredStalled,
+        ExpiredCovered,
+        SealedExpiry,
+        RevokedMode,
+        AnchorChanged,
+        Resize,
+        Snapshot,
+        ReconcileMatch,
+        SealedMatch,
+        ReconcileMismatch,
+        ReconcileAppendTail,
+    ] {
+        let mut terminal = projected_damage_terminal();
+        end_projected_damage(&mut terminal, transition);
+        assert!(!terminal.shadow_requires_row_projection(), "{transition:?}");
+        // Nothing is built between ending the projection and a distant one-cell
+        // authority commit. Its sparse span cannot erase the old projection.
+        let frame = test_frame_with_entries(
+            FrameKind::Delta,
+            terminal.cols(),
+            terminal.rows(),
+            1,
+            0,
+            &[RowRef {
+                graphics: &[],
+                row_index: 0,
+                left: 15,
+                cells: &[test_cell('z')],
+            }],
+        );
+        assert!(terminal.apply_delta_seq(&frame, 3));
+        terminal.commit_presentation_state();
+        terminal.build_geometry();
+        assert!(!terminal.shadow_row_projected, "{transition:?}");
+        let incremental = terminal.cell_buf.clone();
+        terminal.full_damage = true;
+        terminal.build_geometry();
+        assert_eq!(incremental, terminal.cell_buf, "{transition:?}");
+        assert_received_matches_presentation(&terminal);
+    }
+}
+
+#[test]
+fn presentation_benchmark_wide_chain_carries_single_cell_damage_to_row_end() {
+    for cols in [80, 240, 512] {
+        let (snapshot, frames) = damage_benchmark_frames(cols, ("widechain", cols, 1, 0));
+        let mut terminal = terminal_with_atlas(cols, 40);
+        assert!(terminal.apply_presented_state_seq(&snapshot, 1));
+        assert!(terminal.apply_presented_delta_seq(&frames[0][0], 2));
+        terminal.build_geometry();
+        // The wire row is dense; only the first cell differs canonically.
+        assert!(terminal.apply_delta_seq(&frames[1][0], 3));
+        assert_eq!(terminal.presentation_dirty_cells[0], Some((0, 0)));
+        terminal.commit_presentation_state();
+        assert_eq!(terminal.damaged_cells[0], Some((0, 0)));
+        assert_eq!(
+            close_cell_damage(
+                &terminal.presentation_grid[Line(0)][..],
+                0,
+                0,
+                &terminal.cell_buf[..usize::from(cols) * CELL_WORDS],
+            ),
+            usize::from(cols) - 1,
+        );
+        terminal.build_geometry();
+        let incremental = terminal.cell_buf.clone();
+        terminal.full_damage = true;
+        terminal.build_geometry();
+        assert_eq!(incremental, terminal.cell_buf);
+    }
 }

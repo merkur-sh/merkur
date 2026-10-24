@@ -615,12 +615,13 @@ pub struct Terminal {
     frame_graphics_scratch: Vec<merkur_graphics::projection::Fragment>,
     term: Term<WasmEventListener>,
     // Received authority and render eligibility have different commit boundaries.
-    // Reuse one viewport-sized backing grid; only dirty rows are copied on release.
+    // Reuse one viewport-sized backing grid; dirty spans are copied on release.
     presentation_grid: Grid<Cell>,
     presentation_cursor_shape: CursorShape,
     presentation_dirty_rows: Vec<u16>,
-    // 0 = absent, 1 = version-only, 2 = changed cells. One list entry per row.
-    presentation_dirty_set: Vec<u8>,
+    // Authority-only rows are listed too; their cells have no pending span.
+    presentation_dirty_set: Vec<bool>,
+    presentation_dirty_cells: Vec<Option<(usize, usize)>>,
     presentation_full_pending: bool,
     presentation_header_pending: bool,
     presentation_cursor_dirty: bool,
@@ -628,11 +629,11 @@ pub struct Terminal {
     presentation_row_versions: Vec<u32>,
     presentation_editor_anchor: Option<(u16, u16)>,
     presentation_editor_anchor_generation: u32,
-    /// Rows the next geometry build must redo, each listed once: the set
+    /// Rows the next geometry build must redo, each listed once: a pending span
     /// bounds the list by the row count even for a host that never builds
     /// geometry (the native viewer), where it would otherwise grow per frame.
     damaged_rows: Vec<u16>,
-    damaged_row_set: Vec<bool>,
+    damaged_cells: Vec<Option<(usize, usize)>>,
     /// Packed row-digest bytes, retained so a steady drain allocates nothing.
     hash_digest_scratch: Vec<u8>,
     /// Live per-row XXH3 of the authoritative grid, in the CellRepr shape the
@@ -1294,7 +1295,8 @@ impl Terminal {
             presentation_grid,
             presentation_cursor_shape,
             presentation_dirty_rows: Vec::with_capacity(dimensions.rows),
-            presentation_dirty_set: vec![0; dimensions.rows],
+            presentation_dirty_set: vec![false; dimensions.rows],
+            presentation_dirty_cells: vec![None; dimensions.rows],
             presentation_full_pending: true,
             presentation_header_pending: true,
             presentation_cursor_dirty: true,
@@ -1303,7 +1305,7 @@ impl Terminal {
             presentation_editor_anchor: None,
             presentation_editor_anchor_generation: 0,
             damaged_rows: Vec::with_capacity(dimensions.rows),
-            damaged_row_set: vec![false; dimensions.rows],
+            damaged_cells: vec![None; dimensions.rows],
             hash_digest_scratch: Vec::new(),
             row_hashes: Vec::new(),
             row_hash_dirty: Vec::new(),
@@ -2104,9 +2106,9 @@ impl Terminal {
             // already present. Ordering and prediction evidence are not damage.
             if applied {
                 self.display_row_versions[row_index] = seq;
-                if self.presentation_dirty_set[row_index] == 0 {
+                if !self.presentation_dirty_set[row_index] {
                     self.presentation_dirty_rows.push(row.row_index);
-                    self.presentation_dirty_set[row_index] = 1;
+                    self.presentation_dirty_set[row_index] = true;
                 }
             }
             // A link is hashed but never drawn, so a row whose only change is
@@ -2119,7 +2121,8 @@ impl Terminal {
                     row.row_index,
                 );
             }
-            if damage.is_some() {
+            if let Some((first, last)) = damage {
+                widen_damaged_cells(&mut self.presentation_dirty_cells[row_index], first, last);
                 shadow_authority_changed |= shadow_row == Some(row_index);
                 mark_row_hash_dirty(
                     &mut self.row_hash_all_dirty,
@@ -2127,7 +2130,6 @@ impl Terminal {
                     &mut self.row_hash_dirty_list,
                     row.row_index,
                 );
-                self.presentation_dirty_set[row_index] = 2;
                 visually_changed_rows += 1;
             }
         }
@@ -2135,10 +2137,11 @@ impl Terminal {
         if let Some(graphics) = self.graphics.as_mut() {
             graphics.apply(rows, |row| {
                 let index = usize::from(row);
-                if self.presentation_dirty_set[index] == 0 {
+                if !self.presentation_dirty_set[index] {
                     self.presentation_dirty_rows.push(row);
                 }
-                self.presentation_dirty_set[index] = 2;
+                self.presentation_dirty_set[index] = true;
+                self.presentation_dirty_cells[index] = Some((0, cols - 1));
                 mark_row_hash_dirty(
                     &mut self.row_hash_all_dirty,
                     &mut self.row_hash_dirty,
@@ -2266,10 +2269,13 @@ impl Terminal {
             .reserve(usize::from(rows.max(1)));
         self.presentation_dirty_set.clear();
         self.presentation_dirty_set
-            .resize(usize::from(rows.max(1)), 0);
+            .resize(usize::from(rows.max(1)), false);
+        self.presentation_dirty_cells.clear();
+        self.presentation_dirty_cells
+            .resize(usize::from(rows.max(1)), None);
+        self.damaged_cells.clear();
+        self.damaged_cells.resize(usize::from(rows.max(1)), None);
         self.damaged_rows.clear();
-        self.damaged_row_set.clear();
-        self.damaged_row_set.resize(usize::from(rows.max(1)), false);
         // The MZ rows and epochs outlive the resize: the generation its
         // snapshot opens copies the rows the old size held.
         self.display_row_versions.clear();
@@ -3384,11 +3390,9 @@ impl Terminal {
         let row_presentation_pending = self.presentation_full_pending
             || self.presentation_header_pending
             || self
-                .presentation_dirty_set
+                .presentation_dirty_cells
                 .get(usize::from(row))
-                .copied()
-                .unwrap_or(2)
-                == 2;
+                .is_none_or(Option::is_some);
         let was_visible = self.has_visible_predictions_internal();
         // A typed glyph the row already showed — an autosuggestion accepted one
         // character at a time — changes no cell when it is echoed, so no cell
@@ -3876,7 +3880,7 @@ impl Terminal {
 
     /// Promote received rows and their matching header as one visual base.
     /// The caller owns presentation eligibility; decode and ACK never wait here.
-    /// A steady sparse commit copies only changed rows into retained cell storage.
+    /// A steady sparse commit copies changed cell spans into retained storage.
     pub fn commit_presentation_state(&mut self) -> u32 {
         let revision = self.commit_presentation();
         // A presentation just committed, so the decode path is idle: build one
@@ -3934,19 +3938,24 @@ impl Terminal {
                     self.display_row_versions.get(row).copied().unwrap_or(0);
             }
             self.full_damage = true;
-            self.presentation_dirty_set.fill(0);
+            self.presentation_dirty_set.fill(false);
+            self.presentation_dirty_cells.fill(None);
         } else {
             let source = self.term.grid();
             let target = &mut self.presentation_grid;
             for row in self.presentation_dirty_rows.iter().copied() {
                 let index = usize::from(row);
                 let line = Line(i32::from(row));
-                if self.presentation_dirty_set[index] == 2 {
-                    target[line][..].clone_from_slice(&source[line][..]);
-                    if !self.damaged_row_set[index] {
-                        self.damaged_row_set[index] = true;
-                        self.damaged_rows.push(row);
-                    }
+                if let Some((first, last)) = self.presentation_dirty_cells[index].take() {
+                    target[line][..][first..=last]
+                        .clone_from_slice(&source[line][..][first..=last]);
+                    note_damaged_cells(
+                        &mut self.damaged_rows,
+                        &mut self.damaged_cells,
+                        row,
+                        first,
+                        last,
+                    );
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -3958,7 +3967,7 @@ impl Terminal {
                 }
                 self.presentation_row_versions[index] =
                     self.display_row_versions.get(index).copied().unwrap_or(0);
-                self.presentation_dirty_set[index] = 0;
+                self.presentation_dirty_set[index] = false;
             }
         }
         let (point, shape) = {
@@ -4004,8 +4013,8 @@ impl Terminal {
     }
 
     /// Bring the cell records, overlay and cursor up to date with the
-    /// presented state. A damaged row rewrites only the records that changed,
-    /// and the dirty range spans only those, so a keystroke uploads a few
+    /// presented state. A damaged span and its wide-cell carry dependency
+    /// rewrite only changed records, so a keystroke uploads a few
     /// bytes. Every record is rewritten only on resize, a theme or font
     /// change, or new glyph ids.
     pub fn build_geometry(&mut self) {
@@ -4160,6 +4169,7 @@ impl Terminal {
                     atlas,
                     row,
                     cols,
+                    (0, cols - 1),
                     theme,
                     shadow_projection.as_ref(),
                     records,
@@ -4178,6 +4188,14 @@ impl Terminal {
                     atlas,
                     row,
                     cols,
+                    if shadow_projection
+                        .as_ref()
+                        .is_some_and(|projection| projection.row == row)
+                    {
+                        (0, cols - 1)
+                    } else {
+                        self.damaged_cells[row].expect("listed row has pending cell damage")
+                    },
                     theme,
                     shadow_projection.as_ref(),
                     &mut self.cell_buf[row * row_words..(row + 1) * row_words],
@@ -4673,11 +4691,9 @@ impl Terminal {
         // (2026-09-07, `fast` + 3 %).
         let anchor_row_presented = !self.presentation_full_pending
             && anchor.is_none_or(|(row, _)| {
-                self.presentation_dirty_set
+                self.presentation_dirty_cells
                     .get(usize::from(row))
-                    .copied()
-                    .unwrap_or(2)
-                    != 2
+                    .is_some_and(Option::is_none)
             });
         if anchor_row_presented {
             self.presentation_editor_anchor = anchor;
@@ -4849,11 +4865,9 @@ impl Terminal {
         (!self.presentation_full_pending
             || self.presentation_revision == self.authoritative_revision)
             && self
-                .presentation_dirty_set
+                .presentation_dirty_cells
                 .get(usize::from(row))
-                .copied()
-                .unwrap_or(2)
-                != 2
+                .is_some_and(Option::is_none)
             && self.authoritative_cursor() == self.presentation_cursor()
     }
 
@@ -5191,19 +5205,18 @@ impl Terminal {
 
     fn clear_damaged_rows(&mut self) {
         for row in self.damaged_rows.drain(..) {
-            if let Some(listed) = self.damaged_row_set.get_mut(usize::from(row)) {
-                *listed = false;
-            }
+            self.damaged_cells[usize::from(row)] = None;
         }
     }
 
     fn note_damaged_row(&mut self, row: u16) {
-        if let Some(listed) = self.damaged_row_set.get_mut(usize::from(row))
-            && !*listed
-        {
-            *listed = true;
-            self.damaged_rows.push(row);
-        }
+        note_damaged_cells(
+            &mut self.damaged_rows,
+            &mut self.damaged_cells,
+            row,
+            0,
+            self.presentation_grid.columns() - 1,
+        );
     }
 
     fn mark_shadow_visual_change(&mut self, was_visible: bool) {
@@ -5615,12 +5628,14 @@ fn pack_rgb(rgb: [u8; 3]) -> u32 {
 ///
 /// Every column owns its record. A background belongs to its own column; a
 /// glyph or decoration belongs to the column that starts it, and a wide
-/// character's second column draws neither.
+/// character's second column draws neither. Close the interval's rightward
+/// wide-cell dependency before generating records over that fixed span.
 fn write_row_cells(
     grid: &Grid<Cell>,
     atlas: &mut atlas::GlyphAtlas,
     row_idx: usize,
     cols: usize,
+    (first, last): (usize, usize),
     theme: RenderTheme,
     shadow: Option<&ShadowRenderProjection<'_>>,
     out: &mut [u32],
@@ -5628,17 +5643,20 @@ fn write_row_cells(
     let Ok(line) = i32::try_from(row_idx).map(Line) else {
         return None;
     };
+    let cells = &grid[line][..];
+    // Projection changes own a full row, so a partial interval reads eligible
+    // authority alone when closing its wide-cell dependency.
+    debug_assert!(last + 1 == cols || shadow.is_none_or(|projection| projection.row != row_idx));
+    let last = close_cell_damage(&cells[..cols], first, last, out);
     let row_word = cell_row_word(row_idx);
     let mut changed: Option<(usize, usize)> = None;
-    let mut covered_by_wide = false;
-    for (col, record) in out
-        .as_chunks_mut::<CELL_WORDS>()
-        .0
-        .iter_mut()
-        .take(cols)
+    let mut covered_by_wide = first > 0 && out[(first - 1) * CELL_WORDS] & CELL_WIDE != 0;
+    for (offset, (cell, record)) in cells[first..=last]
+        .iter()
+        .zip(out.as_chunks_mut::<CELL_WORDS>().0[first..=last].iter_mut())
         .enumerate()
     {
-        let cell = &grid[Point::new(line, Column(col))];
+        let col = first + offset;
         let mut glyph_word = cell_column_word(col);
         let mut color_word = 0;
         let mut background_word = row_word;
@@ -6216,6 +6234,66 @@ fn mix_channel(foreground: u8, background: u8, foreground_num: u16, denominator:
 
 fn clamp_usize_to_u16(value: usize) -> u16 {
     u16::try_from(value).unwrap_or(u16::MAX)
+}
+
+/// Close the rightward dependency before entering the fixed record loop.
+/// Cells beyond the original interval retain their previous values: differing
+/// old and new carry persists through lead-capable cells and resets at the first other cell.
+fn close_cell_damage(cells: &[Cell], first: usize, last: usize, records: &[u32]) -> usize {
+    if last + 1 == cells.len() {
+        return last;
+    }
+    let mut carry = false;
+    let mut column = last;
+    while cell_can_cover_next_column(&cells[column]) {
+        carry = !carry;
+        if column == first {
+            carry ^= first > 0 && records[(first - 1) * CELL_WORDS] & CELL_WIDE != 0;
+            break;
+        }
+        column -= 1;
+    }
+    if carry == (records[last * CELL_WORDS] & CELL_WIDE != 0) {
+        return last;
+    }
+    let mut last = last;
+    while last + 1 < cells.len() {
+        last += 1;
+        if !cell_can_cover_next_column(&cells[last]) {
+            break;
+        }
+    }
+    last
+}
+
+fn cell_can_cover_next_column(cell: &Cell) -> bool {
+    cell.flags.contains(Flags::WIDE_CHAR)
+        && !cell.flags.contains(Flags::WIDE_CHAR_SPACER)
+        && authoritative_cell_codepoint(cell)
+            != u32::from(merkur_graphics::placeholder::PLACEHOLDER)
+}
+
+fn widen_damaged_cells(damage: &mut Option<(usize, usize)>, first: usize, last: usize) {
+    *damage = Some(damage.map_or((first, last), |(left, right)| {
+        (left.min(first), right.max(last))
+    }));
+}
+
+/// List a row once and retain the bounding span of every pending record change.
+/// Free-standing so a commit can borrow its grids and damage owners separately.
+fn note_damaged_cells(
+    rows: &mut Vec<u16>,
+    cells: &mut [Option<(usize, usize)>],
+    row: u16,
+    first: usize,
+    last: usize,
+) {
+    if let Some(damage) = cells.get_mut(usize::from(row)) {
+        if damage.is_none() {
+            rows.push(row);
+        }
+        widen_damaged_cells(damage, first, last);
+    }
 }
 
 fn widen_dirty_range(range: &mut (u32, u32), start: usize, count: usize) {

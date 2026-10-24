@@ -304,10 +304,11 @@ impl Terminal {
         // than encoding a frame; carry their explicit damage into eligibility.
         for row in self.damaged_rows.iter().copied() {
             let index = usize::from(row);
-            if self.presentation_dirty_set[index] == 0 {
+            if !self.presentation_dirty_set[index] {
                 self.presentation_dirty_rows.push(row);
             }
-            self.presentation_dirty_set[index] = 2;
+            self.presentation_dirty_set[index] = true;
+            self.presentation_dirty_cells[index] = Some((0, self.term.grid().columns() - 1));
         }
         self.presentation_full_pending |= self.full_damage;
         let received = self.term.renderable_content();
@@ -6591,4 +6592,210 @@ fn row_text(terminal: &Terminal, row: u16) -> String {
     (0..grid.columns())
         .map(|col| grid[Point::new(Line(i32::from(row)), Column(col))].c)
         .collect()
+}
+
+#[test]
+#[ignore = "isolated production receive/present/record release timing"]
+fn presentation_damage_experiment_benchmark() {
+    let iterations = std::env::var("DAMAGE_BENCH_ITERATIONS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1000);
+    let samples = std::env::var("DAMAGE_BENCH_SAMPLES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(15);
+    let hashes = std::env::var("DAMAGE_BENCH_HASHES").is_ok_and(|value| value == "1");
+    for cols in [80u16, 240, 512] {
+        for case in [
+            ("head", 1, 1, 0),
+            ("single", 1, 1, cols / 2),
+            ("tail", 1, 1, cols - 1),
+            ("span8", 8, 1, cols / 2),
+            ("column", 1, 40, cols / 2),
+            ("disjoint", 1, 1, 0),
+            ("widechain", cols, 1, 0),
+            ("row", cols, 1, 0),
+            ("screen", cols, 40, 0),
+            ("styled", cols, 40, 0),
+        ] {
+            if std::env::var("DAMAGE_BENCH_CASE").is_ok_and(|name| name != case.0)
+                || std::env::var("DAMAGE_BENCH_COLS").is_ok_and(|value| value != cols.to_string())
+            {
+                continue;
+            }
+            measure_damage_benchmark(cols, case, iterations, samples, hashes);
+        }
+    }
+}
+
+fn damage_benchmark_frames(
+    cols: u16,
+    (name, width, rows, left): (&str, u16, u16, u16),
+) -> (Vec<u8>, Vec<Vec<Vec<u8>>>) {
+    let cells = |character| {
+        (0..width)
+            .map(|col| {
+                let mut cell = test_cell(character);
+                if name == "widechain" {
+                    cell.codepoint = u32::from(if col == 0 { character } else { 'a' });
+                    if col != 0 || character == 'a' {
+                        cell.attrs |= CellAttrs::WIDE;
+                    }
+                }
+                if name == "styled" {
+                    cell.attrs |= match col % 3 {
+                        0 => CellAttrs::BOLD,
+                        1 => CellAttrs::UNDERLINE,
+                        _ => CellAttrs::INVERSE,
+                    };
+                    cell.fg = [col.to_le_bytes()[0], 91, 173];
+                }
+                cell
+            })
+            .collect::<Vec<_>>()
+    };
+    let frames = [cells('a'), cells('b')]
+        .iter()
+        .map(|cells| {
+            let entries: Vec<_> = (0..rows)
+                .map(|row_index| RowRef {
+                    graphics: &[],
+                    row_index,
+                    left,
+                    cells,
+                })
+                .collect();
+            let mut batch = vec![test_frame_with_entries(
+                FrameKind::Delta,
+                cols,
+                40,
+                0,
+                0,
+                &entries,
+            )];
+            if name == "disjoint" {
+                batch.push(test_frame_with_entries(
+                    FrameKind::Delta,
+                    cols,
+                    40,
+                    0,
+                    0,
+                    &[RowRef {
+                        graphics: &[],
+                        row_index: 0,
+                        left: cols - 1,
+                        cells,
+                    }],
+                ));
+            }
+            batch
+        })
+        .collect();
+    (
+        test_frame_with_entries(FrameKind::Snapshot, cols, 40, 0, 0, &[]),
+        frames,
+    )
+}
+
+fn export_damage_benchmark_fixture(
+    cols: u16,
+    name: &str,
+    snapshot: &[u8],
+    frames: &[Vec<Vec<u8>>],
+) -> bool {
+    let Ok(directory) = std::env::var("DAMAGE_EXPORT_DIR") else {
+        return false;
+    };
+    let directory = std::path::Path::new(&directory);
+    std::fs::create_dir_all(directory).expect("fixture directory");
+    let stem = format!("{cols}-{name}");
+    std::fs::write(directory.join(format!("{stem}-snapshot.bin")), snapshot)
+        .expect("snapshot fixture");
+    for (variant, batch) in frames.iter().enumerate() {
+        for (index, frame) in batch.iter().enumerate() {
+            std::fs::write(
+                directory.join(format!("{stem}-{variant}-{index}.bin")),
+                frame,
+            )
+            .expect("delta fixture");
+        }
+    }
+    println!(
+        "DAMAGE_FIXTURE {{\"stem\":\"{stem}\",\"cols\":{cols},\"rows\":40,\"scenario\":\"{name}\",\"batch\":{}}}",
+        frames[0].len()
+    );
+    true
+}
+
+#[inline]
+fn damage_benchmark_step(
+    terminal: &mut Terminal,
+    batch: &[Vec<u8>],
+    sequence: &mut u32,
+    hashes: bool,
+) {
+    for frame in batch {
+        assert!(terminal.apply_delta_seq(frame, *sequence));
+        *sequence += 1;
+    }
+    if hashes {
+        terminal.refresh_row_hashes();
+    }
+    terminal.commit_presentation_state();
+    terminal.build_geometry();
+}
+
+fn measure_damage_benchmark(
+    cols: u16,
+    case: (&str, u16, u16, u16),
+    iterations: u32,
+    samples: usize,
+    hashes: bool,
+) {
+    use std::hint::black_box;
+    use std::time::Instant;
+    let name = case.0;
+    let (snapshot, frames) = damage_benchmark_frames(cols, case);
+    if export_damage_benchmark_fixture(cols, name, &snapshot, &frames) {
+        return;
+    }
+    let mut terminal = terminal_with_atlas(cols, 40);
+    assert!(terminal.apply_presented_state_seq(&snapshot, 1));
+    terminal.build_geometry();
+    let mut sequence = 2;
+    for i in 0..1000 {
+        damage_benchmark_step(&mut terminal, &frames[i % 2], &mut sequence, hashes);
+    }
+    let allocations = geometry_allocations::count(|| {
+        damage_benchmark_step(&mut terminal, &frames[0], &mut sequence, hashes)
+    });
+    if case.1 < cols {
+        assert_eq!(allocations, 0, "warmed {name}/{cols} allocation");
+    }
+    let mut times = Vec::with_capacity(samples);
+    for _ in 0..samples {
+        let start = Instant::now();
+        for i in 0..iterations {
+            damage_benchmark_step(
+                &mut terminal,
+                &frames[(i % 2) as usize],
+                &mut sequence,
+                hashes,
+            );
+            black_box(&terminal.cell_buf);
+        }
+        times.push(start.elapsed().as_nanos() as f64 / f64::from(iterations));
+        let records = terminal.cell_buf.clone();
+        terminal.full_damage = true;
+        terminal.build_geometry();
+        assert_eq!(records, terminal.cell_buf, "incremental/full {name}/{cols}");
+    }
+    let raw = times.clone();
+    times.sort_by(f64::total_cmp);
+    println!(
+        "DAMAGE_BENCH {{\"cols\":{cols},\"scenario\":\"{name}\",\"hashes\":{hashes},\"iterations\":{iterations},\"allocations\":{allocations},\"medianNs\":{},\"samples\":{:?}}}",
+        times[times.len() / 2],
+        raw
+    );
 }
