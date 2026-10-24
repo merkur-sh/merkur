@@ -33,10 +33,10 @@ build --@rules_rust//rust/settings:pipelined_compilation=True
 # outside the sandbox. The flag is in these crates' keys, so their results are local work, never
 # CI's; CI stays sandboxed and non-incremental. Release builds leave it out
 # (`tools/bazel/release/defs.bzl`), as Cargo's release profile does.
-build:incremental --@rules_rust//rust/settings:per_crate_rustc_flag=apps/@-Cincremental=../../rust-incremental
-build:incremental --@rules_rust//rust/settings:per_crate_rustc_flag=packages/@-Cincremental=../../rust-incremental
-build:incremental --strategy=Rustc=local
-build:incremental --strategy=RustcMetadata=local
+common:incremental --@rules_rust//rust/settings:per_crate_rustc_flag=apps/@-Cincremental=../../rust-incremental
+common:incremental --@rules_rust//rust/settings:per_crate_rustc_flag=packages/@-Cincremental=../../rust-incremental
+common:incremental --strategy=Rustc=local
+common:incremental --strategy=RustcMetadata=local
 
 # Clippy, which `//:rust_lint` runs over every first-party target: the repository's
 # `clippy.toml`, JSON diagnostics for the ratchet to read, and each lint `scripts/rust-lint.ts`
