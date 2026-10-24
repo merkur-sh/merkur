@@ -46,10 +46,11 @@ BuildBuddy's remote cache holds what CI built. A workstation reads it and upload
 `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
 `--remote_header=x-buildbuddy-api-key=...` line, the key coming from the Keychain. CI writes
 the same file from the `BUILDBUDDY_API_KEY` secret with `--config=ci`, the only writer. A fork's
-pull request has no key and builds everything itself. On CI, repository downloads also go through
-BuildBuddy (`--experimental_remote_downloader`), keyed by checksum, so a runner fetches only the
-archives its build needs and restores no repository cache; `--jobs=32` keeps remote lookups in
-flight beside the local work the runner's CPUs bound. A runner restores the module lockfile the
+pull request has no key and builds everything itself. A runner restores no repository cache: it
+downloads the archives its build needs from their sources, each held to its pinned checksum.
+`--jobs=32` keeps remote lookups in flight beside the local work the runner's CPUs bound, and a
+test run downloads only the outputs a local action reads (`--remote_download_minimal`), not
+every cached test's binaries. A runner restores the module lockfile the
 last job on its OS wrote, so Bazel replays the module extensions whose inputs are unchanged
 rather than evaluating them; the lockfile stays out of Git because crate_universe records the
 vendored crates by absolute path.
