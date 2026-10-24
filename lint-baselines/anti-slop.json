@@ -220,17 +220,6 @@
     "prefer-effect-match": 1,
     "require-safety-comment-for-type-assertion": 5
   },
-  "apps/server/scripts/bench-daemon-trace-export.ts": {
-    "no-array-filter-map": 1,
-    "no-literal-timer-delay": 1,
-    "no-swallowed-error": 1,
-    "require-safety-comment-for-type-assertion": 3
-  },
-  "apps/server/scripts/bench-logger-sink.ts": {
-    "no-runtime-typeof": 1,
-    "no-unsafe-dictionary-type": 1,
-    "require-safety-comment-for-type-assertion": 4
-  },
   "apps/server/scripts/bench-sqlite-query-compile.ts": {
     "no-unknown-returns": 3
   },
@@ -1886,6 +1875,12 @@
     "no-known-value-widening": 1,
     "no-runtime-typeof": 1
   },
+  "scripts/bench-daemon-trace-export.ts": {
+    "no-array-filter-map": 1,
+    "no-literal-timer-delay": 1,
+    "no-swallowed-error": 1,
+    "require-safety-comment-for-type-assertion": 3
+  },
   "scripts/bench-display-ack-drain.ts": {
     "no-known-value-widening": 1
   },
@@ -1922,6 +1917,11 @@
   "scripts/bench-keyboard.ts": {
     "no-chained-type-assertions": 3,
     "require-safety-comment-for-type-assertion": 6
+  },
+  "scripts/bench-logger-sink.ts": {
+    "no-runtime-typeof": 1,
+    "no-unsafe-dictionary-type": 1,
+    "require-safety-comment-for-type-assertion": 4
   },
   "scripts/bench-perf-ring.ts": {
     "no-compat-names": 6,

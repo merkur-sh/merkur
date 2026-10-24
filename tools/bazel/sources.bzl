@@ -104,7 +104,6 @@ THIRD_PARTY_DEPENDENCIES = {
         "effect",
         "fallow",
         "oxc-parser",
-        "rolldown",
         "typescript",
         "vite",
     ],

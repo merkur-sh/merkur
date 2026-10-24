@@ -32,18 +32,21 @@ import { fullGC, heapStats } from 'bun:jsc';
 
 import { createLogger, logEffect, MerkurLoggerLayer } from '@merkur/logger';
 import { Effect, Layer } from 'effect';
-import { sanitizeLogContext } from '../../../packages/logger/src/sink';
-import { percentile, perfEnvInteger } from '../../../scripts/perf/harness';
 import {
   DaemonHealthServiceLive,
   daemonObservabilitySnapshot,
   recordDataplaneMetricEvent,
-} from '../../daemon/src/services/daemon-metrics';
+} from '../apps/daemon/src/services/daemon-metrics';
 import type {
   DataplanePathStats,
   DataplaneTransportStats,
-} from '../../daemon/src/services/dataplane-client';
-import { enforceRateLimit, type RateLimitService } from '../src/services/rate-limit-service';
+} from '../apps/daemon/src/services/dataplane-client';
+import {
+  enforceRateLimit,
+  type RateLimitService,
+} from '../apps/server/src/services/rate-limit-service';
+import { sanitizeLogContext } from '../packages/logger/src/sink';
+import { percentile, perfEnvInteger } from './perf/harness';
 
 const LINES = perfEnvInteger('BENCH_LINES', 200);
 const SAMPLES = perfEnvInteger('BENCH_SAMPLES', 30);

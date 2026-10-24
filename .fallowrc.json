@@ -2,6 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
     "scripts/*.ts",
+    "scripts/natlab/run-native.ts",
     "tools/bazel/**/*.ts",
     "tests/**/*.ts",
     "apps/web/src/main.tsx",

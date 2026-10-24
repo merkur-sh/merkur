@@ -27,8 +27,6 @@
     "run-db-codegen.ts",
     "bench-daemon-control.ts",
     "bench-daemon-requests.ts",
-    "bench-daemon-trace-export.ts",
-    "bench-logger-sink.ts",
     "bench-sqlite-query-compile.ts",
     "bench-sqlite-statements.ts",
     "bench-telemetry-ingest.ts"

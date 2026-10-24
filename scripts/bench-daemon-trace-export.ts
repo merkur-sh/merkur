@@ -20,13 +20,13 @@ import { signDaemonProof } from '@merkur/auth';
 import type { DaemonConfig } from '@merkur/config';
 import { MerkurLoggerLayer } from '@merkur/logger';
 import { Effect, Layer } from 'effect';
-import { perfEnvInteger } from '../../../scripts/perf/harness';
-import { daemonTracerLayer } from '../../daemon/src/observability/telemetry';
+import { daemonTracerLayer } from '../apps/daemon/src/observability/telemetry';
 import {
   DaemonHealthServiceLive,
   runDaemonObservabilityReporterEffect,
-} from '../../daemon/src/services/daemon-metrics';
-import type { DaemonProofSigner } from '../../daemon/src/services/daemon-proof-signer';
+} from '../apps/daemon/src/services/daemon-metrics';
+import type { DaemonProofSigner } from '../apps/daemon/src/services/daemon-proof-signer';
+import { perfEnvInteger } from './perf/harness';
 
 const WINDOW_MS = perfEnvInteger('BENCH_WINDOW_MS', 11_000);
 const REPORT_INTERVAL_MS = perfEnvInteger('BENCH_REPORT_INTERVAL_MS', 1_000);

@@ -1,5 +1,5 @@
 {
-  "apps/daemon/src/services/daemon-control-client.ts::<anonymous>": {
+  "apps/daemon/src/services/daemon-control-client.ts::runControlEventLoop": {
     "cyclomatic": 49,
     "cognitive": 112
   },
@@ -295,10 +295,6 @@
     "cyclomatic": 56,
     "cognitive": 51
   },
-  "tests/e2e/terminal-direct-latency.e2e.ts::<arrow>": {
-    "cyclomatic": 51,
-    "cognitive": 102
-  },
   "tests/e2e/terminal-direct-latency.e2e.ts::assertDirectPerformance": {
     "cyclomatic": 35,
     "cognitive": 46
@@ -315,7 +311,11 @@
     "cyclomatic": 34,
     "cognitive": 45
   },
-  "tests/e2e/terminal-packing-delivery.e2e.ts::<arrow>": {
+  "tests/e2e/terminal-direct-latency.e2e.ts::test(\"direct input cadences and fast redraws r...\")": {
+    "cyclomatic": 51,
+    "cognitive": 102
+  },
+  "tests/e2e/terminal-packing-delivery.e2e.ts::test(\"whole-span contender preserves bulk and...\")": {
     "cyclomatic": 36,
     "cognitive": 41
   },
