@@ -1045,6 +1045,10 @@ a locked crate version stays red until that review is recorded on its branch.
 Advisory scanning reads registry packages. The vendored patch crates have no registry source in
 `Cargo.lock`, so `cargo audit` does not match advisories against them; Renovate reads each one's
 upstream name and version from its manifest and raises upstream advisories and releases for it.
+`.cargo/audit.toml` ignores one advisory, RUSTSEC-2026-0387 (crypto-bigint 0.5's
+non-constant-time arithmetic): its only copy is the elliptic-curve 0.13 that opaque-ke and voprf
+link into `merkur-client-native`, whose OPAQUE suite is Ristretto255 and never calls it. The
+daemon identity signs P-256 through p256 0.14 and crypto-bigint 0.7.
 
 ## Repository Secret Scanning
 

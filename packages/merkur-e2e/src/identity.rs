@@ -6,6 +6,7 @@ use p256::ecdsa::{
     Signature, SigningKey, VerifyingKey,
     signature::hazmat::{PrehashSigner, PrehashVerifier},
 };
+use p256::elliptic_curve::scalar::IsHigh;
 use sha2::{Digest, Sha256, Sha512};
 use zeroize::Zeroizing;
 
@@ -45,7 +46,7 @@ pub fn verify_daemon_p256_signature(
     let key = verifying_key(public_key)?;
     let signature = Signature::from_slice(signature)
         .map_err(|_| SessionCryptoError::InvalidDaemonIdentitySignature)?;
-    if signature.normalize_s().is_some() {
+    if bool::from(signature.s().is_high()) {
         return Err(SessionCryptoError::InvalidDaemonIdentitySignature);
     }
     key.verify_prehash(digest, &signature)
@@ -58,11 +59,7 @@ pub fn normalize_daemon_p256_signature(
     signature: &[u8],
 ) -> Result<[u8; DAEMON_IDENTITY_P256_SIGNATURE_BYTES], SessionCryptoError> {
     let signature = Signature::from_slice(signature).map_err(|_| SessionCryptoError::Signing)?;
-    Ok(signature
-        .normalize_s()
-        .unwrap_or(signature)
-        .to_bytes()
-        .into())
+    Ok(signature.normalize_s().to_bytes().into())
 }
 
 /// Only the explicitly selected software backend derives this key. Rejection
@@ -88,7 +85,7 @@ impl SoftwareP256SigningKey {
     }
 
     pub fn public_key(&self) -> [u8; DAEMON_IDENTITY_P256_PUBLIC_KEY_BYTES] {
-        let encoded = self.0.verifying_key().to_encoded_point(false);
+        let encoded = self.0.verifying_key().to_sec1_point(false);
         let mut bytes = [0; DAEMON_IDENTITY_P256_PUBLIC_KEY_BYTES];
         bytes.copy_from_slice(encoded.as_bytes());
         bytes
@@ -181,7 +178,7 @@ mod tests {
         validate_daemon_p256_public_key(&key.public_key()).unwrap();
         assert!(
             validate_daemon_p256_public_key(
-                key.0.verifying_key().to_encoded_point(true).as_bytes()
+                key.0.verifying_key().to_sec1_point(true).as_bytes()
             )
             .is_err()
         );

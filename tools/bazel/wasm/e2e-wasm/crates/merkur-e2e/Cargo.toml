@@ -10,7 +10,7 @@ publish = false
 path = "../../../../../../packages/merkur-e2e/src/lib.rs"
 
 [dependencies]
-p256 = { version = "=0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "arithmetic"] }
 hkdf = { version = "=0.12.4", default-features = false }
 hmac = { version = "=0.12.1", default-features = false }
 libcrux-ml-dsa = { version = "=0.0.11", default-features = false, features = ["mldsa87"] }

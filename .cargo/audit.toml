@@ -1,0 +1,9 @@
+# cargo audit reads this from the repository root (`bun run check:audit`).
+[advisories]
+ignore = [
+  # crypto-bigint 0.5.5's non-constant-time arithmetic. Its only copy is opaque-ke 4 and
+  # voprf 0.5's elliptic-curve 0.13, linked by merkur-client-native, whose OPAQUE suite is
+  # Ristretto255 and never runs NIST-curve arithmetic; the daemon identity's P-256 is on
+  # p256 0.14 and crypto-bigint 0.7. Remove this once opaque-ke leaves elliptic-curve 0.13.
+  "RUSTSEC-2026-0387",
+]

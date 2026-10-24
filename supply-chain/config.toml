@@ -117,6 +117,11 @@ version = "0.2.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
+[[exemptions.base16ct]]
+version = "1.0.0"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
+
 [[exemptions.base64]]
 version = "0.23.1"
 criteria = "safe-to-deploy"
@@ -227,6 +232,11 @@ version = "1.1.1"
 criteria = "safe-to-run"
 notes = "Unaudited preexisting test dependency; exemption applies only to this exact version."
 
+[[exemptions.cmov]]
+version = "0.5.4"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's source was reviewed when it entered the lock, and the exemption applies only to this exact version."
+
 [[exemptions.combine]]
 version = "4.6.9"
 criteria = "safe-to-deploy"
@@ -261,6 +271,11 @@ notes = "Unaudited preexisting dependency; exemption applies only to this exact 
 version = "0.0.7"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+
+[[exemptions.cpubits]]
+version = "0.1.1"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's source was reviewed when it entered the lock, and the exemption applies only to this exact version."
 
 [[exemptions.cpufeatures]]
 version = "0.2.17"
@@ -322,6 +337,11 @@ version = "0.5.5"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
+[[exemptions.crypto-bigint]]
+version = "0.7.6"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
+
 [[exemptions.crypto-common]]
 version = "0.1.7"
 criteria = "safe-to-deploy"
@@ -336,6 +356,11 @@ notes = "Unaudited preexisting dependency; exemption applies only to this exact 
 version = "0.9.2"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+
+[[exemptions.ctutils]]
+version = "0.4.5"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's source was reviewed when it entered the lock, and the exemption applies only to this exact version."
 
 [[exemptions.cursor-icon]]
 version = "1.2.0"
@@ -356,6 +381,11 @@ notes = "Unaudited preexisting dependency; exemption applies only to this exact 
 version = "2.11.1"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+
+[[exemptions.der]]
+version = "0.8.2"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
 [[exemptions.der-parser]]
 version = "10.0.0"
@@ -412,6 +442,11 @@ version = "0.16.9"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
+[[exemptions.ecdsa]]
+version = "0.17.0"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
+
 [[exemptions.ed25519]]
 version = "2.2.3"
 criteria = "safe-to-deploy"
@@ -432,6 +467,11 @@ version = "0.13.8"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
+[[exemptions.elliptic-curve]]
+version = "0.14.1"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
+
 [[exemptions.equivalent]]
 version = "1.0.3"
 criteria = "safe-to-deploy"
@@ -451,6 +491,11 @@ notes = "Unaudited preexisting dependency; exemption applies only to this exact 
 version = "0.13.1"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+
+[[exemptions.ff]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
 [[exemptions.fiat-crypto]]
 version = "0.2.9"
@@ -557,6 +602,11 @@ version = "0.13.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
+[[exemptions.group]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
+
 [[exemptions.half]]
 version = "2.7.1"
 criteria = "safe-to-run"
@@ -611,6 +661,11 @@ notes = "Unaudited preexisting dependency; exemption applies only to this exact 
 version = "0.12.1"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+
+[[exemptions.hmac]]
+version = "0.13.0"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
 [[exemptions.home]]
 version = "0.5.12"
@@ -1053,9 +1108,9 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.p256]]
-version = "0.13.2"
+version = "0.14.0"
 criteria = "safe-to-deploy"
-notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
 [[exemptions.page_size]]
 version = "0.6.0"
@@ -1182,10 +1237,15 @@ version = "0.2.37"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
-[[exemptions.primeorder]]
-version = "0.13.6"
+[[exemptions.primefield]]
+version = "0.14.0"
 criteria = "safe-to-deploy"
-notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+notes = "Unaudited; this version's source was reviewed when it entered the lock, and the exemption applies only to this exact version."
+
+[[exemptions.primeorder]]
+version = "0.14.0"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
 [[exemptions.proc-macro-crate]]
 version = "3.5.0"
@@ -1313,9 +1373,9 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.rfc6979]]
-version = "0.4.0"
+version = "0.6.0"
 criteria = "safe-to-deploy"
-notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
 [[exemptions.ring]]
 version = "0.17.14"
@@ -1412,6 +1472,11 @@ version = "0.7.3"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
+[[exemptions.sec1]]
+version = "0.8.1"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
+
 [[exemptions.security-framework]]
 version = "3.7.0"
 criteria = "safe-to-deploy"
@@ -1486,6 +1551,11 @@ notes = "Unaudited preexisting dependency; exemption applies only to this exact 
 version = "2.2.0"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+
+[[exemptions.signature]]
+version = "3.0.0"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
 [[exemptions.simd-adler32]]
 version = "0.3.10"
@@ -2016,6 +2086,11 @@ notes = "Unaudited; this version's diff from the previous locked release was rev
 version = "0.10.1"
 criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
+
+[[exemptions.wnaf]]
+version = "0.14.1"
+criteria = "safe-to-deploy"
+notes = "Unaudited; this version's source was reviewed when it entered the lock, and the exemption applies only to this exact version."
 
 [[exemptions.writeable]]
 version = "0.6.4"
