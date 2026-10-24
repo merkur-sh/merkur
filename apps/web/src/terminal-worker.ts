@@ -398,11 +398,9 @@ const renderAnimationFrame = createOwnedAnimationFrame(
 // device: inside a queue submit, or on a 100 ms timer. While something waits
 // on a completion (admission closed, the session's first frame), each
 // delivered animation frame with no real submit since the last one asks for
-// that maintenance (`GpuRenderer.requestCompletion`).
-const completionAnimationFrame = createOwnedAnimationFrame(
-  (callback) => requestAnimationFrame(callback),
-  (handle) => cancelAnimationFrame(handle),
-);
+// that maintenance (`GpuRenderer.requestCompletion`). The callback is one
+// stable function, so a re-armed frame allocates nothing.
+let completionFrameHandle = 0;
 
 let renderSubmittedSinceCompletionFrame = false;
 
@@ -1374,9 +1372,11 @@ function handleDisplayEnv(cmd: Extract<WorkerCommand, { kind: 'display_env' }>):
     if (presentationAnimationFrame.isArmed())
       presentationAnimationFrame.arm(onViewerAnimationFrame);
     if (renderAnimationFrame.isArmed()) renderAnimationFrame.arm(onRenderAnimationFrame);
-    if (completionAnimationFrame.isArmed())
-      completionAnimationFrame.arm(onCompletionAnimationFrame);
-    else armCompletionDelivery();
+    if (completionFrameHandle !== 0) {
+      cancelAnimationFrame(completionFrameHandle);
+      completionFrameHandle = 0;
+    }
+    armCompletionDelivery();
   }
   armPresentationCommit();
   armViewerDeadline();
@@ -2931,17 +2931,18 @@ function awaitRenderCredit(): void {
 }
 
 function armCompletionDelivery(): void {
-  if (!graphicsVisible || completionAnimationFrame.isArmed() || !completionAwaited()) return;
+  if (!graphicsVisible || completionFrameHandle !== 0 || !completionAwaited()) return;
   renderSubmittedSinceCompletionFrame = false;
-  completionAnimationFrame.arm(onCompletionAnimationFrame);
+  completionFrameHandle = requestAnimationFrame(onCompletionAnimationFrame);
 }
 
 function onCompletionAnimationFrame(): void {
+  completionFrameHandle = 0;
   if (!graphicsVisible || !completionAwaited()) return;
   // A real submit since the last frame already maintained the device.
   if (!renderSubmittedSinceCompletionFrame) renderer?.requestCompletion();
   renderSubmittedSinceCompletionFrame = false;
-  completionAnimationFrame.arm(onCompletionAnimationFrame);
+  completionFrameHandle = requestAnimationFrame(onCompletionAnimationFrame);
 }
 
 function armRenderOpportunity(): void {

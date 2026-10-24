@@ -172,11 +172,12 @@ test('a completion someone waits on is delivered once per frame, never while hid
       },
     },
     firstDisplayGpuFence: { hasInFlight: () => firstDisplayInFlight },
-    completionAnimationFrame: {
-      isArmed: () => frame !== null,
-      arm: (callback: () => void) => {
-        frame = callback;
-      },
+    completionFrameHandle: 0,
+    requestAnimationFrame: (callback: () => void) => {
+      // One stable callback: re-arming allocates no function.
+      if (frame !== null) expect(callback).toBe(frame);
+      frame = callback;
+      return 1;
     },
   };
   const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(
