@@ -32,6 +32,14 @@ runs:
         version=$(cat .xcode-version)
         sudo mv "/Applications/Xcode_${version%.0}.app" "/Applications/Xcode-$version.app"
         sudo xcode-select --switch "/Applications/Xcode-$version.app"
+    # The LLVM repository decodes its release with the host's xz (`tools/bazel/llvm/distribution.bzl`),
+    # which the macOS image does not list.
+    - if: runner.os == 'macOS' && inputs.bazel == 'true'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: '1'
+        HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      run: brew install xz
     - if: inputs.bazel == 'true'
       uses: ./.github/actions/setup-bazel
       with:

@@ -2,9 +2,9 @@
 
 A release archive holds about 8 GB, most of it MLIR, LLDB, Flang, BOLT and LLVM's development
 headers and libraries. Bazel's own decoder unpacked all of it on one CPU, six minutes of every CI
-job; `tar` here decodes with every CPU the host's `xz` has (GNU tar) or with libarchive (bsdtar)
-and writes only what `@toolchains_llvm//toolchain:BUILD.llvm_repo.tpl` and the toolchain's tools
-directory name, with the programs their links resolve to.
+job. The host's `xz` decodes it here on every CPU (bsdtar's libarchive used one: 148 s on a macOS
+runner), and `tar` writes only what `@toolchains_llvm//toolchain:BUILD.llvm_repo.tpl` and the
+toolchain's tools directory name, with the programs their links resolve to.
 """
 
 _RELEASE = "https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/{archive}.tar.xz"
@@ -70,7 +70,7 @@ def _llvm_distribution_impl(rctx):
     )
     rctx.file("members", "".join(["%s/%s\n" % (archive, member) for member in members]))
     result = rctx.execute(
-        ["tar", "-xf", "llvm.tar.xz", "--strip-components=1", "-T", "members"],
+        ["bash", "-o", "pipefail", "-c", "xz -dc llvm.tar.xz | tar -xf - --strip-components=1 -T members"],
         timeout = 1800,
     )
     if result.return_code:
