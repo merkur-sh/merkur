@@ -33,6 +33,13 @@ Every checkout and worktree on a machine shares one disk cache, `~/.cache/merkur
 which Bazel collects past 30 GB or 14 days of disuse; a new worktree starts from what the others
 built. A CI runner keeps none.
 
+A long-lived checkout also compiles the workspace's crates incrementally, with
+`common --config=incremental` in its `.bazelrc.local`: rustc keeps each crate's state in the
+output base and recompiles what an edit reached, outside the sandbox. After a one-function edit
+the dataplane's test binary builds in 9 s rather than 22 s. Those crates' results are then the
+checkout's own, never CI's, and release builds leave the flag out, as Cargo's release profile
+does.
+
 BuildBuddy's remote cache holds what CI built. A workstation reads it and uploads nothing:
 `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
 `--remote_header=x-buildbuddy-api-key=...` line, the key coming from the Keychain. CI writes

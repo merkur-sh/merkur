@@ -13,20 +13,28 @@ _COMPILATION_MODE = "//command_line_option:compilation_mode"
 _RUSTC_FLAGS = str(Label("@rules_rust//rust/settings:extra_rustc_flags"))
 _PROFILE_USE = str(Label("@rules_rust//rust/settings:profile_use"))
 _NO_PROFILE = str(Label("@rules_rust//rust/settings:no_profile"))
+_PER_CRATE_FLAGS = str(Label("@rules_rust//rust/settings:per_crate_rustc_flag"))
 
-def _release_transition_impl(_settings, attr):
+def _release_transition_impl(settings, attr):
     profile = getattr(attr, "profile", None)
     return {
         _COMPILATION_MODE: "opt",
         # The x86_64 SSSE3 floor is a per-triple flag, which this list leaves in place.
         _RUSTC_FLAGS: ["-Cprofile-generate"] if attr.instrumented else [],
         _PROFILE_USE: str(profile) if profile else _NO_PROFILE,
+        # Cargo's release profile keeps no incremental state, which a workstation's
+        # `--config=incremental` gives the workspace's crates.
+        _PER_CRATE_FLAGS: [
+            flag
+            for flag in settings[_PER_CRATE_FLAGS]
+            if "@-Cincremental=" not in flag
+        ],
     }
 
 _release_transition = transition(
     implementation = _release_transition_impl,
-    inputs = [],
-    outputs = [_COMPILATION_MODE, _PROFILE_USE, _RUSTC_FLAGS],
+    inputs = [_PER_CRATE_FLAGS],
+    outputs = [_COMPILATION_MODE, _PER_CRATE_FLAGS, _PROFILE_USE, _RUSTC_FLAGS],
 )
 
 def _release_binary_impl(ctx):
