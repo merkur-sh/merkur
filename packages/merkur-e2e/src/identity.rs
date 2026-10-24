@@ -177,10 +177,8 @@ mod tests {
         let key = SoftwareP256SigningKey::from_seed(&[1; 32]).unwrap();
         validate_daemon_p256_public_key(&key.public_key()).unwrap();
         assert!(
-            validate_daemon_p256_public_key(
-                key.0.verifying_key().to_sec1_point(true).as_bytes()
-            )
-            .is_err()
+            validate_daemon_p256_public_key(key.0.verifying_key().to_sec1_point(true).as_bytes())
+                .is_err()
         );
         assert!(validate_daemon_p256_public_key(&[4; 65]).is_err());
     }
