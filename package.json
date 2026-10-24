@@ -67,6 +67,8 @@
     "bench:all": "bun run scripts/profile-project.ts --mode=micro",
     "bench:display-encoding": "bun run scripts/bench-display-encoding.ts",
     "bench:reconnect": "bun run scripts/bench-reconnect-latency.ts",
+    "bench:logger-sink": "bun run scripts/bench-logger-sink.ts",
+    "bench:daemon-trace-export": "bun run scripts/bench-daemon-trace-export.ts",
     "bench:relay-keystroke-packets": "bun run scripts/run-relay-keystroke-packets.ts",
     "bench:display-pipeline:rust": "BENCH_SAMPLES=200 bazel run //apps/daemon/dataplane:unit_release -- --ignored --exact --nocapture display::send::tests::production_display_pipeline_benchmark",
     "bench:compression-planner": "bazel run //apps/daemon/dataplane:unit_release -- --ignored --exact --nocapture display::compressor::tests::production_compression_planner_surface_benchmark",
