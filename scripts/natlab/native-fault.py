@@ -311,7 +311,7 @@ def observe_announcement(inside, gateway, path):
     # A passive multicast copy observes the actual gateway packet without taking ownership.
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
         udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        udp.bind(('', 5350))
+        udp.bind(('224.0.0.1', 5350))
         udp.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                        socket.inet_aton('224.0.0.1') + socket.inet_aton(inside))
         Path(str(path) + '.ready').touch()
