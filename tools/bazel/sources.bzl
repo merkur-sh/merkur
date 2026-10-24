@@ -46,6 +46,7 @@ PACKAGES = [
     "//tests",
     "//tools/bazel",
     "//tools/bazel/bun",
+    "//tools/bazel/llvm",
     "//tools/bazel/native",
     "//tools/bazel/platforms",
     "//tools/bazel/playwright",

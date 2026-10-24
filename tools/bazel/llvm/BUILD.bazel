@@ -1,0 +1,7 @@
+load("//tools/bazel:files.bzl", "package_files")
+
+package(default_visibility = ["//visibility:public"])
+
+package_files()
+
+exports_files(["distribution.bzl"])
