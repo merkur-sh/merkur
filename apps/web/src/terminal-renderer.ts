@@ -25,6 +25,8 @@ export interface GpuRenderer {
   frameInFlight(): boolean;
   /** Whether count, upload and retired-resource admission budgets permit work. */
   canSubmitFrame(): boolean;
+  /** Have the implementation deliver completions the GPU has already reached. */
+  requestCompletion(): void;
   destroy(): void;
 }
 

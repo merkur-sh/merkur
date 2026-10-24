@@ -3492,6 +3492,7 @@ MODULES = {
             ":src/terminal/cell-records.ts.module",
             ":src/terminal/color-space.ts.module",
             ":src/terminal/render-mailbox.ts.module",
+            ":src/terminal/runtime-policy.ts.module",
             ":src/terminal/themes.ts.module",
             ":tsconfig.json.module",
         ],

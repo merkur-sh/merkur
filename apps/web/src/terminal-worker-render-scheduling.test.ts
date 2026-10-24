@@ -31,6 +31,7 @@ function harness() {
   let renders = 0;
   let now = 0;
   let armed = false;
+  let creditWaits = 0;
   const dispatch = runInNewContext(`${program}\nglobalThis.dispatch;`, {
     renderMailbox: mailbox,
     presentationRenderIsBlocked: () => held,
@@ -39,6 +40,9 @@ function harness() {
     },
     armRenderOpportunity: () => {
       armed = true;
+    },
+    awaitRenderCredit: () => {
+      creditWaits += 1;
     },
     perfEnabled: false,
     executeRender: () => {
@@ -70,6 +74,9 @@ function harness() {
     get armed() {
       return armed;
     },
+    get creditWaits() {
+      return creditWaits;
+    },
   };
 }
 
@@ -88,7 +95,9 @@ test('idle echo submits now; busy updates use opportunities without inventing GP
   host.frame(32);
   expect(host.renders).toBe(3);
   expect(host.armed).toBe(false);
-  // Both owners are occupied: a refresh cannot manufacture a completion.
+  // Both owners are occupied: a refresh cannot manufacture a completion, only
+  // have the completions the GPU reached delivered.
+  expect(host.creditWaits).toBeGreaterThan(0);
   host.complete(40, 2);
   expect(host.renders).toBe(4);
   host.complete(41, 3);
@@ -126,6 +135,7 @@ test('GPU completion wiring contains no terminal cursor or prediction publicatio
 test('resource refusal preserves canvas, pending state and semantic ownership', () => {
   const events: string[] = [];
   const context = {
+    awaitRenderCredit: () => events.push('await-credit'),
     displayEpoch: { renderPending: true },
     wasmTerminal: {},
     rendererContextLost: false,
@@ -141,8 +151,90 @@ test('resource refusal preserves canvas, pending state and semantic ownership', 
   };
   const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(workerFunction('executeRender'));
   runInNewContext(`${code}\nexecuteRender();`, context);
-  expect(events).toEqual([]);
+  expect(events).toEqual(['await-credit']);
   expect(context.displayEpoch.renderPending).toBe(true);
+});
+
+test('a completion someone waits on is delivered once per frame, never while hidden', () => {
+  let requests = 0;
+  let inFlight = true;
+  let admissionOpen = false;
+  let firstDisplayInFlight = false;
+  let frame: (() => void) | null = null;
+  const context = {
+    renderSubmittedSinceCompletionFrame: false,
+    graphicsVisible: true,
+    renderer: {
+      frameInFlight: () => inFlight,
+      canSubmitFrame: () => admissionOpen,
+      requestCompletion: () => {
+        requests += 1;
+      },
+    },
+    firstDisplayGpuFence: { hasInFlight: () => firstDisplayInFlight },
+    completionAnimationFrame: {
+      isArmed: () => frame !== null,
+      arm: (callback: () => void) => {
+        frame = callback;
+      },
+    },
+  };
+  const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+    [
+      'completionAwaited',
+      'awaitRenderCredit',
+      'armCompletionDelivery',
+      'onCompletionAnimationFrame',
+    ]
+      .map(workerFunction)
+      .join('\n'),
+  );
+  runInNewContext(code, context);
+  const run = (statement: string) => runInNewContext(statement, context);
+  const deliver = () => {
+    const callback = frame;
+    frame = null;
+    callback?.();
+  };
+  // Blocked: delivered at once, then at each frame with no real submit.
+  run('awaitRenderCredit();');
+  expect(requests).toBe(1);
+  deliver();
+  expect(requests).toBe(2);
+  context.renderSubmittedSinceCompletionFrame = true;
+  deliver();
+  expect(requests).toBe(2);
+  deliver();
+  expect(requests).toBe(3);
+  // Credit returned: nothing waits, so the frames stop.
+  admissionOpen = true;
+  deliver();
+  expect(requests).toBe(3);
+  expect(frame).toBeNull();
+  // The session's first frame is a waiter too.
+  firstDisplayInFlight = true;
+  run('armCompletionDelivery();');
+  deliver();
+  expect(requests).toBe(4);
+  // Admission closed with nothing asking to render (the viewer holds an update
+  // for presentation readiness) still waits on a completion.
+  firstDisplayInFlight = false;
+  admissionOpen = false;
+  run('armCompletionDelivery();');
+  deliver();
+  expect(requests).toBe(5);
+  // Hidden: no submit at all, and the visible edge re-arms.
+  context.graphicsVisible = false;
+  deliver();
+  run('awaitRenderCredit();');
+  expect(requests).toBe(5);
+  expect(frame).toBeNull();
+  expect(workerFunction('handleDisplayEnv')).toContain('armCompletionDelivery();');
+  // Nothing in flight: nothing to deliver.
+  context.graphicsVisible = true;
+  inFlight = false;
+  run('armCompletionDelivery();');
+  expect(frame).toBeNull();
 });
 
 test('a hidden page submits no GPU frame, even from a completion, and the visible edge renders it', () => {
@@ -166,6 +258,7 @@ test('a hidden page submits no GPU frame, even from a completion, and the visibl
     presentationRenderIsBlocked: () => false,
     cancelRenderOpportunity: () => undefined,
     armRenderOpportunity: () => undefined,
+    awaitRenderCredit: () => undefined,
   };
   const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(
     ['scheduleRenderFrame', 'noteRenderWanted', 'dispatchMailboxAction', 'executeRender']

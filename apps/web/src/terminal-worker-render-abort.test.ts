@@ -98,6 +98,8 @@ function harness() {
       return mailbox.noteDirty();
     },
     armRenderOpportunity: () => {},
+    armCompletionDelivery: () => {},
+    awaitRenderCredit: () => {},
     dispatchMailboxAction: () => {},
   };
   const render = runInNewContext(`${program}\nglobalThis.render;`, context) as () => void;

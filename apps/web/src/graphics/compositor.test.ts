@@ -148,6 +148,7 @@ async function harness() {
   const compositor = new GraphicsCompositor(
     gpu.device as unknown as GPUDevice,
     {} as GPUBuffer,
+    'bgra8unorm',
     () => {
       wakes++;
     },

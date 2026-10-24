@@ -394,6 +394,18 @@ const renderAnimationFrame = createOwnedAnimationFrame(
   (handle) => cancelAnimationFrame(handle),
 );
 
+// Gecko delivers a GPU completion only when its GPU process maintains the
+// device: inside a queue submit, or on a 100 ms timer. While something waits
+// on a completion (admission closed, the session's first frame), each
+// delivered animation frame with no real submit since the last one asks for
+// that maintenance (`GpuRenderer.requestCompletion`).
+const completionAnimationFrame = createOwnedAnimationFrame(
+  (callback) => requestAnimationFrame(callback),
+  (handle) => cancelAnimationFrame(handle),
+);
+
+let renderSubmittedSinceCompletionFrame = false;
+
 let displayRenderExecuting = false;
 
 let displaySurfaceResizePending = false;
@@ -1362,6 +1374,9 @@ function handleDisplayEnv(cmd: Extract<WorkerCommand, { kind: 'display_env' }>):
     if (presentationAnimationFrame.isArmed())
       presentationAnimationFrame.arm(onViewerAnimationFrame);
     if (renderAnimationFrame.isArmed()) renderAnimationFrame.arm(onRenderAnimationFrame);
+    if (completionAnimationFrame.isArmed())
+      completionAnimationFrame.arm(onCompletionAnimationFrame);
+    else armCompletionDelivery();
   }
   armPresentationCommit();
   armViewerDeadline();
@@ -2886,13 +2901,47 @@ function dispatchMailboxAction(action: MailboxAction): void {
     armRenderOpportunity();
   } else if (action.kind === 'wait-fence') {
     // Only real completion can resolve overload. Do not spin a deadline/rAF
-    // loop while input, received state and selective ACK continue independently.
+    // loop while input, received state and selective ACK continue independently;
+    // only have the completions the GPU has reached delivered.
     cancelRenderOpportunity();
+    awaitRenderCredit();
   }
 }
 
 function cancelRenderOpportunity(): void {
   renderAnimationFrame.cancel();
+}
+
+/**
+ * While admission is closed every state change waits on a completion: the
+ * mailbox's fence, a byte watermark, or the viewer holding an update because
+ * presentation is not ready. The session's first frame is waited on too.
+ */
+function completionAwaited(): boolean {
+  return (
+    renderer?.frameInFlight() === true &&
+    (!renderer.canSubmitFrame() || firstDisplayGpuFence.hasInFlight())
+  );
+}
+
+function awaitRenderCredit(): void {
+  // A hidden page submits nothing, not even an empty batch (see `executeRender`).
+  if (graphicsVisible) renderer?.requestCompletion();
+  armCompletionDelivery();
+}
+
+function armCompletionDelivery(): void {
+  if (!graphicsVisible || completionAnimationFrame.isArmed() || !completionAwaited()) return;
+  renderSubmittedSinceCompletionFrame = false;
+  completionAnimationFrame.arm(onCompletionAnimationFrame);
+}
+
+function onCompletionAnimationFrame(): void {
+  if (!graphicsVisible || !completionAwaited()) return;
+  // A real submit since the last frame already maintained the device.
+  if (!renderSubmittedSinceCompletionFrame) renderer?.requestCompletion();
+  renderSubmittedSinceCompletionFrame = false;
+  completionAnimationFrame.arm(onCompletionAnimationFrame);
 }
 
 function armRenderOpportunity(): void {
@@ -3091,6 +3140,7 @@ function executeRender(): void {
   if (!renderer.canSubmitFrame()) {
     renderMailbox.noteRenderAborted();
     if (perfEnabled) noteRenderGateAction({ kind: 'wait-fence' });
+    awaitRenderCredit();
     return;
   }
   displayRenderExecuting = true;
@@ -3143,6 +3193,7 @@ function executeRender(): void {
     submission.predictionRevision = renderPredictionRevision;
     renderSubmissions.commit(submission, submissionId);
     submitted = true;
+    renderSubmittedSinceCompletionFrame = true;
     publishInFlightCursorPosition();
     publishPredictionModel();
     const predictionPerf = snapshotPredictionPerfEffects();
@@ -3153,6 +3204,9 @@ function executeRender(): void {
     const firstAlreadySubmitted = firstDisplayGpuFence.hasInFlight();
     firstDisplayGpuFence.noteSubmitted(true);
     submission.firstDisplayOwner = !firstAlreadySubmitted && firstDisplayGpuFence.hasInFlight();
+    // This submit may close admission (or own the first frame): whatever the
+    // viewer holds from here on waits on a completion.
+    armCompletionDelivery();
     submission.trackerToken = recordLatencyFrameSubmitted();
     if (perfEnabled && perfWriter !== null) {
       // Both records describe this exact successful submission. Sampling again

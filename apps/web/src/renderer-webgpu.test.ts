@@ -57,6 +57,7 @@ function fakeDevice() {
     scissors: number[][];
   }[] = [];
   const shaderCodes: string[] = [];
+  const emptySubmissions: (readonly object[])[] = [];
   let errorListener: ((event: { error: Error }) => void) | undefined;
   let pipelineGate: Promise<object> | null = null;
   const externalCopies: GPUCopyExternalImageDestInfo[] = [];
@@ -86,7 +87,12 @@ function fakeDevice() {
       events.push('writeTexture');
       textureWrites.push({ destination, data, layout, size });
     },
-    submit(commands: object[]) {
+    submit(commands: readonly object[]) {
+      if (commands.length === 0) {
+        emptySubmissions.push(commands);
+        events.push('emptySubmit');
+        return;
+      }
       expect(commands).toHaveLength(1);
       events.push('submit');
     },
@@ -210,6 +216,7 @@ function fakeDevice() {
     pipelines,
     passes,
     shaderCodes,
+    emptySubmissions,
     emitError: (error: Error) => errorListener?.({ error }),
     delayPipelines: (promise: Promise<object>) => {
       pipelineGate = promise;
@@ -234,10 +241,13 @@ afterEach(() => {
   descriptors.clear();
 });
 
-function harness(devices = [fakeDevice()]) {
+function harness(devices = [fakeDevice()], preferredFormat: GPUTextureFormat = 'bgra8unorm') {
   let nextDevice = 0;
   install('navigator', {
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:158.0) Gecko/20100101 Firefox/158.0',
     gpu: {
+      getPreferredCanvasFormat: () => preferredFormat,
       async requestAdapter() {
         return {
           requestDevice: async () => {
@@ -263,7 +273,7 @@ function harness(devices = [fakeDevice()]) {
         width: 1600,
         height: 960,
         createView(descriptor: GPUTextureViewDescriptor = {}) {
-          return { format: descriptor.format ?? 'rgba8unorm' };
+          return { format: descriptor.format ?? preferredFormat };
         },
       };
     },
@@ -331,11 +341,11 @@ describe('WebGPU terminal renderer', () => {
     const fake = fakeDevice();
     const h = harness([fake]);
     await ready(h);
-    // Never the preferred format: Firefox's bgra8unorm swap chain presents
-    // unsynchronised from a worker (PERF.md, 2026-09-08).
+    // The engine's preferred format: Gecko presents any other through a readback
+    // that waits for its 100 ms device poll, and Chromium converts it.
     expect(h.configurations[0]).toMatchObject({
-      format: 'rgba8unorm',
-      viewFormats: ['rgba8unorm-srgb'],
+      format: 'bgra8unorm',
+      viewFormats: ['bgra8unorm-srgb'],
       colorSpace: 'srgb',
       alphaMode: 'opaque',
     });
@@ -352,11 +362,11 @@ describe('WebGPU terminal renderer', () => {
     expect(fake.pipelines.every((p) => p.primitive?.topology === 'triangle-strip')).toBe(true);
     expect(fake.shaderCodes[0]).toContain('coverage * v.alpha');
     expect(fake.pipelines.map((p) => p.fragment?.targets[0]?.format)).toEqual([
-      'rgba8unorm-srgb',
-      'rgba8unorm',
-      'rgba8unorm-srgb',
-      'rgba8unorm-srgb',
-      'rgba8unorm-srgb',
+      'bgra8unorm-srgb',
+      'bgra8unorm',
+      'bgra8unorm-srgb',
+      'bgra8unorm-srgb',
+      'bgra8unorm-srgb',
     ]);
     // Only glyph coverage and the cursor blend; backgrounds and decorations are opaque.
     expect(fake.pipelines.map((p) => p.fragment?.targets[0]?.blend !== undefined)).toEqual([
@@ -469,6 +479,46 @@ describe('WebGPU terminal renderer', () => {
     expect(fake.events).toEqual(['encode', 'passEnd', 'finish', 'submit']);
     expect(h.renderer.frameInFlight()).toBe(false);
     expect(h.renderer.canSubmitFrame()).toBe(true);
+  });
+
+  test('an engine that presents rgba8unorm without a copy gets rgba8unorm on every canvas target', async () => {
+    const fake = fakeDevice();
+    const h = harness([fake], 'rgba8unorm');
+    await ready(h);
+    expect(h.configurations[0]).toMatchObject({
+      format: 'rgba8unorm',
+      viewFormats: ['rgba8unorm-srgb'],
+    });
+    expect(fake.pipelines.map((p) => p.fragment?.targets[0]?.format)).toEqual([
+      'rgba8unorm-srgb',
+      'rgba8unorm',
+      'rgba8unorm-srgb',
+      'rgba8unorm-srgb',
+      'rgba8unorm-srgb',
+    ]);
+    draw(h.renderer);
+    expect(fake.passes.at(-1)?.attachment).toMatchObject({ view: { format: 'rgba8unorm-srgb' } });
+  });
+
+  test('requestCompletion submits one shared empty batch, only while a frame is unconfirmed', async () => {
+    const fake = fakeDevice();
+    const h = harness([fake]);
+    await ready(h);
+    h.renderer.requestCompletion();
+    expect(fake.emptySubmissions).toHaveLength(0);
+    draw(h.renderer);
+    h.renderer.requestCompletion();
+    h.renderer.requestCompletion();
+    expect(fake.emptySubmissions).toHaveLength(2);
+    // The same never-written list each time: a request allocates nothing.
+    expect(fake.emptySubmissions[0]).toBe(fake.emptySubmissions[1]);
+    // It owns no frame identity, so it takes no render credit.
+    expect(fake.completions).toHaveLength(1);
+    expect(h.renderer.canSubmitFrame()).toBe(true);
+    fake.completions[0]?.resolve();
+    await flush();
+    h.renderer.requestCompletion();
+    expect(fake.emptySubmissions).toHaveLength(2);
   });
 
   test('bounded exact independent owners, out-of-order callbacks, no polling or await-before-submit', async () => {
@@ -811,10 +861,10 @@ test('image copies share submission completion and retain backing pages across s
   expect(fake.externalCopies[0]?.premultipliedAlpha).toBe(true);
   expect(fake.passes.slice(-4).map((pass) => pass.draws)).toEqual([[1, 2, 1], [2, 2], [1], [1]]);
   expect(fake.passes.slice(-4).map((pass) => pass.attachment?.view as unknown)).toEqual([
-    { format: 'rgba8unorm' },
-    { format: 'rgba8unorm-srgb' },
-    { format: 'rgba8unorm' },
-    { format: 'rgba8unorm-srgb' },
+    { format: 'bgra8unorm' },
+    { format: 'bgra8unorm-srgb' },
+    { format: 'bgra8unorm' },
+    { format: 'bgra8unorm-srgb' },
   ]);
   expect(fake.passes.slice(-4).map((pass) => pass.attachment?.loadOp)).toEqual([
     'clear',
