@@ -197,7 +197,7 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
           kind: 'terminal_bell',
           title: 'Terminal bell',
           body: `${daemon.name} needs attention`,
-          url: '/',
+          url: `/#machine=${encodeURIComponent(input.daemonId)}`,
           tag: `terminal-bell:${input.daemonId}`,
           daemonId: input.daemonId,
           occurredAt: input.occurredAt,

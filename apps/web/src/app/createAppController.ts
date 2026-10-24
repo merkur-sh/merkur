@@ -35,6 +35,7 @@ import { type SwUpdateState, useServiceWorkerLifecycle } from '../hooks/useServi
 import { isApiError, shouldRefreshSessionRequest } from '../lib/api-error';
 import { loadCachedDeviceList } from '../lib/device-list-cache';
 import { createTransportAutotuner } from '../lib/transport-autotuner';
+import { machineNotificationPath } from '../notification-route';
 import {
   type BrowserErrorReporter,
   createBrowserErrorReporter,
@@ -127,6 +128,7 @@ import {
   type Route,
   type SettingsTab,
 } from './navigation';
+import { createNotificationDestination } from './notification-destination';
 import { createTerminalSessionEpochHandoff } from './terminal-session-epoch-handoff';
 
 const logger = createLogger('web');
@@ -510,6 +512,28 @@ export function createAppController(): AppController {
     // preference, and a device-events lifetime outlives both.
     reportStreamFailure: (kind) => errorReporter?.count('device_events', kind),
   });
+  const notificationDestination = createNotificationDestination({
+    location: window.location,
+    history: window.history,
+    events: window,
+    messages: 'serviceWorker' in navigator ? navigator.serviceWorker : null,
+    requested: beginNotifiedDevice,
+    devices: () =>
+      account() !== null && nav.phase() === 'shell' && deviceList.deviceListStatus() === 'live'
+        ? deviceList.devices()
+        : null,
+    open: openNotifiedDevice,
+    unavailable(device) {
+      sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
+      teardown();
+      setSelectedDevice(device);
+      nav.enterShell();
+    },
+  });
+  createEffect(
+    () => [account(), nav.phase(), deviceList.deviceListStatus(), deviceList.devices()],
+    () => notificationDestination.refresh(),
+  );
   const {
     authError,
     authPending,
@@ -686,7 +710,7 @@ export function createAppController(): AppController {
     browserSessions: browserSessions.sessions,
     browserSessionsError: browserSessions.error,
     browserSessionsPending: browserSessions.pending,
-    deviceError: deviceList.deviceError,
+    deviceError: () => notificationDestination.error() || deviceList.deviceError(),
     deviceListStatus: deviceList.deviceListStatus,
     deviceOperation: deviceList.deviceOperation,
     devices: deviceList.devices,
@@ -745,7 +769,10 @@ export function createAppController(): AppController {
     onDeviceSelected,
     onDeviceRename,
     onDeviceRemove,
-    onLogout: performLogout,
+    async onLogout() {
+      notificationDestination.cancel();
+      await performLogout();
+    },
     onPhaseDeparted: () => nav.departed(),
     async onChangePassword(currentPassword, newPassword, signal) {
       const current = account();
@@ -1120,6 +1147,7 @@ export function createAppController(): AppController {
   }
 
   async function onBack(): Promise<void> {
+    notificationDestination.cancel();
     sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
     teardown();
     // Reveal the still-mounted list immediately. Live data and a fresh link
@@ -1140,6 +1168,7 @@ export function createAppController(): AppController {
   }
 
   async function onDeviceSelected(device: Device): Promise<void> {
+    notificationDestination.cancel();
     // Degraded is selectable: the daemon's lease is still held, so the device is
     // real and reachable again shortly. A start attempted before the carrier
     // reattaches is refused with a 503 rather than parked, so this is a bet on a
@@ -1286,7 +1315,7 @@ export function createAppController(): AppController {
                       if (session() !== next || terminalNotificationState() !== 'enabled') return;
                       return registration?.showNotification(effect.title || selectedDeviceName(), {
                         body: effect.body,
-                        data: { url: window.location.href },
+                        data: { url: machineNotificationPath(device.id) },
                       });
                     })
                     .catch(() => undefined);
@@ -1656,7 +1685,12 @@ export function createAppController(): AppController {
   }
 
   function reconnectLastDevice(opts: { refreshLink?: boolean }): void {
-    if (opts.refreshLink === false || session() !== null || connectionAttempts.hasActive()) {
+    if (
+      notificationDestination.hasPending() ||
+      opts.refreshLink === false ||
+      session() !== null ||
+      connectionAttempts.hasActive()
+    ) {
       return;
     }
 
@@ -1671,9 +1705,35 @@ export function createAppController(): AppController {
     }
 
     queueMicrotask(() => {
-      if (session() !== null || connectionAttempts.hasActive()) return;
+      if (
+        notificationDestination.hasPending() ||
+        sessionStorage.getItem(LAST_DEVICE_ID_KEY) !== lastDevice.id ||
+        session() !== null ||
+        connectionAttempts.hasActive()
+      )
+        return;
       void onDeviceSelected(lastDevice);
     });
+  }
+
+  function openNotifiedDevice(device: Device): void {
+    if (connectionAttempts.isActiveFor(device.id)) return;
+    if (selectedDevice()?.id === device.id && session() !== null) {
+      nav.replace({ k: 'terminal', deviceId: device.id });
+      terminalPanelHandle?.focus();
+      return;
+    }
+    void onDeviceSelected(device);
+  }
+
+  function beginNotifiedDevice(deviceId: string): void {
+    if (connectionAttempts.isActiveFor(deviceId)) return;
+    if (selectedDevice()?.id === deviceId && session() !== null) return;
+    sessionStorage.removeItem(LAST_DEVICE_ID_KEY);
+    if (nav.phase() !== 'shell' || deviceList.deviceListStatus() === 'live') return;
+    teardown();
+    setSelectedDevice(null);
+    nav.enterShell();
   }
 
   function stopDeviceList(): void {

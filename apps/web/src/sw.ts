@@ -1,3 +1,4 @@
+import { notificationTarget } from './notification-route';
 import { shouldBypassServiceWorkerRequest } from './service-worker-routing';
 
 // Both tokens are injected at build by the `merkur-sw-precache-manifest`
@@ -10,6 +11,7 @@ const BUILD_ID = '__MERKUR_BUILD_ID__';
 const SHELL_CACHE_PREFIX = 'merkur-shell';
 const SHELL_CACHE = `${SHELL_CACHE_PREFIX}-${BUILD_ID}`;
 const swGlobal = globalThis as unknown as ServiceWorkerGlobalScope;
+let notificationClick: Promise<void> = Promise.resolve();
 
 function readShellManifest(): readonly string[] {
   try {
@@ -54,7 +56,12 @@ swGlobal.addEventListener('push', (event) => {
 swGlobal.addEventListener('notificationclick', (event) => {
   if (!isNotificationClickEvent(event)) return;
   event.notification.close();
-  event.waitUntil(focusOrOpenApp(readNotificationUrl(event.notification.data)));
+  const path = readNotificationUrl(event.notification.data);
+  const clicked = notificationClick.then(() => focusOrOpenApp(path));
+  notificationClick = clicked.catch((cause) => {
+    swGlobal.reportError(new Error('Notification destination could not be opened', { cause }));
+  });
+  event.waitUntil(clicked);
 });
 
 async function precacheShell(): Promise<void> {
@@ -136,16 +143,30 @@ async function handlePush(event: SwPushEvent): Promise<void> {
 }
 
 async function focusOrOpenApp(path: string): Promise<void> {
-  const targetUrl = new URL(path, swGlobal.location.origin).toString();
+  const target = notificationTarget(path, swGlobal.location.origin);
+  if (target === null) return;
   const allClients = await swGlobal.clients.matchAll({ type: 'window' });
   for (const client of allClients) {
-    if ('focus' in client) {
-      await client.focus();
-      return;
+    const current = new URL(client.url);
+    if (
+      current.origin !== target.origin ||
+      (current.pathname !== '/' && current.pathname !== '/index.html')
+    )
+      continue;
+    if (target.hash.length > 0) {
+      client.postMessage({ kind: 'notification_destination', url: target.href });
     }
+    try {
+      await client.focus();
+    } catch (error) {
+      // A window closed after enumeration no longer owns the destination.
+      if ((await swGlobal.clients.get(client.id)) !== undefined) throw error;
+      continue;
+    }
+    return;
   }
 
-  await swGlobal.clients.openWindow(targetUrl);
+  await swGlobal.clients.openWindow(target.href);
 }
 
 function readPushPayload(data: PushMessageData | null): PushPayload | null {

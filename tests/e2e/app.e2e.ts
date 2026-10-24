@@ -13,6 +13,80 @@ async function expectAuthScreen(page: Page): Promise<void> {
   await expect(page.locator('#auth-screen')).toBeVisible();
 }
 
+test('notification destination survives sign-in and keeps unavailable machines explicit', async ({
+  page,
+  baseURL,
+}, testInfo) => {
+  if (baseURL === undefined) throw new Error('baseURL is required');
+  await testInfo.attach('notification-browser', {
+    body: JSON.stringify({
+      name: page.context().browser()?.browserType().name(),
+      userAgent: await page.evaluate(() => navigator.userAgent),
+    }),
+    contentType: 'application/json',
+  });
+  const username = `notification-${createUniqueSuffix()}`;
+  const password = 'Password123!';
+  await page.goto('/');
+  await createAccount(page, username, password);
+  const linked = await linkOfflineDaemon(page, baseURL, password);
+  try {
+    await logout(page);
+    await page.goto(`/?sw=on#machine=${encodeURIComponent(linked.daemonId)}`);
+    await expectAuthScreen(page);
+    await expect(page).toHaveURL(`${baseURL}/?sw=on`);
+    await signIn(page, username, password);
+    await expect(page.getByText(`${linked.daemonName} is offline.`, { exact: true })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
+      .toBe(true);
+    await page.evaluate(() => {
+      document.body.dataset.notificationDocument = 'preserved';
+      sessionStorage.setItem('merkur:last-device-id', 'previous-machine');
+      history.pushState(
+        { notificationState: 'preserved' },
+        '',
+        `${location.pathname}${location.search}#machine=no-longer-linked`,
+      );
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await expect(
+      page.getByText('The notified machine is no longer linked to this account.', { exact: true }),
+    ).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem('merkur:last-device-id'))).toBeNull();
+    expect(await page.evaluate(() => history.state)).toEqual({ notificationState: 'preserved' });
+    await page.evaluate((id) => {
+      navigator.serviceWorker.dispatchEvent(
+        new MessageEvent('message', {
+          origin: location.origin,
+          source: navigator.serviceWorker.controller,
+          data: { kind: 'notification_destination', url: `/#machine=${encodeURIComponent(id)}` },
+        }),
+      );
+    }, linked.daemonId);
+    await expect(page.getByText(`${linked.daemonName} is offline.`, { exact: true })).toBeVisible();
+    await expect(page.locator('body')).toHaveAttribute('data-notification-document', 'preserved');
+    await expect(page).toHaveURL(`${baseURL}/?sw=on`);
+    await expect(page.locator('#auth-screen')).toBeHidden();
+    await expect(page.locator('.shared-arrival')).toHaveCount(0);
+    await page.evaluate(async () => {
+      await Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+          .map((animation) =>
+            animation.finished.catch((cause) => {
+              if (!(cause instanceof DOMException) || cause.name !== 'AbortError') throw cause;
+            }),
+          ),
+      );
+    });
+    await page.screenshot({ path: testInfo.outputPath('notification-destination.png') });
+  } finally {
+    linked.dispose();
+  }
+});
+
 test('keeps controls visible while creating an account and shows the first-list skeleton', async ({
   page,
 }) => {

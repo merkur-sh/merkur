@@ -462,6 +462,15 @@ is installing or waiting, whose own activation retires them. First installation 
 without reloading. Replacing the cache while leaving existing pages running strands their old
 worker URLs after a deployment, leaving terminal startup reconnecting.
 
+Terminal notifications carry the originating machine's fragment destination. A notification click
+enqueues that destination to an existing app window before focusing it, preserving its document,
+or opens the fragment destination in a new window. The app installs its controlling-worker message
+listener before enabling the browser's queued messages, retains the destination through
+authentication, and resolves it against the account's live machine list before connecting. An
+offline or unlinked destination shows an error and suppresses reconnection to the last-opened
+machine. A request for a different machine retires the current terminal before waiting for a live
+list; a request for the current machine keeps its session.
+
 Device selection starts transport in the same turn that mounts the terminal. The next animation
 frame controls presentation of the terminal view, without gating either worker's startup.
 The transport worker starts cached edge dialing and session-auth preparation together; preparation

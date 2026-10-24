@@ -162,6 +162,19 @@ describe('push operation ownership', () => {
         version: null,
       })
       .execute();
+    const payloads: unknown[] = [];
+    const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+    const encryptMock = spyOn(crypto.subtle, 'encrypt').mockImplementation(
+      (algorithm, key, data) => {
+        const bytes =
+          data instanceof ArrayBuffer
+            ? new Uint8Array(data)
+            : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        // RFC 8188's last-record delimiter follows the JSON and precedes padding.
+        payloads.push(JSON.parse(new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(2)))));
+        return encrypt(algorithm, key, data);
+      },
+    );
     const fetchMock = spyOn(globalThis, 'fetch');
     try {
       for (const status of [404, 410]) {
@@ -200,8 +213,14 @@ describe('push operation ownership', () => {
           ),
         );
         expect(await db.selectFrom('push_subscriptions').selectAll().execute()).toEqual([]);
+        expect(payloads.at(-1)).toMatchObject({
+          kind: 'terminal_bell',
+          url: '/#machine=bell-daemon',
+          daemonId: 'bell-daemon',
+        });
       }
     } finally {
+      encryptMock.mockRestore();
       fetchMock.mockRestore();
       await db.destroy();
     }
