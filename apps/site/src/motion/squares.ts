@@ -8,12 +8,12 @@
  */
 import { animate, inView } from 'motion';
 
-/** A square settling into its size: slow enough to read as shrinking, barely past it. */
-const SHRINK = { type: 'spring', visualDuration: 0.9, bounce: 0.1 } as const;
+/** A square settling into its size: long enough to read as shrinking, barely past it. */
+const SHRINK = { type: 'spring', visualDuration: 0.5, bounce: 0.1 } as const;
 /** MZ's square starts once zstd's is most of the way down. */
-const MZ_DELAY_S = 0.45;
+const MZ_DELAY_S = 0.25;
 /** The labels appear once both squares are mostly settled. */
-const LABEL_DELAY_S = 1.1;
+const LABEL_DELAY_S = 0.6;
 
 export function playSquares(root: HTMLElement): void {
   if (root.getBoundingClientRect().top < window.innerHeight) return;
@@ -32,7 +32,7 @@ export function playSquares(root: HTMLElement): void {
       animate(mz, { opacity: 1 }, { duration: 0.15, delay: MZ_DELAY_S });
       animate(mz, { scale: 1 }, { ...SHRINK, delay: MZ_DELAY_S });
       for (const label of labels) {
-        animate(label, { opacity: 1 }, { duration: 0.4, delay: LABEL_DELAY_S });
+        animate(label, { opacity: 1 }, { duration: 0.25, delay: LABEL_DELAY_S });
       }
     },
     { amount: 0.5 },

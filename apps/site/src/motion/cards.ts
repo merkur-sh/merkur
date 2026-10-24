@@ -89,19 +89,23 @@ function playParity(element: HTMLElement): void {
     const index = turn % packets.length;
     turn += 1;
     const packet = packets[index];
+    // Red while it is lost, green from the moment the note says it is rebuilt.
     if (packet !== undefined) {
       animateMini(
         packet,
         {
-          opacity: [1, 0.12, 0.12, 1],
+          opacity: [1, 0.6, 0.6, 1, 1, 1],
           borderColor: [
             'rgba(255, 255, 255, 0.12)',
             'rgba(243, 139, 168, 0.85)',
+            'rgba(243, 139, 168, 0.85)',
+            'rgba(166, 227, 161, 0.9)',
             'rgba(166, 227, 161, 0.9)',
             'rgba(255, 255, 255, 0.12)',
           ],
+          backgroundColor: ['#1c1c23', '#47323e', '#47323e', '#38443c', '#38443c', '#1c1c23'],
         },
-        { duration: 2, times: [0, 0.12, 0.55, 1], ease: 'linear' },
+        { duration: 2, times: [0, 0.06, 0.5, 0.56, 0.85, 1], ease: 'linear' },
       );
     }
     for (const timer of timers) window.clearTimeout(timer);

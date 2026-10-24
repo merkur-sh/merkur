@@ -1007,14 +1007,14 @@
   background: var(--sunken);
 }
 
+/* All seven keys share the row, Tab included; the wide ones take more of it. */
 .keyrow span {
   display: grid;
-  flex: none;
+  flex: 1 0 auto;
   place-items: center;
   box-sizing: border-box;
-  min-width: 44px;
   height: 36px;
-  padding: 0 10px;
+  padding: 0 6px;
   border: 1px solid var(--line2);
   border-radius: 6px;
   background: var(--raised);
@@ -1025,7 +1025,7 @@
 }
 
 .keyrow .k-wide {
-  min-width: 64px;
+  flex-grow: 1.6;
 }
 
 .osk {
@@ -1468,13 +1468,15 @@
   --at: 1;
 }
 
+/* The chosen stop's tick reaches back towards the bead, so its label stays put. */
 .stop i {
   flex: none;
   width: 8px;
   height: 1px;
   background: rgba(255, 255, 255, 0.2);
+  transform-origin: 100% 50%;
   transition:
-    width 240ms var(--ease-out),
+    transform 240ms var(--ease-out),
     background-color 240ms ease;
 }
 
@@ -1487,6 +1489,7 @@
 .stop-name {
   font-size: 13.5px;
   line-height: 1.1;
+  white-space: nowrap;
 }
 
 .stop-rtt {
@@ -1500,8 +1503,8 @@
 }
 
 .stop-on i {
-  width: 18px;
   background: rgb(var(--lv));
+  transform: scaleX(2.25);
 }
 
 /* What the simulator's script sets (`motion/sim.ts`, `sim-script.ts`). */
@@ -1604,10 +1607,13 @@
   line-height: 1.55;
 }
 
+/* Its 48 cells are three whole rows of 16 that fill the picture's height. */
 .fx-cells {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(16, minmax(0, 1fr));
   gap: 2px;
+  height: 100%;
   font-family: var(--mono);
   font-size: 10px;
   line-height: 1;
@@ -1616,7 +1622,6 @@
 .fx-cells span {
   display: grid;
   place-items: center;
-  aspect-ratio: 1 / 1.25;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.025);
   color: var(--note);
@@ -1809,7 +1814,7 @@
   box-sizing: border-box;
   background: repeating-linear-gradient(
     -45deg,
-    rgba(255, 255, 255, 0.025) 0 1px,
+    rgba(255, 255, 255, 0.08) 0 1px,
     transparent 1px 10px
   );
 }
@@ -3995,9 +4000,6 @@
   }
 
   .fx-cells {
-    grid-template-columns: repeat(20, minmax(0, 1fr));
-    height: 100%;
-    overflow: hidden;
     font-size: 9px;
   }
 
@@ -4421,6 +4423,16 @@
 
   .doc-body {
     padding-block: 32px;
+  }
+
+  /* The privacy table's three columns fit a phone without scrolling sideways. */
+  .doc-body table {
+    font-size: 13px;
+  }
+
+  .doc-body th,
+  .doc-body td {
+    padding: 8px 10px;
   }
 
   .doc-parts > div {
