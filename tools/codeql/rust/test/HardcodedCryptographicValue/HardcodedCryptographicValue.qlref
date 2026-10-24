@@ -1,0 +1,2 @@
+query: HardcodedCryptographicValue.ql
+postprocess: utils/test/InlineExpectationsTestQuery.ql

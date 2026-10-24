@@ -1,4 +1,7 @@
 - description: CodeQL's security-extended Rust queries and Merkur's own, under Merkur's models
 - import: codeql-suites/rust-security-extended.qls
   from: codeql/rust-queries
+# HardcodedCryptographicValue.ql replaces the upstream query under the same id.
+- exclude:
+    id: rust/hard-coded-cryptographic-value
 - queries: .

@@ -1084,7 +1084,9 @@ exposed credential before removing it from source.
 [CodeQL](../.github/workflows/codeql.yml) analyzes TypeScript and Rust without a build, and the
 workflows and Python tooling, on pull requests, pushes to `main` and weekly. Each language runs
 CodeQL's `security-extended` queries; alerts go to code scanning, which marks a pull request that
-adds one. The scan follows data across files, which the per-file lint gates do not.
+adds one. The scan follows data across files, which the per-file lint gates do not. Rust is
+extracted with `test` off, as a release build compiles it: `#[cfg(test)]` items and `#[test]`
+functions are not analyzed, and `#[cfg(not(test))]` code is.
 
 CodeQL does not model Merkur's frameworks, so a model pack for each language in
 [`tools/codeql`](../tools/codeql), which the workflow installs into that language's analysis,
@@ -1106,6 +1108,7 @@ states, keyed on the types and functions that carry them rather than on names:
 | `merkur/js/unvetted-navigation` | Data a worker posts to the main thread opens a window or moves the page only through `openableUrl` ([links](#links-and-opening-urls)). |
 | `merkur/js/bun-command-injection` | Remote input chooses neither the program `Bun.spawn` runs nor a `Bun.$` command's `{ raw }` text. |
 | `merkur/rust/tag-variable-time-comparison` | An HMAC or Poly1305 tag is checked with `ring::hmac::verify` or `ct_eq`, never `==` or `PartialEq`; a test's `assert_eq!` is exempt. |
+| `rust/hard-coded-cryptographic-value` | CodeQL's query of that id, which it replaces: no constant reaches a key, nonce, IV, salt or password, except a buffer the next statement overwrites whole by `copy_from_slice`, a `ring` fill whose error reaches `?`, or `Entropy::fill`. |
 
 Each query and model has fixtures beside it whose lines carry the alerts expected of them; the
 `Query tests` job fails when a query stops reporting one or reports a safe case. The CodeQL bundle,

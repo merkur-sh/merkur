@@ -42,6 +42,10 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    # Rust is extracted as a release build compiles it: with `test` off, rust-analyzer drops
+    # `#[cfg(test)]` items and `#[test]` functions, and `#[cfg(not(test))]` code is analyzed.
+    env:
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_CFG_OVERRIDES: -test
     strategy:
       fail-fast: false
       matrix:

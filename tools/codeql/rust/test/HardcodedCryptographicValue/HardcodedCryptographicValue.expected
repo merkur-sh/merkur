@@ -1,0 +1,45 @@
+#select
+| main.rs:8:18:8:26 | [1u8; 12] | main.rs:8:18:8:26 | [1u8; 12] | main.rs:8:17:8:26 | &... | This hard-coded value is used as $@. | main.rs:8:17:8:26 | &... | a nonce |
+| main.rs:30:21:30:29 | [0u8; 12] | main.rs:30:21:30:29 | [0u8; 12] | main.rs:32:17:32:22 | &nonce | This hard-coded value is used as $@. | main.rs:32:17:32:22 | &nonce | a nonce |
+| main.rs:36:21:36:29 | [0u8; 12] | main.rs:36:21:36:29 | [0u8; 12] | main.rs:38:17:38:22 | &nonce | This hard-coded value is used as $@. | main.rs:38:17:38:22 | &nonce | a nonce |
+| main.rs:42:21:42:29 | [0u8; 12] | main.rs:42:21:42:29 | [0u8; 12] | main.rs:43:29:43:34 | &nonce | This hard-coded value is used as $@. | main.rs:43:29:43:34 | &nonce | a nonce |
+| main.rs:42:21:42:29 | [0u8; 12] | main.rs:42:21:42:29 | [0u8; 12] | main.rs:45:25:45:30 | &nonce | This hard-coded value is used as $@. | main.rs:45:25:45:30 | &nonce | a nonce |
+| main.rs:49:21:49:29 | [0u8; 12] | main.rs:49:21:49:29 | [0u8; 12] | main.rs:51:17:51:22 | &nonce | This hard-coded value is used as $@. | main.rs:51:17:51:22 | &nonce | a nonce |
+edges
+| main.rs:8:18:8:26 | [1u8; 12] | main.rs:8:17:8:26 | &... | provenance |  |
+| main.rs:30:9:30:17 | mut nonce | main.rs:32:18:32:22 | nonce | provenance |  |
+| main.rs:30:21:30:29 | [0u8; 12] | main.rs:30:9:30:17 | mut nonce | provenance |  |
+| main.rs:32:18:32:22 | nonce | main.rs:32:17:32:22 | &nonce | provenance |  |
+| main.rs:36:9:36:17 | mut nonce | main.rs:38:18:38:22 | nonce | provenance |  |
+| main.rs:36:21:36:29 | [0u8; 12] | main.rs:36:9:36:17 | mut nonce | provenance |  |
+| main.rs:38:18:38:22 | nonce | main.rs:38:17:38:22 | &nonce | provenance |  |
+| main.rs:42:9:42:17 | mut nonce | main.rs:43:30:43:34 | nonce | provenance |  |
+| main.rs:42:9:42:17 | mut nonce | main.rs:45:26:45:30 | nonce | provenance |  |
+| main.rs:42:21:42:29 | [0u8; 12] | main.rs:42:9:42:17 | mut nonce | provenance |  |
+| main.rs:43:30:43:34 | nonce | main.rs:43:29:43:34 | &nonce | provenance |  |
+| main.rs:45:26:45:30 | nonce | main.rs:45:25:45:30 | &nonce | provenance |  |
+| main.rs:49:9:49:17 | mut nonce | main.rs:51:18:51:22 | nonce | provenance |  |
+| main.rs:49:21:49:29 | [0u8; 12] | main.rs:49:9:49:17 | mut nonce | provenance |  |
+| main.rs:51:18:51:22 | nonce | main.rs:51:17:51:22 | &nonce | provenance |  |
+nodes
+| main.rs:8:17:8:26 | &... | semmle.label | &... |
+| main.rs:8:18:8:26 | [1u8; 12] | semmle.label | [1u8; 12] |
+| main.rs:30:9:30:17 | mut nonce | semmle.label | mut nonce |
+| main.rs:30:21:30:29 | [0u8; 12] | semmle.label | [0u8; 12] |
+| main.rs:32:17:32:22 | &nonce | semmle.label | &nonce |
+| main.rs:32:18:32:22 | nonce | semmle.label | nonce |
+| main.rs:36:9:36:17 | mut nonce | semmle.label | mut nonce |
+| main.rs:36:21:36:29 | [0u8; 12] | semmle.label | [0u8; 12] |
+| main.rs:38:17:38:22 | &nonce | semmle.label | &nonce |
+| main.rs:38:18:38:22 | nonce | semmle.label | nonce |
+| main.rs:42:9:42:17 | mut nonce | semmle.label | mut nonce |
+| main.rs:42:21:42:29 | [0u8; 12] | semmle.label | [0u8; 12] |
+| main.rs:43:29:43:34 | &nonce | semmle.label | &nonce |
+| main.rs:43:30:43:34 | nonce | semmle.label | nonce |
+| main.rs:45:25:45:30 | &nonce | semmle.label | &nonce |
+| main.rs:45:26:45:30 | nonce | semmle.label | nonce |
+| main.rs:49:9:49:17 | mut nonce | semmle.label | mut nonce |
+| main.rs:49:21:49:29 | [0u8; 12] | semmle.label | [0u8; 12] |
+| main.rs:51:17:51:22 | &nonce | semmle.label | &nonce |
+| main.rs:51:18:51:22 | nonce | semmle.label | nonce |
+subpaths
