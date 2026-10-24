@@ -91,6 +91,8 @@ export class GraphicsCompositor {
   constructor(
     private device: GPUDevice,
     private uniform: GPUBuffer,
+    // The canvas's own format: images draw through its encoded view.
+    canvasFormat: GPUTextureFormat,
     private wake: () => void,
     private fail: (error: unknown) => void,
   ) {
@@ -131,7 +133,7 @@ export class GraphicsCompositor {
           entryPoint: 'fragment',
           targets: [
             {
-              format: 'rgba8unorm',
+              format: canvasFormat,
               blend: {
                 color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
                 alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },

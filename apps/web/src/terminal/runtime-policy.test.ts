@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { type TerminalRuntimePolicy, terminalRuntimePolicyForUserAgent } from './runtime-policy';
+import {
+  type TerminalRuntimePolicy,
+  terminalCanvasFormat,
+  terminalRuntimePolicyForUserAgent,
+} from './runtime-policy';
 
 const APPLE_MOBILE_POLICY: TerminalRuntimePolicy = {
   displayRingWakeMode: 'task',
@@ -66,5 +70,40 @@ describe('terminalRuntimePolicyForUserAgent', () => {
 
     expect(Object.keys(appleMobile)).toEqual(['displayRingWakeMode']);
     expect(Object.keys(terminalRuntimePolicyForUserAgent(''))).toEqual(['displayRingWakeMode']);
+  });
+});
+
+describe('terminalCanvasFormat', () => {
+  // The user agents of the measured browsers, then the forms they stand for.
+  const zen =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:158.0) Gecko/20100101 Firefox/158.0';
+  const chrome =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/158.0.0.0 Safari/537.36';
+  const safari =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) ' +
+    'Version/26.5.2 Safari/605.1.15';
+  const iphone =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 ' +
+    '(KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1';
+  const iosChrome =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 ' +
+    '(KHTML, like Gecko) CriOS/140.0.0.0 Mobile/15E148 Safari/604.1';
+  const androidChrome =
+    'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/140.0.0.0 Mobile Safari/537.36';
+  const headlessChrome =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'HeadlessChrome/140.0.0.0 Safari/537.36';
+
+  test('WebKit, on every Apple platform and behind every iOS browser, takes rgba8unorm', () => {
+    for (const userAgent of [safari, iphone, iosChrome])
+      expect(terminalCanvasFormat(userAgent, 'bgra8unorm')).toBe('rgba8unorm');
+  });
+
+  test('Gecko and Chromium take the format they prefer', () => {
+    for (const userAgent of [zen, chrome, headlessChrome])
+      expect(terminalCanvasFormat(userAgent, 'bgra8unorm')).toBe('bgra8unorm');
+    expect(terminalCanvasFormat(androidChrome, 'rgba8unorm')).toBe('rgba8unorm');
   });
 });

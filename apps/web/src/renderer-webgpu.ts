@@ -23,6 +23,7 @@ import type {
   GlyphTableRange,
 } from './terminal/geometry-render-state';
 import { MAX_IN_FLIGHT_RENDER_FRAMES } from './terminal/render-mailbox';
+import { terminalCanvasFormat } from './terminal/runtime-policy';
 import { DEFAULT_TERMINAL_THEME } from './terminal/themes';
 import type { GpuRenderer, TerminalPreviewGeometry } from './terminal-renderer';
 
@@ -31,6 +32,8 @@ import type { GpuRenderer, TerminalPreviewGeometry } from './terminal-renderer';
 // device limits and must be submitted to make its uploads/retirements drainable.
 const MAX_UNCONFIRMED_UPLOAD_BYTES = 16 * 1024 * 1024;
 const MAX_UNCONFIRMED_RETIRED_BYTES = 32 * 1024 * 1024;
+// `requestCompletion` submits this; it is never written, so no call allocates.
+const NO_COMMAND_BUFFERS: readonly GPUCommandBuffer[] = [];
 
 // Installed DOM types include WebGPU interfaces but omit these WebIDL namespace
 // values. They are browser globals, not alternate implementations of the API.
@@ -258,8 +261,12 @@ export class WebGpuRenderer implements GpuRenderer {
   setGraphicsScene(scene: ImageScene, wake: () => void, uploaded: (key: string) => void): boolean {
     if (this.device === null || this.uniform === null) return scene.tiles.length === 0;
     if (this.graphicsStorage === null && scene.tiles.length > 0)
-      this.graphicsStorage = new GraphicsCompositor(this.device, this.uniform, wake, (error) =>
-        this.fail(toError(error)),
+      this.graphicsStorage = new GraphicsCompositor(
+        this.device,
+        this.uniform,
+        this.canvasFormat,
+        wake,
+        (error) => this.fail(toError(error)),
       );
     this.graphicsUploaded = uploaded;
     const admitted = this.graphicsStorage?.setScene(scene) ?? true;
@@ -351,6 +358,10 @@ export class WebGpuRenderer implements GpuRenderer {
   private readonly encodedClearValue: GPUColorDict = { r: 0, g: 0, b: 0, a: 1 };
   private passDescriptor: GPURenderPassDescriptor | null = null;
   private readonly submission: GPUCommandBuffer[] = [];
+  // The engine's presentation format and the sRGB view text blends through,
+  // both fixed when the canvas is configured.
+  private canvasFormat: GPUTextureFormat = 'bgra8unorm';
+  private linearView: GPUTextureViewDescriptor = { format: 'bgra8unorm-srgb' };
 
   async init(
     canvas: OffscreenCanvas,
@@ -482,7 +493,7 @@ export class WebGpuRenderer implements GpuRenderer {
       this.pendingRetiredBytes += graphicsWork.retiredBytes;
     }
     const surface = this.context.getCurrentTexture();
-    const linearView = surface.createView({ format: 'rgba8unorm-srgb' });
+    const linearView = surface.createView(this.linearView);
     const graphicsLayers = this.graphics?.drawableLayers() ?? 0;
     const imagesBelowText = (graphicsLayers & 3) !== 0;
     const imagesAboveText = (graphicsLayers & 4) !== 0;
@@ -598,6 +609,20 @@ export class WebGpuRenderer implements GpuRenderer {
   frameInFlight(): boolean {
     return this.frameCount > 0;
   }
+
+  /**
+   * Ask the implementation to deliver the completions the GPU has already
+   * reached. Gecko resolves `onSubmittedWorkDone` only when its GPU process
+   * maintains the device, which it does inside a queue submit or on a 100 ms
+   * timer, so a completion someone is waiting on would otherwise wait out the
+   * timer. A submit of no command buffers is that maintenance. Chromium and
+   * WebKit deliver completion from the GPU's own signal and have nothing left
+   * to deliver here.
+   */
+  requestCompletion(): void {
+    if (!this.ready || this.failed || this.device === null || this.frameCount === 0) return;
+    this.device.queue.submit(NO_COMMAND_BUFFERS);
+  }
   canSubmitFrame(): boolean {
     return (
       this.ready &&
@@ -660,20 +685,23 @@ export class WebGpuRenderer implements GpuRenderer {
         throw new Error('WebGPU canvas context unavailable');
       const gpuContext = context as GPUCanvasContext;
       this.context = gpuContext;
-      // `rgba8unorm`, deliberately not `getPreferredCanvasFormat()`. Firefox's
-      // shared-texture swap chain (`wgpu_client_use_shared_texture_in_swapChain`)
-      // accepts only `bgra8unorm` and pushes to the compositor without waiting
-      // for the GPU write, so from a worker the preferred format shows a frame
-      // four to seven submissions old for one refresh. Any other format takes
-      // its readback presenter, which completes the copy before it presents.
-      // Measured in PERF.md (2026-09-08): in order on every submit pattern,
-      // presentation latency unchanged in Firefox and within noise in Chromium.
-      // Text blends linear coverage against the actual destination in hardware.
-      // Images retain their encoded-color blend through the same texture's unorm view.
-      const format: GPUTextureFormat = 'rgba8unorm-srgb';
+      // The format the engine presents soonest (`terminalCanvasFormat`). In
+      // Gecko anything but `bgra8unorm` leaves the shared-texture swap chain for
+      // the readback presenter, which shows a frame only when the GPU process
+      // next polls the device: up to 100 ms after an isolated keystroke's submit.
+      // Text blends linear coverage against the actual destination in hardware
+      // through the sRGB view. Images retain their encoded-color blend through
+      // the same texture's unorm view.
+      const preferred = gpu.getPreferredCanvasFormat();
+      if (preferred !== 'bgra8unorm' && preferred !== 'rgba8unorm')
+        throw new Error(`unsupported WebGPU canvas format ${preferred}`);
+      const canvasFormat = terminalCanvasFormat(navigator.userAgent, preferred);
+      const format: GPUTextureFormat = `${canvasFormat}-srgb`;
+      this.canvasFormat = canvasFormat;
+      this.linearView = { format };
       gpuContext.configure({
         device,
-        format: 'rgba8unorm',
+        format: canvasFormat,
         viewFormats: [format],
         colorSpace: 'srgb',
         alphaMode: 'opaque',
@@ -737,7 +765,7 @@ export class WebGpuRenderer implements GpuRenderer {
           device,
           layout,
           module,
-          'rgba8unorm',
+          canvasFormat,
           'encoded_cell_background',
           CELL_LAYOUT,
         ),
@@ -798,7 +826,7 @@ export class WebGpuRenderer implements GpuRenderer {
       .beginRenderPass({
         colorAttachments: [
           {
-            view: context.getCurrentTexture().createView({ format: 'rgba8unorm-srgb' }),
+            view: context.getCurrentTexture().createView(this.linearView),
             loadOp: 'clear',
             storeOp: 'store',
             clearValue: this.clearValue,
