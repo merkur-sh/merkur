@@ -115,6 +115,7 @@ async function harness() {
     controlPumpActive: false,
     renderer: { canSubmitFrame: () => true },
     rendererContextLost: false,
+    graphicsVisible: true,
     displayRenderExecuting: false,
     displayEpoch: { generation: 1, renderPending: false },
     renderMailbox: mailbox,

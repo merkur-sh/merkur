@@ -33,6 +33,7 @@ function harness() {
     authoritativePresentationUrgent: false,
     renderer: { canSubmitFrame: () => true },
     rendererContextLost: false,
+    graphicsVisible: true,
 
     commitPendingRasterMetrics: () => {},
     displayRenderExecuting: false,

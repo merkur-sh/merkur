@@ -129,6 +129,7 @@ test('resource refusal preserves canvas, pending state and semantic ownership', 
     displayEpoch: { renderPending: true },
     wasmTerminal: {},
     rendererContextLost: false,
+    graphicsVisible: true,
     renderer: { canSubmitFrame: () => false },
     renderMailbox: createRenderMailbox(),
     perfEnabled: false,
@@ -142,6 +143,48 @@ test('resource refusal preserves canvas, pending state and semantic ownership', 
   runInNewContext(`${code}\nexecuteRender();`, context);
   expect(events).toEqual([]);
   expect(context.displayEpoch.renderPending).toBe(true);
+});
+
+test('a hidden page submits no GPU frame, even from a completion, and the visible edge renders it', () => {
+  let admissions = 0;
+  const context = {
+    displayEpoch: { renderPending: true },
+    displayRenderExecuting: false,
+    wasmTerminal: {},
+    rendererContextLost: false,
+    graphicsVisible: false,
+    authoritativePresentationUrgent: false,
+    // The probe ends the render at GPU admission, before any WebGPU call.
+    renderer: {
+      canSubmitFrame: () => {
+        admissions += 1;
+        return false;
+      },
+    },
+    renderMailbox: createRenderMailbox(),
+    perfEnabled: false,
+    presentationRenderIsBlocked: () => false,
+    cancelRenderOpportunity: () => undefined,
+    armRenderOpportunity: () => undefined,
+  };
+  const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+    ['scheduleRenderFrame', 'noteRenderWanted', 'dispatchMailboxAction', 'executeRender']
+      .map(workerFunction)
+      .join('\n'),
+  );
+  runInNewContext(code, context);
+  const run = (statement: string) => runInNewContext(statement, context);
+  run('scheduleRenderFrame();');
+  // A frame submitted before the page hid completes when the app returns,
+  // before the page is visible; its completion offers the next render.
+  run("dispatchMailboxAction({ kind: 'render-now' });");
+  expect(admissions).toBe(0);
+  expect(context.displayEpoch.renderPending).toBe(true);
+  context.graphicsVisible = true;
+  run('scheduleRenderFrame();');
+  expect(admissions).toBe(1);
+  const visibleEdge = workerFunction('handleDisplayEnv');
+  expect(visibleEdge).toContain('if (becameVisible) scheduleRenderFrame();');
 });
 
 test('held Rust presentation requests exactly one real animation opportunity without a wall-clock release', () => {

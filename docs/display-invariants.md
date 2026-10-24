@@ -377,6 +377,11 @@ present, and the user's own interrupt and its echo queued behind them.)
   those arms. Recovery does not depend on observing the hidden setter, which can coalesce
   with the visible setter before the worker processes it. Replaced callbacks cannot consume
   their successors, and neither repair membership nor GPU completion credit is reset.
+- A hidden page submits no GPU work: the worker keeps applying state, its scene stays dirty,
+  and the hidden-to-visible transition renders it. (On iOS a frame submitted in the
+  background completes only when the app returns; the frame its completion submitted before
+  the page was visible never returned from WebKit's synchronous present, and the terminal
+  worker stopped with the transport still live: a stale screen, or "Connecting" until Retry.)
 - Every datagram carries the demand serial its state consumed; grant-exempt frames repeat the
   newest one, and snapshots and evidence probes carry zero, which the browser ignores. A
   demand-limited frame (the daemon holds nothing banked) is owed one posted grant; once a

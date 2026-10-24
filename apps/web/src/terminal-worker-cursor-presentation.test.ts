@@ -38,6 +38,7 @@ test('exact completion ownership survives newer submissions, reordering and inva
     const context = {
       wasmTerminal: null,
       rendererContextLost: false,
+      graphicsVisible: true,
       observeViewerPresentation() {},
       drainViewerOutputs() {},
       scheduleRenderFrame() {},
@@ -106,6 +107,7 @@ test('only a callback opening real capacity owns the fence-release telemetry', (
         const context = {
           wasmTerminal: null,
           rendererContextLost: false,
+          graphicsVisible: true,
           observeViewerPresentation() {},
           drainViewerOutputs() {},
           scheduleRenderFrame() {},

@@ -163,6 +163,7 @@ function createHarness(terminal: WasmClientViewerHandle, costMs = 0) {
     displayProcessSliceBudgetMs,
     renderer: { canSubmitFrame: () => true },
     rendererContextLost: false,
+    graphicsVisible: true,
     perfEnabled: false,
     perfWriter: null,
     observeViewerPresentation() {},

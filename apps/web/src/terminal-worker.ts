@@ -1376,6 +1376,8 @@ function handleDisplayEnv(cmd: Extract<WorkerCommand, { kind: 'display_env' }>):
     pendingRasterMetrics?.lineHeight ?? currentLineHeight,
     cmd.devicePixelRatio,
   );
+  // What arrived while hidden was applied but never drawn.
+  if (becameVisible) scheduleRenderFrame();
 }
 
 function publishPresentationPeriod(): void {
@@ -2853,7 +2855,8 @@ function presentationRenderIsBlocked(): boolean {
 
 function scheduleRenderFrame(urgentRows = false): void {
   if (!displayEpoch.renderPending || displayRenderExecuting || rendererContextLost) return;
-  if (presentationRenderIsBlocked()) return;
+  // The visible edge (`handleDisplayEnv`) schedules what a hidden page held.
+  if (!graphicsVisible || presentationRenderIsBlocked()) return;
   dispatchMailboxAction(noteRenderWanted(urgentRows));
 }
 
@@ -3074,6 +3077,15 @@ function executeRender(): void {
     renderer === null
   ) {
     dispatchMailboxAction(renderMailbox.noteRenderAborted());
+    return;
+  }
+  // A hidden page submits no GPU work. On iOS a frame submitted in the
+  // background completes only when the app returns, and a frame submitted from
+  // that completion, before the page is visible, never returns from WebKit's
+  // synchronous present: the worker thread stops for good. The scene stays
+  // dirty and the visible edge renders it.
+  if (!graphicsVisible) {
+    renderMailbox.noteRenderAborted();
     return;
   }
   if (!renderer.canSubmitFrame()) {
