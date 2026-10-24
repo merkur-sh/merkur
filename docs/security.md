@@ -1086,7 +1086,9 @@ workflows and Python tooling, on pull requests, pushes to `main` and weekly. Eac
 CodeQL's `security-extended` queries; alerts go to code scanning, which marks a pull request that
 adds one. The scan follows data across files, which the per-file lint gates do not. Rust is
 extracted with `test` off, as a release build compiles it: `#[cfg(test)]` items and `#[test]`
-functions are not analyzed, and `#[cfg(not(test))]` code is.
+functions are not analyzed, and `#[cfg(not(test))]` code is. A file no crate reaches on the Linux
+host, such as a module only macOS, WASM or `cfg(test)` declares, is still parsed whole without its
+cfg evaluated, so a test inside one can raise an alert.
 
 CodeQL does not model Merkur's frameworks, so a model pack for each language in
 [`tools/codeql`](../tools/codeql), which the workflow installs into that language's analysis,
