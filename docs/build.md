@@ -36,9 +36,11 @@ built. A CI runner keeps none.
 A long-lived checkout also compiles the workspace's crates incrementally, with
 `common --config=incremental` in its `.bazelrc.local`: rustc keeps each crate's state in the
 output base and recompiles what an edit reached, outside the sandbox. After a one-function edit
-the dataplane's test binary builds in 9 s rather than 22 s. Those crates' results are then the
-checkout's own, never CI's, and release builds leave the flag out, as Cargo's release profile
-does.
+the dataplane's test binary builds in 9 s rather than 22 s, and after one in `merkur-codec` in
+5 s rather than 27 s. Those crates' results are then the checkout's own, never CI's, and release
+builds leave the flag out, as Cargo's release profile does. Rust compilation is not pipelined:
+unsandboxed, a pipelined crate's full compile collides with the metadata file its metadata action
+declares, and CI's keys must match a checkout's for the remote cache to answer.
 
 BuildBuddy's remote cache holds what CI built. A workstation reads it and uploads nothing:
 `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
@@ -47,7 +49,10 @@ the same file from the `BUILDBUDDY_API_KEY` secret with `--config=ci`, the only 
 pull request has no key and builds everything itself. On CI, repository downloads also go through
 BuildBuddy (`--experimental_remote_downloader`), keyed by checksum, so a runner fetches only the
 archives its build needs and restores no repository cache; `--jobs=32` keeps remote lookups in
-flight beside the local work the runner's CPUs bound.
+flight beside the local work the runner's CPUs bound. A runner restores the module lockfile the
+last job on its OS wrote, so Bazel replays the module extensions whose inputs are unchanged
+rather than evaluating them; the lockfile stays out of Git because crate_universe records the
+vendored crates by absolute path.
 
 ## Toolchains
 

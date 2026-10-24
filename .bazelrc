@@ -21,10 +21,6 @@ build --@rules_rust//rust/settings:per_crate_rustc_flag=external/@-Cdebuginfo=0
 build:release --compilation_mode=opt
 build:release --@rules_rust//rust/settings:extra_rustc_flags=
 
-# A crate's dependents compile against its metadata as soon as rustc has written it, while its
-# code generation finishes, as Cargo's pipelining does.
-build --@rules_rust//rust/settings:pipelined_compilation=True
-
 # Incremental compilation of the workspace's crates, which a workstation enables with
 # `common --config=incremental` in `.bazelrc.local`: rustc keeps each crate's state in the output
 # base (`../../rust-incremental` from the execution root, about 1 GB for the dataplane) and
@@ -33,10 +29,13 @@ build --@rules_rust//rust/settings:pipelined_compilation=True
 # outside the sandbox. The flag is in these crates' keys, so their results are local work, never
 # CI's; CI stays sandboxed and non-incremental. Release builds leave it out
 # (`tools/bazel/release/defs.bzl`), as Cargo's release profile does.
+#
+# Compilation is not pipelined, here or on CI: a pipelined crate's full compile also writes the
+# metadata file its metadata action declares, which only a sandbox keeps apart, and every other
+# Rust action's key must be the same here as on CI for the remote cache to answer it.
 common:incremental --@rules_rust//rust/settings:per_crate_rustc_flag=apps/@-Cincremental=../../rust-incremental
 common:incremental --@rules_rust//rust/settings:per_crate_rustc_flag=packages/@-Cincremental=../../rust-incremental
 common:incremental --strategy=Rustc=local
-common:incremental --strategy=RustcMetadata=local
 
 # Clippy, which `//:rust_lint` runs over every first-party target: the repository's
 # `clippy.toml`, JSON diagnostics for the ratchet to read, and each lint `scripts/rust-lint.ts`

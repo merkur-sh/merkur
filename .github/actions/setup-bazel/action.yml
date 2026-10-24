@@ -11,6 +11,15 @@ runs:
       # No repository cache: the remote downloader (`--config=ci`) fetches what a build needs.
       with:
         bazelisk-cache: true
+    # The module lockfile the last job on this OS wrote, whose module extensions Bazel then
+    # replays rather than evaluates (crate_universe's alone took 41 s). Bazel re-evaluates any
+    # extension whose recorded inputs changed. It stays out of Git because crate_universe records
+    # the vendored crates by absolute path, which is the same on every runner of one OS.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: MODULE.bazel.lock
+        key: bazel-module-lock-${{ runner.os }}-${{ github.sha }}
+        restore-keys: bazel-module-lock-${{ runner.os }}-
     # CI is the remote cache's only writer (`--config=ci`).
     - if: inputs.buildbuddy-api-key != ''
       shell: bash
