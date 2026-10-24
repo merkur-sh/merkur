@@ -2520,7 +2520,7 @@ MODULES = {
         ],
         "src/app/notification-destination.ts": [
             "//apps/web:node_modules/solid-js",
-            "//packages/shared:src/parsing.ts.module",
+            "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/notification-route.ts.module",
             ":tsconfig.json.module",
