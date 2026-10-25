@@ -105,15 +105,15 @@ struct TokenBucket {
 }
 
 impl TokenBucket {
-    fn new() -> Self {
+    fn new(now: Instant) -> Self {
         Self {
             tokens: TOKEN_BURST as f64,
-            last_refill: Instant::now(),
+            last_refill: now,
         }
     }
 
-    fn try_take(&mut self, want: u64) -> bool {
-        let now = Instant::now();
+    /// Refill for the time since the last take, then take `want` at `now`.
+    fn try_take(&mut self, want: u64, now: Instant) -> bool {
         let elapsed = now
             .saturating_duration_since(self.last_refill)
             .as_secs_f64();
@@ -209,7 +209,7 @@ impl SideChannel {
         // dependent on initialization order.
         socket.set_nonblocking(true)?;
         let is_ipv6 = socket.local_addr()?.is_ipv6();
-        let bucket = Mutex::new(TokenBucket::new());
+        let bucket = Mutex::new(TokenBucket::new(Instant::now()));
         let last_burst = Mutex::new(CooldownTable::new());
         // On Apple targets `std::sync::Mutex` boxes its pthread mutex lazily on
         // the first lock (64 bytes, once per mutex for the process). Take that
@@ -281,7 +281,7 @@ impl SideChannel {
     /// ticket is expired, which matters: the mapping must not be allowed to
     /// lapse merely because a ticket rotated late.
     pub fn keepalive(&self, vantage: SocketAddr) {
-        if !self.take_tokens(1) {
+        if !self.take_tokens(1, Instant::now()) {
             return;
         }
         self.stats.keepalives_sent.fetch_add(1, Ordering::Relaxed);
@@ -313,7 +313,8 @@ impl SideChannel {
         }
 
         let wanted = (ports.len() * PACKETS_PER_PORT) as u64;
-        if !self.check_dest_cooldown(browser_ip) || !self.take_tokens(wanted) {
+        let now = Instant::now();
+        if !self.check_dest_cooldown(browser_ip, now) || !self.take_tokens(wanted, now) {
             self.stats
                 .refused_rate_limited
                 .fetch_add(1, Ordering::Relaxed);
@@ -331,17 +332,17 @@ impl SideChannel {
         Ok(sent)
     }
 
-    fn take_tokens(&self, want: u64) -> bool {
+    fn take_tokens(&self, want: u64, now: Instant) -> bool {
         match self.bucket.lock() {
-            Ok(mut bucket) => bucket.try_take(want),
+            Ok(mut bucket) => bucket.try_take(want, now),
             // A poisoned bucket must not become an unbounded send path.
             Err(_) => false,
         }
     }
 
-    fn check_dest_cooldown(&self, dest: IpAddr) -> bool {
+    fn check_dest_cooldown(&self, dest: IpAddr, now: Instant) -> bool {
         match self.last_burst.lock() {
-            Ok(mut table) => table.admit(dest, Instant::now()),
+            Ok(mut table) => table.admit(dest, now),
             // A poisoned table must not become an unbounded send path.
             Err(_) => false,
         }
@@ -457,19 +458,22 @@ mod tests {
         assert_eq!(channel.stats().packets_sent.load(Ordering::Relaxed), 4);
     }
 
-    /// The bucket holds exactly one punch per cooldown slot: that many distinct
-    /// browsers are punched back to back, and the next is refused until refill.
+    /// The bucket holds exactly one punch per cooldown slot: that many punches
+    /// at one instant, the next refused, and one punch back after the refill
+    /// time for one punch. Fixed instants, so a slow runner cannot refill it.
     #[test]
     fn the_token_bucket_holds_one_punch_per_cooldown_slot() {
-        let channel = loopback_channel();
-        for host in 1..=COOLDOWN_SLOTS {
-            let target: IpAddr = format!("203.0.113.{host}").parse().unwrap();
-            assert_eq!(channel.punch(target, &punch_ports(44433)), Ok(4), "{host}");
+        const PUNCH: u64 = (PUNCH_PORTS * PACKETS_PER_PORT) as u64;
+        let base = Instant::now();
+        let mut bucket = TokenBucket::new(base);
+        for slot in 0..COOLDOWN_SLOTS {
+            assert!(bucket.try_take(PUNCH, base), "punch {slot}");
         }
-        let extra: IpAddr = "203.0.113.200".parse().unwrap();
-        assert_eq!(
-            channel.punch(extra, &punch_ports(44433)),
-            Err(PunchRefusal::RateLimited)
+        assert!(!bucket.try_take(PUNCH, base), "the burst is spent");
+        let refill = Duration::from_secs_f64(PUNCH as f64 / TOKEN_RATE_PER_SEC as f64);
+        assert!(
+            bucket.try_take(PUNCH, base + refill),
+            "one punch refills in {refill:?}"
         );
     }
 
