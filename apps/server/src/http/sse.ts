@@ -260,6 +260,13 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
           emitDelta(signal.frame);
         }
 
+        const onSubscriptionFailure = (cause: Cause.Cause<unknown>) =>
+          Effect.sync(() => {
+            if (Cause.hasInterruptsOnly(cause)) return;
+            options.onError(Cause.squash(cause));
+            close('stream_failed');
+          });
+
         // One runtime-owned fiber, with a stream-local scope for subscriptions and
         // children. Setup operations have finite spans; this lifetime has no span.
         const program = Effect.scoped(
@@ -292,13 +299,7 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
               (unsubscribe) => unsubscribe,
             ).pipe(
               Effect.andThen(Effect.never),
-              Effect.catchCause((cause) =>
-                Effect.sync(() => {
-                  if (Cause.hasInterruptsOnly(cause)) return;
-                  options.onError(Cause.squash(cause));
-                  close('stream_failed');
-                }),
-              ),
+              Effect.catchCause(onSubscriptionFailure),
               Effect.forkScoped,
             );
 
@@ -320,13 +321,7 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
                   }
                 }),
               ),
-              Effect.catchCause((cause) =>
-                Effect.sync(() => {
-                  if (Cause.hasInterruptsOnly(cause)) return;
-                  options.onError(Cause.squash(cause));
-                  close('stream_failed');
-                }),
-              ),
+              Effect.catchCause(onSubscriptionFailure),
               Effect.forkScoped,
             );
 
@@ -366,13 +361,7 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
             yield* Effect.never;
           }),
         ).pipe(
-          Effect.catchCause((cause) =>
-            Effect.sync(() => {
-              if (Cause.hasInterruptsOnly(cause)) return;
-              options.onError(Cause.squash(cause));
-              close('stream_failed');
-            }),
-          ),
+          Effect.catchCause(onSubscriptionFailure),
           Effect.ensuring(Effect.sync(() => close('server_shutdown'))),
         );
         options.request.signal.addEventListener('abort', onAbort, { once: true });

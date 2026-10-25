@@ -18,11 +18,27 @@ export async function openAccountSettings(page: Page): Promise<Locator> {
   return reporting;
 }
 
-/** Saves through Settings and returns to the list, including when restoring from a terminal. */
+/**
+ * Saves through Settings and returns to the list, including when restoring from a terminal.
+ *
+ * Navigates inside the app rather than reloading: a reload from a terminal reopens the
+ * machine it was showing, which is not the list this needs.
+ */
 export async function setPerformanceReporting(page: Page, enabled: boolean): Promise<void> {
-  await page.goto('/');
+  const body = page.locator('body');
+  // A page the app has not been loaded into yet carries no phase at all.
+  if (page.url() === 'about:blank') await page.goto('/');
+  await expect(body).toHaveAttribute('data-phase', 'shell');
+  if ((await body.getAttribute('data-route')) === 'terminal') {
+    await page
+      .locator('#terminal')
+      .getByRole('button', { name: 'Back to machines', exact: true })
+      .click();
+  }
+  await expect(body).toHaveAttribute('data-route', 'devices');
   // The first live list frame follows the stream's account consent statement.
   await expectDeviceListLive(page);
+  await expect(body).not.toHaveAttribute('data-telemetry-consent', 'unknown');
   const reporting = await openAccountSettings(page);
   if ((await reporting.getAttribute('aria-checked')) !== String(enabled)) {
     await reporting.click();

@@ -72,7 +72,7 @@ import {
   daemonTraceIngestFrequency,
 } from '../../observability/metrics';
 import { classifySessionQuality } from '../../observability/session-quality';
-import type { runServerProgram } from '../../runtime';
+import type { runServerProgram, ServerRuntimeContext } from '../../runtime';
 import { AccountTelemetryServiceTag } from '../../services/account-telemetry-service';
 import type { AuthenticatedBrowser } from '../../services/auth-service';
 import { enforceRateLimit, RateLimitServiceTag } from '../../services/rate-limit-service';
@@ -261,6 +261,22 @@ export function telemetryRoutesPlugin({
   authorizeRequest,
   logger,
 }: TelemetryRoutesOptions) {
+  const runTelemetryEffect = <A, E, R extends ServerRuntimeContext>(
+    userId: string,
+    request: Request,
+    eventName: string,
+    program: Effect.Effect<A, E, R>,
+  ) =>
+    runRouteEffect(
+      runServerProgram,
+      Effect.gen(function* () {
+        const accountTelemetry = yield* AccountTelemetryServiceTag;
+        if ((yield* accountTelemetry.read(userId)) !== true) return;
+        return yield* program;
+      }),
+      { logger, eventName, request, signal: request.signal },
+    );
+
   return (
     new Elysia({ name: 'telemetry-routes' })
       .post(
@@ -279,12 +295,11 @@ export function telemetryRoutesPlugin({
             return status(STATUS_UNAUTHORIZED, { error: 'unauthorized' as const });
           }
 
-          await runRouteEffect(
-            runServerProgram,
+          await runTelemetryEffect(
+            daemonIdentity.userId,
+            request,
+            'daemon_perf_report_failed',
             Effect.gen(function* () {
-              const accountTelemetry = yield* AccountTelemetryServiceTag;
-              if ((yield* accountTelemetry.read(daemonIdentity.userId)) !== true) return;
-
               const rateLimitService = yield* RateLimitServiceTag;
               const allowed = yield* enforceRateLimit(rateLimitService, [
                 {
@@ -468,12 +483,6 @@ export function telemetryRoutesPlugin({
               yield* Metric.update(daemonReportedRowsDeclaredLostCounter, body.rowsDeclaredLost);
               yield* Metric.update(daemonPerfReportOutcomeFrequency, 'accepted');
             }),
-            {
-              logger,
-              eventName: 'daemon_perf_report_failed',
-              request,
-              signal: request.signal,
-            },
           );
 
           return status(STATUS_NO_CONTENT, undefined);
@@ -512,12 +521,11 @@ export function telemetryRoutesPlugin({
             return status(STATUS_UNAUTHORIZED, { error: 'unauthorized' as const });
           }
 
-          await runRouteEffect(
-            runServerProgram,
+          await runTelemetryEffect(
+            daemonIdentity.userId,
+            request,
+            'daemon_trace_relay_failed',
             Effect.gen(function* () {
-              const accountTelemetry = yield* AccountTelemetryServiceTag;
-              if ((yield* accountTelemetry.read(daemonIdentity.userId)) !== true) return;
-
               const spans = typeof body === 'string' ? body : '';
               const rateLimitService = yield* RateLimitServiceTag;
               const allowed = yield* enforceRateLimit(rateLimitService, [
@@ -605,12 +613,6 @@ export function telemetryRoutesPlugin({
               }
               yield* Metric.update(daemonTraceIngestFrequency, 'accepted');
             }),
-            {
-              logger,
-              eventName: 'daemon_trace_relay_failed',
-              request,
-              signal: request.signal,
-            },
           );
 
           return status(STATUS_NO_CONTENT, undefined);
@@ -629,12 +631,11 @@ export function telemetryRoutesPlugin({
               },
             },
             async ({ body, request, userId }) => {
-              await runRouteEffect(
-                runServerProgram,
+              await runTelemetryEffect(
+                userId,
+                request,
+                'browser_link_report_failed',
                 Effect.gen(function* () {
-                  const accountTelemetry = yield* AccountTelemetryServiceTag;
-                  if ((yield* accountTelemetry.read(userId)) !== true) return;
-
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     {
@@ -729,12 +730,6 @@ export function telemetryRoutesPlugin({
                   yield* Metric.update(browserSessionQualityFrequency, verdict);
                   yield* Metric.update(browserLinkReportOutcomeFrequency, 'accepted');
                 }),
-                {
-                  logger,
-                  eventName: 'browser_link_report_failed',
-                  request,
-                  signal: request.signal,
-                },
               );
 
               return status(STATUS_NO_CONTENT, undefined);
@@ -765,12 +760,11 @@ export function telemetryRoutesPlugin({
               },
             },
             async ({ request, userId }) => {
-              await runRouteEffect(
-                runServerProgram,
+              await runTelemetryEffect(
+                userId,
+                request,
+                'browser_perf_ingest_failed',
                 Effect.gen(function* () {
-                  const accountTelemetry = yield* AccountTelemetryServiceTag;
-                  if ((yield* accountTelemetry.read(userId)) !== true) return;
-
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     { key: `telemetry-perf:user:${userId}`, ...PERF_INGEST_RATE_LIMIT },
@@ -866,12 +860,6 @@ export function telemetryRoutesPlugin({
                   yield* Metric.update(browserPerfRowCounter, lineCount);
                   yield* Metric.update(browserPerfIngestFrequency, 'accepted');
                 }),
-                {
-                  logger,
-                  eventName: 'browser_perf_ingest_failed',
-                  request,
-                  signal: request.signal,
-                },
               );
 
               return status(STATUS_NO_CONTENT, undefined);
@@ -898,12 +886,11 @@ export function telemetryRoutesPlugin({
               },
             },
             async ({ body, request, userId }) => {
-              await runRouteEffect(
-                runServerProgram,
+              await runTelemetryEffect(
+                userId,
+                request,
+                'browser_error_report_failed',
                 Effect.gen(function* () {
-                  const accountTelemetry = yield* AccountTelemetryServiceTag;
-                  if ((yield* accountTelemetry.read(userId)) !== true) return;
-
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     { key: `telemetry-error:user:${userId}`, ...REPORT_RATE_LIMIT },
@@ -927,12 +914,6 @@ export function telemetryRoutesPlugin({
                   yield* Metric.update(browserErrorFrequency, `${body.source}:${body.kind}`);
                   yield* Metric.update(browserErrorCounter, body.count);
                 }),
-                {
-                  logger,
-                  eventName: 'browser_error_report_failed',
-                  request,
-                  signal: request.signal,
-                },
               );
 
               return status(STATUS_NO_CONTENT, undefined);
@@ -960,12 +941,11 @@ export function telemetryRoutesPlugin({
               },
             },
             async ({ body, request, userId }) => {
-              await runRouteEffect(
-                runServerProgram,
+              await runTelemetryEffect(
+                userId,
+                request,
+                'browser_trace_relay_failed',
                 Effect.gen(function* () {
-                  const accountTelemetry = yield* AccountTelemetryServiceTag;
-                  if ((yield* accountTelemetry.read(userId)) !== true) return;
-
                   const spans = typeof body === 'string' ? body : '';
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
@@ -1038,12 +1018,6 @@ export function telemetryRoutesPlugin({
                   }
                   yield* Metric.update(browserTraceIngestFrequency, 'accepted');
                 }),
-                {
-                  logger,
-                  eventName: 'browser_trace_relay_failed',
-                  request,
-                  signal: request.signal,
-                },
               );
 
               return status(STATUS_NO_CONTENT, undefined);
@@ -1059,12 +1033,11 @@ export function telemetryRoutesPlugin({
               },
             },
             async ({ body, request, userId }) => {
-              await runRouteEffect(
-                runServerProgram,
+              await runTelemetryEffect(
+                userId,
+                request,
+                'browser_upgrade_report_failed',
                 Effect.gen(function* () {
-                  const accountTelemetry = yield* AccountTelemetryServiceTag;
-                  if ((yield* accountTelemetry.read(userId)) !== true) return;
-
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     {
@@ -1114,12 +1087,6 @@ export function telemetryRoutesPlugin({
                     { discard: true },
                   );
                 }),
-                {
-                  logger,
-                  eventName: 'browser_upgrade_report_failed',
-                  request,
-                  signal: request.signal,
-                },
               );
 
               return status(STATUS_NO_CONTENT, undefined);
