@@ -11,6 +11,7 @@ import {
   TERMINAL_KEYBOARD_LAYER_IDS,
 } from '@merkur/shared';
 import {
+  AccountTelemetry,
   BoxAccessResponse,
   BoxCreatedResponse,
   PushVapidPublicKeyResponse,
@@ -51,6 +52,8 @@ export type { PushVapidPublicKeyResponse } from '@merkur/shared/api-schema';
 const isRelease = compileCheck(ReleaseResponse);
 
 const asCreatedBox = compileRequire(BoxCreatedResponse, 'Invalid box creation response');
+
+const asAccountTelemetry = compileRequire(AccountTelemetry, 'Invalid account telemetry response');
 
 const asBoxAccess = compileRequire(BoxAccessResponse, 'Invalid box access response');
 
@@ -582,6 +585,21 @@ export function saveAccountKeyboardSettingsEffect(
   return edenEffect((signal) =>
     api.api.settings.keyboard.put(body, authenticatedRequestOptions(accessToken, signal)),
   ).pipe(Effect.asVoid);
+}
+
+export function saveAccountTelemetry(
+  accessToken: string,
+  enabled: boolean,
+  signal: AbortSignal,
+): Promise<{ enabled: boolean }> {
+  return Effect.runPromise(
+    edenEffect((effectSignal) =>
+      api.api.account.telemetry.put(
+        { enabled },
+        authenticatedRequestOptions(accessToken, combineAbortSignals(effectSignal, signal)),
+      ),
+    ).pipe(Effect.map(asAccountTelemetry)),
+  );
 }
 
 export async function savePushSubscription(

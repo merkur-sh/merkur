@@ -178,9 +178,10 @@ proof and replay rules are in [`security.md`](./security.md#daemon-management-pr
 | --- | --- | --- |
 | server to daemon | `auth_challenge` | Fresh nonce to sign |
 | daemon to server | `auth_proof` | Composite signature over nonce, URL and upgrade metadata |
-| server to daemon | `registered` | Presence claimed; carries the current revocation generation, the edge attach ticket and every registered edge's URL and certificate hashes |
+| server to daemon | `registered` | Presence claimed; carries the current revocation generation, the edge attach ticket, every registered edge's URL and certificate hashes, and whether the account has opted in to performance reporting |
 | server to daemon | `lease` | Answer to each lease renewal; carries the revocation-generation bound, a fresh STUN ticket, a fresh edge attach ticket and the registered edges again |
 | server to daemon | `revocation` | The user's revocation generation moved |
+| server to daemon | `telemetry` | Whether the account's performance-reporting consent is on changed ([`observability.md`](./observability.md#consent)) |
 | server to daemon | `session_start` | Authenticated control offer for one session |
 | server to daemon | `session_cancel` | Withdraw a pending session |
 | server to daemon | `delegation_revoke` | Signed statement revoking one browser delegation |

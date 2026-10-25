@@ -85,6 +85,7 @@ Object.defineProperty(globalThis, 'window', {
 });
 
 const {
+  accountTelemetryAtom,
   browserPresenceAtom,
   browserSessionsChangedAtom,
   deviceEventsAttemptsAtom,
@@ -221,6 +222,61 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dispose of activeHarnesses.splice(0, activeHarnesses.length)) dispose();
+});
+
+test('account consent precedes device boot, survives reconnect and rotation, and ends with its lifetime', async () => {
+  const first = Promise.withResolvers<MockStreamOptions>();
+  const second = Promise.withResolvers<MockStreamOptions>();
+  const rotated = Promise.withResolvers<MockStreamOptions>();
+  let calls = 0;
+  const disconnected = Promise.withResolvers<void>();
+  openAuthenticatedEventStreamMock.mockImplementation((_token, _path, options) => {
+    calls += 1;
+    if (calls === 1) {
+      first.resolve(options);
+      return disconnected.promise;
+    }
+    if (calls === 2) second.resolve(options);
+    else rotated.resolve(options);
+    return new Promise<void>(() => {});
+  });
+  const registry = createHarness();
+  const statements: Array<boolean | null | undefined> = [];
+  registry.subscribe(accountTelemetryAtom, (value) => statements.push(value));
+  const stated = (value: boolean | null) =>
+    new Promise<void>((resolve) => {
+      const unsubscribe = registry.subscribe(accountTelemetryAtom, (next) => {
+        if (next !== value) return;
+        unsubscribe();
+        resolve();
+      });
+    });
+  const started = start(registry, 'token');
+  const stream = await first.promise;
+  expect(registry.get(accountTelemetryAtom)).toBeUndefined();
+  const on = stated(true);
+  stream.onEvent({ event: 'account-telemetry', data: 'true' });
+  await on;
+  expect(AsyncResult.isInitial(registry.get(deviceEventsBootAtom))).toBe(true);
+  stream.onEvent(snapshotEvent([validDevice]));
+  await started;
+  disconnected.resolve();
+  const reconnect = await second.promise;
+  expect(registry.get(accountTelemetryAtom)).toBe(true);
+  const off = stated(false);
+  reconnect.onEvent({ event: 'account-telemetry', data: 'false' });
+  await off;
+  const restarted = start(registry, 'rotated-token');
+  const rotation = await rotated.promise;
+  expect(registry.get(accountTelemetryAtom)).toBe(false);
+  const unchosen = stated(null);
+  rotation.onEvent({ event: 'account-telemetry', data: 'null' });
+  await unchosen;
+  rotation.onEvent(snapshotEvent([validDevice]));
+  await restarted;
+  stopDeviceEvents(registry);
+  expect(registry.get(accountTelemetryAtom)).toBeUndefined();
+  expect(statements).toEqual([undefined, true, false, null, undefined]);
 });
 
 test('browser presence updates over the existing stream and becomes unconfirmed on disconnect', async () => {

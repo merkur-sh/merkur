@@ -960,6 +960,7 @@ function createApp(
       receive: () => Effect.die('unexpected receive'),
       disconnect: () => Effect.die('unexpected disconnect'),
       pushRevocationGeneration: () => Effect.die('unexpected push'),
+      pushTelemetryChanged: () => Effect.die('unexpected push'),
       startSession: () => Effect.die('unexpected start'),
       registerTraversal: () => Effect.die('unexpected traversal registration'),
       cancelSession: () => Effect.die('unexpected cancel'),

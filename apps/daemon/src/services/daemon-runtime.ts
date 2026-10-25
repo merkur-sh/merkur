@@ -9,6 +9,7 @@ import {
   shellTokenPath as shellTokenPathValue,
 } from '../config';
 import { type Logger, logEffect } from '../logger';
+import type { DaemonTelemetry } from '../observability/telemetry';
 import type { DaemonControlPathSignal, DaemonControlSuperseded } from './daemon-control-client';
 import { type ConvergenceContext, runConvergingControlEffect } from './daemon-convergence';
 import {
@@ -18,7 +19,7 @@ import {
   daemonObservabilitySnapshot,
   runDaemonObservabilityReporterEffect,
 } from './daemon-metrics';
-import { createDaemonPerfSender, runDaemonPerfReporterEffect } from './daemon-perf-reporter';
+import { createDaemonPerfSender, runEnabledDaemonPerfReporterEffect } from './daemon-perf-reporter';
 import type { createDaemonProofSigner, DaemonProofSigningClient } from './daemon-proof-signer';
 import { adoptingSpawnSidecar, type DataplaneAdoption } from './dataplane-adoption';
 import {
@@ -34,6 +35,7 @@ import { createTerminalBellReporterScoped } from './terminal-bell-reporter';
 const FINAL_TRANSPORT_CAPTURE_TIMEOUT_MS = 5_000;
 const FINAL_TRANSPORT_CAPTURE_POLL_MS = 5;
 export interface DaemonRuntimeOptions {
+  readonly telemetry: Pick<DaemonTelemetry, 'enabled' | 'set'>;
   /** See `DaemonControlClientOptions.shutdownIntent`. */
   readonly shutdownIntent?: Deferred.Deferred<void>;
   /** Test-harness-only SIGUSR2 capture of one final owner-loop transport sample. */
@@ -108,8 +110,9 @@ export function runDaemonRuntimeEffect(
       // The 30-second stdout health snapshot above is retained deliberately: it
       // is the daemon's only observability when the server is unreachable, which
       // is exactly when it matters most. This reporter is additive.
-      const perfReporter = yield* runDaemonPerfReporterEffect(
+      const perfReporter = yield* runEnabledDaemonPerfReporterEffect(
         createDaemonPerfSender(config, signer),
+        options.telemetry.enabled,
       ).pipe(Effect.forkScoped({ startImmediately: true }));
       const outcome = yield* Effect.scoped(
         Effect.gen(function* () {
@@ -155,7 +158,13 @@ export function runDaemonRuntimeEffect(
               dataplane: dataplaneClient,
             } satisfies ConvergenceContext;
             return yield* superviseCriticalDaemonEffects(
-              runConvergingControlEffect(context, health, pathSignals, options.shutdownIntent),
+              runConvergingControlEffect(
+                context,
+                health,
+                pathSignals,
+                options.shutdownIntent,
+                options.telemetry.set,
+              ),
               dataplaneClient.awaitCriticalFailure().pipe(
                 Effect.tapError((error) =>
                   logEffect(

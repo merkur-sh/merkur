@@ -16,6 +16,7 @@ import {
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
   createDaemonControlSupersededMessage,
+  createDaemonControlTelemetryMessage,
   encodeDaemonControlMessage,
   parseDaemonControlDaemonMessage,
 } from '@merkur/daemon-control-protocol';
@@ -186,6 +187,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               'v2.0.0',
+              true,
             ),
           );
           socket.emitMessage(createDaemonControlReleaseStagedMessage('v2.1.0'));
@@ -195,6 +197,71 @@ describe('daemon control connection', () => {
       ).pipe(Effect.provide(TestClock.layer())),
     );
   });
+
+  for (const initial of [false, true]) {
+    test(`applies telemetry ${initial} before registered health and on each push`, async () => {
+      const harness = createHarness();
+      const applied: boolean[] = [];
+      const registeredSettings: boolean[] = [];
+      let enabled = !initial;
+      const health: DaemonControlHealthReporter = {
+        updateControl: (update) =>
+          Effect.sync(() => {
+            if (update.state === 'registered') registeredSettings.push(enabled);
+          }),
+      };
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* runHarnessControlClient(harness, health, harness.dataplane, {
+              setTelemetryEnabled: (value) =>
+                Effect.sync(() => {
+                  enabled = value;
+                  applied.push(value);
+                }),
+            }).pipe(Effect.forkScoped);
+            yield* Effect.promise(() => waitFor(() => harness.sockets.length === 1));
+            const socket = required(harness.sockets[0]);
+            socket.emitMessage(
+              createDaemonControlRegisteredMessage(
+                'connection-1',
+                'presence-1',
+                1,
+                0,
+                1_000,
+                3_000,
+                ['stun.test:3478'],
+                'ticket',
+                'secret',
+                4_000,
+                'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+                EDGES,
+                null,
+                initial,
+              ),
+            );
+            yield* Effect.promise(() => waitFor(() => registeredSettings.length === 1));
+            expect(registeredSettings).toEqual([initial]);
+            socket.emitMessage(createDaemonControlTelemetryMessage(!initial));
+            yield* Effect.promise(() => waitFor(() => applied.length === 2));
+            expect(applied).toEqual([initial, !initial]);
+            socket.emitMessage(createDaemonControlTelemetryMessage(initial));
+            yield* Effect.promise(() => waitFor(() => applied.length === 3));
+            socket.emitClose(1_006);
+            yield* Effect.promise(() =>
+              waitFor(() =>
+                harness.logs.some(
+                  (entry) => entry.message === 'daemon_control_reconnect_scheduled',
+                ),
+              ),
+            );
+            expect(applied).toEqual([initial, !initial, initial]);
+            expect(enabled).toBe(initial);
+          }),
+        ).pipe(Effect.provide(TestClock.layer())),
+      );
+    });
+  }
 
   test('reports a resume instead of a ping timeout after the process was suspended', async () => {
     const harness = createHarness();
@@ -219,6 +286,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -277,6 +345,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -392,6 +461,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -432,6 +502,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -477,6 +548,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -518,6 +590,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -581,6 +654,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -647,6 +721,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -709,6 +784,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -752,6 +828,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => harness.revocations.length === 1);
@@ -914,6 +991,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -978,6 +1056,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1024,6 +1103,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() => waitFor(() => harness.revocations.length === 1));
@@ -1098,6 +1178,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => updates.some((update) => update.state === 'registered'));
@@ -1186,6 +1267,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() =>
@@ -1231,6 +1313,7 @@ describe('daemon control connection', () => {
               'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
               EDGES,
               null,
+              true,
             ),
           );
           yield* Effect.promise(() =>
@@ -1296,6 +1379,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     for (let generation = 1; generation <= 8; generation += 1) {
@@ -1338,6 +1422,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1415,6 +1500,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1464,6 +1550,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1535,6 +1622,7 @@ describe('daemon control connection', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
     );
     await waitFor(() => socket.pings === 1);
@@ -1818,7 +1906,7 @@ function runHarnessControlClient(
   harness: ReturnType<typeof createHarness>,
   health?: DaemonControlHealthReporter,
   dataplane: ReturnType<typeof createHarness>['dataplane'] = harness.dataplane,
-  options: Omit<DaemonControlClientOptions, 'dependencies' | 'health'> = {},
+  options: Partial<Omit<DaemonControlClientOptions, 'dependencies' | 'health'>> = {},
 ) {
   const captureLogger = EffectLogger.make(({ message, fiber }) => {
     const annotations = fiber.getRef(References.CurrentLogAnnotations);
@@ -1835,6 +1923,7 @@ function runHarnessControlClient(
   return runDaemonControlClientEffect(daemonConfig(), dataplane, {
     dependencies: harness.dependencies,
     health,
+    setTelemetryEnabled: () => Effect.void,
     ...options,
   }).pipe(Effect.provide(EffectLogger.layer([captureLogger])));
 }

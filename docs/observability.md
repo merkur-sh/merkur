@@ -1,7 +1,7 @@
 # Observability
 
 This document explains how Merkur is observed: the structured logs every process writes, the
-opt-in diagnostics a browser posts, the health routes and OTLP export of the application
+diagnostics a browser posts, the health routes and OTLP export of the application
 server, the health snapshot and performance report of the daemon (the process on a user's
 machine that owns the terminal), and the telemetry of the edge (Merkur's blind relay). It
 ends with the semantics that apply to every metric.
@@ -11,7 +11,7 @@ Three kinds of signal exist, and each answers a different question:
 | Signal | Answers | Produced by |
 | --- | --- | --- |
 | Structured logs | What did this process do, in order | server, daemon, edge, STUN responder |
-| Browser diagnostics | What did one opted-in session experience | browser, relayed by the server |
+| Browser diagnostics | What did one session experience | browser, relayed by the server |
 | Metrics and spans | How is the fleet doing, and why was one request slow | server (own), daemon and edge (own spans), browser reports turned into server metrics |
 
 Two rules shape all of it. **Nothing here sits in the terminal hot path.** Keystrokes and
@@ -76,29 +76,65 @@ Where each process writes:
 ## Browser Diagnostics
 
 The browser is a user's machine, so it runs no tracer and exports no OTLP. It posts a small
-set of reports to Merkur's own `/api/telemetry/*` routes, all behind one opt-in switch, and
-keeps its detailed diagnostics in the DevTools console where only the person debugging sees
-them. Every `/api/*` request also carries a W3C `traceparent`, minted per request, so the
+set of reports to Merkur's own `/api/telemetry/*` routes, all behind the account's
+performance-reporting consent, and keeps its detailed diagnostics in the DevTools console
+where only the person debugging sees them. Every `/api/*` request also carries a W3C `traceparent`, minted per request, so the
 server's work for that request is one trace; this is a trace identity only, never a span.
 
-### The switch
+### Consent
 
-Every browser telemetry surface is off by default. The switch is "Performance reporting" on
-the Account tab of Settings (`apps/web/src/screens/AccountSettings.tsx`), stored in
-`localStorage` under `merkur:telemetry-enabled` and owned by
-`apps/web/src/perf/telemetry-preference.ts`. One boolean gates four surfaces:
+One consent per account governs every telemetry surface on a user's devices: the browser
+reports below, and the daemon's performance report and spans
+([Daemon Health And Metrics](#daemon-health-and-metrics)). It has three states, the nullable
+`telemetry_consent` column of `users`: not yet chosen (`NULL`), on (`1`) and off (`0`). Every
+account starts not yet chosen, and not yet chosen acts exactly as off: neither the browser nor
+the daemon sends anything until the user opts in.
+
+The user chooses in one of two places, both writing through `PUT /api/account/telemetry`
+(`apps/server/src/services/account-telemetry-service.ts`). While the account has not chosen,
+the machine list opens a required question over itself
+(`apps/web/src/screens/TelemetryConsentDialog.tsx`), "Share performance reports?", saying
+what is sent, from where, what never is, and why. It has no close button and ignores Escape
+and the backdrop; its two answers sit in one row at one size, focus starts on the question
+rather than on either answer, and either answer lets the user straight through. It opens
+only over the machine list, before any terminal, so it never interrupts typing, and once
+answered the account holds the answer, so no browser asks again. "Performance reporting" on
+the Account tab of Settings
+(`apps/web/src/screens/AccountSettings.tsx`) shows the current choice and changes it. There is
+no way back to not yet chosen.
+
+Nothing polls it. A write publishes a change signal that carries no value, and each receiver
+re-reads the stored value, one read at a time, and states it only when it changed. A browser
+learns all three states from its device-events stream, which writes an `account-telemetry`
+event (`true`, `false`, or `null` for not yet chosen) before its first `snapshot` or `resume`
+frame and again after each change. A daemon only needs to know whether to send: its control
+connection's `registered` carries `true` for on and `false` otherwise, and a `telemetry`
+message restates it. Each receiver's reads are serialized and each begins after the signal
+that caused it, so the last value a receiver states is the one stored last.
+
+In the browser, consent being on gates four surfaces:
 
 | Surface | Route | Installed |
 | --- | --- | --- |
 | Link report | `POST /api/telemetry/link` | With the session |
 | Direct-upgrade report | `POST /api/telemetry/upgrade` | With the session |
 | Profiling rows and derived bootstrap spans | `POST /api/telemetry/perf`, `POST /api/telemetry/traces` | With the next terminal session, because workers latch the flag at init |
-| Failure report | `POST /api/telemetry/error` | At page load, so a session that never starts is still reported |
+| Failure report | `POST /api/telemetry/error` | When the account's value arrives, so a session that never starts is still reported |
 
-Turning the switch off discards the partial window rather than posting it. Because
-reporting is opt-in, every `merkur_browser_*` metric describes opted-in sessions only. None
-is a fleet denominator, and a drop in volume is as likely a preference change as a
-regression.
+A page reports nothing until its stream has stated the account's value, and signing out turns
+every surface off. A session that started before the value arrived gets the link and upgrade
+reports from the moment it does. While a choice is being saved its control is busy, and the
+page changes what it reports only once the server has stated the new value. Turning reporting
+off discards the partial window rather than posting it.
+
+The server enforces the same state. Every `/api/telemetry/*` route, `/api/daemon/perf` and
+`/api/daemon/traces` reads the account's consent right after authenticating the request, and
+unless it is on the report is dropped before anything else happens: no metric, no span
+attribute, no relay, no rate-limit charge. The answer is the 204 the routes' other refusals
+give. The clients still send nothing unless consent is on; the server's check holds the
+account's choice for any report that was already on its way when the user changed it. Every
+`merkur_browser_*` and daemon-reported metric describes accounts that opted in. None is a fleet denominator, and a drop in volume is as
+likely a change of consent as a regression.
 
 ### The link report and the upgrade report
 
@@ -227,7 +263,7 @@ sees one. A few derived quantities are worth knowing how to read:
   `packages/shared/src/recovery-outcome.ts`. Main records worker failure from the last delivered
   progress snapshot and deduplicates any queued completion for that same attempt. Explicit owner
   cancellation also settles any pending snapshot before worker teardown. These records use the
-  existing performance opt-in and are never backfilled with a later session's identity. UUIDs
+  account's performance-reporting consent and are never backfilled with a later session's identity. UUIDs
   are encoded directly in the fixed-size perf record, without consuming string-table slots.
   The flat perf schema uses 199 of the dataset's 256 field slots.
 - **Presentation.** With tracing enabled, the shared Rust viewer emits `display_received` at
@@ -537,7 +573,9 @@ daemon. The limiter keys on the user or daemon id and never reads a client addre
 The daemon has two observability outputs with different reach. A stdout snapshot every 30
 seconds is its only signal when the server is unreachable, which is exactly when it
 matters. A performance report every 60 seconds over HTTP is what the fleet metrics are built
-from. Its spans go to the server as well.
+from. Its spans go to the server as well. The report and the spans follow the account's
+performance-reporting consent ([Consent](#consent)); the stdout snapshot never leaves the
+machine and does not.
 
 ### The health snapshot
 
@@ -591,8 +629,13 @@ monitors, and drops are self-reported in `statsEventsDropped`. Per-attempt
 
 Every 60 seconds the daemon posts a window to `POST /api/daemon/perf`, authorized by an
 ML-DSA-87 identity proof over the exact request. The window is expressed as deltas; a
-negative delta is read as a restart. A window is skipped unless the control state is
-`registered`, and a failed send is dropped, never retried. The report goes over HTTP rather
+negative delta is read as a restart. The reporter runs only while the account has opted in:
+it starts when the daemon learns reporting is on and is interrupted, with any request in
+flight, when it learns it is off. Its first window starts when it does, so nothing counted
+while reporting was off is reported. A window is skipped unless the control state is
+`registered`, and the setting `registered` carries is applied before that state is, so no
+window is sent on a stale setting. A failed send is dropped, never retried. The report goes
+over HTTP rather
 than the control WebSocket because that socket's inbound mailbox is sized for command
 acknowledgements and its overflow policy destroys the socket.
 
@@ -633,6 +676,15 @@ unconfigured it reports `discarded_unconfigured`. The identity lives in the data
 exporter ends with the dataplane binding: on shutdown it flushes while it can still sign, before
 the dataplane stops, and a span recorded after that is dropped rather than retried unsigned. See
 [`security.md`](./security.md#daemon-management-proofs) for the proof.
+
+Export follows the account's consent in periods (`apps/daemon/src/observability/telemetry.ts`).
+Each period that reporting is on has its own exporter, and every export it makes passes a gate
+before it is signed or sent. The first period opens with the process and its gate stays shut
+until the first `registered` states the account's value: spans recorded before then are held,
+then sent if the account says on and discarded if it says off. Turning reporting off aborts
+the period's request in flight, discards its unsent batch, refuses its final flush and closes
+it; spans recorded while off go to Effect's native tracer and are never exported. Turning it on
+again opens a new period.
 
 | Span | Lifetime | Attributes |
 | --- | --- | --- |

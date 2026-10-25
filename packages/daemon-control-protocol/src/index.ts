@@ -16,6 +16,7 @@ const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 export interface DaemonControlRegisteredMessage {
   readonly type: 'registered';
+  readonly telemetryEnabled: boolean;
   readonly version: typeof DAEMON_CONTROL_PROTOCOL_VERSION;
   readonly connectionId: string;
   readonly presenceId: string;
@@ -239,9 +240,16 @@ export interface DaemonControlReleaseStagedMessage {
   readonly release: string;
 }
 
+export interface DaemonControlTelemetryMessage {
+  readonly type: 'telemetry';
+  readonly version: typeof DAEMON_CONTROL_PROTOCOL_VERSION;
+  readonly enabled: boolean;
+}
+
 export type DaemonControlServerMessage =
   | DaemonControlTraversalRegisterMessage
   | DaemonControlRegisteredMessage
+  | DaemonControlTelemetryMessage
   | DaemonControlLeaseMessage
   | DaemonControlRevocationMessage
   | DaemonControlSessionStartMessage
@@ -297,7 +305,9 @@ const REGISTERED_KEYS = [
   'edgeAttachTicket',
   'edges',
   'stagedRelease',
+  'telemetryEnabled',
 ] as const;
+const TELEMETRY_KEYS = ['type', 'version', 'enabled'] as const;
 const RELEASE_STAGED_KEYS = ['type', 'version', 'release'] as const;
 const RELEASE_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const LEASE_KEYS = [
@@ -391,6 +401,11 @@ export function parseDaemonControlServerMessage(raw: unknown): DaemonControlServ
   }
 
   switch (decoded.type) {
+    case 'telemetry':
+      return hasExactKeys(decoded, TELEMETRY_KEYS) &&
+        (decoded.enabled === true || decoded.enabled === false)
+        ? createDaemonControlTelemetryMessage(decoded.enabled)
+        : null;
     case 'registered':
       return parseRegistered(decoded);
     case 'lease':
@@ -474,6 +489,7 @@ export function createDaemonControlRegisteredMessage(
   edgeAttachTicket: string,
   edges: readonly DaemonControlEdge[],
   stagedRelease: string | null,
+  telemetryEnabled: boolean,
 ): DaemonControlRegisteredMessage {
   return {
     type: 'registered',
@@ -491,7 +507,14 @@ export function createDaemonControlRegisteredMessage(
     edgeAttachTicket,
     edges,
     stagedRelease,
+    telemetryEnabled,
   };
+}
+
+export function createDaemonControlTelemetryMessage(
+  enabled: boolean,
+): DaemonControlTelemetryMessage {
+  return { type: 'telemetry', version: DAEMON_CONTROL_PROTOCOL_VERSION, enabled };
 }
 
 export function createDaemonControlReleaseStagedMessage(
@@ -708,6 +731,7 @@ function parseRegistered(value: Record<string, unknown>): DaemonControlRegistere
   const stagedRelease =
     value.stagedRelease === null ? null : readReleaseTag(readIdentifier(value.stagedRelease));
   if (
+    (value.telemetryEnabled !== true && value.telemetryEnabled !== false) ||
     (value.stagedRelease !== null && stagedRelease === null) ||
     connectionId === null ||
     presenceId === null ||
@@ -743,6 +767,7 @@ function parseRegistered(value: Record<string, unknown>): DaemonControlRegistere
     edgeAttachTicket,
     edges,
     stagedRelease,
+    telemetryEnabled: value.telemetryEnabled,
   };
 }
 

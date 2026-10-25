@@ -62,7 +62,9 @@ export type Overlay =
   | { readonly k: 'link-approval'; readonly code: string | null }
   | { readonly k: 'command-palette' }
   | { readonly k: 'keyboard-help' }
-  | { readonly k: 'session-ended' };
+  | { readonly k: 'session-ended' }
+  /** The account's required performance-reporting question; it closes when answered. */
+  | { readonly k: 'telemetry-consent' };
 
 /**
  * The route the shell always falls back to. `pop()` never empties the stack,
@@ -109,6 +111,12 @@ export interface Navigation {
   pushOverlay(overlay: Overlay): void;
   /** Closes the topmost overlay. Safe to call when none is open. */
   popOverlay(): void;
+  /**
+   * Closes this overlay wherever it sits in the stack. For one that leaves
+   * because of a fact rather than a dismissal, which may have stacked another
+   * above it in the meantime. Safe to call when it is not open.
+   */
+  closeOverlay(overlay: Overlay): void;
 }
 
 export function createNavigation(): Navigation {
@@ -179,6 +187,11 @@ export function createNavigation(): Navigation {
     },
     popOverlay() {
       setOverlays((current) => current.slice(0, -1));
+    },
+    closeOverlay(overlay) {
+      setOverlays((current) =>
+        current.includes(overlay) ? current.filter((open) => open !== overlay) : current,
+      );
     },
   };
 }

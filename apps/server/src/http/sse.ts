@@ -1,4 +1,5 @@
 import {
+  BROWSER_EVENT_ACCOUNT_TELEMETRY,
   BROWSER_EVENT_PRESENCE,
   BROWSER_EVENT_SESSION_ENDED,
   BROWSER_EVENT_SESSIONS_CHANGED,
@@ -11,7 +12,7 @@ import {
   type DeviceResumeFrame,
   type DeviceSnapshotFrame,
 } from '@merkur/shared';
-import { Cause, Effect, Schedule } from 'effect';
+import { Cause, Deferred, Effect, Queue, Schedule } from 'effect';
 import type { ServerRuntimeContext } from '../runtime';
 import type { BrowserPresenceSignal } from '../services/browser-session-presence';
 import type { DeviceEventSignal } from '../services/device-events-service';
@@ -124,6 +125,10 @@ interface DeviceEventsSseOptions<E, R> {
   readonly subscribePresence: (
     listener: (signal: BrowserPresenceSignal) => void,
   ) => Effect.Effect<Effect.Effect<void>, E, R>;
+  readonly subscribeTelemetryChanges: (
+    listener: () => void,
+  ) => Effect.Effect<Effect.Effect<void>, E, R>;
+  readonly loadTelemetryConsent: Effect.Effect<boolean | null, E, R>;
   readonly readCursor: Effect.Effect<DeviceEventsCursor, E, R>;
   readonly loadSnapshot: Effect.Effect<readonly Device[], E, R>;
   readonly onError: (error: unknown) => void;
@@ -261,6 +266,14 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
           Effect.gen(function* () {
             yield* Effect.acquireRelease(options.subscribe(onSignal), (unsubscribe) => unsubscribe);
 
+            const telemetryWake = yield* Effect.acquireRelease(
+              Queue.sliding<void>(1),
+              Queue.shutdown,
+            );
+            Queue.offerUnsafe(telemetryWake, undefined);
+            const telemetryStated = yield* Deferred.make<void>();
+            let telemetryConsent: boolean | null | undefined;
+
             // Presence bootstraps alongside the machine snapshot, so adding it
             // never adds a Redis round trip to the first device-list paint.
             yield* Effect.acquireRelease(
@@ -289,6 +302,34 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
               Effect.forkScoped,
             );
 
+            yield* Effect.acquireRelease(
+              options.subscribeTelemetryChanges(() => {
+                Queue.offerUnsafe(telemetryWake, undefined);
+              }),
+              (unsubscribe) => unsubscribe,
+            ).pipe(
+              Effect.andThen(
+                Effect.gen(function* () {
+                  while (true) {
+                    yield* Queue.take(telemetryWake);
+                    const consent = yield* options.loadTelemetryConsent;
+                    if (consent === telemetryConsent) continue;
+                    write(`event: ${BROWSER_EVENT_ACCOUNT_TELEMETRY}\ndata: ${consent}\n\n`);
+                    telemetryConsent = consent;
+                    yield* Deferred.succeed(telemetryStated, undefined);
+                  }
+                }),
+              ),
+              Effect.catchCause((cause) =>
+                Effect.sync(() => {
+                  if (Cause.hasInterruptsOnly(cause)) return;
+                  options.onError(Cause.squash(cause));
+                  close('stream_failed');
+                }),
+              ),
+              Effect.forkScoped,
+            );
+
             const cursor = yield* options.readCursor;
             const { epoch, seq } = cursor;
             if (
@@ -296,10 +337,12 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
               options.since.epoch === epoch &&
               options.since.seq === seq
             ) {
+              yield* Deferred.await(telemetryStated);
               const resume: DeviceResumeFrame = { epoch, seq };
               write(`event: ${DEVICE_EVENT_RESUME}\ndata: ${JSON.stringify(resume)}\n\n`);
             } else {
               const devices = yield* options.loadSnapshot;
+              yield* Deferred.await(telemetryStated);
               const snapshot: DeviceSnapshotFrame = { epoch, seq, devices };
               write(`event: ${DEVICE_EVENT_SNAPSHOT}\ndata: ${JSON.stringify(snapshot)}\n\n`);
             }

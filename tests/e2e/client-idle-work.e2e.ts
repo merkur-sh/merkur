@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expectShellPhase } from './app-state';
 import { expect, test } from './fixtures/daemon-process';
+import { setPerformanceReporting } from './fixtures/telemetry-consent';
 import { connectTerminal } from './terminal-e2e-helpers';
 
 /**
@@ -19,8 +20,8 @@ import { connectTerminal } from './terminal-e2e-helpers';
  * - waveform publications from the transport worker: the heartbeat is link
  *   traffic, not terminal traffic, and must not keep the strip scrolling.
  *
- * Telemetry is off, as it is for anyone who never opted in, so the frame
- * monitor profiling installs is not part of the measurement. The control
+ * Reporting is turned off on the shared account, matching the behaviour of
+ * an account that has not chosen, so profiling installs no frame monitor. The control
  * phases prove each counter can move before the idle windows assert that none
  * of them does, so a broken counter cannot pass as a quiet page. The window
  * opens on an exact signal rather than a settle guess: the worker's latest
@@ -173,10 +174,6 @@ function installIdleAudit(): void {
     });
   }
 
-  // The fixture seeds the opt-in for every other spec; this one measures the
-  // default a user who never opened preferences gets.
-  localStorage.removeItem('merkur:telemetry-enabled');
-
   const audit: IdleAudit = {
     counts: () => ({ ...counts }),
     evidence: () => ({ stripEmpty, recoveryClear, events: [...events] }),
@@ -227,89 +224,94 @@ test('a connected idle terminal runs no frames, draws, or waveform publications'
   page,
   linkedDaemon,
 }) => {
-  await page.addInitScript(installIdleAudit);
-  await page.reload();
-  await expectShellPhase(page);
-  await expect(page.getByTitle(`Connect to ${linkedDaemon.daemonName}`)).toBeVisible({
-    timeout: 30_000,
-  });
-  expect(await page.evaluate(() => localStorage.getItem('merkur:telemetry-enabled'))).toBeNull();
-  const counters = audit(page);
+  try {
+    // The fixture opted this account in; measure with reporting explicitly off.
+    await setPerformanceReporting(page, false);
+    await page.addInitScript(installIdleAudit);
+    await page.reload();
+    await expectShellPhase(page);
+    await expect(page.getByTitle(`Connect to ${linkedDaemon.daemonName}`)).toBeVisible({
+      timeout: 30_000,
+    });
+    const counters = audit(page);
 
-  // Control: both counters move. Nothing on the machine list draws any more
-  // (its mark rests on its still frame), so the control makes one frame and
-  // one WebGL draw of its own.
-  await counters.reset();
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        const gl = document.createElement('canvas').getContext('webgl2');
-        gl?.drawArrays(gl.POINTS, 0, 0);
-        requestAnimationFrame(() => resolve());
-      }),
-  );
-  const control = await counters.counts();
-  expect(control.animationFrames).toBeGreaterThan(0);
-  expect(control.webglDraws).toBeGreaterThan(0);
+    // Control: both counters move. Nothing on the machine list draws any more
+    // (its mark rests on its still frame), so the control makes one frame and
+    // one WebGL draw of its own.
+    await counters.reset();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const gl = document.createElement('canvas').getContext('webgl2');
+          gl?.drawArrays(gl.POINTS, 0, 0);
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    const control = await counters.counts();
+    expect(control.animationFrames).toBeGreaterThan(0);
+    expect(control.webglDraws).toBeGreaterThan(0);
 
-  // The machine list itself is idle: the screen that stays open draws nothing.
-  // Its entrance is still finishing when its rows first show, so the window
-  // opens once two frames pass with nothing but this probe's own two callbacks
-  // in them; a loop that never stops never gets there.
-  await expect
-    .poll(async () => {
-      await counters.reset();
-      await page.evaluate(
-        () =>
-          new Promise<void>((resolve) => {
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-          }),
-      );
-      return (await counters.counts()).animationFrames;
-    })
-    .toBe(2);
-  await counters.reset();
-  await page.waitForTimeout(CONTROL_WINDOW_MS);
-  const listing = await counters.counts();
-  expect(listing.animationFrames).toBe(0);
-  expect(listing.webglDraws).toBe(0);
+    // The machine list itself is idle: the screen that stays open draws nothing.
+    // Its entrance is still finishing when its rows first show, so the window
+    // opens once two frames pass with nothing but this probe's own two callbacks
+    // in them; a loop that never stops never gets there.
+    await expect
+      .poll(async () => {
+        await counters.reset();
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            }),
+        );
+        return (await counters.counts()).animationFrames;
+      })
+      .toBe(2);
+    await counters.reset();
+    await page.waitForTimeout(CONTROL_WINDOW_MS);
+    const listing = await counters.counts();
+    expect(listing.animationFrames).toBe(0);
+    expect(listing.webglDraws).toBe(0);
 
-  await connectTerminal(page, linkedDaemon.daemonName);
+    await connectTerminal(page, linkedDaemon.daemonName);
 
-  // Control: terminal output publishes snapshots and paints the strip.
-  await counters.reset();
-  await page.keyboard.type("printf 'idle-audit-control\\n'\n");
-  await expect.poll(async () => (await counters.counts()).linkTicks).toBeGreaterThan(0);
-  await expect.poll(async () => (await counters.counts()).canvasFills).toBeGreaterThan(0);
+    // Control: terminal output publishes snapshots and paints the strip.
+    await counters.reset();
+    await page.keyboard.type("printf 'idle-audit-control\\n'\n");
+    await expect.poll(async () => (await counters.counts()).linkTicks).toBeGreaterThan(0);
+    await expect.poll(async () => (await counters.counts()).canvasFills).toBeGreaterThan(0);
 
-  // The burst scrolls off the strip. The publication that shows the empty strip
-  // is the one the worker parks after; its paint lands on the next frame. The
-  // session start's display recovery has to have aged out too: the strip
-  // recolours once when that window closes, on the heartbeat that reports it.
-  await expect
-    .poll(
-      async () => {
-        const evidence = await counters.evidence();
-        return evidence.stripEmpty && evidence.recoveryClear;
-      },
-      { timeout: 15_000 },
-    )
-    .toBe(true);
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      }),
-  );
+    // The burst scrolls off the strip. The publication that shows the empty strip
+    // is the one the worker parks after; its paint lands on the next frame. The
+    // session start's display recovery has to have aged out too: the strip
+    // recolours once when that window closes, on the heartbeat that reports it.
+    await expect
+      .poll(
+        async () => {
+          const evidence = await counters.evidence();
+          return evidence.stripEmpty && evidence.recoveryClear;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
 
-  await counters.reset();
-  await page.waitForTimeout(IDLE_WINDOW_MS);
-  const idle = await counters.counts();
-  const evidence = await counters.evidence();
-  expect(idle, evidence.events.join('\n')).toEqual({
-    animationFrames: 0,
-    webglDraws: 0,
-    canvasFills: 0,
-    linkTicks: 0,
-  } satisfies IdleCounts);
+    await counters.reset();
+    await page.waitForTimeout(IDLE_WINDOW_MS);
+    const idle = await counters.counts();
+    const evidence = await counters.evidence();
+    expect(idle, evidence.events.join('\n')).toEqual({
+      animationFrames: 0,
+      webglDraws: 0,
+      canvasFills: 0,
+      linkTicks: 0,
+    } satisfies IdleCounts);
+  } finally {
+    await setPerformanceReporting(page, true);
+  }
 });

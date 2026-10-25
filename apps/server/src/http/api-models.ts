@@ -10,6 +10,7 @@ import {
 } from '@merkur/shared';
 import {
   AccountDeletionResponse,
+  AccountTelemetry,
   AuthEmailCodeResponse,
   AuthPolicyResponse,
   AuthResetCodeResponse,
@@ -302,6 +303,7 @@ export const ApiModels = {
     { additionalProperties: false },
   ),
   AccountDeletionResponse,
+  AccountTelemetry,
   BoxAccessResponse,
   BoxCreatedResponse,
   BrowserSessionListResponse,

@@ -73,6 +73,7 @@ import {
 } from '../../observability/metrics';
 import { classifySessionQuality } from '../../observability/session-quality';
 import type { runServerProgram } from '../../runtime';
+import { AccountTelemetryServiceTag } from '../../services/account-telemetry-service';
 import type { AuthenticatedBrowser } from '../../services/auth-service';
 import { enforceRateLimit, RateLimitServiceTag } from '../../services/rate-limit-service';
 import { ApiModels } from '../api-models';
@@ -281,6 +282,9 @@ export function telemetryRoutesPlugin({
           await runRouteEffect(
             runServerProgram,
             Effect.gen(function* () {
+              const accountTelemetry = yield* AccountTelemetryServiceTag;
+              if ((yield* accountTelemetry.read(daemonIdentity.userId)) !== true) return;
+
               const rateLimitService = yield* RateLimitServiceTag;
               const allowed = yield* enforceRateLimit(rateLimitService, [
                 {
@@ -508,11 +512,13 @@ export function telemetryRoutesPlugin({
             return status(STATUS_UNAUTHORIZED, { error: 'unauthorized' as const });
           }
 
-          const spans = typeof body === 'string' ? body : '';
-
           await runRouteEffect(
             runServerProgram,
             Effect.gen(function* () {
+              const accountTelemetry = yield* AccountTelemetryServiceTag;
+              if ((yield* accountTelemetry.read(daemonIdentity.userId)) !== true) return;
+
+              const spans = typeof body === 'string' ? body : '';
               const rateLimitService = yield* RateLimitServiceTag;
               const allowed = yield* enforceRateLimit(rateLimitService, [
                 {
@@ -626,6 +632,9 @@ export function telemetryRoutesPlugin({
               await runRouteEffect(
                 runServerProgram,
                 Effect.gen(function* () {
+                  const accountTelemetry = yield* AccountTelemetryServiceTag;
+                  if ((yield* accountTelemetry.read(userId)) !== true) return;
+
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     {
@@ -759,6 +768,9 @@ export function telemetryRoutesPlugin({
               await runRouteEffect(
                 runServerProgram,
                 Effect.gen(function* () {
+                  const accountTelemetry = yield* AccountTelemetryServiceTag;
+                  if ((yield* accountTelemetry.read(userId)) !== true) return;
+
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     { key: `telemetry-perf:user:${userId}`, ...PERF_INGEST_RATE_LIMIT },
@@ -889,6 +901,9 @@ export function telemetryRoutesPlugin({
               await runRouteEffect(
                 runServerProgram,
                 Effect.gen(function* () {
+                  const accountTelemetry = yield* AccountTelemetryServiceTag;
+                  if ((yield* accountTelemetry.read(userId)) !== true) return;
+
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     { key: `telemetry-error:user:${userId}`, ...REPORT_RATE_LIMIT },
@@ -945,10 +960,13 @@ export function telemetryRoutesPlugin({
               },
             },
             async ({ body, request, userId }) => {
-              const spans = typeof body === 'string' ? body : '';
               await runRouteEffect(
                 runServerProgram,
                 Effect.gen(function* () {
+                  const accountTelemetry = yield* AccountTelemetryServiceTag;
+                  if ((yield* accountTelemetry.read(userId)) !== true) return;
+
+                  const spans = typeof body === 'string' ? body : '';
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     { key: `telemetry-traces:user:${userId}`, ...PERF_INGEST_RATE_LIMIT },
@@ -1044,6 +1062,9 @@ export function telemetryRoutesPlugin({
               await runRouteEffect(
                 runServerProgram,
                 Effect.gen(function* () {
+                  const accountTelemetry = yield* AccountTelemetryServiceTag;
+                  if ((yield* accountTelemetry.read(userId)) !== true) return;
+
                   const rateLimitService = yield* RateLimitServiceTag;
                   const allowed = yield* enforceRateLimit(rateLimitService, [
                     {

@@ -1,6 +1,6 @@
 import { treaty } from '@elysia/eden';
 import type { App } from '@merkur/server';
-import { type Duration, Effect } from 'effect';
+import { type Duration, Effect, Stream, SubscriptionRef } from 'effect';
 import type { DaemonConfig } from '../config';
 import { logEffect } from '../logger';
 import { createDaemonFetch } from './daemon-fetch';
@@ -422,8 +422,11 @@ export function runDaemonPerfReporterEffect(
   interval: Duration.Input = DEFAULT_REPORT_INTERVAL,
 ): Effect.Effect<never, never, DaemonHealthServiceTag> {
   return Effect.gen(function* () {
-    let cursor = EMPTY_DAEMON_PERF_CURSOR;
+    const initial = yield* daemonObservabilitySnapshot;
+    let cursor = daemonPerfCursor(initial.metrics);
     let windowStartedAtMs = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
+    drainControlPingRtt();
+    drainSuspensionGapMsMax();
 
     while (true) {
       yield* Effect.sleep(interval);
@@ -454,6 +457,21 @@ export function runDaemonPerfReporterEffect(
       yield* send(report);
     }
   });
+}
+
+/** Each enabled period owns its window and aborts its sender when consent changes. */
+export function runEnabledDaemonPerfReporterEffect(
+  send: DaemonPerfSender,
+  enabled: SubscriptionRef.SubscriptionRef<boolean>,
+  interval: Duration.Input = DEFAULT_REPORT_INTERVAL,
+): Effect.Effect<never, never, DaemonHealthServiceTag> {
+  return SubscriptionRef.changes(enabled).pipe(
+    Stream.switchMap((value) =>
+      value ? Stream.fromEffect(runDaemonPerfReporterEffect(send, interval)) : Stream.never,
+    ),
+    Stream.runDrain,
+    Effect.andThen(Effect.never),
+  );
 }
 
 export function createDaemonPerfSender(

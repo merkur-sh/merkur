@@ -19,6 +19,7 @@ import {
   reportBrowserLink,
   reportBrowserUpgrade,
   requestSession,
+  saveAccountTelemetry,
   startDeviceBox,
 } from '../api';
 import type { BrowserSessionRecord } from '../auth/account-api';
@@ -59,8 +60,7 @@ import {
   emitStartupMilestone,
 } from '../perf/perf-event-codec';
 import {
-  initializeTelemetryPreference,
-  saveTelemetryEnabled,
+  applyTelemetryPerfRecorder,
   TELEMETRY_SESSION_BYTE_BUDGET,
 } from '../perf/telemetry-preference';
 import { createTelemetryReporter, type TelemetryReporter } from '../perf/telemetry-reporter';
@@ -129,7 +129,13 @@ import {
   type SettingsTab,
 } from './navigation';
 import { createNotificationDestination } from './notification-destination';
+import {
+  createTelemetryConsentController,
+  type TelemetryConsentState,
+} from './telemetry-consent-controller';
 import { createTerminalSessionEpochHandoff } from './terminal-session-epoch-handoff';
+
+export type { TelemetryConsentState } from './telemetry-consent-controller';
 
 const logger = createLogger('web');
 const LAST_DEVICE_ID_KEY = 'merkur:last-device-id';
@@ -196,7 +202,9 @@ export interface AppController {
    */
   readonly terminalFocusMode: Accessor<boolean>;
   readonly terminalNotificationState: Accessor<TerminalNotificationState>;
-  readonly telemetryEnabled: Accessor<boolean>;
+  readonly telemetryConsent: Accessor<TelemetryConsentState>;
+  readonly telemetryChoicePending: Accessor<boolean | null>;
+  readonly telemetryChoiceFailed: Accessor<boolean>;
   /** Live profiling-shipment stats, or null when profiling is off or idle. */
   readonly telemetryStats: Accessor<TelemetryWorkerStats | null>;
   readonly terminalRings: Accessor<TerminalRingBundle | null>;
@@ -275,7 +283,7 @@ export interface AppController {
   onTerminalFontSizeChange(fontSize: number): void;
   onTerminalNotificationsDisable(): Promise<void>;
   onTerminalNotificationsEnable(): Promise<void>;
-  onTelemetryEnabledChange(enabled: boolean): void;
+  onTelemetryChoice(enabled: boolean): void;
   onTerminalThemeChange(themeId: TerminalThemeId): void;
   onWorkerClose(): void;
   onWorkerDiagnostics(diagnostics: TerminalWorkerDiagnostics): void;
@@ -338,6 +346,7 @@ export function createAppController(): AppController {
     // failed refresh, a definitive 401 — so the keyboard sync is stopped here
     // rather than at each of them. An in-flight push must not land after the
     // account it belongs to is gone.
+    telemetryConsentController.reset();
     stopKeyboardSettingsSync();
     deviceList.stop();
   }
@@ -365,10 +374,6 @@ export function createAppController(): AppController {
   const [terminalNotificationState, setTerminalNotificationState] = createSignal(
     loadTerminalNotificationState(),
   );
-  // Reads the stored choice and installs the perf recorder before any terminal
-  // worker exists, so the first session of the page latches the right
-  // `perfEnabled` rather than the one after it.
-  const [telemetryEnabled, setTelemetryEnabled] = createSignal(initializeTelemetryPreference());
   const [telemetryStats, setTelemetryStats] = createSignal<TelemetryWorkerStats | null>(null);
   const [session, setSession] = createSignal<TerminalSession | null>(null);
   const [remoteTitle, setRemoteTitle] = createSignal('');
@@ -477,10 +482,34 @@ export function createAppController(): AppController {
     errorReporter = null;
   }
 
-  // Installed at boot rather than with the first session, because the failures worth
-  // catching are the ones that stop a session from ever starting.
-  if (telemetryEnabled()) {
+  const telemetryConsentController = createTelemetryConsentController({
+    getAccessToken: accessToken,
+    save: saveAccountTelemetry,
+    applyEnabled: applyTelemetryEnabled,
+  });
+  const telemetryEnabled = telemetryConsentController.isEnabled;
+
+  function applyTelemetryEnabled(enabled: boolean): void {
+    applyTelemetryPerfRecorder(enabled);
+    // Workers latch perfEnabled at initialization. Link and upgrade reports
+    // follow consent immediately, including a session that was already live.
+    if (!enabled) {
+      telemetryReporter?.discard();
+      telemetryReporter = null;
+      telemetryWorker?.stop();
+      telemetryWorker = null;
+      mainThreadFrameMonitor?.stop();
+      mainThreadFrameMonitor = null;
+      setTelemetryStats(null);
+      stopErrorReporting();
+      return;
+    }
     startErrorReporting();
+    const rings = terminalRings();
+    if (session() !== null && rings !== null) {
+      telemetryReporter ??= createLinkTelemetryReporter();
+      telemetryWorker ??= createProfilingWorker(rings);
+    }
   }
 
   function createLinkTelemetryReporter(): TelemetryReporter {
@@ -508,6 +537,7 @@ export function createAppController(): AppController {
     setAccessToken: (next) => adoptRotatedAccessToken(next),
     onSessionRejected,
     onBrowserSessionsChanged,
+    onAccountTelemetryChanged: telemetryConsentController.receive,
     // Read lazily: the reporter comes and goes with the performance-reporting
     // preference, and a device-events lifetime outlives both.
     reportStreamFailure: (kind) => errorReporter?.count('device_events', kind),
@@ -585,8 +615,9 @@ export function createAppController(): AppController {
       connection: nav.connection(),
       devices: deviceList.deviceListStatus(),
       deviceAttempts: deviceList.deviceListAttempts(),
+      telemetryConsent: telemetryConsentController.consent(),
     }),
-    ({ phase, route, connection, devices, deviceAttempts }) => {
+    ({ phase, route, connection, devices, deviceAttempts, telemetryConsent }) => {
       // Not diagnostic: `phase` and `connection` are the contract every e2e
       // assertion reads (`tests/e2e/app-state.ts`, and the iOS harness through
       // the same unions). They are typed by `navigation.ts`, so renaming a value
@@ -608,6 +639,11 @@ export function createAppController(): AppController {
       // identically as `refreshing`, and only one of them leaves a trace
       // anywhere else.
       document.body.dataset.deviceAttempts = String(deviceAttempts);
+      // The account's reporting consent as this page knows it. A harness that
+      // signs in must answer the required question before it can reach a
+      // machine, and this says whether it is being asked without a guess at
+      // when the dialog has had time to appear.
+      document.body.dataset.telemetryConsent = telemetryConsent;
       document.body.classList.add('app-body');
     },
   );
@@ -680,6 +716,28 @@ export function createAppController(): AppController {
   const isDeviceList = routeIs('devices');
   const isSettings = routeIs('settings');
   const isTerminal = routeIs('terminal');
+  /**
+   * The account's required reporting question, asked over the machine list and
+   * nowhere else: never over a terminal, where it would interrupt typing. It is
+   * up while the account has not answered and the list is showing, and it leaves
+   * when the server states an answer, or when something else takes the screen,
+   * to be asked again on the way back to the list.
+   */
+  let telemetryConsentOverlay: Overlay | null = null;
+  createEffect(
+    () => telemetryConsentController.consent() === 'unchosen' && isDeviceList(),
+    (ask) => {
+      if (ask) {
+        if (telemetryConsentOverlay !== null) return;
+        telemetryConsentOverlay = { k: 'telemetry-consent' };
+        nav.pushOverlay(telemetryConsentOverlay);
+        return;
+      }
+      if (telemetryConsentOverlay === null) return;
+      nav.closeOverlay(telemetryConsentOverlay);
+      telemetryConsentOverlay = null;
+    },
+  );
   // Held across a move off Settings so the screen keeps drawing its own tab
   // while the view layer animates it out, rather than snapping to a default.
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>('terminal');
@@ -748,7 +806,9 @@ export function createAppController(): AppController {
     terminalDiagnostics,
     terminalFocusMode,
     terminalNotificationState,
-    telemetryEnabled,
+    telemetryConsent: telemetryConsentController.consent,
+    telemetryChoicePending: telemetryConsentController.pending,
+    telemetryChoiceFailed: telemetryConsentController.failed,
     telemetryStats,
     terminalRings,
     terminalStage,
@@ -937,33 +997,8 @@ export function createAppController(): AppController {
       if (token === null) return;
       setTerminalNotificationState(await disableTerminalNotifications(token));
     },
-    onTelemetryEnabledChange(enabled) {
-      if (enabled === telemetryEnabled()) return;
-      setTelemetryEnabled(enabled);
-      saveTelemetryEnabled(enabled);
-
-      // The link report starts and stops with the switch. Deep profiling
-      // cannot: both workers latch `perfEnabled` at init, so it follows from
-      // the next terminal session. The preferences copy says so.
-      if (!enabled) {
-        // `discard`, not `stop` — the partial window accumulated before consent
-        // was withdrawn is dropped rather than posted.
-        telemetryReporter?.discard();
-        telemetryReporter = null;
-        telemetryWorker?.stop();
-        telemetryWorker = null;
-        mainThreadFrameMonitor?.stop();
-        mainThreadFrameMonitor = null;
-        setTelemetryStats(null);
-        stopErrorReporting();
-        return;
-      }
-      startErrorReporting();
-      const rings = terminalRings();
-      if (session() !== null && rings !== null) {
-        telemetryReporter ??= createLinkTelemetryReporter();
-        telemetryWorker ??= createProfilingWorker(rings);
-      }
+    onTelemetryChoice(enabled) {
+      void telemetryConsentController.choose(enabled);
     },
     onTerminalFontFamilyChange(fontFamilyId) {
       if (!(fontFamilyId in TERMINAL_FONTS)) return;

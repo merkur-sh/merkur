@@ -82,6 +82,11 @@ export const browserPresenceAtom: Atom.Writable<readonly string[] | null> = Atom
   Atom.make<readonly string[] | null>(null),
 );
 
+/** Last account consent stated in this signed-in lifetime; undefined means unknown. */
+export const accountTelemetryAtom: Atom.Writable<boolean | null | undefined> = Atom.keepAlive(
+  Atom.make<boolean | null | undefined>(undefined),
+);
+
 /** True once any snapshot — cached or live — has been applied. */
 export const hasDeviceSnapshotAtom: Atom.Writable<boolean> = Atom.keepAlive(
   Atom.make(cached !== null),
@@ -402,6 +407,7 @@ export function startDeviceEvents(
   userId: string,
 ): Promise<void> {
   if (registry.get(deviceUserIdAtom) !== userId) {
+    registry.set(accountTelemetryAtom, undefined);
     registry.set(browserPresenceAtom, null);
     registry.set(devicesAtom, []);
     registry.set(deviceCursorAtom, null);
@@ -430,6 +436,7 @@ export function startDeviceEvents(
 
 /** Tear the lifetime down and fail every wait that belonged to it. */
 export function stopDeviceEvents(registry: AtomRegistry.AtomRegistry): void {
+  registry.set(accountTelemetryAtom, undefined);
   registry.set(deviceEventsTokenAtom, null);
   registry.set(deviceEventsBootAtom, AsyncResult.fail(new DeviceEventsStopped({})));
   // No lifetime, no attempt. The status follows from the absent credential, so

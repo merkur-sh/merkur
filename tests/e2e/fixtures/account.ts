@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { expectAuthPhase, expectShellPhase } from '../app-state';
+import { acceptTelemetryConsent } from './telemetry-consent';
 import { expect } from './test';
 
 export async function expectLoggedOut(page: Page): Promise<void> {
@@ -22,8 +23,19 @@ export async function expectLoggedIn(page: Page): Promise<void> {
  * it, because page-level headers win over context-level ones.
  */
 export async function createAccount(page: Page, username: string, password: string): Promise<void> {
+  await createAccountAwaitingTelemetryConsent(page, username, password);
+  await acceptTelemetryConsent(page);
+}
+
+/** Creates a fresh account while leaving its one-time reporting question unanswered. */
+export async function createAccountAwaitingTelemetryConsent(
+  page: Page,
+  username: string,
+  password: string,
+): Promise<void> {
   await page.context().setExtraHTTPHeaders({ 'x-forwarded-for': uniqueClientAddress() });
   await continueWithAccount(page, username, password);
+  await expectLoggedIn(page);
 }
 
 /** A suffix that keeps a test account's username unique across runs and workers. */

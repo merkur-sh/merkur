@@ -10,6 +10,7 @@ import {
   RELAY_PACKETS_REPORT_SCHEMA,
   type RelayPacketWindow,
 } from './fixtures/relay-keystroke-packets';
+import { setPerformanceReporting } from './fixtures/telemetry-consent';
 import { expectOutput, primeTerminal } from './terminal-e2e-helpers';
 
 /**
@@ -22,7 +23,7 @@ import { expectOutput, primeTerminal } from './terminal-e2e-helpers';
  * profiling on, the daemon's native trace shows which of its datagrams shared
  * a QUIC packet during the 6/s window. Chromium's net log, when the run sets
  * `PW_E2E_NETLOG`, is analysed afterwards against the window bounds this spec
- * writes. Profiling off is the production default; profiling on adds the
+ * writes. Not-yet-chosen and off accounts do not report; profiling on adds the
  * daemon's timing batches to the interactive connection, which is one of the
  * things this census attributes.
  *
@@ -74,86 +75,90 @@ for (const profiling of [false, true] as const) {
       !Number.isInteger(CONTROL_PORT) || CONTROL_PORT <= 0,
       'needs the edge harness delay proxy: set EDGE_NETWORK_PROFILE',
     );
-    if (!profiling) {
-      // The fixture seeds the profiling opt-in; the production default is off.
-      await page.addInitScript(() => localStorage.removeItem('merkur:telemetry-enabled'));
-      await page.reload();
-    }
+    try {
+      if (!profiling) {
+        // The fixture opted this account in; create this session with reporting off.
+        await setPerformanceReporting(page, false);
+        await page.reload();
+      }
 
-    const output = await primeTerminal(page, linkedDaemon.daemonName);
-    await expect(
-      page.getByText(DIRECT ? /^Direct(?: · \d+ms)?$/ : /^Relay(?: · \d+ms)?$/).first(),
-      DIRECT
-        ? 'the direct arm must upgrade and stay direct'
-        : 'the census must stay pinned to the edge relay',
-    ).toBeVisible({ timeout: 20_000 });
-    // The marker is assembled by printf, so the echoed command cannot match it.
-    await page.keyboard.type("printf '__relay_%s__\\n' packets; cat > /dev/null\n");
-    await expectOutput(output, '__relay_packets__');
-    await page.waitForTimeout(SETTLE_MS);
+      const output = await primeTerminal(page, linkedDaemon.daemonName);
+      await expect(
+        page.getByText(DIRECT ? /^Direct(?: · \d+ms)?$/ : /^Relay(?: · \d+ms)?$/).first(),
+        DIRECT
+          ? 'the direct arm must upgrade and stay direct'
+          : 'the census must stay pinned to the edge relay',
+      ).toBeVisible({ timeout: 20_000 });
+      // The marker is assembled by printf, so the echoed command cannot match it.
+      await page.keyboard.type("printf '__relay_%s__\\n' packets; cat > /dev/null\n");
+      await expectOutput(output, '__relay_packets__');
+      await page.waitForTimeout(SETTLE_MS);
 
-    const windows: RelayPacketWindow[] = [];
-    let daemonLeg: DaemonLegPackets | null = null;
-    let nativeErrors: readonly string[] = [];
-    for (const plan of WINDOWS) {
-      const measuresNative = profiling && plan.name === 'keys-6ps';
-      // Drain what the native recorder holds, so the capture after this window
-      // covers this window alone.
-      if (measuresNative) await linkedDaemon.capturePerfTrace();
-      await requestProxyImpairmentStats(CONTROL_PORT, 'reset');
-      const startedAtMs = Date.now();
-      if (plan.keys === 0) await page.waitForTimeout(plan.durationMs);
-      else await typeAtCadence(page, plan.keys, plan.durationMs);
-      const stats = await requestProxyImpairmentStats(CONTROL_PORT, 'stats');
-      const endedAtMs = Date.now();
-      windows.push({
-        name: plan.name,
-        keys: plan.keys,
-        startedAtMs,
-        endedAtMs,
-        ...proxyWindowCounts(stats),
+      const windows: RelayPacketWindow[] = [];
+      let daemonLeg: DaemonLegPackets | null = null;
+      let nativeErrors: readonly string[] = [];
+      for (const plan of WINDOWS) {
+        const measuresNative = profiling && plan.name === 'keys-6ps';
+        // Drain what the native recorder holds, so the capture after this window
+        // covers this window alone.
+        if (measuresNative) await linkedDaemon.capturePerfTrace();
+        await requestProxyImpairmentStats(CONTROL_PORT, 'reset');
+        const startedAtMs = Date.now();
+        if (plan.keys === 0) await page.waitForTimeout(plan.durationMs);
+        else await typeAtCadence(page, plan.keys, plan.durationMs);
+        const stats = await requestProxyImpairmentStats(CONTROL_PORT, 'stats');
+        const endedAtMs = Date.now();
+        windows.push({
+          name: plan.name,
+          keys: plan.keys,
+          startedAtMs,
+          endedAtMs,
+          ...proxyWindowCounts(stats),
+        });
+        if (measuresNative) {
+          const capture = await linkedDaemon.capturePerfTrace();
+          nativeErrors = capture.errors;
+          daemonLeg = daemonLegPackets(capture.trace?.records ?? []);
+        }
+      }
+
+      const report = {
+        schemaVersion: RELAY_PACKETS_REPORT_SCHEMA,
+        arm,
+        profiling,
+        path: DIRECT ? 'direct' : 'relay',
+        networkProfile: process.env.EDGE_NETWORK_PROFILE ?? null,
+        netlog: process.env.PW_E2E_NETLOG ?? null,
+        windows,
+        daemonLeg,
+        nativeErrors,
+      };
+      const body = `${JSON.stringify(report, null, 2)}\n`;
+      await testInfo.attach(`relay-keystroke-packets-${arm}.json`, {
+        body,
+        contentType: 'application/json',
       });
-      if (measuresNative) {
-        const capture = await linkedDaemon.capturePerfTrace();
-        nativeErrors = capture.errors;
-        daemonLeg = daemonLegPackets(capture.trace?.records ?? []);
+      if (REPORT_DIR !== undefined) {
+        mkdirSync(REPORT_DIR, { recursive: true });
+        writeFileSync(path.join(REPORT_DIR, `relay-keystroke-packets-${arm}.json`), body);
       }
-    }
 
-    const report = {
-      schemaVersion: RELAY_PACKETS_REPORT_SCHEMA,
-      arm,
-      profiling,
-      path: DIRECT ? 'direct' : 'relay',
-      networkProfile: process.env.EDGE_NETWORK_PROFILE ?? null,
-      netlog: process.env.PW_E2E_NETLOG ?? null,
-      windows,
-      daemonLeg,
-      nativeErrors,
-    };
-    const body = `${JSON.stringify(report, null, 2)}\n`;
-    await testInfo.attach(`relay-keystroke-packets-${arm}.json`, {
-      body,
-      contentType: 'application/json',
-    });
-    if (REPORT_DIR !== undefined) {
-      mkdirSync(REPORT_DIR, { recursive: true });
-      writeFileSync(path.join(REPORT_DIR, `relay-keystroke-packets-${arm}.json`), body);
-    }
-
-    for (const window of windows) {
-      // Direct packets never cross the proxy: the net log carries that leg.
-      if (window.keys > 0 && !DIRECT) {
-        expect(window.browser.up, `${window.name} carried no browser uplink`).toBeGreaterThan(0);
-        expect(window.daemon.up, `${window.name} carried no daemon uplink`).toBeGreaterThan(0);
+      for (const window of windows) {
+        // Direct packets never cross the proxy: the net log carries that leg.
+        if (window.keys > 0 && !DIRECT) {
+          expect(window.browser.up, `${window.name} carried no browser uplink`).toBeGreaterThan(0);
+          expect(window.daemon.up, `${window.name} carried no daemon uplink`).toBeGreaterThan(0);
+        }
       }
-    }
-    if (profiling) {
-      expect(nativeErrors, 'native capture must be complete').toEqual([]);
-      expect(
-        daemonLeg?.inputAckDatagrams ?? 0,
-        'the 6/s window must carry input ACKs',
-      ).toBeGreaterThan(0);
+      if (profiling) {
+        expect(nativeErrors, 'native capture must be complete').toEqual([]);
+        expect(
+          daemonLeg?.inputAckDatagrams ?? 0,
+          'the 6/s window must carry input ACKs',
+        ).toBeGreaterThan(0);
+      }
+    } finally {
+      if (!profiling) await setPerformanceReporting(page, true);
     }
   });
 }

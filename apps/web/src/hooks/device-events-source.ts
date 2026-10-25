@@ -1,4 +1,5 @@
 import {
+  BROWSER_EVENT_ACCOUNT_TELEMETRY,
   BROWSER_EVENT_PRESENCE,
   BROWSER_EVENT_SESSION_ENDED,
   BROWSER_EVENT_SESSIONS_CHANGED,
@@ -46,11 +47,14 @@ export type DeviceStreamEvent =
   | { readonly _tag: 'session-ended' }
   /** The account's browser-session list changed; this session is still in it. */
   | { readonly _tag: 'sessions-changed' }
+  | { readonly _tag: 'account-telemetry'; readonly enabled: boolean | null }
   /** Bytes arrived. Carries no content: it exists to prove the socket lives. */
   | { readonly _tag: 'activity' }
   | { readonly _tag: 'snapshot'; readonly frame: DeviceSnapshotFrame }
   | { readonly _tag: 'resume'; readonly cursor: DeviceEventsCursor }
   | { readonly _tag: 'delta'; readonly frame: DeviceDeltaFrame };
+
+export const DeviceStreamEvent = Data.taggedEnum<DeviceStreamEvent>();
 
 /** The endpoint definitively rejected this credential; only a 401 proves that. */
 export class DeviceStreamUnauthorized extends Data.TaggedError('DeviceStreamUnauthorized')<{
@@ -125,7 +129,7 @@ export function deviceEventStream(
                 ? undefined
                 : { [DEVICE_EVENTS_SINCE_HEADER]: formatDeviceEventsCursor(since) },
             onOpen() {
-              Queue.offerUnsafe(queue, { _tag: 'open' });
+              Queue.offerUnsafe(queue, DeviceStreamEvent.open());
             },
             onEvent(event) {
               const parsed = parseDeviceStreamEvent(event);
@@ -134,7 +138,7 @@ export function deviceEventStream(
               }
             },
             onActivity() {
-              Queue.offerUnsafe(queue, { _tag: 'activity' });
+              Queue.offerUnsafe(queue, DeviceStreamEvent.activity());
             },
           }),
         catch: toDeviceStreamError,
@@ -173,19 +177,27 @@ function parseDeviceStreamEvent(event: SseEvent): DeviceStreamEvent | null {
   if (event.data.length === 0) return null;
   const parsed = parseJson(event.data);
   switch (event.event) {
+    case BROWSER_EVENT_ACCOUNT_TELEMETRY:
+      if (event.data === 'true') return DeviceStreamEvent['account-telemetry']({ enabled: true });
+      if (event.data === 'false') return DeviceStreamEvent['account-telemetry']({ enabled: false });
+      return event.data === 'null'
+        ? DeviceStreamEvent['account-telemetry']({ enabled: null })
+        : null;
     case BROWSER_EVENT_SESSION_ENDED:
-      return event.data.trim() === 'null' ? { _tag: 'session-ended' } : null;
+      return event.data.trim() === 'null' ? DeviceStreamEvent['session-ended']() : null;
     case BROWSER_EVENT_SESSIONS_CHANGED:
-      return event.data.trim() === 'null' ? { _tag: 'sessions-changed' } : null;
+      return event.data.trim() === 'null' ? DeviceStreamEvent['sessions-changed']() : null;
     case BROWSER_EVENT_PRESENCE:
-      return isBrowserPresenceFrame(parsed) ? { _tag: 'browser-presence', frame: parsed } : null;
+      return isBrowserPresenceFrame(parsed)
+        ? DeviceStreamEvent['browser-presence']({ frame: parsed })
+        : null;
     case DEVICE_EVENT_SNAPSHOT:
-      return isDeviceSnapshotFrame(parsed) ? { _tag: 'snapshot', frame: parsed } : null;
+      return isDeviceSnapshotFrame(parsed) ? DeviceStreamEvent.snapshot({ frame: parsed }) : null;
     case DEVICE_EVENT_DELTA:
-      return isDeviceDeltaFrame(parsed) ? { _tag: 'delta', frame: parsed } : null;
+      return isDeviceDeltaFrame(parsed) ? DeviceStreamEvent.delta({ frame: parsed }) : null;
     case DEVICE_EVENT_RESUME:
       return isDeviceResumeFrame(parsed)
-        ? { _tag: 'resume', cursor: { epoch: parsed.epoch, seq: parsed.seq } }
+        ? DeviceStreamEvent.resume({ cursor: { epoch: parsed.epoch, seq: parsed.seq } })
         : null;
     default:
       return null;

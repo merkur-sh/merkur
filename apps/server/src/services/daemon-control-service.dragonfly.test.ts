@@ -10,6 +10,7 @@ import {
 } from '@merkur/daemon-control-protocol';
 import { RedisClient } from 'bun';
 import { Context, Effect, Fiber, Layer, Queue, Redacted } from 'effect';
+import type { Kysely } from 'kysely';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
 import { createMigratedKyselyDatabase } from '../db/migrate';
@@ -63,6 +64,9 @@ if (dragonflyUrl === undefined) {
           const socket = new ExactControlSocket(socketFrames);
 
           expect(ownerCoordination.instanceId).not.toBe(requesterCoordination.instanceId);
+          yield* Effect.promise(() =>
+            insertUser(Context.get(ownerContext, DatabaseService), userId),
+          );
           yield* owner.acceptConnection({
             daemonId,
             userId,
@@ -75,6 +79,7 @@ if (dragonflyUrl === undefined) {
           });
 
           const registered = yield* takeMessage(socketFrames, 'registered');
+          expect(registered.telemetryEnabled).toBe(false);
           claimSeq = registered.claimSeq;
           const presence = yield* requesterCoordination.getDaemonPresence(daemonId);
           if (presence === null) {
@@ -440,3 +445,20 @@ const TEST_DEVICE_SERVICE: DeviceService = {
   touchDaemon: () => Effect.void,
   touchDaemonsSeen: () => Effect.void,
 };
+
+async function insertUser(database: Kysely<DatabaseSchema>, id: string): Promise<void> {
+  await database
+    .insertInto('users')
+    .values({
+      id,
+      username: `${id}@merkur.test`,
+      opaque_registration_record: 'record',
+      root_public_key: 'root-public-key',
+      root_key_commitment: 'root-key-commitment',
+      root_epoch: 1,
+      root_envelope_nonce: 'nonce',
+      root_envelope_ciphertext: 'ciphertext',
+      created_at: 0,
+    })
+    .execute();
+}

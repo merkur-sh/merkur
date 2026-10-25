@@ -204,6 +204,11 @@ export const AccountDeletionResponse = Type.Object(
   { additionalProperties: false },
 );
 
+export const AccountTelemetry = Type.Object(
+  { enabled: Type.Boolean() },
+  { additionalProperties: false },
+);
+
 const ClientName = Type.Union([Text(1, BROWSER_CLIENT_NAME_MAX_LENGTH), Type.Null()]);
 
 export const BrowserSessionRecord = Type.Object(

@@ -18,6 +18,19 @@ try {
   await form.getByLabel('Password').fill(password);
   await form.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(page.locator('body')).toHaveAttribute('data-phase', 'shell', { timeout: 30_000 });
+  // An account that has not answered the performance-reporting question is
+  // asked before it can reach a machine. The canary declines, once.
+  const body = page.locator('body');
+  await expect(body).toHaveAttribute('data-telemetry-consent', /^(unchosen|on|off)$/, {
+    timeout: 30_000,
+  });
+  if ((await body.getAttribute('data-telemetry-consent')) === 'unchosen') {
+    await page
+      .getByRole('dialog', { name: 'Share performance reports?' })
+      .getByRole('button', { name: "Don't share", exact: true })
+      .click();
+    await expect(body).toHaveAttribute('data-telemetry-consent', 'off');
+  }
   await page.getByTitle(`Connect to ${daemonName}`, { exact: true }).click();
   await expect(page.locator('body')).toHaveAttribute('data-connection', 'connected', {
     timeout: 30_000,

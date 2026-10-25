@@ -40,6 +40,8 @@ test('closes and joins SSE before graceful HTTP drain while preserving ordinary 
             });
           }),
         subscribePresence: () => Effect.succeed(Effect.void),
+        subscribeTelemetryChanges: () => Effect.succeed(Effect.void),
+        loadTelemetryConsent: Effect.succeed(true),
         readCursor: Effect.succeed({ epoch: 'a1b2c3d4e5f6071', seq: 0 }),
         loadSnapshot: Effect.succeed([]),
         onError: (error) => {

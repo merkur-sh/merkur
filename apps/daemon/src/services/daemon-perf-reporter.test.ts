@@ -1,10 +1,22 @@
 import { expect, test } from 'bun:test';
 
-import type { DaemonMetricSnapshot } from './daemon-metrics';
+import { Cause, Deferred, Effect, Exit, Fiber, Metric, SubscriptionRef } from 'effect';
+import { TestClock } from 'effect/testing';
+import {
+  DaemonHealthServiceLive,
+  DaemonHealthServiceTag,
+  type DaemonMetricSnapshot,
+  recordControlPingOutcome,
+  recordControlPingRttMs,
+  recordSuspensionGapMs,
+} from './daemon-metrics';
 import {
   buildDaemonPerfReport,
+  type DaemonPerfReport,
   daemonPerfCursor,
   EMPTY_DAEMON_PERF_CURSOR,
+  runDaemonPerfReporterEffect,
+  runEnabledDaemonPerfReporterEffect,
 } from './daemon-perf-reporter';
 
 const NO_RTT = { count: 0, p50Ms: 0, p95Ms: 0, maxMs: 0 };
@@ -66,7 +78,7 @@ function metrics(overrides: Partial<DaemonMetricSnapshot> = {}): DaemonMetricSna
   };
 }
 
-test('the first window reports absolute counts against an empty cursor', () => {
+test('an empty cursor reports absolute counts', () => {
   const report = buildDaemonPerfReport(
     EMPTY_DAEMON_PERF_CURSOR,
     metrics({
@@ -354,4 +366,131 @@ test('display loss outcomes retain their direct and edge denominators', () => {
   expect(edgeClassified).toBe(100);
   expect(report.edgeDisplayDatagramsDeclaredLost / edgeClassified).toBe(0.05);
   expect(report.edgeDisplayDatagramsOutcomeUnknown).toBe(4);
+});
+
+test('the first reporter window excludes counts, ping samples, gaps, and time before start', async () => {
+  const reports: DaemonPerfReport[] = [];
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const health = yield* DaemonHealthServiceTag;
+        yield* health.updateControl({ state: 'registered' });
+        yield* recordControlPingOutcome('pong');
+        yield* recordControlPingOutcome('pong');
+        recordControlPingRttMs(900);
+        recordSuspensionGapMs(9_000);
+        yield* TestClock.adjust('10 seconds');
+        const reporter = yield* runDaemonPerfReporterEffect(
+          (report) =>
+            Effect.sync(() => {
+              reports.push(report);
+            }),
+          '1 second',
+        ).pipe(Effect.forkScoped({ startImmediately: true }));
+        yield* recordControlPingOutcome('pong');
+        recordControlPingRttMs(7);
+        recordSuspensionGapMs(20);
+        yield* TestClock.adjust('1 second');
+        yield* Fiber.interrupt(reporter);
+        expect(reports).toHaveLength(1);
+        expect(reports[0]).toMatchObject({
+          windowMs: 1_000,
+          controlPingPonged: 1,
+          pingRttCount: 1,
+          pingRttP50Ms: 7,
+          pingRttP95Ms: 7,
+          pingRttMaxMs: 7,
+          suspensionGapMsMax: 20,
+        });
+      }),
+    ).pipe(
+      Effect.provide(DaemonHealthServiceLive),
+      Effect.provide(TestClock.layer()),
+      Effect.provideService(Metric.MetricRegistry, new Map()),
+    ),
+  );
+});
+
+test('consent changes stop an in-flight sender and restart with a fresh window', async () => {
+  const reports: DaemonPerfReport[] = [];
+  const controllers: AbortController[] = [];
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const enabled = yield* SubscriptionRef.make(false);
+        const health = yield* DaemonHealthServiceTag;
+        yield* health.updateControl({ state: 'registered' });
+        const started = yield* Deferred.make<void>();
+        const restarted = yield* Deferred.make<void>();
+        const supervisor = yield* runEnabledDaemonPerfReporterEffect(
+          (report) =>
+            Effect.acquireUseRelease(
+              Effect.sync(() => {
+                const controller = new AbortController();
+                controllers.push(controller);
+                reports.push(report);
+                return controller;
+              }),
+              () =>
+                Deferred.succeed(controllers.length === 1 ? started : restarted, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                ),
+              (controller) => Effect.sync(() => controller.abort()),
+            ),
+          enabled,
+          '1 second',
+        ).pipe(Effect.forkScoped({ startImmediately: true }));
+        yield* recordControlPingOutcome('pong');
+        recordControlPingRttMs(900);
+        yield* TestClock.adjust('5 seconds');
+        expect(reports).toHaveLength(0);
+        yield* SubscriptionRef.set(enabled, true);
+        yield* TestClock.adjust('1 second');
+        yield* Deferred.await(started);
+        yield* SubscriptionRef.set(enabled, false);
+        yield* TestClock.adjust('0 millis');
+        expect(controllers[0]?.signal.aborted).toBe(true);
+        yield* recordControlPingOutcome('pong');
+        recordControlPingRttMs(800);
+        yield* TestClock.adjust('5 seconds');
+        expect(reports).toHaveLength(1);
+        yield* SubscriptionRef.set(enabled, true);
+        yield* TestClock.adjust('1 second');
+        yield* Deferred.await(restarted);
+        expect(reports.map((report) => report.controlPingPonged)).toEqual([0, 0]);
+        expect(reports.map((report) => report.pingRttCount)).toEqual([0, 0]);
+        yield* Fiber.interrupt(supervisor);
+        expect(controllers[1]?.signal.aborted).toBe(true);
+      }),
+    ).pipe(
+      Effect.provide(DaemonHealthServiceLive),
+      Effect.provide(TestClock.layer()),
+      Effect.provideService(Metric.MetricRegistry, new Map()),
+    ),
+  );
+});
+
+test('the consent supervisor surfaces reporter defects', async () => {
+  const exit = await Effect.runPromiseExit(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const enabled = yield* SubscriptionRef.make(true);
+        const health = yield* DaemonHealthServiceTag;
+        yield* health.updateControl({ state: 'registered' });
+        const supervisor = yield* runEnabledDaemonPerfReporterEffect(
+          () => Effect.die(new Error('reporter defect')),
+          enabled,
+          '1 second',
+        ).pipe(Effect.forkScoped({ startImmediately: true }));
+        yield* TestClock.adjust('1 second');
+        yield* Fiber.join(supervisor);
+      }),
+    ).pipe(
+      Effect.provide(DaemonHealthServiceLive),
+      Effect.provide(TestClock.layer()),
+      Effect.provideService(Metric.MetricRegistry, new Map()),
+    ),
+  );
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain('reporter defect');
 });

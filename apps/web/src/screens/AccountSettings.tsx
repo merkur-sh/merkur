@@ -1,5 +1,6 @@
 import { type Component, Show } from 'solid-js';
 
+import type { TelemetryConsentState } from '../app/createAppController';
 import BuildVerification from '../components/BuildVerification';
 import ToggleSwitch from '../components/ToggleSwitch';
 import type { TelemetryWorkerStats } from '../telemetry-worker-protocol';
@@ -7,7 +8,10 @@ import ChangePasswordForm from './ChangePasswordForm';
 import DeleteAccountForm from './DeleteAccountForm';
 
 interface Props {
-  readonly telemetryEnabled: boolean;
+  readonly telemetryConsent: TelemetryConsentState;
+  /** The choice being saved, or null. */
+  readonly telemetryChoicePending: boolean | null;
+  readonly telemetryChoiceFailed: boolean;
   readonly telemetryStats: TelemetryWorkerStats | null;
   readonly username: string | null;
   onLogout(): Promise<void>;
@@ -18,11 +22,22 @@ interface Props {
   ): Promise<void>;
   readonly deletionCancelled: boolean;
   onDeleteAccount(password: string, signal: AbortSignal): Promise<number>;
-  onTelemetryEnabledChange(enabled: boolean): void;
+  onTelemetryChoice(enabled: boolean): void;
 }
 
+/** The same scope the machine list's one-time question states. */
+const TELEMETRY_SCOPE =
+  'Timings and counts from this browser and your linked machines, never what you type or what your terminal shows.';
+const TELEMETRY_SAVE_FAILED = 'Your choice was not saved. Try again.';
+
 /**
- * Who is signed in, the one reporting switch, and the way out.
+ * Who is signed in, the account's reporting choice, and the way out.
+ *
+ * The reporting switch is the same choice the machine list asks for once, and it
+ * says what it covers in the same words. Off and not yet chosen look alike here
+ * because they act alike: nothing is sent. A failed save takes the description's
+ * cell, so the row keeps its height and the switch returns to what the account
+ * holds.
  *
  * Logging out is also one press from the machine list — this is the second
  * place it lives rather than the only one, because a settings screen is where
@@ -40,32 +55,46 @@ const AccountSettings: Component<Props> = (props) => (
       <div class="pref-row">
         <span class="min-w-0 flex-1">
           <span class="pref-name">Performance reporting</span>
-          <Show
-            when={props.telemetryStats}
-            fallback={
-              <span class="pref-sub">Ships timing samples from this browser to Merkur</span>
-            }
-          >
-            {(stats) => (
-              <span class="pref-sub font-mono frame:text-[16px]">
-                {formatBytes(stats().bytesShipped)} shipped · {stats().rowsShipped.toLocaleString()}{' '}
-                rows
-                <Show when={stats().recordsLost > 0}>
-                  {' '}
-                  · {stats().recordsLost.toLocaleString()} lost
-                </Show>
-                <Show when={stats().sendFailures > 0}> · {stats().sendFailures} failed</Show>
-                <Show when={stats().budgetExhausted}>
-                  <span class="text-warn"> · budget reached, stopped</span>
-                </Show>
-              </span>
-            )}
-          </Show>
+          <span class="swap">
+            <Show
+              when={props.telemetryStats}
+              fallback={
+                <span class="pref-sub" data-on={!props.telemetryChoiceFailed}>
+                  {TELEMETRY_SCOPE}
+                </span>
+              }
+            >
+              {(stats) => (
+                <span
+                  class="pref-sub font-mono frame:text-[16px]"
+                  data-on={!props.telemetryChoiceFailed}
+                >
+                  {formatBytes(stats().bytesShipped)} shipped ·{' '}
+                  {stats().rowsShipped.toLocaleString()} rows
+                  <Show when={stats().recordsLost > 0}>
+                    {' '}
+                    · {stats().recordsLost.toLocaleString()} lost
+                  </Show>
+                  <Show when={stats().sendFailures > 0}> · {stats().sendFailures} failed</Show>
+                  <Show when={stats().budgetExhausted}>
+                    <span class="text-warn"> · budget reached, stopped</span>
+                  </Show>
+                </span>
+              )}
+            </Show>
+            <span class="pref-sub text-badink" role="alert" data-on={props.telemetryChoiceFailed}>
+              {props.telemetryChoiceFailed ? TELEMETRY_SAVE_FAILED : ''}
+            </span>
+            <span class="pref-sub" aria-hidden="true">
+              {TELEMETRY_SAVE_FAILED}
+            </span>
+          </span>
         </span>
         <ToggleSwitch
           label="Performance reporting"
-          checked={props.telemetryEnabled}
-          onChange={props.onTelemetryEnabledChange}
+          checked={props.telemetryChoicePending ?? props.telemetryConsent === 'on'}
+          busy={props.telemetryChoicePending !== null}
+          onChange={props.onTelemetryChoice}
         />
       </div>
     </div>

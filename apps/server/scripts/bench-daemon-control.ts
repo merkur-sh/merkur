@@ -159,6 +159,7 @@ async function createFleet(stun: StunTicketIssuer, keepFrames: boolean): Promise
     redis: {} as RedisService,
     touchDaemon: () => Effect.void,
     touchDaemonsSeen: () => Effect.void,
+    telemetryEnabled: () => Effect.succeed(true),
     logger: NOOP_LOGGER,
     stun,
     edgeAttach: createEdgeAttachTicketIssuer(new Uint8Array(64).fill(10)),

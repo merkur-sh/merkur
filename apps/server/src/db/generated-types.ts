@@ -148,6 +148,7 @@ export interface Users {
   root_key_commitment: string;
   root_public_key: string;
   suspended_at: number | null;
+  telemetry_consent: number | null;
   username: string;
 }
 

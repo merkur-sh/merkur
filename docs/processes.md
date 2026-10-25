@@ -442,7 +442,7 @@ The Solid application remains on the main thread. Heavy terminal work is split i
 | Graphics asset worker | Lazy memory-only encoded cache, bounded PNG decoding and direct bitmap delivery to the terminal worker; Rust `Session` verifies received content before publishing an asset. |
 | Service worker | PWA shell caching, update lifecycle, and push notifications. |
 | Event-stream worker | Fetches and reads the authenticated SSE streams (`GET /api/devices/events`) and posts their parsed events to the main thread. It does nothing else, so it is never busy when a chunk arrives: iOS WebKit holds back body chunks that queue behind one another on a busy reading thread until more data arrives. |
-| Telemetry worker | Drains the three SharedArrayBuffer perf rings, decodes them, and POSTs NDJSON — a full batch as soon as it exists, the tail on a slow timer. Exists so profiling costs the main thread nothing; it is spawned only when performance reporting is enabled. |
+| Telemetry worker | Drains the three SharedArrayBuffer perf rings, decodes them, and POSTs NDJSON — a full batch as soon as it exists, the tail on a slow timer. Exists so profiling costs the main thread nothing; it is spawned only while the account has performance reporting on. |
 
 The transport worker preserves its terminal-owner identity across recovery attempts. Page hints
 wake backoff or start a non-displacing candidate; they never stop/start the worker's session.
@@ -535,7 +535,7 @@ No single command runs every spec. Each spec belongs to exactly one config:
 <!-- generated:e2e-specs -->
 | Command | Config | Profile | Specs | Phase |
 | --- | --- | --- | --- | --- |
-| `test:e2e` | `playwright.config.mjs` | default | `app`, `auth-cross-tab`, `auth-resilience`, `display-burst-paint`, `keyboard-navigation` | one Playwright run |
+| `test:e2e` | `playwright.config.mjs` | default | `app`, `auth-cross-tab`, `auth-resilience`, `display-burst-paint`, `keyboard-navigation`, `telemetry-consent` | one Playwright run |
 | `test:e2e:email` | `playwright.email.config.mjs` | default | `auth-email` | one Playwright run |
 | `test:e2e:burst` | `playwright.burst.config.mjs` | default | `display-burst-paint`, `fence-poll-cadence` | one Playwright run |
 | `test:e2e:site` | `playwright.site.config.mjs` | default | `site`, `site-blog` | one Playwright run |

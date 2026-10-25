@@ -17,6 +17,7 @@ export default defineConfig({
     '**/auth-resilience.e2e.ts',
     '**/display-burst-paint.e2e.ts',
     '**/keyboard-navigation.e2e.ts',
+    '**/telemetry-consent.e2e.ts',
   ],
   globalTeardown: './tests/e2e/global-teardown.ts',
   outputDir: process.env.PW_E2E_OUTPUT_DIR ?? 'test-results/e2e',

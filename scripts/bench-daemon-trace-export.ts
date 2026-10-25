@@ -2,7 +2,7 @@ import '@merkur/shared/e2e-wasm-bun';
 /**
  * Signed trace exports an idle daemon produces.
  *
- * The daemon's OTLP tracer (`daemonTracerLayer`) posts to
+ * The daemon's OTLP tracer (`createDaemonTelemetryScoped`, here with reporting on) posts to
  * `/api/daemon/traces` through the signing `createDaemonFetch`, flushing every
  * 5 s whenever a sampled span has ended. Its only periodic span is
  * `daemon.health.snapshot`, opened by `runDaemonObservabilityReporterEffect`
@@ -19,8 +19,11 @@ import '@merkur/shared/e2e-wasm-bun';
 import { signDaemonProof } from '@merkur/auth';
 import type { DaemonConfig } from '@merkur/config';
 import { MerkurLoggerLayer } from '@merkur/logger';
-import { Effect, Layer } from 'effect';
-import { daemonTracerLayer } from '../apps/daemon/src/observability/telemetry';
+import { Effect, Layer, Tracer } from 'effect';
+import {
+  createDaemonTelemetryScoped,
+  MINIMUM_TRACE_LEVEL,
+} from '../apps/daemon/src/observability/telemetry';
 import {
   DaemonHealthServiceLive,
   runDaemonObservabilityReporterEffect,
@@ -77,17 +80,26 @@ process.stdout.write = (() => {
 
 try {
   await Effect.runPromise(
-    runDaemonObservabilityReporterEffect(config.daemon_id, `${REPORT_INTERVAL_MS} millis`).pipe(
-      Effect.timeout(`${WINDOW_MS} millis`),
-      Effect.ignore,
-      Effect.provide(
-        Layer.mergeAll(
-          daemonTracerLayer(config, signer),
-          DaemonHealthServiceLive,
-          MerkurLoggerLayer,
-        ),
-      ),
-    ),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const telemetry = yield* createDaemonTelemetryScoped(config, signer);
+        // An account that opted in, as the first `registered` would state it.
+        yield* telemetry.set(true);
+        yield* runDaemonObservabilityReporterEffect(
+          config.daemon_id,
+          `${REPORT_INTERVAL_MS} millis`,
+        ).pipe(
+          Effect.timeout(`${WINDOW_MS} millis`),
+          Effect.ignore,
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.succeed(Tracer.Tracer, telemetry.tracer),
+              Layer.succeed(Tracer.MinimumTraceLevel, MINIMUM_TRACE_LEVEL),
+            ),
+          ),
+        );
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(DaemonHealthServiceLive, MerkurLoggerLayer))),
   );
 } finally {
   process.stdout.write = originalWrite as typeof process.stdout.write;

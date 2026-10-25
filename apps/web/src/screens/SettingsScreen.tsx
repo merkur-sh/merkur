@@ -12,6 +12,7 @@ import {
   Switch,
 } from 'solid-js';
 
+import type { TelemetryConsentState } from '../app/createAppController';
 import type { SettingsTab } from '../app/navigation';
 import type { BrowserSessionRecord } from '../auth/account-api';
 import { createKeybinds } from '../hooks/createKeybinds';
@@ -52,7 +53,9 @@ interface Props {
   readonly tab: SettingsTab;
   /** The tabs this account has: the four, plus Admin for an operator. */
   readonly tabs: readonly SettingsTab[];
-  readonly telemetryEnabled: boolean;
+  readonly telemetryConsent: TelemetryConsentState;
+  readonly telemetryChoicePending: boolean | null;
+  readonly telemetryChoiceFailed: boolean;
   readonly telemetryStats: TelemetryWorkerStats | null;
   readonly terminalAppearance: TerminalAppearance;
   readonly terminalNotificationState: TerminalNotificationState;
@@ -69,7 +72,7 @@ interface Props {
     signal: AbortSignal,
   ): Promise<void>;
   onTabChange(tab: SettingsTab): void;
-  onTelemetryEnabledChange(enabled: boolean): void;
+  onTelemetryChoice(enabled: boolean): void;
   onTerminalFontFamilyChange(fontFamilyId: TerminalFontFamilyId): void;
   onTerminalFontSizeChange(fontSize: number): void;
   onTerminalNotificationsDisable(): Promise<void>;
@@ -347,14 +350,16 @@ const SettingsScreen: Component<Props> = (props) => {
 
           <Match when={props.tab === 'account'}>
             <AccountSettings
-              telemetryEnabled={props.telemetryEnabled}
+              telemetryConsent={props.telemetryConsent}
+              telemetryChoicePending={props.telemetryChoicePending}
+              telemetryChoiceFailed={props.telemetryChoiceFailed}
               telemetryStats={props.telemetryStats}
               username={props.username}
               onLogout={props.onLogout}
               onChangePassword={props.onChangePassword}
               deletionCancelled={props.deletionCancelled}
               onDeleteAccount={props.onDeleteAccount}
-              onTelemetryEnabledChange={props.onTelemetryEnabledChange}
+              onTelemetryChoice={props.onTelemetryChoice}
             />
           </Match>
         </Switch>

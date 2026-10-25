@@ -57,6 +57,7 @@ describe('schema migration', () => {
         'privileged_at',
         'last_sign_in_at',
         'inactivity_notice_sent_at',
+        'telemetry_consent',
       ]);
       expect(await tableColumns(db, 'daemons')).toContain('identity_seal_backend');
       for (const table of ['link_tokens', 'daemon_link_claims', 'daemons']) {

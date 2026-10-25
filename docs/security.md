@@ -894,8 +894,8 @@ daemon and a browser are authenticated, not trusted to be unmodified.
 
 | Path | What it carries | Authenticated by |
 | --- | --- | --- |
-| `POST /api/daemon/traces`, `POST /api/daemon/perf` | Command ids, session ids, command types, phase durations | Daemon management proofs |
-| `POST /api/telemetry/traces` | Browser bootstrap phase durations, attempt id, device id; off unless "Performance reporting" is on | Browser access token |
+| `POST /api/daemon/traces`, `POST /api/daemon/perf` | Command ids, session ids, command types, phase durations; sent, and accepted by the server, only while the account has opted in to performance reporting | Daemon management proofs |
+| `POST /api/telemetry/traces` | Browser bootstrap phase durations, attempt id, device id; sent, and accepted by the server, only while the account has opted in to performance reporting | Browser access token |
 | `POST /api/telemetry/error` | A failure class derived from the error's type and name only, never a message or stack | Browser access token |
 
 No vendor credential reaches a user's machine: the server holds the exporter token, and the

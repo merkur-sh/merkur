@@ -8,6 +8,7 @@ import { Effect, Layer, Redacted } from 'effect';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { createLogger } from '../logger';
 import type { runServerProgram } from '../runtime';
+import { AccountTelemetryServiceTag } from '../services/account-telemetry-service';
 import {
   type DaemonControlService,
   DaemonControlServiceTag,
@@ -125,6 +126,7 @@ export function daemonAuthFixture(
     receive: unused,
     disconnect: unused,
     pushRevocationGeneration: unused,
+    pushTelemetryChanged: unused,
     startSession: unused,
     registerTraversal: unused,
     cancelSession: unused,
@@ -138,6 +140,12 @@ export function daemonAuthFixture(
     Layer.succeed(DeviceServiceTag, devices),
     Layer.succeed(RedisServiceTag, options.redis ?? redis),
     Layer.succeed(DaemonControlServiceTag, control),
+    // An account that opted in, so a route the proof admits goes on to accept
+    // the report; consent refusals have their own tests in telemetry-routes.
+    Layer.succeed(AccountTelemetryServiceTag, {
+      read: () => Effect.succeed(true),
+      write: (_userId, enabled) => Effect.succeed(enabled),
+    }),
     Layer.succeed(
       RateLimitServiceTag,
       options.rateLimit ?? { consume: () => Effect.succeed({ allowed: true }) },

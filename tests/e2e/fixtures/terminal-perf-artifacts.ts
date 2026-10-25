@@ -675,40 +675,14 @@ export class BoundedTailBuffer<T> {
 }
 
 /**
- * Opt the page into browser telemetry before the app boots.
- *
- * Profiling is opt-in and off by default. `createAppController` seeds its
- * `telemetryEnabled` signal from this key at boot and only constructs the
- * profiling worker for a session when it is on, and that worker is what owns
- * `__merkurPerfDump` — the drain for the shared-memory perf rings both other
- * workers write to. Left off, the workers latch `perfEnabled: false`, nothing
- * is ever written, and every telemetry assertion reads an empty trace from the
- * injected fallback recorder rather than failing on a missing worker.
- *
- * The key is spelled out rather than imported because this runs in the page;
- * `telemetry-preference.test.ts` repeats it for the same reason.
- *
- * Keep this function self-contained. Playwright serializes it and runs it in
- * the page with `addInitScript`, where module-scope bindings do not exist.
- */
-export function enableE2ETelemetryPreference(): void {
-  try {
-    localStorage.setItem('merkur:telemetry-enabled', 'true');
-  } catch {
-    // An opaque origin (a page still on about:blank) has no storage to seed.
-    // The next navigation runs this again, which is the one that matters.
-  }
-}
-
-/**
  * Keep this function self-contained. Playwright serializes it and runs it in
  * the page with `addInitScript`, where module-scope bindings do not exist.
  *
- * This installs the RECORDER only, which is what makes each worker latch
- * `perfEnabled` and write into the rings. Starting the telemetry worker that
- * DRAINS them is the separate stored preference, seeded by
- * `enableE2ETelemetryPreference` above — a page with one and not the other
- * writes into rings nobody reads and reads back an empty trace.
+ * This installs the harness recorder. The account must also consent to
+ * performance reporting before a session starts: the account helpers answer
+ * Share on the machine list so workers latch `perfEnabled` and the telemetry
+ * worker provides `__merkurPerfDump` to drain their shared-memory perf rings.
+ * Not-yet-chosen and off accounts do neither, even with this recorder installed.
  */
 export function installE2ETerminalPerfRecorder(): void {
   const recorderSchemaVersion = 3;

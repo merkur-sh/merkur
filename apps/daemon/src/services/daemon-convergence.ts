@@ -66,6 +66,7 @@ export function runConvergingControlEffect(
   health: DaemonControlHealthReporter,
   pathSignals: Queue.Dequeue<DaemonControlPathSignal>,
   shutdownIntent: Deferred.Deferred<void> | undefined,
+  setTelemetryEnabled: (enabled: boolean) => Effect.Effect<void>,
 ): Effect.Effect<DaemonControlSuperseded> {
   return Effect.scoped(
     Effect.gen(function* () {
@@ -81,6 +82,7 @@ export function runConvergingControlEffect(
             pathSignals,
             shutdownIntent,
             stageRelease: stager.request,
+            setTelemetryEnabled,
           }),
         );
         if (Result.isSuccess(outcome)) return outcome.success;

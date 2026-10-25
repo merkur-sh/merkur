@@ -117,6 +117,12 @@ export interface DaemonControlClientOptions {
    * `registered`, and `release_staged`). Called inline, so it must return at once.
    */
   readonly stageRelease?: (release: string) => Effect.Effect<void>;
+  /**
+   * Applies the account's performance-reporting consent from `registered` and
+   * `telemetry`. Applied before the control state reads `registered`, so the
+   * perf reporter never sends a window on a stale statement.
+   */
+  readonly setTelemetryEnabled: (enabled: boolean) => Effect.Effect<void>;
 }
 
 const NOOP_HEALTH_REPORTER: DaemonControlHealthReporter = {
@@ -357,7 +363,7 @@ export function runDaemonControlClientEffect(
     | 'updateStunCredential'
     | 'updateEdgeAdmission'
   >,
-  options: DaemonControlClientOptions = {},
+  options: DaemonControlClientOptions,
 ): Effect.Effect<DaemonControlSuperseded, DaemonReleaseRequired> {
   const dependencies = options.dependencies ?? defaultDependencies;
   const health = options.health ?? NOOP_HEALTH_REPORTER;
@@ -367,6 +373,7 @@ export function runDaemonControlClientEffect(
     [DAEMON_VERSION_HEADER]: merkurRelease(),
   };
   const stageRelease = options.stageRelease ?? (() => Effect.void);
+  const setTelemetryEnabled = options.setTelemetryEnabled;
 
   return Effect.gen(function* () {
     const currentConfig = yield* Ref.make(config);
@@ -505,6 +512,7 @@ export function runDaemonControlClientEffect(
         dependencies,
         health,
         stageRelease,
+        setTelemetryEnabled,
       ).pipe(
         Effect.withSpan('daemon.control.connection', {
           attributes: spanAttributes({
@@ -623,6 +631,7 @@ function runControlConnection(
   dependencies: DaemonControlClientDependencies,
   health: DaemonControlHealthReporter,
   stageRelease: (release: string) => Effect.Effect<void>,
+  setTelemetryEnabled: (enabled: boolean) => Effect.Effect<void>,
 ): Effect.Effect<ConnectionOutcome, DaemonControlConnectionError | DaemonReleaseRequired> {
   return Effect.scoped(
     Effect.gen(function* () {
@@ -700,6 +709,7 @@ function runControlConnection(
           config,
           headers,
           stageRelease,
+          setTelemetryEnabled,
         ),
         Deferred.await(childFailure),
       );
@@ -709,13 +719,16 @@ function runControlConnection(
 
 type DaemonControlStateMessage = Extract<
   DaemonControlServerMessage,
-  { readonly type: 'lease' | 'revocation' | 'release_staged' }
+  { readonly type: 'lease' | 'revocation' | 'release_staged' | 'telemetry' }
 >;
 
-/** A message that only updates state: the lease, the revoke-all push, a staged release. */
+/** State messages apply inline before the next command. */
 function isStateMessage(message: DaemonControlServerMessage): message is DaemonControlStateMessage {
   return (
-    message.type === 'lease' || message.type === 'revocation' || message.type === 'release_staged'
+    message.type === 'lease' ||
+    message.type === 'revocation' ||
+    message.type === 'release_staged' ||
+    message.type === 'telemetry'
   );
 }
 
@@ -725,6 +738,7 @@ function applyStateMessageEffect(
   dataplane: Pick<DataplaneClient, 'updateStunCredential' | 'updateEdgeAdmission'>,
   pushRevocationGeneration: (generation: number) => Effect.Effect<void>,
   stageRelease: (release: string) => Effect.Effect<void>,
+  setTelemetryEnabled: (enabled: boolean) => Effect.Effect<void>,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     switch (message.type) {
@@ -742,6 +756,9 @@ function applyStateMessageEffect(
         return;
       case 'revocation':
         yield* pushRevocationGeneration(message.revocationGeneration);
+        return;
+      case 'telemetry':
+        yield* setTelemetryEnabled(message.enabled);
         return;
       case 'release_staged':
         yield* stageRelease(message.release);
@@ -820,6 +837,7 @@ function runControlEventLoop(
   config: DaemonConfig,
   headers: Readonly<Record<string, string>>,
   stageRelease: (release: string) => Effect.Effect<void>,
+  setTelemetryEnabled: (enabled: boolean) => Effect.Effect<void>,
 ): Effect.Effect<ConnectionOutcome, never, Scope.Scope> {
   return Effect.gen(function* () {
     let registration = Option.none<DaemonControlRegisteredMessage>();
@@ -1140,6 +1158,7 @@ function runControlEventLoop(
         if (Option.isSome(registration) || message.silentAfterMs <= message.pingIntervalMs) {
           return yield* protocolViolation;
         }
+        yield* setTelemetryEnabled(message.telemetryEnabled);
         registration = Option.some(message);
         yield* recordControlRegistrationOutcome('registered');
         yield* Deferred.succeed(registered, undefined).pipe(Effect.asVoid);
@@ -1205,6 +1224,7 @@ function runControlEventLoop(
           dataplane,
           pushRevocationGeneration,
           stageRelease,
+          setTelemetryEnabled,
         );
         continue;
       }

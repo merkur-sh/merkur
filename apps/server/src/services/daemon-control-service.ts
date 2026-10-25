@@ -1,3 +1,4 @@
+import { SignalingReconnectSchedule } from '@merkur/config/retry-schedules';
 import {
   createDaemonControlDelegationRevokeMessage,
   createDaemonControlLeaseMessage,
@@ -7,6 +8,7 @@ import {
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
   createDaemonControlSupersededMessage,
+  createDaemonControlTelemetryMessage,
   createDaemonControlTraversalRegisterMessage,
   type DaemonControlCommandMessage,
   type DaemonControlDaemonMessage,
@@ -54,6 +56,7 @@ import {
   daemonControlSilentTransitionFrequency,
 } from '../observability/metrics';
 import { currentTraceparent } from '../observability/traceparent';
+import { readAccountTelemetryConsent } from './account-telemetry-service';
 import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { DeviceServiceTag } from './device-service';
 import { createEdgeAttachTicketIssuer, type EdgeAttachTicketIssuer } from './edge-attach-ticket';
@@ -247,6 +250,8 @@ export interface DaemonControlService {
    * peer close is a lost carrier whose lease is held for resume.
    */
   disconnect(connectionId: string, closeCode: number | null): Effect.Effect<void, RedisError>;
+  /** Wakes every connection of this user on every instance to re-read account telemetry consent. */
+  pushTelemetryChanged(userId: string): Effect.Effect<void, RedisError>;
   /**
    * Fans a new revoke-all generation out to every connection of this user on
    * every instance. The periodic `lease` message is the bound; this is the
@@ -419,6 +424,10 @@ interface ControlConnection {
   readonly inboundWake: Queue.Queue<void>;
   /** Wakes the convergence worker whenever `silent` may differ from Redis. */
   readonly presenceWake: Queue.Queue<void>;
+  /** Coalesces account consent changes for the serialized telemetry worker. */
+  readonly telemetryWake: Queue.Queue<void>;
+  /** The last boolean telemetry state sent to this daemon. */
+  telemetryEnabled: boolean;
   readonly presenceLeaseFinalized: Deferred.Deferred<void, RedisError>;
   presenceLeaseAcquired: boolean;
   /**
@@ -579,12 +588,19 @@ interface BrokerRevocationGeneration {
   readonly generation: number;
 }
 
+interface BrokerTelemetryChanged {
+  readonly type: 'telemetry_changed';
+  readonly version: typeof BROKER_PROTOCOL_VERSION;
+  readonly userId: string;
+}
+
 type BrokerEnvelope =
   | BrokerCommandRequest
   | BrokerCommandResult
   | BrokerSuperseded
   | BrokerDelegationRevocationRetry
-  | BrokerRevocationGeneration;
+  | BrokerRevocationGeneration
+  | BrokerTelemetryChanged;
 
 interface DaemonControlRuntime extends DaemonControlService {
   readonly processBrokerFrame: (frame: string) => Effect.Effect<void, RedisError>;
@@ -619,6 +635,8 @@ export interface DaemonControlServiceDependencies {
   readonly touchDaemonsSeen: (
     daemonIds: readonly string[],
   ) => Effect.Effect<void, InfrastructureError>;
+  /** States consent === true; not-chosen and off both state false. */
+  readonly telemetryEnabled: (userId: string) => Effect.Effect<boolean, InfrastructureError>;
   readonly revocationOutbox?: DelegationRevocationOutbox;
   readonly logger: Logger;
   /**
@@ -692,6 +710,8 @@ export const DaemonControlServiceLive = Layer.effect(
       redis,
       touchDaemon: (daemonId, version) => devices.touchDaemon(daemonId, version),
       touchDaemonsSeen: (daemonIds) => devices.touchDaemonsSeen(daemonIds),
+      telemetryEnabled: (userId) =>
+        readAccountTelemetryConsent(db, userId).pipe(Effect.map((consent) => consent === true)),
       revocationOutbox: createDelegationRevocationOutbox(db),
       logger,
       now: () => clock.currentTimeMillisUnsafe(),
@@ -879,6 +899,10 @@ export function createDaemonControlService(
               Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown),
               scope,
             );
+            const telemetryWake = yield* Scope.provide(
+              Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown),
+              scope,
+            );
             const presenceLeaseFinalized = yield* Deferred.make<void, RedisError>();
             const created: ControlConnection = {
               ...input,
@@ -886,6 +910,8 @@ export function createDaemonControlService(
               commandAckInbox,
               inboundWake,
               presenceWake,
+              telemetryWake,
+              telemetryEnabled: false,
               presenceLeaseFinalized,
               presenceLeaseAcquired: false,
               claimSeq: null,
@@ -1039,6 +1065,7 @@ export function createDaemonControlService(
         );
         const edges = yield* dependencies.edges;
         const stagedRelease = yield* dependencies.stagedRelease ?? Effect.succeed(null);
+        connection.telemetryEnabled = yield* dependencies.telemetryEnabled(input.userId);
         yield* sendFrame(
           connection,
           (() => {
@@ -1057,8 +1084,12 @@ export function createDaemonControlService(
               edgeAttach.forDaemon(input.daemonId, now()),
               edges,
               stagedRelease,
+              connection.telemetryEnabled,
             );
           })(),
+        );
+        yield* superviseConnectionWorker(connection, runTelemetryWorker(connection)).pipe(
+          Effect.forkIn(connection.scope),
         );
         const revocationsApplied = yield* flushDaemonDelegationRevocations({
           daemonId: input.daemonId,
@@ -1181,6 +1212,15 @@ export function createDaemonControlService(
         (connection) => sendFrame(connection, message).pipe(Effect.ignore({ log: 'Debug' })),
         { discard: true },
       );
+    },
+
+    pushTelemetryChanged(userId) {
+      const envelope: BrokerTelemetryChanged = {
+        type: 'telemetry_changed',
+        version: BROKER_PROTOCOL_VERSION,
+        userId,
+      };
+      return redis.publish(BROKER_BROADCAST_CHANNEL, JSON.stringify(envelope));
     },
 
     pushRevocationGeneration(userId, generation) {
@@ -1342,6 +1382,14 @@ export function createDaemonControlService(
       const envelope = parseBrokerEnvelope(frame);
       if (envelope === null) {
         return logWithLoggerEffect(logger, 'warn', 'daemon_control_invalid_broker_frame');
+      }
+      if (envelope.type === 'telemetry_changed') {
+        return Effect.sync(() => {
+          for (const connectionId of connectionIdsByUserId.get(envelope.userId) ?? []) {
+            const connection = connections.get(connectionId);
+            if (connection !== undefined) Queue.offerUnsafe(connection.telemetryWake, undefined);
+          }
+        });
       }
       if (envelope.type === 'revocation_generation') {
         return deliverRevocationGeneration(envelope.userId, envelope.generation);
@@ -1861,6 +1909,38 @@ export function createDaemonControlService(
             );
           }
         }
+      }
+    });
+  }
+
+  function runTelemetryWorker(connection: ControlConnection): Effect.Effect<never> {
+    return Effect.gen(function* () {
+      while (true) {
+        yield* Queue.take(connection.telemetryWake);
+        const enabled = yield* dependencies.telemetryEnabled(connection.userId).pipe(
+          Effect.tapError((error) =>
+            logWithLoggerEffect(logger, 'warn', 'daemon_control_telemetry_read_failed', {
+              daemonId: connection.daemonId,
+              ...errorLogContext(error),
+            }),
+          ),
+          Effect.retry(SignalingReconnectSchedule),
+          Effect.orDie,
+        );
+        if (enabled === connection.telemetryEnabled) continue;
+        yield* sendFrame(connection, createDaemonControlTelemetryMessage(enabled)).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              connection.telemetryEnabled = enabled;
+            }),
+          ),
+          Effect.catch((error) =>
+            logWithLoggerEffect(logger, 'warn', 'daemon_control_telemetry_send_failed', {
+              daemonId: connection.daemonId,
+              ...errorLogContext(error),
+            }),
+          ),
+        );
       }
     });
   }
@@ -2692,6 +2772,13 @@ function parseBrokerEnvelope(frame: string): BrokerEnvelope | null {
     typeof value.type !== 'string'
   ) {
     return null;
+  }
+  if (value.type === 'telemetry_changed') {
+    if (!hasExactKeys(value, ['type', 'version', 'userId'])) return null;
+    const userId = readIdentifier(value.userId);
+    return userId === null
+      ? null
+      : { type: 'telemetry_changed', version: BROKER_PROTOCOL_VERSION, userId };
   }
   if (value.type === 'command_request') return parseBrokerCommandRequest(value);
   if (value.type === 'command_result') return parseBrokerCommandResult(value);

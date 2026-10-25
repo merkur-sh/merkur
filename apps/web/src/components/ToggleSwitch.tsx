@@ -10,10 +10,15 @@ import { ariaBool } from '../lib/aria';
  * form to submit and nothing to confirm. The knob is the only thing that moves,
  * and it moves on `transform` so the change costs the compositor a frame and
  * the main thread nothing.
+ *
+ * A setting saved elsewhere is `busy` while it saves: the knob already shows the
+ * position asked for, and the switch keeps its focus and refuses another throw
+ * until the answer lands.
  */
 interface Props {
   readonly checked: boolean;
   readonly disabled?: boolean;
+  readonly busy?: boolean;
   readonly label: string;
   onChange(next: boolean): void;
 }
@@ -24,8 +29,13 @@ const ToggleSwitch: Component<Props> = (props) => (
     role="switch"
     aria-checked={ariaBool(props.checked)}
     aria-label={props.label}
+    aria-busy={ariaBool(props.busy === true)}
+    aria-disabled={ariaBool(props.busy === true)}
     disabled={props.disabled === true}
-    onClick={() => props.onChange(!props.checked)}
+    onClick={() => {
+      if (props.busy === true) return;
+      props.onChange(!props.checked);
+    }}
     class={[
       // The press area is 44 px tall and wider than the track, through the
       // same `after:` every `btn` carries: the drawn switch is 18 px.

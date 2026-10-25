@@ -23,7 +23,6 @@ import {
 import { waitForFinalDaemonTransportCapture } from './daemon-transport-capture';
 import { releaseHarnessPort, takeHarnessPort } from './harness-ports';
 import { nativeNetworkCommand } from './native-network-namespace';
-import { enableE2ETelemetryPreference } from './terminal-perf-artifacts';
 import { test as base, expect } from './test';
 import { redirectTransportWorker } from './transport-worker-prelude';
 
@@ -526,11 +525,6 @@ export const test = base.extend<
       await waitForWebTransportListener(daemon, linkedDaemonWorker.webTransportPort);
     }
     const page = await linkedDaemonWorker.context.newPage();
-    // This override replaces the base `page` fixture outright, so the telemetry
-    // seed it installs does not apply here. Profiling has to be on before
-    // `linkedDaemon` navigates: the app reads the preference once at boot and
-    // latches `perfEnabled` per worker from it.
-    await page.addInitScript(enableE2ETelemetryPreference);
     const diagnostics: string[] = [];
     page.on('console', (message) =>
       diagnostics.push(`[console:${message.type()}] ${message.text()}`),
@@ -614,6 +608,8 @@ interface AcquireOptions {
 }
 
 async function acquireLinkedDaemon(options: AcquireOptions): Promise<LinkedDaemonResources> {
+  // Registration answers Share before linking; every page of this worker's
+  // account receives that consent before the first live machine-list frame.
   await registerUser(options.page, options.username, options.password);
   const linked = await completeDaemonLink(options.page, options.baseURL, options.password);
   const daemon = await spawnDaemon(linked.daemonHome, linked.logChunks);

@@ -10,6 +10,7 @@ import {
   createDaemonControlSessionCancelMessage,
   createDaemonControlSessionStartMessage,
   createDaemonControlSupersededMessage,
+  createDaemonControlTelemetryMessage,
   createDaemonControlTraversalRegisterMessage,
   DAEMON_CONTROL_PROTOCOL_VERSION,
   MAX_DAEMON_CONTROL_FRAME_BYTES,
@@ -138,6 +139,7 @@ describe('daemon control protocol v1', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         null,
+        true,
       ),
       createDaemonControlRegisteredMessage(
         'connection-1',
@@ -153,8 +155,11 @@ describe('daemon control protocol v1', () => {
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
         EDGES,
         'v2.0.0',
+        false,
       ),
       createDaemonControlReleaseStagedMessage('v2.1.0'),
+      createDaemonControlTelemetryMessage(true),
+      createDaemonControlTelemetryMessage(false),
       createDaemonControlLeaseMessage(
         3,
         'ticket',
@@ -267,6 +272,21 @@ describe('daemon control protocol v1', () => {
     expect(parseDaemonControlServerMessage(unticketed)).toBeNull();
   });
 
+  test('telemetry messages require one exact boolean', () => {
+    for (const enabled of [true, false]) {
+      const message = createDaemonControlTelemetryMessage(enabled);
+      expect(parseDaemonControlServerMessage(JSON.stringify(message))).toEqual(message);
+      expect(parseDaemonControlServerMessage({ ...message, extra: true })).toBeNull();
+      const { enabled: _omitted, ...missing } = message;
+      expect(parseDaemonControlServerMessage(missing)).toBeNull();
+    }
+    for (const enabled of [0, 1, 'true', 'false', null, undefined, {}, []]) {
+      expect(
+        parseDaemonControlServerMessage({ type: 'telemetry', version: 1, enabled }),
+      ).toBeNull();
+    }
+  });
+
   test('rejects a silence window no longer than the ping interval', () => {
     const registered = createDaemonControlRegisteredMessage(
       'connection-1',
@@ -282,7 +302,14 @@ describe('daemon control protocol v1', () => {
       'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       EDGES,
       null,
+      true,
     );
+    for (const telemetryEnabled of [0, 1, 'true', 'false', null, undefined, {}, []]) {
+      expect(parseDaemonControlServerMessage({ ...registered, telemetryEnabled })).toBeNull();
+    }
+    const { telemetryEnabled: _omitted, ...missingTelemetry } = registered;
+    expect(parseDaemonControlServerMessage(missingTelemetry)).toBeNull();
+    expect(parseDaemonControlServerMessage({ ...registered, extra: true })).toBeNull();
     expect(
       parseDaemonControlServerMessage({
         ...registered,

@@ -146,7 +146,9 @@ const App: Component = () => {
                 keysActive={controller.isSettings()}
                 tab={controller.settingsTab()}
                 tabs={SETTINGS_TABS}
-                telemetryEnabled={controller.telemetryEnabled()}
+                telemetryConsent={controller.telemetryConsent()}
+                telemetryChoicePending={controller.telemetryChoicePending()}
+                telemetryChoiceFailed={controller.telemetryChoiceFailed()}
                 telemetryStats={controller.telemetryStats()}
                 terminalAppearance={controller.terminalAppearance()}
                 terminalNotificationState={controller.terminalNotificationState()}
@@ -159,7 +161,7 @@ const App: Component = () => {
                 onDeleteAccount={controller.onDeleteAccount}
                 onLogout={controller.onLogout}
                 onTabChange={controller.onSettingsTabChange}
-                onTelemetryEnabledChange={controller.onTelemetryEnabledChange}
+                onTelemetryChoice={controller.onTelemetryChoice}
                 onTerminalFontFamilyChange={controller.onTerminalFontFamilyChange}
                 onTerminalFontSizeChange={controller.onTerminalFontSizeChange}
                 onTerminalNotificationsDisable={controller.onTerminalNotificationsDisable}
@@ -222,6 +224,9 @@ const App: Component = () => {
         onCreateBox={controller.onCreateBox}
         onJoinBoxWaitlist={controller.onJoinBoxWaitlist}
         onRename={controller.onDeviceRename}
+        telemetryChoicePending={controller.telemetryChoicePending()}
+        telemetryChoiceFailed={controller.telemetryChoiceFailed()}
+        onTelemetryChoice={controller.onTelemetryChoice}
       />
 
       <NoticeRail>

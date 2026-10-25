@@ -9,6 +9,8 @@ export const BROWSER_EVENT_SESSION_ENDED = 'browser-session-ended';
  * one a browser may be showing is no longer current.
  */
 export const BROWSER_EVENT_SESSIONS_CHANGED = 'browser-sessions-changed';
+/** Account telemetry consent; payload is JSON true, false or null (not yet chosen). */
+export const BROWSER_EVENT_ACCOUNT_TELEMETRY = 'account-telemetry';
 
 /** Absolute, ephemeral browser connectivity; independent of device-list cursors. */
 export interface BrowserPresenceFrame {

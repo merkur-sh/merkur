@@ -1,10 +1,14 @@
 import { OpaqueWebBuildPin } from '@merkur/config';
 import { MerkurLoggerLayer } from '@merkur/logger';
-import { ConfigProvider, type Effect, Layer, ManagedRuntime } from 'effect';
+import { ConfigProvider, Effect, Layer, ManagedRuntime } from 'effect';
 
 import { ServerConfigLive, type ServerConfigService } from './config';
-import { DatabaseLive, type DatabaseService } from './db/client';
+import { DatabaseLive, DatabaseService } from './db/client';
 import { TelemetryLive } from './observability/telemetry';
+import {
+  AccountTelemetryServiceTag,
+  createAccountTelemetryService,
+} from './services/account-telemetry-service';
 import { AuthServiceLive, type AuthServiceTag } from './services/auth-service';
 import { BoxAccessServiceLive, type BoxAccessServiceTag } from './services/box-access-service';
 import { BoxHostServiceLive, type BoxHostServiceTag } from './services/box-host-service';
@@ -18,7 +22,7 @@ import {
 } from './services/browser-session-presence';
 import {
   DaemonControlServiceLive,
-  type DaemonControlServiceTag,
+  DaemonControlServiceTag,
 } from './services/daemon-control-service';
 import {
   DaemonLinkClaimServiceLive,
@@ -52,7 +56,7 @@ import {
   RealtimeCoordinationServiceLive,
   type RealtimeCoordinationServiceTag,
 } from './services/realtime-coordination-service';
-import { RedisServiceLive, type RedisServiceTag } from './services/redis-service';
+import { RedisServiceLive, RedisServiceTag } from './services/redis-service';
 import { RybbitEventsLive, type RybbitEventsTag } from './services/rybbit-events';
 import {
   SessionIssuanceServiceLive,
@@ -102,6 +106,18 @@ const DaemonControlServiceResolvedLive = DaemonControlServiceLive.pipe(
   Layer.provideMerge(CoreServicesLive),
 );
 
+// Compose here so the daemon control layer can use the plain account read
+// without importing a layer that depends on daemon control itself.
+const AccountTelemetryServiceResolvedLive = Layer.effect(
+  AccountTelemetryServiceTag,
+  Effect.gen(function* () {
+    const db = yield* DatabaseService;
+    const control = yield* DaemonControlServiceTag;
+    const redis = yield* RedisServiceTag;
+    return createAccountTelemetryService(db, control, redis);
+  }),
+).pipe(Layer.provideMerge(DaemonControlServiceResolvedLive), Layer.provideMerge(RedisServiceLive));
+
 const PushNotificationServiceResolvedLive = PushNotificationServiceLive.pipe(
   Layer.provideMerge(CoreServicesLive),
 );
@@ -109,6 +125,7 @@ const PushNotificationServiceResolvedLive = PushNotificationServiceLive.pipe(
 const ApplicationServicesLive = Layer.mergeAll(
   HealthServiceLive,
   KeyboardSettingsServiceLive,
+  AccountTelemetryServiceResolvedLive,
   BoxAccessServiceLive,
   BoxWaitlistServiceLive,
   RybbitEventsLive,
@@ -148,6 +165,7 @@ const ServerLive = SessionServiceLive.pipe(
 export type ServerRuntimeContext =
   | ServerConfigService
   | DatabaseService
+  | AccountTelemetryServiceTag
   | AuthServiceTag
   | BoxAccessServiceTag
   | BoxWaitlistServiceTag

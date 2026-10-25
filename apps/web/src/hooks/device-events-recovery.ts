@@ -1,11 +1,23 @@
 import type { DeviceEventsCursor } from '@merkur/shared';
-import { Data, Duration, Effect, Latch, Queue, Ref, Schedule, type Scope, Stream } from 'effect';
+import {
+  Data,
+  Duration,
+  Effect,
+  Latch,
+  Predicate,
+  Queue,
+  Ref,
+  Schedule,
+  type Scope,
+  Stream,
+} from 'effect';
 import type * as AsyncResult from 'effect/reactivity/AsyncResult';
 import * as Atom from 'effect/reactivity/Atom';
 import { AtomRegistry } from 'effect/reactivity/AtomRegistry';
 import { isApiError } from '../lib/api-error';
 import type { NetworkChangeEvent } from '../session/network-monitor';
 import {
+  accountTelemetryAtom,
   applyDeviceDelta,
   applyDeviceResume,
   applyDeviceSnapshot,
@@ -246,6 +258,10 @@ export const runDeviceEventsRecovery = Effect.fnUntraced(function* (
     if (event._tag === 'activity') return;
     if (event._tag === 'browser-presence') {
       registry.set(browserPresenceAtom, event.frame.activeDelegationIds);
+      return;
+    }
+    if (Predicate.isTagged(event, 'account-telemetry')) {
+      registry.set(accountTelemetryAtom, event.enabled);
       return;
     }
     if (event._tag === 'sessions-changed') {

@@ -209,6 +209,7 @@ export function createFakeControl(
     receive: () => Effect.die(new Error('unexpected receive')),
     disconnect: () => Effect.die(new Error('unexpected disconnect')),
     pushRevocationGeneration: () => Effect.die(new Error('unexpected pushRevocationGeneration')),
+    pushTelemetryChanged: () => Effect.die(new Error('unexpected pushTelemetryChanged')),
     startSession(input) {
       if (deliveryFailure) return failDelivery(input.presence.daemonId);
       const payload = encodeDaemonControlMessage(

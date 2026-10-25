@@ -1007,7 +1007,6 @@
   },
   "apps/web/src/hooks/device-events-source.ts": {
     "no-known-value-widening": 1,
-    "no-manual-tagged-construction": 8,
     "no-swallowed-error": 1,
     "no-unknown-parameters": 1,
     "no-unknown-returns": 1,
@@ -2578,7 +2577,6 @@
     "no-chained-type-assertions": 2,
     "no-known-value-widening": 3,
     "no-runtime-typeof": 14,
-    "no-swallowed-error": 1,
     "no-unknown-parameters": 9,
     "no-unsafe-dictionary-type": 15,
     "require-safety-comment-for-type-assertion": 7

@@ -8,11 +8,14 @@ import {
 } from '@merkur/daemon-control-protocol';
 import type { DeviceEventDelta } from '@merkur/shared';
 import { Deferred, Effect, Fiber, Layer, Queue } from 'effect';
+import { TestClock } from 'effect/testing';
+import type { Kysely } from 'kysely';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
 import { createMigratedKyselyDatabase } from '../db/migrate';
 import type { DatabaseSchema } from '../db/types';
 import type { Logger } from '../logger';
+import { createAccountTelemetryService } from './account-telemetry-service';
 import {
   ControlBackpressure,
   type ControlCommandRejected,
@@ -34,6 +37,7 @@ import {
 import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { type DeviceService, DeviceServiceTag } from './device-service';
 import { type EdgeRegistryService, EdgeRegistryServiceTag } from './edge-registry-service';
+import { infrastructureError } from './errors';
 import {
   type DaemonCarrierIdentity,
   type DaemonPresence,
@@ -119,6 +123,336 @@ describe('DaemonControlService', () => {
     ]);
   });
 
+  test('not-chosen registration states false and choosing on pushes true', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const socket = new TestSocket();
+    const listeners = new Map<string, (message: string) => void>();
+    const redis: RedisService = {
+      ...bus.redis,
+      subscribe: (channel, handler) =>
+        Effect.sync(() => {
+          listeners.set(channel, handler);
+        }),
+      unsubscribe: (channel) =>
+        Effect.sync(() => {
+          listeners.delete(channel);
+        }),
+      publish: (channel, message) =>
+        bus.redis
+          .publish(channel, message)
+          .pipe(Effect.andThen(Effect.sync(() => listeners.get(channel)?.(message)))),
+    };
+    const dependencies = Layer.mergeAll(
+      Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
+      Layer.succeed(RedisServiceTag, redis),
+      Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
+      testDatabaseLayer(),
+      Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
+      Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
+    );
+    const controlLayer = DaemonControlServiceLive.pipe(Layer.provideMerge(dependencies));
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const control = yield* DaemonControlServiceTag;
+          const db = yield* DatabaseService;
+          const telemetry = createAccountTelemetryService(db, control, redis);
+          expect(yield* telemetry.read(USER_ID)).toBeNull();
+          yield* control.acceptConnection({
+            daemonId: DAEMON_ID,
+            userId: USER_ID,
+            boxId: null,
+            daemonVersion: '4.0.0',
+            connectionId: 'connection-1',
+            presenceId: 'presence-1',
+            socket,
+            zone: null,
+          });
+          expect(socket.messagesOfType('registered')[0]?.telemetryEnabled).toBe(false);
+          expect(yield* telemetry.write(USER_ID, true)).toBe(true);
+          expect(yield* Effect.promise(() => waitForMessage(socket, 'telemetry'))).toEqual({
+            type: 'telemetry',
+            version: 1,
+            enabled: true,
+          });
+        }).pipe(Effect.provide(controlLayer)),
+      ),
+    );
+  });
+
+  test('telemetry pushes re-read and state only changes for the addressed account', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    let enabled = true;
+    let reads = 0;
+    let readObserved = (): void => {};
+    let telemetrySent = (): void => {};
+    const socket = new TestSocket();
+    const service = createService(createFakeCoordination('instance-a', state), bus.redis, {
+      telemetryEnabled: () =>
+        Effect.sync(() => {
+          reads += 1;
+          readObserved();
+          return enabled;
+        }),
+    });
+    const originalSend = socket.sendText.bind(socket);
+    socket.sendText = (payload) => {
+      const status = originalSend(payload);
+      if (parseDaemonControlServerMessage(payload)?.type === 'telemetry') telemetrySent();
+      return status;
+    };
+    const push = async () => {
+      await Effect.runPromise(service.pushTelemetryChanged(USER_ID));
+      const frame = required(bus.published.at(-1));
+      expect(frame.channel).toBe('merkur:daemon-control:broadcast');
+      expect(JSON.parse(frame.message)).toEqual({
+        type: 'telemetry_changed',
+        version: 1,
+        userId: USER_ID,
+      });
+      await Effect.runPromise(service.processBrokerFrame(frame.message));
+    };
+    try {
+      await register(service, socket);
+      await Effect.runPromise(
+        service.processBrokerFrame(
+          JSON.stringify({ type: 'telemetry_changed', version: 1, userId: 'other' }),
+        ),
+      );
+      for (const invalid of [
+        { type: 'telemetry_changed', version: 1 },
+        { type: 'telemetry_changed', version: 1, userId: USER_ID, enabled: false },
+        { type: 'telemetry_changed', version: 1, userId: '' },
+        { type: 'telemetry_changed', version: 2, userId: USER_ID },
+      ])
+        await Effect.runPromise(service.processBrokerFrame(JSON.stringify(invalid)));
+      expect(reads).toBe(1);
+      const unchanged = new Promise<void>((resolve) => {
+        readObserved = resolve;
+      });
+      await push();
+      await unchanged;
+      enabled = false;
+      const off = new Promise<void>((resolve) => {
+        telemetrySent = resolve;
+      });
+      await push();
+      await off;
+      const same = new Promise<void>((resolve) => {
+        readObserved = resolve;
+      });
+      await push();
+      await same;
+      enabled = true;
+      const on = new Promise<void>((resolve) => {
+        telemetrySent = resolve;
+      });
+      await push();
+      await on;
+      expect(reads).toBe(5);
+      expect(socket.messagesOfType('telemetry')).toEqual([
+        { type: 'telemetry', version: 1, enabled: false },
+        { type: 'telemetry', version: 1, enabled: true },
+      ]);
+    } finally {
+      await Effect.runPromise(service.shutdown);
+    }
+  });
+
+  test('telemetry wakes during a read wait for it and re-read after the latest commit', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const socket = new TestSocket();
+    let enabled = true;
+    let reads = 0;
+    let beginRead = (): void => {};
+    let finishRead = (): void => {};
+    let converged = (): void => {};
+    const started = new Promise<void>((resolve) => {
+      beginRead = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finishRead = resolve;
+    });
+    const stated = new Promise<void>((resolve) => {
+      converged = resolve;
+    });
+    const service = createService(createFakeCoordination('instance-a', state), bus.redis, {
+      telemetryEnabled: () =>
+        Effect.promise(async () => {
+          reads += 1;
+          const value = enabled;
+          if (reads === 2) {
+            beginRead();
+            await pending;
+          }
+          return value;
+        }),
+    });
+    const send = socket.sendText.bind(socket);
+    socket.sendText = (payload) => {
+      const status = send(payload);
+      const frame = parseDaemonControlServerMessage(payload);
+      if (frame?.type === 'telemetry' && frame.enabled) converged();
+      return status;
+    };
+    const wake = () =>
+      Effect.runPromise(
+        service.processBrokerFrame(
+          JSON.stringify({ type: 'telemetry_changed', version: 1, userId: USER_ID }),
+        ),
+      );
+    try {
+      await register(service, socket);
+      enabled = false;
+      await wake();
+      await started;
+      enabled = true;
+      await wake();
+      await wake();
+      expect(reads).toBe(2);
+      finishRead();
+      await stated;
+      expect(reads).toBe(3);
+      expect(socket.messagesOfType('telemetry')).toEqual([
+        { type: 'telemetry', version: 1, enabled: false },
+        { type: 'telemetry', version: 1, enabled: true },
+      ]);
+    } finally {
+      finishRead();
+      await Effect.runPromise(service.shutdown);
+    }
+  });
+
+  test('a failed telemetry read is logged and retried without closing the connection', async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const failed = yield* Deferred.make<void>();
+          const stated = yield* Queue.sliding<boolean>(1);
+          const state = createCoordinationState();
+          const bus = createBrokerBus();
+          const socket = new TestSocket();
+          let reads = 0;
+          const warnings: string[] = [];
+          const service = createService(createFakeCoordination('instance-a', state), bus.redis, {
+            logger: {
+              ...NOOP_LOGGER,
+              warn: (event) => {
+                warnings.push(event);
+              },
+            },
+            telemetryEnabled: () =>
+              Effect.gen(function* () {
+                reads += 1;
+                if (reads === 2) {
+                  yield* Deferred.succeed(failed, undefined);
+                  return yield* infrastructureError(
+                    'database',
+                    'read-account-telemetry',
+                  )(new Error('unavailable'));
+                }
+                return reads === 1;
+              }),
+          });
+          yield* Effect.addFinalizer(() => service.shutdown);
+          const send = socket.sendText.bind(socket);
+          socket.sendText = (payload) => {
+            const status = send(payload);
+            const frame = parseDaemonControlServerMessage(payload);
+            if (frame?.type === 'telemetry') Queue.offerUnsafe(stated, frame.enabled);
+            return status;
+          };
+          yield* service.acceptConnection({
+            daemonId: DAEMON_ID,
+            userId: USER_ID,
+            boxId: null,
+            daemonVersion: '4.0.0',
+            connectionId: 'connection-1',
+            presenceId: 'presence-1',
+            socket,
+            zone: null,
+          });
+          yield* service.processBrokerFrame(
+            JSON.stringify({ type: 'telemetry_changed', version: 1, userId: USER_ID }),
+          );
+          yield* Deferred.await(failed);
+          yield* TestClock.adjust('500 millis');
+          expect(yield* Queue.take(stated)).toBe(false);
+          expect(reads).toBe(3);
+          expect(warnings).toContain('daemon_control_telemetry_read_failed');
+          expect(socket.closed).toEqual([]);
+          expect((yield* service.healthSnapshot()).connectionWorkersHealthy).toBe(true);
+        }),
+      ).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
+  test('a telemetry wake during registration is delivered after registered', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const socket = new TestSocket();
+    let readStarted = (): void => {};
+    let releaseRead = (): void => {};
+    let telemetrySent = (): void => {};
+    const started = new Promise<void>((resolve) => {
+      readStarted = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const sent = new Promise<void>((resolve) => {
+      telemetrySent = resolve;
+    });
+    let reads = 0;
+    const service = createService(createFakeCoordination('instance-a', state), bus.redis, {
+      telemetryEnabled: () =>
+        Effect.promise(async () => {
+          reads += 1;
+          if (reads === 1) {
+            readStarted();
+            await pending;
+            return true;
+          }
+          return false;
+        }),
+    });
+    const originalSend = socket.sendText.bind(socket);
+    socket.sendText = (payload) => {
+      const status = originalSend(payload);
+      if (parseDaemonControlServerMessage(payload)?.type === 'telemetry') telemetrySent();
+      return status;
+    };
+    try {
+      const registration = register(service, socket);
+      await started;
+      await Effect.runPromise(service.pushTelemetryChanged(USER_ID));
+      const frame = required(bus.published.at(-1)).message;
+      await Effect.runPromise(service.processBrokerFrame(frame));
+      await Effect.runPromise(service.processBrokerFrame(frame));
+      expect(reads).toBe(1);
+      expect(socket.frames).toEqual([]);
+      releaseRead();
+      await registration;
+      await sent;
+      expect(reads).toBe(2);
+      expect(socket.frames.map((frame) => parseDaemonControlServerMessage(frame)?.type)).toEqual([
+        'registered',
+        'telemetry',
+      ]);
+      expect(socket.messagesOfType('registered')[0]?.telemetryEnabled).toBe(true);
+      expect(socket.messagesOfType('telemetry')).toEqual([
+        { type: 'telemetry', version: 1, enabled: false },
+      ]);
+    } finally {
+      releaseRead();
+      await Effect.runPromise(service.shutdown);
+    }
+  });
+
   test('registers ping policy and renews the lease on the ticker with a lease frame', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
@@ -145,6 +479,7 @@ describe('DaemonControlService', () => {
         edgeAttachTicket: EDGE_TICKET,
         edges: EDGES,
         stagedRelease: null,
+        telemetryEnabled: true,
       },
     ]);
     // Registration renewed the lease once; nothing is due yet.
@@ -2502,6 +2837,8 @@ function createService(
       | 'stagedRelease'
       | 'revocationOutbox'
       | 'edges'
+      | 'telemetryEnabled'
+      | 'logger'
     >
   > = {},
 ) {
@@ -2510,6 +2847,7 @@ function createService(
     redis,
     touchDaemon: () => Effect.void,
     touchDaemonsSeen: () => Effect.void,
+    telemetryEnabled: () => Effect.succeed(true),
     logger: NOOP_LOGGER,
     // A fixed issuer, so the `registered` and `lease` assertions can compare
     // exact frames instead of matching around a random ticket.
@@ -2705,7 +3043,11 @@ function testDatabaseLayer() {
   return Layer.effect(
     DatabaseService,
     Effect.acquireRelease(
-      Effect.promise(() => createMigratedKyselyDatabase<DatabaseSchema>(':memory:')),
+      Effect.promise(async () => {
+        const database = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
+        await insertUser(database, USER_ID);
+        return database;
+      }),
       (database) => Effect.promise(() => database.destroy()),
     ),
   );
@@ -2724,3 +3066,20 @@ const TEST_DEVICE_SERVICE: DeviceService = {
   touchDaemon: () => Effect.void,
   touchDaemonsSeen: () => Effect.void,
 };
+
+async function insertUser(database: Kysely<DatabaseSchema>, id: string): Promise<void> {
+  await database
+    .insertInto('users')
+    .values({
+      id,
+      username: `${id}@merkur.test`,
+      opaque_registration_record: 'record',
+      root_public_key: 'root-public-key',
+      root_key_commitment: 'root-key-commitment',
+      root_epoch: 1,
+      root_envelope_nonce: 'nonce',
+      root_envelope_ciphertext: 'ciphertext',
+      created_at: 0,
+    })
+    .execute();
+}

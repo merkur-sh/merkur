@@ -9,6 +9,10 @@ import { Elysia, status, t } from 'elysia';
 import { DatabaseService } from '../../db/client';
 import { errorLogContext, type Logger, logWithLoggerEffect } from '../../logger';
 import type { runServerProgram } from '../../runtime';
+import {
+  AccountTelemetryServiceTag,
+  subscribeAccountTelemetryChanges,
+} from '../../services/account-telemetry-service';
 import { type AuthenticatedBrowser, AuthServiceTag } from '../../services/auth-service';
 import { BoxAccessServiceTag } from '../../services/box-access-service';
 import {
@@ -23,6 +27,7 @@ import { DeviceServiceTag } from '../../services/device-service';
 import { infrastructureError } from '../../services/errors';
 import { readMachineUsage } from '../../services/machine-usage';
 import { RealtimeCoordinationServiceTag } from '../../services/realtime-coordination-service';
+import { RedisServiceTag } from '../../services/redis-service';
 import { ApiModels } from '../api-models';
 import { authenticatedApiPlugin } from '../authenticated-api';
 import { loggedEffect, runRouteEffect } from '../effect-route';
@@ -110,6 +115,15 @@ export function deviceRoutesPlugin({
                 request,
               },
             ),
+          subscribeTelemetryChanges: (listener) =>
+            Effect.gen(function* () {
+              const redis = yield* RedisServiceTag;
+              return yield* subscribeAccountTelemetryChanges(redis, userId, listener);
+            }),
+          loadTelemetryConsent: Effect.gen(function* () {
+            const telemetry = yield* AccountTelemetryServiceTag;
+            return yield* telemetry.read(userId);
+          }),
           readCursor: loggedEffect(
             Effect.gen(function* () {
               const deviceEvents = yield* DeviceEventsServiceTag;

@@ -6,6 +6,7 @@ import { type Accessor, createSignal, onCleanup, useContext } from 'solid-js';
 import { createLinkTokenEffect, deleteDevice, fetchServerRelease, renameDevice } from '../api';
 import type { DeviceListStatus } from '../hooks/device-events-atoms';
 import {
+  accountTelemetryAtom,
   applyLocalDeviceChange,
   browserPresenceAtom,
   browserSessionsChangedAtom,
@@ -48,6 +49,7 @@ interface DeviceListControllerOptions {
   onSessionRejected(): void;
   /** Another browser of this account signed in or was revoked. */
   onBrowserSessionsChanged(): void;
+  onAccountTelemetryChanged(enabled: boolean | null | undefined): void;
   /**
    * A device-events attempt ended owing the screen a frame.
    *
@@ -116,6 +118,10 @@ export function createDeviceListController(
   );
   onCleanup(
     registry.subscribe(browserSessionsChangedAtom, () => options.onBrowserSessionsChanged()),
+  );
+
+  onCleanup(
+    registry.subscribe(accountTelemetryAtom, (next) => options.onAccountTelemetryChanged(next)),
   );
 
   const [deviceOperation, setDeviceOperation] = createSignal<DeviceOperation | null>(null);
@@ -248,6 +254,9 @@ export function createDeviceListController(
     startGeneration = nextGeneration(startGeneration);
     pauseLinkRefresh();
     stopDeviceEvents(registry);
+    // A save can be pending before the stream states consent, so stopping must
+    // notify the owner even when the atom was already unknown.
+    options.onAccountTelemetryChanged(undefined);
   }
 
   function pauseLinkRefresh(): void {

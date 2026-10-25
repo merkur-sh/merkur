@@ -53,7 +53,6 @@ import {
   buildTelemetryObservationRecorderMetadata,
   collectApplicationDisplayOutcome,
   collectPredictionDiagnostics,
-  enableE2ETelemetryPreference,
   freezeTerminalPerfSnapshot,
   installE2ETerminalPerfRecorder,
   MAX_SUMMARY_REPORT_SAMPLES,
@@ -493,11 +492,6 @@ interface WindowedTerminalPerfCapture extends TerminalPerfRecorderCapture {
 
 export const test = base.extend<{ terminalPerf: TerminalPerfFixture }>({
   page: async ({ page }, use, testInfo) => {
-    // Seeded here rather than in `terminalPerf` because the app reads the
-    // preference once at boot and fixtures that navigate — `linkedDaemon`
-    // calls `goto('/')` — are not ordered after it. A seed that lands on an
-    // already-booted page leaves that session unprofiled with no second read.
-    await page.addInitScript(enableE2ETelemetryPreference);
     const diagnostics = new BoundedTailBuffer<string>(2_048);
     page.on('console', (message) => {
       diagnostics.push(`[console:${message.type()}] ${message.text()}`);

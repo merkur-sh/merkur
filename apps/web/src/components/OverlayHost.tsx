@@ -21,6 +21,7 @@ import { claimPress } from '../lib/press-claim';
 import CreateBoxDialog from '../screens/CreateBoxDialog';
 import DaemonLinkApprovalDialog from '../screens/DaemonLinkApprovalDialog';
 import RenameDeviceDialog from '../screens/RenameDeviceDialog';
+import TelemetryConsentDialog from '../screens/TelemetryConsentDialog';
 import CommandPalette, { type Command } from './CommandPalette';
 import KeyboardHelp from './KeyboardHelp';
 import { OVERLAY_AUTOFOCUS_ATTRIBUTE, type OverlayControls } from './overlay-controls';
@@ -59,6 +60,14 @@ interface PanelShape {
    * whatever the results gained or lost on every keystroke.
    */
   readonly anchor: 'center' | 'top';
+}
+
+/**
+ * Whether Escape and the backdrop close it. Only a question the account must
+ * answer is not: it leaves when its answer is stored, never before.
+ */
+function overlayDismissible(overlay: Overlay): boolean {
+  return overlay.k !== 'telemetry-consent';
 }
 
 function panelShape(overlay: Overlay): PanelShape {
@@ -110,11 +119,21 @@ function panelShape(overlay: Overlay): PanelShape {
         padClass: 'p-5',
         anchor: 'center',
       };
+    case 'telemetry-consent':
+      return {
+        labelledBy: 'telemetry-consent-title',
+        describedBy: 'telemetry-consent-description',
+        widthClass: 'max-w-[420px]',
+        padClass: 'p-5',
+        anchor: 'center',
+      };
   }
 }
 
 interface Entry {
   readonly overlay: Overlay;
+  /** See `overlayDismissible`. */
+  readonly dismissible: boolean;
   readonly exiting: Accessor<boolean>;
   readonly beginExit: () => void;
   readonly busy: Accessor<boolean>;
@@ -151,6 +170,10 @@ interface Props {
   onCreateBox(boxId: string, password: string): Promise<boolean>;
   onJoinBoxWaitlist(): Promise<boolean>;
   onRename(device: Device, name: string): Promise<boolean>;
+  /** The consent answer being saved, or null. */
+  readonly telemetryChoicePending: boolean | null;
+  readonly telemetryChoiceFailed: boolean;
+  onTelemetryChoice(enabled: boolean): void;
 }
 
 const OverlayHost: Component<Props> = (props) => {
@@ -161,6 +184,7 @@ const OverlayHost: Component<Props> = (props) => {
     const [busy, setBusy] = createSignal(false);
     const entry: Entry = {
       overlay,
+      dismissible: overlayDismissible(overlay),
       exiting,
       beginExit: () => {
         entry.exitingNow = true;
@@ -221,7 +245,7 @@ const OverlayHost: Component<Props> = (props) => {
       if (event.key === 'Escape' || (event.ctrlKey && event.key === '[')) {
         if (entry.busy()) return;
         event.preventDefault();
-        props.onDismiss();
+        if (entry.dismissible) props.onDismiss();
         return;
       }
       if (entry.panel !== null) trapTabKey(event, entry.panel);
@@ -303,6 +327,14 @@ const OverlayHost: Component<Props> = (props) => {
         return <CommandPalette commands={props.commands} controls={controls} />;
       case 'keyboard-help':
         return <KeyboardHelp />;
+      case 'telemetry-consent':
+        return (
+          <TelemetryConsentDialog
+            pending={props.telemetryChoicePending}
+            failed={props.telemetryChoiceFailed}
+            onChoose={props.onTelemetryChoice}
+          />
+        );
       case 'session-ended':
         // Centred like the terminal's status card, which is the other place
         // the app tells the reader something happened to them rather than
@@ -489,7 +521,8 @@ const OverlayLayer: Component<LayerProps> = (props) => {
         // layer covered.
         if (!onBackdrop && !props.entry.exiting()) return;
         claimPress();
-        if (!onBackdrop || props.entry.busy() || props.entry.exiting()) return;
+        if (!onBackdrop || !props.entry.dismissible || props.entry.busy() || props.entry.exiting())
+          return;
         props.onDismiss();
       }}
     >

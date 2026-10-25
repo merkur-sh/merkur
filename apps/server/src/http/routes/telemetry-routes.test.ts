@@ -5,7 +5,7 @@ import {
   signDaemonProof,
 } from '@merkur/auth';
 import { BROWSER_ERROR_KINDS, BROWSER_ERROR_SOURCES } from '@merkur/shared';
-import { Effect, Layer, ManagedRuntime, Metric, Redacted } from 'effect';
+import { Effect, Layer, ManagedRuntime, Metric, Redacted, Tracer } from 'effect';
 
 import { type ServerConfig, ServerConfigService } from '../../config';
 import { createLogger } from '../../logger';
@@ -18,6 +18,7 @@ import {
   daemonReportedPingOutcomeFrequency,
 } from '../../observability/metrics';
 import type { runServerProgram } from '../../runtime';
+import { AccountTelemetryServiceTag } from '../../services/account-telemetry-service';
 import { RateLimitServiceTag } from '../../services/rate-limit-service';
 
 import { ApiModels } from '../api-models';
@@ -307,6 +308,48 @@ describe('browser error report body', () => {
   });
 });
 
+const INGEST_CONFIG: ServerConfig = {
+  host: '127.0.0.1',
+  port: 0,
+  dbUrl: ':memory:',
+  dbAuthToken: undefined,
+  redisUrl: Redacted.make('redis://127.0.0.1:6379'),
+  publicOrigin: 'https://merkur.test',
+  website: undefined,
+  accessTokenHmacKey: new Uint8Array(64),
+  jwtIssuer: 'merkur',
+  jwtAudience: 'merkur-clients',
+  tokenHmacSecret: Redacted.make('x'.repeat(32)),
+  authAllowRegistration: true,
+  authIdentity: 'username',
+  emailDelivery: undefined,
+  trustedProxyHops: 1,
+  sessionTokenSigningKey: deriveSessionAuthorizationKeyPair(new Uint8Array(32)).signingKey,
+  sessionTokenVerifyKeyB64: 'A'.repeat(3_456),
+  sessionTokenTtlMs: 60_000,
+  webPush: undefined,
+  edgeRegistrationKeys: new Map(),
+  opaqueServerSetup: Redacted.make(Buffer.alloc(128).toString('base64url')),
+  opaqueServerPublicKey: Buffer.alloc(32).toString('base64url'),
+  stunTicketKey: new Uint8Array(32),
+  edgeAttachTicketKey: new Uint8Array(64).fill(11),
+  stunServers: [],
+  boxHostStunObservers: [],
+  boxHost: undefined,
+
+  telemetry: {
+    axiomToken: Redacted.make('test-token'),
+    axiomDataset: 'traces',
+    axiomMetricsDataset: 'metrics',
+    axiomPerfDataset: 'perf',
+    axiomEndpoint: 'https://perf-sink.example',
+    environment: 'test',
+  },
+  traceLevel: 'Info',
+  traceSampleRatio: 1,
+  traceSlowThresholdMs: 1_000,
+};
+
 test('perf ingest decompresses gzip exactly and refuses malformed or oversized expansion', async () => {
   const forwarded: string[] = [];
   const ingestFetch = spyOn(globalThis, 'fetch').mockImplementation(
@@ -320,51 +363,15 @@ test('perf ingest decompresses gzip exactly and refuses malformed or oversized e
       { preconnect: () => {} },
     ),
   );
-  const config: ServerConfig = {
-    host: '127.0.0.1',
-    port: 0,
-    dbUrl: ':memory:',
-    dbAuthToken: undefined,
-    redisUrl: Redacted.make('redis://127.0.0.1:6379'),
-    publicOrigin: 'https://merkur.test',
-    website: undefined,
-    accessTokenHmacKey: new Uint8Array(64),
-    jwtIssuer: 'merkur',
-    jwtAudience: 'merkur-clients',
-    tokenHmacSecret: Redacted.make('x'.repeat(32)),
-    authAllowRegistration: true,
-    authIdentity: 'username',
-    emailDelivery: undefined,
-    trustedProxyHops: 1,
-    sessionTokenSigningKey: deriveSessionAuthorizationKeyPair(new Uint8Array(32)).signingKey,
-    sessionTokenVerifyKeyB64: 'A'.repeat(3_456),
-    sessionTokenTtlMs: 60_000,
-    webPush: undefined,
-    edgeRegistrationKeys: new Map(),
-    opaqueServerSetup: Redacted.make(Buffer.alloc(128).toString('base64url')),
-    opaqueServerPublicKey: Buffer.alloc(32).toString('base64url'),
-    stunTicketKey: new Uint8Array(32),
-    edgeAttachTicketKey: new Uint8Array(64).fill(11),
-    stunServers: [],
-    boxHostStunObservers: [],
-    boxHost: undefined,
 
-    telemetry: {
-      axiomToken: Redacted.make('test-token'),
-      axiomDataset: 'traces',
-      axiomMetricsDataset: 'metrics',
-      axiomPerfDataset: 'perf',
-      axiomEndpoint: 'https://perf-sink.example',
-      environment: 'test',
-    },
-    traceLevel: 'Info',
-    traceSampleRatio: 1,
-    traceSlowThresholdMs: 1_000,
-  };
   let allowed = true;
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
-      Layer.succeed(ServerConfigService, config),
+      Layer.succeed(ServerConfigService, INGEST_CONFIG),
+      Layer.succeed(AccountTelemetryServiceTag, {
+        read: () => Effect.succeed(true),
+        write: () => Effect.die('unexpected telemetry write'),
+      }),
       Layer.succeed(RateLimitServiceTag, {
         consume: () =>
           Effect.succeed(allowed ? { allowed: true } : { allowed: false, retryAfterMs: 1_000 }),
@@ -464,6 +471,10 @@ test('perf ingest decompresses gzip exactly and refuses malformed or oversized e
 test('link ingest excludes absent RTTs while retaining measured report summaries', async () => {
   const runtime = ManagedRuntime.make(
     Layer.mergeAll(
+      Layer.succeed(AccountTelemetryServiceTag, {
+        read: () => Effect.succeed(true),
+        write: () => Effect.die('unexpected telemetry write'),
+      }),
       Layer.succeed(RateLimitServiceTag, { consume: () => Effect.succeed({ allowed: true }) }),
       Layer.succeed(Metric.MetricRegistry, new Map()),
       Layer.succeed(Metric.CurrentMetricAttributes, { test: crypto.randomUUID() }),
@@ -543,7 +554,15 @@ function daemonPerfPoster() {
   const url = `${origin}/api/daemon/perf`;
   const fixture = daemonAuthFixture({ origin });
   const app = telemetryRoutesPlugin({
-    runServerProgram: fixture.runProgram,
+    // SAFETY: The production fixture supplies all other route services; this layer supplies consent.
+    runServerProgram: ((program, options) =>
+      fixture.runProgram(
+        Effect.provideService(program, AccountTelemetryServiceTag, {
+          read: () => Effect.succeed(true),
+          write: () => Effect.die('unexpected telemetry write'),
+        }),
+        options,
+      )) as typeof runServerProgram,
     authorizeRequest: async () => null,
     logger: fixture.logger,
   });
@@ -617,3 +636,164 @@ test('daemon perf report records every ping outcome without an effect per occurr
     update.mockRestore();
   }
 });
+
+const CONSENT_REPORTS = [
+  {
+    path: '/api/daemon/perf',
+    body: JSON.stringify({
+      ...Object.fromEntries(
+        Object.keys(ApiModels.DaemonPerfReportBody.properties).map((key) => [key, 0]),
+      ),
+      windowMs: 60_000,
+    }),
+    relay: false,
+  },
+  { path: '/api/daemon/traces', body: '{"resourceSpans":[]}', relay: true },
+  {
+    path: '/api/telemetry/link',
+    body: JSON.stringify({
+      ...Object.fromEntries(
+        Object.keys(ApiModels.BrowserLinkReportBody.properties).map((key) => [key, 0]),
+      ),
+      windowMs: 2_000,
+      sampleCount: 1,
+      stateReady: 1,
+    }),
+    relay: false,
+  },
+  {
+    path: '/api/telemetry/perf',
+    body: '{"kind":"input_sent","at_ms":1,"input_seq":1}',
+    relay: true,
+  },
+  { path: '/api/telemetry/traces', body: '{"resourceSpans":[]}', relay: true },
+  {
+    path: '/api/telemetry/error',
+    body: '{"source":"window","kind":"no_response","count":1}',
+    relay: false,
+  },
+  {
+    path: '/api/telemetry/upgrade',
+    body: JSON.stringify({
+      outcome: 'failed',
+      natType: 'none',
+      natFiltering: 'unknown',
+      winnerKind: 'none',
+      admissionStage: 'none',
+      admissionReason: 'none',
+      candidates: [],
+    }),
+    relay: false,
+  },
+];
+
+for (const report of CONSENT_REPORTS) {
+  for (const consent of [null, false, true]) {
+    test(`${report.path} admits reports only with consent true (${consent})`, async () => {
+      const readUsers: string[] = [];
+      let rateCharges = 0;
+      const forwarded: string[] = [];
+      const spans: Tracer.NativeSpan[] = [];
+      const tracer = Tracer.make({
+        span(options) {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
+      const layer = Layer.mergeAll(
+        Layer.succeed(AccountTelemetryServiceTag, {
+          read: (userId) =>
+            Effect.sync(() => {
+              readUsers.push(userId);
+              return consent;
+            }),
+          write: () => Effect.die('unexpected consent write'),
+        }),
+        Layer.succeed(ServerConfigService, INGEST_CONFIG),
+        Layer.succeed(RateLimitServiceTag, {
+          consume: (options) =>
+            Effect.sync(() => {
+              if (!options.key.startsWith('daemon-proof:')) rateCharges += 1;
+              return { allowed: true };
+            }),
+        }),
+        Layer.succeed(Metric.MetricRegistry, new Map()),
+        Layer.succeed(Tracer.Tracer, tracer),
+      );
+      const fixture = daemonAuthFixture({ origin: INGEST_CONFIG.publicOrigin });
+      const app = telemetryRoutesPlugin({
+        // SAFETY: The fixture supplies daemon auth; this layer supplies every ingest dependency.
+        runServerProgram: ((program, options) =>
+          fixture.runProgram(Effect.provide(program, layer), options)) as typeof runServerProgram,
+        authorizeRequest: async () => ({
+          userId: 'browser-user',
+          delegationId: 'browser-session',
+          delegationExpiresAt: Date.now() + 60_000,
+        }),
+        logger: createLogger('consent-ingest-test'),
+      });
+      const url = `${INGEST_CONFIG.publicOrigin}${report.path}`;
+      const headers = new Headers({ 'content-type': 'application/json' });
+      let body: BodyInit = report.body;
+      if (report.path === '/api/telemetry/perf') {
+        body = await new Response(
+          new Blob([report.body]).stream().pipeThrough(new CompressionStream('gzip')),
+        ).arrayBuffer();
+        headers.set('content-type', 'application/x-ndjson');
+        headers.set('content-encoding', 'gzip');
+      }
+      const daemon = report.path.startsWith('/api/daemon/');
+      if (daemon) {
+        const proof = await daemonHttpProofHeaders(
+          'daemon-1',
+          async (transcript) => signDaemonProof(DAEMON_TEST_SEED, 'http', transcript),
+          'POST',
+          url,
+          'application/json',
+          new TextEncoder().encode(report.body),
+          Date.now(),
+        );
+        for (const [key, value] of Object.entries(proof)) headers.set(key, value);
+      }
+      const forward = spyOn(globalThis, 'fetch').mockImplementation(
+        Object.assign(
+          async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+            const request = new Request(input, init);
+            expect(new URL(request.url).hostname).toBe('perf-sink.example');
+            forwarded.push(await request.text());
+            return new Response(null, { status: 204 });
+          },
+          { preconnect: () => {} },
+        ),
+      );
+      const update = spyOn(Metric, 'update');
+      try {
+        const response = await app.handle(new Request(url, { method: 'POST', headers, body }));
+        expect(response.status).toBe(204);
+        expect(await response.text()).toBe('');
+        expect(readUsers).toEqual([daemon ? 'user-1' : 'browser-user']);
+        expect(rateCharges).toBe(consent === true ? 1 : 0);
+        expect(forwarded).toEqual(consent === true && report.relay ? [report.body] : []);
+        if (consent === true) {
+          expect(update.mock.calls.length).toBeGreaterThan(0);
+        } else {
+          expect(update.mock.calls).toEqual([]);
+          const bodyAttributes = spans
+            .flatMap((span) => [...span.attributes.keys()])
+            .filter(
+              (key) =>
+                TELEMETRY_SPAN_ATTRIBUTE_KEYS.some((attribute) => attribute === key) ||
+                key.startsWith('merkur.error_') ||
+                key === 'merkur.upgrade_admission_stage' ||
+                key === 'merkur.upgrade_admission_reason',
+            );
+          expect(bodyAttributes).toEqual([]);
+        }
+      } finally {
+        update.mockRestore();
+        forward.mockRestore();
+      }
+    });
+  }
+}

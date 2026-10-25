@@ -34,9 +34,10 @@ interface Harness {
   readonly closes: Array<{ reason: string; openForUser: number }>;
   readonly abort: () => void;
   readonly shutdown: () => Promise<void>;
-  readonly released: { devices: number; presence: number };
+  readonly released: { devices: number; presence: number; telemetry: number };
   signal(signal: DeviceEventSignal): void;
   presence(signal: BrowserPresenceSignal): void;
+  telemetryChanged(): void;
   /** Resolves the pending snapshot read; until then deltas are buffered. */
   releaseSnapshot(): void;
 }
@@ -51,6 +52,7 @@ function createHarness(options: {
   readonly userId?: string;
   readonly holdSnapshot?: boolean;
   readonly loadSnapshot?: () => Promise<readonly (typeof DEVICE)[]>;
+  readonly loadTelemetryConsent?: Effect.Effect<boolean | null, unknown>;
   readonly aborted?: boolean;
   readonly deviceRelease?: Effect.Effect<void>;
   readonly lifetime?: ReturnType<typeof createDeviceEventsSseLifetime>;
@@ -59,11 +61,12 @@ function createHarness(options: {
   if (options.aborted === true) requestController.abort();
   const runtime = ManagedRuntime.make(Layer.empty);
   const lifetime = options.lifetime ?? createDeviceEventsSseLifetime();
-  const released = { devices: 0, presence: 0 };
+  const released = { devices: 0, presence: 0, telemetry: 0 };
   const errors: unknown[] = [];
   const closes: Array<{ reason: string; openForUser: number }> = [];
   let listener: ((signal: DeviceEventSignal) => void) | null = null;
   let presenceListener: ((signal: BrowserPresenceSignal) => void) | null = null;
+  let telemetryListener: (() => void) | null = null;
   let resolvePresence = (): void => {};
   const presenceReady = new Promise<void>((resolve) => {
     resolvePresence = resolve;
@@ -99,6 +102,15 @@ function createHarness(options: {
           }),
         );
       }),
+    subscribeTelemetryChanges: (next) =>
+      Effect.sync(() => {
+        telemetryListener = next;
+        return Effect.sync(() => {
+          telemetryListener = null;
+          released.telemetry += 1;
+        });
+      }),
+    loadTelemetryConsent: options.loadTelemetryConsent ?? Effect.succeed(null),
     readCursor: Effect.succeed({ epoch: EPOCH, seq: options.seq }),
     loadSnapshot: Effect.tryPromise({
       try: async () => {
@@ -130,11 +142,149 @@ function createHarness(options: {
       if (presenceListener === null) throw new Error('presence not subscribed yet');
       presenceListener(signal);
     },
+    telemetryChanged() {
+      if (telemetryListener === null) throw new Error('telemetry not subscribed yet');
+      telemetryListener();
+    },
     releaseSnapshot: () => releaseSnapshot(),
   };
 }
 
 describe('createDeviceEventsSseResponse', () => {
+  for (const resume of [false, true]) {
+    test(`states telemetry before the first ${resume ? 'resume' : 'snapshot'}`, async () => {
+      let release = (_consent: boolean | null): void => {};
+      const pending = new Promise<boolean | null>((resolve) => {
+        release = resolve;
+      });
+      let snapshotRead = false;
+      const harness = createHarness({
+        since: resume ? { epoch: EPOCH, seq: 9 } : null,
+        seq: 9,
+        loadTelemetryConsent: Effect.promise(() => pending),
+        loadSnapshot: async () => {
+          snapshotRead = true;
+          return [DEVICE];
+        },
+      });
+      try {
+        await harness.presenceReady;
+        await Effect.runPromise(Effect.yieldNow);
+        expect(snapshotRead).toBe(!resume);
+        release(null);
+        const frame = resume ? 'resume' : 'snapshot';
+        const body = await readFramesUntil(harness.reader, (text) =>
+          text.includes(`event: ${frame}`),
+        );
+        expect(body.startsWith('event: account-telemetry\ndata: null\n\n')).toBe(true);
+        expect(body.indexOf('event: account-telemetry')).toBeLessThan(
+          body.indexOf(`event: ${frame}`),
+        );
+      } finally {
+        release(null);
+        await harness.reader.cancel();
+        await harness.shutdown();
+      }
+    });
+  }
+
+  test('a telemetry signal re-reads and writes only changed values', async () => {
+    let consent: boolean | null = null;
+    let reads = 0;
+    let observed = (): void => {};
+    const harness = createHarness({
+      since: null,
+      seq: 0,
+      loadTelemetryConsent: Effect.sync(() => {
+        reads += 1;
+        observed();
+        return consent;
+      }),
+    });
+    try {
+      const initial = await readFramesUntil(harness.reader, (text) =>
+        text.includes('event: snapshot'),
+      );
+      expect(initial).toContain('event: account-telemetry\ndata: null\n\n');
+      expect(reads).toBe(1);
+      const unchanged = new Promise<void>((resolve) => {
+        observed = resolve;
+      });
+      harness.telemetryChanged();
+      await unchanged;
+      for (const choice of [true, false]) {
+        consent = choice;
+        harness.telemetryChanged();
+        const body = await readUntil(harness.reader, (text) => text.includes(`data: ${choice}`));
+        expect(body).toBe(`event: account-telemetry\ndata: ${choice}\n\n`);
+      }
+      expect(reads).toBe(4);
+      expect(harness.closes).toEqual([]);
+    } finally {
+      await harness.reader.cancel();
+      await harness.shutdown();
+    }
+  });
+
+  test('telemetry wakes during a read are serialized and coalesced into a later read', async () => {
+    let consent: boolean | null = null;
+    let reads = 0;
+    let beginRead = (): void => {};
+    let finishRead = (): void => {};
+    const started = new Promise<void>((resolve) => {
+      beginRead = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      finishRead = resolve;
+    });
+    const harness = createHarness({
+      since: null,
+      seq: 0,
+      loadTelemetryConsent: Effect.promise(async () => {
+        reads += 1;
+        const value = consent;
+        if (reads === 2) {
+          beginRead();
+          await pending;
+        }
+        return value;
+      }),
+    });
+    try {
+      await readFramesUntil(harness.reader, (text) => text.includes('event: snapshot'));
+      consent = false;
+      harness.telemetryChanged();
+      await started;
+      consent = true;
+      for (let index = 0; index < 10; index += 1) harness.telemetryChanged();
+      expect(reads).toBe(2);
+      finishRead();
+      const body = await readUntil(harness.reader, (text) => text.includes('data: true'));
+      expect(body).toBe(
+        'event: account-telemetry\ndata: false\n\nevent: account-telemetry\ndata: true\n\n',
+      );
+      expect(reads).toBe(3);
+    } finally {
+      finishRead();
+      await harness.reader.cancel();
+      await harness.shutdown();
+    }
+  });
+
+  test('a failed telemetry read fails the stream before any device frame', async () => {
+    const harness = createHarness({
+      since: null,
+      seq: 0,
+      loadTelemetryConsent: Effect.fail(new Error('telemetry read failed')),
+    });
+    const body = await readUntil(harness.reader, (_text, done) => done);
+    expect(body).not.toContain('event: snapshot');
+    expect(body).not.toContain('event: account-telemetry');
+    expect(harness.closes.map((close) => close.reason)).toEqual(['stream_failed']);
+    expect(harness.errors).toHaveLength(1);
+    await harness.shutdown();
+  });
+
   test('pushes browser presence independently of the device cursor and closes on lost presence', async () => {
     const harness = createHarness({ since: { epoch: EPOCH, seq: 9 }, seq: 9 });
     await readUntil(harness.reader, (text) => text.includes('event: resume'));
@@ -223,7 +373,9 @@ describe('createDeviceEventsSseResponse', () => {
       },
     });
     const body = await readFramesUntil(harness.reader, (text) => text.includes('event: resume'));
-    expect(body).toBe(`event: resume\ndata: {"epoch":"${EPOCH}","seq":9}\n\n`);
+    expect(body).toBe(
+      `event: account-telemetry\ndata: null\n\nevent: resume\ndata: {"epoch":"${EPOCH}","seq":9}\n\n`,
+    );
     expect(harness.errors).toEqual([]);
 
     harness.abort();
@@ -258,6 +410,7 @@ describe('createDeviceEventsSseResponse', () => {
     const body = await readFramesUntil(harness.reader, (text) => text.includes('"seq":4'));
     const frames = body.split('\n\n').filter((frame) => frame.length > 0);
     expect(frames).toEqual([
+      'event: account-telemetry\ndata: null',
       `event: snapshot\ndata: {"epoch":"${EPOCH}","seq":2,"devices":[${JSON.stringify(DEVICE)}]}`,
       `event: delta\ndata: ${JSON.stringify(delta(3))}`,
       `event: delta\ndata: ${JSON.stringify(delta(4))}`,
@@ -324,7 +477,7 @@ describe('createDeviceEventsSseResponse', () => {
     }
     expect(harness.closes.map((close) => close.reason)).toEqual(['buffer_overflow']);
     await harness.reader.cancel();
-    expect(harness.released).toEqual({ devices: 1, presence: 1 });
+    expect(harness.released).toEqual({ devices: 1, presence: 1, telemetry: 1 });
     expect(harness.errors).toEqual([]);
     await harness.shutdown();
   });
@@ -353,7 +506,7 @@ describe('createDeviceEventsSseResponse', () => {
     const harness = createHarness({ since: null, seq: 0, holdSnapshot: true });
     await harness.presenceReady;
     await harness.reader.cancel();
-    expect(harness.released).toEqual({ devices: 1, presence: 1 });
+    expect(harness.released).toEqual({ devices: 1, presence: 1, telemetry: 1 });
     expect(harness.closes.map((close) => close.reason)).toEqual(['consumer_cancelled']);
     harness.releaseSnapshot();
     await harness.shutdown();
@@ -387,7 +540,7 @@ describe('createDeviceEventsSseResponse', () => {
     expect(harness.released.devices).toBe(0);
     finishRelease();
     await cancellation;
-    expect(harness.released).toEqual({ devices: 1, presence: 1 });
+    expect(harness.released).toEqual({ devices: 1, presence: 1, telemetry: 1 });
     await harness.shutdown();
   });
 
@@ -397,7 +550,7 @@ describe('createDeviceEventsSseResponse', () => {
     await harness.presenceReady;
     await harness.shutdown();
     await readUntil(harness.reader, (_text, done) => done);
-    expect(harness.released).toEqual({ devices: 1, presence: 1 });
+    expect(harness.released).toEqual({ devices: 1, presence: 1, telemetry: 1 });
     expect(harness.closes.map((close) => close.reason)).toEqual(['server_shutdown']);
     expect(openDeviceEventsStreams(userId)).toBe(0);
     expect(harness.errors).toEqual([]);
@@ -408,7 +561,7 @@ describe('createDeviceEventsSseResponse', () => {
     const harness = createHarness({ since: null, seq: 0, aborted: true });
     await harness.reader.cancel();
     await harness.shutdown();
-    expect(harness.released).toEqual({ devices: 0, presence: 0 });
+    expect(harness.released).toEqual({ devices: 0, presence: 0, telemetry: 0 });
     expect(harness.closes.map((close) => close.reason)).toEqual(['client_gone']);
     expect(harness.errors).toEqual([]);
   });

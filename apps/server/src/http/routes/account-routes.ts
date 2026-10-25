@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 
 import type { Logger } from '../../logger';
 import type { runServerProgram } from '../../runtime';
+import { AccountTelemetryServiceTag } from '../../services/account-telemetry-service';
 import { type AuthenticatedBrowser, AuthServiceTag } from '../../services/auth-service';
 import { DaemonControlServiceTag } from '../../services/daemon-control-service';
 import { ApiModels } from '../api-models';
@@ -33,36 +34,65 @@ export function accountRoutesPlugin({
   logger,
 }: AccountRoutesOptions) {
   return new Elysia({ name: 'account-routes', normalize: false }).group('/api', (api) =>
-    api.use(authenticatedApiPlugin({ authorizeRequest })).post(
-      '/account/deletion',
-      {
-        body: ApiModels.AccountDeletionBody,
-        response: {
-          200: ApiModels.AccountDeletionResponse,
-          400: ApiModels.ErrorResponse,
-          401: ApiModels.ErrorResponse,
-          503: ApiModels.ErrorResponse,
+    api
+      .use(authenticatedApiPlugin({ authorizeRequest }))
+      .put(
+        '/account/telemetry',
+        {
+          body: ApiModels.AccountTelemetry,
+          response: {
+            200: ApiModels.AccountTelemetry,
+            401: ApiModels.ErrorResponse,
+            503: ApiModels.ErrorResponse,
+          },
         },
-      },
-      async ({ body, request, userId, delegationId, delegationExpiresAt }) =>
-        runRouteEffect(
-          runServerProgram,
-          Effect.gen(function* () {
-            const service = yield* AuthServiceTag;
-            const scheduledFor = yield* service.scheduleAccountDeletion(
-              { userId, delegationId, delegationExpiresAt },
-              body.statement,
-              { actorCertificate: body.actorCertificate, revocation: body.revocation },
-            );
-            // Scheduling recorded a signed revocation of every delegation. Tell
-            // the daemons now, so they stop serving this account for the whole
-            // grace period rather than until a capability happens to expire.
-            const control = yield* DaemonControlServiceTag;
-            yield* control.flushUserDelegationRevocations(userId);
-            return { scheduledFor };
-          }),
-          { logger, eventName: 'account_deletion_failed', request, signal: request.signal },
-        ),
-    ),
+        async ({ body, request, userId }) => {
+          const enabled = await runRouteEffect(
+            runServerProgram,
+            Effect.gen(function* () {
+              const telemetry = yield* AccountTelemetryServiceTag;
+              return yield* telemetry.write(userId, body.enabled);
+            }),
+            {
+              logger,
+              eventName: 'account_telemetry_write_failed',
+              request,
+              signal: request.signal,
+            },
+          );
+          return { enabled };
+        },
+      )
+      .post(
+        '/account/deletion',
+        {
+          body: ApiModels.AccountDeletionBody,
+          response: {
+            200: ApiModels.AccountDeletionResponse,
+            400: ApiModels.ErrorResponse,
+            401: ApiModels.ErrorResponse,
+            503: ApiModels.ErrorResponse,
+          },
+        },
+        async ({ body, request, userId, delegationId, delegationExpiresAt }) =>
+          runRouteEffect(
+            runServerProgram,
+            Effect.gen(function* () {
+              const service = yield* AuthServiceTag;
+              const scheduledFor = yield* service.scheduleAccountDeletion(
+                { userId, delegationId, delegationExpiresAt },
+                body.statement,
+                { actorCertificate: body.actorCertificate, revocation: body.revocation },
+              );
+              // Scheduling recorded a signed revocation of every delegation. Tell
+              // the daemons now, so they stop serving this account for the whole
+              // grace period rather than until a capability happens to expire.
+              const control = yield* DaemonControlServiceTag;
+              yield* control.flushUserDelegationRevocations(userId);
+              return { scheduledFor };
+            }),
+            { logger, eventName: 'account_deletion_failed', request, signal: request.signal },
+          ),
+      ),
   );
 }
