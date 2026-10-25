@@ -21,7 +21,8 @@ export interface TerminalCanvasPresentation {
 }
 
 // Gecko's `bgra8unorm` shared-texture swap chain shows the terminal an older
-// frame whenever the page repaints intermittently beside it (Gecko 158); any other format
+// frame when another texture-backed element on the page updates (a 2D canvas on
+// either thread, SVG) while it draws (Gecko 158); any other format
 // takes its readback presenter, which presents in order once the GPU process
 // next maintains the device, the same maintenance that delivers completions.
 const GECKO_CANVAS_PRESENTATION: TerminalCanvasPresentation = {

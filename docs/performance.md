@@ -176,12 +176,16 @@ is configured per engine (`terminalCanvasPresentation`). Chromium takes
 (`bgra8unorm` on macOS, Windows and ChromeOS, `rgba8unorm` on Linux and Android). WebKit takes
 `rgba8unorm`, which it shows 1.5–3.6 ms sooner than the `bgra8unorm` it reports as preferred.
 Gecko takes `rgba8unorm` too. Its `bgra8unorm` shared-texture swap chain shows the worker canvas a
-frame one to five frames old, for 10–150 ms at a time, whenever the page repaints intermittently beside
-it (Zen and Firefox 158): in the terminal with the link-activity strip in place, 14–26 reversals of
-the typed cursor in 14 s, and none with the strip removed. A 2D canvas repainted from a timer or on
-sparse animation frames triggers it in the terminal, SVG repainted the same way does so at a lower
-rate, and a 2D canvas repainted every animation frame does not. The renderer's own frames are in
-order throughout. Any other format takes the
+frame one to five frames old, for 10–150 ms at a time, when another texture-backed element on the page
+updates while the terminal draws (Zen and Firefox 158). Typing 14 s into the terminal: 14–26
+reversals of the cursor with the link-activity strip's 2D canvas in place and none with it removed;
+24 with a main-thread 2D canvas redrawn from a 47 ms timer, 18–29 with a worker-owned one; 2–4 with
+SVG; 2–4 with the strip as plain `div` bars repainting after each burst of traffic, mostly from its
+readout text; none from boxes or outlines repainting on their own timer. The renderer's own frames
+are in order throughout. Separately, every main-thread paint makes Gecko flush the worker canvas
+(`nsDisplayCanvas::CreateWebRenderCommands` → `FlushOffscreenCanvas`); with no frame pending, the
+worker commits a synchronous full-canvas snapshot instead (`GetFrontBufferSnapshot`), which the
+readback presenter takes with a blocking copy and map. Any other format takes the
 readback presenter, which presents in order but hands a frame to the compositor only when the GPU
 process next maintains the device: inside a queue submit, or on a 100 ms timer. The renderer
 reports that (`presentAwaitsCompletion`), and while a frame is in flight the worker submits one

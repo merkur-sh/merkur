@@ -510,7 +510,7 @@ describe('WebGPU terminal renderer', () => {
   });
 
   test('Gecko presents rgba8unorm through its readback, which waits on delivered completions', async () => {
-    // Its bgra8unorm shared-texture swap chain shows older frames when the page repaints beside it.
+    // Its bgra8unorm shared-texture swap chain shows older frames beside other canvas updates.
     const fake = fakeDevice();
     const h = harness([fake], 'bgra8unorm', ZEN_USER_AGENT);
     await ready(h);

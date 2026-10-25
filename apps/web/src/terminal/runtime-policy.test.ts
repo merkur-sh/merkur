@@ -108,7 +108,7 @@ describe('terminalCanvasPresentation', () => {
   });
 
   test('Gecko takes rgba8unorm, which it presents when its completions are delivered', () => {
-    // Its bgra8unorm shared-texture swap chain shows older frames when the page repaints beside it.
+    // Its bgra8unorm shared-texture swap chain shows older frames beside other canvas updates.
     for (const userAgent of [zen, linuxFirefox, androidFirefox])
       expect(terminalCanvasPresentation(userAgent, 'bgra8unorm')).toEqual({
         format: 'rgba8unorm',
