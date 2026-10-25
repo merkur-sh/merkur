@@ -2187,7 +2187,7 @@
       "run": "40215276459",
       "attempt": 1,
       "sequence": 133,
-      "phase": "services",
+      "phase": "published",
       "events": [
         {
           "phase": "signing",
@@ -2225,6 +2225,10 @@
             "merkur-stun": "969dbc65cb5596bba38312bf015c2c3ad552e20ee111311ebdb2668b97ea31bde47e1efd48fb03936beebe7ae3721b470cdcdcb09ffbd63238f4581b8ca1b337",
             "server": "cf9f1010add67e5ad5880ba1110179631fa4886cd24e1dc79fb01f8b36a2052fe68b1acd9b312c98aaa8b6792cc0f5d664b4e2bc05eda2f0a6e0a6348cef4d94"
           }
+        },
+        {
+          "phase": "published",
+          "evidence": {}
         }
       ],
       "configuration": {
