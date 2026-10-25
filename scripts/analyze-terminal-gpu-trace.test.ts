@@ -160,9 +160,11 @@ describe('exact boundary-owned worker GPU flush flows', () => {
 
 test('the CLI remains directly executable while Node Playwright can import its analysis functions', async () => {
   const projectRoot = resolve(__dirname, '..');
+  // Bun kills both children when this test's budget ends, which is their only bound: a loaded CI
+  // runner transforms the spec's graph cold, and listed it past a 30 s per-child cap on macOS.
   const cli = await runTestProcess(
     [process.execPath, resolve(__dirname, 'analyze-terminal-gpu-trace.ts')],
-    { cwd: projectRoot, timeout: 10_000 },
+    { cwd: projectRoot },
   );
   expect(cli.exitCode).toBe(1);
   expect(cli.stderr).toContain('usage: bun scripts/analyze-terminal-gpu-trace.ts');
@@ -188,7 +190,6 @@ test('the CLI remains directly executable while Node Playwright can import its a
         DIRECT_DIAGNOSTIC_WORKLOAD: 'typing',
         MERKUR_E2E_FINAL_TRANSPORT_CAPTURE: '1',
       },
-      timeout: 30_000,
     },
   );
   expect(collection.stderr).toBe('');
@@ -196,7 +197,7 @@ test('the CLI remains directly executable while Node Playwright can import its a
   expect(collection.stdout).toContain(
     'direct input cadences and fast redraws retain exact GPU-fence evidence',
   );
-}, 40_000);
+}, 120_000);
 
 describe('boundary-owned native canvas census', () => {
   const begin = { name: 'worker-begin', cat: 'blink.user_timing', pid: 5, tid: 7, ts: 10 };
