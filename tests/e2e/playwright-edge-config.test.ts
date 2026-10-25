@@ -48,6 +48,9 @@ describe('transport benchmark browser selection', () => {
         '--enable-gpu',
         '--log-net-log=/tmp/merkur-netlog.json',
       ]);
+    });
+
+    test(`an opted-in run adds no net log to Firefox when headed=${headed}`, async () => {
       const firefox = await readBrowserConfiguration('firefox', headed, '/tmp/merkur-netlog.json');
       expect(firefox.launchOptions.args).toEqual([]);
     });
