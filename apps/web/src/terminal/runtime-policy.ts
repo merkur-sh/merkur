@@ -20,8 +20,8 @@ export interface TerminalCanvasPresentation {
   readonly presentAwaitsCompletion: boolean;
 }
 
-// Gecko's `bgra8unorm` shared-texture swap chain showed the terminal frames
-// 150–300 ms old on screen while typing (Zen, Gecko 158); any other format
+// Gecko's `bgra8unorm` shared-texture swap chain shows the terminal an older
+// frame whenever the page repaints intermittently beside it (Gecko 158); any other format
 // takes its readback presenter, which presents in order once the GPU process
 // next maintains the device, the same maintenance that delivers completions.
 const GECKO_CANVAS_PRESENTATION: TerminalCanvasPresentation = {

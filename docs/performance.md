@@ -175,9 +175,13 @@ is configured per engine (`terminalCanvasPresentation`). Chromium takes
 `navigator.gpu.getPreferredCanvasFormat()`, the format it presents without a conversion pass
 (`bgra8unorm` on macOS, Windows and ChromeOS, `rgba8unorm` on Linux and Android). WebKit takes
 `rgba8unorm`, which it shows 1.5–3.6 ms sooner than the `bgra8unorm` it reports as preferred.
-Gecko takes `rgba8unorm` too. Its `bgra8unorm` shared-texture swap chain showed the terminal, while
-typing in Zen (Gecko 158), whole frames 150–300 ms old for 10–150 ms at a time, although a bare
-worker canvas with the same configuration stayed in order on screen. Any other format takes the
+Gecko takes `rgba8unorm` too. Its `bgra8unorm` shared-texture swap chain shows the worker canvas a
+frame one to five frames old, for 10–150 ms at a time, whenever the page repaints intermittently beside
+it (Zen and Firefox 158): in the terminal with the link-activity strip in place, 14–26 reversals of
+the typed cursor in 14 s, and none with the strip removed. A 2D canvas repainted from a timer or on
+sparse animation frames triggers it in the terminal, SVG repainted the same way does so at a lower
+rate, and a 2D canvas repainted every animation frame does not. The renderer's own frames are in
+order throughout. Any other format takes the
 readback presenter, which presents in order but hands a frame to the compositor only when the GPU
 process next maintains the device: inside a queue submit, or on a 100 ms timer. The renderer
 reports that (`presentAwaitsCompletion`), and while a frame is in flight the worker submits one
