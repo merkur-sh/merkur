@@ -99,6 +99,8 @@ function harness() {
     renderAnimationFrame: createFrameSlot(),
     onViewerAnimationFrame: () => fired.push('presentation'),
     onRenderAnimationFrame: () => fired.push('render'),
+    completionFrameHandle: 0,
+    armCompletionDelivery: () => {},
     markPendingPredictionRenderIfDirty: () => {},
     scheduleRenderFrame: () => {
       schedules += 1;
