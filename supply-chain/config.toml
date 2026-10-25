@@ -338,7 +338,7 @@ criteria = "safe-to-deploy"
 notes = "Unaudited preexisting dependency; exemption applies only to this exact version."
 
 [[exemptions.crypto-bigint]]
-version = "0.7.6"
+version = "0.7.9"
 criteria = "safe-to-deploy"
 notes = "Unaudited; this version's diff from the previous locked release was reviewed when the lock moved, and the exemption applies only to this exact version."
 
