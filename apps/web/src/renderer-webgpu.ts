@@ -23,7 +23,7 @@ import type {
   GlyphTableRange,
 } from './terminal/geometry-render-state';
 import { MAX_IN_FLIGHT_RENDER_FRAMES } from './terminal/render-mailbox';
-import { terminalCanvasFormat } from './terminal/runtime-policy';
+import { terminalCanvasPresentation } from './terminal/runtime-policy';
 import { DEFAULT_TERMINAL_THEME } from './terminal/themes';
 import type { GpuRenderer, TerminalPreviewGeometry } from './terminal-renderer';
 
@@ -362,6 +362,7 @@ export class WebGpuRenderer implements GpuRenderer {
   // both fixed when the canvas is configured.
   private canvasFormat: GPUTextureFormat = 'bgra8unorm';
   private linearView: GPUTextureViewDescriptor = { format: 'bgra8unorm-srgb' };
+  private presentationAwaitsCompletion = false;
 
   async init(
     canvas: OffscreenCanvas,
@@ -610,14 +611,18 @@ export class WebGpuRenderer implements GpuRenderer {
     return this.frameCount > 0;
   }
 
+  presentAwaitsCompletion(): boolean {
+    return this.presentationAwaitsCompletion;
+  }
+
   /**
    * Ask the implementation to deliver the completions the GPU has already
-   * reached. Gecko resolves `onSubmittedWorkDone` only when its GPU process
-   * maintains the device, which it does inside a queue submit or on a 100 ms
-   * timer, so a completion someone is waiting on would otherwise wait out the
-   * timer. A submit of no command buffers is that maintenance. Chromium and
-   * WebKit deliver completion from the GPU's own signal and have nothing left
-   * to deliver here.
+   * reached. Gecko resolves `onSubmittedWorkDone`, and hands a readback frame
+   * to its compositor, only when its GPU process maintains the device, which
+   * it does inside a queue submit or on a 100 ms timer, so a completion someone
+   * is waiting on would otherwise wait out the timer. A submit of no command
+   * buffers is that maintenance. Chromium and WebKit deliver completion from
+   * the GPU's own signal and have nothing left to deliver here.
    */
   requestCompletion(): void {
     if (!this.ready || this.failed || this.device === null || this.frameCount === 0) return;
@@ -685,19 +690,21 @@ export class WebGpuRenderer implements GpuRenderer {
         throw new Error('WebGPU canvas context unavailable');
       const gpuContext = context as GPUCanvasContext;
       this.context = gpuContext;
-      // The format the engine presents soonest (`terminalCanvasFormat`). In
-      // Gecko anything but `bgra8unorm` leaves the shared-texture swap chain for
-      // the readback presenter, which shows a frame only when the GPU process
-      // next polls the device: up to 100 ms after an isolated keystroke's submit.
+      // The engine's presentation (`terminalCanvasPresentation`). Gecko's
+      // readback presenter shows a frame only when the GPU process next
+      // maintains the device, so the worker asks for that maintenance while a
+      // frame is in flight (`presentAwaitsCompletion`).
       // Text blends linear coverage against the actual destination in hardware
       // through the sRGB view. Images retain their encoded-color blend through
       // the same texture's unorm view.
       const preferred = gpu.getPreferredCanvasFormat();
       if (preferred !== 'bgra8unorm' && preferred !== 'rgba8unorm')
         throw new Error(`unsupported WebGPU canvas format ${preferred}`);
-      const canvasFormat = terminalCanvasFormat(navigator.userAgent, preferred);
+      const presentation = terminalCanvasPresentation(navigator.userAgent, preferred);
+      const canvasFormat = presentation.format;
       const format: GPUTextureFormat = `${canvasFormat}-srgb`;
       this.canvasFormat = canvasFormat;
+      this.presentationAwaitsCompletion = presentation.presentAwaitsCompletion;
       this.linearView = { format };
       gpuContext.configure({
         device,

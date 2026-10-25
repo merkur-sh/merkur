@@ -14,21 +14,42 @@ const APPLE_MOBILE_WEBKIT_RUNTIME_POLICY: TerminalRuntimePolicy = {
 
 export type TerminalCanvasFormat = 'bgra8unorm' | 'rgba8unorm';
 
+export interface TerminalCanvasPresentation {
+  readonly format: TerminalCanvasFormat;
+  /** A submitted frame reaches the screen only when completions are delivered. */
+  readonly presentAwaitsCompletion: boolean;
+}
+
+// Gecko's `bgra8unorm` shared-texture swap chain showed the terminal frames
+// 150–300 ms old on screen while typing (Zen, Gecko 158); any other format
+// takes its readback presenter, which presents in order once the GPU process
+// next maintains the device, the same maintenance that delivers completions.
+const GECKO_CANVAS_PRESENTATION: TerminalCanvasPresentation = {
+  format: 'rgba8unorm',
+  presentAwaitsCompletion: true,
+};
+
+// WebKit shows an `rgba8unorm` canvas 1.5–3.6 ms sooner than the `bgra8unorm`
+// it reports as preferred, and completes its submission 2 ms sooner.
+const WEBKIT_CANVAS_PRESENTATION: TerminalCanvasPresentation = {
+  format: 'rgba8unorm',
+  presentAwaitsCompletion: false,
+};
+
 /**
- * The canvas format the engine presents soonest, measured on screen: WebKit
- * shows an `rgba8unorm` canvas 1.5–3.6 ms sooner than the `bgra8unorm` it
- * reports as preferred, and completes its submission 2 ms sooner. Every other
- * engine's preferred format is the one it presents without a copy; Gecko's
- * shared-texture swap chain takes only `bgra8unorm`, and any other format waits
- * for its GPU process to poll the device. Every Chromium names `Chrome/` or
+ * How the engine presents the terminal canvas. Chromium's preferred format is
+ * the one it presents without a copy. Gecko names `rv:…) Gecko/<date>`, which
+ * no other engine's `like Gecko` matches; every Chromium names `Chrome/` or
  * `Chromium/` (`HeadlessChrome/` included); every iOS browser is WebKit.
  */
-export function terminalCanvasFormat(
+export function terminalCanvasPresentation(
   userAgent: string,
   preferred: TerminalCanvasFormat,
-): TerminalCanvasFormat {
-  const isWebKit = /AppleWebKit\//.test(userAgent) && !/Chrom(?:e|ium)\//.test(userAgent);
-  return isWebKit ? 'rgba8unorm' : preferred;
+): TerminalCanvasPresentation {
+  if (/\) Gecko\/\d/.test(userAgent)) return GECKO_CANVAS_PRESENTATION;
+  if (/AppleWebKit\//.test(userAgent) && !/Chrom(?:e|ium)\//.test(userAgent))
+    return WEBKIT_CANVAS_PRESENTATION;
+  return { format: preferred, presentAwaitsCompletion: false };
 }
 
 export function terminalRuntimePolicyForUserAgent(userAgent: string): TerminalRuntimePolicy {

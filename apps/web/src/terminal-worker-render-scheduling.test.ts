@@ -160,6 +160,7 @@ test('a completion someone waits on is delivered once per frame, never while hid
   let inFlight = true;
   let admissionOpen = false;
   let firstDisplayInFlight = false;
+  let presentOnDelivery = false;
   let frame: (() => void) | null = null;
   const context = {
     renderSubmittedSinceCompletionFrame: false,
@@ -167,6 +168,7 @@ test('a completion someone waits on is delivered once per frame, never while hid
     renderer: {
       frameInFlight: () => inFlight,
       canSubmitFrame: () => admissionOpen,
+      presentAwaitsCompletion: () => presentOnDelivery,
       requestCompletion: () => {
         requests += 1;
       },
@@ -235,6 +237,22 @@ test('a completion someone waits on is delivered once per frame, never while hid
   context.graphicsVisible = true;
   inFlight = false;
   run('armCompletionDelivery();');
+  expect(frame).toBeNull();
+  // Gecko's readback canvas reaches the screen only on delivery: every frame in
+  // flight is a waiter with admission open, and a real submit since the last
+  // frame delivers only what preceded it, so the frame still asks.
+  presentOnDelivery = true;
+  admissionOpen = true;
+  inFlight = true;
+  run('armCompletionDelivery();');
+  context.renderSubmittedSinceCompletionFrame = true;
+  deliver();
+  expect(requests).toBe(6);
+  deliver();
+  expect(requests).toBe(7);
+  inFlight = false;
+  deliver();
+  expect(requests).toBe(7);
   expect(frame).toBeNull();
 });
 

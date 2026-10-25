@@ -241,11 +241,20 @@ afterEach(() => {
   descriptors.clear();
 });
 
-function harness(devices = [fakeDevice()], preferredFormat: GPUTextureFormat = 'bgra8unorm') {
+const CHROME_MAC_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/158.0.0.0 Safari/537.36';
+const ZEN_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:158.0) Gecko/20100101 Firefox/158.0';
+
+function harness(
+  devices = [fakeDevice()],
+  preferredFormat: GPUTextureFormat = 'bgra8unorm',
+  userAgent = CHROME_MAC_USER_AGENT,
+) {
   let nextDevice = 0;
   install('navigator', {
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:158.0) Gecko/20100101 Firefox/158.0',
+    userAgent,
     gpu: {
       getPreferredCanvasFormat: () => preferredFormat,
       async requestAdapter() {
@@ -341,8 +350,7 @@ describe('WebGPU terminal renderer', () => {
     const fake = fakeDevice();
     const h = harness([fake]);
     await ready(h);
-    // The engine's preferred format: Gecko presents any other through a readback
-    // that waits for its 100 ms device poll, and Chromium converts it.
+    // Chromium's preferred format, the one it presents without a conversion.
     expect(h.configurations[0]).toMatchObject({
       format: 'bgra8unorm',
       viewFormats: ['bgra8unorm-srgb'],
@@ -498,6 +506,26 @@ describe('WebGPU terminal renderer', () => {
     ]);
     draw(h.renderer);
     expect(fake.passes.at(-1)?.attachment).toMatchObject({ view: { format: 'rgba8unorm-srgb' } });
+    expect(h.renderer.presentAwaitsCompletion()).toBe(false);
+  });
+
+  test('Gecko presents rgba8unorm through its readback, which waits on delivered completions', async () => {
+    // Its bgra8unorm shared-texture swap chain showed frames 150–300 ms old.
+    const fake = fakeDevice();
+    const h = harness([fake], 'bgra8unorm', ZEN_USER_AGENT);
+    await ready(h);
+    expect(h.configurations[0]).toMatchObject({
+      format: 'rgba8unorm',
+      viewFormats: ['rgba8unorm-srgb'],
+    });
+    expect(fake.pipelines.map((p) => p.fragment?.targets[0]?.format)).toEqual([
+      'rgba8unorm-srgb',
+      'rgba8unorm',
+      'rgba8unorm-srgb',
+      'rgba8unorm-srgb',
+      'rgba8unorm-srgb',
+    ]);
+    expect(h.renderer.presentAwaitsCompletion()).toBe(true);
   });
 
   test('requestCompletion submits one shared empty batch, only while a frame is unconfirmed', async () => {

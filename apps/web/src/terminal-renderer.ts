@@ -27,6 +27,8 @@ export interface GpuRenderer {
   canSubmitFrame(): boolean;
   /** Have the implementation deliver completions the GPU has already reached. */
   requestCompletion(): void;
+  /** True when a submitted frame reaches the screen only once its completion is delivered. */
+  presentAwaitsCompletion(): boolean;
   destroy(): void;
 }
 

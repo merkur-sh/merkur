@@ -394,12 +394,14 @@ const renderAnimationFrame = createOwnedAnimationFrame(
   (handle) => cancelAnimationFrame(handle),
 );
 
-// Gecko delivers a GPU completion only when its GPU process maintains the
-// device: inside a queue submit, or on a 100 ms timer. While something waits
-// on a completion (admission closed, the session's first frame), each
-// delivered animation frame with no real submit since the last one asks for
-// that maintenance (`GpuRenderer.requestCompletion`). The callback is one
-// stable function, so a re-armed frame allocates nothing.
+// Gecko delivers a GPU completion, and presents its readback canvas, only when
+// its GPU process maintains the device: inside a queue submit, or on a 100 ms
+// timer. While something waits on a completion (admission closed, the
+// session's first frame, any Gecko frame not yet on screen), each delivered
+// animation frame asks for that maintenance (`GpuRenderer.requestCompletion`)
+// unless a real submit since the last one already did and nothing is presented
+// on delivery. The callback is one stable function, so a re-armed frame
+// allocates nothing.
 let completionFrameHandle = 0;
 
 let renderSubmittedSinceCompletionFrame = false;
@@ -2915,12 +2917,15 @@ function cancelRenderOpportunity(): void {
 /**
  * While admission is closed every state change waits on a completion: the
  * mailbox's fence, a byte watermark, or the viewer holding an update because
- * presentation is not ready. The session's first frame is waited on too.
+ * presentation is not ready. The session's first frame is waited on too, and
+ * every frame whose presentation itself awaits the completion (Gecko).
  */
 function completionAwaited(): boolean {
   return (
     renderer?.frameInFlight() === true &&
-    (!renderer.canSubmitFrame() || firstDisplayGpuFence.hasInFlight())
+    (renderer.presentAwaitsCompletion() ||
+      !renderer.canSubmitFrame() ||
+      firstDisplayGpuFence.hasInFlight())
   );
 }
 
@@ -2938,9 +2943,11 @@ function armCompletionDelivery(): void {
 
 function onCompletionAnimationFrame(): void {
   completionFrameHandle = 0;
-  if (!graphicsVisible || !completionAwaited()) return;
-  // A real submit since the last frame already maintained the device.
-  if (!renderSubmittedSinceCompletionFrame) renderer?.requestCompletion();
+  if (!graphicsVisible || renderer === null || !completionAwaited()) return;
+  // A real submit since the last frame already delivered the completions
+  // reached before it, but a frame presented on delivery needs one after its own.
+  if (!renderSubmittedSinceCompletionFrame || renderer.presentAwaitsCompletion())
+    renderer.requestCompletion();
   renderSubmittedSinceCompletionFrame = false;
   completionFrameHandle = requestAnimationFrame(onCompletionAnimationFrame);
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   type TerminalRuntimePolicy,
-  terminalCanvasFormat,
+  terminalCanvasPresentation,
   terminalRuntimePolicyForUserAgent,
 } from './runtime-policy';
 
@@ -73,7 +73,7 @@ describe('terminalRuntimePolicyForUserAgent', () => {
   });
 });
 
-describe('terminalCanvasFormat', () => {
+describe('terminalCanvasPresentation', () => {
   // The user agents of the measured browsers, then the forms they stand for.
   const zen =
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:158.0) Gecko/20100101 Firefox/158.0';
@@ -96,14 +96,32 @@ describe('terminalCanvasFormat', () => {
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ' +
     'HeadlessChrome/140.0.0.0 Safari/537.36';
 
+  const linuxFirefox = 'Mozilla/5.0 (X11; Linux x86_64; rv:158.0) Gecko/20100101 Firefox/158.0';
+  const androidFirefox = 'Mozilla/5.0 (Android 15; Mobile; rv:158.0) Gecko/158.0 Firefox/158.0';
+
   test('WebKit, on every Apple platform and behind every iOS browser, takes rgba8unorm', () => {
     for (const userAgent of [safari, iphone, iosChrome])
-      expect(terminalCanvasFormat(userAgent, 'bgra8unorm')).toBe('rgba8unorm');
+      expect(terminalCanvasPresentation(userAgent, 'bgra8unorm')).toEqual({
+        format: 'rgba8unorm',
+        presentAwaitsCompletion: false,
+      });
   });
 
-  test('Gecko and Chromium take the format they prefer', () => {
-    for (const userAgent of [zen, chrome, headlessChrome])
-      expect(terminalCanvasFormat(userAgent, 'bgra8unorm')).toBe('bgra8unorm');
-    expect(terminalCanvasFormat(androidChrome, 'rgba8unorm')).toBe('rgba8unorm');
+  test('Gecko takes rgba8unorm, which it presents when its completions are delivered', () => {
+    // Its bgra8unorm shared-texture swap chain showed frames 150–300 ms old.
+    for (const userAgent of [zen, linuxFirefox, androidFirefox])
+      expect(terminalCanvasPresentation(userAgent, 'bgra8unorm')).toEqual({
+        format: 'rgba8unorm',
+        presentAwaitsCompletion: true,
+      });
+  });
+
+  test('Chromium takes the format it prefers', () => {
+    for (const userAgent of [chrome, headlessChrome])
+      expect(terminalCanvasPresentation(userAgent, 'bgra8unorm')).toEqual({
+        format: 'bgra8unorm',
+        presentAwaitsCompletion: false,
+      });
+    expect(terminalCanvasPresentation(androidChrome, 'rgba8unorm').format).toBe('rgba8unorm');
   });
 });
