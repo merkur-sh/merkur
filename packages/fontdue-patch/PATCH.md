@@ -11,7 +11,9 @@ publishes one retained outline; cloned fonts retain immutable source ownership.
 
 The eager parallel-loading feature is removed with the eager implementation.
 `src/lib.rs` suppresses a newer compiler's unnecessary-transmute warning in the
-unchanged upstream SIMD code. `src/lazy_tests.rs` pins upstream metrics and raster
+unchanged upstream SIMD code, and `src/layout.rs` and `src/math.rs` name the float
+limits by their associated constants (`f32::MAX`), since the `core::f32` module
+constants are deprecated. `src/lazy_tests.rs` pins upstream metrics and raster
 hashes for all five bundled Merkur fonts at three sizes and checks lazy cache
 and concurrent ownership. Run `bazel test //packages/fontdue-patch:unit`.
 
