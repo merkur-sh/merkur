@@ -486,8 +486,9 @@ description and questions, then every other page under its `og:title` with its d
    origin, `https://app.merkur.sh`).
 4. In Rybbit (Analytics below), register `merkur.sh` and turn on First-Party Proxy and User
    ID Salting under the site's Privacy & Security settings, with IP tracking off. The first
-   makes it trust the visitor address the proxy sends in `X-Forwarded-For`; the second is
-   what the privacy policy's "cannot be linked to you after the day they occur" rests on.
+   makes it trust the visitor address the proxy sends in `X-Forwarded-For`; the second
+   salts visitor IDs with a value that changes daily, so one visitor's visits on different
+   days cannot be joined.
 5. In the server's `/etc/merkur/server.env`, set `SITE_ORIGIN=https://merkur.sh`, and to count new waitlist
    addresses `RYBBIT_HOST`, `RYBBIT_SITE_ID` and `RYBBIT_API_KEY` (the README configuration
    table). The key is an organization API key scoped to `ingest:write`; without that scope
