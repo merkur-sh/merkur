@@ -195,7 +195,7 @@ test('common Direct release/final typing and application comparison', async ({
       addError(error);
     }
     try {
-      await expect(page.getByText(/^Direct(?: · \d+ms)?$/).first()).toBeVisible();
+      await expect(page.getByTitle(/^Direct(?: · \d+ms)?\. Traffic/).first()).toBeVisible();
     } catch (error) {
       addError(error);
     }
@@ -349,7 +349,7 @@ test('common Direct release/final typing and application comparison', async ({
   try {
     await page.getByTitle(`Connect to ${linkedDaemon.daemonName}`).click();
     await expectConnected(page, 40_000);
-    await expect(page.getByText(/^Direct(?: · \d+ms)?$/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTitle(/^Direct(?: · \d+ms)?\. Traffic/).first()).toBeVisible({ timeout: 30_000 });
     expect(dials.length).toBeGreaterThan(0);
     expect(proxy.sourceHashes.length).toBeGreaterThan(0);
     const gpu = await readWebGpuIdentity(page);

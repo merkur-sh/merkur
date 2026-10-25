@@ -97,7 +97,7 @@ for (const scene of ['pristine', 'deleted', 'offscreen'] as const) {
     ).not.toBeNull();
     if (EXPECT_RELAY) {
       await expect(
-        page.getByText(/^Relay(?: · \d+ms)?$/).first(),
+        page.getByTitle(/^Relay(?: · \d+ms)?\. Traffic/).first(),
         'latency measurements must stay pinned to the edge relay',
       ).toBeVisible({ timeout: 20_000 });
     }

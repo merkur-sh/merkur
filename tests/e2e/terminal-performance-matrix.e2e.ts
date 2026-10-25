@@ -418,7 +418,7 @@ test.describe('terminal performance matrix', () => {
   ): Promise<void> {
     const output = await prepareTerminal(page, linkedDaemon.daemonName, terminalPerf);
     if (viaDirectProxy) {
-      await expect(page.getByText(/^Direct(?: · \d+ms)?$/).first()).toBeVisible({
+      await expect(page.getByTitle(/^Direct(?: · \d+ms)?\. Traffic/).first()).toBeVisible({
         timeout: 30_000,
       });
     }

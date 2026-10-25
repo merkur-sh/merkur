@@ -127,8 +127,8 @@ test.describe('constrained browser baseline', () => {
     const marker = `browser-nat-relay-${process.pid}`;
     await page.keyboard.type(`printf '%s%s\\n' browser-nat-relay- ${process.pid}\n`);
     await expectOutput(output, marker);
-    await expect(page.getByText(/^Relay(?: · \d+ms)?$/u).first()).toBeVisible();
-    await expect(page.getByText(/^Direct(?: · \d+ms)?$/u)).toHaveCount(0);
+    await expect(page.getByTitle(/^Relay(?: · \d+ms)?\. Traffic/u).first()).toBeVisible();
+    await expect(page.getByTitle(/^Direct(?: · \d+ms)?\. Traffic/u)).toHaveCount(0);
   });
 });
 

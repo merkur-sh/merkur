@@ -398,7 +398,7 @@ test('direct input cadences and fast redraws retain exact GPU-fence evidence', a
     try {
       await page.getByTitle(`Connect to ${linkedDaemon.daemonName}`).click();
       await expectConnected(page, 40_000);
-      await expect(page.getByText(/^Direct(?: · \d+ms)?$/).first()).toBeVisible({
+      await expect(page.getByTitle(/^Direct(?: · \d+ms)?\. Traffic/).first()).toBeVisible({
         timeout: 30_000,
       });
       expect(
