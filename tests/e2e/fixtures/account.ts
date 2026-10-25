@@ -26,6 +26,13 @@ export async function createAccount(page: Page, username: string, password: stri
   await continueWithAccount(page, username, password);
 }
 
+/** A suffix that keeps a test account's username unique across runs and workers. */
+export function uniqueSuffix(): string {
+  return `${Date.now()}-${randomInt(36 ** 6)
+    .toString(36)
+    .padStart(6, '0')}`;
+}
+
 /** An address in 198.18.0.0/15, the range reserved for benchmark traffic. */
 function uniqueClientAddress(): string {
   return `198.${18 + randomInt(2)}.${randomInt(256)}.${1 + randomInt(254)}`;

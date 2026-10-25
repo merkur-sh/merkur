@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { createAccount, expectLoggedIn } from './fixtures/account';
+import { createAccount, expectLoggedIn, uniqueSuffix } from './fixtures/account';
 import { linkOfflineDaemon } from './fixtures/daemon-process';
 
 import { expect, test } from './fixtures/test';
@@ -13,10 +13,6 @@ import { expect, test } from './fixtures/test';
  * whether the cursor is where the next binding thinks it is, and whether a
  * dialog takes the keys away while it is open.
  */
-
-function uniqueSuffix(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 /**
  * Which screen is showing.

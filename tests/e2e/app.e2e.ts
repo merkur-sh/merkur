@@ -1,13 +1,15 @@
 import type { Page } from '@playwright/test';
 
-import { createAccount, expectLoggedIn, expectLoggedOut, logout, signIn } from './fixtures/account';
+import {
+  createAccount,
+  expectLoggedIn,
+  expectLoggedOut,
+  logout,
+  signIn,
+  uniqueSuffix,
+} from './fixtures/account';
 import { linkOfflineDaemon, openAddMachine } from './fixtures/daemon-process';
 import { expect, test } from './fixtures/test';
-
-function createUniqueSuffix(): string {
-  const randomPart = Math.random().toString(36).slice(2, 8);
-  return `${Date.now()}-${randomPart}`;
-}
 
 async function expectAuthScreen(page: Page): Promise<void> {
   await expect(page.locator('#auth-screen')).toBeVisible();
@@ -25,7 +27,7 @@ test('notification destination survives sign-in and keeps unavailable machines e
     }),
     contentType: 'application/json',
   });
-  const username = `notification-${createUniqueSuffix()}`;
+  const username = `notification-${uniqueSuffix()}`;
   const password = 'Password123!';
   await page.goto('/');
   await createAccount(page, username, password);
@@ -90,7 +92,7 @@ test('notification destination survives sign-in and keeps unavailable machines e
 test('keeps controls visible while creating an account and shows the first-list skeleton', async ({
   page,
 }) => {
-  const suffix = createUniqueSuffix();
+  const suffix = uniqueSuffix();
   const username = `e2e-loading-${suffix}`;
   const password = 'Password123!';
 
@@ -128,7 +130,7 @@ test('auth flow supports registration, offline device persistence, and logout', 
   page,
 }) => {
   if (baseURL === undefined) throw new Error('baseURL is required for app E2E tests');
-  const suffix = createUniqueSuffix();
+  const suffix = uniqueSuffix();
   const username = `e2e-${suffix}`;
   const password = 'Password123!';
 
@@ -200,7 +202,7 @@ test('auth flow supports registration, offline device persistence, and logout', 
 });
 
 test('shows a clear message for invalid credentials', async ({ page }) => {
-  const suffix = createUniqueSuffix();
+  const suffix = uniqueSuffix();
   const username = `e2e-${suffix}`;
   const password = 'Password123!';
 
@@ -232,7 +234,7 @@ test('shows machine capacity and restores the link command after unlinking', asy
   const password = 'Password123!';
   const linked: Awaited<ReturnType<typeof linkOfflineDaemon>>[] = [];
   await page.goto('/');
-  await createAccount(page, `capacity-${createUniqueSuffix()}`, password);
+  await createAccount(page, `capacity-${uniqueSuffix()}`, password);
   await expectLoggedIn(page);
   const usage = page.locator('[data-machine-usage]');
   await expect(usage).toHaveText('0 / 3 machine slots used');
@@ -268,7 +270,7 @@ test('device list recovers from a dropped event stream and an offline/online edg
   page,
 }) => {
   if (baseURL === undefined) throw new Error('baseURL is required for app E2E tests');
-  const suffix = createUniqueSuffix();
+  const suffix = uniqueSuffix();
   const username = `e2e-recovery-${suffix}`;
   const password = 'Password123!';
 
@@ -324,7 +326,7 @@ test('device list recovers from a dropped event stream and an offline/online edg
 
 test('an open row menu covers the rows beneath it', async ({ baseURL, page }) => {
   if (baseURL === undefined) throw new Error('baseURL is required for app E2E tests');
-  const suffix = createUniqueSuffix();
+  const suffix = uniqueSuffix();
   const password = 'Password123!';
 
   await page.goto('/');
