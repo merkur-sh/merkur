@@ -88,9 +88,10 @@ function installIdleAudit(): void {
     drawArrays.call(this, mode, first, count);
   };
 
-  const fillRect = CanvasRenderingContext2D.prototype.fillRect;
-  CanvasRenderingContext2D.prototype.fillRect = function (
-    this: CanvasRenderingContext2D,
+  // The link strip draws through an OffscreenCanvas transferred from its element.
+  const fillRect = OffscreenCanvasRenderingContext2D.prototype.fillRect;
+  OffscreenCanvasRenderingContext2D.prototype.fillRect = function (
+    this: OffscreenCanvasRenderingContext2D,
     x: number,
     y: number,
     w: number,

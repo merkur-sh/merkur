@@ -2762,6 +2762,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/components/link-strip.ts": [
+            "//packages/quicksilver:src/tokens.ts.module",
             ":package.json.module",
             ":src/transport/link-activity.ts.module",
             ":tsconfig.json.module",
