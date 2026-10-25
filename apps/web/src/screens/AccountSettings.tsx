@@ -27,7 +27,7 @@ interface Props {
 
 /** The same scope the machine list's one-time question states. */
 const TELEMETRY_SCOPE =
-  'Timings and counts from this browser and your linked machines, never what you type or what your terminal shows.';
+  'Timings and counts from this browser and your machines, never what you type or see in your terminal.';
 const TELEMETRY_SAVE_FAILED = 'Your choice was not saved. Try again.';
 
 /**

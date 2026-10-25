@@ -23,7 +23,8 @@ const TITLE_TYPE = 'text-[16px] font-semibold leading-[1.35] tracking-[-0.018em]
  * takes the question's line, which is already as tall as the failure, so the
  * explanation stays readable and the buttons stay where the pointer left them.
  *
- * The copy says what is sent and what never is, without calling it anonymous:
+ * The copy is one line of why, one line of what is sent and one of what never is, so
+ * it reads at a glance; it does not call the reports anonymous:
  * reports are tied to the account, and daemon spans carry daemon and session ids.
  */
 const TelemetryConsentDialog: Component<{
@@ -57,36 +58,70 @@ const TelemetryConsentDialog: Component<{
             {SAVE_FAILED}
           </p>
         </div>
-        <p id="telemetry-consent-description" class="text-[12.5px] leading-[1.55] text-meta">
-          These reports are how I find and fix slow or dropped connections in Merkur, and they shape
-          what I work on next. They carry timings and counts from this browser and your linked
-          machines, such as how long a keystroke takes to appear and when a connection drops. They
-          never include what you type or what your terminal shows. You can turn them off any time in
-          Settings.
+        <p
+          id="telemetry-consent-description"
+          class="text-pretty text-[12.5px] leading-[1.55] text-meta"
+        >
+          They are how Merkur finds and fixes slow or dropped connections. You can change this any
+          time in Settings.
         </p>
       </div>
-      <div class="grid grid-cols-2 gap-2">
+      <ul class="m-0 flex list-none flex-col gap-[10px] p-0 text-[12.5px] leading-[1.55] text-body">
+        <li class="flex items-start gap-[8px]">
+          <ScopeMark path="M5 12.5l4.5 4.5L19 7.5" tone="text-ok" />
+          <span class="text-pretty">Timings and counts from this browser and your machines</span>
+        </li>
+        <li class="flex items-start gap-[8px]">
+          <ScopeMark path="m7 7 10 10m0-10L7 17" tone="text-bad" />
+          <span class="text-pretty">Never what you type or see in your terminal</span>
+        </li>
+      </ul>
+      {/* Share leads on a wide window, where the eye starts at the left, and sits under the
+          right thumb on a phone; the DOM keeps the wide order, so Tab follows what a keyboard
+          user sees. */}
+      <div class="mt-[6px] grid grid-cols-2 gap-2">
         <button
           type="button"
-          class="btn-secondary"
-          aria-busy={ariaBool(props.pending === false)}
-          aria-disabled={ariaBool(props.pending !== null)}
-          onClick={choose(false)}
-        >
-          Don't share
-        </button>
-        <button
-          type="button"
-          class="btn-primary"
+          class="btn-primary order-2 frame:order-1"
           aria-busy={ariaBool(props.pending === true)}
           aria-disabled={ariaBool(props.pending !== null)}
           onClick={choose(true)}
         >
           Share
         </button>
+        <button
+          type="button"
+          class="btn-secondary order-1 frame:order-2"
+          aria-busy={ariaBool(props.pending === false)}
+          aria-disabled={ariaBool(props.pending !== null)}
+          onClick={choose(false)}
+        >
+          Don't share
+        </button>
       </div>
     </div>
   );
 };
+
+/**
+ * One scope line's mark, drawn in the header icons' hand: 24 grid, 1.8 stroke, round caps.
+ * A bare glyph, not a ringed one: a ring is what a ticked control looks like, and nothing
+ * here is preselected. The status colour marks what is sent and what never is; the words
+ * beside it say the same, so colour is never the only signal.
+ */
+const ScopeMark: Component<{ path: string; tone: 'text-ok' | 'text-bad' }> = (props) => (
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    class={`mt-[2px] h-[14px] w-[14px] shrink-0 ${props.tone}`}
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d={props.path} />
+  </svg>
+);
 
 export default TelemetryConsentDialog;
