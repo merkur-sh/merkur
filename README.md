@@ -233,6 +233,12 @@ services, tools, and artifacts.
 See the [development guide](docs/development.md) for daemon development, build commands, tests,
 and deployment prerequisites. [CONTRIBUTING.md](CONTRIBUTING.md) covers contributions and the CLA.
 
+Built by one developer, with AI coding agents (Claude Code, Codex) writing most of the code. The
+design is mine, and a few choices were made because the technology was shiny, like WebTransport and
+WebGPU. They work, so they stayed.
+
+PRs welcome, including AI-assisted ones, if you've reviewed and tested the change.
+
 Pull requests and pushes to `main` run [CI](.github/workflows/ci.yml). Version tags trigger the
 [release workflow](.github/workflows/release.yml): building, signing, service deployment, and
 publication. See [CI operations](docs/ci.md) and [releases](docs/releases.md).
