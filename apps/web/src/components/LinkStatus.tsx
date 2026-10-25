@@ -17,10 +17,13 @@ import type { TerminalSession } from '../transport-worker-client';
 import {
   createLinkStripScheduler,
   createLinkStripSeries,
+  drawLinkReadout,
   drawLinkStrip,
   healthColor,
   IDLE_COLOR,
   LINK_STRIP_PITCH,
+  type LinkReadoutFont,
+  linkReadoutWidth,
 } from './link-strip';
 
 const READOUT_INTERVAL_MS = 300;
@@ -52,6 +55,38 @@ const formatBytes = (n: number): string => {
   return `${scaled < 100 ? scaled.toFixed(1) : Math.round(scaled)}${unit}`;
 };
 
+const readoutFigure = (q: ConnectionQuality): string => {
+  if (q.state !== 'ready') return stateLabel(q.state);
+  const path = q.path === 'direct' ? 'Direct' : q.path === 'relay' ? 'Relay' : '';
+  if (q.rttMs === null) return path || '—';
+  return `${path ? `${path} · ` : ''}${Math.round(q.rttMs)}ms`;
+};
+
+const readoutColor = (q: ConnectionQuality): string =>
+  q.state === 'ready' ? healthColor(q.rttMs, q.degraded) : IDLE_COLOR;
+
+/**
+ * The computed font of the readout canvas, whose classes size it like text.
+ * Canvas fonts take no `font-size-adjust`, so the adjusted size is solved from
+ * the measured x-height of the same family.
+ */
+function readReadoutFont(
+  element: HTMLElement,
+  ctx: OffscreenCanvasRenderingContext2D,
+): LinkReadoutFont {
+  const style = getComputedStyle(element);
+  const base = Number.parseFloat(style.fontSize);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  const adjust = Number.parseFloat(style.fontSizeAdjust.replace('ex-height', ''));
+  ctx.font = `400 ${base}px ${style.fontFamily}`;
+  const exRatio = ctx.measureText('x').actualBoundingBoxAscent / base;
+  return {
+    family: style.fontFamily,
+    size: Number.isFinite(adjust) && exRatio > 0 ? (base * adjust) / exRatio : base,
+    lineHeight: Number.isFinite(lineHeight) ? lineHeight : base * 1.25,
+  };
+}
+
 interface Props {
   readonly session: Accessor<TerminalSession | null>;
   readonly width?: number;
@@ -60,9 +95,21 @@ interface Props {
   readonly reduced?: boolean;
 }
 
-/** Sent above, received below; link RTT and the session total stay in words. */
+/**
+ * Sent above, received below; link RTT and the session total stay in words.
+ * Both canvases are transferred to OffscreenCanvas and drawn here on the main
+ * thread: an OffscreenCanvas commits its frame straight to the compositor,
+ * while an element canvas, or changing text, marks its frame for display-list
+ * rebuild. On Gecko a rebuilt display list flushes the terminal's worker
+ * canvas, and a flush that lands just after the terminal presents publishes a
+ * CPU copy of a swap-chain texture the GPU has not finished drawing — an older
+ * terminal frame (docs/performance.md).
+ */
 const LinkStatus: Component<Props> = (props) => {
-  let canvasEl: HTMLCanvasElement | undefined;
+  let stripElement: HTMLCanvasElement | undefined;
+  let readoutElement: HTMLCanvasElement | undefined;
+  let stripSurface: OffscreenCanvas | null = null;
+  let readoutSurface: OffscreenCanvas | null = null;
   const width = () => Math.max(2, props.width ?? 104);
   const height = () => Math.max(5, props.height ?? 22);
   const density = () => Math.max(2, props.density ?? LINK_STRIP_PITCH);
@@ -72,25 +119,6 @@ const LinkStatus: Component<Props> = (props) => {
   const [motionReduced, setMotionReduced] = createSignal(false);
   const [mounted, setMounted] = createSignal(false);
 
-  const readoutColor = createMemo(() => {
-    const q = quality();
-    return q.state === 'ready' ? healthColor(q.rttMs, q.degraded) : IDLE_COLOR;
-  });
-  const readoutFigure = createMemo((): string => {
-    const q = quality();
-    if (q.state !== 'ready') return stateLabel(q.state);
-    const path = q.path === 'direct' ? 'Direct' : q.path === 'relay' ? 'Relay' : '';
-    if (q.rttMs === null) return path || '—';
-    return `${path ? `${path} · ` : ''}${Math.round(q.rttMs)}`;
-  });
-  const readoutLatency = createMemo(() => {
-    const q = quality();
-    return q.state === 'ready' && q.rttMs !== null ? Math.round(q.rttMs) : null;
-  });
-  const readoutUnit = createMemo(() =>
-    quality().state === 'ready' && quality().rttMs !== null ? 'ms' : '',
-  );
-  const totalText = createMemo(() => `Σ${formatBytes(txBytes() + rxBytes())}`);
   const byteDescription = createMemo(
     () =>
       `Sent ${txBytes().toLocaleString()} B; received ${rxBytes().toLocaleString()} B; ` +
@@ -101,7 +129,7 @@ const LinkStatus: Component<Props> = (props) => {
   );
   const description = createMemo(
     () =>
-      `${readoutFigure()}${readoutUnit()}. Traffic: sent above, received below. ` +
+      `${readoutFigure(quality())}. Traffic: sent above, received below. ` +
       byteDescription() +
       recoveryDescription(),
   );
@@ -132,12 +160,18 @@ const LinkStatus: Component<Props> = (props) => {
     (configuration) => {
       if (configuration === null) return;
       const [w, h, pitch, reduced, session] = configuration;
-      const element = canvasEl;
-      if (!element) return;
-      const canvas = element;
-      const context = canvas.getContext('2d');
-      if (!context) return;
-      const ctx = context;
+      if (!stripElement || !readoutElement) return;
+      const stripCanvas = stripElement;
+      const readoutCanvas = readoutElement;
+      stripSurface ??= stripCanvas.transferControlToOffscreen();
+      readoutSurface ??= readoutCanvas.transferControlToOffscreen();
+      const strip = stripSurface;
+      const readout = readoutSurface;
+      const stripContext = strip.getContext('2d');
+      const readoutContext = readout.getContext('2d');
+      if (!stripContext || !readoutContext) return;
+      const ctx = stripContext;
+      const textCtx = readoutContext;
       const span = Math.max(1, Math.min(255, Math.floor((h - 1) / 2)));
       const columns = Math.min(LINK_ACTIVITY_COLUMNS, Math.max(1, Math.floor(w / pitch)));
       const series = createLinkStripSeries(columns, span);
@@ -148,7 +182,12 @@ const LinkStatus: Component<Props> = (props) => {
       let currentRx = 0;
       let readoutAt = Number.NEGATIVE_INFINITY;
       let readoutDirty = false;
+      let shownTotal = 0;
       let drawingDirty = true;
+      let textDirty = true;
+      let font: LinkReadoutFont | null = null;
+      let textWidth = 0;
+      let textHeight = 0;
       let pendingTraffic: LinkActivitySnapshot | null = null;
       let awaitingBaseline = false;
       let offQuality: (() => void) | null = null;
@@ -161,8 +200,28 @@ const LinkStatus: Component<Props> = (props) => {
       function flushReadout(at: number): void {
         setTxBytes(currentTx);
         setRxBytes(currentRx);
+        shownTotal = currentTx + currentRx;
         readoutDirty = false;
         readoutAt = at;
+        textDirty = true;
+      }
+
+      function paintReadout(): void {
+        font ??= readReadoutFont(readoutCanvas, textCtx);
+        const figure = readoutFigure(currentQuality);
+        const total = `Σ${formatBytes(shownTotal)}`;
+        const nextWidth = linkReadoutWidth(textCtx, font, figure, total);
+        const nextHeight = Math.ceil(font.lineHeight * 2);
+        if (nextWidth !== textWidth || nextHeight !== textHeight) {
+          textWidth = nextWidth;
+          textHeight = nextHeight;
+          readoutCanvas.style.width = `${textWidth}px`;
+          readoutCanvas.style.height = `${textHeight}px`;
+          readout.width = Math.max(1, Math.round(textWidth * pixelRatio));
+          readout.height = Math.max(1, Math.round(textHeight * pixelRatio));
+          textCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        }
+        drawLinkReadout(textCtx, font, textWidth, figure, total, readoutColor(currentQuality));
       }
 
       const scheduler = createLinkStripScheduler({
@@ -182,17 +241,14 @@ const LinkStatus: Component<Props> = (props) => {
           }
           pendingTraffic = null;
           if (drawingDirty) {
-            drawLinkStrip(
-              ctx,
-              w,
-              h,
-              pitch,
-              series,
-              ready ? healthColor(currentQuality.rttMs, currentQuality.degraded) : IDLE_COLOR,
-            );
+            drawLinkStrip(ctx, w, h, pitch, series, readoutColor(currentQuality));
             drawingDirty = false;
           }
           if (readoutDirty && at - readoutAt >= READOUT_INTERVAL_MS) flushReadout(at);
+          if (textDirty) {
+            paintReadout();
+            textDirty = false;
+          }
           return readoutDirty ? readoutAt + READOUT_INTERVAL_MS : null;
         },
       });
@@ -215,22 +271,20 @@ const LinkStatus: Component<Props> = (props) => {
           next.state !== before.state ||
           next.degraded !== before.degraded;
         if (changed) {
-          const beforeColor =
-            before.state === 'ready' ? healthColor(before.rttMs, before.degraded) : IDLE_COLOR;
-          const afterColor =
-            next.state === 'ready' ? healthColor(next.rttMs, next.degraded) : IDLE_COLOR;
-          drawingDirty = drawingDirty || beforeColor !== afterColor;
+          drawingDirty = drawingDirty || readoutColor(before) !== readoutColor(next);
           if (next.state !== before.state) {
             pendingTraffic = null;
             if (next.state === 'ready') series.clear();
             drawingDirty = true;
           }
+          textDirty = textDirty || readoutFigure(before) !== readoutFigure(next);
+          textDirty = textDirty || readoutColor(before) !== readoutColor(next);
           currentQuality = next;
           setQuality(next);
         }
         const totals = activeSession.getThroughput();
         observeTotals(totals.txBytes, totals.rxBytes);
-        if (drawingDirty) scheduler.invalidate();
+        if (drawingDirty || textDirty) scheduler.invalidate();
       }
 
       function observeTraffic(snapshot: LinkActivitySnapshot): void {
@@ -240,6 +294,7 @@ const LinkStatus: Component<Props> = (props) => {
           currentTx = snapshot.txBytes;
           currentRx = snapshot.rxBytes;
           flushReadout(now());
+          scheduler.invalidate();
         } else observeTotals(snapshot.txBytes, snapshot.rxBytes);
         if (currentQuality.state === 'ready') {
           pendingTraffic = snapshot;
@@ -259,6 +314,7 @@ const LinkStatus: Component<Props> = (props) => {
         const session = activeSession;
         if (!visible || disposed) return;
         if (session === null) {
+          currentQuality = IDLE_QUALITY;
           setQuality(IDLE_QUALITY);
           flushReadout(now());
           return;
@@ -271,17 +327,37 @@ const LinkStatus: Component<Props> = (props) => {
       }
 
       function resizeCanvas(): void {
+        // A breakpoint can change the readout's computed font.
+        font = null;
+        textWidth = 0;
+        textDirty = true;
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        if (pixelRatio === dpr) return;
-        pixelRatio = dpr;
-        canvas.width = Math.max(1, Math.round(w * dpr));
-        canvas.height = Math.max(1, Math.round(h * dpr));
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        drawingDirty = true;
+        if (pixelRatio !== dpr) {
+          pixelRatio = dpr;
+          strip.width = Math.max(1, Math.round(w * dpr));
+          strip.height = Math.max(1, Math.round(h * dpr));
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          drawingDirty = true;
+        }
         scheduler.invalidate();
       }
       resizeCanvas();
       window.addEventListener('resize', resizeCanvas);
+
+      // The terminal screen may set no other text in the mono face, and a
+      // canvas never asks for a font to load; measure again once it has.
+      const fontsReady = (): void => {
+        if (disposed) return;
+        font = null;
+        textWidth = 0;
+        textDirty = true;
+        scheduler.invalidate();
+      };
+      const family = getComputedStyle(readoutCanvas).fontFamily;
+      void Promise.all([
+        document.fonts.load(`400 12px ${family}`),
+        document.fonts.load(`500 12px ${family}`),
+      ]).then(fontsReady, fontsReady);
 
       function updateVisibility(): void {
         const next = intersecting && !document.hidden;
@@ -304,7 +380,7 @@ const LinkStatus: Component<Props> = (props) => {
           updateVisibility();
         }
       });
-      observer.observe(canvas);
+      observer.observe(stripCanvas);
 
       return () => {
         disposed = true;
@@ -326,37 +402,17 @@ const LinkStatus: Component<Props> = (props) => {
     >
       <canvas
         ref={(canvas) => {
-          canvasEl = canvas;
+          stripElement = canvas;
         }}
         class="block shrink-0"
         style={{ width: `${width()}px`, height: `${height()}px` }}
       />
-      <div
-        class="flex flex-col justify-center overflow-hidden font-mono text-[12px] leading-[1.25] tabular-nums frame:text-[14px]"
-        aria-hidden="true"
-      >
-        <span
-          class="inline-block min-w-[15ch] whitespace-nowrap font-medium"
-          style={{ color: readoutColor() }}
-        >
-          {readoutLatency() === null ? (
-            readoutFigure()
-          ) : (
-            <>
-              {quality().path === 'direct'
-                ? 'Direct · '
-                : quality().path === 'relay'
-                  ? 'Relay · '
-                  : ''}
-              <span class="inline-block min-w-[6ch]">
-                {readoutLatency()}
-                <span>{readoutUnit()}</span>
-              </span>
-            </>
-          )}
-        </span>
-        <span class="whitespace-nowrap text-meta">{totalText()}</span>
-      </div>
+      <canvas
+        ref={(canvas) => {
+          readoutElement = canvas;
+        }}
+        class="block shrink-0 font-mono text-[12px] leading-[1.25] frame:text-[14px]"
+      />
     </div>
   );
 };

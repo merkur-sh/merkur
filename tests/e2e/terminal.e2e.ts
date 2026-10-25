@@ -221,14 +221,23 @@ async function receivedBytes(page: import('@playwright/test').Page): Promise<num
   });
 }
 
-/** Painted link-strip pixels off its baseline row: the traffic bars. */
+/**
+ * Painted link-strip pixels off its baseline row: the traffic bars. The strip
+ * is drawn through an OffscreenCanvas, so its element is a placeholder that
+ * only another canvas can read, by drawing it.
+ */
 async function linkStripTrafficPixels(page: import('@playwright/test').Page): Promise<number> {
   return page.evaluate(() => {
     const canvas = document.querySelector<HTMLCanvasElement>(
       '[role="img"][title*="Traffic: sent above, received below."] canvas',
     );
-    const context = canvas?.getContext('2d');
-    if (!canvas || !context || canvas.width === 0 || canvas.height === 0) return 0;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return 0;
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const context = copy.getContext('2d');
+    if (!context) return 0;
+    context.drawImage(canvas, 0, 0);
     const scale = canvas.height / canvas.getBoundingClientRect().height;
     const baselineTop = Math.floor(canvas.getBoundingClientRect().height / 2) * scale;
     const { data } = context.getImageData(0, 0, canvas.width, canvas.height);

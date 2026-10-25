@@ -1,3 +1,4 @@
+import { COLORS } from '@merkur/quicksilver/tokens';
 import type { OwnedAnimationFrame, OwnedTimeout } from '../lib/owned-scheduled-callback';
 import {
   LINK_ACTIVITY_COLUMNS,
@@ -114,6 +115,67 @@ export function drawLinkStrip(
     const x = index * pitch;
     if (tx > 0) ctx.fillRect(x, middle - tx, pitch - 1, tx);
     if (rx > 0) ctx.fillRect(x, middle + 1, pitch - 1, rx);
+  }
+}
+
+/** The readout's computed font, its `font-size-adjust` already folded into `size`. */
+export interface LinkReadoutFont {
+  readonly family: string;
+  readonly size: number;
+  readonly lineHeight: number;
+}
+
+type LinkReadoutContext = Pick<
+  OffscreenCanvasRenderingContext2D,
+  'clearRect' | 'fillText' | 'measureText' | 'font' | 'fillStyle' | 'textBaseline'
+>;
+
+const READOUT_FIGURE_WEIGHT = 500;
+const READOUT_TOTAL_WEIGHT = 400;
+const READOUT_FIGURE_MIN_CH = 15;
+
+const readoutFont = (weight: number, font: LinkReadoutFont): string =>
+  `${weight} ${font.size}px ${font.family}`;
+
+/** CSS pixels the two lines need; the figure line keeps its 15ch so a changing figure never moves it. */
+export function linkReadoutWidth(
+  ctx: LinkReadoutContext,
+  font: LinkReadoutFont,
+  figure: string,
+  total: string,
+): number {
+  ctx.font = readoutFont(READOUT_FIGURE_WEIGHT, font);
+  const figureWidth = Math.max(
+    READOUT_FIGURE_MIN_CH * ctx.measureText('0').width,
+    ctx.measureText(figure).width,
+  );
+  ctx.font = readoutFont(READOUT_TOTAL_WEIGHT, font);
+  return Math.ceil(Math.max(figureWidth, ctx.measureText(total).width));
+}
+
+/** Two line boxes of `lineHeight`, each glyph run centred on its half-leading as CSS sets it. */
+export function drawLinkReadout(
+  ctx: LinkReadoutContext,
+  font: LinkReadoutFont,
+  width: number,
+  figure: string,
+  total: string,
+  color: string,
+): void {
+  ctx.clearRect(0, 0, width, font.lineHeight * 2);
+  ctx.textBaseline = 'alphabetic';
+  const lines = [
+    [READOUT_FIGURE_WEIGHT, figure, color],
+    [READOUT_TOTAL_WEIGHT, total, COLORS.meta],
+  ] as const;
+  for (let index = 0; index < lines.length; index += 1) {
+    const [weight, text, fill] = lines[index] ?? lines[0];
+    ctx.font = readoutFont(weight, font);
+    ctx.fillStyle = fill;
+    const metrics = ctx.measureText(text);
+    const ascent = metrics.fontBoundingBoxAscent;
+    const glyphHeight = ascent + metrics.fontBoundingBoxDescent;
+    ctx.fillText(text, 0, index * font.lineHeight + (font.lineHeight - glyphHeight) / 2 + ascent);
   }
 }
 

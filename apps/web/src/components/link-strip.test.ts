@@ -10,9 +10,11 @@ import {
 import {
   createLinkStripScheduler,
   createLinkStripSeries,
+  drawLinkReadout,
   drawLinkStrip,
   healthColor,
   IDLE_COLOR,
+  linkReadoutWidth,
   trafficHeight,
 } from './link-strip';
 
@@ -375,6 +377,62 @@ describe('two-sided traffic pixels', () => {
     expect(healthColor(null, false)).toBe(IDLE_COLOR);
     expect(healthColor(37, true)).toBe(healthColor(100, false));
     expect(healthColor(300, true)).toBe(healthColor(300, false));
+  });
+});
+
+describe('readout text', () => {
+  // A monospace face of 0.6em advance, 0.8em ascent and 0.2em descent.
+  function metrics(width: number, size: number): TextMetrics {
+    return {
+      width,
+      actualBoundingBoxAscent: size * 0.8,
+      actualBoundingBoxDescent: size * 0.2,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: width,
+      fontBoundingBoxAscent: size * 0.8,
+      fontBoundingBoxDescent: size * 0.2,
+      alphabeticBaseline: 0,
+      emHeightAscent: size * 0.8,
+      emHeightDescent: size * 0.2,
+      hangingBaseline: size * 0.8,
+      ideographicBaseline: -size * 0.2,
+    };
+  }
+  function readoutContext() {
+    const runs: { font: string; fill: string; text: string; x: number; y: number }[] = [];
+    const baseline: CanvasTextBaseline = 'alphabetic';
+    const ctx = {
+      font: '',
+      fillStyle: '',
+      textBaseline: baseline,
+      clearRect() {
+        runs.length = 0;
+      },
+      measureText(text: string) {
+        const size = Number(/ (\d+(?:\.\d+)?)px /.exec(ctx.font)?.[1] ?? 0);
+        return metrics(text.length * size * 0.6, size);
+      },
+      fillText(text: string, x: number, y: number) {
+        runs.push({ font: ctx.font, fill: ctx.fillStyle, text, x, y });
+      },
+    };
+    return { ctx, runs };
+  }
+  const font = { family: 'Mono', size: 10, lineHeight: 15 };
+
+  test('the figure line holds 15ch, and a longer label or total widens the box', () => {
+    const { ctx } = readoutContext();
+    expect(linkReadoutWidth(ctx, font, 'Relay · 7ms', 'Σ1.0kB')).toBe(90);
+    expect(linkReadoutWidth(ctx, font, 'Relay monthly budget exhausted', 'Σ1.0kB')).toBe(180);
+  });
+
+  test('each line centres its glyphs in its line box, the figure medium in the health color', () => {
+    const { ctx, runs } = readoutContext();
+    drawLinkReadout(ctx, font, 90, 'Direct · 37ms', 'Σ39.7kB', healthColor(37, false));
+    expect(runs).toEqual([
+      { font: '500 10px Mono', fill: healthColor(37, false), text: 'Direct · 37ms', x: 0, y: 10.5 },
+      { font: '400 10px Mono', fill: IDLE_COLOR, text: 'Σ39.7kB', x: 0, y: 25.5 },
+    ]);
   });
 });
 

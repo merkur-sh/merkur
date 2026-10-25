@@ -85,17 +85,14 @@ slowdown and queue stale images; widening it is not an adaptive mode.
 Input, received-state application and selective ACK remain independent during this wait. There is
 no fence polling, task-yield completion substitute, or WebGL fallback.
 
-Gecko delivers a completion, and hands its readback canvas a frame, only when its GPU process
-maintains the device, which it does inside a queue submit or on a 100 ms timer (`POLL_TIME_MS` in
-`WebGPUParent.cpp`). While a completion is awaited (admission is closed, so every state change
-waits on one, the session's first frame is in flight, or in Gecko any frame is, since it reaches
-the screen on that maintenance), the worker submits an empty batch when a render is refused and
-at each delivered worker animation frame, and only while the page is visible. A real submit since
-the last animation frame stands in for that frame's batch except in Gecko, where it delivers only
-the work before it. That submit is Gecko's maintenance, so the callback and the frame arrive once
-the GPU has finished rather than at the timer; Chromium and WebKit deliver completion from the
-GPU's own signal and have nothing left to deliver. The batch is one shared, never-written empty
-list and owns no render identity or credit.
+Gecko delivers a completion only when its GPU process maintains the device, which it does inside
+a queue submit or on a 100 ms timer (`POLL_TIME_MS` in `WebGPUParent.cpp`). While a completion is
+awaited (admission is closed, so every state change waits on one, or the session's first frame is
+in flight), the worker submits an empty batch when a render is refused and at each delivered worker
+animation frame with no real submit since the last, and only while the page is visible. That
+submit is Gecko's maintenance, so the callback arrives once the GPU has finished rather than at the
+timer; Chromium and WebKit deliver completion from the GPU's own signal and have nothing left to
+deliver. The batch is one shared, never-written empty list and owns no render identity or credit.
 
 Unsent touch previews use ten fixed shared-memory slots, synchronized as a latest active set rather
 than queued commands. A shared wake revision prevents parking across a preview/command publication
@@ -171,30 +168,40 @@ the environment notification itself never stretches the previous canvas.
 
 The wire display/control shapes do not change in this renderer cutover; codec VERSION is unchanged.
 The local WASM and SAB contracts cut over together. Unsupported WebGPU fails explicitly. The canvas
-is configured per engine (`terminalCanvasPresentation`). Chromium takes
-`navigator.gpu.getPreferredCanvasFormat()`, the format it presents without a conversion pass
-(`bgra8unorm` on macOS, Windows and ChromeOS, `rgba8unorm` on Linux and Android). WebKit takes
-`rgba8unorm`, which it shows 1.5–3.6 ms sooner than the `bgra8unorm` it reports as preferred.
-Gecko takes `rgba8unorm` too. Its `bgra8unorm` shared-texture swap chain shows the worker canvas a
-frame one to five frames old, for 10–150 ms at a time, when another texture-backed element on the page
-updates while the terminal draws (Zen and Firefox 158). Typing 14 s into the terminal: 14–26
-reversals of the cursor with the link-activity strip's 2D canvas in place and none with it removed;
-24 with a main-thread 2D canvas redrawn from a 47 ms timer, 18–29 with a worker-owned one; 2–4 with
-SVG; 2–4 with the strip as plain `div` bars repainting after each burst of traffic, mostly from its
-readout text; none from boxes or outlines repainting on their own timer. The renderer's own frames
-are in order throughout. Separately, every main-thread paint makes Gecko flush the worker canvas
-(`nsDisplayCanvas::CreateWebRenderCommands` → `FlushOffscreenCanvas`); with no frame pending, the
-worker commits a synchronous full-canvas snapshot instead (`GetFrontBufferSnapshot`), which the
-readback presenter takes with a blocking copy and map. Any other format takes the
-readback presenter, which presents in order but hands a frame to the compositor only when the GPU
-process next maintains the device: inside a queue submit, or on a 100 ms timer. The renderer
-reports that (`presentAwaitsCompletion`), and while a frame is in flight the worker submits one
-shared empty batch at each delivered animation frame. On screen in Zen, isolated frames arrive
-at 35.0 ms p50 / 42.1 ms p90 that way, against 76.0 / 122.6 with nothing asking for the
-maintenance and 17.7 / 26.1 through the swap chain that shows stale frames. A main-thread
-`drawImage` of the placeholder canvas reads Gecko's snapshot path, not the compositor's, and is
-no evidence of on-screen order or latency: in readback mode it forces a blocking device poll, and
-in shared mode it can return an older texture than the screen shows.
+is configured in the format its engine presents soonest (`terminalCanvasFormat`): WebKit takes
+`rgba8unorm`, which it shows 1.5–3.6 ms sooner than the `bgra8unorm` it reports as preferred;
+every other engine takes `navigator.gpu.getPreferredCanvasFormat()`, the format it presents
+without a copy (`bgra8unorm` in Gecko and in Chromium on macOS, Windows and ChromeOS,
+`rgba8unorm` in Chromium on Linux and Android). Any other format costs Chromium a conversion pass,
+and in Gecko it leaves the shared-texture swap chain (`bgra8unorm` only) for the readback
+presenter, which hands a frame to the compositor only when the GPU process next polls the device:
+up to 100 ms after an isolated keystroke's submit. The swap chain hands WebRender each
+submission's Metal write fence, which WebRender waits on, and presents the worker's frames in order.
+
+What puts an older terminal frame on screen in Gecko is its flush of the worker canvas. Every
+WebRender display-list transaction of the page runs `nsDisplayCanvas::CreateWebRenderCommands`,
+which flushes the canvas (`FlushOffscreenCanvas`); when the worker has no frame pending, Gecko
+commits a full-canvas CPU copy of the newest swap-chain texture instead (`GetFrontBufferSnapshot`
+→ `RemoteTextureMap::GetLatestBufferSnapshot`), taken without waiting on that texture's fence. A
+flush that lands just after the worker presents, before the GPU has finished the frame, copies the
+recycled texture's previous contents, one to five frames old, and that copy replaces the presented
+frame until the next one, 10–150 ms later. Profiled while typing in Firefox 158, such a copy
+followed most presents by 0.1–0.4 ms, each after a display-list transaction in the same refresh
+tick. Two things on the terminal screen put those transactions there. Text that changes with the
+link's round trip is one. An element `<canvas>` redrawn by the main thread is the other: its
+update marks its frame for display-list rebuild (`InvalidateCanvasData` calls
+`SchedulePaint(PAINT_COMPOSITE_ONLY)`, whose `aFrameChanged` defaults to true), so the hidden input's
+per-keystroke move, otherwise a display list with nothing changed, becomes a full transaction in
+the tick that presents the keystroke's predicted frame. The link-activity strip (`LinkStatus`)
+therefore draws its bars and its readout into OffscreenCanvases transferred from its two elements
+and drawn on the main thread, which commit to the compositor without invalidating their frames;
+its accessible description changes only attributes, which rebuild nothing. Typing 14 s into the
+terminal: 20–26 reversals of the cursor with the strip on element canvases and readout text, 18–19
+with that readout frozen, 16–24 with OffscreenCanvases beside readout text, and none in seven runs
+with neither. Any other change to what the terminal screen shows while the terminal draws is a
+display-list transaction and can do the same. A main-thread `drawImage` of the placeholder canvas
+reads Gecko's snapshot path, not the compositor's, and is no evidence of on-screen order or
+latency: in shared mode it can return an older texture than the screen shows.
 Configuring it also presents it, in the same synchronous turn: the canvas is `alphaMode: 'opaque'`,
 and WebKit composites a configured surface with no submitted frame as black rather than as nothing,
 while nothing else submits until the daemon's first display frame. The geometry-free present sits
@@ -1546,9 +1553,9 @@ The current endpoint is browser-observed WebGPU queue completion, not a physical
 Immediately after every submission the renderer registers `onSubmittedWorkDone()` for that exact
 identity and continues ingestion without awaiting it. All supported platforms use this path;
 there is no task-yield substitute or fence-polling chain. Callback timing includes browser
-observation delay and cannot establish compositor/scanout timing; in Gecko it is observed at the
-worker's next animation frame, on the maintenance that also presents the frame, so its
-`frame_complete` says nothing more precise about when it reached the screen. On-screen latency is measured outside the browser: a
+observation delay and cannot establish compositor/scanout timing; in Gecko a frame nobody waits
+on is observed at the next submit or the 100 ms device poll, so its `frame_complete` says nothing
+about when it reached the screen. On-screen latency is measured outside the browser: a
 ScreenCaptureKit stream of the canvas region timestamps each displayed frame on the host clock
 the page's `performance.timeOrigin` also reads. Submission metrics and exact-completion metrics remain separate.
 

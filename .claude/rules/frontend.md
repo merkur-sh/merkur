@@ -29,5 +29,9 @@ everything latency-sensitive. Browser hot-path modules (the list in
   one cell (`BusyLabel`, `.swap-inline`), and a dialog's error takes its description's
   cell (`MessageSlot`), so nothing moves. Tooltips go through `components/tooltip.ts`, not
   `title`; the machine row's and `LinkStatus`'s `title`s stay, as e2e reads them.
+- While the terminal draws, nothing else on its screen changes except through an
+  OffscreenCanvas drawn on the main thread, as `LinkStatus` draws its strip and readout.
+  Changing text or an element `<canvas>` there rebuilds Gecko's display list, which can
+  publish an older terminal frame (`docs/performance.md`); attributes alone are free.
 - Gate: `bun test apps/web`; worker, prediction, display, or render-path changes also
   need `test:e2e:latency`.
