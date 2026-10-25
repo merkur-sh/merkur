@@ -121,7 +121,9 @@ test('whole-span contender preserves bulk and overlapping authoritative feedback
     writeFileSync(applicationPath, app);
     await page.getByTitle(`Connect to ${linkedDaemon.daemonName}`).click();
     await expectConnected(page, 40_000);
-    await expect(page.getByTitle(/^Direct(?: · \d+ms)?\. Traffic/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTitle(/^Direct(?: · \d+ms)?\. Traffic/).first()).toBeVisible({
+      timeout: 30_000,
+    });
     await page.keyboard.insertText(
       `stty -echo -icanon min 1 time 0; ${shellQuote(executionIdentity.bun.path)} ${shellQuote(applicationPath)}; stty sane\n`,
     );
