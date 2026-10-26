@@ -62,6 +62,12 @@ If it differs, do not link the machine. See the [security policy](SECURITY.md#re
 
 ## How Merkur is different
 
+Claude Code Remote Control gives you a chat with one agent, not the range of a real terminal.
+SSH clients like Termius and Blink need their own app and account on every device, plus your
+keys or a VPN to reach each machine, and terminals built on xterm.js tend to draw agent TUIs with
+gaps and rendering glitches. I wanted something I could open from anywhere, with all my machines
+in one place, no keys to copy and no VPN, that works like a native app even on a bad network.
+
 - It renders like a native terminal. Text, Nerd Font icons and box drawing come out sharp at
   your screen's resolution, so Neovim, tmux and your agents look the way they do at the desk.
 - It runs in the browser. Any laptop or phone works, a borrowed one included, and installed on
@@ -79,27 +85,6 @@ If it differs, do not link the machine. See the [security policy](SECURITY.md#re
   Merkur closed.
 - You can work from anywhere: the browser on any device, or `merkur` in your own terminal on a
   computer, opens the same machines.
-
-Against the setups people use for this today, with the usual clients:
-[Termius](https://termius.com/) and [Blink Shell](https://blink.sh/) for SSH and
-[Mosh](https://mosh.org/), and the Claude app for
-[Claude Code Remote Control](https://docs.claude.com/en/docs/claude-code/remote-control).
-
-|                                                | Merkur                       | Tailscale + SSH + tmux                    | Mosh + tmux                          | Claude Code Remote Control |
-| ---------------------------------------------- | ---------------------------- | ----------------------------------------- | ------------------------------------ | -------------------------- |
-| Runs in a browser, nothing to install          | Yes                          | No                                        | No                                   | Yes                        |
-| Works from a borrowed device without your keys | Yes                          | No                                        | No                                   | Yes                        |
-| Survives a Wi-Fi to cellular handoff           | Yes                          | No, you reattach tmux                     | Yes                                  | Yes                        |
-| Behavior under packet loss                     | One extra round trip at most | Stalls on every loss                      | Waits on a retransmit timer          | Not a terminal             |
-| Full terminal: Neovim, tmux, any agent         | Yes                          | Yes                                       | Yes                                  | No, one Claude Code chat   |
-| Inline images                                  | Yes, Kitty graphics          | Depends on the client                     | No                                   | No                         |
-| Host needs only outbound connections           | Yes                          | No, inbound SSH or Tailscale on both ends | No, mosh-server and a UDP port range | Yes                        |
-| Terminal bytes readable by a middlebox         | No, keyed end to end         | No, there is none                         | No, there is none                    | Yes, the vendor's service  |
-
-[herdr](https://herdr.dev/) and tmux run inside Merkur, so they are not on the list.
-[code-server](https://coder.com/docs/code-server) and
-[GitHub Codespaces](https://docs.github.com/en/codespaces/about-codespaces/what-are-codespaces)
-give you a graphical IDE rather than a terminal.
 
 ## How it works
 
