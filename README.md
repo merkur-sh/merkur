@@ -72,8 +72,11 @@ If it differs, do not link the machine. See the [security policy](SECURITY.md#re
   sends a URL from the remote shell to the browser you're using.
 - It replaces a stack of services. Tailscale to reach the machine, Termius or Blink on each
   device and Mosh on the server become one sign-in, encrypted end to end.
-- You can work from anywhere. A terminal bell on any of your machines reaches your phone as a
-  notification, and `merkur` opens the same machines in your own terminal on a computer.
+- It notifies you through web push. Turn notifications on in Settings, and a terminal bell on
+  any of your machines, such as an agent asking for input, reaches your phone or laptop even with
+  Merkur closed.
+- You can work from anywhere: the browser on any device, or `merkur` in your own terminal on a
+  computer, opens the same machines.
 
 Against the setups people use for this today, with the usual clients:
 [Termius](https://termius.com/) and [Blink Shell](https://blink.sh/) for SSH and
