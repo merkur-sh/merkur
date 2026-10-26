@@ -16,7 +16,9 @@ as you would at the desk.
 
 Claude Code and Neovim in tmux on a remote Linux machine, from a desktop browser and from a phone.
 
-Created and maintained by [@ph1losof](https://github.com/ph1losof).
+Created and maintained by [@ph1losof](https://github.com/ph1losof), with AI coding agents (Claude
+Code, Codex) writing most of the code. The design is mine, and a few choices were made just
+because the technology was shiny, like WebTransport and WebGPU. They work, so they stayed.
 
 ## Quickstart
 
@@ -181,10 +183,6 @@ services, tools, and artifacts.
 
 See the [development guide](docs/development.md) for daemon development, build commands, tests,
 and deployment prerequisites. [CONTRIBUTING.md](CONTRIBUTING.md) covers contributions and the CLA.
-
-Built by one developer, with AI coding agents (Claude Code, Codex) writing most of the code. The
-design is mine, and a few choices were made just because the technology was shiny, like WebTransport and
-WebGPU. They work, so they stayed.
 
 PRs welcome, including AI-assisted ones, if you've reviewed and tested the change.
 
