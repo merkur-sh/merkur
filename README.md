@@ -30,8 +30,7 @@ syncs the screen instead of the byte stream.
   authoritative grid and sends changed cells as QUIC datagrams, each a complete update to the rows
   it carries. A lost datagram costs those rows until the next update, and nothing queues behind
   it. Lost echoes are replayed and output bursts carry forward error correction, so a drop costs
-  about one extra round trip. At 120 ms and 3% loss, the slowest 1% of keystrokes came back within
-  169 ms on Merkur and 445 ms on Mosh ([measurements](docs/performance.md#against-mosh)).
+  about one extra round trip instead of a frozen screen.
 - **The shell decides when to echo locally.** The browser paints a typed character at once and
   corrects it if the shell disagrees. Mosh guesses when prediction is safe. Merkur's shell
   integration marks where the editable line starts, so the daemon predicts at a prompt and turns
@@ -41,15 +40,15 @@ syncs the screen instead of the byte stream.
   updates install in place and leave your shells running.
 - **No keys, ports or client app.** Any laptop or phone with a browser works, a borrowed one
   included, and you sign in with a password. The daemon dials out, so the machine needs no open
-  port and neither end runs a VPN. When
-  the browser and the machine can reach each other, Merkur punches a direct path through NAT and
-  the relay drops out. Each browser holds a 30-day delegation you can revoke from Settings.
+  port and neither end runs a VPN. When the browser and the machine can reach each other, Merkur
+  punches a direct path through NAT and the relay drops out. You can sign out any browser from
+  Settings.
 - **You get the whole machine.** Vendor remote controls show a chat with one agent. Merkur gives
   you the terminal: every agent, Neovim, tmux, inline Kitty graphics, clickable links, and glyphs
   rasterized at the device's pixel density from a bundled Nerd Font. `merkur open` sends a URL
   from the remote shell to the browser in front of you, so `gh auth login` works from anywhere.
 - **The relay can't read your session.** Each session is keyed end to end between your device and
-  the daemon with ML-KEM-1024 and Noise. The relay forwards ciphertext, and the application server
+  the daemon with a post-quantum handshake. The relay forwards ciphertext, and the application server
   never carries terminal traffic or holds a session key.
 
 On a phone, the installed PWA adds a touch keyboard with Esc, Ctrl, Alt, Tab, arrows, paging and
@@ -195,6 +194,12 @@ services, tools, and artifacts.
 
 See the [development guide](docs/development.md) for daemon development, build commands, tests,
 and deployment prerequisites. [CONTRIBUTING.md](CONTRIBUTING.md) covers contributions and the CLA.
+
+Built by one developer, with AI coding agents (Claude Code, Codex) writing most of the code. The
+design is mine, and a few choices were made just because the technology was shiny, like WebTransport and
+WebGPU. They work, so they stayed.
+
+PRs welcome, including AI-assisted ones, if you've reviewed and tested the change.
 
 Pull requests and pushes to `main` run [CI](.github/workflows/ci.yml). Version tags trigger the
 [release workflow](.github/workflows/release.yml): building, signing, service deployment, and
@@ -351,11 +356,3 @@ schema and its hardware identity custody (Secure Enclave on macOS, TPM 2.0 on Li
 [`docs/security.md`](docs/security.md#sensitive-local-state-and-hard-cutover).
 
 </details>
-
-## How it's built
-
-Built by one developer, with AI coding agents (Claude Code, Codex) writing most of the code. The
-design is mine, and a few choices were made because the technology was shiny, like WebTransport
-and WebGPU. They work, so they stayed.
-
-PRs welcome, including AI-assisted ones, if you've reviewed and tested the change.
