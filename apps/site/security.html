@@ -44,7 +44,7 @@
 
     <h2 id="linking-a-machine">Linking a machine</h2>
     <p>Linking takes two secrets: the one-use command from the app, good for five minutes, and the approval link or QR code the machine prints. The second one reaches your browser without passing through my server, so the server can't slip in a machine of its own. You approve from a device you're signed in on, with your password.</p>
-    <p>The machine's identity is sealed by its Secure Enclave (macOS 14+) or TPM 2.0 when it has one. On a machine that can use neither, linking stops until you ask for software custody with <code>--identity-backend none</code>. Software custody happens only if you ask for it, or on a box, which will always use it. In software, whoever copies the machine's key can speak as it; sealed in hardware, a copied disk isn't enough.</p>
+    <p>The machine's identity is sealed by its Secure Enclave (macOS 14+) or TPM 2.0 when it has one. On a machine that can use neither, linking stops until you ask for software custody with <code>--identity-backend software</code>. Software custody happens only if you ask for it, or on a box, which will always use it. In software, whoever copies the machine's key can speak as it; sealed in hardware, a copied disk isn't enough.</p>
 
     <h2 id="keys-per-connection">Keys per connection</h2>
     <p>Every terminal connection starts with a fresh, one-use <span class="nw">ML-KEM-1024</span> exchange, then runs <code>Noise_XXpsk3_25519_ChaChaPoly_SHA512</code>, so traffic is <span class="nw">ChaCha20-Poly1305</span>. X25519 inside Noise stays as a classical layer. The post-quantum work happens at setup, never per keystroke or per frame.</p>

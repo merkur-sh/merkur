@@ -88,7 +88,7 @@ tar -xzf "$work/$artifact" -C "$work/unpacked" merkur ||
   fail "$artifact is not a Merkur release archive"
 
 # The link command from the browser sets MERKUR_LINK_TOKEN; arguments after
-# \`sh -s --\` (such as \`--identity-backend none\`) go to \`merkur link\`.
+# \`sh -s --\` (such as \`--identity-backend software\`) go to \`merkur link\`.
 if [ -n "\${MERKUR_LINK_TOKEN:-}" ]; then
   set -- --link ${quotePosix(publicOrigin)} "$@"
 elif [ "$#" -gt 0 ]; then
