@@ -2,12 +2,11 @@
 
 Merkur is a terminal for your remote machines that runs in the browser. Link a workstation or a
 server once, then open it from any laptop or phone and work in Neovim, tmux, Claude Code or Codex
-as you would at the desk. Linking takes one command on the machine and one approval from a device
-you are already signed in on.
+as you would at the desk.
 
-[Try Merkur](https://app.merkur.sh) · [Website](https://merkur.sh) ·
-[How it's different](#how-merkur-is-different) · [Quickstart](#quickstart) ·
-[How it works](#how-it-works) · [Documentation](#documentation)
+[Try Merkur](https://app.merkur.sh) · [Website](https://merkur.sh) · [Quickstart](#quickstart) ·
+[How it's different](#how-merkur-is-different) · [How it works](#how-it-works) ·
+[Documentation](#documentation)
 
 [![CI](https://github.com/merkur-sh/merkur/actions/workflows/ci.yml/badge.svg)](https://github.com/merkur-sh/merkur/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/merkur-sh/merkur?label=release)](https://github.com/merkur-sh/merkur/releases/latest)
@@ -18,60 +17,6 @@ you are already signed in on.
 Claude Code and Neovim in tmux on a remote Linux machine, from a desktop browser and from a phone.
 
 Created and maintained by [@ph1losof](https://github.com/ph1losof).
-
-## How Merkur is different
-
-The usual ways to reach a terminal from a browser or a phone carry a byte stream over TCP: SSH, a
-WebSocket into xterm.js, or a vendor's relay. On a phone on cellular, a dropped packet stalls the
-screen and a network change ends the session. Merkur syncs the screen instead of the byte stream.
-
-- **The daemon owns the screen.** A Rust terminal emulator on your machine keeps the
-  authoritative grid and sends changed cells as QUIC datagrams, each a complete update to the rows
-  it carries. A lost datagram costs those rows until the next update, and nothing queues behind
-  it. Replay and forward error correction repair a loss in about one extra round trip instead of a
-  frozen screen.
-- **The session survives the network.** Switch from Wi-Fi to cellular or lock the phone, and the
-  daemon holds the session while the browser rejoins it. You have no tmux to reattach. Daemon
-  updates install in place and leave your shells running.
-- **No keys, ports or client app.** Any laptop or phone with a browser works, a borrowed one
-  included, and you sign in with a password. The daemon dials out, so the machine needs no open
-  port and neither end runs a VPN. When the browser and the machine can reach each other, Merkur
-  punches a direct path through NAT and the relay drops out. You can sign out any browser from
-  Settings.
-- **You get the whole machine.** Vendor remote controls show a chat with one agent. Merkur gives
-  you the terminal: every agent, Neovim, tmux, inline Kitty graphics, clickable links, and glyphs
-  rasterized at the device's pixel density from a bundled Nerd Font. `merkur open` sends a URL
-  from the remote shell to the browser in front of you, so `gh auth login` works from anywhere.
-- **The relay can't read your session.** Each session is keyed end to end between your device and
-  the daemon with a post-quantum handshake. The relay forwards ciphertext, and the application server
-  never carries terminal traffic or holds a session key.
-
-On a phone, the installed PWA adds a touch keyboard with Esc, Ctrl, Alt, Tab, arrows, paging and
-paste. Turn on notifications in Settings and a terminal bell on any linked machine arrives on
-your devices as a push notification, so you hear about an agent that needs you. On a computer
-with Merkur installed, `merkur` opens the same machines in the terminal you already use, one tab
-per machine.
-
-Against the setups people use for this today, with the usual clients:
-[Termius](https://termius.com/) and [Blink Shell](https://blink.sh/) for SSH and
-[Mosh](https://mosh.org/), and the Claude app for
-[Claude Code Remote Control](https://docs.claude.com/en/docs/claude-code/remote-control).
-
-|                                                | Merkur                       | Tailscale + SSH + tmux                    | Mosh + tmux                          | Claude Code Remote Control |
-| ---------------------------------------------- | ---------------------------- | ----------------------------------------- | ------------------------------------ | -------------------------- |
-| Runs in a browser, nothing to install          | Yes                          | No                                        | No                                   | Yes                        |
-| Works from a borrowed device without your keys | Yes                          | No                                        | No                                   | Yes                        |
-| Survives a Wi-Fi to cellular handoff           | Yes                          | No, you reattach tmux                     | Yes                                  | Yes                        |
-| Behavior under packet loss                     | One extra round trip at most | Stalls on every loss                      | Waits on a retransmit timer          | Not a terminal             |
-| Full terminal: Neovim, tmux, any agent         | Yes                          | Yes                                       | Yes                                  | No, one Claude Code chat   |
-| Inline images                                  | Yes, Kitty graphics          | Depends on the client                     | No                                   | No                         |
-| Host needs only outbound connections           | Yes                          | No, inbound SSH or Tailscale on both ends | No, mosh-server and a UDP port range | Yes                        |
-| Terminal bytes readable by a middlebox         | No, keyed end to end         | No, there is none                         | No, there is none                    | Yes, the vendor's service  |
-
-[herdr](https://herdr.dev/) and tmux run inside Merkur, so they are not on the list.
-[code-server](https://coder.com/docs/code-server) and
-[GitHub Codespaces](https://docs.github.com/en/codespaces/about-codespaces/what-are-codespaces)
-give you a graphical IDE rather than a terminal.
 
 ## Quickstart
 
@@ -113,6 +58,44 @@ If it differs, do not link the machine. See the [security policy](SECURITY.md#re
 
 </details>
 
+## How Merkur is different
+
+- It renders like a native terminal. Text, Nerd Font icons and box drawing come out sharp at
+  your screen's resolution, so Neovim, tmux and your agents look the way they do at the desk.
+- It runs in the browser. Any laptop or phone works, a borrowed one included, and installed on
+  a phone it adds a keyboard with Esc, Ctrl, Tab and arrows.
+- It holds up on bad networks. Like Mosh, it stays usable over high latency and packet loss, and
+  your session survives a switch from Wi-Fi to cellular.
+- You sign in with a password. There are no SSH keys to carry, and the machine needs no open
+  port because it connects out.
+- Images and links work. Kitty graphics render inline, links are clickable, and `merkur open`
+  sends a URL from the remote shell to the browser you're using.
+- It replaces a stack of services. Tailscale to reach the machine, Termius or Blink on each
+  device and Mosh on the server become one sign-in, encrypted end to end.
+- You can work from anywhere. A terminal bell on any of your machines reaches your phone as a
+  notification, and `merkur` opens the same machines in your own terminal on a computer.
+
+Against the setups people use for this today, with the usual clients:
+[Termius](https://termius.com/) and [Blink Shell](https://blink.sh/) for SSH and
+[Mosh](https://mosh.org/), and the Claude app for
+[Claude Code Remote Control](https://docs.claude.com/en/docs/claude-code/remote-control).
+
+|                                                | Merkur                       | Tailscale + SSH + tmux                    | Mosh + tmux                          | Claude Code Remote Control |
+| ---------------------------------------------- | ---------------------------- | ----------------------------------------- | ------------------------------------ | -------------------------- |
+| Runs in a browser, nothing to install          | Yes                          | No                                        | No                                   | Yes                        |
+| Works from a borrowed device without your keys | Yes                          | No                                        | No                                   | Yes                        |
+| Survives a Wi-Fi to cellular handoff           | Yes                          | No, you reattach tmux                     | Yes                                  | Yes                        |
+| Behavior under packet loss                     | One extra round trip at most | Stalls on every loss                      | Waits on a retransmit timer          | Not a terminal             |
+| Full terminal: Neovim, tmux, any agent         | Yes                          | Yes                                       | Yes                                  | No, one Claude Code chat   |
+| Inline images                                  | Yes, Kitty graphics          | Depends on the client                     | No                                   | No                         |
+| Host needs only outbound connections           | Yes                          | No, inbound SSH or Tailscale on both ends | No, mosh-server and a UDP port range | Yes                        |
+| Terminal bytes readable by a middlebox         | No, keyed end to end         | No, there is none                         | No, there is none                    | Yes, the vendor's service  |
+
+[herdr](https://herdr.dev/) and tmux run inside Merkur, so they are not on the list.
+[code-server](https://coder.com/docs/code-server) and
+[GitHub Codespaces](https://docs.github.com/en/codespaces/about-codespaces/what-are-codespaces)
+give you a graphical IDE rather than a terminal.
+
 ## How it works
 
 ```mermaid
@@ -133,13 +116,20 @@ flowchart LR
 
 The application server handles accounts, machine linking and session authorization. **It never
 carries terminal input or display updates.** A session starts through a relay that sees only
-ciphertext. When the client and the daemon can reach each other, the session moves to a direct
-WebTransport connection and the relay drops out.
+ciphertext. The daemon only dials out; when the client and the daemon can reach each other, the
+session moves to a direct WebTransport connection punched through NAT and the relay drops out.
 
-The daemon's Rust dataplane keeps the terminal grid and encodes its changes with MZ, a codec built
-for terminal screens. In the browser, a WebAssembly build of the same terminal emulator decodes
-them and a WebGPU renderer draws them, both in workers, so the UI thread handles only input. The
-[transport design](docs/transport.md), [display invariants](docs/display-invariants.md) and
+SSH and most browser terminals send a byte stream over TCP, so one lost packet holds up
+everything behind it. Merkur syncs the screen instead. The daemon's Rust dataplane runs a terminal
+emulator that owns the grid and sends changed cells, encoded with MZ, a codec built for terminal
+screens, as QUIC datagrams. Each datagram is a complete update to the rows it carries, so a loss
+costs those rows until replay or forward error correction repairs them, and nothing queues behind
+it. The daemon keeps the session through a network gap, and the client rejoins it.
+
+In the browser, a WebAssembly build of the same terminal emulator decodes the updates and a WebGPU
+renderer draws them, both in workers, so the UI thread handles only input. Glyphs rasterize at the
+device's pixel density from a bundled Nerd Font. The [transport design](docs/transport.md),
+[display invariants](docs/display-invariants.md) and
 [performance methodology](docs/performance.md) cover the implementation and its tradeoffs.
 
 ## Requirements
