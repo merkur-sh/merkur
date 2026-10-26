@@ -23,18 +23,13 @@ Created and maintained by [@ph1losof](https://github.com/ph1losof).
 
 The usual ways to reach a terminal from a browser or a phone carry a byte stream over TCP: SSH, a
 WebSocket into xterm.js, or a vendor's relay. On a phone on cellular, a dropped packet stalls the
-screen, every keystroke waits a full round trip, and a network change ends the session. Merkur
-syncs the screen instead of the byte stream.
+screen and a network change ends the session. Merkur syncs the screen instead of the byte stream.
 
 - **The daemon owns the screen.** A Rust terminal emulator on your machine keeps the
   authoritative grid and sends changed cells as QUIC datagrams, each a complete update to the rows
   it carries. A lost datagram costs those rows until the next update, and nothing queues behind
-  it. Lost echoes are replayed and output bursts carry forward error correction, so a drop costs
-  about one extra round trip instead of a frozen screen.
-- **The shell decides when to echo locally.** The browser paints a typed character at once and
-  corrects it if the shell disagrees. Mosh guesses when prediction is safe. Merkur's shell
-  integration marks where the editable line starts, so the daemon predicts at a prompt and turns
-  prediction off in Neovim, in an agent's input box, and in every other full-screen program.
+  it. Replay and forward error correction repair a loss in about one extra round trip instead of a
+  frozen screen.
 - **The session survives the network.** Switch from Wi-Fi to cellular or lock the phone, and the
   daemon holds the session while the browser rejoins it. You have no tmux to reattach. Daemon
   updates install in place and leave your shells running.
@@ -67,7 +62,6 @@ Against the setups people use for this today, with the usual clients:
 | Runs in a browser, nothing to install          | Yes                          | No                                        | No                                   | Yes                        |
 | Works from a borrowed device without your keys | Yes                          | No                                        | No                                   | Yes                        |
 | Survives a Wi-Fi to cellular handoff           | Yes                          | No, you reattach tmux                     | Yes                                  | Yes                        |
-| Typing painted before the round trip           | Yes, gated by the shell      | No                                        | Yes, guessed                         | No                         |
 | Behavior under packet loss                     | One extra round trip at most | Stalls on every loss                      | Waits on a retransmit timer          | Not a terminal             |
 | Full terminal: Neovim, tmux, any agent         | Yes                          | Yes                                       | Yes                                  | No, one Claude Code chat   |
 | Inline images                                  | Yes, Kitty graphics          | Depends on the client                     | No                                   | No                         |
@@ -94,15 +88,15 @@ You need a Mac or Linux machine to reach and a [supported browser](#requirements
 3. **Approve it** by opening the link, or scanning the code with a signed-in phone, and entering
    your password. The daemon starts as a user service and the machine appears in your list. Open
    it.
-4. **Turn on local echo** by adding the [shell integration](docs/daemon.md#shell-integration) to
-   the end of your shell's startup file on that machine. Without it, every keystroke waits for a
-   full network round trip.
 
-   ```sh
-   eval "$(merkur shell-integration bash)"   # ~/.bashrc
-   eval "$(merkur shell-integration zsh)"    # ~/.zshrc
-   merkur shell-integration fish | source    # ~/.config/fish/config.fish
-   ```
+To have typing show up at the prompt before the machine answers, add the
+[shell integration](docs/daemon.md#shell-integration) to the end of your shell's startup file:
+
+```sh
+eval "$(merkur shell-integration bash)"   # ~/.bashrc
+eval "$(merkur shell-integration zsh)"    # ~/.zshrc
+merkur shell-integration fish | source    # ~/.config/fish/config.fish
+```
 
 <details>
 <summary>Verify the installation key</summary>
