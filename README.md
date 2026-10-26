@@ -1,171 +1,65 @@
 # Merkur
 
-**Merkur is a terminal for your remote machines that runs in the browser.** Link a
-workstation, a server, or a hosted box once, then open it from any laptop or phone and work in
-Neovim, tmux, or Claude Code the way you would at the desk. Typing is echoed locally, the screen
-stays correct on a bad connection, and glyphs render like a native terminal's. Setup is one
-command on the machine and one approval from a device you already trust.
+Merkur is a terminal for your remote machines that runs in the browser. Link a workstation or a
+server once, then open it from any laptop or phone and work in Neovim, tmux, Claude Code or Codex
+as you would at the desk. Linking takes one command on the machine and one approval from a device
+you are already signed in on.
 
-**Merkur is in beta.** During the beta, the hosted service at [app.merkur.sh](https://app.merkur.sh) is
-free for linking your own machines, relay included. Hosted boxes are not part of the free beta.
-
-[Try Merkur](https://app.merkur.sh) · [Website](https://merkur.sh) · [Quickstart](#quickstart) ·
-[How it works](#how-it-works) · [Comparison](#comparison) · [Documentation](#documentation)
+[Try Merkur](https://app.merkur.sh) · [Website](https://merkur.sh) ·
+[How it's different](#how-merkur-is-different) · [Quickstart](#quickstart) ·
+[How it works](#how-it-works) · [Documentation](#documentation)
 
 [![CI](https://github.com/merkur-sh/merkur/actions/workflows/ci.yml/badge.svg)](https://github.com/merkur-sh/merkur/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/merkur-sh/merkur?label=release)](https://github.com/merkur-sh/merkur/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
-<a href="docs/assets/cover.png"><img src="docs/assets/cover.png" alt="A desktop browser showing tmux on a hosted Linux box with Claude Code in the left pane and a Neovim file explorer of the project in the right pane. A phone in the corner shows a fresh Claude Code session in the same box above Merkur's touch keyboard."></a>
+<a href="docs/assets/cover.png"><img src="docs/assets/cover.png" alt="A desktop browser showing tmux on a remote Linux machine with Claude Code in the left pane and a Neovim file explorer of the project in the right pane. A phone in the corner shows a fresh Claude Code session on the same machine above Merkur's touch keyboard."></a>
 
-Claude Code and Neovim in tmux on a hosted Linux box, from a desktop browser and from a phone.
+Claude Code and Neovim in tmux on a remote Linux machine, from a desktop browser and from a phone.
 
 Created and maintained by [@ph1losof](https://github.com/ph1losof).
 
-## In short
+## How Merkur is different
 
-- **It feels local.** Merkur is engineered performance first, from a Rust daemon that owns the
-  screen to a WebGPU renderer that runs off the browser's UI thread, so it stands next to a native
-  client rather than a web page. Keystrokes are painted before the round trip completes, and the
-  shell tells the browser exactly when that is safe, so Neovim and agent prompts never get a
-  guessed character.
-- **A lost packet costs one extra round trip at most.** Not a stalled screen as over SSH, and not
-  a retransmit timer as with Mosh. Measured side by side under loss, the median matches Mosh and
-  the tail is much shorter; the [performance guide](docs/performance.md#against-mosh) has the
-  numbers.
-- **A Wi-Fi to cellular handoff keeps the session.** The daemon holds it through the gap and the
-  browser rejoins; nothing to reattach.
-- **Nothing to install on the device, nothing to open on the host.** A browser and a password on
-  any laptop or phone, including a borrowed one, with no SSH keys to carry. The daemon dials out,
-  so there is no inbound SSH, no Tailscale on both ends, and no UDP port range.
-- **The whole machine, not one agent's chat.** Neovim, tmux, and every agent you run, with inline
-  images, clickable links, crisp Nerd Font glyphs, and a touch keyboard.
-- **Nothing in the middle can read it.** Every session is keyed end to end between the browser
-  and the daemon with a post-quantum ML-KEM handshake and Noise, so the relay and the application
-  server never hold a terminal key. Your password never leaves the browser (OPAQUE), each
-  machine's identity lives in its Secure Enclave or TPM, every browser is a delegation you can
-  revoke from Settings, and daemon updates are signed with rollback protection.
+The usual ways to reach a terminal from a browser or a phone carry a byte stream over TCP: SSH, a
+WebSocket into xterm.js, or a vendor's relay. On a phone on cellular, a dropped packet stalls the
+screen, every keystroke waits a full round trip, and a network change ends the session. Merkur
+syncs the screen instead of the byte stream.
 
-## Quickstart
+- **The daemon owns the screen.** A Rust terminal emulator on your machine keeps the
+  authoritative grid and sends changed cells as QUIC datagrams, each a complete update to the rows
+  it carries. A lost datagram costs those rows until the next update, and nothing queues behind
+  it. Lost echoes are replayed and output bursts carry forward error correction, so a drop costs
+  about one extra round trip. At 120 ms and 3% loss, the slowest 1% of keystrokes came back within
+  169 ms on Merkur and 445 ms on Mosh ([measurements](docs/performance.md#against-mosh)).
+- **The shell decides when to echo locally.** The browser paints a typed character at once and
+  corrects it if the shell disagrees. Mosh guesses when prediction is safe. Merkur's shell
+  integration marks where the editable line starts, so the daemon predicts at a prompt and turns
+  prediction off in Neovim, in an agent's input box, and in every other full-screen program.
+- **The session survives the network.** Switch from Wi-Fi to cellular or lock the phone, and the
+  daemon holds the session while the browser rejoins it. You have no tmux to reattach. Daemon
+  updates install in place and leave your shells running.
+- **No keys, ports or client app.** Any laptop or phone with a browser works, a borrowed one
+  included, and you sign in with a password. The daemon dials out, so the machine needs no open
+  port and neither end runs a VPN. When
+  the browser and the machine can reach each other, Merkur punches a direct path through NAT and
+  the relay drops out. Each browser holds a 30-day delegation you can revoke from Settings.
+- **You get the whole machine.** Vendor remote controls show a chat with one agent. Merkur gives
+  you the terminal: every agent, Neovim, tmux, inline Kitty graphics, clickable links, and glyphs
+  rasterized at the device's pixel density from a bundled Nerd Font. `merkur open` sends a URL
+  from the remote shell to the browser in front of you, so `gh auth login` works from anywhere.
+- **The relay can't read your session.** Each session is keyed end to end between your device and
+  the daemon with ML-KEM-1024 and Noise. The relay forwards ciphertext, and the application server
+  never carries terminal traffic or holds a session key.
 
-You need a Mac or Linux machine to reach and a [supported browser](#requirements).
+On a phone, the installed PWA adds a touch keyboard with Esc, Ctrl, Alt, Tab, arrows, paging and
+paste. Turn on notifications in Settings and a terminal bell on any linked machine arrives on
+your devices as a push notification, so you hear about an agent that needs you. On a computer
+with Merkur installed, `merkur` opens the same machines in the terminal you already use, one tab
+per machine.
 
-1. **[Open Merkur](https://app.merkur.sh)**, create an account (free during the beta), and choose
-   **Add a machine**.
-2. **Paste the command it shows** into a shell on that machine. It installs the daemon as a user
-   service and prints an approval link and a QR code.
-
-   ```sh
-   curl -fsSL https://app.merkur.sh/install | MERKUR_LINK_TOKEN=<token> sh
-   ```
-
-3. **Approve it** by opening the link, or scanning the code with a signed-in phone, and entering
-   your password. The machine appears in your device list. Open it.
-4. **Turn on local echo** by adding the [shell integration](docs/daemon.md#shell-integration) to
-   the end of your shell's startup file on that machine. It is the largest felt-latency win Merkur
-   has; without it every keystroke waits for a full network round trip.
-
-   ```sh
-   eval "$(merkur shell-integration bash)"   # ~/.bashrc
-   eval "$(merkur shell-integration zsh)"    # ~/.zshrc
-   merkur shell-integration fish | source    # ~/.config/fish/config.fish
-   ```
-
-Would rather not link your own hardware? Open **New box** in the app to join the hosted-box
-waitlist. A box is a Linux machine with the daemon and shell integration already installed.
-
-<details>
-<summary>Verify the installation key</summary>
-
-The first install trusts HTTPS to the server and GitHub for the binary and its embedded release
-key. Later updates verify signed manifests against that pinned key. Compare the fingerprint
-printed by the installer, or by `merkur release-key`, with:
-
-```text
-733e336c becc7559 82591288 a138b3e3 6f74e40e ac916431 cf355b10 c234f059
-```
-
-If it differs, do not link the machine. See the [security policy](SECURITY.md#release-key).
-
-</details>
-
-## In detail
-
-The mechanism behind each claim above, in the same order.
-
-- **Local echo, gated by the shell.** The browser paints a typed character at once and corrects it
-  only if the shell disagrees. The shell integration, not a heuristic, decides when prediction
-  applies: it emits authenticated prompt boundaries, so the daemon knows when a line editor owns
-  the input and turns echo off everywhere else, including Neovim's normal mode and an agent's
-  prompt. It is Mosh's idea with the shell deciding.
-- **Loss costs rows, not the screen.** SSH runs over TCP, so one lost packet holds back everything
-  behind it. Merkur's display updates are QUIC datagrams, each a complete change to the screen, so
-  losing one costs the rows it carried and nothing more. A lost echo is replayed on the path that
-  lost it, and bursts of output carry forward error correction, so a drop costs at most one extra
-  round trip.
-- **The session outlives the connection.** Switch from Wi-Fi to cellular, lock the phone, or lose
-  the link for a moment. The daemon holds the session through the gap and the browser rejoins it,
-  or opens a fresh one with a full snapshot when the gap is too long.
-- **No SSH keys, ports, or client.** You sign in with a password, and each browser you sign in
-  from holds its own 30-day delegation. Each machine is approved once from a device you already
-  trust; nothing to copy into `~/.ssh`, no config aliases, no agent forwarding. The daemon dials
-  out over HTTPS and QUIC, and a direct path, when one is possible, is punched through your NAT
-  from the inside, so there is no port to forward and no firewall rule to add. The web app installs
-  as a PWA. Sign in on a friend's laptop or phone, then revoke that browser from Settings when you
-  leave; your own devices keep their sessions.
-- **Glyphs like a native terminal's.** A Rust terminal emulator in the daemon owns the screen and
-  ships cell changes, not pixels or HTML, packed by MZ, our own codec for terminal screens. In the
-  browser a WebAssembly build of the same emulator feeds a WebGPU renderer in a worker. Glyphs
-  rasterize at the device's pixel density and snap to whole pixels from a bundled JetBrains Mono
-  Nerd Font, so icons, box drawing, and powerline segments are crisp. `nvim`, `starship`, and `lazygit` look the way they do on your desktop.
-- **Images and links land in the browser.** Kitty graphics render inline. Links are clickable, and
-  `merkur open` sends a URL from the remote shell to the browser you are using, which is what makes
-  `gh auth login` work on a machine you are not sitting at.
-- **A phone gets terminal keys.** The installed PWA ships a touch keyboard with Esc, Ctrl, Alt,
-  Tab, arrows, paging, and paste. Answer an agent's prompt from the sofa, then sit back down at the
-  desk and the session is where you left it.
-
-## Who it's for
-
-| Your workflow                                                      | What Merkur gives you                                                                                                                                                  |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Running coding agents** on a workstation, server, or box         | Read progress, answer prompts, and approve plans from any device. When a change needs your hands, open Neovim next to the agent and it works like it does at the desk. |
-| **Editing and building** with Neovim, tmux, and command-line tools | Your existing development environment from a desktop, tablet, or phone, with nothing to reinstall.                                                                     |
-| **Operating servers and homelabs**                                 | A terminal for logs, processes, and one-off commands on every machine you have linked, from one device list.                                                           |
-
-## How it works
-
-```mermaid
-flowchart LR
-  Browser[Browser]
-  Server[Application server]
-  Edge[Blind WebTransport relay]
-  Daemon[Daemon on your machine]
-  Shell[Shell / PTY]
-
-  Browser <-->|Encrypted terminal traffic| Edge
-  Edge <-->|Encrypted terminal traffic| Daemon
-  Browser <-.->|Optional direct encrypted path| Daemon
-  Browser <-->|Account and session setup| Server
-  Daemon <-->|Presence and session commands| Server
-  Daemon <--> Shell
-```
-
-The application server handles accounts, device linking, and session authorization. **It never
-carries terminal input or display updates.** A session starts through a relay that only ever sees
-ciphertext, and when the browser and the daemon can reach each other it upgrades to a direct
-WebTransport connection and the relay drops out.
-
-The Rust daemon keeps the authoritative terminal grid and sends display changes to the browser as
-self-contained QUIC datagrams, with replay and forward error correction on lossy paths. Browser
-workers own transport, decoding, and WebGPU rendering, so the UI thread only handles input. The
-[transport design](docs/transport.md), [display invariants](docs/display-invariants.md), and
-[performance methodology](docs/performance.md) cover the implementation and its tradeoffs.
-
-## Comparison
-
-The three setups most people use for this today, against Merkur. The clients named are the
-usual ones: [Termius](https://termius.com/) and [Blink Shell](https://blink.sh/) for SSH and
+Against the setups people use for this today, with the usual clients:
+[Termius](https://termius.com/) and [Blink Shell](https://blink.sh/) for SSH and
 [Mosh](https://mosh.org/), and the Claude app for
 [Claude Code Remote Control](https://docs.claude.com/en/docs/claude-code/remote-control).
 
@@ -181,10 +75,79 @@ usual ones: [Termius](https://termius.com/) and [Blink Shell](https://blink.sh/)
 | Host needs only outbound connections           | Yes                          | No, inbound SSH or Tailscale on both ends | No, mosh-server and a UDP port range | Yes                        |
 | Terminal bytes readable by a middlebox         | No, keyed end to end         | No, there is none                         | No, there is none                    | Yes, the vendor's service  |
 
-[herdr](https://herdr.dev/) and tmux are not alternatives but what you run inside Merkur.
+[herdr](https://herdr.dev/) and tmux run inside Merkur, so they are not on the list.
 [code-server](https://coder.com/docs/code-server) and
 [GitHub Codespaces](https://docs.github.com/en/codespaces/about-codespaces/what-are-codespaces)
-are for a graphical IDE rather than a terminal.
+give you a graphical IDE rather than a terminal.
+
+## Quickstart
+
+You need a Mac or Linux machine to reach and a [supported browser](#requirements).
+
+1. **[Open Merkur](https://app.merkur.sh)**, create an account, and choose **Add a machine**.
+2. **Paste the command it shows** into a shell on that machine. It installs the daemon and prints
+   an approval link and a QR code.
+
+   ```sh
+   curl -fsSL https://app.merkur.sh/install | MERKUR_LINK_TOKEN=<token> sh
+   ```
+
+3. **Approve it** by opening the link, or scanning the code with a signed-in phone, and entering
+   your password. The daemon starts as a user service and the machine appears in your list. Open
+   it.
+4. **Turn on local echo** by adding the [shell integration](docs/daemon.md#shell-integration) to
+   the end of your shell's startup file on that machine. Without it, every keystroke waits for a
+   full network round trip.
+
+   ```sh
+   eval "$(merkur shell-integration bash)"   # ~/.bashrc
+   eval "$(merkur shell-integration zsh)"    # ~/.zshrc
+   merkur shell-integration fish | source    # ~/.config/fish/config.fish
+   ```
+
+<details>
+<summary>Verify the installation key</summary>
+
+The first install trusts HTTPS to the server for the script, the binary and the release key
+compiled into it. Every later update is verified against that key. Compare the fingerprint the
+installer prints, or `merkur release-key` prints later, with:
+
+```text
+733e336c becc7559 82591288 a138b3e3 6f74e40e ac916431 cf355b10 c234f059
+```
+
+If it differs, do not link the machine. See the [security policy](SECURITY.md#release-key).
+
+</details>
+
+## How it works
+
+```mermaid
+flowchart LR
+  Client[Browser or merkur client]
+  Server[Application server]
+  Edge[Blind WebTransport relay]
+  Daemon[Daemon on your machine]
+  Shell[Shell / PTY]
+
+  Client <-->|Encrypted terminal traffic| Edge
+  Edge <-->|Encrypted terminal traffic| Daemon
+  Client <-.->|Direct encrypted path when reachable| Daemon
+  Client <-->|Account and session setup| Server
+  Daemon <-->|Presence and session commands| Server
+  Daemon <--> Shell
+```
+
+The application server handles accounts, machine linking and session authorization. **It never
+carries terminal input or display updates.** A session starts through a relay that sees only
+ciphertext. When the client and the daemon can reach each other, the session moves to a direct
+WebTransport connection and the relay drops out.
+
+The daemon's Rust dataplane keeps the terminal grid and encodes its changes with MZ, a codec built
+for terminal screens. In the browser, a WebAssembly build of the same terminal emulator decodes
+them and a WebGPU renderer draws them, both in workers, so the UI thread handles only input. The
+[transport design](docs/transport.md), [display invariants](docs/display-invariants.md) and
+[performance methodology](docs/performance.md) cover the implementation and its tradeoffs.
 
 ## Requirements
 
@@ -201,14 +164,15 @@ identity prerequisites, and platform checks.
 
 ## Security model
 
-Merkur uses OPAQUE for password authentication, explicitly approved daemon identities, and
-revocable browser delegations. Terminal sessions combine a fresh ML-KEM-1024 bootstrap with
-Noise encryption; daemon releases use signed manifests and rollback protection.
+Your password never leaves the browser: Merkur signs you in with OPAQUE. Each machine's identity
+lives in its Secure Enclave or TPM and is approved once from a signed-in device, and each browser
+holds a delegation you can revoke. Every terminal session starts with a fresh ML-KEM-1024
+handshake and runs under Noise. Daemon releases ship as signed manifests with rollback protection.
 
-The encryption protects terminal contents on the relay and direct paths. It does **not** hide
-traffic timing or sizes, protect a compromised endpoint, or remove trust in the JavaScript served
-by the application origin. Account and management traffic still rely on TLS. Read the
-[complete threat model](docs/security.md) for the scope of the post-quantum design and its limits.
+The encryption protects terminal contents on the relay and on the direct path. It does **not**
+hide traffic timing or sizes, protect a compromised endpoint, or remove trust in the JavaScript
+the application origin serves. Account and management traffic rely on TLS. The
+[threat model](docs/security.md) covers the post-quantum design and its limits.
 
 Report vulnerabilities privately through the [security policy](SECURITY.md).
 
@@ -216,8 +180,7 @@ Report vulnerabilities privately through the [security policy](SECURITY.md).
 
 Use Bazelisk (it runs the Bazel release in [`.bazelversion`](.bazelversion)), pnpm, the Bun
 release in [`.bun-version`](.bun-version), the pinned [Rust toolchain](rust-toolchain.toml), and
-Docker with Compose.
-Run these commands from the repository root:
+Docker with Compose. Run these commands from the repository root:
 
 ```sh
 pnpm install
@@ -232,12 +195,6 @@ services, tools, and artifacts.
 
 See the [development guide](docs/development.md) for daemon development, build commands, tests,
 and deployment prerequisites. [CONTRIBUTING.md](CONTRIBUTING.md) covers contributions and the CLA.
-
-Built by one developer, with AI coding agents (Claude Code, Codex) writing most of the code. The
-design is mine, and a few choices were made just because the technology was shiny, like WebTransport and
-WebGPU. They work, so they stayed.
-
-PRs welcome, including AI-assisted ones, if you've reviewed and tested the change.
 
 Pull requests and pushes to `main` run [CI](.github/workflows/ci.yml). Version tags trigger the
 [release workflow](.github/workflows/release.yml): building, signing, service deployment, and
@@ -388,15 +345,17 @@ Edge replicas are configured through `MERKUR_EDGE_*` variables documented in
 entry from `EDGE_REGISTRATION_KEYS_JSON` and is never sent, and every replica verifies attach tickets
 with the one deployment-wide `EDGE_ATTACH_TICKET_KEY`. STUN responders are configured through
 `MERKUR_STUN_*` variables documented in [`apps/stun/README.md`](apps/stun/README.md), including the
-two-address topology that independent WebTransport verification needs; a rejected ticket is
-answered with silence, so the two ticket implementations are pinned to one vector by both test
-suites. The daemon's `~/.merkur/config.json` schema, hardware identity custody (Secure Enclave on
-macOS, TPM 2.0 on Linux, or `--identity-backend software`), and the hard-cut migration policy are in
+two-address topology that direct-path verification needs. The daemon's `~/.merkur/config.json`
+schema and its hardware identity custody (Secure Enclave on macOS, TPM 2.0 on Linux, or
+`--identity-backend software`) are in
 [`docs/security.md`](docs/security.md#sensitive-local-state-and-hard-cutover).
 
 </details>
 
-## Work
+## How it's built
 
-Built by one developer, with AI coding agents (Claude Code, Codex) writing most of the code. The design is mine, and a few choices were made because the technology was shiny, like WebTransport and WebGPU. They work, so they stayed.
+Built by one developer, with AI coding agents (Claude Code, Codex) writing most of the code. The
+design is mine, and a few choices were made because the technology was shiny, like WebTransport
+and WebGPU. They work, so they stayed.
+
 PRs welcome, including AI-assisted ones, if you've reviewed and tested the change.
