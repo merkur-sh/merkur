@@ -1142,7 +1142,7 @@ class NativeEvidence(unittest.TestCase):
         self.write_capture([frame for frame in frames for _ in range(2)])
         lifecycle = self._write_lifecycle({
             "impairedAtNs": 100_000_000_000, "impairmentClearedAtNs": 100_020_000_000,
-            "impairment": {"delayMs": 40, "duplicatePercent": 100, "lossEvery": 7},
+            "impairment": {"delayMs": 40, "duplicatePercent": 100, "quicLossEvery": 7},
         })
         qdisc = {"kind": "netem", "handle": "30:", "parent": "1:3", "packets": 12,
                  "options": {"delay": {"delay": 0.04}, "duplicate": {"duplicate": 1}}}
@@ -1301,25 +1301,41 @@ class NativeEvidence(unittest.TestCase):
                 with self.assertRaisesRegex(VERIFY.VerificationError, "recovery QUIC"):
                     self.prove("client-lease-pcp")
 
-    def _gateway_continuity(self, client_cid=b"d" * 8):
+    def test_whole_verifier_proves_gateway_recovery_that_keeps_the_previous_external_port(self):
+        self._gateway_continuity(recovered=CLIENT)
+        proof = self.prove("client-lease-pcp")
+        self.assertTrue(proof["gatewayRebootVerified"])
+        [pair] = proof["verifiedPairs"]
+        self.assertEqual(pair["clientEndpoint"], list(CLIENT))
+        self.assertNotIn("checkAuthorityInheritedFrom", pair)
+        self.assertTrue(pair["leaseAdmission"]["retainedConnectionVerified"])
+        self.assertTrue(pair["leaseAdmission"]["sameCheckContextAsQuic"])
+
+    def test_same_tuple_gateway_recovery_requires_the_original_client_to_daemon_connection_id(self):
+        self._gateway_continuity(client_cid=b"x" * 8, recovered=CLIENT)
+        with self.assertRaisesRegex(VERIFY.VerificationError, "bidirectional QUIC recovery"):
+            self.prove("client-lease-pcp")
+
+    def _gateway_continuity(self, client_cid=b"d" * 8, recovered=(VERIFY.CLIENT4, 53000)):
         _, _, packets, _ = self._gateway_reboot()
-        generic = (VERIFY.CLIENT4, 53000)
         records = [(packet.timestamp_ns, ipv4_udp(packet.source, packet.destination, packet.payload))
                    for packet in packets if packet.payload[:2] in {b"\x02\x01", b"\x02\x81"}]
         records += [(100_000_000_000 + index * 1_000_000, frame) for index, frame in enumerate(valid_frames())]
-        records += [(100_010_000_000, ipv4_udp(generic, DAEMON, b"\x00" + client_cid + bytes(24))),
-                    (100_011_000_000, ipv4_udp(DAEMON, generic, b"\x00" + b"z" * 8 + bytes(24)))]
+        records += [(100_010_000_000, ipv4_udp(recovered, DAEMON, b"\x00" + client_cid + bytes(24))),
+                    (100_011_000_000, ipv4_udp(DAEMON, recovered, b"\x00" + b"z" * 8 + bytes(24)))]
         self.gateway_records = records
         self.capture.write_bytes(timed_pcap(sorted(records)))
         (self.root / "capture.stderr").write_text(f"{len(records)} packets captured\n0 packets dropped by kernel\n")
-        path = self.root / "client-conntrack.txt"
-        path.write_text(path.read_text() +
-            "udp 17 179 src=10.20.2.2 dst=198.51.100.1 sport=39000 dport=51000 "
-            "src=198.51.100.1 dst=198.51.100.2 sport=51000 dport=53000 [ASSURED]\n")
+        migrated = ""
+        if recovered != CLIENT:
+            path = self.root / "client-conntrack.txt"
+            path.write_text(path.read_text() +
+                "udp 17 179 src=10.20.2.2 dst=198.51.100.1 sport=39000 dport=51000 "
+                "src=198.51.100.1 dst=198.51.100.2 sport=51000 dport=53000 [ASSURED]\n")
+            migrated = ("udp 17 179 src=10.20.1.2 dst=198.51.100.2 sport=24400 dport=53000 "
+                        "src=198.51.100.2 dst=198.51.100.1 sport=53000 dport=51000 [ASSURED]\n")
         path = self.root / "daemon-conntrack.txt"
-        path.write_text(path.read_text() +
-            "udp 17 179 src=10.20.1.2 dst=198.51.100.2 sport=24400 dport=53000 "
-            "src=198.51.100.2 dst=198.51.100.1 sport=53000 dport=51000 [ASSURED]\n" +
+        path.write_text(path.read_text() + migrated +
             "udp 17 179 src=10.20.1.2 dst=198.51.100.10 sport=24400 dport=3478 "
             "src=198.51.100.10 dst=198.51.100.1 sport=3478 dport=51110 [ASSURED]\n")
 

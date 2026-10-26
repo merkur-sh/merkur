@@ -761,9 +761,11 @@ def gateway_migrations(packets: list[Packet], trips: list[RoundTrip], case: str,
                 cid = header[0] if packet.source == old[1] else header[1]
                 if cid:
                     server_ids.add(cid)
+        # A router that grants the previous external port again recovers onto the old tuple;
+        # it is the same migration, and the daemon's reverse CID can rotate just the same.
         for packet in packets:
             pair = oriented_pair(packet, case)
-            if (pair is None or pair == old or pair[0] != old[0] or packet.source != pair[1]
+            if (pair is None or pair[0] != old[0] or packet.source != pair[1]
                     or packet.timestamp_ns < started or len(packet.payload) < 21
                     or packet.payload[0] & 0x80 or packet.payload[4:8] == COOKIE
                     or not any(packet.payload[1:].startswith(cid) for cid in server_ids)):
@@ -1400,7 +1402,7 @@ def verify_port_rebind(lifecycle: dict[str, Any], quic: list[Packet], trips: lis
 
 def verify_impairment(lifecycle: dict[str, Any], packets: list[Packet], state: Path) -> None:
     first, last = event_interval(lifecycle, "impairedAtNs", "impairmentClearedAtNs")
-    require(lifecycle.get("impairment") == {"delayMs": 40, "duplicatePercent": 100, "lossEvery": 7},
+    require(lifecycle.get("impairment") == {"delayMs": 40, "duplicatePercent": 100, "quicLossEvery": 7},
             "impairment does not describe the controlled delay/duplication/loss")
     topology = state / "topology"
     qdiscs = json.loads((topology / "impairment-qdisc.json").read_text())
@@ -1749,7 +1751,7 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
     verified_pairs = []
     for pair, _ in sorted(winners):
         evidence = {"daemonEndpoint": list(pair[0]), "clientEndpoint": list(pair[1])}
-        if pair in gateway_pairs:
+        if pair in gateway_pairs and gateway_pairs[pair] != pair:
             authority = gateway_pairs[pair]
             evidence["checkAuthorityInheritedFrom"] = {
                 "daemonEndpoint": list(authority[0]), "clientEndpoint": list(authority[1]),
@@ -1782,7 +1784,8 @@ def verify(case: str, captures: list[Path], state: Path) -> dict[str, Any]:
                 evidence["leaseAdmission"] = lease_from_snapshots(
                     state, lease_role, gateway_pairs.get(pair, pair), mapping, trips, case)
                 if pair in gateway_pairs:
-                    evidence["leaseAdmission"].pop("sameCheckContextAsQuic")
+                    if gateway_pairs[pair] != pair:
+                        evidence["leaseAdmission"].pop("sameCheckContextAsQuic")
                     evidence["leaseAdmission"]["retainedConnectionVerified"] = True
         verified_pairs.append(evidence)
     summary.update({"outcome": "direct", "verifiedPairs": verified_pairs})

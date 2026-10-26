@@ -154,15 +154,18 @@ def impairment(clear):
             'netem', 'limit', '1000', 'delay', '40ms', 'duplicate', '100%')
         run(cpe(role), 'tc', 'filter', 'add', 'dev', 'wan0', 'protocol', 'ip', 'parent', '1:',
             'pref', '10', 'flower', 'ip_proto', 'udp', 'dst_ip', peer, 'classid', '1:3')
+        # The loss sits before the only wire captures, so a lost peer check would erase the
+        # evidence of when its sender opened a filter. Checks keep the delay and duplication;
+        # the loss falls on terminal QUIC, which the impaired phase proves survives it.
         run(cpe(role), 'nft', '-f', '-', input=f'''table inet natlab_impairment {{
  counter peer_loss {{ }}
  chain forward {{
   type filter hook forward priority -15; policy accept;
-  ip daddr {peer} meta l4proto udp numgen inc mod 7 0 counter name peer_loss drop
+  ip daddr {peer} meta l4proto udp @th,96,32 != 0x2112a442 numgen inc mod 7 0 counter name peer_loss drop
  }}
 }}
 ''')
-    lifecycle(impairedAtNs=time.time_ns(), impairment=dict(delayMs=40, duplicatePercent=100, lossEvery=7))
+    lifecycle(impairedAtNs=time.time_ns(), impairment=dict(delayMs=40, duplicatePercent=100, quicLossEvery=7))
 
 
 def same_ip_route():
