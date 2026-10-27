@@ -85,7 +85,15 @@ impl PeerMz {
 
     pub(crate) fn push(&self, fact: MzFact) {
         if let Ok(mut facts) = self.facts.lock() {
-            facts.push(fact);
+            // A refusal or discard repeated before the encoder drains changes
+            // nothing the first did not, so an idle peer's reports queue once.
+            let repeated = match (facts.last(), &fact) {
+                (Some(MzFact::Refused), MzFact::Refused) | (Some(MzFact::Cleared), MzFact::Cleared) => true,
+                _ => false,
+            };
+            if !repeated {
+                facts.push(fact);
+            }
         }
     }
 
@@ -109,6 +117,9 @@ impl PeerMz {
         // generation it opens.
         let floor = self.floor.load(Ordering::Acquire);
         state.floor = floor.checked_sub(1).filter(|_| floor != 0);
+        // A floor raised since the last fact retires its sources now, not at
+        // the next acknowledgement.
+        state.retire();
         state.fact_spare = facts;
         state
     }
@@ -183,11 +194,12 @@ pub(crate) struct MzPeerState {
     previous_floor: Option<u32>,
     /// Acknowledged complete rows, by generation, datagram and row.
     sources: HashMap<SourceKey, Source, BuildHasherDefault<SourceHasher>>,
-    /// The pair hash of each source item pair → `(source, item)`, newest last.
-    pairs: HashMap<u64, Vec<(SourceKey, u16)>, BuildHasherDefault<PairHasher>>,
-    /// The current generation's sources in acknowledgement order, so they
-    /// retire oldest first, and the previous generation's, which retire with
-    /// it.
+    /// Live source item pairs → `(source, item)` in admission order, newest last;
+    /// no list holds stale names or is empty.
+    pairs: HashMap<u64, PairSources, BuildHasherDefault<PairHasher>>,
+    /// The current generation's sources in sequence order, so they retire
+    /// oldest first however their acknowledgements arrived, and the previous
+    /// generation's, which retire with it.
     order: VecDeque<SourceKey>,
     previous_order: VecDeque<SourceKey>,
     spare: Vec<Source>,
@@ -218,6 +230,54 @@ pub(crate) struct MzPeerState {
 const EPOCH_FOLD_DATAGRAMS: usize = 32;
 /// Sources one item pair lists at most; the newest are kept.
 const PAIR_SOURCES: usize = 4;
+
+/// One pair occurrence, flat so an entry is 12 bytes rather than a padded
+/// `(SourceKey, u16)`'s 16.
+#[derive(Clone, Copy, Default)]
+struct PairSource {
+    generation: u32,
+    seq: u32,
+    row: u16,
+    item: u16,
+}
+
+const _: () = assert!(std::mem::size_of::<PairSource>() == 12);
+
+/// A pair's occurrences inline, so admitting and retiring never allocate.
+#[derive(Default)]
+struct PairSources {
+    entries: [PairSource; PAIR_SOURCES],
+    len: u8,
+}
+
+impl PairSources {
+    fn iter(&self) -> impl DoubleEndedIterator<Item = (SourceKey, u16)> + '_ {
+        self.entries[..usize::from(self.len)]
+            .iter()
+            .map(|entry| ((entry.generation, entry.seq, entry.row), entry.item))
+    }
+
+    fn push(&mut self, (generation, seq, row): SourceKey, item: u16) {
+        if usize::from(self.len) == PAIR_SOURCES {
+            self.entries.copy_within(1..PAIR_SOURCES, 0);
+            self.len -= 1;
+        }
+        self.entries[usize::from(self.len)] = PairSource { generation, seq, row, item };
+        self.len += 1;
+    }
+
+    fn remove_source(&mut self, (generation, seq, row): SourceKey) {
+        let mut kept = 0;
+        for index in 0..usize::from(self.len) {
+            let entry = self.entries[index];
+            if (entry.generation, entry.seq, entry.row) != (generation, seq, row) {
+                self.entries[usize::from(kept)] = entry;
+                kept += 1;
+            }
+        }
+        self.len = kept;
+    }
+}
 
 #[inline]
 fn older(a: u32, b: u32) -> bool {
@@ -257,10 +317,8 @@ impl MzPeerState {
                 self.retire();
             }
             MzFact::Generation { generation, previous_floor } => {
-                for key in self.previous_order.drain(..) {
-                    if let Some(source) = self.sources.remove(&key) {
-                        self.spare.push(source);
-                    }
+                while let Some(key) = self.previous_order.pop_front() {
+                    self.remove_source(key);
                 }
                 self.previous = if previous_generation(generation) == self.generation {
                     self.generation
@@ -272,22 +330,22 @@ impl MzPeerState {
                 // What the frozen floor retired, or a skipped generation's
                 // rows, no frame can name.
                 let (previous, floor) = (self.previous, previous_floor);
-                let sources = &mut self.sources;
-                let spare = &mut self.spare;
-                self.previous_order.retain(|key| {
-                    let held = previous != 0 && floor.is_none_or(|floor| !older(key.1, floor));
-                    if !held && let Some(source) = sources.remove(key) {
-                        spare.push(source);
+                for _ in 0..self.previous_order.len() {
+                    let Some(key) = self.previous_order.pop_front() else {
+                        break;
+                    };
+                    if previous != 0 && floor.is_none_or(|floor| !older(key.1, floor)) {
+                        self.previous_order.push_back(key);
+                    } else {
+                        self.remove_source(key);
                     }
-                    held
-                });
+                }
                 self.spare.truncate(merkur_codec::MAX_TERMINAL_ROWS);
                 self.generation = generation;
                 self.newest = None;
                 self.session.begin_generation();
                 self.unfolded.clear();
                 self.declaring = None;
-                self.prune_pairs();
             }
             MzFact::Refused => {
                 self.clear_sources();
@@ -306,6 +364,7 @@ impl MzPeerState {
         }
     }
 
+    /// Every source goes, so the pair index goes whole rather than pair by pair.
     fn clear_sources(&mut self) {
         for (_, source) in self.sources.drain() {
             self.spare.push(source);
@@ -317,6 +376,11 @@ impl MzPeerState {
     }
 
     fn add_source(&mut self, key: SourceKey, cells: &[CellRepr]) {
+        if self.sources.contains_key(&key) {
+            self.remove_source(key);
+            self.order.retain(|&held| held != key);
+            self.previous_order.retain(|&held| held != key);
+        }
         let mut source = self.spare.pop().unwrap_or(Source {
             entry: Vec::new(),
             items: Vec::new(),
@@ -341,21 +405,22 @@ impl MzPeerState {
             };
             source.hashes.push(hash);
             if let Some(prior) = previous {
-                let list = self.pairs.entry(pair_hash(prior, hash)).or_default();
-                if list.len() == PAIR_SOURCES {
-                    list.remove(0);
-                }
                 let Ok(item) = u16::try_from(index - 1) else {
                     break;
                 };
-                list.push((key, item));
+                self.pairs
+                    .entry(pair_hash(prior, hash))
+                    .or_default()
+                    .push(key, item);
             }
             previous = Some(hash);
         }
-        if let Some(old) = self.sources.insert(key, source) {
-            self.spare.push(old);
-        }
-        self.order.push_back(key);
+        self.sources.insert(key, source);
+        // Sequence order, not acknowledgement order: reach and floor are
+        // sequence bounds, so retirement stops at the first held source. A
+        // reordered acknowledgement lands its distance from the back.
+        let at = self.order.iter().rposition(|held| !older(key.1, held.1)).map_or(0, |at| at + 1);
+        self.order.insert(at, key);
     }
 
     /// Retire the current generation's sources no frame can copy from: past
@@ -370,23 +435,26 @@ impl MzPeerState {
                 break;
             }
             self.order.pop_front();
-            if let Some(source) = self.sources.remove(&key) {
-                self.spare.push(source);
-            }
+            self.remove_source(key);
         }
-        self.prune_pairs();
     }
 
-    /// Pair lists keep stale names until a lookup misses them; prune the map
-    /// once it outgrows its sources.
-    fn prune_pairs(&mut self) {
-        if self.pairs.len() > 64 * self.sources.len().max(64) {
-            let sources = &self.sources;
-            self.pairs.retain(|_, list| {
-                list.retain(|(key, _)| sources.contains_key(key));
-                !list.is_empty()
-            });
+    /// Remove exactly the pairs this source admitted, then recycle its buffers.
+    fn remove_source(&mut self, key: SourceKey) {
+        let Some(source) = self.sources.remove(&key) else {
+            return;
+        };
+        for hashes in source.hashes.windows(2).take(usize::from(u16::MAX) + 1) {
+            if let std::collections::hash_map::Entry::Occupied(mut entry) =
+                self.pairs.entry(pair_hash(hashes[0], hashes[1]))
+            {
+                entry.get_mut().remove_source(key);
+                if entry.get().len == 0 {
+                    entry.remove();
+                }
+            }
         }
+        self.spare.push(source);
     }
 
     /// What frames are coded against, as a count of the browser's refusals
@@ -523,7 +591,7 @@ impl History<'_> {
 impl MzMatches for History<'_> {
     fn candidates(&self, pair: u64, mut visit: impl FnMut(MzCandidate, MzRow<'_>) -> bool) {
         let Some(list) = self.state.pairs.get(&pair) else { return };
-        for &(key, item) in list.iter().rev() {
+        for (key, item) in list.iter().rev() {
             let Some((previous, back)) = self.name(key) else { continue };
             let Some(source) = self.state.sources.get(&key) else { continue };
             let row = MzRow {
@@ -573,3 +641,6 @@ mod successor_tests {
         assert!(!peer.successor_waiting());
     }
 }
+
+#[cfg(test)]
+mod tests;
