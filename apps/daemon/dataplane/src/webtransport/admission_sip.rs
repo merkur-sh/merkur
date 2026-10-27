@@ -384,6 +384,7 @@ mod tests {
         let (socket, companion) = pair(&path, &retirement).unwrap();
         let address = socket.local_addr().unwrap();
         let socket = DiscoverySocket::new(socket).unwrap();
+        let released = Arc::downgrade(&socket);
         let egress = egress::EgressPath {
             local_ipv4: std::net::Ipv4Addr::LOCALHOST,
             interface_index: path.index,
@@ -424,8 +425,8 @@ mod tests {
         gateway.next(true).await.send(()).unwrap();
         retirement.shutdown().await;
         assert!(
-            UdpSocket::bind(address).is_ok(),
-            "both gateway deletions completed"
+            released.upgrade().is_none(),
+            "both gateway deletions released the owned socket"
         );
         gateway.task.abort();
     }
@@ -438,6 +439,7 @@ mod tests {
         let (socket, companion) = pair(&path, &retirement).unwrap();
         let address = socket.local_addr().unwrap();
         let socket = DiscoverySocket::new(socket).unwrap();
+        let released = Arc::downgrade(&socket);
         let egress = egress::EgressPath {
             local_ipv4: std::net::Ipv4Addr::LOCALHOST,
             interface_index: path.index,
@@ -484,7 +486,9 @@ mod tests {
         gateway.next(true).await.send(()).unwrap();
         gateway.next(true).await.send(()).unwrap();
         retirement.shutdown().await;
-        assert!(UdpSocket::bind(address).is_ok());
+        // Another parallel test may bind the released ephemeral port immediately.
+        // Observe this socket's destruction rather than a new bind's availability.
+        assert!(released.upgrade().is_none());
         gateway.task.abort();
     }
 }
