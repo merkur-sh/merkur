@@ -240,6 +240,7 @@ async fn shutdown_joins_an_inflight_add_and_drains_a_previously_reserved_complet
     let owner = Owner::new();
     let factory = owner.factory();
     let (socket, address) = socket();
+    let released = Arc::downgrade(&socket);
     let (sender, mut receiver) = mpsc::channel(1);
     let permit = sender.reserve_owned().await.unwrap();
     let control = gateway.control.clone();
@@ -262,7 +263,9 @@ async fn shutdown_joins_an_inflight_add_and_drains_a_previously_reserved_complet
     assert!(!shutdown.is_finished(), "cleanup waits for the gateway ACK");
     acknowledge(deleting);
     shutdown.await.unwrap().unwrap();
-    assert!(std::net::UdpSocket::bind(address).is_ok());
+    // A parallel test can claim the ephemeral port as soon as this socket drops.
+    // Its exact destruction is the retirement signal, independent of later binders.
+    assert!(released.upgrade().is_none());
 }
 
 #[tokio::test]
