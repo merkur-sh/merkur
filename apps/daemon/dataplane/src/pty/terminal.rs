@@ -101,7 +101,8 @@ impl RowCells {
         });
         let (bytes, encoding) = index.plan(start, end);
         let (visible, styled) = index.census(start, end);
-        (bytes, encoding, ContentEvidence { cells: u32::try_from(end - start).expect("wire-bounded span"), visible, styled })
+        let cells = u32::try_from(end - start).expect("wire-bounded span");
+        (bytes, encoding, ContentEvidence { cells, visible, styled })
     }
 
     pub(crate) fn mz_source(
@@ -2665,8 +2666,6 @@ mod tests {
 
     #[test]
     fn span_plans_follow_content_identity_and_reuse_buffers_without_allocations() {
-        println!("row content metadata: {} bytes; index inline: {} bytes",
-            std::mem::size_of::<RowContent>(), std::mem::size_of::<merkur_codec::CellPlanIndex>());
         for cols in [200, 384] {
             let mut owner = RowCells::from(vec![CellRepr::BLANK; cols]);
             for round in 0..6 {
