@@ -213,31 +213,32 @@ impl Observation {
         {
             return Ok(None);
         }
-        // SAFETY: CMSG traversal uses only the initialized buffer and length returned by recvmsg.
-        unsafe {
-            let mut header = libc::CMSG_FIRSTHDR(&message);
-            while !header.is_null() {
-                if (*header).cmsg_level == libc::SOL_IP
-                    && (*header).cmsg_type == libc::IP_RECVERR
-                    && (*header).cmsg_len
-                        >= libc::CMSG_LEN(
-                            u32::try_from(std::mem::size_of::<libc::sock_extended_err>())
-                                .map_err(io::Error::other)?,
-                        ) as usize
+        let error_size = u32::try_from(std::mem::size_of::<libc::sock_extended_err>())
+            .map_err(io::Error::other)?;
+        // SAFETY: the fixed error structure fits CMSG_LEN's length argument.
+        let required = unsafe { libc::CMSG_LEN(error_size) } as usize;
+        // SAFETY: recvmsg initialized message's control buffer and returned its valid length.
+        let mut header = unsafe { libc::CMSG_FIRSTHDR(&message) };
+        // SAFETY: each nonnull pointer comes from libc's traversal of that same live buffer.
+        while let Some(fields) = unsafe { header.as_ref() } {
+            if fields.cmsg_level == libc::SOL_IP
+                && fields.cmsg_type == libc::IP_RECVERR
+                && fields.cmsg_len >= required
+            {
+                // SAFETY: this initialized control message contains the checked error structure.
+                let data = unsafe { libc::CMSG_DATA(header) };
+                // SAFETY: the checked payload holds a complete error, without assuming alignment.
+                let error = unsafe { data.cast::<libc::sock_extended_err>().read_unaligned() };
+                if error.ee_origin == libc::SO_EE_ORIGIN_ICMP
+                    && error.ee_type == 3
+                    && error.ee_code == 3
                 {
-                    let error = libc::CMSG_DATA(header)
-                        .cast::<libc::sock_extended_err>()
-                        .read_unaligned();
-                    if error.ee_origin == libc::SO_EE_ORIGIN_ICMP
-                        && error.ee_type == 3
-                        && error.ee_code == 3
-                    {
-                        let _ = self.local;
-                        return Ok(Some(usize::try_from(length).map_err(io::Error::other)?));
-                    }
+                    let _ = self.local;
+                    return Ok(Some(usize::try_from(length).map_err(io::Error::other)?));
                 }
-                header = libc::CMSG_NXTHDR(&message, header);
             }
+            // SAFETY: header and message still refer to the same initialized control buffer.
+            header = unsafe { libc::CMSG_NXTHDR(&message, header) };
         }
         Ok(None)
     }
