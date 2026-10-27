@@ -22,9 +22,10 @@ pub fn offer(local: SocketAddr, media: SocketAddr, browser: IpAddr, nonce: &[u8;
         "v=0\r\no=m 1 1 IN {family} {ip}\r\ns=m\r\nc=IN {family} {ip}\r\nt=0 0\r\nm=audio {} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n",
         media.port()
     );
+    let tag = &nonce[..8];
     let local_host = host(local.ip());
     let remote = host(browser);
-    format!("INVITE sip:merkur-{nonce}@{remote} SIP/2.0\r\nVia: SIP/2.0/UDP {local_host}:{};branch=z9hG4bK-{nonce}\r\nFrom: <sip:merkur@{local_host}>;tag=m\r\nTo: <sip:merkur@{remote}>\r\nCall-ID: {nonce}\r\nCSeq: 1 INVITE\r\nContact: <sip:merkur@{local_host}:{}>\r\nMax-Forwards: 1\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}", local.port(), local.port(), body.len()).into_bytes()
+    format!("INVITE sip:merkur-{nonce}@{remote} SIP/2.0\r\nVia: SIP/2.0/UDP {local_host}:{};branch=z9hG4bK-{nonce}\r\nFrom: <sip:m@{local_host}>;tag={tag}\r\nTo: <sip:merkur@{remote}>\r\nCall-ID: {nonce}\r\nCSeq: 1 INVITE\r\nContact: <sip:merkur@{local_host}:{}>\r\nMax-Forwards: 1\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}", local.port(), local.port(), body.len()).into_bytes()
 }
 
 /// Accept complete SDP lines under the exact offer ID, on the separately
@@ -355,6 +356,18 @@ mod tests {
         assert!(longest_required <= 520);
         let text = std::str::from_utf8(&packet).unwrap();
         assert!(text.starts_with(&format!("INVITE sip:merkur-{}@", "42".repeat(16))));
+        assert!(text.contains(&format!(";tag={}\r\n", "42".repeat(4))));
+        let other_offer = offer(
+            "10.0.0.2:40000".parse().unwrap(),
+            endpoint,
+            "198.51.100.2".parse().unwrap(),
+            &[0x43; 16],
+        );
+        assert!(
+            std::str::from_utf8(&other_offer)
+                .unwrap()
+                .contains(&format!(";tag={}\r\n", "43".repeat(4)))
+        );
         assert_eq!(allocation(&packet, &nonce, public), Some(endpoint));
         assert_eq!(allocation(&packet, &[0x43; 16], public), None);
         assert_eq!(allocation(&packet, &nonce, Ipv4Addr::LOCALHOST), None);

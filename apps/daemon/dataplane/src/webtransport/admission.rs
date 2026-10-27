@@ -1080,7 +1080,7 @@ mod tests {
         let (headers, body) = text.split_once("\r\n\r\n").unwrap();
         assert!(headers.contains("@[2001:db8::7] SIP/2.0\r\n"));
         assert!(headers.contains("Via: SIP/2.0/UDP [2001:db8::10]:40001;"));
-        assert!(headers.contains("From: <sip:merkur@[2001:db8::10]>;"));
+        assert!(headers.contains("From: <sip:m@[2001:db8::10]>;"));
         assert!(headers.contains("To: <sip:merkur@[2001:db8::7]>\r\n"));
         assert!(headers.contains("Contact: <sip:merkur@[2001:db8::10]:40001>\r\n"));
         assert!(headers.ends_with(&format!("Content-Length: {}", body.len())));
