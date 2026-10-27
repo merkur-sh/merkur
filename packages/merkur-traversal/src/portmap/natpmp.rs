@@ -34,8 +34,7 @@ pub enum Answer {
 }
 
 pub fn parse_answer(bytes: &[u8]) -> Option<Answer> {
-    if bytes.len() < 4 || bytes[0] != VERSION || bytes[1] != (OP_EXTERNAL_ADDRESS | RESPONSE_BIT)
-    {
+    if bytes.len() < 4 || bytes[0] != VERSION || bytes[1] != (OP_EXTERNAL_ADDRESS | RESPONSE_BIT) {
         return None;
     }
     let result = u16::from_be_bytes([bytes[2], bytes[3]]);
@@ -101,8 +100,27 @@ pub async fn map(
     lifetime_secs: u32,
     schedule: RetransmitSchedule,
 ) -> Result<Mapping, Failure> {
+    map_to(
+        client,
+        server,
+        internal_port,
+        internal_port,
+        lifetime_secs,
+        schedule,
+    )
+    .await
+}
+
+pub(super) async fn map_to(
+    client: Ipv4Addr,
+    server: Server,
+    internal_port: u16,
+    external_port: u16,
+    lifetime_secs: u32,
+    schedule: RetransmitSchedule,
+) -> Result<Mapping, Failure> {
     let socket = pcp::bind(IpAddr::V4(client), server).await?;
-    let request = map_request(internal_port, internal_port, lifetime_secs);
+    let request = map_request(internal_port, external_port, lifetime_secs);
     let mut response = [0u8; 16];
     let mut interval = schedule.initial;
     for _ in 0..schedule.attempts.max(1) {

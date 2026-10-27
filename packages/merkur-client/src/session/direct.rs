@@ -268,13 +268,16 @@ impl Direct {
     /// candidate waits for a manifest built for the address this client is at
     /// now, and for that manifest's punch.
     fn punch_allows(&self, candidate: &DirectCandidate) -> bool {
-        // Prepare IPv4 router admission before spending a reflexive handshake.
-        // LAN, public host/lease and IPv6 paths remain immediately dialable.
+        // Send router admission before spending a reflexive handshake. Once a
+        // helper endpoint is offered, its allocation observation cannot hold
+        // other candidates while waiting for a quote or an intermediate grant.
         if candidate.kind == CandidateKind::Srflx
-            && self
-                .manifest
-                .as_ref()
-                .is_some_and(|manifest| manifest.admission_pending)
+            && self.manifest.as_ref().is_some_and(|manifest| {
+                manifest.admission_pending
+                    && !manifest.candidates.iter().any(|candidate| {
+                        matches!(candidate.kind, CandidateKind::Tftp | CandidateKind::Sip)
+                    })
+            })
         {
             return false;
         }

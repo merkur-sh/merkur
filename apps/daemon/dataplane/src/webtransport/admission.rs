@@ -13,12 +13,15 @@ use std::{
     },
 };
 
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use tokio::{
     sync::{RwLock, mpsc, watch},
     task::JoinHandle,
 };
 use tracing::{info, warn};
+
+#[path = "admission_sip.rs"]
+mod sip;
 
 use super::{
     CandidateFlavor, WebTransportServer, WebTransportState, discovery_socket::DiscoverySocket, stun,
@@ -216,6 +219,7 @@ struct Retirement {
     tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
     stopping: watch::Sender<bool>,
     companions: Arc<Mutex<HashMap<CompanionKey, Arc<UdpSocket>>>>,
+    gateways: Arc<Mutex<Option<super::router_grants::Owner>>>,
 }
 
 impl Retirement {
@@ -225,6 +229,7 @@ impl Retirement {
             tasks: Arc::new(Mutex::new(Vec::new())),
             stopping,
             companions: Arc::new(Mutex::new(HashMap::new())),
+            gateways: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -233,10 +238,12 @@ impl Retirement {
         mut server: WebTransportServer,
         events: mpsc::Sender<PeerEvent>,
         sockets: (Option<Arc<UdpSocket>>, Option<UdpSocket>),
+        media: Vec<sip::MediaOwner>,
     ) {
         let mut stopping = self.stopping.subscribe();
         let task = tokio::spawn(async move {
             let retired = server.shutdown().await;
+            drop(media);
             drop(sockets);
             for retired in retired {
                 if *stopping.borrow() {
@@ -281,6 +288,16 @@ impl Retirement {
                 drop(task.await);
             }
         }
+        let gateways = self
+            .gateways
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(gateways) = gateways
+            && let Err(error) = gateways.shutdown().await
+        {
+            warn!(%error, "direct admission gateway cleanup incomplete");
+        }
     }
 }
 
@@ -295,16 +312,25 @@ struct Binding {
     // so still-live helper state cannot expose a newly bound unrelated service.
     companion: Option<Arc<UdpSocket>>,
     signaling: Option<UdpSocket>,
+    enhancement: Option<futures::future::BoxFuture<'static, Option<serde_json::Value>>>,
+    media: sip::MediaSlot,
 }
 
 impl Drop for Binding {
     fn drop(&mut self) {
         self.claim.live.store(false, Ordering::Release);
+        let media = self
+            .media
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .unwrap_or_default();
         if let Some(server) = self.server.take() {
             self.retirements.retire(
                 server,
                 self.events.clone(),
                 (self.companion.take(), self.signaling.take()),
+                media,
             );
         }
     }
@@ -683,21 +709,20 @@ fn sip_request(
     browser: IpAddr,
     nonce: &[u8; 16],
 ) -> Vec<u8> {
-    let nonce: String = nonce.iter().map(|byte| format!("{byte:02x}")).collect();
-    let ip = path.address;
-    let family = if ip.is_ipv4() { "IP4" } else { "IP6" };
-    let local = match ip {
-        IpAddr::V4(ip) => ip.to_string(),
-        IpAddr::V6(ip) => format!("[{ip}]"),
-    };
-    let remote = match browser {
-        IpAddr::V4(ip) => ip.to_string(),
-        IpAddr::V6(ip) => format!("[{ip}]"),
-    };
-    let body = format!(
-        "v=0\r\no=merkur 1 1 IN {family} {ip}\r\ns=Merkur direct admission\r\nc=IN {family} {ip}\r\nt=0 0\r\nm=audio {media_port} RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n"
-    );
-    format!("INVITE sip:merkur-{nonce}@{remote} SIP/2.0\r\nVia: SIP/2.0/UDP {local}:{signal_port};branch=z9hG4bK-{nonce}\r\nFrom: <sip:merkur@{local}>;tag={nonce}\r\nTo: <sip:merkur@{remote}>\r\nCall-ID: {nonce}@{local}\r\nCSeq: 1 INVITE\r\nContact: <sip:merkur@{local}:{signal_port}>\r\nMax-Forwards: 1\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}", body.len()).into_bytes()
+    merkur_traversal::sip::offer(
+        SocketAddr::new(path.address, signal_port),
+        SocketAddr::new(path.address, media_port),
+        browser,
+        nonce,
+    )
+}
+
+enum Progress {
+    Bound(Result<(Box<Binding>, serde_json::Value), String>),
+    Observed {
+        previous: serde_json::Value,
+        candidate: Option<serde_json::Value>,
+    },
 }
 
 async fn prepare(
@@ -713,7 +738,8 @@ async fn prepare(
     let paths = tokio::task::spawn_blocking(move || paths(browser))
         .await
         .unwrap_or_default();
-    let mut preparations = futures::stream::FuturesUnordered::new();
+    let mut preparations =
+        futures::stream::FuturesUnordered::<futures::future::BoxFuture<'_, Progress>>::new();
     for path in paths.into_iter().take(room / 2) {
         for kind in [CandidateFlavor::Tftp, CandidateFlavor::Sip] {
             let request = &request;
@@ -727,8 +753,8 @@ async fn prepare(
                 if let Err(error) = &result {
                     warn!(interface = path.name, ?kind, %error, "direct admission preparation refused");
                 }
-                result
-            });
+                Progress::Bound(result.map(|(binding, candidate)| (Box::new(binding), candidate)))
+            }.boxed());
         }
     }
     if preparations.is_empty() {
@@ -746,13 +772,42 @@ async fn prepare(
         );
         return;
     }
-    while let Some(result) = preparations.next().await {
+    while let Some(progress) = preparations.next().await {
         let mut bindings = Vec::new();
-        if let Ok((binding, candidate)) = result {
-            if let Some(candidates) = manifest["candidates"].as_array_mut() {
-                candidates.push(candidate);
+        match progress {
+            Progress::Bound(Ok((binding, candidate))) => {
+                let mut binding = *binding;
+                if let Some(enhancement) = binding.enhancement.take() {
+                    let previous = candidate.clone();
+                    preparations.push(
+                        async move {
+                            Progress::Observed {
+                                previous,
+                                candidate: enhancement.await,
+                            }
+                        }
+                        .boxed(),
+                    );
+                }
+                if let Some(candidates) = manifest["candidates"].as_array_mut() {
+                    candidates.push(candidate);
+                }
+                bindings.push(binding);
             }
-            bindings.push(binding);
+            Progress::Observed {
+                previous,
+                candidate: Some(candidate),
+            } => {
+                if let Some(candidates) = manifest["candidates"].as_array_mut()
+                    && let Some(existing) = candidates.iter_mut().find(|value| **value == previous)
+                {
+                    *existing = candidate;
+                }
+            }
+            Progress::Bound(Err(_))
+            | Progress::Observed {
+                candidate: None, ..
+            } => {}
         }
         manifest["admission_pending"] = (!preparations.is_empty()).into();
         if completion
@@ -826,13 +881,15 @@ async fn prepare_binding(
         events.clone(),
         Some(claim.clone()),
     );
-    let binding = Binding {
+    let mut binding = Binding {
         claim: claim.clone(),
         retirements,
         server: Some(server),
         events,
         companion,
         signaling,
+        enhancement: None,
+        media: Arc::new(Mutex::new(Some(Vec::new()))),
     };
     let observed =
         candidate_endpoint(&discovery, credential, kind == CandidateFlavor::Tftp).await?;
@@ -845,6 +902,8 @@ async fn prepare_binding(
         return Err("admission generation retired".into());
     }
     let browser = claim.identity.browser;
+    #[cfg(test)]
+    router_tests::before_offer(port).await;
     let (bytes, candidate_port) = if kind == CandidateFlavor::Tftp {
         let bytes = tftp_request(&nonce);
         discovery
@@ -853,23 +912,7 @@ async fn prepare_binding(
             .map_err(|e| e.to_string())?;
         (bytes, observed.port())
     } else {
-        let signaling = binding
-            .signaling
-            .as_ref()
-            .ok_or("missing SIP signaling socket")?;
-        let bytes = sip_request(
-            path,
-            signaling.local_addr().map_err(|e| e.to_string())?.port(),
-            port,
-            browser,
-            &nonce,
-        );
-        let signaling = signaling.try_clone().map_err(|e| e.to_string())?;
-        let packet = bytes.clone();
-        tokio::task::spawn_blocking(move || signaling.send_to(&packet, (browser, 5060)))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
+        let bytes = sip::send(&mut binding, path, &discovery, observed, nonce).await?;
         // This is a requested endpoint, not an observed lease. A helper may
         // rewrite its address/port through collisions or multiple NAT layers.
         // No adjacent WAN port is guessed; authentication decides reachability.
@@ -1011,7 +1054,7 @@ mod tests {
         let invite = sip_request(&path, 40001, 49152, identity().browser, &[0x42; 16]);
         let text = std::str::from_utf8(&invite).unwrap();
         let (headers, body) = text.split_once("\r\n\r\n").unwrap();
-        assert!(headers.starts_with("INVITE sip:merkur-"));
+        assert!(headers.starts_with("INVITE sip:m@"));
         assert!(headers.contains("@198.51.100.7 SIP/2.0\r\n"));
         assert!(headers.ends_with(&format!("Content-Length: {}", body.len())));
         assert!(body.contains("m=audio 49152 RTP/AVP 0\r\n"));
@@ -1037,11 +1080,11 @@ mod tests {
         let (headers, body) = text.split_once("\r\n\r\n").unwrap();
         assert!(headers.contains("@[2001:db8::7] SIP/2.0\r\n"));
         assert!(headers.contains("Via: SIP/2.0/UDP [2001:db8::10]:40001;"));
-        assert!(headers.contains("From: <sip:merkur@[2001:db8::10]>;"));
-        assert!(headers.contains("To: <sip:merkur@[2001:db8::7]>\r\n"));
-        assert!(headers.contains("Contact: <sip:merkur@[2001:db8::10]:40001>\r\n"));
+        assert!(headers.contains("From: <sip:m@[2001:db8::10]>;"));
+        assert!(headers.contains("To: <sip:m@[2001:db8::7]>\r\n"));
+        assert!(headers.contains("Contact: <sip:m@[2001:db8::10]:40001>\r\n"));
         assert!(headers.ends_with(&format!("Content-Length: {}", body.len())));
-        assert!(body.contains("o=merkur 1 1 IN IP6 2001:db8::10\r\n"));
+        assert!(body.contains("o=m 1 1 IN IP6 2001:db8::10\r\n"));
         assert!(body.contains("c=IN IP6 2001:db8::10\r\n"));
         assert!(body.contains("m=audio 49152 RTP/AVP 0\r\n"));
         assert!(!body.contains("49153"));
@@ -1304,6 +1347,8 @@ mod tests {
                     events,
                     companion: None,
                     signaling: None,
+                    enhancement: None,
+                    media: Arc::new(Mutex::new(Some(Vec::new()))),
                 }],
             },
         );
@@ -1393,6 +1438,8 @@ mod tests {
             events: events.clone(),
             companion: None,
             signaling: None,
+            enhancement: None,
+            media: Arc::new(Mutex::new(Some(Vec::new()))),
         };
         owner.work.insert(
             Arc::from("browser"),

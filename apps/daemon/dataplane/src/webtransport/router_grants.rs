@@ -39,12 +39,16 @@ pub(crate) struct Owner {
 
 impl Owner {
     pub(crate) fn new() -> Self {
+        Self::with_capacity(GRANT_CAPACITY)
+    }
+
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
         let (retired, observations) = watch::channel(0);
         Self {
             factory: Factory {
                 sender,
-                permits: Arc::new(Semaphore::new(GRANT_CAPACITY)),
+                permits: Arc::new(Semaphore::new(capacity)),
                 lanes: Arc::new(Mutex::new(HashMap::new())),
                 retired,
                 capacity_waiting: Arc::new(AtomicBool::new(false)),

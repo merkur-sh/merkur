@@ -1083,7 +1083,7 @@
     },
     "packages/merkur-traversal/src/portmap/mod.rs": {
       "clippy::cast_possible_truncation": 1,
-      "clippy::let_underscore_must_use": 6,
+      "clippy::let_underscore_must_use": 4,
       "clippy::too_many_lines": 1
     },
     "packages/merkur-traversal/src/portmap/natpmp.rs": {

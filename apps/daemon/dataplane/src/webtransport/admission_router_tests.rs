@@ -6,6 +6,24 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use merkur_wire::signaling::ClientSignal;
 use wtransport::quinn::AsyncUdpSocket;
 
+tokio::task_local! {
+    static OFFER_GATE: (String, Arc<tokio::net::TcpListener>);
+}
+
+/// An owned-lab barrier before the real helper send. It changes scheduling only;
+/// production allocation, discovery, packets and authentication run unmodified.
+pub(super) async fn before_offer(port: u16) {
+    if let Ok((output, listener)) = OFFER_GATE.try_with(Clone::clone) {
+        std::fs::write(
+            output,
+            serde_json::json!({ "port": port, "continue": listener.local_addr().unwrap().port() })
+                .to_string(),
+        )
+        .unwrap();
+        listener.accept().await.unwrap();
+    }
+}
+
 async fn write_record(stream: &mut wtransport::SendStream, bytes: &[u8]) {
     stream
         .write_all(&u32::try_from(bytes.len()).unwrap().to_be_bytes())
@@ -298,6 +316,7 @@ async fn physical_router_admission_and_session_key_upgrade() {
     let mut peers = PeerMap::new();
     let mut bindings = Vec::new();
     let mut candidates = Vec::new();
+    let mut enhancements = futures::stream::FuturesUnordered::new();
     let requested = config["kinds"].as_array().unwrap();
     assert!(!requested.is_empty());
     for (index, value) in requested.iter().enumerate() {
@@ -326,7 +345,8 @@ async fn physical_router_admission_and_session_key_upgrade() {
             epoch.clone(),
             0,
         );
-        let (binding, candidate) = prepare_binding(
+        let started = std::time::Instant::now();
+        let preparation = prepare_binding(
             &state,
             &info.admission_config,
             credential.as_ref(),
@@ -336,19 +356,34 @@ async fn physical_router_admission_and_session_key_upgrade() {
             messages.clone(),
             events.clone(),
             retirements.clone(),
-        )
-        .await
+        );
+        let (mut binding, candidate) = if let Some(gate) = config["offerGate"].as_str() {
+            let listener = Arc::new(tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap());
+            OFFER_GATE.scope((gate.into(), listener), preparation).await
+        } else {
+            preparation.await
+        }
         .unwrap();
-        candidates.push(serde_json::json!({ "candidate": candidate, "browserId": id, "upgradeSecret": URL_SAFE_NO_PAD.encode(upgrade_secret) }));
+        let requested_candidate = candidate.clone();
+        if let Some(enhancement) = binding.enhancement.take() {
+            enhancements.push(async move { (index, enhancement.await) }.boxed());
+        }
+        candidates.push(serde_json::json!({ "candidate": candidate, "requestedCandidate": requested_candidate, "preparationMs": started.elapsed().as_secs_f64() * 1000.0, "browserId": id, "upgradeSecret": URL_SAFE_NO_PAD.encode(upgrade_secret) }));
         bindings.push(binding);
         peers.insert(peer.peer_id.clone(), peer);
     }
     let stop = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let output = config["output"].as_str().unwrap();
-    std::fs::write(output, serde_json::to_vec(&serde_json::json!({
-        "certHash": hash, "baseline": baseline_mapping, "candidates": candidates, "sessionId": "session", "daemonId": "router-test-daemon",
-        "stop": stop.local_addr().unwrap().port(),
-    })).unwrap()).unwrap();
+    let publish = |candidates: &[serde_json::Value], pending: bool| {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "certHash": hash, "baseline": baseline_mapping, "candidates": candidates, "sessionId": "session", "daemonId": "router-test-daemon",
+            "stop": stop.local_addr().unwrap().port(), "admission_pending": pending,
+        })).unwrap();
+        let temporary = format!("{output}.tmp");
+        std::fs::write(&temporary, bytes).unwrap();
+        std::fs::rename(temporary, output).unwrap();
+    };
+    publish(&candidates, !enhancements.is_empty());
     let identity = Some(
         crate::auth::DaemonIdentity::new(&URL_SAFE_NO_PAD.encode([0x33; 32]), "router-test-daemon")
             .unwrap(),
@@ -362,6 +397,11 @@ async fn physical_router_admission_and_session_key_upgrade() {
         tokio::select! {
             _ = &mut deadline => panic!("physical browser check exceeded its 90 second stop condition"),
             _ = stop.accept() => break,
+            Some((index, candidate)) = enhancements.next(), if !enhancements.is_empty() => {
+                if let Some(candidate) = candidate { candidates[index]["candidate"] = candidate; }
+                candidates[index]["observationMs"] = (started.elapsed().as_secs_f64() * 1000.0).into();
+                publish(&candidates, !enhancements.is_empty());
+            }
             Some(_event) = disconnected.recv() => {},
             Some(message) = incoming.recv() => {
                 let now = started.elapsed().as_secs_f64() * 1000.0;
@@ -383,12 +423,22 @@ async fn physical_router_admission_and_session_key_upgrade() {
     }
     assert_eq!(
         ownership.len(),
-        bindings.len(),
+        config["expectedConnections"]
+            .as_u64()
+            .map_or(bindings.len(), |count| usize::try_from(count).unwrap()),
         "every requested binding authenticated"
     );
     for binding in &bindings {
-        assert!(binding.claim.owns(&peers[&binding.claim.identity.peer]));
+        if ownership
+            .values()
+            .any(|peer| peer.as_ref() == binding.claim.identity.peer.as_ref())
+        {
+            assert!(binding.claim.owns(&peers[&binding.claim.identity.peer]));
+        } else {
+            assert_eq!(config["expectedConnections"].as_u64(), Some(0));
+        }
     }
+    drop(enhancements);
     drop(bindings);
     drop(baseline.shutdown().await);
     retirements.shutdown().await;

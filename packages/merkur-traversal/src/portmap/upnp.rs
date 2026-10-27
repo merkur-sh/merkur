@@ -131,6 +131,11 @@ pub enum Discovery {
     /// IGDs answered, and every one reported another external address: this
     /// host sits behind a NAT none of them is.
     InnerNat,
+    /// An explicitly requested gateway-realm observation, kept for media composition.
+    Gateway {
+        control: ControlUrl,
+        external: Ipv4Addr,
+    },
     /// No IGD with a usable WAN service answered within the window.
     None,
 }
@@ -148,6 +153,23 @@ pub async fn discover(
     ssdp_port: u16,
     window: Duration,
     reflexive: Ipv4Addr,
+) -> Discovery {
+    discover_selected(egress, ssdp_port, window, Some(reflexive)).await
+}
+
+pub(super) async fn discover_gateway(
+    egress: &EgressPath,
+    port: u16,
+    window: Duration,
+) -> Discovery {
+    discover_selected(egress, port, window, None).await
+}
+
+async fn discover_selected(
+    egress: &EgressPath,
+    ssdp_port: u16,
+    window: Duration,
+    reflexive: Option<Ipv4Addr>,
 ) -> Discovery {
     let socket = match ssdp_socket(egress) {
         Ok(socket) => socket,
@@ -211,14 +233,17 @@ pub async fn discover(
         })
         .await;
         match checked {
-            Ok(Some((control, external))) if external == reflexive => {
+            Ok(Some((control, external))) if reflexive.is_none() => {
+                return Discovery::Gateway { control, external };
+            }
+            Ok(Some((control, external))) if Some(external) == reflexive => {
                 return Discovery::Edge(control);
             }
             Ok(Some((_, external))) => {
                 info!(
                     location,
                     %external,
-                    %reflexive,
+                    ?reflexive,
                     "igd: device is not the edge NAT; not mapping on it"
                 );
                 inner_nat = true;
@@ -239,7 +264,9 @@ fn search_request(host: &str, target: &str) -> String {
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn ssdp_socket(egress: &EgressPath) -> std::io::Result<tokio::net::UdpSocket> {
@@ -275,7 +302,12 @@ pub async fn discover_v6(egress: &super::EgressPath6, window: Duration) -> Optio
         .bind(&SocketAddr::V6(SocketAddrV6::new(egress.local, 0, 0, 0)).into())
         .ok()?;
     let socket = tokio::net::UdpSocket::from_std(socket.into()).ok()?;
-    let target = SocketAddrV6::new("ff02::c".parse().ok()?, SSDP_PORT, 0, egress.interface_index);
+    let target = SocketAddrV6::new(
+        "ff02::c".parse().ok()?,
+        SSDP_PORT,
+        0,
+        egress.interface_index,
+    );
     let search = search_request("[ff02::c]:1900", WAN_IPV6_FIREWALL_1);
     socket.send_to(search.as_bytes(), target).await.ok()?;
     let deadline = tokio::time::Instant::now() + window;
@@ -698,7 +730,12 @@ pub async fn add_port_mapping(
     }
 }
 
-fn mapping_arguments(client: Ipv4Addr, internal_port: u16, external_port: u16, lease_secs: u32) -> String {
+fn mapping_arguments(
+    client: Ipv4Addr,
+    internal_port: u16,
+    external_port: u16,
+    lease_secs: u32,
+) -> String {
     let mut arguments = String::with_capacity(320);
     let _ = write!(
         arguments,
@@ -882,7 +919,10 @@ pub mod tests {
     pub(in super::super) async fn fake_igd(
         description: String,
         respond: impl Fn(&str, &str) -> (u16, String) + Send + Sync + 'static,
-    ) -> (SocketAddr, std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>) {
+    ) -> (
+        SocketAddr,
+        std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    ) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -924,7 +964,10 @@ pub mod tests {
                         .split_once("\r\n\r\n")
                         .map(|(_, body)| body.to_string())
                         .unwrap_or_default();
-                    recorded.lock().unwrap().push((action.clone(), body.clone()));
+                    recorded
+                        .lock()
+                        .unwrap()
+                        .push((action.clone(), body.clone()));
                     respond(&action, &body)
                 };
                 let response = format!(
@@ -956,7 +999,11 @@ pub mod tests {
     }
 
     fn actions(seen: &std::sync::Mutex<Vec<(String, String)>>) -> Vec<String> {
-        seen.lock().unwrap().iter().map(|(action, _)| action.clone()).collect()
+        seen.lock()
+            .unwrap()
+            .iter()
+            .map(|(action, _)| action.clone())
+            .collect()
     }
 
     /// The SOAP path end to end against a fake gateway: request shape, the
@@ -1021,7 +1068,11 @@ pub mod tests {
             "<NewExternalPort>{}</NewExternalPort>",
             granted.external_port
         )));
-        assert!(recorded[1].1.contains("<NewInternalPort>44433</NewInternalPort>"));
+        assert!(
+            recorded[1]
+                .1
+                .contains("<NewInternalPort>44433</NewInternalPort>")
+        );
 
         let (address, seen) = fake_igd(String::new(), |_, _| upnp_error(718)).await;
         assert_eq!(
@@ -1101,7 +1152,10 @@ pub mod tests {
     #[test]
     fn an_http_1_0_search_answer_is_accepted_and_a_refusal_is_not() {
         let answer = b"HTTP/1.0 200 OK\r\nLOCATION: http://10.0.0.1:5000/rootDesc.xml\r\n\r\n";
-        assert_eq!(ssdp_location(answer), Some("http://10.0.0.1:5000/rootDesc.xml"));
+        assert_eq!(
+            ssdp_location(answer),
+            Some("http://10.0.0.1:5000/rootDesc.xml")
+        );
         let refused = b"HTTP/1.1 404 Not Found\r\nLOCATION: http://10.0.0.1/\r\n\r\n";
         assert_eq!(ssdp_location(refused), None);
     }

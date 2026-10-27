@@ -774,10 +774,12 @@ E2E-ready session and the first manifest left before it could be queued; when a 
 when the committed carrier's address changes, which is how a
 connection that migrates (Safari's) moves networks; and when its candidates or certificate
 change. `generation` orders one peer's manifests. `admission_pending` means router
-preparation is still running. Successful preparations progressively extend the same
-generation; the last result carries the complete candidate set and `admission_pending: false`.
+preparation or allocation observation is still running. Successful preparations progressively
+extend the same generation; an observed allocation replaces its requested endpoint in that
+generation. The last result carries the complete candidate set and `admission_pending: false`.
 Older generations and duplicate final results do not start another constructor. LAN, host, explicit mapping and IPv6 candidates need not wait;
-reflexive IPv4 candidates wait for preparation before spending a handshake.
+reflexive IPv4 candidates wait until a helper endpoint is offered before spending a handshake.
+They do not wait for that endpoint's allocation observation or intermediate mapping acquisition.
 
 ### Keeping a reflexive candidate dialable
 
@@ -833,6 +835,32 @@ searches neighboring WAN ports or restarts from a fixed local port after a daemo
 interface's observed public IPv4 or owned global IPv6 is a `sip` candidate, never a verified
 `nat_map` lease. A helper can rewrite that address or port on collision or across NAT layers;
 such a candidate can fail. Neither a send completion nor a STUN observation proves router acceptance.
+
+IPv4 SIP offers retain full header names and shorten their metadata so complete media fields
+can fit in an ordinary returning ICMP quote. Linux reads the signaling socket's unprivileged UDP error queue;
+macOS uses an unprivileged ICMP datagram socket and matches the quoted signaling tuple.
+Observation is installed before sending and runs independently of the initial candidate.
+Only complete media fields under the exact offer ID, on the separately STUN-observed public
+address, can replace that candidate. A quote is an untrusted hint; the certificate pin and
+session-key proof establish the connection. Missing, shortened or unrelated quotes supply no
+allocation. Observation ends after the admission network-exchange budget and cannot infer a
+port from a checksum or a timeout.
+
+When the first offer supplies no usable allocation, the same binding can acquire a media
+pair from its first-hop gateway using PCP, NAT-PMP or UPnP. Each grant retains its actual
+external address and port, even when the address belongs to an inner NAT. The first request
+asks for a fresh even external port; the companion requests the next port. Only live grants
+for an actual even adjacent pair in one address realm are usable. A public pair supplies a
+`nat_map` candidate. An intermediate pair is advertised in one further short SIP offer to
+the same browser IP; only an observed outer allocation supplies a public `sip` candidate.
+The intermediate address is never published as a public endpoint.
+
+Acquisition finishes under socket custody even if preparation is cancelled, so a late MAP
+response still produces owned cleanup. Grants renew from their granted lifetimes and remain
+held through listener retirement and acknowledged deletion. An authenticated winner keeps
+its grants until its own binding retires. A failed renewal retains the binding's grants until
+retirement; one failed mapping cannot revoke admission through another prepared path. Allocation observation and grant maintenance add
+no work to terminal frames or ACKs.
 
 Each new admission attempt owns its own mechanism bindings. Consequently two browsers behind
 one public IP do not consume the same one-shot TFTP expectation, and SIP cannot alter the
