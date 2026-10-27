@@ -4,6 +4,7 @@ pub mod check;
 pub mod discovery_socket;
 pub mod egress;
 pub mod portmap;
+pub mod sip;
 pub mod stun;
 mod transaction;
 

@@ -103,7 +103,11 @@ pub async fn bind(client: IpAddr, server: Server) -> Result<UdpSocket, Failure> 
             SocketAddr::new(IpAddr::V4(gateway), server.port),
         ),
         (IpAddr::V6(client), IpAddr::V6(gateway)) => {
-            let scope = if is_link_local(&gateway) { server.interface } else { 0 };
+            let scope = if is_link_local(&gateway) {
+                server.interface
+            } else {
+                0
+            };
             (
                 SocketAddr::V6(SocketAddrV6::new(client, 0, 0, 0)),
                 SocketAddr::V6(SocketAddrV6::new(gateway, server.port, 0, scope)),
@@ -221,8 +225,30 @@ pub async fn map(
     suggested_external: IpAddr,
     schedule: RetransmitSchedule,
 ) -> Result<Mapping, Failure> {
+    map_to(
+        client,
+        server,
+        port,
+        lifetime_secs,
+        nonce,
+        SocketAddr::new(suggested_external, port),
+        schedule,
+    )
+    .await
+}
+
+pub(super) async fn map_to(
+    client: IpAddr,
+    server: Server,
+    port: u16,
+    lifetime_secs: u32,
+    nonce: [u8; 12],
+    external: SocketAddr,
+    schedule: RetransmitSchedule,
+) -> Result<Mapping, Failure> {
     let socket = bind(client, server).await?;
-    let request = map_request(client, port, lifetime_secs, &nonce, suggested_external);
+    let mut request = map_request(client, port, lifetime_secs, &nonce, external.ip());
+    request[42..44].copy_from_slice(&external.port().to_be_bytes());
     let mut response = [0u8; MAX_RESPONSE_LEN];
     let mut interval = schedule.initial;
     for _ in 0..schedule.attempts.max(1) {
@@ -357,8 +383,16 @@ pub mod tests {
                 assigned_external: external(),
             }))
         );
-        assert_eq!(parse_map_response(&ok, &[1u8; 12], 44_433), None, "another nonce");
-        assert_eq!(parse_map_response(&ok, &nonce, 44_434), None, "another port");
+        assert_eq!(
+            parse_map_response(&ok, &[1u8; 12], 44_433),
+            None,
+            "another nonce"
+        );
+        assert_eq!(
+            parse_map_response(&ok, &nonce, 44_434),
+            None,
+            "another port"
+        );
     }
 
     #[test]
@@ -414,7 +448,10 @@ pub mod tests {
             Some(AnnounceAnswer::Refused(2))
         );
         let nonce = [1u8; 12];
-        assert_eq!(parse_announce(&map_response(&nonce, 1, 0, 1, external())), None);
+        assert_eq!(
+            parse_announce(&map_response(&nonce, 1, 0, 1, external())),
+            None
+        );
         assert_eq!(parse_announce(&[2u8, 0x80]), None);
         let request = announce_request("192.168.1.10".parse().unwrap());
         assert_eq!(request[0], VERSION);

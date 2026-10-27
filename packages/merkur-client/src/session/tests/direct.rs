@@ -1129,6 +1129,59 @@ fn stalled_reliable_counter_custody_survives_primary_switch_and_more_than_a_repl
 }
 
 #[test]
+fn allocation_observation_cannot_hold_other_paths_and_a_new_tuple_gets_one_attempt() {
+    let (mut h, _) = ready();
+    observed(&mut h, NOW + 40, CLIENT);
+    let old = candidate(
+        "203.0.113.5:49152",
+        CandidateKind::Sip,
+        CandidateScope::Public,
+    );
+    let mut pending = manifest(1, vec![old, srflx()], CLIENT, PunchState::None);
+    if let DaemonSignal::WebtransportManifest {
+        admission_pending, ..
+    } = &mut pending
+    {
+        *admission_pending = true;
+    }
+    let mut actions = deliver_signal(&mut h, NOW + 100, &pending);
+    let old_conn = dials(&actions)
+        .iter()
+        .find(|(_, at)| *at == addr("203.0.113.5:49152"))
+        .unwrap()
+        .0;
+    h.session
+        .handle(NOW + 110, Event::DialFailed(old_conn), &mut h.entropy);
+    actions.extend(drain(&mut h.session));
+    h.session.handle_timeout(NOW + 200, &mut h.entropy);
+    actions.extend(drain(&mut h.session));
+    assert!(
+        dials(&actions).iter().any(|(_, at)| *at == addr(SRFLX)),
+        "quote observation cannot block the reflexive path"
+    );
+    let updated = candidate(
+        "203.0.113.5:49154",
+        CandidateKind::Sip,
+        CandidateScope::Public,
+    );
+    if let DaemonSignal::WebtransportManifest { candidates, .. } = &mut pending {
+        candidates[0] = updated;
+    }
+    let actions = deliver_signal(&mut h, NOW + 210, &pending);
+    assert!(
+        dials(&actions)
+            .iter()
+            .any(|(_, at)| *at == addr("203.0.113.5:49154"))
+    );
+    assert!(
+        dials(&actions)
+            .iter()
+            .all(|(_, at)| *at != addr("203.0.113.5:49152"))
+    );
+    assert!(dials(&deliver_signal(&mut h, NOW + 220, &pending)).is_empty());
+}
+
+#[test]
 fn router_preparation_completes_before_a_reflexive_constructor_and_never_retries_failed_urls() {
     let (mut h, _) = ready();
     observed(&mut h, NOW + 40, CLIENT);

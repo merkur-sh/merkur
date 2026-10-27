@@ -1142,13 +1142,22 @@ Browser NAT traversal is bounded work aimed only at the address our edge validat
 committed signaling connection. Private and local helper destinations are refused. The
 ordinary punch is four one-byte datagrams aimed at the daemon's own port number and the next
 one, under a per-destination cooldown and global token bucket. Router admission adds one
-bounded TFTP read request or SIP/SDP request per independently owned mechanism binding,
+bounded TFTP read request or an initial SIP/SDP request per independently owned mechanism binding,
 addressed to that same validated public IP, using only its address family. An IPv4 carrier
 cannot authorize preparation toward an unobserved IPv6 address. The SIP media listener
 exclusively reserves its even RTP/RTCP pair; the coordinator retains silent companion
 reservations after candidate retirement because router-side expiry is not observable. The reservation set is bounded and
 reused only by owned SIP media pairs on the same local address, family and interface. A
 requested media port is never treated as a verified lease.
+
+A SIP allocation observation reads a returning error under the exact signaling tuple and
+offer ID. Complete media fields must name the independently observed public address; a
+quoted address or nonce alone grants no authority. A missing observation can lead to explicit
+first-hop mapping acquisition. A live inner media pair authorizes one further SIP offer to
+the same validated browser IP, with the granted intermediate endpoint in SDP. Only a matching
+outer allocation can be published as a public helper candidate. Grant custody spans pending
+acquisition, renewal, authenticated use, listener retirement and deletion. These operations
+run outside terminal I/O and cannot bypass the existing direct-upgrade proof.
 
 Native peer checks have separate address authority. The authenticated session API issues a
 short-lived STUN ticket and requester integrity key, and delivers a separately derived

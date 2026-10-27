@@ -1,5 +1,5 @@
-//! One durable port-mapping lease for the pinned WebTransport port, and one
-//! IPv6 firewall pinhole for the same port.
+//! A public lease for the pinned WebTransport port, its IPv6 firewall pinhole,
+//! and gateway-realm grants for connection-scoped media composition.
 //!
 //! # Why this exists at all
 //!
@@ -70,6 +70,7 @@
 //! mapping. A won lease arrives later in a new manifest.
 
 pub mod announce;
+pub mod media;
 pub mod natpmp;
 pub mod pcp;
 pub mod upnp;
@@ -237,7 +238,8 @@ enum LeaseHandle {
 /// A live lease. Dropping it does **not** delete the mapping — see [`release`].
 #[derive(Clone, Debug)]
 pub struct Lease {
-    /// The verified edge-NAT address and the granted external port.
+    /// The gateway-granted tuple. `acquire` verifies the public realm; media
+    /// composition retains an intermediate realm and never publishes it directly.
     pub external: SocketAddr,
     pub protocol: Protocol,
     /// Lifetime the gateway granted, which may be far less than requested.
@@ -415,7 +417,9 @@ pub async fn acquire_with(
         return Outcome::NotAttempted(SkipReason::NoEgressPath);
     }
     let Some(IpAddr::V4(reflexive)) = reflexive else {
-        info!("port mapping not attempted: no STUN-observed IPv4 address to verify a lease against");
+        info!(
+            "port mapping not attempted: no STUN-observed IPv4 address to verify a lease against"
+        );
         return Outcome::NotAttempted(SkipReason::ReflexiveUnknown);
     };
 
@@ -466,6 +470,7 @@ pub async fn acquire_with(
                         map_upnp(egress, control, internal_port, reflexive).await
                     }
                     upnp::Discovery::InnerNat => Attempt::InnerNat,
+                    upnp::Discovery::Gateway { .. } => unreachable!("public discovery selects the public realm"),
                     upnp::Discovery::None => Attempt::Refused,
                 }
             }
@@ -552,11 +557,17 @@ async fn probe_first_hop(
     let mut buf = [0u8; pcp::MAX_RESPONSE_LEN];
     let mut interval = schedule.initial;
     for _ in 0..schedule.attempts.max(1) {
-        if pcp_open {
-            let _ = socket.send(&announce).await;
+        if pcp_open
+            && let Err(error) = socket.send(&announce).await
+            && error.kind() == std::io::ErrorKind::ConnectionRefused
+        {
+            return;
         }
-        if natpmp_open {
-            let _ = socket.send(&natpmp::EXTERNAL_ADDRESS_REQUEST).await;
+        if natpmp_open
+            && let Err(error) = socket.send(&natpmp::EXTERNAL_ADDRESS_REQUEST).await
+            && error.kind() == std::io::ErrorKind::ConnectionRefused
+        {
+            return;
         }
         let deadline = tokio::time::Instant::now() + interval;
         while pcp_open || natpmp_open {
@@ -822,13 +833,13 @@ pub async fn renew(lease: &mut Lease) -> bool {
             nonce,
             internal_port,
         } => {
-            match pcp::map(
+            match pcp::map_to(
                 IpAddr::V4(client),
                 server,
                 internal_port,
                 REQUESTED_LIFETIME_SECS,
                 nonce,
-                reflexive,
+                lease.external,
                 RetransmitSchedule::PRODUCTION,
             )
             .await
@@ -853,10 +864,11 @@ pub async fn renew(lease: &mut Lease) -> bool {
             server,
             internal_port,
         } => {
-            match natpmp::map(
+            match natpmp::map_to(
                 client,
                 server,
                 internal_port,
+                lease.external.port(),
                 REQUESTED_LIFETIME_SECS,
                 RetransmitSchedule::PRODUCTION,
             )
@@ -965,13 +977,13 @@ pub async fn release(lease: Lease) -> bool {
             server,
             nonce,
             internal_port,
-        } => pcp::map(
+        } => pcp::map_to(
             IpAddr::V4(lease.local_ipv4),
             server,
             internal_port,
             0,
             nonce,
-            lease.external.ip(),
+            lease.external,
             RetransmitSchedule::DELETE,
         )
         .await
@@ -979,10 +991,11 @@ pub async fn release(lease: Lease) -> bool {
         LeaseHandle::NatPmp {
             server,
             internal_port,
-        } => natpmp::map(
+        } => natpmp::map_to(
             lease.local_ipv4,
             server,
             internal_port,
+            lease.external.port(),
             0,
             RetransmitSchedule::DELETE,
         )
