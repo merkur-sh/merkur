@@ -22,7 +22,7 @@ use merkur_codec::{
     DISPLAY_ROW_PREDECESSOR_PRESENTATION_ID_OFFSET, FRAME_HEADER_BODY_BYTES, FrameHeader,
     GraphicsVersion, PATCH_FLAG_DEMAND_AWAITS_GRANT, PATCH_FLAG_PRESENTATION_COHERENT,
     PATCH_FLAG_PRESENTATION_END, PreparedGraphics, PreparedRowRef, ROW_PREFIX_BYTES,
-    STREAM_HEADER_BYTES, encode_frame_into, encode_prepared_frame_into, plan_cell_encoding,
+    STREAM_HEADER_BYTES, encode_frame_into, encode_prepared_frame_into,
 };
 
 use crate::connection::{
@@ -1172,23 +1172,23 @@ fn captured_row_encoded_size(row: &DisplayPrepareRow) -> usize {
 fn encoded_row_size(
     request: &DisplayRowRequest,
     baseline: &[CellRepr],
-    cells: &[CellRepr],
+    cells: &RowCells,
     baseline_graphics: Option<GraphicsVersion>,
     graphics: &PreparedGraphics,
 ) -> (usize, CellEncoding, ContentEvidence, RowSpan) {
     row_span(request.force_full, baseline, cells)
         .or_else(|| (baseline_graphics != graphics.version()).then(|| (0, &cells[..1])))
-        .map(|(left, cells)| {
-            let mut content = ContentEvidence::default();
-            content.observe(cells);
-            let (bytes, encoding) = plan_cell_encoding(cells);
+        .map(|(left, span)| {
+            let (bytes, encoding, content) = cells.span_plan(
+                usize::from(left), usize::from(left) + span.len(),
+            );
             (
                 ROW_PREFIX_BYTES + bytes + graphics.bytes().len(),
                 encoding,
                 content,
                 RowSpan {
                     left,
-                    cells: cells.len() as u16,
+                    cells: span.len() as u16,
                 },
             )
         })

@@ -481,7 +481,7 @@ impl FrameHeader {
 
 /// The color and link decisions for an immutable captured span. Retaining
 /// this census avoids a speculative larger encoding and a second color pass.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CellEncoding {
     literal: bool,
     links: bool,
@@ -573,6 +573,159 @@ pub fn plan_cell_encoding(cells: &[CellRepr]) -> (usize, CellEncoding) {
             links: link_spans != 0,
         },
     )
+}
+
+/// Prefixes over an immutable row's equality runs and per-cell content census.
+/// Rebuilding retains both buffers; queries visit only the two truncated edges.
+#[derive(Default)]
+pub struct CellPlanIndex {
+    runs: Vec<PlanRun>,
+    cells: Vec<PlanCell>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct PlanRun {
+    start: u16,
+    colors: u16,
+    literals: u16,
+    links: u16,
+    bytes: u32,
+    link: u32,
+}
+
+#[derive(Clone, Copy, Default)]
+struct PlanCell {
+    run: u16,
+    visible: u16,
+    styled: u16,
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "run lengths are bounded by the asserted wire cell count"
+)]
+fn run_length_bytes(len: usize) -> u32 {
+    if len > 1 {
+        varint_u32_size(len as u32) as u32
+    } else {
+        0
+    }
+}
+
+impl CellPlanIndex {
+    /// The wire's cell-count field bounds every prefix, including two colors
+    /// per run. Reserve the worst run count once so pool reuse cannot allocate.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the asserted wire count bounds columns and runs to u16 and varint lengths to five bytes"
+    )]
+    pub fn rebuild(&mut self, cells: &[CellRepr]) {
+        assert!(cells.len() <= usize::from(ROW_CELL_COUNT_MASK));
+        self.runs.clear();
+        self.cells.clear();
+        self.runs.reserve_exact(cells.len() + 1);
+        self.cells.reserve_exact(cells.len() + 1);
+        let mut total = PlanRun::default();
+        let mut census = PlanCell::default();
+        let mut previous_cell = CellRepr::BLANK;
+        for (col, cell) in cells.iter().enumerate() {
+            if col == 0 || *cell != previous_cell {
+                if let Some(previous) = self.runs.last() {
+                    total.bytes += run_length_bytes(col - usize::from(previous.start));
+                }
+                self.runs.push(PlanRun {
+                    start: col as u16,
+                    link: cell.link,
+                    ..total
+                });
+                census.run = (self.runs.len() - 1) as u16;
+                total.bytes += 1 + varint_u32_size(cell.codepoint) as u32;
+                let tag = cell.tag(DEFAULT_FG, DEFAULT_BG);
+                for (present, color) in [(tag & HAS_FG != 0, cell.fg), (tag & HAS_BG != 0, cell.bg)]
+                {
+                    if present {
+                        total.colors += 1;
+                        total.literals += u16::from(!is_palette_color(color));
+                    }
+                }
+                total.links +=
+                    u16::from(cell.link != 0 && (col == 0 || cell.link != previous_cell.link));
+            }
+            previous_cell = *cell;
+            self.cells.push(census);
+            census.visible += u16::from(cell.codepoint != 0 && cell.codepoint != u32::from(b' '));
+            census.styled +=
+                u16::from(cell.fg != CellRepr::BLANK.fg || cell.bg != CellRepr::BLANK.bg);
+        }
+        if let Some(previous) = self.runs.last() {
+            total.bytes += run_length_bytes(cells.len() - usize::from(previous.start));
+        }
+        self.runs.push(PlanRun {
+            start: cells.len() as u16,
+            ..total
+        });
+        self.cells.push(census);
+    }
+
+    /// Exactly `plan_cell_encoding(&row[start..end])` for the indexed row.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "span bounds are asserted; private cell-to-run entries and sentinel prefixes are built together"
+    )]
+    pub fn plan(&self, start: usize, end: usize) -> (usize, CellEncoding) {
+        assert!(start <= end && end < self.cells.len());
+        if start == end {
+            return (1, CellEncoding::default());
+        }
+        let first = usize::from(self.cells[start].run);
+        let last = usize::from(self.cells[end - 1].run);
+        let before = &self.runs[first];
+        let first_after = &self.runs[first + 1];
+        let last_before = &self.runs[last];
+        let after = &self.runs[last + 1];
+        let mut bytes = after.bytes - before.bytes;
+        let full_first = usize::from(first_after.start - before.start);
+        bytes -= run_length_bytes(full_first);
+        if first == last {
+            bytes += run_length_bytes(end - start);
+        } else {
+            bytes += run_length_bytes(usize::from(first_after.start) - start);
+            bytes -= run_length_bytes(usize::from(after.start - last_before.start));
+            bytes += run_length_bytes(end - usize::from(last_before.start));
+        }
+        // Only the first run loses its predecessor at the span boundary.
+        let links = usize::from(after.links - first_after.links) + usize::from(before.link != 0);
+        let colors = usize::from(after.colors - before.colors);
+        let indexed = indexed_color_bytes(colors, usize::from(after.literals - before.literals));
+        let literal = literal_color_bytes(colors);
+        let link_table = if links == 0 {
+            0
+        } else {
+            LINK_TABLE_COUNT_BYTES + links * LINK_SPAN_BYTES
+        };
+        (
+            1 + bytes as usize + link_table + indexed.min(literal),
+            CellEncoding {
+                literal: literal < indexed,
+                links: links != 0,
+            },
+        )
+    }
+
+    /// Visible and styled cells in the same half-open span, without a cell walk.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "both census bounds are asserted against the same prefix array"
+    )]
+    pub fn census(&self, start: usize, end: usize) -> (u32, u32) {
+        assert!(start <= end && end < self.cells.len());
+        let before = &self.cells[start];
+        let after = &self.cells[end];
+        (
+            u32::from(after.visible - before.visible),
+            u32::from(after.styled - before.styled),
+        )
+    }
 }
 
 /// Write a row's link span table: `count: u16` then one
@@ -710,6 +863,121 @@ fn write_u16(out: &mut Vec<u8>, value: u16) {
 #[cfg(test)]
 mod prepared_cell_tests {
     use super::*;
+
+    fn assert_all_span_plans(cells: &[CellRepr], index: &mut CellPlanIndex) {
+        index.rebuild(cells);
+        for start in 0..=cells.len() {
+            for end in start..=cells.len() {
+                let span = &cells[start..end];
+                assert_eq!(
+                    index.plan(start, end),
+                    plan_cell_encoding(span),
+                    "{start}..{end}: {cells:?}"
+                );
+                let visible = span
+                    .iter()
+                    .filter(|c| c.codepoint != 0 && c.codepoint != u32::from(b' '))
+                    .count();
+                let styled = span
+                    .iter()
+                    .filter(|c| c.fg != CellRepr::BLANK.fg || c.bg != CellRepr::BLANK.bg)
+                    .count();
+                assert_eq!(
+                    index.census(start, end),
+                    (
+                        u32::try_from(visible).unwrap(),
+                        u32::try_from(styled).unwrap()
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn span_index_matches_every_span_of_exhaustive_and_random_rows() {
+        let alphabet = [
+            CellRepr::BLANK,
+            CellRepr {
+                codepoint: 0x754c,
+                link: 3,
+                fg: crate::ANSI_PALETTE[2],
+                attrs: crate::CellAttrs::WIDE,
+                ..CellRepr::BLANK
+            },
+            CellRepr {
+                codepoint: 0,
+                link: 7,
+                fg: [1, 2, 3],
+                bg: [4, 5, 6],
+                ..CellRepr::BLANK
+            },
+        ];
+        let mut index = CellPlanIndex::default();
+        for mut word in 0..3usize.pow(7) {
+            let cells: Vec<_> = (0..7)
+                .map(|_| {
+                    let c = alphabet[word % 3];
+                    word /= 3;
+                    c
+                })
+                .collect();
+            assert_all_span_plans(&cells, &mut index);
+        }
+        let mut random = 0x9876_abcd_u32;
+        for case in 0..160 {
+            let mut cells = Vec::new();
+            for col in 0..case % 97 {
+                random ^= random << 13;
+                random ^= random >> 17;
+                random ^= random << 5;
+                let mut cell = CellRepr {
+                    codepoint: [0, 32, 127, 128, 16383, 16384, 0x10ffff][random as usize % 7],
+                    fg: if random & 1 == 0 {
+                        DEFAULT_FG
+                    } else {
+                        crate::ANSI_PALETTE[random as usize % 16]
+                    },
+                    bg: if random & 2 == 0 {
+                        DEFAULT_BG
+                    } else {
+                        [random.to_le_bytes()[0], 23, 42]
+                    },
+                    link: (random >> 8) % 4,
+                    attrs: crate::CellAttrs::NONE.with(crate::CellAttrs::WIDE, random & 4 != 0)
+                        .with(crate::CellAttrs::EXPLICIT_DEFAULT_BG, random & 16 != 0),
+                };
+                if col > 0 && random & 8 != 0 {
+                    cell = cells[col - 1];
+                }
+                cells.push(cell);
+            }
+            if let Some(last) = cells.last_mut() {
+                last.set_wrapped(case % 2 == 0);
+            }
+            assert_all_span_plans(&cells, &mut index);
+        }
+        for cell in alphabet {
+            let mut cells = vec![cell; 512];
+            cells[511].set_wrapped(true);
+            assert_all_span_plans(&cells, &mut index);
+        }
+        // Equal link ids across distinct cell runs must coalesce in the table.
+        let cells: Vec<_> = (0u32..384)
+            .map(|col| CellRepr {
+                codepoint: 33 + col % 50,
+                link: col / 19 % 3,
+                fg: if col % 2 == 0 {
+                    crate::ANSI_PALETTE[1]
+                } else {
+                    [1, 2, 3]
+                },
+                ..CellRepr::BLANK
+            })
+            .collect();
+        assert_all_span_plans(&cells, &mut index);
+        assert_eq!(std::mem::size_of::<PlanRun>(), 16);
+        assert_eq!(std::mem::size_of::<PlanCell>(), 6);
+    }
 
     #[test]
     fn captured_color_decision_is_byte_identical_without_transient_buffer_growth() {

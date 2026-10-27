@@ -1155,8 +1155,18 @@ and hash together in one traversal. Width changes clear the capture pool. The vi
 captures a refresh is replacing and the released spare cell arrays together retain at most twice
 the viewport row count, during a refresh too; only exclusive arrays, with no strong or weak outside
 owners, can be filled again, and a spare still owned elsewhere leaves the pool at its first check.
-Each `RowCells` owner wraps boxed cells and a synchronized lazy canonical MZ source form.
-Pool reuse clears that form before refilling cells. MZ sources share the form across peers and
+Each `RowCells` owner wraps boxed cells, a lazy span-plan index and a synchronized lazy
+canonical MZ source form. The first span-plan request computes the encoding and content census
+directly and sets an atomic flag. The second request builds run-cost prefixes, a cell-to-run
+map and visible/styled cell prefixes in one traversal of the immutable row. Later spans use
+prefix differences and the two truncated edge runs, including their run-length varints and
+the first link's zero predecessor, to retain the exact encoding decision and census in constant
+time. Pool reuse clears the flag and published index before refilling cells and retains the
+index's two buffers for rebuilding without allocation. The buffers reserve one sentinel beyond
+the row width: 16 bytes per possible run and 6 bytes per cell, or 4,422 bytes at 200 columns
+and 8,470 bytes at 384 columns, plus the owner's synchronization and vector metadata. This
+storage belongs to the content owner and ends with it.
+Pool reuse also clears the MZ form before refilling cells. MZ sources share the form across peers and
 acknowledged occurrences without pinning cell storage. Retirement recycles a uniquely owned
 form, including its Arc header and buffers, into one process-wide lock-free bounded free list.
 Capture reuse and final content-owner release return uniquely owned forms to the same list. Its

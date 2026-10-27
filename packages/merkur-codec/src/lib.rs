@@ -20,9 +20,10 @@ pub use decode::{
     parse_frame_header, parse_frame_header_and_rows_start,
 };
 pub use encode::{
-    CellEncoding, EncodeError, FrameHeader, FrameKind, PreparedRowRef, RowRef, encode_cells,
-    encode_frame_into, encode_prepared_frame_into, encoded_cells_size, plan_cell_encoding,
-    push_frame_header_body, row_cell_count_field, row_left_field, try_encode_frame_into,
+    CellEncoding, CellPlanIndex, EncodeError, FrameHeader, FrameKind, PreparedRowRef, RowRef,
+    encode_cells, encode_frame_into, encode_prepared_frame_into, encoded_cells_size,
+    plan_cell_encoding, push_frame_header_body, row_cell_count_field, row_left_field,
+    try_encode_frame_into,
 };
 pub use graphics::{
     GraphicsEncodeScratch, GraphicsVersion, GraphicsWireError, MAX_GRAPHICS_SECTION_BYTES,

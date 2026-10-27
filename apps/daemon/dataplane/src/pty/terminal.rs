@@ -40,12 +40,15 @@ pub struct DisplayHeaderState {
     pub cursor_row: Option<u16>,
 }
 
-/// Immutable cell allocation; MZ retains only its independently shared source form.
+/// Immutable cells with content-owned span plans and an independently shared MZ source form.
 #[derive(Clone)]
 pub struct RowCells(Arc<RowContent>);
 
 struct RowContent {
     cells: Box<[CellRepr]>,
+    plan_requested: AtomicBool,
+    plan: std::sync::OnceLock<merkur_codec::CellPlanIndex>,
+    plan_spare: Mutex<Option<merkur_codec::CellPlanIndex>>,
     mz: std::sync::OnceLock<Option<Arc<crate::display::mz_peer::MzSourceForm>>>,
 }
 
@@ -67,7 +70,38 @@ impl RowCells {
         if let Some(Some(form)) = content.mz.take() {
             crate::display::mz_peer::release_source_form(form);
         }
+        content.plan_requested.store(false, Ordering::Relaxed);
+        if let Some(index) = content.plan.take() {
+            *content.plan_spare.get_mut().expect("plan buffers unpoisoned") = Some(index);
+        }
         Some(&mut content.cells)
+    }
+
+    /// Plan the first span directly; exact content reuse pays for the row index.
+    /// OnceLock publishes it to all peers; the mutex only transfers spare buffers
+    /// during construction, and exclusive pool reuse retains those buffers.
+    pub(crate) fn span_plan(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> (usize, merkur_codec::CellEncoding, crate::display::planner::ContentEvidence) {
+        use crate::display::planner::ContentEvidence;
+        if self.0.plan.get().is_none() && !self.0.plan_requested.swap(true, Ordering::Relaxed) {
+            let cells = &self.0.cells[start..end];
+            let mut content = ContentEvidence::default();
+            content.observe(cells);
+            let (bytes, encoding) = merkur_codec::plan_cell_encoding(cells);
+            return (bytes, encoding, content);
+        }
+        let index = self.0.plan.get_or_init(|| {
+            let mut index = self.0.plan_spare.lock().expect("plan buffers unpoisoned")
+                .take().unwrap_or_default();
+            index.rebuild(&self.0.cells);
+            index
+        });
+        let (bytes, encoding) = index.plan(start, end);
+        let (visible, styled) = index.census(start, end);
+        (bytes, encoding, ContentEvidence { cells: u32::try_from(end - start).expect("wire-bounded span"), visible, styled })
     }
 
     pub(crate) fn mz_source(
@@ -95,6 +129,9 @@ impl From<Vec<CellRepr>> for RowCells {
     fn from(cells: Vec<CellRepr>) -> Self {
         Self(Arc::new(RowContent {
             cells: cells.into_boxed_slice(),
+            plan_requested: AtomicBool::new(false),
+            plan: std::sync::OnceLock::new(),
+            plan_spare: Mutex::new(None),
             mz: std::sync::OnceLock::new(),
         }))
     }
@@ -2624,6 +2661,62 @@ mod tests {
         assert_eq!(resized.cells.len(), 4);
         assert_eq!(scratch.captures.rows.len(), 1);
         assert_eq!(&*first.cells, first_cells.as_slice());
+    }
+
+    #[test]
+    fn span_plans_follow_content_identity_and_reuse_buffers_without_allocations() {
+        println!("row content metadata: {} bytes; index inline: {} bytes",
+            std::mem::size_of::<RowContent>(), std::mem::size_of::<merkur_codec::CellPlanIndex>());
+        for cols in [200, 384] {
+            let mut owner = RowCells::from(vec![CellRepr::BLANK; cols]);
+            for round in 0..6 {
+                let cells = RowCells::get_mut(&mut owner).expect("exclusive content");
+                for (col, cell) in cells.iter_mut().enumerate() {
+                    *cell = CellRepr {
+                        codepoint: if round % 2 == 0 { 32 } else { 33 + u32::try_from(col % 60).unwrap() },
+                        link: u32::try_from(col / 9 % 3).unwrap(),
+                        fg: if col % 2 == 0 { [1, 2, 3] } else { CellRepr::BLANK.fg },
+                        ..CellRepr::BLANK
+                    };
+                }
+                cells[cols - 1].set_wrapped(true);
+                assert!(owner.0.plan.get().is_none());
+                let shared = owner.clone();
+                let check = |start, end| {
+                    let span = &shared[start..end];
+                    let (bytes, encoding, content) = shared.span_plan(start, end);
+                    assert_eq!((bytes, encoding), merkur_codec::plan_cell_encoding(span));
+                    let mut expected = crate::display::planner::ContentEvidence::default();
+                    expected.observe(span);
+                    assert_eq!(content, expected);
+                };
+                check(1, cols - 1);
+                assert!(owner.0.plan.get().is_none(), "first request only sets the flag");
+                check(2, cols);
+                assert!(owner.0.plan.get().is_some(), "second request builds the index");
+                for start in 0..=cols {
+                    for end in start..=cols { check(start, end); }
+                }
+            }
+            // Warm the worst run count, then alternate dense and single-run
+            // contents through the same pool owner, including both direct and indexed requests.
+            crate::edge_tunnel::test_allocations::begin_thread();
+            for round in 0..100 {
+                let cells = RowCells::get_mut(&mut owner).expect("exclusive content");
+                for (col, cell) in cells.iter_mut().enumerate() {
+                    *cell = CellRepr {
+                        codepoint: if round % 2 == 0 { 32 } else { 33 + u32::try_from(col % 60).unwrap() },
+                        ..CellRepr::BLANK
+                    };
+                }
+                std::hint::black_box(owner.span_plan(1, cols - 1));
+                std::hint::black_box(owner.span_plan(2, cols));
+                std::hint::black_box(owner.span_plan(0, cols));
+            }
+            let tally = crate::edge_tunnel::test_allocations::end_thread();
+            assert_eq!(tally.allocations, 0);
+            assert_eq!(tally.allocated_bytes, 0);
+        }
     }
 
     #[test]
