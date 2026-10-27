@@ -1054,7 +1054,7 @@ mod tests {
         let invite = sip_request(&path, 40001, 49152, identity().browser, &[0x42; 16]);
         let text = std::str::from_utf8(&invite).unwrap();
         let (headers, body) = text.split_once("\r\n\r\n").unwrap();
-        assert!(headers.starts_with("INVITE sip:m@"));
+        assert!(headers.starts_with("INVITE sip:merkur-"));
         assert!(headers.contains("@198.51.100.7 SIP/2.0\r\n"));
         assert!(headers.ends_with(&format!("Content-Length: {}", body.len())));
         assert!(body.contains("m=audio 49152 RTP/AVP 0\r\n"));
@@ -1080,9 +1080,9 @@ mod tests {
         let (headers, body) = text.split_once("\r\n\r\n").unwrap();
         assert!(headers.contains("@[2001:db8::7] SIP/2.0\r\n"));
         assert!(headers.contains("Via: SIP/2.0/UDP [2001:db8::10]:40001;"));
-        assert!(headers.contains("From: <sip:m@[2001:db8::10]>;"));
-        assert!(headers.contains("To: <sip:m@[2001:db8::7]>\r\n"));
-        assert!(headers.contains("Contact: <sip:m@[2001:db8::10]:40001>\r\n"));
+        assert!(headers.contains("From: <sip:merkur@[2001:db8::10]>;"));
+        assert!(headers.contains("To: <sip:merkur@[2001:db8::7]>\r\n"));
+        assert!(headers.contains("Contact: <sip:merkur@[2001:db8::10]:40001>\r\n"));
         assert!(headers.ends_with(&format!("Content-Length: {}", body.len())));
         assert!(body.contains("o=m 1 1 IN IP6 2001:db8::10\r\n"));
         assert!(body.contains("c=IN IP6 2001:db8::10\r\n"));

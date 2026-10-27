@@ -24,7 +24,7 @@ pub fn offer(local: SocketAddr, media: SocketAddr, browser: IpAddr, nonce: &[u8;
     );
     let local_host = host(local.ip());
     let remote = host(browser);
-    format!("INVITE sip:m@{remote} SIP/2.0\r\nVia: SIP/2.0/UDP {local_host}:{};branch=z9hG4bK-{nonce}\r\nFrom: <sip:m@{local_host}>;tag=m\r\nTo: <sip:m@{remote}>\r\nCall-ID: {nonce}@{local_host}\r\nCSeq: 1 INVITE\r\nContact: <sip:m@{local_host}:{}>\r\nMax-Forwards: 1\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}", local.port(), local.port(), body.len()).into_bytes()
+    format!("INVITE sip:merkur-{nonce}@{remote} SIP/2.0\r\nVia: SIP/2.0/UDP {local_host}:{};branch=z9hG4bK-{nonce}\r\nFrom: <sip:merkur@{local_host}>;tag=m\r\nTo: <sip:merkur@{remote}>\r\nCall-ID: {nonce}\r\nCSeq: 1 INVITE\r\nContact: <sip:merkur@{local_host}:{}>\r\nMax-Forwards: 1\r\nContent-Type: application/sdp\r\nContent-Length: {}\r\n\r\n{body}", local.port(), local.port(), body.len()).into_bytes()
 }
 
 /// Accept complete SDP lines under the exact offer ID, on the separately
@@ -70,10 +70,7 @@ fn matches_offer(headers: &str, nonce: &[u8; 16]) -> bool {
     let Some(id) = ids.next() else {
         return false;
     };
-    ids.next().is_none()
-        && id
-            .split_once('@')
-            .is_some_and(|(value, _)| value == expected)
+    ids.next().is_none() && id == expected
 }
 
 pub struct Observation {
@@ -343,14 +340,21 @@ mod tests {
             "198.51.100.2".parse().unwrap(),
             &nonce,
         );
-        assert!(packet.len() <= 520);
         let longest = offer(
             "123.123.123.123:65534".parse().unwrap(),
             "123.123.123.123:65534".parse().unwrap(),
             "123.123.123.124".parse().unwrap(),
             &nonce,
         );
-        assert!(longest.len() <= 520);
+        let last_media = b"m=audio 65534 RTP/AVP 0\r\n";
+        let longest_required = longest
+            .windows(last_media.len())
+            .position(|bytes| bytes == last_media)
+            .unwrap()
+            + last_media.len();
+        assert!(longest_required <= 520);
+        let text = std::str::from_utf8(&packet).unwrap();
+        assert!(text.starts_with(&format!("INVITE sip:merkur-{}@", "42".repeat(16))));
         assert_eq!(allocation(&packet, &nonce, public), Some(endpoint));
         assert_eq!(allocation(&packet, &[0x43; 16], public), None);
         assert_eq!(allocation(&packet, &nonce, Ipv4Addr::LOCALHOST), None);
