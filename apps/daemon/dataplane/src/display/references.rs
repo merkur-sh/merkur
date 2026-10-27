@@ -11,6 +11,7 @@
 //! browser holds too. What this side learns goes to the peer's [`PeerMz`] as
 //! facts its encoder applies before the next frame.
 
+use crate::pty::terminal::RowCells;
 use crate::connection::SentRow;
 use crate::display::mz_peer::{MzFact, SharedPeerMz, recorded_rows};
 #[cfg(test)]
@@ -37,7 +38,7 @@ fn recorded(sent: &SentRow) -> bool {
 }
 
 /// The complete rows the browser records of one datagram.
-type RecordedRows = Vec<(u16, Arc<[CellRepr]>)>;
+type RecordedRows = Vec<(u16, RowCells)>;
 
 #[derive(Default)]
 pub struct ReferenceIndex {
@@ -126,7 +127,7 @@ impl ReferenceIndex {
             self.ledger.record(generation, 0, row, hash, &mut Sizes(cells));
             // As `recorded_rows`: a row with graphics is never a source.
             if graphics.get(usize::from(row)).is_none_or(Option::is_none) {
-                rows.push((row, Arc::from(cells)));
+                rows.push((row, RowCells::from(cells)));
             }
         }
         self.mz.set_floor(self.ledger.floor(generation));
@@ -181,7 +182,7 @@ mod tests {
     use merkur_codec::mz::{MZ_REFERENCE_DATAGRAMS, MzCandidate, MzMatches};
     use merkur_codec::{CellAttrs, mz::{entry_items, item_hash, pair_hash, encode_full_row_entry}};
 
-    fn cells(text: &str) -> Arc<[CellRepr]> {
+    fn cells(text: &str) -> RowCells {
         text.chars()
             .chain(std::iter::repeat(' '))
             .take(20)
@@ -192,14 +193,14 @@ mod tests {
                 bg: merkur_codec::DEFAULT_BACKGROUND,
                 attrs: CellAttrs::NONE,
             })
-            .collect()
+            .collect::<Vec<_>>().into()
     }
 
-    fn sent(row: u16, cells: &Arc<[CellRepr]>) -> SentRow {
+    fn sent(row: u16, cells: &RowCells) -> SentRow {
         SentRow {
             row,
             hash: merkur_codec::row_hash(cells),
-            cells: Arc::clone(cells),
+            cells: RowCells::clone(cells),
             graphics: None,
             complete: true,
         }
@@ -213,7 +214,7 @@ mod tests {
 
     /// The history candidates a frame of `presentation_id` sees for the first
     /// item pair of `line`.
-    fn candidates(index: &ReferenceIndex, line: &Arc<[CellRepr]>, presentation_id: u32) -> Vec<MzCandidate> {
+    fn candidates(index: &ReferenceIndex, line: &RowCells, presentation_id: u32) -> Vec<MzCandidate> {
         let mut entry = Vec::new();
         encode_full_row_entry(&mut entry, 0, line);
         let mut items = Vec::new();
@@ -266,7 +267,7 @@ mod tests {
         };
         let mut linked: Vec<CellRepr> = cells("https://example.com").to_vec();
         linked[0].link = 3;
-        let linked: Arc<[CellRepr]> = linked.into();
+        let linked: RowCells = linked.into();
         acknowledged(&mut index, 7, &[span, sent(1, &linked)]);
         assert!(candidates(&index, &line, 9).is_empty());
         assert!(candidates(&index, &linked, 9).is_empty());
@@ -287,7 +288,7 @@ mod tests {
 
     /// The candidates the snapshot opening the next generation sees for the
     /// first item pair of `line`.
-    fn snapshot_candidates(index: &ReferenceIndex, line: &Arc<[CellRepr]>) -> Vec<MzCandidate> {
+    fn snapshot_candidates(index: &ReferenceIndex, line: &RowCells) -> Vec<MzCandidate> {
         let mut entry = Vec::new();
         encode_full_row_entry(&mut entry, 0, line);
         let mut items = Vec::new();

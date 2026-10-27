@@ -4905,7 +4905,7 @@ mod tests {
     ///
     /// Two windows, because the flush has exactly two allocation sources left
     /// and they belong to different decisions. The hash pass captures each
-    /// dirty row into a fresh `Arc<[CellRepr]>` — pooling that was measured and
+    /// dirty row into a fresh `RowCells` — pooling that was measured and
     /// rejected (`PERF.md`, the `CellRepr` layout entry) — so its window must
     /// count exactly one allocation per captured row. The peer flush — capture,
     /// encode, batch, seal, send, parity, ACK bookkeeping — must allocate only

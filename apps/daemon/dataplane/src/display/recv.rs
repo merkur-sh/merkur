@@ -4,6 +4,8 @@
 //! idempotent re-selection: a row that differs from the acknowledged baseline
 //! is simply chosen again on a later flush.
 
+use crate::pty::terminal::RowCells;
+#[cfg(test)]
 use std::sync::Arc;
 #[cfg(test)]
 use std::time::Instant;
@@ -646,11 +648,11 @@ pub(crate) fn advance_acked_rows_from_sent_snapshot<'a>(
         let semantic_baseline_changed = cache
             .acked_row_cells
             .get(row)
-            .is_none_or(|current| !Arc::ptr_eq(current, &sent.cells))
+            .is_none_or(|current| !RowCells::ptr_eq(current, &sent.cells))
             || cache.acked_row_graphics[row] != sent.graphics
             || cache.acked_row_exact.get(row).copied() != Some(ack_is_exact);
         if let Some(slot) = cache.acked_row_cells.get_mut(row) {
-            *slot = Arc::clone(&sent.cells);
+            *slot = RowCells::clone(&sent.cells);
         } else {
             continue;
         }
@@ -742,14 +744,14 @@ fn advance_current_sent_row(
         .acked_row_cells
         .get(row)
         .zip(cache.sent_row_cells.get(row))
-        .is_none_or(|(acked, sent)| !Arc::ptr_eq(acked, sent))
+        .is_none_or(|(acked, sent)| !RowCells::ptr_eq(acked, sent))
         || cache.acked_row_graphics[row] != cache.sent_row_graphics[row]
         || cache.acked_row_exact.get(row).copied() != Some(true);
     if let (Some(acked), Some(sent)) = (
         cache.acked_row_cells.get_mut(row),
         cache.sent_row_cells.get(row),
     ) {
-        *acked = Arc::clone(sent);
+        *acked = RowCells::clone(sent);
         cache.acked_row_graphics[row] = cache.sent_row_graphics[row];
     } else {
         return false;
@@ -946,7 +948,7 @@ mod tests {
     }
 
     /// One cell whose glyph is `glyph`, in a one-column grid.
-    fn glyph_cells(glyph: u8) -> Arc<[CellRepr]> {
+    fn glyph_cells(glyph: u8) -> RowCells {
         vec![CellRepr {
             codepoint: u32::from(glyph),
             ..CellRepr::BLANK
@@ -1528,7 +1530,7 @@ mod tests {
         peer.display_cache.resize(1, 1);
         peer.display_cache
             .prime_from_snapshot(&[CellRepr::BLANK], &[10], &[]);
-        let acked_before = Arc::clone(&peer.display_cache.acked_row_cells[0]);
+        let acked_before = RowCells::clone(&peer.display_cache.acked_row_cells[0]);
         let sent = SentRow {
             graphics: None,
             row: 0,
@@ -1554,7 +1556,7 @@ mod tests {
             peer.display_cache.acked_row_cells[0].as_ref(),
             &[CellRepr::BLANK]
         );
-        assert!(Arc::ptr_eq(
+        assert!(RowCells::ptr_eq(
             &peer.display_cache.acked_row_cells[0],
             &acked_before
         ));
@@ -1869,7 +1871,7 @@ mod tests {
             0.0,
             DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS,
         );
-        let sent_cells = Arc::clone(&peer.display_cache.sent_row_cells[0]);
+        let sent_cells = RowCells::clone(&peer.display_cache.sent_row_cells[0]);
         // Current terminal content (hash 8) still differs from the acked
         // snapshot (hash 7), so the row remains dirty.
         let (current_differs, _lost) =
@@ -1879,7 +1881,7 @@ mod tests {
             peer.display_cache.acked_row_cells[0].as_ref(),
             &[expected_cell]
         );
-        assert!(Arc::ptr_eq(
+        assert!(RowCells::ptr_eq(
             &peer.display_cache.acked_row_cells[0],
             &sent_cells
         ));
@@ -1921,7 +1923,7 @@ mod tests {
             .into(),
             complete: false,
         };
-        let expected_after_wrap = Arc::clone(&after_wrap.cells);
+        let expected_after_wrap = RowCells::clone(&after_wrap.cells);
         for (seq, row, sent_at_ms) in [(u32::MAX, before_wrap, 0.0), (1, after_wrap, 10.0)] {
             peer.display_cache.record_sent_rows(
                 seq,
@@ -1956,7 +1958,7 @@ mod tests {
             peer.display_cache.acked_row_cells[0][0].codepoint,
             'y' as u32
         );
-        assert!(Arc::ptr_eq(
+        assert!(RowCells::ptr_eq(
             &peer.display_cache.acked_row_cells[0],
             &expected_after_wrap
         ));

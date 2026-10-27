@@ -401,7 +401,7 @@ mod ack_route_invariance {
             graphics: None,
             row: 0,
             hash: 7,
-            cells: Arc::from([CellRepr::BLANK]),
+            cells: RowCells::from([CellRepr::BLANK]),
             complete: false,
         }]);
         let paths = SentPaths::single(original_path);
@@ -1147,7 +1147,7 @@ fn only_header_or_causal_cursor_row_updates_bypass_presentation_coherence() {
                 graphics: None,
                 row,
                 hash: u64::from(row) + 1,
-                cells: Arc::from(vec![CellRepr::BLANK]),
+                cells: RowCells::from(vec![CellRepr::BLANK]),
                 complete: false,
             });
         }
@@ -1480,7 +1480,6 @@ fn a_captured_frame_carries_the_inputs_its_output_followed() {
 #[test]
 fn an_unacked_row_stays_schedulable_and_becomes_runnable_at_its_deadline() {
     use crate::connection::{PerPeerDisplayCache, SentRow};
-    use std::sync::Arc;
 
     let resend_interval_ms = DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS;
     let sent_at_ms = 1_000.0;
@@ -1499,7 +1498,7 @@ fn an_unacked_row_stays_schedulable_and_becomes_runnable_at_its_deadline() {
         graphics: None,
         row: 0,
         hash: 0xfeed,
-        cells: Arc::from(vec![CellRepr::BLANK; 2]),
+        cells: RowCells::from(vec![CellRepr::BLANK; 2]),
         complete: false,
     };
     peer.display_cache.record_sent_rows(
@@ -1611,7 +1610,6 @@ fn an_unacked_row_stays_schedulable_and_becomes_runnable_at_its_deadline() {
 #[test]
 fn a_peer_with_no_counterpart_is_unscheduled_until_its_carrier_returns() {
     use crate::connection::{EdgeRebindWindow, PerPeerDisplayCache, SentRow};
-    use std::sync::Arc;
 
     let resend_interval_ms = DisplayPolicy::ROW_RESEND_TEST_INTERVAL_MS;
     let sent_at_ms = 1_000.0;
@@ -1629,7 +1627,7 @@ fn a_peer_with_no_counterpart_is_unscheduled_until_its_carrier_returns() {
             graphics: None,
             row: 0,
             hash: 0xfeed,
-            cells: Arc::from(vec![CellRepr::BLANK; 2]),
+            cells: RowCells::from(vec![CellRepr::BLANK; 2]),
             complete: false,
         }),
         sent_at_ms,
@@ -2206,7 +2204,7 @@ pub(super) fn row_predecessor_original_for_test(
     header.rows = peer.display_cache.rows;
     header.row_count = rows.len() as u16;
     for &(row, character) in rows {
-        let cells: Arc<[CellRepr]> = (0..header.cols)
+        let cells: RowCells = (0..header.cols)
             .map(|col| CellRepr {
                 codepoint: u32::from(character) + u32::from(col % 8),
                 ..CellRepr::BLANK
@@ -2864,7 +2862,7 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                         let mut compressor = Compressor::new();
                         let snapshots: Vec<_> = group
                             .iter()
-                            .map(|frame| Arc::clone(&frame.rows.iter().next().unwrap().cells))
+                            .map(|frame| RowCells::clone(&frame.rows.iter().next().unwrap().cells))
                             .collect();
                         for (index, frame) in group.iter_mut().enumerate() {
                             patch_stream_header(
@@ -3004,11 +3002,11 @@ async fn fec_exposure_requires_reconstructible_admitted_repair_and_preserves_phy
                             }
                             assert!(frame.rows.is_empty());
                             let sent = &peer.display_cache.sent_datagrams[&frame.seq];
-                            assert!(Arc::ptr_eq(
+                            assert!(RowCells::ptr_eq(
                                 &sent.rows.iter().next().unwrap().cells,
                                 &snapshots[index]
                             ));
-                            assert!(Arc::ptr_eq(
+                            assert!(RowCells::ptr_eq(
                                 &peer.display_cache.sent_row_cells[index],
                                 &snapshots[index]
                             ));
@@ -3164,7 +3162,7 @@ fn fec_exposed_snapshot_uses_normal_bounded_history_without_extra_allocation() {
         for (index, peer) in peers.iter_mut().enumerate() {
             let mut frame = row_predecessor_original_for_test(peer, &[(0, b'b')]);
             let seq = frame.seq;
-            let snapshot = Arc::clone(&frame.rows.iter().next().unwrap().cells);
+            let snapshot = RowCells::clone(&frame.rows.iter().next().unwrap().cells);
             test_allocations::begin_thread();
             if index == 0 {
                 record_sent_datagram_with_protection(
@@ -3183,11 +3181,11 @@ fn fec_exposed_snapshot_uses_normal_bounded_history_without_extra_allocation() {
                 peer.display_cache.sent_datagrams.len(),
                 (retained + 1).min(DisplayPolicy::SENT_DATAGRAM_MAX_ENTRIES)
             );
-            assert!(Arc::ptr_eq(
+            assert!(RowCells::ptr_eq(
                 &peer.display_cache.sent_row_cells[0],
                 &snapshot
             ));
-            assert!(Arc::ptr_eq(
+            assert!(RowCells::ptr_eq(
                 &peer.display_cache.sent_datagrams[&seq]
                     .rows
                     .iter()
@@ -3392,7 +3390,7 @@ async fn changed_ack_baseline_discards_worker_result_without_consuming_sequences
     peer.needs_snapshot = false;
     peer.noise = Some(established_daemon_noise());
     peer.display_cache.resize(2, 1);
-    peer.display_cache.acked_row_cells[0] = Arc::from(vec![CellRepr {
+    peer.display_cache.acked_row_cells[0] = RowCells::from(vec![CellRepr {
         codepoint: u32::from(b'x'),
         ..CellRepr::BLANK
     }]);
@@ -3412,7 +3410,7 @@ async fn changed_ack_baseline_discards_worker_result_without_consuming_sequences
         next_seq: initial_seq + 2,
         // Captured against a baseline the peer no longer holds.
         buffers: PrepareBuffers {
-            rows: vec![prepare_row_for_test(0, Arc::from(vec![CellRepr::BLANK; 2]))],
+            rows: vec![prepare_row_for_test(0, RowCells::from(vec![CellRepr::BLANK; 2]))],
             ..Default::default()
         },
         summary: flush_summary_for_test(8),
@@ -3440,8 +3438,8 @@ async fn same_arc_invalidation_discards_worker_result_without_consuming_sequence
     peer.needs_snapshot = false;
     peer.noise = Some(established_daemon_noise());
     peer.display_cache.resize(2, 1);
-    let baseline = Arc::clone(&peer.display_cache.acked_row_cells[0]);
-    let mut prepared_row = prepare_row_for_test(0, Arc::clone(&baseline));
+    let baseline = RowCells::clone(&peer.display_cache.acked_row_cells[0]);
+    let mut prepared_row = prepare_row_for_test(0, RowCells::clone(&baseline));
     prepared_row.baseline_revision = peer.display_cache.acked_row_revisions[0];
     peer.display_prepare_in_flight = Some(91);
     let generation = peer.generation;
@@ -3450,7 +3448,7 @@ async fn same_arc_invalidation_discards_worker_result_without_consuming_sequence
     // Loss/resync disowns the semantic baseline but intentionally retains
     // the immutable cells. Arc identity alone would admit this stale delta.
     peer.display_cache.invalidate_rows(&[0]);
-    assert!(Arc::ptr_eq(
+    assert!(RowCells::ptr_eq(
         &baseline,
         &peer.display_cache.acked_row_cells[0]
     ));
@@ -3498,9 +3496,9 @@ async fn newer_ack_of_same_exact_arc_preserves_worker_result() {
     let blank = vec![CellRepr::BLANK; 2];
     let hash = merkur_codec::row_hash(&blank);
     peer.display_cache.prime_from_snapshot(&blank, &[hash], &[]);
-    let baseline = Arc::clone(&peer.display_cache.acked_row_cells[0]);
+    let baseline = RowCells::clone(&peer.display_cache.acked_row_cells[0]);
     let baseline_revision = peer.display_cache.acked_row_revisions[0];
-    let mut prepared_row = prepare_row_for_test(0, Arc::clone(&baseline));
+    let mut prepared_row = prepare_row_for_test(0, RowCells::clone(&baseline));
     prepared_row.baseline_revision = baseline_revision;
 
     // A later retry ACK advances transport provenance, not the semantic
@@ -3509,7 +3507,7 @@ async fn newer_ack_of_same_exact_arc_preserves_worker_result() {
         graphics: None,
         row: 0,
         hash,
-        cells: Arc::clone(&baseline),
+        cells: RowCells::clone(&baseline),
         complete: false,
     };
     crate::display::recv::advance_acked_rows_from_sent_snapshot(
@@ -3675,14 +3673,14 @@ fn idle_prepare_worker_for_test() -> DisplayPrepareWorker {
 
 /// A captured row whose cells equal `baseline`, for completion fences that
 /// only look at the baseline identity.
-fn prepare_row_for_test(row: u16, baseline: Arc<[CellRepr]>) -> DisplayPrepareRow {
+fn prepare_row_for_test(row: u16, baseline: RowCells) -> DisplayPrepareRow {
     DisplayPrepareRow {
         request: DisplayRowRequest::literal(row, false),
         sent: CapturedRow {
             graphics: PreparedGraphics::EMPTY,
             row,
             hash: merkur_codec::row_hash(&baseline),
-            cells: Arc::clone(&baseline),
+            cells: RowCells::clone(&baseline),
         },
         baseline,
         baseline_revision: 0,
@@ -3738,8 +3736,8 @@ fn graphics_only_rows_encode_exactly_and_ack_the_retained_revision() {
     assert_eq!(construction.allocations, 2);
     assert_eq!(budget.used().unwrap().objects, 6);
     drop(third);
-    let cells: Arc<[CellRepr]> = vec![CellRepr::BLANK; 8].into();
-    let mut row = prepare_row_for_test(0, Arc::clone(&cells));
+    let cells: RowCells = vec![CellRepr::BLANK; 8].into();
+    let mut row = prepare_row_for_test(0, RowCells::clone(&cells));
     row.sent.graphics = first.clone();
     row.sent.hash = 1;
     (row.encoded_size, row.encoding, row.content, row.span) =
@@ -4154,9 +4152,9 @@ fn cold_interactive_origin_tui_redraw_bootstraps_cross_row_compression() {
 }
 
 fn heterogeneous_prepare_row(row: u16, compressible: bool) -> DisplayPrepareRow {
-    let baseline: Arc<[CellRepr]> = vec![CellRepr::BLANK; 120].into();
+    let baseline: RowCells = vec![CellRepr::BLANK; 120].into();
     let mut state = u32::from(row).wrapping_add(1).wrapping_mul(0x9E37_79B9);
-    let cells: Arc<[CellRepr]> = (0..120u32)
+    let cells: RowCells = (0..120u32)
         .map(|column| {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
             if compressible {
@@ -5339,7 +5337,7 @@ fn row_superseding_an_unacked_version_is_sent_full_width() {
     let mut cache = PerPeerDisplayCache::new();
     cache.resize(3, 1);
     cache.prime_from_snapshot(&acked_grid, &acked_hashes, &[]);
-    let speculative_cells: Arc<[CellRepr]> = Arc::from(vec![
+    let speculative_cells: RowCells = RowCells::from(vec![
         CellRepr {
             codepoint: u32::from('X'),
             ..acked_grid[0]
@@ -5404,7 +5402,7 @@ fn a_row_returning_to_its_acked_hash_stays_full_width_until_reconfirmed() {
         graphics: None,
         row: 0,
         hash,
-        cells: Arc::from([CellRepr {
+        cells: RowCells::from([CellRepr {
             codepoint: glyph,
             ..CellRepr::BLANK
         }]),
@@ -5472,7 +5470,7 @@ fn unresolved_attempts_keep_deadlines_until_applied_evidence_resolves_them() {
                 graphics: None,
                 row,
                 hash,
-                cells: Arc::from([CellRepr::BLANK]),
+                cells: RowCells::from([CellRepr::BLANK]),
                 complete: false,
             }],
             0.0,
@@ -11678,7 +11676,7 @@ fn prepare_allocation_case<const SWITCH_TO_RAW: bool>(
                     .find(|capture| capture.sent.row == row.row)
                     .expect("sent row was captured");
                 assert_eq!(row.hash, captured.sent.hash);
-                assert!(Arc::ptr_eq(&row.cells, &captured.sent.cells));
+                assert!(RowCells::ptr_eq(&row.cells, &captured.sent.cells));
                 row_count += 1;
             }
         }
@@ -13773,7 +13771,7 @@ fn send_paced_duplicate(peer: &mut PeerDisplayState, current: &mut [u64], now_ms
         graphics: None,
         row: 0,
         hash: 0xfeed,
-        cells: Arc::from(vec![CellRepr::BLANK; 2]),
+        cells: RowCells::from(vec![CellRepr::BLANK; 2]),
         complete: false,
     };
     peer.display_cache.record_sent_rows(

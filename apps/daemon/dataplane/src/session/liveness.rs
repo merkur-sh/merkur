@@ -867,7 +867,7 @@ mod tests {
             graphics: None,
             row: 0,
             hash: 0xfeed,
-            cells: Arc::from(vec![merkur_codec::CellRepr::BLANK]),
+            cells: crate::pty::terminal::RowCells::from(vec![merkur_codec::CellRepr::BLANK]),
             complete: false,
         };
         peer.display_cache.record_sent_rows(

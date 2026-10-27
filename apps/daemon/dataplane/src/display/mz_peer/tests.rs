@@ -60,7 +60,7 @@ fn inline_pair_sources_matches_occurrence_model() {
         for step in 0..10000 {
             let choice = random(&mut rng);
             let key = (choice % 2, choice % 3, (choice % 5) as u16);
-            if choice % 4 == 0 {
+            if choice.is_multiple_of(4) {
                 actual.remove_source(key);
                 actual.remove_source(key);
                 expected.retain(|&(held, _)| held != key);
@@ -93,7 +93,7 @@ fn random(state: &mut u32) -> u32 {
     *state
 }
 
-fn cells(seed: u32, cols: usize, styled: bool) -> Arc<[CellRepr]> {
+fn cells(seed: u32, cols: usize, styled: bool) -> RowCells {
     let mut rng = 0x243f_6a88 ^ seed;
     (0..cols)
         .map(|_| {
@@ -132,10 +132,10 @@ fn hashes(cells: &[CellRepr]) -> Vec<u64> {
         .collect()
 }
 
-fn applied(seq: u32, row: u16, cells: &Arc<[CellRepr]>) -> MzFact {
+fn applied(seq: u32, row: u16, cells: &RowCells) -> MzFact {
     MzFact::Applied {
         seq,
-        rows: vec![(row, Arc::clone(cells))],
+        rows: vec![(row, RowCells::clone(cells))],
         coded: false,
         declared: None,
     }
@@ -383,7 +383,7 @@ fn randomized_exact_retirement_matches_model() {
                 if let MzFact::Applied { rows, .. } = &mut fact
                     && choice.is_multiple_of(7)
                 {
-                    rows.push((row, Arc::clone(&corpus[(step + 1) % corpus.len()])));
+                    rows.push((row, RowCells::clone(&corpus[(step + 1) % corpus.len()])));
                 }
                 fact
             } else if choice < 95 {
@@ -438,15 +438,17 @@ fn reused_key_retires_old_pairs_and_has_one_queue_entry() {
     state.add_source((1, 0, 0), &a);
     assert!(state.previous_order.is_empty());
     assert_eq!(state.order, [(1, 0, 0)]);
+    drop(a);
+    drop(b);
     state.clear_sources();
     assert!(state.sources.is_empty());
     assert!(state.pairs.is_empty());
-    assert_eq!(state.spare.len(), 1);
+    assert!(state.sources.is_empty());
 }
 
 #[test]
 fn repeated_pair_retirement_preserves_other_sources_in_order() {
-    let row: Arc<[CellRepr]> = (0..384)
+    let row: RowCells = (0..384)
         .map(|i| CellRepr {
             codepoint: 65 + i % 2,
             ..CellRepr::BLANK
@@ -461,7 +463,7 @@ fn repeated_pair_retirement_preserves_other_sources_in_order() {
     let source = &state.sources[&(1, 1, 0)];
     let repeated = pair_hash(source.hashes[0], source.hashes[1]);
     assert_eq!(usize::from(state.pairs[&repeated].len), PAIR_SOURCES);
-    state.add_source((1, 2, 0), &row[..2]);
+    state.add_source((1, 2, 0), &RowCells::from(&row[..2]));
     assert_eq!(usize::from(state.pairs[&repeated].len), PAIR_SOURCES);
     state.remove_source((1, 1, 0));
     let remaining: Vec<_> = state.pairs[&repeated].iter().collect();
@@ -558,4 +560,235 @@ fn fixed_fact_source_index_benchmark() {
         "{}",
         serde_json::json!({"experiment":"fixed-fact-source-index", "samples_ns":samples, "retained_sources":counts.0, "pair_keys":counts.1, "pair_capacity":counts.2})
     );
+}
+
+#[test]
+#[ignore = "content-identity admission A/B benchmark"]
+fn content_identity_admission_benchmark() {
+    use crate::edge_tunnel::test_allocations::{begin_thread, end_thread};
+    for cols in [200, 384] {
+        for workload in ["scroll", "unique", "two-peers"] {
+            let mut samples = Vec::new();
+            let mut allocations = Vec::new();
+            let mut prepared = Vec::new();
+            let mut retained = 0;
+            let mut live = 0;
+            for sample in 0..10 {
+                let repeats = if workload == "scroll" { 60 } else { 1 };
+                let peers = if workload == "two-peers" { 2 } else { 1 };
+                let count = if workload == "scroll" { 64 } else { 1024 };
+                let mut corpus: Vec<_> = (0..count)
+                    .map(|n| Some(cells(n, cols, true))).collect();
+                let mut states: Vec<_> = (0..peers).map(|_| MzPeerState {
+                    generation: 1, ..MzPeerState::default()
+                }).collect();
+                for seq in 0..1024 {
+                    let warm = cells(seq + 100_000, cols, true);
+                    for state in &mut states {
+                        state.add_source((1, seq, 0), &warm);
+                        state.newest = Some(seq);
+                        state.retire();
+                    }
+                }
+                let before = states.iter().map(|state| state.source_preparations).sum::<usize>();
+                begin_thread();
+                let now = std::time::Instant::now();
+                for (n, slot) in corpus.iter_mut().enumerate() {
+                    let row = slot.take().unwrap();
+                    for repeat in 0..repeats {
+                        let seq = 1024 + u32::try_from(n * repeats + repeat).unwrap();
+                        for state in &mut states {
+                            state.add_source((1, seq, 0), &row);
+                            state.newest = Some(seq);
+                            state.retire();
+                        }
+                    }
+                }
+                let elapsed = now.elapsed().as_nanos();
+                let tally = end_thread();
+                let admissions = usize::try_from(count).unwrap() * repeats * peers;
+                if sample >= 2 {
+                    samples.push(elapsed as f64 / admissions as f64);
+                    allocations.push(tally.allocations as f64 / admissions as f64);
+                    prepared.push(states.iter().map(|state| state.source_preparations).sum::<usize>() - before);
+                }
+                let mut owners = HashSet::new();
+                retained = 0;
+                live = 0;
+                for state in &states {
+                    for source in state.sources.values() {
+                        live += 1;
+                        if owners.insert(source.entry.as_ptr()) {
+                            retained += source.entry.capacity()
+                                + source.items.capacity() * std::mem::size_of::<MzItem>()
+                                + source.hashes.capacity() * std::mem::size_of::<u64>();
+                        }
+                    }
+                }
+            }
+            println!("{}", serde_json::json!({"experiment":"content-identity",
+                "cols":cols, "workload":workload, "samples_ns_per_row":samples,
+                "allocations_per_admission":allocations, "preparations":prepared,
+                "live_sources":live, "retained_payload_bytes":retained,
+                "source_slot_bytes":std::mem::size_of::<Source>(), "mz_pinned_cells":0}));
+        }
+    }
+}
+
+fn assert_fresh_form(row: &RowCells, form: &MzSourceForm) {
+    let mut entry = Vec::new();
+    encode_full_row_entry(&mut entry, 0, row);
+    let mut items = Vec::new();
+    let (first, mode) = entry_items(&entry, &mut items).unwrap();
+    assert_eq!(form.entry, entry);
+    assert_eq!(form.items, items);
+    assert_eq!(form.first, first);
+    assert_eq!(form.mode, mode);
+    assert_eq!(form.hashes, hashes(row));
+}
+
+#[test]
+fn content_identity_shares_one_fresh_form_across_keys_and_peers() {
+    for cols in [200, 384] {
+        let row = cells(37, cols, true);
+        let mut first = MzPeerState::default();
+        let mut second = MzPeerState::default();
+        first.add_source((1, 2, 3), &row);
+        first.add_source((1, 3, 2), &row);
+        second.add_source((7, 9, 1), &row);
+        let form = &first.sources[&(1, 2, 3)];
+        assert!(Arc::ptr_eq(form, &first.sources[&(1, 3, 2)]));
+        assert!(Arc::ptr_eq(form, &second.sources[&(7, 9, 1)]));
+        for source in first.sources.values().chain(second.sources.values()) {
+            assert_fresh_form(&row, source);
+        }
+        let independent = cells(37, cols, true);
+        second.add_source((7, 10, 0), &independent);
+        assert!(!Arc::ptr_eq(form, &second.sources[&(7, 10, 0)]));
+    }
+}
+
+#[test]
+fn racing_preparers_prepare_once() {
+    let row = cells(73, 384, true);
+    let barrier = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        let prepare = || {
+            let mut preparations = 0;
+            barrier.wait();
+            let form = row.mz_source(&mut preparations).unwrap();
+            (form, preparations)
+        };
+        let other = scope.spawn(prepare);
+        let (first, first_prepared) = prepare();
+        let (second, second_prepared) = other.join().unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first_prepared + second_prepared, 1);
+        assert_fresh_form(&row, &first);
+    });
+}
+
+// Allocation and exact free-list ownership oracles need a process of their own:
+// other concurrently running tests legitimately consume this process-wide resource.
+fn isolated_form_test(name: &str) -> bool {
+    if std::env::var("MERKUR_MZ_FORM_TEST").as_deref() == Ok(name) {
+        return false;
+    }
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &format!("display::mz_peer::tests::{name}"), "--nocapture"])
+        .env("MERKUR_MZ_FORM_TEST", name)
+        .status().unwrap();
+    assert!(status.success(), "isolated form oracle {name}");
+    true
+}
+
+#[test]
+fn warm_unique_admission_and_retirement_allocate_nothing() {
+    if isolated_form_test("warm_unique_admission_and_retirement_allocate_nothing") { return; }
+    use crate::edge_tunnel::test_allocations::{begin_thread, end_thread};
+    for cols in [200, 384] {
+        for peers in [1, 2] {
+            let mut states: Vec<_> = (0..peers).map(|_| MzPeerState::default()).collect();
+            for seq in 0..4224 {
+                let row = cells(seq, cols, true);
+                if seq >= 4096 { begin_thread(); }
+                for state in &mut states {
+                    state.add_source((1, seq, 0), &row);
+                    state.order.pop_front();
+                }
+                drop(row);
+                for state in &mut states { state.remove_source((1, seq, 0)); }
+                if seq >= 4096 {
+                    let tally = end_thread();
+                    assert_eq!(tally.allocations, 0, "{cols} cols/{peers} peers: {tally:?}");
+                    assert_eq!(tally.allocated_bytes, 0, "{tally:?}");
+                }
+            }
+            assert_eq!(states.iter().map(|state| state.source_preparations).sum::<usize>(), 4224);
+            assert!(states.iter().all(|state| state.sources.is_empty()));
+        }
+    }
+}
+
+#[test]
+fn peer_b_releases_the_whole_form_for_peer_a() {
+    if isolated_form_test("peer_b_releases_the_whole_form_for_peer_a") { return; }
+    while SOURCE_FORMS.1.try_recv().is_ok() {}
+    let mut first = MzPeerState::default();
+    let mut second = MzPeerState::default();
+    let row = cells(11, 384, true);
+    first.add_source((1, 1, 0), &row);
+    second.add_source((1, 1, 0), &row);
+    let address = Arc::as_ptr(&first.sources[&(1, 1, 0)]);
+    drop(row);
+    first.remove_source((1, 1, 0));
+    assert!(SOURCE_FORMS.1.is_empty());
+    second.remove_source((1, 1, 0));
+    assert_eq!(SOURCE_FORMS.1.len(), 1);
+    let next = cells(12, 384, true);
+    first.add_source((1, 2, 0), &next);
+    assert_eq!(Arc::as_ptr(&first.sources[&(1, 2, 0)]), address);
+    assert_fresh_form(&next, &first.sources[&(1, 2, 0)]);
+}
+
+#[test]
+fn source_form_free_list_is_bounded_and_requires_unique_ownership() {
+    if isolated_form_test("source_form_free_list_is_bounded_and_requires_unique_ownership") { return; }
+    while SOURCE_FORMS.1.try_recv().is_ok() {}
+    let held = Arc::new(MzSourceForm::default());
+    release_source_form(held.clone());
+    assert!(SOURCE_FORMS.1.is_empty());
+    let weak = Arc::downgrade(&held);
+    release_source_form(held);
+    assert!(SOURCE_FORMS.1.is_empty());
+    assert!(weak.upgrade().is_none());
+    for _ in 0..SOURCE_FORM_SPARES + 1 {
+        release_source_form(Arc::new(MzSourceForm::default()));
+    }
+    assert_eq!(SOURCE_FORMS.1.len(), SOURCE_FORM_SPARES);
+    let mut form = take_source_form();
+    assert!(Arc::get_mut(&mut form).is_some());
+}
+
+#[test]
+fn failed_forms_and_last_content_owners_return_whole_arcs() {
+    if isolated_form_test("failed_forms_and_last_content_owners_return_whole_arcs") { return; }
+    while SOURCE_FORMS.1.try_recv().is_ok() {}
+    let form = Arc::new(MzSourceForm::default());
+    let address = Arc::as_ptr(&form);
+    release_source_form(form);
+    let invalid = RowCells::from([CellRepr { codepoint: 0x11_0000, ..CellRepr::BLANK }]);
+    let mut preparations = 0;
+    assert!(invalid.mz_source(&mut preparations).is_none());
+    assert!(invalid.mz_source(&mut preparations).is_none());
+    assert_eq!(preparations, 1);
+    assert_eq!(SOURCE_FORMS.1.len(), 1);
+    let valid = cells(19, 384, true);
+    let form = valid.mz_source(&mut preparations).unwrap();
+    assert_eq!(Arc::as_ptr(&form), address);
+    drop(form);
+    assert!(SOURCE_FORMS.1.is_empty());
+    drop(valid);
+    let form = take_source_form();
+    assert_eq!(Arc::as_ptr(&form), address);
 }

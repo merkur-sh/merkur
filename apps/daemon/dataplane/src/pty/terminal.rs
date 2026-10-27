@@ -40,6 +40,92 @@ pub struct DisplayHeaderState {
     pub cursor_row: Option<u16>,
 }
 
+/// Immutable cell allocation; MZ retains only its independently shared source form.
+#[derive(Clone)]
+pub struct RowCells(Arc<RowContent>);
+
+struct RowContent {
+    cells: Box<[CellRepr]>,
+    mz: std::sync::OnceLock<Option<Arc<crate::display::mz_peer::MzSourceForm>>>,
+}
+
+impl Drop for RowContent {
+    fn drop(&mut self) {
+        if let Some(Some(form)) = self.mz.take() {
+            crate::display::mz_peer::release_source_form(form);
+        }
+    }
+}
+
+impl RowCells {
+    pub fn ptr_eq(left: &Self, right: &Self) -> bool {
+        Arc::ptr_eq(&left.0, &right.0)
+    }
+
+    fn get_mut(cells: &mut Self) -> Option<&mut [CellRepr]> {
+        let content = Arc::get_mut(&mut cells.0)?;
+        if let Some(Some(form)) = content.mz.take() {
+            crate::display::mz_peer::release_source_form(form);
+        }
+        Some(&mut content.cells)
+    }
+
+    pub(crate) fn mz_source(
+        &self,
+        #[cfg(test)] preparations: &mut usize,
+    ) -> Option<Arc<crate::display::mz_peer::MzSourceForm>> {
+        self.0.mz.get_or_init(|| {
+            #[cfg(test)]
+            { *preparations += 1; }
+            let mut form = crate::display::mz_peer::take_source_form();
+            if Arc::get_mut(&mut form)
+                .expect("the free list holds only uniquely owned forms")
+                .prepare(&self.0.cells)
+            {
+                Some(form)
+            } else {
+                crate::display::mz_peer::release_source_form(form);
+                None
+            }
+        }).clone()
+    }
+}
+
+impl From<Vec<CellRepr>> for RowCells {
+    fn from(cells: Vec<CellRepr>) -> Self {
+        Self(Arc::new(RowContent {
+            cells: cells.into_boxed_slice(),
+            mz: std::sync::OnceLock::new(),
+        }))
+    }
+}
+
+impl From<&[CellRepr]> for RowCells {
+    fn from(cells: &[CellRepr]) -> Self {
+        cells.to_vec().into()
+    }
+}
+
+impl<const N: usize> From<[CellRepr; N]> for RowCells {
+    fn from(cells: [CellRepr; N]) -> Self {
+        Vec::from(cells).into()
+    }
+}
+
+impl std::ops::Deref for RowCells {
+    type Target = [CellRepr];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.cells
+    }
+}
+
+impl AsRef<[CellRepr]> for RowCells {
+    fn as_ref(&self) -> &[CellRepr] {
+        self
+    }
+}
+
 /// Immutable visible-row capture shared by diffing, encoding and resume
 /// adoption. Its graphics row carries bytes but no storage
 /// charge; ACK provenance keeps only the row's version (`connection::SentRow`).
@@ -47,7 +133,7 @@ pub struct DisplayHeaderState {
 pub struct CapturedRow {
     pub row: u16,
     pub hash: u64,
-    pub cells: Arc<[CellRepr]>,
+    pub cells: RowCells,
     pub graphics: merkur_codec::PreparedGraphics,
 }
 
@@ -57,7 +143,7 @@ pub struct CapturedRow {
 #[derive(Default)]
 struct ScratchCapturePool {
     cols: usize,
-    rows: Vec<[Option<Arc<[CellRepr]>>; 2]>,
+    rows: Vec<[Option<RowCells>; 2]>,
 }
 
 impl ScratchCapturePool {
@@ -82,16 +168,16 @@ impl ScratchCapturePool {
         let reusable = versions.iter_mut().position(|version| {
             version
                 .as_mut()
-                .is_some_and(|cells| Arc::get_mut(cells).is_some())
+                .is_some_and(|cells| RowCells::get_mut(cells).is_some())
         });
         let mut cells = reusable
             .and_then(|index| versions[index].take())
-            .unwrap_or_else(|| Arc::from(vec![CellRepr::BLANK; cols]));
-        let hash = fill(Arc::get_mut(&mut cells).expect("capture storage has one owner"));
+            .unwrap_or_else(|| RowCells::from(vec![CellRepr::BLANK; cols]));
+        let hash = fill(RowCells::get_mut(&mut cells).expect("capture storage has one owner"));
         if reusable != Some(1) {
             versions[0] = versions[1].take();
         }
-        versions[1] = Some(Arc::clone(&cells));
+        versions[1] = Some(cells.clone());
         CapturedRow {
             row,
             hash,
@@ -103,7 +189,7 @@ impl ScratchCapturePool {
 
 struct VisibleCapture {
     key: u64,
-    cells: Arc<[CellRepr]>,
+    cells: RowCells,
     hash: u64,
     graphics_free: bool,
 }
@@ -119,7 +205,7 @@ struct RowCapturePool {
     previous: Vec<Option<VisibleCapture>>,
     by_key: HashMap<u64, usize>,
     previous_count: usize,
-    spare: VecDeque<Arc<[CellRepr]>>,
+    spare: VecDeque<RowCells>,
     visible_count: usize,
     #[cfg(test)]
     materialized: usize,
@@ -181,13 +267,13 @@ impl RowCapturePool {
             // hold at most 2R - 1, so the pool stays within 2R mid-refresh.
             let mut cells = loop {
                 let Some(mut cells) = self.spare.pop_front() else {
-                    break Arc::from(vec![CellRepr::BLANK; self.cols]);
+                    break RowCells::from(vec![CellRepr::BLANK; self.cols]);
                 };
-                if Arc::get_mut(&mut cells).is_some() {
+                if RowCells::get_mut(&mut cells).is_some() {
                     break cells;
                 }
             };
-            let hash = fill(Arc::get_mut(&mut cells).expect("capture storage has one owner"));
+            let hash = fill(RowCells::get_mut(&mut cells).expect("capture storage has one owner"));
             #[cfg(test)]
             {
                 self.materialized += 1;
@@ -202,7 +288,7 @@ impl RowCapturePool {
         let capture = CapturedRow {
             row,
             hash: visible.hash,
-            cells: Arc::clone(&visible.cells),
+            cells: visible.cells.clone(),
             graphics: graphics.clone(),
         };
         self.visible[usize::from(row)] = Some(visible);
@@ -2467,6 +2553,42 @@ mod tests {
     }
 
     #[test]
+    fn capture_pool_reuse_clears_mz_without_pinning_cells() {
+        let mut pool = ScratchCapturePool::default();
+        let graphics = PreparedGraphics::default();
+        let first = pool.capture(0, 8, 1, &graphics, |cells| {
+            cells[0].codepoint = u32::from('a');
+            1
+        });
+        let mut preparations = 0;
+        let old = first.cells.mz_source(&mut preparations).unwrap();
+        let address = first.cells.as_ptr();
+        assert_eq!(Arc::strong_count(&first.cells.0), 2);
+        drop(first);
+        let second = pool.capture(0, 8, 1, &graphics, |cells| {
+            cells[0].codepoint = u32::from('b');
+            2
+        });
+        assert_eq!(second.cells.as_ptr(), address);
+        assert!(second.cells.0.mz.get().is_none());
+        let new = second.cells.mz_source(&mut preparations).unwrap();
+        assert!(!Arc::ptr_eq(&old, &new));
+        assert_eq!(second.cells[0].codepoint, u32::from('b'));
+        assert_eq!(Arc::strong_count(&old), 1);
+    }
+
+    #[test]
+    fn mz_source_caches_failed_preparation() {
+        let cells = RowCells::from(vec![CellRepr { codepoint: 0x11_0000, ..CellRepr::BLANK }]);
+        let mut preparations = 0;
+        assert!(cells.mz_source(&mut preparations).is_none());
+        assert!(matches!(cells.0.mz.get(), Some(None)));
+        assert_eq!(preparations, 1);
+        assert!(cells.mz_source(&mut preparations).is_none());
+        assert_eq!(preparations, 1);
+    }
+
+    #[test]
     fn capture_storage_reuses_released_rows_without_mutating_retained_versions() {
         let (event_tx, _event_rx) = crossbeam_channel::unbounded();
         let mut terminal = TerminalState::new(8, 2, event_tx);
@@ -2478,14 +2600,14 @@ mod tests {
         terminal.apply_bytes(b"\rsecond");
         let second = terminal.capture_row(0, &mut scratch);
         let second_cells = second.cells.to_vec();
-        let second_ptr = Arc::as_ptr(&second.cells);
+        let second_ptr = second.cells.as_ptr();
         // A weak observer also prevents mutable reuse.
-        let weak = Arc::downgrade(&second.cells);
+        let weak = Arc::downgrade(&second.cells.0);
         drop(second);
         terminal.apply_bytes(b"\rthird");
         let third = terminal.capture_row(0, &mut scratch);
-        assert_ne!(Arc::as_ptr(&third.cells), second_ptr);
-        assert_eq!(&*weak.upgrade().unwrap(), second_cells.as_slice());
+        assert_ne!(third.cells.as_ptr(), second_ptr);
+        assert_eq!(weak.upgrade().unwrap().cells.as_ref(), second_cells.as_slice());
         drop(weak);
         drop(third);
         crate::edge_tunnel::test_allocations::begin_thread();
@@ -2523,7 +2645,7 @@ mod tests {
         assert_eq!(tally.allocations, 0);
         assert_eq!(captures.len(), 256);
         for (current, previous) in captures.iter().zip(&retained) {
-            assert!(Arc::ptr_eq(&current.cells, &previous.cells));
+            assert!(RowCells::ptr_eq(&current.cells, &previous.cells));
             assert_eq!(current.hash, previous.hash);
         }
     }
@@ -4445,8 +4567,8 @@ mod row_identity {
                     rng ^= rng << 13;
                     rng ^= rng >> 7;
                     rng ^= rng << 17;
-                    let op = operations[rng as usize % operations.len()];
-                    for chunk in op.as_bytes().chunks(1 + (rng as usize % 7)) {
+                    let op = operations[usize::try_from(rng % u64::try_from(operations.len()).unwrap()).unwrap()];
+                    for chunk in op.as_bytes().chunks(1 + usize::try_from(rng % 7).unwrap()) {
                         assert_eq!(t.apply_bytes(chunk), chunk.len());
                         refresh_exact(&mut t, &mut hashes, &mut captures);
                         for row in 0..t.rows {
@@ -4455,7 +4577,7 @@ mod row_identity {
                             let visible =
                                 t.row_captures.visible[usize::from(row)].as_ref().unwrap();
                             assert_eq!(
-                                direct.cells, visible.cells,
+                                direct.cells[..], visible.cells[..],
                                 "seed={seed} step={step} op={op:?}"
                             );
                             assert_eq!(direct.hash, visible.hash);
@@ -4588,12 +4710,12 @@ mod row_identity {
         t.apply_bytes(b"\rsecond");
         refresh_exact(&mut t, &mut hashes, &mut captures);
         let second_cells = captures[0].cells.to_vec();
-        let weak = Arc::downgrade(&captures[0].cells);
-        let second_ptr = Arc::as_ptr(&captures[0].cells);
+        let weak = Arc::downgrade(&captures[0].cells.0);
+        let second_ptr = captures[0].cells.as_ptr();
         t.apply_bytes(b"\rthird");
         refresh_exact(&mut t, &mut hashes, &mut captures);
-        assert_ne!(Arc::as_ptr(&captures[0].cells), second_ptr);
-        assert_eq!(weak.upgrade().unwrap().as_ref(), second_cells);
+        assert_ne!(captures[0].cells.as_ptr(), second_ptr);
+        assert_eq!(weak.upgrade().unwrap().cells.as_ref(), second_cells);
         assert_eq!(first.cells.as_ref(), first_cells);
         drop(weak);
         let mut retained = Vec::new();
@@ -4729,7 +4851,7 @@ mod row_identity {
                     assert_eq!(captures.len(), usize::from(rows));
                     let unchanged_moved = if kind == "scroll" {
                         for row in 0..usize::from(rows - 2) {
-                            assert_eq!(captures[row].cells, previous[row + 1].cells);
+                            assert_eq!(captures[row].cells.as_ref(), previous[row + 1].cells.as_ref());
                             assert_eq!(captures[row].hash, previous[row + 1].hash);
                         }
                         usize::from(rows - 2)

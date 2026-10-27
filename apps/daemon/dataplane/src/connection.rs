@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use merkur_codec::{CellRepr, GraphicsVersion};
 use zeroize::Zeroize;
 
+use crate::pty::terminal::RowCells;
 use crate::display::fec::FecEncoder;
 use crate::display::policy::{
     DISPLAY_ACK_MASK_WINDOW, DISPLAY_ACK_MASK_WORDS, DISPLAY_DATAGRAM_RECEIVE_QUEUE_DEPTH,
@@ -568,7 +569,7 @@ impl SentPaths {
 pub struct SentRow {
     pub row: u16,
     pub hash: u64,
-    pub cells: Arc<[CellRepr]>,
+    pub cells: RowCells,
     pub graphics: Option<GraphicsVersion>,
     /// The datagram carried the whole row, as a full-row entry or a reference,
     /// so the browser's history holds it as carried.
@@ -576,7 +577,7 @@ pub struct SentRow {
 }
 
 // The inline record size below is this.
-const _: () = assert!(size_of::<SentRow>() == 40);
+const _: () = assert!(size_of::<SentRow>() == 32);
 
 /// A sent datagram's MZ facts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -593,7 +594,7 @@ impl From<&crate::pty::CapturedRow> for SentRow {
         Self {
             row: captured.row,
             hash: captured.hash,
-            cells: Arc::clone(&captured.cells),
+            cells: RowCells::clone(&captured.cells),
             graphics: captured.graphics.version(),
             complete: false,
         }
@@ -602,9 +603,9 @@ impl From<&crate::pty::CapturedRow> for SentRow {
 
 /// Rows a datagram record holds without touching the heap.
 ///
-/// Sized to a datagram batch. `SentRow` is 40 bytes (a fat `Arc` pointer, the
-/// hash, the graphics version, the row index), so a record carries 320 bytes of
-/// rows inline — about 300 bytes more than the `Vec` header it replaces, and
+/// Sized to a datagram batch. `SentRow` is 32 bytes (a thin cell-owner pointer, the
+/// hash, the graphics version, the row index), so a record carries 256 bytes of
+/// rows inline — 232 bytes more than the `Vec` header it replaces, and
 /// `SENT_DATAGRAM_MAX_ENTRIES` bounds how many records a peer retains.
 pub const INLINE_SENT_ROWS: usize = 8;
 
@@ -1424,7 +1425,7 @@ pub struct PerPeerDisplayCache {
     /// Canonical acknowledged cells, row-granular and immutable. Worker
     /// preparation retains a baseline with one refcount increment instead of
     /// allocating or copying a complete row for every peer delta.
-    pub acked_row_cells: Vec<Arc<[CellRepr]>>,
+    pub acked_row_cells: Vec<RowCells>,
     /// The graphics version each acknowledged row carried; `None` is the empty set.
     pub acked_row_graphics: Vec<Option<GraphicsVersion>>,
     /// Monotonic identity of the complete acknowledged-row state. Pointer
@@ -1479,7 +1480,7 @@ pub struct PerPeerDisplayCache {
     pub(crate) applied_carrier_evidence: AppliedCarrierEvidence,
     /// Canonical sent-row provenance, reused when a selective ACK confirms any
     /// retained attempt of the current row version.
-    pub sent_row_cells: Vec<Arc<[CellRepr]>>,
+    pub sent_row_cells: Vec<RowCells>,
     pub sent_row_graphics: Vec<Option<GraphicsVersion>>,
     pub sent_row_hashes: Vec<u64>,
     /// Whether an exact ACK named an attempt of the current sent content
@@ -1625,12 +1626,12 @@ impl PerPeerDisplayCache {
     pub fn resize(&mut self, cols: u16, rows: u16) {
         self.cols = cols;
         self.rows = rows;
-        let blank_row: Arc<[CellRepr]> = vec![CellRepr::BLANK; usize::from(cols)].into();
+        let blank_row: RowCells = vec![CellRepr::BLANK; usize::from(cols)].into();
         self.acked_row_cells.clear();
         self.acked_row_graphics.clear();
         self.acked_row_graphics.resize(usize::from(rows), None);
         self.acked_row_cells
-            .resize(usize::from(rows), Arc::clone(&blank_row));
+            .resize(usize::from(rows), RowCells::clone(&blank_row));
         self.acked_row_revisions.clear();
         self.acked_row_revisions.resize(usize::from(rows), 0);
         self.acked_row_hashes.clear();
@@ -1654,7 +1655,7 @@ impl PerPeerDisplayCache {
         self.sent_row_graphics.clear();
         self.sent_row_graphics.resize(usize::from(rows), None);
         self.sent_row_cells
-            .resize(usize::from(rows), Arc::clone(&blank_row));
+            .resize(usize::from(rows), RowCells::clone(&blank_row));
         self.sent_row_hashes.clear();
         self.sent_row_hashes.resize(usize::from(rows), 0);
         self.sent_row_confirmed.clear();
@@ -1729,8 +1730,8 @@ impl PerPeerDisplayCache {
             .zip(&mut self.sent_row_cells)
             .zip(grid.chunks_exact(cols))
         {
-            let cells: Arc<[CellRepr]> = row.into();
-            *acked = Arc::clone(&cells);
+            let cells: RowCells = row.into();
+            *acked = RowCells::clone(&cells);
             *sent = cells;
         }
         for revision in &mut self.acked_row_revisions {
@@ -1993,7 +1994,7 @@ impl PerPeerDisplayCache {
         let semantic_baseline_changed = self
             .acked_row_cells
             .get(row)
-            .is_none_or(|acked| !Arc::ptr_eq(acked, &captured.cells))
+            .is_none_or(|acked| !RowCells::ptr_eq(acked, &captured.cells))
             || self.acked_row_graphics[row] != captured.graphics.version()
             || self.acked_row_exact.get(row).copied() != Some(true);
         let (Some(acked_cells), Some(sent_cells)) = (
@@ -2002,8 +2003,8 @@ impl PerPeerDisplayCache {
         ) else {
             return;
         };
-        *acked_cells = Arc::clone(&captured.cells);
-        *sent_cells = Arc::clone(&captured.cells);
+        *acked_cells = RowCells::clone(&captured.cells);
+        *sent_cells = RowCells::clone(&captured.cells);
         self.acked_row_graphics[row] = captured.graphics.version();
         self.sent_row_graphics[row] = captured.graphics.version();
         // Nothing is outstanding for a row the peer already holds. This also
@@ -2266,7 +2267,7 @@ impl PerPeerDisplayCache {
                 }
             }
             if let Some(slot) = self.sent_row_cells.get_mut(r) {
-                *slot = Arc::clone(&sent.cells);
+                *slot = RowCells::clone(&sent.cells);
             } else {
                 continue;
             }
@@ -4719,7 +4720,7 @@ mod tests {
                 .acked_row_cells
                 .iter()
                 .zip(&cache.sent_row_cells)
-                .all(|(acked, sent)| Arc::ptr_eq(acked, sent)),
+                .all(|(acked, sent)| RowCells::ptr_eq(acked, sent)),
             "snapshot priming stores one immutable row allocation, not flat-grid mirrors"
         );
         assert_eq!(cache.acked_row_hashes, vec![0xaa, 0xbb]);
@@ -4840,12 +4841,12 @@ mod tests {
     #[ignore = "exact allocation oracle; the counting allocator is process-wide"]
     fn sent_rows_inline_covers_a_datagram_batch_and_spills_past_eight() {
         use crate::edge_tunnel::test_allocations;
-        let cells: Arc<[CellRepr]> = vec![cell('x'), cell('y')].into();
+        let cells: RowCells = vec![cell('x'), cell('y')].into();
         let row = |index: u16| SentRow {
             graphics: None,
             row: index,
             hash: u64::from(index),
-            cells: Arc::clone(&cells),
+            cells: RowCells::clone(&cells),
             complete: false,
         };
         let build = |count: u16| {
@@ -4963,7 +4964,7 @@ mod tests {
             .iter()
             .next()
             .unwrap();
-        assert!(Arc::ptr_eq(&first.cells, &second.cells));
+        assert!(RowCells::ptr_eq(&first.cells, &second.cells));
 
         cache.record_sent_rows(
             1,
@@ -5010,7 +5011,7 @@ mod tests {
 
     #[test]
     fn a_referencing_datagram_whose_record_ends_unresolved_keeps_every_source() {
-        let cells: Arc<[CellRepr]> = vec![cell('x'); 4].into();
+        let cells: RowCells = vec![cell('x'); 4].into();
         let source = SentRow {
             row: 0,
             hash: merkur_codec::row_hash(&cells),
@@ -5290,13 +5291,13 @@ mod tests {
         // advances only on a genuine change.
         let mut cache = PerPeerDisplayCache::new();
         cache.resize(2, 1);
-        let cells: Arc<[CellRepr]> = Arc::from(vec![cell('a'), cell('b')]);
+        let cells: RowCells = RowCells::from(vec![cell('a'), cell('b')]);
 
         let first = SentRow {
             graphics: None,
             row: 0,
             hash: 0x1234,
-            cells: Arc::clone(&cells),
+            cells: RowCells::clone(&cells),
             complete: false,
         };
         cache.record_sent_rows(
@@ -5314,7 +5315,7 @@ mod tests {
             graphics: None,
             row: 0,
             hash: 0x1234,
-            cells: Arc::clone(&cells),
+            cells: RowCells::clone(&cells),
             complete: false,
         };
         cache.record_sent_rows(
@@ -5339,7 +5340,7 @@ mod tests {
             graphics: None,
             row: 0,
             hash: 0x9999,
-            cells: Arc::from(vec![cell('c'), cell('d')]),
+            cells: RowCells::from(vec![cell('c'), cell('d')]),
             complete: false,
         };
         cache.record_sent_rows(
@@ -5370,7 +5371,7 @@ mod tests {
             graphics: None,
             row,
             hash,
-            cells: Arc::from(vec![cell(char::from(b'a' + row as u8))]),
+            cells: RowCells::from(vec![cell(char::from(b'a' + row as u8))]),
             complete: false,
         };
 
@@ -5462,7 +5463,7 @@ mod tests {
                 graphics: None,
                 row: 0,
                 hash,
-                cells: Arc::from(vec![cell('a'), cell('b')]),
+                cells: RowCells::from(vec![cell('a'), cell('b')]),
                 complete: false,
             };
             cache.record_sent_rows(
@@ -5573,7 +5574,7 @@ mod tests {
                         hash: version
                             .wrapping_mul(0x9e37_79b9_7f4a_7c15)
                             .wrapping_add(u64::from(row)),
-                        cells: Arc::from(vec![CellRepr::BLANK; usize::from(COLS)]),
+                        cells: RowCells::from(vec![CellRepr::BLANK; usize::from(COLS)]),
                         complete: false,
                     });
                 }

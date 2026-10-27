@@ -1930,7 +1930,7 @@ mod tests {
                 graphics: None,
                 row: 0,
                 hash: 0xfeed,
-                cells: Arc::from(vec![CellRepr::BLANK; usize::from(terminal.cols)]),
+                cells: crate::pty::terminal::RowCells::from(vec![CellRepr::BLANK; usize::from(terminal.cols)]),
                 complete: false,
             }),
             500.0,

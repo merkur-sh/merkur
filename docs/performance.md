@@ -1155,10 +1155,21 @@ and hash together in one traversal. Width changes clear the capture pool. The vi
 captures a refresh is replacing and the released spare cell arrays together retain at most twice
 the viewport row count, during a refresh too; only exclusive arrays, with no strong or weak outside
 owners, can be filled again, and a spare still owned elsewhere leaves the pool at its first check.
-Direct shared-borrow captures
-use a separate scratch pool. Peer diffs compare immutable captures with their acknowledged
-baselines and share the cell storage for encoding and ACK provenance; a full snapshot uses the
-same one-pass capture primitive instead of separately encoding, copying the grid, and hashing rows.
+Each `RowCells` owner wraps boxed cells and a synchronized lazy canonical MZ source form.
+Pool reuse clears that form before refilling cells. MZ sources share the form across peers and
+acknowledged occurrences without pinning cell storage. Retirement recycles a uniquely owned
+form, including its Arc header and buffers, into one process-wide lock-free bounded free list.
+Capture reuse and final content-owner release return uniquely owned forms to the same list. Its
+`MAX_TERMINAL_ROWS` capacity holds one viewport, the most sources one full-screen datagram retires
+and admits. Preparation refills a free form before allocating; a full list drops returned forms.
+Direct shared-borrow captures use a separate scratch pool. Peer diffs compare immutable captures
+with their acknowledged baselines and share the cell storage for encoding and ACK provenance; a
+full snapshot uses the same one-pass capture primitive instead of separately encoding, copying
+the grid, and hashing rows.
+
+A peer's MZ item-pair index holds only live sources: each pair keeps at most four occurrences
+inline, newest last, and a retiring source removes exactly the pairs it admitted, so retirement
+costs the source's items rather than a sweep of the index.
 
 Graphics rows have a separate immutable owner with a cached digest, bounds and canonical
 encoding, without a duplicate native descriptor array. Native capture and ACK provenance

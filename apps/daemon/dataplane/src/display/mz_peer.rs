@@ -8,6 +8,7 @@
 //! has at most one encode at a time, so the state lock is never contended; the
 //! fact queue's lock is held only to push or swap a vector.
 
+use crate::pty::terminal::RowCells;
 use crate::connection::SentRow;
 use merkur_codec::CellRepr;
 use merkur_codec::mz::{
@@ -27,7 +28,7 @@ pub(crate) enum MzFact {
     /// the epoch it declared.
     Applied {
         seq: u32,
-        rows: Vec<(u16, Arc<[CellRepr]>)>,
+        rows: Vec<(u16, RowCells)>,
         coded: bool,
         declared: Option<u8>,
     },
@@ -87,10 +88,8 @@ impl PeerMz {
         if let Ok(mut facts) = self.facts.lock() {
             // A refusal or discard repeated before the encoder drains changes
             // nothing the first did not, so an idle peer's reports queue once.
-            let repeated = match (facts.last(), &fact) {
-                (Some(MzFact::Refused), MzFact::Refused) | (Some(MzFact::Cleared), MzFact::Cleared) => true,
-                _ => false,
-            };
+            let repeated = matches!((facts.last(), &fact),
+                (Some(MzFact::Refused), MzFact::Refused) | (Some(MzFact::Cleared), MzFact::Cleared));
             if !repeated {
                 facts.push(fact);
             }
@@ -125,12 +124,60 @@ impl PeerMz {
     }
 }
 
-struct Source {
+impl Drop for PeerMz {
+    fn drop(&mut self) {
+        self.state.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).clear_sources();
+    }
+}
+
+/// Resource bound: one full viewport of forms, since one acknowledged full-screen
+/// datagram retires and admits at most MAX_TERMINAL_ROWS sources.
+const SOURCE_FORM_SPARES: usize = merkur_codec::MAX_TERMINAL_ROWS;
+
+type SourceFormQueue = (crossbeam_channel::Sender<Source>, crossbeam_channel::Receiver<Source>);
+
+static SOURCE_FORMS: std::sync::LazyLock<SourceFormQueue> =
+    std::sync::LazyLock::new(|| crossbeam_channel::bounded(SOURCE_FORM_SPARES));
+
+pub(crate) fn release_source_form(mut form: Arc<MzSourceForm>) {
+    if Arc::get_mut(&mut form).is_some() {
+        // Full means this uniquely owned allocation is no longer retained.
+        drop(SOURCE_FORMS.0.try_send(form));
+    }
+}
+
+pub(crate) fn take_source_form() -> Arc<MzSourceForm> {
+    SOURCE_FORMS.1.try_recv().unwrap_or_else(|_| Arc::new(MzSourceForm::default()))
+}
+
+type Source = Arc<MzSourceForm>;
+
+#[derive(Default)]
+pub(crate) struct MzSourceForm {
     entry: Vec<u8>,
     items: Vec<MzItem>,
     hashes: Vec<u64>,
     first: u16,
     mode: u8,
+}
+
+impl MzSourceForm {
+    pub(crate) fn prepare(&mut self, cells: &[CellRepr]) -> bool {
+        self.entry.clear();
+        encode_full_row_entry(&mut self.entry, 0, cells);
+        let Some((first, mode)) = entry_items(&self.entry, &mut self.items) else {
+            return false;
+        };
+        self.first = first;
+        self.mode = mode;
+        self.hashes.clear();
+        let row = MzRow { entry: &self.entry, first, items: &self.items, mode, hashes: &[] };
+        for index in 0..self.items.len() {
+            let Some(hash) = item_bytes(&row, index).map(item_hash) else { break };
+            self.hashes.push(hash);
+        }
+        true
+    }
 }
 
 /// A source's name: display generation, datagram, row.
@@ -202,7 +249,10 @@ pub(crate) struct MzPeerState {
     /// generation's, which retire with it.
     order: VecDeque<SourceKey>,
     previous_order: VecDeque<SourceKey>,
-    spare: Vec<Source>,
+    #[cfg(test)]
+    pub(crate) source_admissions: usize,
+    #[cfg(test)]
+    pub(crate) source_preparations: usize,
     newest: Option<u32>,
     session: MzSession,
     /// The newest epoch the browser holds.
@@ -340,7 +390,6 @@ impl MzPeerState {
                         self.remove_source(key);
                     }
                 }
-                self.spare.truncate(merkur_codec::MAX_TERMINAL_ROWS);
                 self.generation = generation;
                 self.newest = None;
                 self.session.begin_generation();
@@ -367,53 +416,28 @@ impl MzPeerState {
     /// Every source goes, so the pair index goes whole rather than pair by pair.
     fn clear_sources(&mut self) {
         for (_, source) in self.sources.drain() {
-            self.spare.push(source);
+            release_source_form(source);
         }
-        self.spare.truncate(merkur_codec::MAX_TERMINAL_ROWS);
         self.pairs.clear();
         self.order.clear();
         self.previous_order.clear();
     }
 
-    fn add_source(&mut self, key: SourceKey, cells: &[CellRepr]) {
+    fn add_source(&mut self, key: SourceKey, cells: &RowCells) {
+        #[cfg(test)]
+        { self.source_admissions += 1; }
         if self.sources.contains_key(&key) {
             self.remove_source(key);
             self.order.retain(|&held| held != key);
             self.previous_order.retain(|&held| held != key);
         }
-        let mut source = self.spare.pop().unwrap_or(Source {
-            entry: Vec::new(),
-            items: Vec::new(),
-            hashes: Vec::new(),
-            first: 0,
-            mode: 0,
-        });
-        source.entry.clear();
-        encode_full_row_entry(&mut source.entry, 0, cells);
-        let Some((first, mode)) = entry_items(&source.entry, &mut source.items) else {
-            self.spare.push(source);
-            return;
-        };
-        source.first = first;
-        source.mode = mode;
-        source.hashes.clear();
-        let row_view = MzRow { entry: &source.entry, first, items: &source.items, mode, hashes: &[] };
-        let mut previous = None;
-        for index in 0..source.items.len() {
-            let Some(hash) = item_bytes(&row_view, index).map(item_hash) else {
-                break;
-            };
-            source.hashes.push(hash);
-            if let Some(prior) = previous {
-                let Ok(item) = u16::try_from(index - 1) else {
-                    break;
-                };
-                self.pairs
-                    .entry(pair_hash(prior, hash))
-                    .or_default()
-                    .push(key, item);
-            }
-            previous = Some(hash);
+        let Some(source) = cells.mz_source(#[cfg(test)] &mut self.source_preparations) else { return };
+        for (index, hashes) in source.hashes.windows(2).enumerate() {
+            let Ok(item) = u16::try_from(index) else { break };
+            self.pairs
+                .entry(pair_hash(hashes[0], hashes[1]))
+                .or_default()
+                .push(key, item);
         }
         self.sources.insert(key, source);
         // Sequence order, not acknowledgement order: reach and floor are
@@ -454,7 +478,7 @@ impl MzPeerState {
                 }
             }
         }
-        self.spare.push(source);
+        release_source_form(source);
     }
 
     /// What frames are coded against, as a count of the browser's refusals
@@ -610,10 +634,10 @@ impl MzMatches for History<'_> {
 
 /// The rows of an applied datagram the browser's history records: complete,
 /// linkless, without graphics.
-pub(crate) fn recorded_rows<'a>(rows: impl IntoIterator<Item = &'a SentRow>) -> Vec<(u16, Arc<[CellRepr]>)> {
+pub(crate) fn recorded_rows<'a>(rows: impl IntoIterator<Item = &'a SentRow>) -> Vec<(u16, RowCells)> {
     rows.into_iter()
         .filter(|sent| sent.complete && sent.graphics.is_none() && sent.cells.iter().all(|cell| cell.link == 0))
-        .map(|sent| (sent.row, Arc::clone(&sent.cells)))
+        .map(|sent| (sent.row, sent.cells.clone()))
         .collect()
 }
 

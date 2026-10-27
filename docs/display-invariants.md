@@ -572,8 +572,15 @@ Copies from history follow the ledger both ends keep:
 - **A source is any acknowledged complete row.** The daemon's owner loop learns which rows the
   browser holds from acknowledgements and display generations, and queues those facts for the
   peer's encoder (`PeerMz`), which applies them before its next frame and indexes each source's
-  item pairs. Rows with graphics are never sources (prevents a scrolling flood resending every
-  line as a literal for as long as it moves faster than one ACK).
+  item pairs. A source retires, in sequence order, once it is out of reach or below the ledger's
+  floor however its acknowledgement arrived, and its item pairs leave the index with it (prevents
+  a wide row's live pairs keeping the index over a size that swept it after every
+  acknowledgement). A source's canonical form, its full-row entry, items and item hashes, belongs
+  to the captured row it was acknowledged as, prepared once and shared by every peer and every
+  occurrence of that row; names, pair memberships and retirement stay per peer (prevents a
+  scrolled row being prepared again at every line it moves to). Rows with graphics are never
+  sources (prevents a scrolling flood resending every line as a literal for as long as it moves
+  faster than one ACK).
 - **Both ends keep the same ledgers.** Each display generation has one: history reaches 512
   datagrams, keeps 1024, and holds at most `MZ_HISTORY_BYTES` (8 MiB) of distinct rows, retiring
   the oldest datagram first (`MzLedger`). The current generation's ledger and the one before it,

@@ -1,6 +1,7 @@
 //! Display send path: flush scheduling, row classification, datagram
 //! batching/pacing, FEC grouping, reliable/jumbo frames, and snapshots.
 
+use crate::pty::terminal::RowCells;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -166,7 +167,7 @@ struct DisplayCompressionPolicy {
 struct DisplayPrepareRow {
     request: DisplayRowRequest,
     sent: CapturedRow,
-    baseline: Arc<[CellRepr]>,
+    baseline: RowCells,
     baseline_revision: u64,
     utility: DisplayUtility,
     encoded_size: usize,
@@ -6044,7 +6045,7 @@ pub(crate) async fn finish_display_prepare(
             .get(row_index)
             .zip(peer.display_cache.acked_row_revisions.get(row_index))
             .is_some_and(|(current, revision)| {
-                Arc::ptr_eq(current, &row.baseline) && *revision == row.baseline_revision
+                RowCells::ptr_eq(current, &row.baseline) && *revision == row.baseline_revision
             })
     });
     let current_ordering_matches =
@@ -6842,7 +6843,7 @@ fn capture_prepare_rows(
         out.push(DisplayPrepareRow {
             request: *request,
             sent: sent.clone(),
-            baseline: Arc::clone(baseline),
+            baseline: RowCells::clone(baseline),
             baseline_revision,
             utility: display_row_utility(request.row, cursor_row, terminal.rows),
             encoded_size,

@@ -2091,7 +2091,7 @@ impl DisplaySim {
     /// The flush's hash pass alone — `flush_display`'s refresh of the per-row
     /// hash baseline and the per-flush row captures — so an allocation oracle
     /// can attribute the one allocation this stage makes per dirty row (the
-    /// `Arc<[CellRepr]>` capture, kept by design) separately from the peer flush
+    /// `RowCells` capture, kept by design) separately from the peer flush
     /// behind it. Returns how many rows were re-captured.
     #[cfg(test)]
     pub(crate) fn hash_dirty_rows(&mut self) -> usize {
@@ -3978,6 +3978,8 @@ mod mz_census {
 
     #[derive(Default, Debug, Clone, Copy)]
     struct Replay {
+        admissions: usize,
+        preparations: usize,
         datagram_bytes: usize,
         reliable_bytes: usize,
         datagrams: usize,
@@ -4079,7 +4081,13 @@ mod mz_census {
         let diverged_rows = viewers.diverged_rows(&peer, &daemon).len();
         REFERENCING.store(sim.peer_frames_referencing(&peer), Relaxed);
         let viewer = viewers.viewer(&peer);
+        let (admissions, preparations) = {
+            let state = sim.peers[peer.as_str()].display_cache.references.peer().lock();
+            (state.source_admissions, state.source_preparations)
+        };
         let result = Replay {
+            admissions,
+            preparations,
             datagram_bytes: sim.wire_bytes(),
             reliable_bytes: sim.reliable().iter().map(|frame| frame.len).sum(),
             datagrams: sim.wire().len(),
@@ -4199,6 +4207,8 @@ mod mz_census {
                 arms[arm] = replay(&recording, mz, loss_pct).await;
                 let total = &mut totals[arm];
                 let r = arms[arm];
+                total.admissions += r.admissions;
+                total.preparations += r.preparations;
                 total.datagram_bytes += r.datagram_bytes;
                 total.reliable_bytes += r.reliable_bytes;
                 total.datagrams += r.datagrams;
@@ -4229,6 +4239,9 @@ mod mz_census {
             totals[0],
             totals[1],
         );
+        println!("MZ SOURCES admissions {} preparations {}",
+            totals.iter().map(|total| total.admissions).sum::<usize>(),
+            totals.iter().map(|total| total.preparations).sum::<usize>());
         assert_eq!(totals[1].diverged_rows, 0, "a browser grid diverged under MZ");
         assert_eq!(totals[0].diverged_rows, 0, "a browser grid diverged without MZ");
     }
