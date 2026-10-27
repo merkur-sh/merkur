@@ -230,7 +230,7 @@ impl GraphicsRows {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::Terminal;
     use alacritty_terminal::grid::Dimensions;
@@ -238,7 +238,7 @@ mod tests {
     use merkur_graphics::geometry::{CELL_UNIT, RowSlice};
     use merkur_graphics::projection::{Content, Stack};
 
-    fn image(left: u16, placement: u64) -> Fragment {
+    pub(crate) fn image(left: u16, placement: u64) -> Fragment {
         Fragment {
             content: Content {
                 kind: merkur_graphics::projection::ContentKind::Image,

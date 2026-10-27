@@ -658,6 +658,249 @@ fn linked_rows_hash_like_the_daemon_and_a_link_only_change_dirties_the_hash() {
 }
 
 #[test]
+fn complete_row_reuses_the_single_history_hash() {
+    let mut terminal = Terminal::new_headless(16, 2);
+    terminal.refresh_row_hashes();
+    terminal.row_hash_computations = 0;
+    let frame = text_rows_frame(FrameKind::Delta, 16, 2, &[(0, 'x')]);
+    assert!(terminal.apply_delta_seq(&frame, 1));
+    terminal.refresh_row_hashes();
+    assert_eq!(terminal.row_hash_computations, 1);
+    assert_row_hashes_match_oracle(&mut terminal, "single history hash");
+}
+
+#[test]
+fn known_hash_publish_and_later_mutation_share_the_dirty_flag() {
+    let mut terminal = Terminal::new_headless(16, 2);
+    terminal.refresh_row_hashes();
+    let partial = test_frame_with_rows(
+        FrameKind::Delta,
+        16,
+        2,
+        RowRef {
+            row_index: 0,
+            left: 3,
+            cells: &[test_cell('p')],
+            graphics: &[],
+        },
+    );
+    let full = text_rows_frame(FrameKind::Delta, 16, 2, &[(0, 'x')]);
+    assert!(terminal.apply_delta_seq(&partial, 1));
+    assert!(terminal.apply_delta_seq(&full, 2));
+    assert_eq!(terminal.row_hash_dirty_list, [0]);
+    assert!(!terminal.row_hash_dirty[0]);
+    terminal.row_hash_computations = 0;
+    terminal.refresh_row_hashes();
+    assert_eq!(
+        terminal.row_hash_computations, 0,
+        "skip obsolete list entry"
+    );
+    assert!(terminal.apply_delta_seq(&full, 3));
+    assert!(terminal.apply_delta_seq(&partial, 4));
+    assert!(terminal.row_hash_dirty[0]);
+    terminal.row_hash_computations = 0;
+    terminal.refresh_row_hashes();
+    assert_eq!(
+        terminal.row_hash_computations, 1,
+        "later span invalidates publication"
+    );
+    assert_row_hashes_match_oracle(&mut terminal, "full then partial");
+    assert!(terminal.apply_delta_seq(&full, 3));
+    assert_row_hashes_match_oracle(&mut terminal, "stale full row is history only");
+}
+
+#[test]
+fn a_full_row_with_rejected_cells_keeps_the_grid_hash_dirty() {
+    let mut terminal = Terminal::new_headless(16, 2);
+    terminal.refresh_row_hashes();
+    let partial = test_frame_with_rows(
+        FrameKind::Delta,
+        16,
+        2,
+        RowRef {
+            row_index: 0,
+            left: 3,
+            cells: &[test_cell('p')],
+            graphics: &[],
+        },
+    );
+    assert!(terminal.apply_delta_seq(&partial, 3));
+    let snapshot = text_rows_frame(FrameKind::Snapshot, 16, 2, &[(0, 'x')]);
+    assert!(terminal.apply_state_seq(&snapshot, 2));
+    assert!(terminal.row_hash_dirty[0]);
+    terminal.row_hash_computations = 0;
+    terminal.refresh_row_hashes();
+    assert_eq!(terminal.row_hash_computations, 1);
+    assert_row_hashes_match_oracle(&mut terminal, "snapshot skipped a newer cell");
+}
+
+#[test]
+fn later_links_graphics_and_resize_invalidate_a_known_hash() {
+    let mut terminal = Terminal::new_headless(16, 2);
+    terminal.refresh_row_hashes();
+    let full = text_rows_frame(FrameKind::Delta, 16, 2, &[(0, 'x')]);
+    let mut seq = 1;
+    for graphics in [false, true] {
+        assert!(terminal.apply_delta_seq(&full, seq));
+        seq += 1;
+        let mut cell = test_cell('x');
+        if !graphics {
+            cell.link = 71;
+        }
+        let fragments = if graphics {
+            vec![graphics::tests::image(3, 1)]
+        } else {
+            vec![]
+        };
+        let partial = test_frame_with_rows(
+            FrameKind::Delta,
+            16,
+            2,
+            RowRef {
+                row_index: 0,
+                left: 3,
+                cells: &[cell],
+                graphics: &fragments,
+            },
+        );
+        assert!(terminal.apply_delta_seq(&partial, seq));
+        seq += 1;
+        assert!(terminal.row_hash_dirty[0]);
+        assert_row_hashes_match_oracle(&mut terminal, "later link/graphics mutation");
+        assert!(terminal.apply_delta_seq(&full, seq));
+        seq += 1;
+        assert_row_hashes_match_oracle(&mut terminal, "clear links/graphics");
+    }
+    assert!(terminal.apply_delta_seq(&full, seq));
+    terminal.resize(20, 3);
+    assert_row_hashes_match_oracle(&mut terminal, "resize after publish");
+}
+
+fn random_hash_test_cell(bits: u32, linked: bool) -> CellRepr {
+    let byte = bits.to_le_bytes()[0];
+    let mut cell = test_cell([' ', 'a', '界', '😀', '\u{301}', '\0'][(bits % 6) as usize]);
+    cell.fg = if bits & 1 == 0 {
+        DEFAULT_FOREGROUND
+    } else {
+        [byte, 17, 93]
+    };
+    cell.bg = if bits & 2 == 0 {
+        DEFAULT_BACKGROUND
+    } else {
+        [81, byte, 29]
+    };
+    for (bit, attr) in [
+        (2, CellAttrs::BOLD),
+        (3, CellAttrs::ITALIC),
+        (4, CellAttrs::UNDERLINE),
+        (5, CellAttrs::INVERSE),
+        (6, CellAttrs::WIDE),
+    ] {
+        if bits & (1 << bit) != 0 {
+            cell.attrs |= attr;
+        }
+    }
+    if cell.bg == DEFAULT_BACKGROUND && bits & 128 != 0 {
+        cell.attrs |= CellAttrs::EXPLICIT_DEFAULT_BG;
+    }
+    if linked {
+        cell.link = 1 + bits % 7;
+    }
+    cell
+}
+
+#[test]
+fn randomized_frame_drains_publish_reference_row_hashes() {
+    // Fixed seeds replay real encoded frames through both raw and staged apply.
+    for seed in 1..=12u32 {
+        let mut rng = seed;
+        let mut random = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 17;
+            rng ^= rng << 5;
+            rng
+        };
+        let mut terminal = Terminal::new_headless(16, 4);
+        let mut seq = 1u32;
+        for drain in 0..120 {
+            for _ in 0..1 + random() % 4 {
+                let value = random();
+                if value % 13 == 0 {
+                    terminal.resize(8 + (random() % 17) as u16, 2 + (random() % 5) as u16);
+                }
+                let snapshot = value % 11 == 0;
+                let (cols, rows) = if snapshot {
+                    terminal.reset_display_ordering();
+                    (8 + (random() % 17) as u16, 2 + (random() % 5) as u16)
+                } else {
+                    (terminal.cols(), terminal.rows())
+                };
+                let kind = if snapshot {
+                    FrameKind::Snapshot
+                } else {
+                    FrameKind::Delta
+                };
+                let left = if value % 3 == 0 {
+                    u16::from(random().to_le_bytes()[0]) % cols
+                } else {
+                    0
+                };
+                let len = if left == 0 { cols } else { cols - left };
+                let mut cells: Vec<_> = (0..len)
+                    .map(|_| random_hash_test_cell(random(), value % 5 == 0))
+                    .collect();
+                if value & 256 != 0 {
+                    cells.last_mut().unwrap().attrs |= CellAttrs::WRAPPED;
+                }
+                let fragments = if value % 7 == 0 {
+                    vec![graphics::tests::image(0, u64::from(seq))]
+                } else {
+                    vec![]
+                };
+                let frame = test_frame_with_rows(
+                    kind,
+                    cols,
+                    rows,
+                    RowRef {
+                        row_index: u16::from(random().to_le_bytes()[0]) % rows,
+                        left,
+                        cells: &cells,
+                        graphics: &fragments,
+                    },
+                );
+                let apply_seq = if !snapshot && value % 4 == 0 {
+                    seq.saturating_sub(3).max(1)
+                } else {
+                    seq
+                };
+                if value & 512 != 0 {
+                    let handle = terminal.stage_display_frame_bytes(&frame);
+                    assert_ne!(handle, 0);
+                    assert!(terminal.validate_staged_frame(handle));
+                    assert!(if snapshot {
+                        terminal.apply_staged_state_seq(handle, apply_seq)
+                    } else {
+                        terminal.apply_staged_delta_seq(handle, apply_seq)
+                    });
+                    terminal.release_staged_frame(handle);
+                } else {
+                    assert!(if snapshot {
+                        terminal.apply_state_seq(&frame, apply_seq)
+                    } else {
+                        terminal.apply_delta_seq(&frame, apply_seq)
+                    });
+                }
+                terminal.predict_printable(u32::from('z'), f64::from(seq), seq, true);
+                seq += 1;
+            }
+            assert_row_hashes_match_oracle(&mut terminal, &format!("seed={seed} drain={drain}"));
+            terminal.commit_presentation_state();
+            assert_row_hashes_match_oracle(&mut terminal, "presentation commit");
+        }
+    }
+}
+
+#[test]
 fn viewport_text_columns_map_code_units_past_wide_and_astral_characters() {
     let mut terminal = Terminal::new(6, 1);
     let mut cells = vec![
@@ -741,9 +984,8 @@ fn incremental_row_hashes_track_every_grid_mutation() {
     assert_row_hashes_match_oracle(&mut terminal, "snapshot after resize");
 }
 
-/// Two frames in one drain must hash the row they share exactly once, and
-/// still leave it correct. This is the property that makes per-drain
-/// refreshing cheaper than the per-heartbeat full-grid pass it replaces.
+/// Repeated complete rows in one drain publish each history hash directly.
+/// The final publication stays correct with no grid hash pass at refresh.
 #[test]
 fn one_refresh_covers_every_frame_of_a_drain() {
     const COLS: u16 = 16;
@@ -757,8 +999,9 @@ fn one_refresh_covers_every_frame_of_a_drain() {
         let delta = text_rows_frame(FrameKind::Delta, COLS, ROWS, &[(3, fill)]);
         assert!(terminal.apply_presented_delta_seq(&delta, 2 + index as u32));
     }
-    // One row was touched three times; the dirty list must hold it once.
-    assert_eq!(terminal.row_hash_dirty_list, vec![3]);
+    // Each complete row already published its history hash.
+    assert!(terminal.row_hash_dirty_list.is_empty());
+    assert!(!terminal.row_hash_dirty[3]);
 
     assert_row_hashes_match_oracle(&mut terminal, "coalesced drain");
 }

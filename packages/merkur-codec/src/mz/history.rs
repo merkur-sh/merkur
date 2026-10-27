@@ -481,9 +481,19 @@ impl RowHistory {
     /// Datagram `seq` of `generation` (0: its snapshot), on a grid `cols`
     /// wide, carried `cells` as the complete row `row`, whether or not the
     /// grid applied it.
-    pub fn record(&mut self, generation: u32, seq: u32, row: u16, cells: &[CellRepr], cols: u16) {
+    /// Return the exact cell hash computed for a complete linkless row, even
+    /// when its generation no longer admits history. Linked/incomplete rows
+    /// have no history key.
+    pub fn record(
+        &mut self,
+        generation: u32,
+        seq: u32,
+        row: u16,
+        cells: &[CellRepr],
+        cols: u16,
+    ) -> Option<u64> {
         if cells.len() != usize::from(cols) || cells.iter().any(|cell| cell.link != 0) {
-            return;
+            return None;
         }
         let key = crate::row_hash(cells);
         self.generations.record(
@@ -496,6 +506,7 @@ impl RowHistory {
                 cells,
             },
         );
+        Some(key)
     }
 
     /// The complete row a frame of `generation` presented as

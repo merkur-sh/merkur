@@ -646,6 +646,8 @@ pub struct Terminal {
     /// complete. Predictions are a shadow overlay and never reach the grid, which
     /// is what keeps these hashes comparable with the daemon's.
     row_hashes: Vec<u64>,
+    #[cfg(test)]
+    row_hash_computations: usize,
     /// Rows whose entry in `row_hashes` is stale. Dirty rows are hashed once per
     /// `refresh_row_hashes`, so a row rewritten by several frames in one drain
     /// costs one hash rather than one per frame.
@@ -1311,6 +1313,8 @@ impl Terminal {
             row_hash_dirty: Vec::new(),
             row_hash_dirty_list: Vec::new(),
             row_hash_all_dirty: true,
+            #[cfg(test)]
+            row_hash_computations: 0,
             frame_rows_scratch: Vec::new(),
             frame_cells_scratch: Vec::new(),
             frame_row_seen_scratch: Vec::new(),
@@ -2057,6 +2061,19 @@ impl Terminal {
             self.display_row_link_cells.clear();
             self.display_row_link_cells.resize(rows, 0);
         }
+        // Materialize whole-grid invalidation before publishing individual
+        // known hashes. Rows a snapshot omits must still be refreshed.
+        if self.row_hash_all_dirty
+            || self.row_hashes.len() != rows
+            || self.row_hash_dirty.len() != rows
+        {
+            self.row_hashes.resize(rows, 0);
+            self.row_hash_dirty.resize(rows, true);
+            self.row_hash_dirty.fill(true);
+            self.row_hash_dirty_list.clear();
+            self.row_hash_dirty_list.extend(0..header.rows);
+            self.row_hash_all_dirty = false;
+        }
         let authoritative_revision = self.authoritative_revision.wrapping_add(1).max(1);
         self.authoritative_revision = authoritative_revision;
         let mut visually_changed_rows = 0usize;
@@ -2068,14 +2085,20 @@ impl Terminal {
             // Every complete row a frame carries is history a reference may
             // name, as the frame carried it, whether or not the grid takes it;
             // a snapshot is datagram 0 of its generation.
-            if row.left == 0 && cells.len() == cols {
+            let known_hash = if row.left == 0 && cells.len() == cols {
                 self.display_mz.history.record(
                     generation,
                     if snapshot { 0 } else { seq },
                     row.row_index,
                     cells,
                     header.cols,
-                );
+                )
+            } else {
+                None
+            };
+            #[cfg(test)]
+            if known_hash.is_some() {
+                self.row_hash_computations += 1;
             }
             // ACK-baseline deltas can contain disjoint cells from a shared
             // baseline. Reject the entire stale row, not just overlapping
@@ -2101,6 +2124,15 @@ impl Terminal {
                     authoritative_revision,
                 )
             };
+            let publish_hash = known_hash.filter(|_| {
+                applied_cells == cols
+                    && row.graphics_start == row.graphics_end
+                    && self
+                        .graphics
+                        .as_ref()
+                        .and_then(|graphics| graphics.digest(row_index))
+                        .is_none()
+            });
             let applied = applied_cells > 0;
             // Authority advances even when a repair carries the exact content
             // already present. Ordering and prediction evidence are not damage.
@@ -2113,7 +2145,7 @@ impl Terminal {
             }
             // A link is hashed but never drawn, so a row whose only change is
             // a link id is stale in `row_hashes` without being damage.
-            if links_changed && damage.is_none() {
+            if links_changed && damage.is_none() && publish_hash.is_none() {
                 mark_row_hash_dirty(
                     &mut self.row_hash_all_dirty,
                     &mut self.row_hash_dirty,
@@ -2124,13 +2156,34 @@ impl Terminal {
             if let Some((first, last)) = damage {
                 widen_damaged_cells(&mut self.presentation_dirty_cells[row_index], first, last);
                 shadow_authority_changed |= shadow_row == Some(row_index);
-                mark_row_hash_dirty(
-                    &mut self.row_hash_all_dirty,
-                    &mut self.row_hash_dirty,
-                    &mut self.row_hash_dirty_list,
-                    row.row_index,
-                );
+                if publish_hash.is_none() {
+                    mark_row_hash_dirty(
+                        &mut self.row_hash_all_dirty,
+                        &mut self.row_hash_dirty,
+                        &mut self.row_hash_dirty_list,
+                        row.row_index,
+                    );
+                }
                 visually_changed_rows += 1;
+            }
+            if let Some(hash) = publish_hash {
+                // Every cell and link id was replaced; write_cell round-trips
+                // the decoded digest fields. Graphics replacements below and
+                // later frames invalidate this publication through the same flag.
+                #[cfg(debug_assertions)]
+                {
+                    let reference = hash_row(
+                        self.term.grid(),
+                        Line(i32::from(row.row_index)),
+                        cols,
+                        &[],
+                        None,
+                        &mut self.hash_digest_scratch,
+                    );
+                    debug_assert_eq!(hash, reference);
+                }
+                self.row_hashes[row_index] = hash;
+                self.row_hash_dirty[row_index] = false;
             }
         }
 
@@ -2350,9 +2403,10 @@ impl Terminal {
     /// Bring `row_hashes` up to date with the grid and return its base address.
     ///
     /// Called once per display drain rather than once per applied frame, so a
-    /// row several frames touched is hashed once. This is the only place the
-    /// hash pass runs: `row_hash` below stays as the direct, per-call reference
-    /// the tests compare against.
+    /// row several partial frames touched is hashed once. Complete linkless
+    /// rows without graphics publish the hash their history already computed.
+    /// This is the only place the grid hash pass runs: `row_hash` below stays
+    /// as the direct, per-call reference the tests compare against.
     ///
     /// Returning the pointer follows `cursor_info_ptr`: the reader must go
     /// through the refreshing export, so there is no address to read stale.
@@ -2379,7 +2433,7 @@ impl Terminal {
         // steady session allocates nothing here.
         while let Some(row) = self.row_hash_dirty_list.pop() {
             let index = usize::from(row);
-            if index >= rows {
+            if index >= rows || !self.row_hash_dirty[index] {
                 continue;
             }
             self.row_hash_dirty[index] = false;
@@ -2428,6 +2482,10 @@ impl Terminal {
     }
 
     fn compute_row_hash(&mut self, row: usize) -> u64 {
+        #[cfg(test)]
+        {
+            self.row_hash_computations += 1;
+        }
         let grid = self.term.grid();
         let cols = grid.columns();
         if row >= grid.screen_lines() {
