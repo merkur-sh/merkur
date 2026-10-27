@@ -1135,3 +1135,42 @@ mod tests {
         row
     }
 }
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use crate::term::cell::Cell;
+
+    #[test]
+    fn whole_row_moves_preserve_capture_keys() {
+        let mut storage = Storage::<Cell>::with_capacity(4, 4);
+        let mut next = 1;
+        for line in 0..4 {
+            storage[Line(line)].issue_capture_key(&mut next);
+        }
+        storage.swap(Line(0), Line(3));
+        assert_eq!(storage[Line(0)].capture_key(), 4);
+        assert_eq!(storage[Line(3)].capture_key(), 1);
+        storage.rotate(1);
+        storage.rotate_down(1);
+        let keys: Vec<_> = (0..4)
+            .map(|line| storage[Line(line)].capture_key())
+            .collect();
+        assert_eq!(keys, [3, 1, 4, 2]);
+        storage.rezero();
+        assert_eq!(
+            (0..4)
+                .map(|line| storage[Line(line)].capture_key())
+                .collect::<Vec<_>>(),
+            keys
+        );
+        let rows = storage.take_all();
+        storage.replace_inner(rows);
+        assert_eq!(
+            (0..4)
+                .map(|line| storage[Line(line)].capture_key())
+                .collect::<Vec<_>>(),
+            keys
+        );
+    }
+}

@@ -18,6 +18,11 @@ use crate::term::cell::ResetDiscriminant;
 pub struct Row<T> {
     inner: Vec<T>,
 
+    /// Nonzero proves cells unchanged since capture. Every mutable cell exit clears it;
+    /// whole-row movement preserves it. Only capture issues terminal-local keys.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    capture_key: u64,
+
     /// Maximum number of occupied entries.
     ///
     /// This is the upper bound on the number of elements in the row, which have been modified
@@ -33,6 +38,7 @@ impl<T: Clone> Clone for Row<T> {
             inner: self.inner.clone(),
             occ: self.occ,
             anchors: None,
+            capture_key: 0,
         }
     }
 }
@@ -69,12 +75,14 @@ impl<T: Default> Row<T> {
             inner,
             occ: 0,
             anchors: None,
+            capture_key: 0,
         }
     }
 
     /// Increase the number of columns in the row.
     #[inline]
     pub fn grow(&mut self, columns: usize) {
+        self.capture_key = 0;
         if self.inner.len() >= columns {
             return;
         }
@@ -89,6 +97,7 @@ impl<T: Default> Row<T> {
     where
         T: GridCell,
     {
+        self.capture_key = 0;
         if self.inner.len() <= columns {
             return None;
         }
@@ -122,6 +131,7 @@ impl<T: Default> Row<T> {
         T: ResetDiscriminant<D> + GridCell,
         D: PartialEq,
     {
+        self.capture_key = 0;
         debug_assert!(!self.inner.is_empty());
 
         // Mark all cells as dirty if template cell changed.
@@ -141,12 +151,31 @@ impl<T: Default> Row<T> {
 
 #[allow(clippy::len_without_is_empty)]
 impl<T> Row<T> {
+    /// Zero means cells may have changed since the last capture, or were never captured.
+    #[inline]
+    pub fn capture_key(&self) -> u64 {
+        self.capture_key
+    }
+
+    /// Issue a key only after mutation. The terminal shares one counter across both grids.
+    #[inline]
+    pub fn issue_capture_key(&mut self, next: &mut u64) -> u64 {
+        if self.capture_key == 0 {
+            self.capture_key = *next;
+            *next = next
+                .checked_add(1)
+                .expect("terminal cannot exhaust row capture keys");
+        }
+        self.capture_key
+    }
+
     #[inline]
     pub fn from_vec(vec: Vec<T>, occ: usize) -> Row<T> {
         Row {
             inner: vec,
             occ,
             anchors: None,
+            capture_key: 0,
         }
     }
 
@@ -162,6 +191,7 @@ impl<T> Row<T> {
 
     #[inline]
     pub fn last_mut(&mut self) -> Option<&mut T> {
+        self.capture_key = 0;
         self.occ = self.inner.len();
         self.inner.last_mut()
     }
@@ -171,6 +201,8 @@ impl<T> Row<T> {
     where
         T: GridCell,
     {
+        self.capture_key = 0;
+        row.capture_key = 0;
         self.occ += row.len();
         if let Some(mut anchors) = row.anchors.take() {
             self.anchors
@@ -182,6 +214,8 @@ impl<T> Row<T> {
 
     #[inline]
     pub fn append_front(&mut self, mut row: Row<T>) {
+        self.capture_key = 0;
+        row.capture_key = 0;
         self.occ += row.len();
         if let Some(mut anchors) = self.anchors.take() {
             row.anchors
@@ -204,12 +238,14 @@ impl<T> Row<T> {
 
     #[inline]
     pub fn front_split_off(&mut self, at: usize) -> Row<T> {
+        self.capture_key = 0;
         let mut tail = self.split_off(at);
         std::mem::swap(self, &mut tail);
         tail
     }
 
     fn split_off(&mut self, at: usize) -> Row<T> {
+        self.capture_key = 0;
         let inner = self.inner.split_off(at);
         let anchors = self.anchors.as_mut().and_then(|anchors| {
             let tail = anchors.split(at);
@@ -222,6 +258,7 @@ impl<T> Row<T> {
             inner,
             occ,
             anchors,
+            capture_key: 0,
         }
     }
 
@@ -260,11 +297,13 @@ impl<T> Row<T> {
     }
 
     pub(super) fn push(&mut self, cell: T) {
+        self.capture_key = 0;
         self.inner.push(cell);
         self.occ = self.inner.len();
     }
 
     pub(super) fn prepend(&mut self, cell: T) {
+        self.capture_key = 0;
         if let Some(anchors) = &self.anchors {
             anchors.shift(1);
         }
@@ -273,6 +312,7 @@ impl<T> Row<T> {
     }
 
     pub(super) fn truncate(&mut self, columns: usize) {
+        self.capture_key = 0;
         if columns < self.inner.len() {
             drop(self.split_off(columns));
         }
@@ -295,6 +335,7 @@ impl<'a, T> IntoIterator for &'a mut Row<T> {
 
     #[inline]
     fn into_iter(self) -> slice::IterMut<'a, T> {
+        self.capture_key = 0;
         self.occ = self.len();
         self.inner.iter_mut()
     }
@@ -312,6 +353,7 @@ impl<T> Index<Column> for Row<T> {
 impl<T> IndexMut<Column> for Row<T> {
     #[inline]
     fn index_mut(&mut self, index: Column) -> &mut T {
+        self.capture_key = 0;
         self.occ = max(self.occ, *index + 1);
         &mut self.inner[index.0]
     }
@@ -329,6 +371,7 @@ impl<T> Index<Range<Column>> for Row<T> {
 impl<T> IndexMut<Range<Column>> for Row<T> {
     #[inline]
     fn index_mut(&mut self, index: Range<Column>) -> &mut [T] {
+        self.capture_key = 0;
         self.occ = max(self.occ, *index.end);
         &mut self.inner[(index.start.0)..(index.end.0)]
     }
@@ -346,6 +389,7 @@ impl<T> Index<RangeTo<Column>> for Row<T> {
 impl<T> IndexMut<RangeTo<Column>> for Row<T> {
     #[inline]
     fn index_mut(&mut self, index: RangeTo<Column>) -> &mut [T] {
+        self.capture_key = 0;
         self.occ = max(self.occ, *index.end);
         &mut self.inner[..(index.end.0)]
     }
@@ -363,6 +407,7 @@ impl<T> Index<RangeFrom<Column>> for Row<T> {
 impl<T> IndexMut<RangeFrom<Column>> for Row<T> {
     #[inline]
     fn index_mut(&mut self, index: RangeFrom<Column>) -> &mut [T] {
+        self.capture_key = 0;
         self.occ = self.len();
         &mut self.inner[(index.start.0)..]
     }
@@ -380,6 +425,7 @@ impl<T> Index<RangeFull> for Row<T> {
 impl<T> IndexMut<RangeFull> for Row<T> {
     #[inline]
     fn index_mut(&mut self, _: RangeFull) -> &mut [T] {
+        self.capture_key = 0;
         self.occ = self.len();
         &mut self.inner[..]
     }
@@ -397,7 +443,108 @@ impl<T> Index<RangeToInclusive<Column>> for Row<T> {
 impl<T> IndexMut<RangeToInclusive<Column>> for Row<T> {
     #[inline]
     fn index_mut(&mut self, index: RangeToInclusive<Column>) -> &mut [T] {
+        self.capture_key = 0;
         self.occ = max(self.occ, *index.end + 1);
         &mut self.inner[..=(index.end.0)]
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use crate::term::cell::Cell;
+
+    fn keyed() -> Row<Cell> {
+        let mut row = Row::new(4);
+        assert_eq!(row.issue_capture_key(&mut 1), 1);
+        row
+    }
+
+    fn invalidates(edit: impl FnOnce(&mut Row<Cell>)) {
+        let mut row = keyed();
+        edit(&mut row);
+        assert_eq!(row.capture_key(), 0);
+    }
+
+    #[test]
+    fn every_mutable_cell_exit_invalidates_capture() {
+        invalidates(|row| {
+            let _ = &mut row[Column(0)];
+        });
+        invalidates(|row| {
+            let _ = &mut row[Column(0)..Column(2)];
+        });
+        invalidates(|row| {
+            let _ = &mut row[..Column(2)];
+        });
+        invalidates(|row| {
+            let _ = &mut row[Column(2)..];
+        });
+        invalidates(|row| {
+            let _ = &mut row[..];
+        });
+        invalidates(|row| {
+            let _ = &mut row[..=Column(2)];
+        });
+        invalidates(|row| {
+            let _ = row.last_mut();
+        });
+        invalidates(|row| {
+            let _ = row.into_iter();
+        });
+        invalidates(|row| row.grow(6));
+        invalidates(|row| row.grow(4));
+        invalidates(|row| {
+            row.shrink(2);
+        });
+        invalidates(|row| row.reset(&Cell::default()));
+        invalidates(|row| {
+            let mut other = keyed();
+            row.append(&mut other);
+            assert_eq!(other.capture_key(), 0);
+        });
+        invalidates(|row| row.append_front(keyed()));
+        invalidates(|row| {
+            assert_eq!(row.front_split_off(2).capture_key(), 0);
+        });
+        invalidates(|row| {
+            assert_eq!(row.split_off(2).capture_key(), 0);
+        });
+        invalidates(|row| row.push(Cell::default()));
+        invalidates(|row| row.prepend(Cell::default()));
+        invalidates(|row| row.truncate(2));
+        invalidates(|row| row.truncate(4));
+        invalidates(|row| {
+            row.shrink(4);
+        });
+    }
+
+    #[test]
+    fn construction_and_serialization_never_duplicate_keys() {
+        let mut next = 1;
+        let mut row = Row::<Cell>::new(4);
+        assert_eq!(row.capture_key(), 0);
+        assert_eq!(Row::<Cell>::default().capture_key(), 0);
+        assert_eq!(Row::from_vec(vec![Cell::default()], 0).capture_key(), 0);
+        assert_eq!(row.issue_capture_key(&mut next), 1);
+        assert_eq!(row.issue_capture_key(&mut next), 1);
+        assert_eq!(next, 2);
+        assert_eq!(row.clone().capture_key(), 0);
+        let _ = &row[Column(0)];
+        assert_eq!(row.capture_key(), 1);
+        row[Column(0)].c = 'x';
+        assert_eq!(row.issue_capture_key(&mut next), 2);
+        assert_eq!(next, 3);
+        assert_eq!(
+            std::mem::size_of::<Row<Cell>>() % std::mem::size_of::<usize>(),
+            0
+        );
+        #[cfg(feature = "serde")]
+        {
+            let encoded = serde_json::to_string(&row).unwrap();
+            let decoded: Row<Cell> = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded.capture_key(), 0);
+            assert_eq!(decoded, row);
+        }
     }
 }

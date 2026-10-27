@@ -1147,11 +1147,18 @@ the image worker's `tile-codec-bench` example and build both graphics WASM packa
 The zstd comparison crate is benchmark-only. The codec decision rests on those measurements; this is not integrated
 image-delivery or physical-device acceptance.
 
-A terminal flush captures each changed row once and derives its cells, encoded bytes,
-encoded-size metadata, and XXH3 hash in the same traversal. Peer diffs compare those immutable
-captures with their acknowledged baselines and reuse the same reference-counted cell storage for
-encoding and ACK provenance; a full snapshot uses the same one-pass capture primitive instead of
-separately encoding, copying the grid, and hashing rows.
+A terminal flush publishes each dirty row's immutable cells and XXH3 hash. Each Alacritty row
+carries a terminal-issued capture key: zero means changed or never captured, mutable cell access
+clears it, and whole-row movement preserves it. An unchanged row reuses its previous visible
+capture at its new viewport line when both projections are graphics-free. Other rows derive cells
+and hash together in one traversal. Width changes clear the capture pool. The visible set, the
+captures a refresh is replacing and the released spare cell arrays together retain at most twice
+the viewport row count, during a refresh too; only exclusive arrays, with no strong or weak outside
+owners, can be filled again, and a spare still owned elsewhere leaves the pool at its first check.
+Direct shared-borrow captures
+use a separate scratch pool. Peer diffs compare immutable captures with their acknowledged
+baselines and share the cell storage for encoding and ACK provenance; a full snapshot uses the
+same one-pass capture primitive instead of separately encoding, copying the grid, and hashing rows.
 
 Graphics rows have a separate immutable owner with a cached digest, bounds and canonical
 encoding, without a duplicate native descriptor array. Native capture and ACK provenance

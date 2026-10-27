@@ -22,6 +22,7 @@ use merkur_codec::{
 };
 use merkur_graphics::scene::Image;
 use merkur_image_worker::{content::ImageContent, retirement::Completion};
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -54,12 +55,12 @@ pub struct CapturedRow {
 /// writable storage. Slow consumers may own older versions, but cannot grow
 /// this pool or allow a retained ACK/preparation baseline to be overwritten.
 #[derive(Default)]
-struct RowCapturePool {
+struct ScratchCapturePool {
     cols: usize,
     rows: Vec<[Option<Arc<[CellRepr]>>; 2]>,
 }
 
-impl RowCapturePool {
+impl ScratchCapturePool {
     fn capture(
         &mut self,
         row: u16,
@@ -100,6 +101,128 @@ impl RowCapturePool {
     }
 }
 
+struct VisibleCapture {
+    key: u64,
+    cells: Arc<[CellRepr]>,
+    hash: u64,
+    graphics_free: bool,
+}
+
+/// Content-owned captures for the visible set. Keys follow unchanged grid rows,
+/// including movement; mutable cell exits in Row clear them. Visible, previous
+/// and spare together retain at most 2R cell Arcs, including during refresh.
+/// Outside consumers can retain older captures but never make them writable.
+#[derive(Default)]
+struct RowCapturePool {
+    cols: usize,
+    visible: Vec<Option<VisibleCapture>>,
+    previous: Vec<Option<VisibleCapture>>,
+    by_key: HashMap<u64, usize>,
+    previous_count: usize,
+    spare: VecDeque<Arc<[CellRepr]>>,
+    visible_count: usize,
+    #[cfg(test)]
+    materialized: usize,
+}
+
+impl RowCapturePool {
+    fn begin(&mut self, cols: u16, rows: u16, dirty: &DirtyRows, keep_previous: bool) {
+        if self.cols != usize::from(cols) {
+            self.visible.clear();
+            self.spare.clear();
+            self.visible_count = 0;
+            self.cols = usize::from(cols);
+        }
+        if self.visible.len() != usize::from(rows) {
+            self.visible.resize_with(usize::from(rows), || None);
+            self.visible_count = self.visible.iter().filter(|slot| slot.is_some()).count();
+            while self.spare.len() > usize::from(rows) {
+                self.spare.pop_front();
+            }
+        }
+        #[cfg(test)]
+        {
+            self.materialized = 0;
+        }
+        for row in dirty.iter() {
+            if let Some(capture) = self.visible[row].take() {
+                self.visible_count -= 1;
+                if keep_previous && capture.key != 0 && capture.graphics_free {
+                    self.by_key.insert(capture.key, self.previous.len());
+                }
+                self.previous.push(Some(capture));
+                self.previous_count += 1;
+            }
+        }
+    }
+
+    fn capture(
+        &mut self,
+        row: u16,
+        key: u64,
+        graphics: &PreparedGraphics,
+        fill: impl FnOnce(&mut [CellRepr]) -> u64,
+    ) -> CapturedRow {
+        let previous = if graphics.is_empty() {
+            self.by_key
+                .get(&key)
+                .and_then(|&slot| self.previous[slot].take())
+        } else {
+            None
+        };
+        let visible = if let Some(previous) = previous {
+            self.previous_count -= 1;
+            previous
+        } else {
+            // Oldest first; get_mut proves exclusivity, including weak owners. A
+            // spare still owned outside leaves the pool at its first check, so each
+            // spare is checked once and a refresh never rescans held ones. A new
+            // array is made only once no spare remains, when visible and previous
+            // hold at most 2R - 1, so the pool stays within 2R mid-refresh.
+            let mut cells = loop {
+                let Some(mut cells) = self.spare.pop_front() else {
+                    break Arc::from(vec![CellRepr::BLANK; self.cols]);
+                };
+                if Arc::get_mut(&mut cells).is_some() {
+                    break cells;
+                }
+            };
+            let hash = fill(Arc::get_mut(&mut cells).expect("capture storage has one owner"));
+            #[cfg(test)]
+            {
+                self.materialized += 1;
+            }
+            VisibleCapture {
+                key,
+                cells,
+                hash,
+                graphics_free: graphics.is_empty(),
+            }
+        };
+        let capture = CapturedRow {
+            row,
+            hash: visible.hash,
+            cells: Arc::clone(&visible.cells),
+            graphics: graphics.clone(),
+        };
+        self.visible[usize::from(row)] = Some(visible);
+        self.visible_count += 1;
+        capture
+    }
+
+    fn finish(&mut self) {
+        // Release in viewport order after all lookups, retaining scratch capacity.
+        for capture in self.previous.drain(..).flatten() {
+            if self.spare.len() == self.visible.len() {
+                self.spare.pop_front();
+            }
+            self.spare.push_back(capture.cells);
+        }
+        self.previous_count = 0;
+        self.by_key.clear();
+    }
+}
+
 /// Retained immutable-row storage plus packed digest scratch. Capture fills both
 /// in one terminal traversal; readers share the resulting row and its hash.
 #[derive(Default)]
@@ -107,7 +230,7 @@ pub struct RowCaptureScratch {
     #[cfg(test)]
     pub cells: Vec<CellRepr>,
     pub digest: Vec<u8>,
-    captures: RowCapturePool,
+    captures: ScratchCapturePool,
 }
 
 #[derive(Clone, Copy)]
@@ -490,6 +613,7 @@ pub struct TerminalState {
     last_cursor: Option<(usize, usize)>,
     row_cells_scratch: Vec<CellRepr>,
     row_captures: RowCapturePool,
+    next_capture_key: u64,
     /// Packed row-digest bytes, filled in the same traversal that fills
     /// `row_cells_scratch`. Held here rather than rebuilt per row so the hash
     /// pass allocates nothing in the steady state.
@@ -749,6 +873,7 @@ impl TerminalState {
             last_cursor: None,
             row_cells_scratch: vec![CellRepr::BLANK; usize::from(normalized_cols)],
             row_captures: RowCapturePool::default(),
+            next_capture_key: 1,
             row_digest_scratch: vec![0u8; usize::from(normalized_cols) * CELL_DIGEST_BYTES],
             row_bytes_scratch: Vec::new(),
             last_encoded_row_count: 0,
@@ -1547,11 +1672,20 @@ impl TerminalState {
             hashes.resize(rows, 0);
             self.dirty_rows.mark_all();
         }
+        let keep_previous = self.dirty_rows.iter().any(|row| {
+            self.term.grid()[Line(i32::try_from(row).expect("viewport line fits i32"))]
+                .capture_key()
+                != 0
+        });
+        self.row_captures
+            .begin(self.cols, self.rows, &self.dirty_rows, keep_previous);
         for row_index in self.dirty_rows.iter() {
+            let key = self.term.grid_mut()
+                [Line(i32::try_from(row_index).expect("viewport line fits i32"))]
+            .issue_capture_key(&mut self.next_capture_key);
             let capture = self.row_captures.capture(
                 row_index as u16,
-                self.cols,
-                self.rows,
+                key,
                 self.graphics.row(row_index),
                 |cells| {
                     fill_visible_cells(
@@ -1567,6 +1701,7 @@ impl TerminalState {
             hashes[row_index] = capture.hash;
             captures.push(capture);
         }
+        self.row_captures.finish();
         // Every changed row is captured, so every region on screen is interned:
         // the one point where retiring a URI cannot race its own redraw.
         self.links
@@ -2267,10 +2402,19 @@ mod tests {
         terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut captures);
         assert_eq!(captures[0].hash, captured.hash);
         assert_eq!(captures[0].graphics.version(), captured.graphics.version());
+        let mut oracle_captures = Vec::new();
+        let mut oracle_hashes = Vec::new();
+        super::row_identity::refresh_exact(&mut terminal, &mut oracle_hashes, &mut oracle_captures);
+        terminal.mark_all_dirty();
+        super::row_identity::refresh_exact(&mut terminal, &mut oracle_hashes, &mut oracle_captures);
+        assert_eq!(terminal.row_captures.materialized, 1);
         // The owner supersedes its row: the charge returns at once, while the
         // captures still read the bytes they were sent with.
         terminal.graphics.projected.clear();
-        drop(charge);
+        terminal.mark_all_dirty();
+        super::row_identity::refresh_exact(&mut terminal, &mut oracle_hashes, &mut oracle_captures);
+        assert_eq!(terminal.row_captures.materialized, 1);
+        drop((charge, oracle_captures));
         let removed = terminal.capture_row(0, &mut scratch);
         assert!(removed.graphics.is_empty());
         assert_ne!(removed.hash, captured.hash);
@@ -2379,7 +2523,7 @@ mod tests {
         assert_eq!(tally.allocations, 0);
         assert_eq!(captures.len(), 256);
         for (current, previous) in captures.iter().zip(&retained) {
-            assert!(!Arc::ptr_eq(&current.cells, &previous.cells));
+            assert!(Arc::ptr_eq(&current.cells, &previous.cells));
             assert_eq!(current.hash, previous.hash);
         }
     }
@@ -4172,3 +4316,444 @@ legacy-marker-with-a-long-suffix";
 
 #[cfg(test)]
 mod ui_tests;
+
+#[cfg(test)]
+mod row_identity {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn pool_bound_holds_before_finish_with_pinned_spares() {
+        let mut pool = RowCapturePool::default();
+        let dirty = DirtyRows::all(2);
+        let mut retained = Vec::new();
+        let mut peak = 0;
+        for round in 0..3 {
+            pool.begin(8, 2, &dirty, false);
+            for row in 0..2 {
+                let capture = pool.capture(
+                    row,
+                    1 + round * 2 + u64::from(row),
+                    &PreparedGraphics::default(),
+                    |cells| {
+                        cells.fill(CellRepr::BLANK);
+                        0
+                    },
+                );
+                if round == 0 {
+                    retained.push(capture);
+                }
+                let held = pool.visible.iter().flatten().count()
+                    + pool.previous.iter().flatten().count()
+                    + pool.spare.len();
+                peak = peak.max(held);
+            }
+            pool.finish();
+        }
+        assert!(peak <= 4, "{peak} arrays exceed 2R during refresh");
+    }
+
+    #[test]
+    fn sparse_refresh_reuses_free_spares_behind_pinned_capture() {
+        let (tx, _) = crossbeam_channel::unbounded();
+        let mut t = TerminalState::new(16, 2, tx);
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        t.apply_bytes(b"first\x1b[2;1Hsecond");
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        let pinned = captures[0].clone();
+        t.apply_bytes(b"\x1b[1;1Hnew\x1b[2;1Hother");
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        let mut allocations = 0;
+        for round in 0..32 {
+            t.apply_bytes(if round % 2 == 0 {
+                b"\x1b[2;1HAAAA"
+            } else {
+                b"\x1b[2;1HBBBB"
+            });
+            crate::edge_tunnel::test_allocations::begin_thread();
+            t.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+            let tally = crate::edge_tunnel::test_allocations::end_thread();
+            if round >= 8 {
+                allocations += tally.allocations;
+            }
+        }
+        assert_eq!(pinned.cells[0].codepoint, u32::from('f'));
+        assert_eq!(
+            allocations, 0,
+            "released storage exists behind the pinned spare"
+        );
+    }
+
+    #[test]
+    fn fragmented_byte_stream_matches_fresh_captures() {
+        let operations = [
+            "abcdefghijklmnopqrstuvxyz",
+            "界\u{301}e\u{302}",
+            "\r\n",
+            "\x1b[1;1H",
+            "\x1b[4;1H",
+            "\x1b[2;2H\x1b[@",
+            "\x1b[2;2H\x1b[P",
+            "\x1b[2;2H\x1b[X",
+            "\x1b[4hinsert\x1b[4l",
+            "\x1b[2;4r\x1b[4;1H\n",
+            "\x1b[2;1H\x1bM",
+            "\x1b[r",
+            "\x1b[L",
+            "\x1b[M",
+            "\x1b[S",
+            "\x1b[T",
+            "\x1b[0J",
+            "\x1b[1J",
+            "\x1b[2J",
+            "\x1b[3J",
+            "\x1b[K",
+            "\x1b[1K",
+            "\x1b[2K",
+            "\x1b[?7lno-wrap\x1b[?7h",
+            "\x1b[?6h\x1b[3;3Horigin\x1b[?6l",
+            "\x1b[?1049hALT",
+            "\x1b[?1049l",
+            "\x1b[?47hALT",
+            "\x1b[?47l",
+            "\x1b[?1047hALT",
+            "\x1b[?1047l",
+            "\x1b7\x1b[3;3H\x1b8",
+            "\x1b#8",
+            "\x1bc",
+            "\x1b[?2026h\x1b[Hheld\r\n界\x1b[?2026l",
+            "\x1b]8;id=repeat;https://example.com/a\x1b\\linked\x1b]8;;\x1b\\",
+            "\x1b]8;;https://example.com/b\x07other\x1b]8;;\x07",
+            "\x1b]8;;file:///tmp/not-a-link\x07plain\x1b]8;;\x07",
+            "\x1b[1;3;4;7;38;2;12;34;56;48;5;16mstyle\x1b[0m",
+            "\x1b]4;1;rgb:11/22/33\x07\x1b]104\x07",
+            "\x1b]10;rgb:44/55/66\x07\x1b]110\x07",
+            "\t\x08Z",
+        ];
+        for history in [0, 16] {
+            for seed in [1u64, 0xdead_beef, 0x6d65726b7572] {
+                let (tx, _) = crossbeam_channel::unbounded();
+                let mut t = TerminalState::new(7, 4, tx);
+                t.term.grid_mut().update_history(history);
+                let mut hashes = Vec::new();
+                let mut captures = Vec::new();
+                let mut scratch = RowCaptureScratch::default();
+                let mut rng = seed;
+                refresh_exact(&mut t, &mut hashes, &mut captures);
+                for step in 0..400 {
+                    rng ^= rng << 13;
+                    rng ^= rng >> 7;
+                    rng ^= rng << 17;
+                    let op = operations[rng as usize % operations.len()];
+                    for chunk in op.as_bytes().chunks(1 + (rng as usize % 7)) {
+                        assert_eq!(t.apply_bytes(chunk), chunk.len());
+                        refresh_exact(&mut t, &mut hashes, &mut captures);
+                        for row in 0..t.rows {
+                            let key = t.term.grid()[Line(i32::from(row))].capture_key();
+                            let direct = t.capture_row(row, &mut scratch);
+                            let visible =
+                                t.row_captures.visible[usize::from(row)].as_ref().unwrap();
+                            assert_eq!(
+                                direct.cells, visible.cells,
+                                "seed={seed} step={step} op={op:?}"
+                            );
+                            assert_eq!(direct.hash, visible.hash);
+                            assert_eq!(t.term.grid()[Line(i32::from(row))].capture_key(), key);
+                        }
+                    }
+                    if step % 19 == 0 {
+                        let (cols, rows) = [(2, 1), (3, 4), (7, 4), (13, 6)][step / 19 % 4];
+                        t.resize(cols, rows);
+                        refresh_exact(&mut t, &mut hashes, &mut captures);
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn refresh_exact(
+        t: &mut TerminalState,
+        hashes: &mut Vec<u64>,
+        captures: &mut Vec<CapturedRow>,
+    ) -> usize {
+        t.update_hashes_for_dirty_rows(hashes, captures);
+        let mut fresh = RowCaptureScratch::default();
+        for (row, published_hash) in hashes.iter().enumerate() {
+            let hash = t.read_row_cells(row, &mut fresh);
+            let published = t.row_captures.visible[row]
+                .as_ref()
+                .expect("published viewport row");
+            assert_eq!(published.cells.as_ref(), fresh.cells, "cells at row {row}");
+            assert_eq!(published.hash, hash, "hash at row {row}");
+            assert_eq!(*published_hash, hash, "published hash at row {row}");
+        }
+        assert!(
+            t.row_captures.visible_count
+                + t.row_captures.previous.len()
+                + t.row_captures.spare.len()
+                <= 2 * usize::from(t.rows)
+        );
+        captures.len() - t.row_captures.materialized
+    }
+
+    #[test]
+    fn seeded_capture_oracle_covers_mutation_and_movement() {
+        let (tx, _) = crossbeam_channel::unbounded();
+        let mut t = TerminalState::new(24, 8, tx);
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        let mut reused = 0;
+        for round in 0..32 {
+            t.apply_bytes(
+                format!(
+                    "\x1b[8;1H\x1b]8;;https://example.com/{round}\x07line-{round}\x1b]8;;\x07\r\n"
+                )
+                .as_bytes(),
+            );
+            reused += refresh_exact(&mut t, &mut hashes, &mut captures);
+            assert_eq!(t.row_captures.materialized, 2);
+        }
+        assert_eq!(reused, 32 * 6);
+        let operations = [
+            "plain text",
+            "\r\n",
+            "\x1b[2;7r\x1b[7;1Hbottom\r\n",
+            "\x1b[2;1H\x1bM",
+            "\x1b[3;1H\x1b[2L",
+            "\x1b[3;1H\x1b[2M",
+            "\x1b[2;4H\x1b[3@",
+            "\x1b[2;4H\x1b[3P",
+            "\x1b[2;4H\x1b[3X",
+            "\x1b[0K",
+            "\x1b[1K",
+            "\x1b[2K",
+            "\x1b[0J",
+            "\x1b[1J",
+            "\x1b[2J",
+            "\x1b[3J",
+            "\x1b[r\x1b[1;23H界界界",
+            "e\u{301}界\u{302}",
+            "\x1b[?7h\x1b[1;24Habcdef",
+            "\x1b[?7l123456\x1b[?7h",
+            "\x1b[r\x1b[1;1H\x1bM",
+            "\x1b#8",
+            "\x1b[?1049hALT",
+            "\x1b[?1049l",
+            "\x1b[?47hSECOND",
+            "\x1b[?47l",
+            "\x1b[?1047hTHIRD",
+            "\x1b[?1047l",
+            "\x1bc",
+            "\x1b]8;;https://example.com/a\x1b\\linked",
+            "\x1b]8;;\x1b\\closed",
+            "\x1b[31;44mred\x1b[38;2;12;34;56mRGB\x1b[0m",
+            "\x1b[S",
+            "\x1b[T",
+        ];
+        let mut seed = 0x6d65726b7572u64;
+        // Each pass visits every operation; the seeded rotation and cursor vary composition.
+        for pass in 0..12 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let start = usize::try_from(seed % u64::try_from(operations.len()).unwrap()).unwrap();
+            for step in 0..operations.len() {
+                let operation = operations[(start + step) % operations.len()];
+                t.apply_bytes(operation.as_bytes());
+                refresh_exact(&mut t, &mut hashes, &mut captures);
+            }
+            for (cols, rows) in [(12, 5), (31, 10), (24, 8)] {
+                t.resize(cols, rows);
+                refresh_exact(&mut t, &mut hashes, &mut captures);
+            }
+            t.apply_bytes(
+                format!("\x1b[{};{}Hseed-{seed}-{pass}", seed % 8 + 1, seed % 24 + 1).as_bytes(),
+            );
+            refresh_exact(&mut t, &mut hashes, &mut captures);
+        }
+    }
+
+    #[test]
+    fn content_pool_preserves_retained_and_weakly_observed_cells() {
+        let (tx, _) = crossbeam_channel::unbounded();
+        let mut t = TerminalState::new(16, 2, tx);
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        t.apply_bytes(b"first");
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        let first = captures[0].clone();
+        let first_cells = first.cells.to_vec();
+        t.apply_bytes(b"\rsecond");
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        let second_cells = captures[0].cells.to_vec();
+        let weak = Arc::downgrade(&captures[0].cells);
+        let second_ptr = Arc::as_ptr(&captures[0].cells);
+        t.apply_bytes(b"\rthird");
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        assert_ne!(Arc::as_ptr(&captures[0].cells), second_ptr);
+        assert_eq!(weak.upgrade().unwrap().as_ref(), second_cells);
+        assert_eq!(first.cells.as_ref(), first_cells);
+        drop(weak);
+        let mut retained = Vec::new();
+        for round in 0..32 {
+            t.apply_bytes(format!("\rretained-{round}").as_bytes());
+            refresh_exact(&mut t, &mut hashes, &mut captures);
+            retained.push(captures[0].clone());
+        }
+        assert_eq!(first.cells.as_ref(), first_cells);
+    }
+
+    #[test]
+    fn warm_scroll_refresh_allocates_nothing() {
+        let (tx, _) = crossbeam_channel::unbounded();
+        let mut t = TerminalState::new(200, 60, tx);
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        for _ in 0..128 {
+            t.apply_bytes(b"\x1b[60;1Hline VALUE\r\n");
+            t.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        }
+        for _ in 0..128 {
+            t.apply_bytes(b"\x1b[60;1Hline VALUE\r\n");
+            crate::edge_tunnel::test_allocations::begin_thread();
+            t.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+            let tally = crate::edge_tunnel::test_allocations::end_thread();
+            assert_eq!(tally.allocations, 0);
+            assert_eq!(t.row_captures.materialized, 2);
+        }
+    }
+
+    #[test]
+    fn warm_dense_refresh_reuses_storage_with_previous_captures_retained() {
+        let (tx, _) = crossbeam_channel::unbounded();
+        let mut t = TerminalState::new(200, 60, tx);
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        let mut retained = Vec::new();
+        for round in 0..32 {
+            let value = if round % 2 == 0 { "A" } else { "B" };
+            let text: String = (1..=60)
+                .map(|row| format!("\x1b[{row};1H{}", value.repeat(199)))
+                .collect();
+            t.apply_bytes(text.as_bytes());
+            crate::edge_tunnel::test_allocations::begin_thread();
+            t.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+            let tally = crate::edge_tunnel::test_allocations::end_thread();
+            if round >= 4 {
+                assert_eq!(tally.allocations, 0);
+            }
+            assert_eq!(t.row_captures.materialized, 60);
+            retained.clone_from(&captures);
+        }
+    }
+
+    fn measure_parser(kind: &str) {
+        let (tx, _) = crossbeam_channel::unbounded();
+        let mut t = TerminalState::new(200, 60, tx);
+        let fixture: Vec<Vec<u8>> = (0..26)
+            .map(|round| {
+                let value = char::from(b'A' + round);
+                if kind == "scroll" {
+                    format!("line-{round:06} {value}   \r\n").into_bytes()
+                } else {
+                    (0..60)
+                        .map(|row| format!("\x1b[{};1H{}", row + 1, value.to_string().repeat(199)))
+                        .collect::<String>()
+                        .into_bytes()
+                }
+            })
+            .collect();
+        t.apply_bytes(b"\x1b[60;1H");
+        for round in 0..256 {
+            t.apply_bytes(&fixture[round % fixture.len()]);
+        }
+        let started = Instant::now();
+        for round in 0..8192 {
+            t.apply_bytes(std::hint::black_box(&fixture[round % fixture.len()]));
+        }
+        println!(
+            "ROW_PARSER workload={kind} rounds=8192 elapsed_ns={}",
+            started.elapsed().as_nanos()
+        );
+        std::hint::black_box(t);
+    }
+
+    #[test]
+    #[ignore = "row capture and parser release benchmark"]
+    fn measure() {
+        if let Ok(kind) = std::env::var("MERKUR_ROW_IDENTITY_PARSER") {
+            assert!(matches!(kind.as_str(), "scroll" | "dense"));
+            measure_parser(&kind);
+            return;
+        }
+        for (cols, rows) in [(200u16, 60u16), (384, 256)] {
+            for kind in ["scroll", "dense"] {
+                let (tx, _) = crossbeam_channel::unbounded();
+                let mut t = TerminalState::new(cols, rows, tx);
+                let mut text = String::new();
+                for row in 0..rows {
+                    text.push_str(&format!("\x1b[{};1Hrow-{row:04} ", row + 1));
+                    text.push_str(&"abcdefghijklmnop".repeat(usize::from(cols / 16 - 1)));
+                }
+                text.push_str(&format!("\x1b[{rows};1H"));
+                t.apply_bytes(text.as_bytes());
+                let mut hashes = Vec::new();
+                let mut captures = Vec::new();
+                t.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+                let mut previous = captures.clone();
+                let mut times = Vec::new();
+                let mut captured = 0;
+                let mut moved = 0;
+                let mut materialized = 0;
+                for round in 0..144usize {
+                    let value = char::from(b'A' + u8::try_from(round % 26).unwrap());
+                    let text = if kind == "scroll" {
+                        format!("line-{round:06} {value}   \r\n")
+                    } else {
+                        (0..rows)
+                            .map(|r| {
+                                format!(
+                                    "\x1b[{};1H{}",
+                                    r + 1,
+                                    value.to_string().repeat(usize::from(cols - 1))
+                                )
+                            })
+                            .collect::<String>()
+                    };
+                    t.apply_bytes(text.as_bytes());
+                    let started = Instant::now();
+                    t.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+                    let ns = u64::try_from(started.elapsed().as_nanos()).unwrap();
+                    assert_eq!(captures.len(), usize::from(rows));
+                    let unchanged_moved = if kind == "scroll" {
+                        for row in 0..usize::from(rows - 2) {
+                            assert_eq!(captures[row].cells, previous[row + 1].cells);
+                            assert_eq!(captures[row].hash, previous[row + 1].hash);
+                        }
+                        usize::from(rows - 2)
+                    } else {
+                        0
+                    };
+                    if round >= 16 {
+                        times.push(ns);
+                        captured += captures.len();
+                        moved += unchanged_moved;
+                        materialized += t.row_captures.materialized;
+                    }
+                    previous.clone_from(&captures);
+                }
+                times.sort_unstable();
+                let materialized_per_refresh = materialized / times.len();
+                println!(
+                    "ROW_IDENTITY cols={cols} rows={rows} workload={kind} samples={} captured_total={captured} unchanged_moved_total={moved} materialized_total={materialized} materialized_per_refresh={materialized_per_refresh} median_ns={} p10_ns={} p90_ns={}",
+                    times.len(),
+                    times[times.len() / 2],
+                    times[times.len() / 10],
+                    times[times.len() * 9 / 10]
+                );
+            }
+        }
+    }
+}

@@ -18,6 +18,9 @@ user-facing terminal, installation and configuration guidance live in the reposi
   `packages/merkur-graphics` binds placements to live rows without scanning the grid.
 - APC and semantic-boundary callbacks from the patched parser are forwarded to the event
   listener.
+- Each `Row` carries a capture key (`src/grid/row.rs`): every mutable cell access and row
+  edit clears it, whole-row movement keeps it, and only the daemon's capture issues one, so a
+  nonzero key proves the row unchanged since that capture wherever the row has moved.
 
 ## Moving it
 

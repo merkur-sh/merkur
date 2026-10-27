@@ -1005,3 +1005,108 @@ fn wrap_cell(c: char) -> Cell {
     cell.flags.insert(Flags::WRAPLINE);
     cell
 }
+
+#[test]
+fn capture_keys_follow_scroll_survivors_and_reflow_invalidates() {
+    for history in [0, 8] {
+        for region in [Line(0)..Line(6), Line(1)..Line(5)] {
+            for down in [false, true] {
+                let mut grid = Grid::<Cell>::new(6, 4, history);
+                let mut next = 1;
+                for line in 0..6 {
+                    grid[Line(line)].issue_capture_key(&mut next);
+                }
+                if down {
+                    grid.scroll_down(&region, 1);
+                } else {
+                    grid.scroll_up(&region, 1);
+                }
+                for line in 0..6 {
+                    let expected = if line < region.start.0 || line >= region.end.0 {
+                        line as u64 + 1
+                    } else if down {
+                        if line == region.start.0 {
+                            0
+                        } else {
+                            line as u64
+                        }
+                    } else if line == region.end.0 - 1 {
+                        0
+                    } else {
+                        line as u64 + 2
+                    };
+                    assert_eq!(grid[Line(line)].capture_key(), expected);
+                }
+            }
+        }
+    }
+    let mut grid = Grid::<Cell>::new(3, 4, 8);
+    grid[Line(0)][Column(3)].flags.insert(Flags::WRAPLINE);
+    grid[Line(1)][Column(0)].c = 'x';
+    let mut next = 1;
+    for line in 0..3 {
+        grid[Line(line)].issue_capture_key(&mut next);
+    }
+    grid.resize(true, 3, 2);
+    for line in 0..3 {
+        assert_eq!(grid[Line(line)].capture_key(), 0);
+    }
+    for line in 0..3 {
+        grid[Line(line)].issue_capture_key(&mut next);
+    }
+    grid.resize(true, 3, 6);
+    for line in 0..3 {
+        assert_eq!(grid[Line(line)].capture_key(), 0);
+    }
+}
+
+#[test]
+fn capture_key_proves_cells_across_grid_lifecycle() {
+    use std::collections::HashMap;
+
+    for history in [0, 3, 32] {
+        for reflow in [false, true] {
+            let mut grid = Grid::<Cell>::new(6, 7, history);
+            let mut next = 1;
+            let mut snapshots = HashMap::<u64, Vec<Cell>>::new();
+            let mut rng = 0x6d65726b7572u64;
+            for step in 0..1200 {
+                for line in grid.topmost_line().0..grid.screen_lines() as i32 {
+                    let row = &mut grid[Line(line)];
+                    let key = row.capture_key();
+                    if key != 0 {
+                        assert_eq!(
+                            snapshots[&key],
+                            (&*row).into_iter().cloned().collect::<Vec<_>>(),
+                            "step={step} line={line}"
+                        );
+                    }
+                    let key = row.issue_capture_key(&mut next);
+                    snapshots
+                        .entry(key)
+                        .or_insert_with(|| (&*row).into_iter().cloned().collect());
+                }
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                let lines = grid.screen_lines();
+                let line = Line((rng as usize % lines) as i32);
+                let column = Column(rng as usize % grid.columns());
+                match rng % 12 {
+                    0 => grid.scroll_up(&(Line(0)..Line(lines as i32)), 1),
+                    1 => grid.scroll_down(&(Line(1)..Line(lines as i32)), 1),
+                    2 => grid.reset_region(line..=line),
+                    3 => grid.clear_viewport(),
+                    4 => grid.clear_history(),
+                    5 => grid.reset(),
+                    6 => grid.resize(reflow, 3 + rng as usize % 5, 1 + rng as usize % 13),
+                    7 => grid.update_history((rng as usize / 13) % 33),
+                    8 => grid.scroll_display(Scroll::Delta(1)),
+                    9 => grid.scroll_display(Scroll::Bottom),
+                    10 => grid[line][column].flags.insert(Flags::WRAPLINE),
+                    _ => grid[line][column].c = char::from(b'A' + (step % 26) as u8),
+                }
+            }
+        }
+    }
+}
