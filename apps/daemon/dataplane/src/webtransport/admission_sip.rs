@@ -252,7 +252,7 @@ impl Enhancement {
         };
         if let Some(endpoint) = self.receive(public).await {
             info!(claim = self.claim.id, %endpoint, "direct admission SIP allocation observed");
-            return Some(candidate(endpoint, CandidateFlavor::Sip));
+            return Some(candidate(endpoint, CandidateFlavor::Sip, self.claim.id));
         }
         let allocation = self
             .retirements
@@ -304,7 +304,7 @@ impl Enhancement {
             return None;
         }
         info!(claim = self.claim.id, %endpoint, ?kind, "direct admission mapped allocation prepared");
-        Some(candidate(endpoint, kind))
+        Some(candidate(endpoint, kind, self.claim.id))
     }
 
     async fn receive(&self, public: std::net::Ipv4Addr) -> Option<SocketAddr> {
@@ -320,8 +320,12 @@ impl Enhancement {
     }
 }
 
-pub(super) fn candidate(endpoint: SocketAddr, kind: CandidateFlavor) -> serde_json::Value {
-    serde_json::json!({ "addr": endpoint.ip(), "port": endpoint.port(), "kind": kind, "scope": "public" })
+pub(super) fn candidate(
+    endpoint: SocketAddr,
+    kind: CandidateFlavor,
+    admission: u64,
+) -> serde_json::Value {
+    serde_json::json!({ "addr": endpoint.ip(), "port": endpoint.port(), "kind": kind, "scope": "public", "admission": admission })
 }
 
 #[cfg(test)]

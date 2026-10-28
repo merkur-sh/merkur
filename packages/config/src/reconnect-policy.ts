@@ -37,14 +37,6 @@ export const WAKE_TICK_MS = 2_000;
  */
 export const WAKE_CLOCK_JUMP_MS = 5 * WAKE_TICK_MS;
 
-/**
- * Absolute ceiling on a WebTransport candidate race. Slightly above the
- * worst acceptable handshake (RTO ceiling shared with the daemon policy is
- * 3 s; the race gives up just before it) — anything slower loses to staying
- * on the edge-relayed WebTransport path.
- */
-export const RACE_DEADLINE_MS = 2_500;
-
 const GRACE_FLOOR_MS = 80;
 const GRACE_CEILING_MS = 400;
 const GRACE_MULTIPLIER = 3;

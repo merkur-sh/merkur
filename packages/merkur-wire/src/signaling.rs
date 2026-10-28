@@ -568,6 +568,9 @@ pub struct DirectCandidate {
     pub port: u16,
     pub kind: CandidateKind,
     pub scope: CandidateScope,
+    /// Zero until router preparation supplies new allocation evidence. A nonzero
+    /// claim identifies that completed preparation under this certificate.
+    pub admission: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -721,7 +724,9 @@ impl DaemonSignal {
                         byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')
                     })
                     && candidates.len() <= MAX_WEBTRANSPORT_OFFER_CANDIDATES
-                    && candidates.iter().all(|candidate| candidate.port != 0)
+                    && candidates.iter().all(|candidate| {
+                        candidate.port != 0 && candidate.admission <= MAX_SAFE_INTEGER
+                    })
             }
             Self::WebtransportPunch { generation, .. } => *generation <= MAX_SAFE_INTEGER,
             Self::WebtransportUpgradeChallenge {
@@ -1236,9 +1241,9 @@ mod tests {
             "generation": 3,
             "cert_hash": "q83vEjRWeJCrze8SNFZ4kKvN7xI0VniQq83vEjRWeJA=",
             "candidates": [
-                {"addr": "203.0.113.5", "port": 4433, "kind": "srflx", "scope": "public"},
-                {"addr": "192.168.1.10", "port": 4433, "kind": "host4", "scope": "local"},
-                {"addr": "2001:db8::10", "port": 4433, "kind": "host6", "scope": "public"},
+                {"addr": "203.0.113.5", "port": 4433, "kind": "srflx", "scope": "public", "admission": 0},
+                {"addr": "192.168.1.10", "port": 4433, "kind": "host4", "scope": "local", "admission": 0},
+                {"addr": "2001:db8::10", "port": 4433, "kind": "host6", "scope": "public", "admission": 0},
             ],
             "nat": {
                 "public_ip": "203.0.113.5",
@@ -1277,6 +1282,7 @@ mod tests {
                 port: 4433,
                 kind: CandidateKind::Srflx,
                 scope: CandidateScope::Public,
+                admission: 0,
             }
         );
         assert_eq!(candidates[2].kind, CandidateKind::Host6);
@@ -1297,7 +1303,14 @@ mod tests {
         zero["candidates"][0]["port"] = serde_json::json!(0);
         let mut extra = manifest();
         extra["candidates"][1]["label"] = serde_json::json!("lan");
-        for refused in [over, short, zero, extra] {
+        let mut unsafe_claim = manifest();
+        unsafe_claim["candidates"][0]["admission"] = serde_json::json!(MAX_SAFE_INTEGER + 1);
+        let mut missing_claim = manifest();
+        missing_claim["candidates"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("admission");
+        for refused in [over, short, zero, extra, unsafe_claim, missing_claim] {
             assert_eq!(daemon(refused), None);
         }
     }

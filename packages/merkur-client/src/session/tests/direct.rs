@@ -39,6 +39,7 @@ fn candidate(at: &str, kind: CandidateKind, scope: CandidateScope) -> DirectCand
         port: at.port(),
         kind,
         scope,
+        admission: 0,
     }
 }
 
@@ -111,6 +112,7 @@ fn dials(actions: &[Action]) -> Vec<(ConnId, SocketAddr)> {
                 addr,
                 cert_hash,
                 binding: _,
+                admission: _,
             } => {
                 assert_eq!(
                     *cert_hash, CERT_HASH,
@@ -841,6 +843,29 @@ fn a_failed_upgrade_spends_its_endpoint_and_races_what_is_left() {
 }
 
 #[test]
+fn a_browser_queued_handshake_can_authenticate_after_the_old_race_deadline() {
+    let (mut harness, _, actions) = offered(vec![host4()], PunchState::None);
+    let [(conn, _)] = dials(&actions)[..] else {
+        panic!("one direct dial");
+    };
+    harness
+        .session
+        .handle_timeout(NOW + 3_000, &mut harness.entropy);
+    let pending = drain(&mut harness.session);
+    assert!(
+        !pending.contains(&Action::Close { conn }),
+        "elapsed scheduling time cannot establish a native handshake failure"
+    );
+    harness
+        .session
+        .handle(NOW + 3_010, Event::Connected(conn), &mut harness.entropy);
+    let connected = drain(&mut harness.session);
+    let adopted = upgrade(&mut harness, NOW + 3_020, conn, &connected);
+    assert_eq!(report(&adopted).outcome, "selected");
+    assert_eq!(harness.session.direct.path(), Some(conn));
+}
+
+#[test]
 fn an_unanswered_handshake_is_spent_until_the_network_changes() {
     let (mut harness, _, actions) = offered(vec![host4()], PunchState::None);
     let [(local, _)] = dials(&actions)[..] else {
@@ -1409,4 +1434,91 @@ fn a_helper_of_the_other_family_does_not_spend_a_constructor() {
             assert_eq!(dialed(&fresh), [addr(at)]);
         }
     }
+}
+
+#[test]
+fn completed_router_preparation_retries_the_same_failed_tuple_once() {
+    let endpoint = candidate(SRFLX, CandidateKind::Sip, CandidateScope::Public);
+    let (mut harness, _) = ready();
+    observed(&mut harness, NOW + 40, CLIENT);
+    let mut pending = manifest(1, vec![endpoint.clone()], CLIENT, PunchState::None);
+    if let DaemonSignal::WebtransportManifest {
+        admission_pending, ..
+    } = &mut pending
+    {
+        *admission_pending = true;
+    }
+    let actions = deliver_signal(&mut harness, NOW + 50, &pending);
+    let [(first, _)] = dials(&actions)[..] else {
+        panic!("one initial dial")
+    };
+    harness
+        .session
+        .handle(NOW + 100, Event::DialFailed(first), &mut harness.entropy);
+    drain(&mut harness.session);
+    let mut prepared = endpoint;
+    prepared.admission = 41;
+    let signal = manifest(1, vec![prepared], CLIENT, PunchState::None);
+    let retried = deliver_signal(&mut harness, NOW + 110, &signal);
+    let [(second, address)] = dials(&retried)[..] else {
+        panic!("new allocation evidence rearms the same tuple")
+    };
+    assert_eq!(address, addr(SRFLX));
+    assert_ne!(first, second);
+    harness
+        .session
+        .handle(NOW + 120, Event::DialFailed(second), &mut harness.entropy);
+    drain(&mut harness.session);
+    assert!(dials(&deliver_signal(&mut harness, NOW + 130, &signal)).is_empty());
+}
+
+#[test]
+fn completed_preparation_waits_for_the_same_tuples_native_outcome() {
+    let endpoint = candidate(SRFLX, CandidateKind::Sip, CandidateScope::Public);
+    let (mut harness, _, actions) = offered(vec![endpoint.clone(), host4()], PunchState::None);
+    let [(first, _)] = dials(&actions)[..] else {
+        panic!("initial dial")
+    };
+    harness
+        .session
+        .handle_timeout(NOW + 30, &mut harness.entropy);
+    drain(&mut harness.session);
+    let mut prepared = endpoint;
+    prepared.admission = 42;
+    let signal = manifest(2, vec![prepared, host4()], CLIENT, PunchState::None);
+    assert!(dials(&deliver_signal(&mut harness, NOW + 40, &signal)).is_empty());
+    harness
+        .session
+        .handle(NOW + 100, Event::DialFailed(first), &mut harness.entropy);
+    let next = drain(&mut harness.session);
+    let [(second, address)] = dials(&next)[..] else {
+        panic!("prepared tuple need not wait for an unrelated pending handshake")
+    };
+    assert_ne!(first, second);
+    assert_eq!(address, addr(SRFLX));
+}
+
+#[test]
+fn a_prepared_tuple_supersedes_a_duplicate_hint_even_after_failure() {
+    let hint = candidate(SRFLX, CandidateKind::Sip, CandidateScope::Public);
+    let mut prepared = hint.clone();
+    prepared.admission = 43;
+    let (mut harness, _, actions) = offered(vec![hint, prepared.clone()], PunchState::None);
+    let [(conn, _)] = dials(&actions)[..] else {
+        panic!("one physical constructor")
+    };
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, Action::DialDirect { admission: 43, .. }))
+    );
+    harness
+        .session
+        .handle(NOW + 110, Event::DialFailed(conn), &mut harness.entropy);
+    assert!(
+        dials(&drain(&mut harness.session)).is_empty(),
+        "the older hint cannot rearm the failed preparation"
+    );
+    let next = manifest(2, vec![prepared], CLIENT, PunchState::None);
+    assert!(dials(&deliver_signal(&mut harness, NOW + 120, &next)).is_empty());
 }

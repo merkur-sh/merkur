@@ -1,4 +1,3 @@
-import { RACE_DEADLINE_MS } from '@merkur/config/reconnect-policy';
 import type { Page } from '@playwright/test';
 import { expectConnected } from './app-state';
 import { expect, test } from './fixtures/daemon-process';
@@ -8,6 +7,7 @@ import {
   startDirectNetworkProxy,
 } from './fixtures/direct-network-proxy';
 import { moveEdgeProxyBrowserSource, partitionEdgeProxy } from './fixtures/test';
+import { instrumentTransportWorker } from './fixtures/transport-worker-prelude';
 import { expectOutput, primeTerminal } from './terminal-e2e-helpers';
 
 /**
@@ -23,7 +23,7 @@ import { expectOutput, primeTerminal } from './terminal-e2e-helpers';
  * Needs `FORCE_EDGE=0` and the edge delay proxy: `bun run test:e2e:handover`.
  */
 
-const DIRECT_LABEL = /^Direct(?: · \d+ms)?$/;
+const DIRECT_LABEL = /^Direct(?: · \d+ms)?\./;
 const CONNECT_BUDGET_MS = 40_000;
 const PATH_BUDGET_MS = 15_000;
 /** Outlasts any race; the spec ends it explicitly with a 1 ms partition. */
@@ -122,12 +122,12 @@ async function connectWithDirectSpent(
     await expectConnected(page, CONNECT_BUDGET_MS);
     await expect
       .poll(() => failedRaces(linkedDaemon.logText().slice(logMark)), {
-        message: 'the race on network A must dial into the blackhole and give up',
-        timeout: CONNECT_BUDGET_MS + RACE_DEADLINE_MS,
+        message: 'native handshakes on network A must fail in the blackhole',
+        timeout: CONNECT_BUDGET_MS,
       })
       .toBe(1);
     expect(dials.length, 'the race must have dialled through the direct proxy').toBeGreaterThan(0);
-    await expect(page.getByText(DIRECT_LABEL)).toHaveCount(0);
+    await expect(page.getByRole('img', { name: DIRECT_LABEL })).toHaveCount(0);
   } catch (error) {
     // The caller's `finally` owns the proxy only once this returns it.
     await proxy.close();
@@ -175,7 +175,7 @@ test('a migrating connection carries the direct path to each new network', async
     // What was spent on A is dialled again on B, and fails there too.
     await expect
       .poll(() => failedRaces(linkedDaemon.logText().slice(logMark)), {
-        timeout: PATH_BUDGET_MS + RACE_DEADLINE_MS,
+        timeout: PATH_BUDGET_MS,
       })
       .toBe(1);
     expect(dials.length).toBeGreaterThan(dialsOnA);
@@ -183,7 +183,9 @@ test('a migrating connection carries the direct path to each new network', async
     // Back on A: a new visit, so nothing is spent there any more.
     await proxy.partition(1);
     await moveEdgeProxyBrowserSource('configured');
-    await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
+    await expect(page.getByRole('img', { name: DIRECT_LABEL }).first()).toBeVisible({
+      timeout: PATH_BUDGET_MS,
+    });
     const log = linkedDaemon.logText().slice(logMark);
     expect(pathMoves(log)).toHaveLength(2);
     expect(pathMoves(log)[1]).toContain(`address=${NETWORK_A}`);
@@ -217,7 +219,9 @@ test('a network change that ends the carrier re-dials the direct path after the 
         timeout: RECOVERY_BUDGET_MS,
       })
       .toBeGreaterThanOrEqual(1);
-    await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
+    await expect(page.getByRole('img', { name: DIRECT_LABEL }).first()).toBeVisible({
+      timeout: PATH_BUDGET_MS,
+    });
     expect(
       linesWith(
         linkedDaemon.logText().slice(logMark),
@@ -251,7 +255,9 @@ test('authenticated direct input and display survive complete relay withdrawal',
     if (new URL(request.url()).pathname === '/api/sessions/request') issuances += 1;
   });
   const output = await primeTerminal(page, linkedDaemon.daemonName);
-  await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
+  await expect(page.getByRole('img', { name: DIRECT_LABEL }).first()).toBeVisible({
+    timeout: PATH_BUDGET_MS,
+  });
   const initialIssuances = issuances;
   const logMark = linkedDaemon.logText().length;
   try {
@@ -260,11 +266,80 @@ test('authenticated direct input and display survive complete relay withdrawal',
     await page.keyboard.type("printf '%s%s\\n' relay_withdrawn_ direct_alive\n");
     await expectOutput(output, 'relay_withdrawn_direct_alive');
     await expectConnected(page);
-    await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible();
+    await expect(page.getByRole('img', { name: DIRECT_LABEL }).first()).toBeVisible();
     expect(issuances, 'the original authorized session carries the input').toBe(initialIssuances);
     expect(committedRebinds(linkedDaemon.logText().slice(logMark))).toBe(0);
     await page.screenshot({ path: test.info().outputPath('direct-without-relay.png') });
   } finally {
     await partitionEdgeProxy(1);
+  }
+});
+
+// Model a native readiness notification queued inside the browser. The native
+// constructor starts after the queue delay, performs real TLS/QUIC, then Merkur
+// must authenticate it within the daemon's ordinary channel and upgrade deadlines.
+test('a direct handshake queued for three seconds still authenticates', async ({
+  page,
+  browserName,
+  linkedDaemon,
+}) => {
+  test.skip(process.env.FORCE_EDGE !== '0', 'the direct path requires FORCE_EDGE=0');
+  if (browserName === 'chromium') {
+    await page.context().grantPermissions(['local-network-access'], { origin: page.url() });
+  }
+  const remove = await instrumentTransportWorker(
+    page.context(),
+    `{
+    const Original = globalThis.WebTransport;
+    globalThis.WebTransport = new Proxy(Original, {
+      construct(target, args, newTarget) {
+        if (Number(new URL(args[0]).port) !== ${linkedDaemon.webTransportPort}) {
+          return Reflect.construct(target, args, newTarget);
+        }
+        const ready = Promise.withResolvers();
+        const closed = Promise.withResolvers();
+        let native;
+        const timer = setTimeout(() => {
+          try {
+            native = Reflect.construct(target, args, newTarget);
+            native.ready.then(ready.resolve, ready.reject);
+            native.closed.then(closed.resolve, closed.reject);
+          } catch (error) { ready.reject(error); closed.reject(error); }
+        }, 3000);
+        const queued = {
+          ready: ready.promise,
+          closed: closed.promise,
+          close(info) {
+            if (native !== undefined) { native.close(info); return; }
+            clearTimeout(timer);
+            ready.reject(new Error('queued constructor retired'));
+            closed.resolve(info);
+          }
+        };
+        return new Proxy(queued, {
+          get(target, key) {
+            if (key in target) return Reflect.get(target, key, target);
+            if (native === undefined) throw new Error('native constructor has not started');
+            const value = Reflect.get(native, key, native);
+            return typeof value === 'function' ? value.bind(native) : value;
+          }
+        });
+      }
+    });
+  }`,
+  );
+  try {
+    const output = await primeTerminal(page, linkedDaemon.daemonName);
+    await expect(page.getByRole('img', { name: DIRECT_LABEL }).first()).toBeVisible({
+      timeout: PATH_BUDGET_MS,
+    });
+    await partitionEdgeProxy(DIRECT_OUTAGE_MS);
+    await page.keyboard.type("printf '%s%s\\n' delayed_ direct_authenticated\n");
+    await expectOutput(output, 'delayed_direct_authenticated');
+    await expectConnected(page);
+    await page.screenshot({ path: test.info().outputPath('delayed-direct-authenticated.png') });
+  } finally {
+    await partitionEdgeProxy(1);
+    await remove();
   }
 });

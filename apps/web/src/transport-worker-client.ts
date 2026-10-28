@@ -573,7 +573,7 @@ export function createTransportSession(
       }
       case 'direct_dial': {
         if (closing || message.startId !== activeStartId) return;
-        const claim = directDialAdmission.claim(message.endpoint);
+        const claim = directDialAdmission.claim(message.endpoint, message.admission);
         if (claim !== null) {
           directDialClaims.set(message.requestId, { startId: message.startId, claim });
         }

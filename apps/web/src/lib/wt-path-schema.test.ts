@@ -6,7 +6,7 @@ const valid: PersistedWtPath = {
   daemonId: 'daemon-1',
   address: '198.51.100.7',
   certHash: btoa(String.fromCharCode(...new Uint8Array(32).fill(7))),
-  candidate: { addr: '2001:db8::1', port: 4433, kind: 'host6', scope: 'public' },
+  candidate: { addr: '2001:db8::1', port: 4433, kind: 'host6', scope: 'public', admission: 0 },
   nat: {
     publicIp: '203.0.113.8',
     natType: 'endpoint_independent',
@@ -41,6 +41,15 @@ describe('persisted WebTransport path schema', () => {
   });
 
   test('rejects malformed candidate and NAT subrecords atomically', () => {
+    for (const admission of ['0', -1, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(
+        parsePersistedWtPath(
+          { ...valid, candidate: { ...valid.candidate, admission } },
+          'daemon-1',
+          '198.51.100.7',
+        ),
+      ).toBeNull();
+    }
     expect(
       parsePersistedWtPath(
         { ...valid, candidate: { ...valid.candidate, addr: 'not-an-ip' } },

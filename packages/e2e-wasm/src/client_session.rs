@@ -499,7 +499,8 @@ impl ClientSession {
                 self.words[3] = u32::from(candidate);
                 self.bytes.extend_from_slice(&preface);
                 *self.metadata =
-                    serde_json::json!({ "url": url, "certHashes": cert_hashes }).to_string();
+                    serde_json::json!({ "url": url, "certHashes": cert_hashes, "admission": 0 })
+                        .to_string();
                 3
             }
             Action::DialDirect {
@@ -507,9 +508,10 @@ impl ClientSession {
                 addr,
                 cert_hash,
                 binding: _,
+                admission,
             } => {
                 self.conn(conn);
-                *self.metadata = serde_json::json!({ "url": format!("https://{addr}"), "certHashes": [cert_hash] }).to_string();
+                *self.metadata = serde_json::json!({ "url": format!("https://{addr}"), "certHashes": [cert_hash], "admission": admission }).to_string();
                 4
             }
             Action::SendReliable {

@@ -91,6 +91,7 @@ export interface BrowserSessionHost {
   renew(request: RenewSessionRequest): Promise<RenewSessionResult>;
   directDial(
     endpoint: string,
+    admission: number,
   ): Promise<{ settle(outcome: 'ready' | 'failed' | 'unused'): void } | null>;
 }
 
@@ -458,7 +459,7 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     direct: boolean,
     candidate: boolean,
     lane: number,
-    metadata: { url: string; certHashes: readonly (readonly number[])[] },
+    metadata: { url: string; certHashes: readonly (readonly number[])[]; admission: number },
     preface: Uint8Array,
   ): Promise<void> {
     const cancellation = new AbortController();
@@ -474,7 +475,10 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     let claim: Awaited<ReturnType<BrowserSessionHost['directDial']>> = null;
     try {
       if (direct) {
-        claim = await host.directDial(JSON.stringify([metadata.url, metadata.certHashes]));
+        claim = await host.directDial(
+          JSON.stringify([metadata.url, metadata.certHashes]),
+          metadata.admission,
+        );
         if (!active || owner !== generation || !carriers.has(conn)) {
           claim?.settle('unused');
           return;
@@ -652,6 +656,7 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
         const metadata = JSON.parse(session.action_metadata()) as {
           url: string;
           certHashes: readonly (readonly number[])[];
+          admission: number;
         };
         const preface = actionBytes().slice();
         carriers.set(conn, null);

@@ -167,10 +167,10 @@ impl Offer {
             && self.cert_hash.len() == 44
             && self.mac.len() == 86
             && self.candidates.len() <= MAX_BINDINGS
-            && self
-                .candidates
-                .iter()
-                .all(|candidate| valid_address(SocketAddr::new(candidate.addr, candidate.port)))
+            && self.candidates.iter().all(|candidate| {
+                candidate.admission == 0
+                    && valid_address(SocketAddr::new(candidate.addr, candidate.port))
+            })
     }
 
     pub fn transcript(&self) -> Vec<u8> {

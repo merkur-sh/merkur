@@ -360,7 +360,13 @@ describe('transport worker client start ownership', () => {
       if (start === undefined || start.kind !== 'start') throw new Error('start missing');
       // The first worker's claim is still in flight when it shuts down: a
       // handshake the page stopped waiting for is spent for this visit.
-      worker.emit({ kind: 'direct_dial', startId: start.startId, requestId: 1, endpoint });
+      worker.emit({
+        kind: 'direct_dial',
+        startId: start.startId,
+        requestId: 1,
+        endpoint,
+        admission: 0,
+      });
       expect(worker.messages.at(-1)).toEqual({
         kind: 'direct_dial_result',
         startId: start.startId,
@@ -374,7 +380,13 @@ describe('transport worker client start ownership', () => {
         requestId: 1,
         outcome: 'ready',
       });
-      worker.emit({ kind: 'direct_dial', startId: start.startId, requestId: 2, endpoint });
+      worker.emit({
+        kind: 'direct_dial',
+        startId: start.startId,
+        requestId: 2,
+        endpoint,
+        admission: 0,
+      });
       expect(worker.messages.at(-1)).toEqual({
         kind: 'direct_dial_result',
         startId: start.startId,
@@ -387,6 +399,7 @@ describe('transport worker client start ownership', () => {
         startId: start.startId,
         requestId: 3,
         endpoint: successfulEndpoint,
+        admission: 0,
       });
       worker.emit({
         kind: 'direct_dial_settle',
@@ -399,6 +412,7 @@ describe('transport worker client start ownership', () => {
         startId: start.startId,
         requestId: 4,
         endpoint: successfulEndpoint,
+        admission: 0,
       });
       expect(worker.messages.at(-1)).toEqual({
         kind: 'direct_dial_result',
@@ -515,7 +529,13 @@ describe('transport worker client start ownership', () => {
     const start = worker.messages.find((message) => message.kind === 'start');
     if (start === undefined || start.kind !== 'start') throw new Error('start missing');
     const dial = (requestId: number): unknown => {
-      worker.emit({ kind: 'direct_dial', startId: start.startId, requestId, endpoint });
+      worker.emit({
+        kind: 'direct_dial',
+        startId: start.startId,
+        requestId,
+        endpoint,
+        admission: 0,
+      });
       return worker.messages.at(-1);
     };
     worker.emit({ kind: 'observed_path', startId: start.startId, address: '198.51.100.7' });

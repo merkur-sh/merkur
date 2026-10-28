@@ -494,13 +494,16 @@ test('a retired started direct constructor cannot be refunded as unused', async 
   const decision = Promise.withResolvers<void>();
   const outcomes: string[] = [];
   let constructed = 0;
+  let closed = 0;
   class PendingTransport {
     readonly ready = decision.promise;
     readonly closed = new Promise(() => {});
     constructor() {
       constructed += 1;
     }
-    close(): void {}
+    close(): void {
+      closed += 1;
+    }
   }
   Object.defineProperty(globalThis, 'WebTransport', {
     configurable: true,
@@ -548,10 +551,12 @@ test('a retired started direct constructor cannot be refunded as unused', async 
     owner.abort();
     await expect(dial).rejects.toThrow('retired');
     expect(outcomes).toEqual([]);
+    expect(closed).toBe(0);
     decision.reject(new Error('native handshake failed after cancellation'));
     await expect(decision.promise).rejects.toThrow('native handshake failed after cancellation');
     await Promise.resolve();
     expect(outcomes).toEqual(['failed']);
+    expect(closed).toBe(1);
   } finally {
     if (original === undefined) Reflect.deleteProperty(globalThis, 'WebTransport');
     else Object.defineProperty(globalThis, 'WebTransport', original);

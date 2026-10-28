@@ -26,7 +26,7 @@ export function wtPathKey(daemonId: string, address: string): string {
 }
 
 const PATH_KEYS = ['key', 'daemonId', 'address', 'certHash', 'candidate', 'nat', 'mtime'] as const;
-const CANDIDATE_KEYS = ['addr', 'port', 'kind', 'scope'] as const;
+const CANDIDATE_KEYS = ['addr', 'port', 'kind', 'scope', 'admission'] as const;
 const NAT_KEYS = ['publicIp', 'natType', 'hairpin', 'natFiltering'] as const;
 const CANDIDATE_KINDS: ReadonlySet<string> = new Set<WebTransportCandidateKind>([
   'srflx',
@@ -86,6 +86,7 @@ export function parsePersistedWtPath(
 
 function parseCandidate(value: unknown): SignalingWebTransportCandidate | null {
   if (!isExactRecord(value, CANDIDATE_KEYS)) return null;
+  const admission = Number.isSafeInteger(value.admission) ? Number(value.admission) : null;
   if (
     !isIpAddress(value.addr) ||
     typeof value.port !== 'number' ||
@@ -94,7 +95,9 @@ function parseCandidate(value: unknown): SignalingWebTransportCandidate | null {
     value.port > 65_535 ||
     typeof value.kind !== 'string' ||
     !CANDIDATE_KINDS.has(value.kind) ||
-    (value.scope !== 'public' && value.scope !== 'local')
+    (value.scope !== 'public' && value.scope !== 'local') ||
+    admission === null ||
+    admission < 0
   ) {
     return null;
   }
@@ -103,6 +106,7 @@ function parseCandidate(value: unknown): SignalingWebTransportCandidate | null {
     port: value.port,
     kind: value.kind as WebTransportCandidateKind,
     scope: value.scope,
+    admission,
   };
 }
 

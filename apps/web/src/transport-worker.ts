@@ -169,13 +169,13 @@ function init(message: Extract<MainToTransport, { kind: 'init' }>): void {
         }),
       );
     },
-    async directDial(endpoint) {
+    async directDial(endpoint, admission) {
       let requestId = 0;
       let startId = 0;
       const allowed = await directDials.request((id, owner) => {
         requestId = id;
         startId = owner;
-        post({ kind: 'direct_dial', startId, requestId, endpoint });
+        post({ kind: 'direct_dial', startId, requestId, endpoint, admission });
       });
       if (!allowed) return null;
       let settled = false;

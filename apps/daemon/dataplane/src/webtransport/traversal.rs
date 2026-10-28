@@ -8,8 +8,8 @@ use super::side_channel::{PunchRefusal, SideChannel};
 use crate::connection::PeerMap;
 
 pub const CAPACITY: usize = 32;
-/// Mirrors the browser's `RACE_DEADLINE_MS`: a punch that has not left by the
-/// time the browser stops dialing opens filter state nobody will use.
+/// Bounds queue residence of an unsent punch; the manifest reports its outcome
+/// before the browser starts candidates that depend on it.
 const DEADLINE: Duration = Duration::from_millis(2500);
 /// Resource bound: one blocking-pool batch in flight, and at least this long
 /// between batches, so a burst of manifests cannot occupy the pool back to back.

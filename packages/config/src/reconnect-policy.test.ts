@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  MAX_REBIND_GENERATIONS,
-  RACE_DEADLINE_MS,
-  REBIND_WINDOW_MS,
-  raceGraceMs,
-} from './reconnect-policy';
+import { MAX_REBIND_GENERATIONS, REBIND_WINDOW_MS, raceGraceMs } from './reconnect-policy';
 
 describe('reconnect policy', () => {
   test('race grace window scales with the first handshake, clamped', () => {
@@ -17,10 +12,6 @@ describe('reconnect policy', () => {
     // Ceiling: slow networks
     expect(raceGraceMs(200)).toBe(400);
     expect(raceGraceMs(5_000)).toBe(400);
-  });
-
-  test('grace window never exceeds the race deadline', () => {
-    expect(raceGraceMs(Number.MAX_SAFE_INTEGER)).toBeLessThan(RACE_DEADLINE_MS);
   });
 
   test('rebind retention stays well under the parked-peer window', () => {
