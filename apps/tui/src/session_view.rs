@@ -147,7 +147,7 @@ impl SessionView {
     /// them. A host that states none still claims the machine's grid.
     pub fn viewport(&self) -> Option<Command> {
         let (cols, rows) = content_size(self.size, self.status_rows);
-        (cols > 0 && rows > 0).then_some(Command::Viewport {
+        claimable(cols, rows).then_some(Command::Viewport {
             cols,
             rows,
             cell: self.size.cell,
@@ -157,7 +157,7 @@ impl SessionView {
     fn resize_owned(&mut self) {
         let (cols, rows) = content_size(self.size, self.status_rows);
         let grid = self.viewer.grid().terminal();
-        if self.owner && cols > 0 && rows > 0 && (cols, rows) != (grid.cols(), grid.rows()) {
+        if self.owner && claimable(cols, rows) && (cols, rows) != (grid.cols(), grid.rows()) {
             self.viewer.resize(cols, rows);
         }
     }
@@ -484,6 +484,12 @@ impl SessionView {
 
 fn content_size(size: HostSize, status_rows: u16) -> (u16, u16) {
     (size.cols, size.rows.saturating_sub(status_rows))
+}
+
+/// A content area narrower than a fullwidth glyph, or without a row, claims
+/// no grid: the daemon refuses one.
+fn claimable(cols: u16, rows: u16) -> bool {
+    usize::from(cols) >= alacritty_terminal::term::MIN_COLUMNS && rows > 0
 }
 
 fn mouse_mode(word: u32) -> u16 {

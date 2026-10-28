@@ -8,7 +8,7 @@ use proptest::prelude::*;
 
 #[test]
 fn snapshot_graphics_allowance_reserves_worst_case_text_and_links() {
-    for (columns, rows) in [(1u16, 256u16), (512, 192), (384, 256), (80, 24)] {
+    for (columns, rows) in [(2u16, 256u16), (512, 192), (384, 256), (80, 24)] {
         let cells: Vec<_> = (0..columns)
             .map(|column| CellRepr {
                 codepoint: 0x10000 + u32::from(column),
@@ -31,6 +31,7 @@ fn snapshot_graphics_allowance_reserves_worst_case_text_and_links() {
         );
     }
     assert_eq!(crate::snapshot_graphics_budget(0, 1), None);
+    assert_eq!(crate::snapshot_graphics_budget(1, 1), None);
     assert_eq!(crate::snapshot_graphics_budget(512, 256), None);
 }
 
@@ -196,7 +197,7 @@ proptest! {
         cells in prop::collection::vec(cell_strategy(), 1..=120),
         left in 0u16..8,
     ) {
-        let cols = cells.len() as u16 + left;
+        let cols = (cells.len() + usize::from(left)).max(crate::MIN_TERMINAL_COLUMNS) as u16;
         let header = link_test_header(cols, 1);
         let mut encoded = Vec::new();
         encode_frame_into(

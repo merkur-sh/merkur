@@ -8,7 +8,7 @@ use alacritty_terminal::{
     event::VoidListener,
     grid::Dimensions,
     index::{Column, Line, Point},
-    term::{Config, Term, TermMode, cell::Flags},
+    term::{Config, MIN_COLUMNS, Term, TermMode, cell::Flags},
     vte::ansi::{Color, CursorShape, NamedColor, Processor},
 };
 use term_wasm::{
@@ -59,7 +59,14 @@ impl Default for Chrome {
             ..Config::default()
         };
         Self {
-            screen: Screen(Term::new(config, &Size { cols: 1, rows: 1 }, VoidListener)),
+            screen: Screen(Term::new(
+                config,
+                &Size {
+                    cols: MIN_COLUMNS,
+                    rows: 1,
+                },
+                VoidListener,
+            )),
             parser: Processor::new(),
             composer: Composer::new(0),
             shown: false,
@@ -80,7 +87,8 @@ impl Chrome {
     /// complete synchronized update, as it would to the host.
     pub fn present(&mut self, size: HostSize, paint: impl FnOnce(&mut Vec<u8>), out: &mut Vec<u8>) {
         let size = Size {
-            cols: usize::from(size.cols.max(1)),
+            // The screen writes a fullwidth glyph's spacer into the next column.
+            cols: usize::from(size.cols).max(MIN_COLUMNS),
             rows: usize::from(size.rows.max(1)),
         };
         let term = &mut self.screen.0;

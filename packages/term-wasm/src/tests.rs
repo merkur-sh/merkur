@@ -453,8 +453,12 @@ fn terminal_grid_matches_the_shared_typescript_vectors() {
         terminal_grid_from_css_cells(100_000.0, 100_000.0, 8.0, 16.0),
         (512, 192)
     );
-    assert_eq!(terminal_grid_from_css_cells(0.0, 0.0, 8.0, 16.0), (1, 1));
-    assert_eq!(terminal_grid_from_css_cells(960.0, 640.0, 0.0, 0.0), (1, 1));
+    assert_eq!(terminal_grid_from_css_cells(0.0, 0.0, 8.0, 16.0), (2, 1));
+    assert_eq!(terminal_grid_from_css_cells(960.0, 640.0, 0.0, 0.0), (2, 1));
+    assert_eq!(
+        terminal_grid_from_css_cells(15.0, 640.0, 8.0, 16.0),
+        (2, 40)
+    );
 }
 
 #[test]
@@ -1849,7 +1853,7 @@ fn staged_delta_sequence_zero_is_rejected_before_decode() {
     let cells = [test_cell('z')];
     let frame = test_frame(
         FrameKind::Delta,
-        1,
+        2,
         RowRef {
             graphics: &[],
             row_index: 0,
@@ -1859,7 +1863,7 @@ fn staged_delta_sequence_zero_is_rejected_before_decode() {
     );
     let mut wire = compressed_test_frame(&frame);
     wire[DISPLAY_SEQ_OFFSET..DISPLAY_SEQ_OFFSET + 4].fill(0);
-    let mut terminal = Terminal::new(1, 1);
+    let mut terminal = Terminal::new(2, 1);
     let before_decode = terminal.display_frame_decode_count;
 
     assert_eq!(stage_test_frame(&mut terminal, &wire), 0);
@@ -2253,7 +2257,7 @@ fn compressed_frame_rejects_oversized_advertised_rows_before_allocating() {
     let cells = [test_cell('z')];
     let frame = test_frame(
         FrameKind::Delta,
-        1,
+        2,
         RowRef {
             graphics: &[],
             row_index: 0,
@@ -2264,7 +2268,7 @@ fn compressed_frame_rejects_oversized_advertised_rows_before_allocating() {
     let mut wire = compressed_test_frame(&frame);
     wire[DISPLAY_COMPRESSED_LENGTH_OFFSET..DISPLAY_COMPRESSED_LENGTH_OFFSET + 4]
         .copy_from_slice(&u32::MAX.to_be_bytes());
-    let mut terminal = Terminal::new(1, 1);
+    let mut terminal = Terminal::new(2, 1);
 
     assert_eq!(stage_test_frame(&mut terminal, &wire), 0);
     assert_eq!(
@@ -2451,8 +2455,8 @@ fn released_staging_slot_cannot_alias_two_queued_datagrams() {
 
 #[test]
 fn staged_handles_use_a_bounded_lifo_free_slot_stack() {
-    let frame = test_frame_with_entries(FrameKind::Delta, 1, 1, 0, 0, &[]);
-    let mut terminal = Terminal::new(1, 1);
+    let frame = test_frame_with_entries(FrameKind::Delta, 2, 1, 0, 0, &[]);
+    let mut terminal = Terminal::new(2, 1);
     let handles: Vec<u32> = (0..STAGED_FRAME_MAX)
         .map(|_| stage_test_frame(&mut terminal, &frame))
         .collect();
@@ -6238,19 +6242,19 @@ fn preedit_overflow_keeps_tail_visible() {
 }
 
 #[test]
-fn preedit_wider_than_grid_draws_nothing() {
+fn preedit_on_the_narrowest_grid_keeps_its_wide_tail() {
+    // A one-column request still makes a grid a double-width char fits.
     let mut terminal = terminal_with_atlas(1, 1);
     terminal.build_presented_geometry();
     let base_bg = terminal.background_count();
-    let base_deco = terminal.decoration_count();
 
-    // A double-width char cannot fit a one-column row: the trim consumes
-    // the whole run, and no record may be pushed.
-    terminal.set_preedit("あ", 1);
+    // Three cells into a two-column row: the narrow head is trimmed and the
+    // wide tail fills the row, one record per column it covers.
+    terminal.set_preedit("aあ", 2);
     terminal.build_presented_geometry();
-    assert_eq!(terminal.background_count(), base_bg);
-    assert_eq!(terminal.decoration_count(), base_deco);
-    assert!(terminal.overlay_buf.is_empty());
+    assert_eq!(terminal.overlay_buf.len(), 2 * CELL_WORDS);
+    assert_eq!(terminal.overlay_buf[CELL_WORDS], cell_column_word(1));
+    assert_eq!(terminal.background_count(), base_bg + 2);
 }
 
 #[test]

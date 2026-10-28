@@ -3,9 +3,16 @@ use std::fmt;
 /// The codec's receiver grid caps, narrowed to the PTY's `u16` dimensions: a
 /// wire fact with one definition, so the daemon never sizes a terminal whose
 /// frames a viewer refuses.
+pub const MIN_TERMINAL_COLUMNS: u16 = dimension(merkur_codec::MIN_TERMINAL_COLUMNS);
 pub const MAX_TERMINAL_COLUMNS: u16 = dimension(merkur_codec::MAX_TERMINAL_COLUMNS);
 pub const MAX_TERMINAL_ROWS: u16 = dimension(merkur_codec::MAX_TERMINAL_ROWS);
 pub const MAX_TERMINAL_CELLS: usize = merkur_codec::MAX_TERMINAL_CELLS;
+
+// The terminal writes a fullwidth glyph's spacer into the next column.
+const _: () = assert!(
+    MIN_TERMINAL_COLUMNS as usize >= alacritty_terminal::term::MIN_COLUMNS,
+    "the narrowest grid holds a fullwidth glyph"
+);
 
 /// A codec cap as a PTY dimension. A cap past `u16` fails the build.
 const fn dimension(cap: usize) -> u16 {
@@ -18,7 +25,7 @@ const fn dimension(cap: usize) -> u16 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TerminalDimensionsError {
-    ZeroColumns,
+    TooFewColumns,
     ZeroRows,
     ColumnsTooLarge,
     RowsTooLarge,
@@ -28,7 +35,7 @@ pub enum TerminalDimensionsError {
 impl fmt::Display for TerminalDimensionsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
-            Self::ZeroColumns => "columns must be nonzero",
+            Self::TooFewColumns => "columns must hold a fullwidth glyph",
             Self::ZeroRows => "rows must be nonzero",
             Self::ColumnsTooLarge => "columns exceed maximum",
             Self::RowsTooLarge => "rows exceed maximum",
@@ -45,8 +52,8 @@ pub fn validate_terminal_dimensions(
     columns: u16,
     rows: u16,
 ) -> Result<(), TerminalDimensionsError> {
-    if columns == 0 {
-        return Err(TerminalDimensionsError::ZeroColumns);
+    if columns < MIN_TERMINAL_COLUMNS {
+        return Err(TerminalDimensionsError::TooFewColumns);
     }
     if rows == 0 {
         return Err(TerminalDimensionsError::ZeroRows);
@@ -195,7 +202,10 @@ mod tests {
             validate_terminal_dimensions(MAX_TERMINAL_COLUMNS, 1),
             Ok(())
         );
-        assert_eq!(validate_terminal_dimensions(1, MAX_TERMINAL_ROWS), Ok(()));
+        assert_eq!(
+            validate_terminal_dimensions(MIN_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS),
+            Ok(())
+        );
     }
 
     #[test]
@@ -204,11 +214,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_dimensions() {
-        assert_eq!(
-            validate_terminal_dimensions(0, 40),
-            Err(TerminalDimensionsError::ZeroColumns)
-        );
+    fn rejects_zero_rows_and_too_few_columns() {
+        for columns in 0..MIN_TERMINAL_COLUMNS {
+            assert_eq!(
+                validate_terminal_dimensions(columns, 40),
+                Err(TerminalDimensionsError::TooFewColumns)
+            );
+        }
         assert_eq!(
             validate_terminal_dimensions(120, 0),
             Err(TerminalDimensionsError::ZeroRows)
@@ -222,7 +234,7 @@ mod tests {
             Err(TerminalDimensionsError::ColumnsTooLarge)
         );
         assert_eq!(
-            validate_terminal_dimensions(1, MAX_TERMINAL_ROWS + 1),
+            validate_terminal_dimensions(MIN_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS + 1),
             Err(TerminalDimensionsError::RowsTooLarge)
         );
     }

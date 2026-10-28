@@ -16,6 +16,10 @@ use crate::{
     CellRepr, FrameHeader, cell_iter, iter_rows_at, link_spans, parse_frame_header_and_rows_start,
 };
 
+/// The narrowest grid: a fullwidth glyph and its spacer take two cells, so a
+/// one-column terminal cannot hold the text a shell writes.
+pub const MIN_TERMINAL_COLUMNS: usize = 2;
+
 /// Receiver grid caps. A frame claiming more than this is refused before any
 /// allocation is sized from it.
 pub const MAX_TERMINAL_COLUMNS: usize = 512;
@@ -275,7 +279,7 @@ pub fn validate_display_frame_header(
     let Some(cell_count) = cols.checked_mul(rows) else {
         return Err(DisplayFrameValidationError::Dimensions);
     };
-    if cols == 0
+    if cols < MIN_TERMINAL_COLUMNS
         || rows == 0
         || cols > MAX_TERMINAL_COLUMNS
         || rows > MAX_TERMINAL_ROWS

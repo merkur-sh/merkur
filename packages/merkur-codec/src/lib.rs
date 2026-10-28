@@ -45,8 +45,8 @@ pub use theme::{
 };
 pub use validate::{
     DisplayFrameValidationBounds, DisplayFrameValidationError, MAX_TERMINAL_CELLS,
-    MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, ValidatedDisplayRow, validate_display_frame,
-    validate_display_frame_header, validate_display_rows,
+    MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, MIN_TERMINAL_COLUMNS, ValidatedDisplayRow,
+    validate_display_frame, validate_display_frame_header, validate_display_rows,
 };
 pub use varint::{decode_varint_u32, encode_varint_u32};
 pub use wire::MAX_WIRE_HEADER_BYTES;
@@ -64,7 +64,7 @@ pub const MAX_DISPLAY_SNAPSHOT_BYTES: usize = 4 * 1024 * 1024;
 /// another 8. Per-row framing includes both link count and color-mode bytes.
 pub fn snapshot_graphics_budget(columns: u16, rows: u16) -> Option<usize> {
     let cells = usize::from(columns).checked_mul(usize::from(rows))?;
-    if columns == 0
+    if usize::from(columns) < MIN_TERMINAL_COLUMNS
         || rows == 0
         || usize::from(columns) > MAX_TERMINAL_COLUMNS
         || usize::from(rows) > MAX_TERMINAL_ROWS

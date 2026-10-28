@@ -31,10 +31,10 @@ use merkur_codec::{
     CELL_DIGEST_BYTES, CELL_DIGEST_WRAPPED_BIT, CellRepr, DISPLAY_COMPRESSED_LENGTH_OFFSET,
     DISPLAY_COMPRESSED_PAYLOAD_OFFSET, DISPLAY_HEADER_FLAG_COMPRESSED_MZ, DISPLAY_VERSION_OFFSET,
     FRAME_HEADER_BODY_BYTES, FrameHeader, FrameKind, MAX_DISPLAY_FRAME_BYTES, MAX_TERMINAL_CELLS,
-    MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, MSG_TYPE_DISPLAY_PATCH, STREAM_HEADER_BYTES, VERSION,
-    ValidatedDisplayRow, append_link_digest, cell_wraps, pack_cell_digest, parse_frame_header,
-    parse_stream_header, row_hash_packed, validate_display_frame, validate_display_frame_header,
-    validate_display_rows,
+    MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS, MIN_TERMINAL_COLUMNS, MSG_TYPE_DISPLAY_PATCH,
+    STREAM_HEADER_BYTES, VERSION, ValidatedDisplayRow, append_link_digest, cell_wraps,
+    pack_cell_digest, parse_frame_header, parse_stream_header, row_hash_packed,
+    validate_display_frame, validate_display_frame_header, validate_display_rows,
 };
 use unicode_width::UnicodeWidthChar;
 use wasm_bindgen::prelude::*;
@@ -852,7 +852,7 @@ pub fn init_regular(
 /// history, ordering, prediction state, or damage to leak into the presented terminal.
 #[wasm_bindgen]
 pub fn init_display_receiver_calibration(cols: u16, rows: u16) -> Terminal {
-    Terminal::new(cols.max(1), rows.max(1))
+    Terminal::new(cols, rows)
 }
 
 fn terminal_font_settings() -> fontdue::FontSettings {
@@ -950,22 +950,25 @@ fn terminal_grid_from_css_cells(
     css_cell_w: f32,
     css_cell_h: f32,
 ) -> (u16, u16) {
-    let cols = floor_terminal_dimension(viewport_width / css_cell_w, MAX_TERMINAL_COLUMNS);
-    let rows = floor_terminal_dimension(viewport_height / css_cell_h, MAX_TERMINAL_ROWS);
+    let cols = floor_terminal_dimension(
+        viewport_width / css_cell_w,
+        MIN_TERMINAL_COLUMNS,
+        MAX_TERMINAL_COLUMNS,
+    );
+    let rows = floor_terminal_dimension(viewport_height / css_cell_h, 1, MAX_TERMINAL_ROWS);
     if usize::from(cols) * usize::from(rows) <= MAX_TERMINAL_CELLS {
         return (cols, rows);
     }
     (cols, (MAX_TERMINAL_CELLS / usize::from(cols)).max(1) as u16)
 }
 
-/// Floors one axis into `1..=maximum`. A non-finite ratio — an unmeasured
+/// Floors one axis into `minimum..=maximum`. A non-finite ratio — an unmeasured
 /// viewport, or a cell size of zero — yields the minimum grid rather than a
 /// zero, negative, or saturated one.
-fn floor_terminal_dimension(cells: f32, maximum: usize) -> u16 {
-    if !cells.is_finite() || cells < 1.0 {
-        return 1;
-    }
-    (cells.floor() as usize).min(maximum) as u16
+fn floor_terminal_dimension(cells: f32, minimum: usize, maximum: usize) -> u16 {
+    // A negative ratio saturates to zero as it casts.
+    let cells = if cells.is_finite() { cells } else { 0.0 };
+    (cells.floor() as usize).clamp(minimum, maximum) as u16
 }
 
 /// Native-only construction, for harnesses that drive the real terminal from
@@ -5857,8 +5860,7 @@ fn append_preedit_records(
         total -= width(chars[first]);
         first += 1;
     }
-    // Every char trimmed (e.g. a wide char in a one-column grid): nothing to
-    // draw.
+    // Every char trimmed: nothing to draw.
     if total == 0 {
         return false;
     }
@@ -6208,10 +6210,12 @@ fn rgb_to_f32(rgb: [u8; 3]) -> [f32; 3] {
 
 // ── Color resolution ─────────────────────────────────────────────────────────
 
+/// The one place a size becomes a grid, so no caller can make one too narrow
+/// for a fullwidth glyph or without a row.
 fn create_dimensions(cols: u16, rows: u16) -> TerminalDimensions {
     TerminalDimensions {
-        cols: usize::from(cols),
-        rows: usize::from(rows),
+        cols: usize::from(cols).max(MIN_TERMINAL_COLUMNS),
+        rows: usize::from(rows).max(1),
     }
 }
 

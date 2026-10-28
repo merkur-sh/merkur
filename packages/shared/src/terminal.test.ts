@@ -6,6 +6,7 @@ import {
   MAX_TERMINAL_CELLS,
   MAX_TERMINAL_COLUMNS,
   MAX_TERMINAL_ROWS,
+  MIN_TERMINAL_COLUMNS,
 } from './terminal';
 
 describe('terminal dimensions', () => {
@@ -20,8 +21,12 @@ describe('terminal dimensions', () => {
     expect(dimensions.columns * dimensions.rows).toBeLessThanOrEqual(MAX_TERMINAL_CELLS);
   });
 
-  test('normalizes invalid dimensions to one', () => {
-    expect(clampTerminalDimensions(Number.NaN, 0)).toEqual({ columns: 1, rows: 1 });
+  test('normalizes invalid dimensions to the narrowest grid', () => {
+    expect(clampTerminalDimensions(Number.NaN, 0)).toEqual({ columns: 2, rows: 1 });
+  });
+
+  test('widens a one-column grid to hold a fullwidth glyph', () => {
+    expect(clampTerminalDimensions(1, 40)).toEqual({ columns: MIN_TERMINAL_COLUMNS, rows: 40 });
   });
 });
 
@@ -60,7 +65,8 @@ describe('computeTerminalGrid', () => {
   });
 
   test('normalizes an unmeasured viewport and unmeasured cell metrics', () => {
-    expect(computeTerminalGrid(0, 0, 8, 16)).toEqual({ columns: 1, rows: 1 });
-    expect(computeTerminalGrid(960, 640, 0, 0)).toEqual({ columns: 1, rows: 1 });
+    expect(computeTerminalGrid(0, 0, 8, 16)).toEqual({ columns: 2, rows: 1 });
+    expect(computeTerminalGrid(960, 640, 0, 0)).toEqual({ columns: 2, rows: 1 });
+    expect(computeTerminalGrid(15, 640, 8, 16)).toEqual({ columns: 2, rows: 40 });
   });
 });

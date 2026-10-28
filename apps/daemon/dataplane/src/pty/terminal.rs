@@ -943,7 +943,7 @@ impl Iterator for DirtyRowIter<'_> {
 
 impl TerminalState {
     pub fn new(cols: u16, rows: u16, event_tx: Sender<TerminalEvent>) -> Self {
-        let normalized_cols = cols.max(1);
+        let normalized_cols = cols.max(super::dimensions::MIN_TERMINAL_COLUMNS);
         let normalized_rows = rows.max(1);
         let dimensions = TermDimensions {
             cols: usize::from(normalized_cols),
@@ -1591,7 +1591,7 @@ impl TerminalState {
             self.parser.pending_sync_bytes_count() + self.unapplied_pty_bytes;
         self.completed_sync_update_epoch = 0;
         self.bump_display_revision();
-        self.cols = cols.max(1);
+        self.cols = cols.max(super::dimensions::MIN_TERMINAL_COLUMNS);
         self.rows = rows.max(1);
         self.term.resize(TermDimensions {
             cols: usize::from(self.cols),
@@ -4535,6 +4535,23 @@ mod ui_tests;
 mod row_identity {
     use super::*;
     use std::time::Instant;
+
+    /// A one-column request still leaves room for a fullwidth glyph's spacer.
+    #[test]
+    fn narrowest_grid_holds_a_fullwidth_glyph() {
+        let (tx, _) = crossbeam_channel::unbounded();
+        let mut t = TerminalState::new(7, 4, tx);
+        t.resize(1, 1);
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        t.apply_bytes("界界".as_bytes());
+        refresh_exact(&mut t, &mut hashes, &mut captures);
+        assert_eq!(t.term.grid().columns(), 2);
+        let row = &captures[0].cells;
+        assert_eq!(row[0].codepoint, u32::from('界'));
+        assert_eq!(row.len(), 2);
+    }
 
     #[test]
     fn pool_bound_holds_before_finish_with_pinned_spares() {

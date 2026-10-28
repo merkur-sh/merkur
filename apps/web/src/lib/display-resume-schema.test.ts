@@ -31,6 +31,7 @@ describe('persisted display resume schema', () => {
       { ...valid, seq: -1 },
       { ...valid, seq: 1.5 },
       { ...valid, cols: 0 },
+      { ...valid, cols: 1 },
       { ...valid, cols: 513 },
       { ...valid, rows: 257 },
       { ...valid, cols: 512, rows: 256 },

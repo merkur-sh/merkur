@@ -1,4 +1,9 @@
-import { MAX_TERMINAL_CELLS, MAX_TERMINAL_COLUMNS, MAX_TERMINAL_ROWS } from '@merkur/shared';
+import {
+  MAX_TERMINAL_CELLS,
+  MAX_TERMINAL_COLUMNS,
+  MAX_TERMINAL_ROWS,
+  MIN_TERMINAL_COLUMNS,
+} from '@merkur/shared';
 
 export interface PersistedResume {
   readonly key: string;
@@ -45,6 +50,7 @@ export function parsePersistedResume(
     value.generation === 0 ||
     !isU32(value.seq) ||
     !isPositiveSafeInteger(value.cols) ||
+    value.cols < MIN_TERMINAL_COLUMNS ||
     value.cols > MAX_TERMINAL_COLUMNS ||
     !isPositiveSafeInteger(value.rows) ||
     value.rows > MAX_TERMINAL_ROWS ||

@@ -1,4 +1,6 @@
 const MIN_TERMINAL_DIMENSION = 1;
+/** A fullwidth glyph and its spacer take two cells; the daemon refuses a narrower grid. */
+export const MIN_TERMINAL_COLUMNS = 2;
 export const MAX_TERMINAL_COLUMNS = 512;
 export const MAX_TERMINAL_ROWS = 256;
 export const MAX_TERMINAL_CELLS = 96 * 1024;
@@ -15,7 +17,10 @@ export function clampTerminalDimensions(
   columns: number,
   rows: number,
 ): { readonly columns: number; readonly rows: number } {
-  const boundedColumns = Math.min(clampTerminalDimension(columns), MAX_TERMINAL_COLUMNS);
+  const boundedColumns = Math.min(
+    Math.max(clampTerminalDimension(columns), MIN_TERMINAL_COLUMNS),
+    MAX_TERMINAL_COLUMNS,
+  );
   let boundedRows = Math.min(clampTerminalDimension(rows), MAX_TERMINAL_ROWS);
   if (boundedColumns * boundedRows > MAX_TERMINAL_CELLS) {
     boundedRows = Math.max(MIN_TERMINAL_DIMENSION, Math.floor(MAX_TERMINAL_CELLS / boundedColumns));

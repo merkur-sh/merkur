@@ -478,7 +478,7 @@ pub fn encode_perf_grid_convergence_response(
     rows: u16,
     row_hashes: &[u64],
 ) -> Option<Vec<u8>> {
-    let dimensions_valid = cols != 0
+    let dimensions_valid = usize::from(cols) >= merkur_codec::MIN_TERMINAL_COLUMNS
         && rows != 0
         && usize::from(cols) <= merkur_codec::MAX_TERMINAL_COLUMNS
         && usize::from(rows) <= merkur_codec::MAX_TERMINAL_ROWS
