@@ -70,6 +70,7 @@ pub struct Claim {
     pub identity: Identity,
     live: AtomicBool,
     stable_connection: AtomicU64,
+    connection_transition: Mutex<()>,
     authenticated: AtomicBool,
     epoch_owner: Arc<AtomicU64>,
     epoch: u64,
@@ -84,6 +85,7 @@ impl Claim {
             epoch,
             live: AtomicBool::new(true),
             stable_connection: AtomicU64::new(0),
+            connection_transition: Mutex::new(()),
             authenticated: AtomicBool::new(false),
         })
     }
@@ -94,12 +96,17 @@ impl Claim {
             && remote.to_canonical() == self.identity.browser
     }
 
-    pub fn connected(&self, stable_id: usize) -> bool {
-        self.live.load(Ordering::Acquire)
+    #[must_use = "keep the guard alive until the native connection retires"]
+    pub fn connected(&self, stable_id: usize) -> Option<ClaimConnection<'_>> {
+        (self.live.load(Ordering::Acquire)
             && self
                 .stable_connection
                 .compare_exchange(0, stable_id as u64 + 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
+                .is_ok())
+        .then(|| ClaimConnection {
+            claim: self,
+            stable_id,
+        })
     }
 
     pub fn authorizes(&self, peer: &PeerDisplayState) -> bool {
@@ -109,8 +116,16 @@ impl Claim {
             && self.identity.matches(peer)
     }
 
-    pub fn authenticate(&self) {
+    pub(super) fn authenticate(&self, stable_id: usize) -> bool {
+        let _transition = self.connection_transition.lock().unwrap();
+        if !self.live.load(Ordering::Acquire)
+            || self.epoch_owner.load(Ordering::Acquire) != self.epoch
+            || self.stable_connection.load(Ordering::Acquire) != stable_id as u64 + 1
+        {
+            return false;
+        }
         self.authenticated.store(true, Ordering::Release);
+        true
     }
 
     fn owns(&self, peer: &PeerDisplayState) -> bool {
@@ -123,6 +138,25 @@ impl Claim {
                     conn.quic_connection().stable_id() as u64 + 1
                         == self.stable_connection.load(Ordering::Acquire)
                 })
+    }
+}
+
+/// The exact native connection's unauthenticated reservation. Authentication
+/// makes ownership permanent; every other supervisor exit releases only itself.
+pub struct ClaimConnection<'a> {
+    claim: &'a Claim,
+    stable_id: usize,
+}
+
+impl Drop for ClaimConnection<'_> {
+    fn drop(&mut self) {
+        let _transition = self.claim.connection_transition.lock().unwrap();
+        if !self.claim.authenticated.load(Ordering::Acquire)
+            && self.claim.stable_connection.load(Ordering::Acquire) == self.stable_id as u64 + 1
+        {
+            // Connect only claims zero; this owner cannot change before this clear.
+            self.claim.stable_connection.store(0, Ordering::Release);
+        }
     }
 }
 
@@ -1017,23 +1051,104 @@ mod tests {
     }
 
     #[test]
+    fn an_unauthenticated_connection_releases_its_claim_when_its_owner_ends() {
+        let claim = Claim::new(identity(), Arc::new(AtomicU64::new(0)), 0);
+        {
+            let _connection = claim.connected(7);
+            assert_eq!(claim.stable_connection.load(Ordering::Acquire), 8);
+        }
+        assert_eq!(
+            claim.stable_connection.load(Ordering::Acquire),
+            0,
+            "a closed unauthenticated connection must not consume the listener"
+        );
+    }
+
+    #[test]
+    fn a_late_proof_cannot_claim_a_successor_and_authenticated_ownership_survives_close() {
+        let claim = Claim::new(identity(), Arc::new(AtomicU64::new(0)), 0);
+        let first = claim.connected(7).unwrap();
+        assert!(claim.connected(7).is_none());
+        assert_eq!(claim.stable_connection.load(Ordering::Acquire), 8);
+        drop(first);
+        let successor = claim.connected(8).unwrap();
+        assert!(!claim.authenticate(7), "the closed connection has no claim");
+        assert!(!claim.authenticated.load(Ordering::Acquire));
+        assert!(claim.authenticate(8));
+        drop(successor);
+        assert_eq!(claim.stable_connection.load(Ordering::Acquire), 9);
+        assert!(
+            claim.connected(9).is_none(),
+            "authentication retains the exact owner"
+        );
+    }
+
+    #[tokio::test]
+    async fn claim_authentication_waits_for_atomic_routing_promotion() {
+        let live = super::super::loopback_pair().await;
+        let (_endpoint, cert, info) = super::super::start_server(0, None).unwrap();
+        let mut snapshot = WebTransportState::from_server_info(cert, &info);
+        let claim = Claim::new(identity(), Arc::new(AtomicU64::new(0)), 0);
+        let stable_id = live.daemon.quic_connection().stable_id();
+        let ownership = claim.connected(stable_id).unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        snapshot.peer_connections.insert(
+            "pending".into(),
+            super::super::ChannelPeerConnection {
+                connection_id: 1,
+                senders: super::super::ChannelSenders {
+                    ctrl: sender.clone(),
+                    pty: sender.clone(),
+                    display_commit: sender,
+                    signaling: None,
+                },
+            },
+        );
+        snapshot
+            .sessions
+            .insert("pending".into(), live.daemon.clone());
+        snapshot
+            .admission_claims
+            .insert("pending".into(), claim.clone());
+        let state = Arc::new(RwLock::new(snapshot));
+        let read = state.read().await;
+        let mut promotion =
+            std::pin::pin!(super::super::upgrade_peer(&state, "pending", "browser"));
+        assert!(futures::poll!(promotion.as_mut()).is_pending());
+        assert!(
+            !claim.authenticated.load(Ordering::Acquire),
+            "a registry reader still prevents adoption"
+        );
+        drop(read);
+        assert!(promotion.await.is_some());
+        assert!(claim.authenticated.load(Ordering::Acquire));
+        assert!(state.read().await.sessions.contains_key("browser"));
+        drop(ownership);
+        assert_eq!(
+            claim.stable_connection.load(Ordering::Acquire),
+            stable_id as u64 + 1
+        );
+    }
+
+    #[test]
     fn separate_claims_allow_concurrent_browsers_and_fresh_source_ports_without_reusing_a_grant() {
         let epoch = Arc::new(AtomicU64::new(0));
         let first = Claim::new(identity(), epoch.clone(), 0);
         let second = Claim::new(identity(), epoch.clone(), 0);
         assert_ne!(first.id, second.id);
-        assert!(first.connected(10));
+        let _first_connection = first.connected(10).unwrap();
         assert!(
-            !first.connected(11),
+            first.connected(11).is_none(),
             "one grant cannot admit a second QUIC owner"
         );
-        assert!(
-            second.connected(11),
-            "same public IP has independent socket ownership"
-        );
+        let _second_connection = second
+            .connected(11)
+            .expect("same public IP has independent socket ownership");
         first.live.store(false, Ordering::Release);
         let reconnect = Claim::new(identity(), epoch, 0);
-        assert!(reconnect.connected(12), "a fresh claim has a fresh grant");
+        let _reconnect_connection = reconnect
+            .connected(12)
+            .expect("a fresh claim has a fresh grant");
         assert!(
             second.accepts(identity().browser),
             "cancelling a loser preserves another session"
@@ -1424,8 +1539,10 @@ mod tests {
         let mut owner = Owner::new(messages, events.clone(), &handle);
         let mut peer = peer();
         let winner = Claim::new(identity(), handle.epoch.clone(), 0);
-        winner.connected(live.daemon.quic_connection().stable_id());
-        winner.authenticate();
+        let stable_id = live.daemon.quic_connection().stable_id();
+        let connection_claim = winner.connected(stable_id).unwrap();
+        assert!(winner.authenticate(stable_id));
+        drop(connection_claim);
         peer.direct_session = Some(super::super::DirectSession::from_connection(
             live.daemon.clone(),
         ));

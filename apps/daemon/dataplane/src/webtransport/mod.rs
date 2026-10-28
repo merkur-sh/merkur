@@ -1990,18 +1990,23 @@ async fn accept_loop(
                 }
             };
 
-            if claim
-                .as_ref()
-                .is_some_and(|claim| !claim.connected(connection.quic_connection().stable_id()))
-            {
-                connection.close(
-                    wtransport::VarInt::from_u32(0),
-                    b"admission-already-claimed",
-                );
-                return;
-            }
             let connection = Arc::new(connection);
             let _close_connection = CloseConnectionOnDrop(Arc::clone(&connection));
+            // A pre-bind return releases its reservation before the close guard
+            // tells the browser this connection ended.
+            let claim_connection = if let Some(claim) = &claim {
+                let Some(ownership) = claim.connected(connection.quic_connection().stable_id())
+                else {
+                    connection.close(
+                        wtransport::VarInt::from_u32(0),
+                        b"admission-already-claimed",
+                    );
+                    return;
+                };
+                Some(ownership)
+            } else {
+                None
+            };
             info!("WebTransport session accepted");
 
             let conn_id = next_connection_id();
@@ -2245,6 +2250,7 @@ async fn accept_loop(
             );
             abort_and_join_session_tasks(&mut handles).await;
             remove_session_if_current(&state, &temp_peer_id, conn_id).await;
+            drop(claim_connection);
 
             let _ = peer_event_tx
                 .send(PeerEvent::Disconnected {
@@ -2473,37 +2479,6 @@ pub async fn upgrade_peer(
     temp_peer_id: &str,
     real_peer_id: &str,
 ) -> Option<(UpgradePeerOutcome, DirectSession)> {
-    if temp_peer_id == real_peer_id {
-        let (upgrade_completed, session) = {
-            let mut state = state.write().await;
-            let connection = state.peer_connections.get(real_peer_id);
-            let connection_id = connection.map(|connection| connection.connection_id);
-            let senders = connection.map(|connection| connection.senders.clone());
-            let session = state.sessions.get(real_peer_id).cloned();
-            (
-                connection_id.and_then(|id| state.pending_upgrade_deadlines.remove(&id)),
-                session.zip(senders),
-            )
-        };
-        if let Some(upgrade_completed) = upgrade_completed {
-            let _ = upgrade_completed.send(());
-            return session.map(|(session, senders)| {
-                (
-                    UpgradePeerOutcome::Added,
-                    DirectSession::new(session, senders),
-                )
-            });
-        }
-        let state = state.read().await;
-        let senders = state.peer_connections.get(real_peer_id)?.senders.clone();
-        return state.sessions.get(real_peer_id).map(|session| {
-            (
-                UpgradePeerOutcome::Added,
-                DirectSession::new(Arc::clone(session), senders),
-            )
-        });
-    }
-
     let displaced = {
         let mut state = state.write().await;
         let (connection, session) = match (
@@ -2526,6 +2501,17 @@ pub async fn upgrade_peer(
                 return None;
             }
         };
+        if state
+            .admission_claims
+            .get(temp_peer_id)
+            .is_some_and(|claim| !claim.authenticate(session.quic_connection().stable_id()))
+        {
+            state
+                .peer_connections
+                .insert(temp_peer_id.to_string(), connection);
+            state.sessions.insert(temp_peer_id.to_string(), session);
+            return None;
+        }
         let upgrade_completed = state
             .pending_upgrade_deadlines
             .remove(&connection.connection_id);
@@ -3059,6 +3045,7 @@ mod lifecycle_tests {
 
     #[tokio::test]
     async fn successful_exact_id_upgrade_cancels_only_its_own_deadline() {
+        let live = loopback_pair().await;
         let state = test_state();
         let upgraded_connection_id = 61;
         let other_connection_id = 62;
@@ -3076,6 +3063,9 @@ mod lifecycle_tests {
                 "browser-upgraded".to_string(),
                 test_peer_connection(upgraded_connection_id),
             );
+            state
+                .sessions
+                .insert("browser-upgraded".into(), live.daemon.clone());
             state.peer_connections.insert(
                 "wt-pending-other".to_string(),
                 test_peer_connection(other_connection_id),
@@ -3083,18 +3073,45 @@ mod lifecycle_tests {
             (upgraded_rx, other_rx)
         };
 
-        // The fixture registers no session, so there is no carrier to route;
-        // the exact deadline completes all the same.
-        assert!(
-            upgrade_peer(&state, "browser-upgraded", "browser-upgraded")
-                .await
-                .is_none()
-        );
+        let (outcome, routed) = upgrade_peer(&state, "browser-upgraded", "browser-upgraded")
+            .await
+            .unwrap();
+        assert_eq!(outcome, UpgradePeerOutcome::Added);
+        assert!(Arc::ptr_eq(routed.connection().unwrap(), &live.daemon));
         assert_eq!(upgraded_rx.await, Ok(()));
         assert_eq!(
             other_rx.try_recv(),
             Err(oneshot::error::TryRecvError::Empty),
             "an upgrade must not cancel another exact connection-id deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_exact_id_without_a_native_session_cannot_complete_its_deadline() {
+        let state = test_state();
+        let (completion, mut completed) = oneshot::channel();
+        {
+            let mut state = state.write().await;
+            state.pending_upgrade_deadlines.insert(63, completion);
+            state
+                .peer_connections
+                .insert("incomplete".into(), test_peer_connection(63));
+        }
+        assert!(
+            upgrade_peer(&state, "incomplete", "incomplete")
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            completed.try_recv(),
+            Err(oneshot::error::TryRecvError::Empty)
+        );
+        assert!(
+            state
+                .read()
+                .await
+                .pending_upgrade_deadlines
+                .contains_key(&63)
         );
     }
 
