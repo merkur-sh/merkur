@@ -267,7 +267,6 @@ pub(crate) async fn handle_wt_upgrade_proof(
         return;
     }
 
-    let admission_claim = wt.read().await.admission_claims.get(raw_peer_id).cloned();
     let Some((upgrade_outcome, mut direct_session)) =
         webtransport::upgrade_peer(wt, raw_peer_id, &browser_node_id).await
     else {
@@ -291,9 +290,6 @@ pub(crate) async fn handle_wt_upgrade_proof(
             upgrade_outcome == webtransport::UpgradePeerOutcome::Replaced,
         );
         peer.direct_session = Some(direct_session);
-        if let Some(claim) = admission_claim {
-            claim.authenticate();
-        }
         if let Some(requests) = &wt.read().await.admission_requests {
             drop(requests.try_send(webtransport::admission::Command::Reconcile));
         }

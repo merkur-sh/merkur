@@ -1159,7 +1159,10 @@ outer allocation can be published as a public helper candidate. Grant custody sp
 acquisition, renewal, authenticated use, listener retirement and deletion. These operations
 run outside terminal I/O and cannot bypass the existing direct-upgrade proof. The binding's
 completed `admission` claim permits one fresh constructor at a previously failed tuple; it
-grants no address or peer authority and cannot admit terminal traffic.
+grants no address or peer authority and cannot admit terminal traffic. Closing an unauthenticated
+connection releases only its exact reservation. Upgrade promotion commits that exact connection's
+claim after proof verification and serializes against its release; authenticated custody remains
+immutable.
 
 Native peer checks have separate address authority. The authenticated session API issues a
 short-lived STUN ticket and requester integrity key, and delivers a separately derived

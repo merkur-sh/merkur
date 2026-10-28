@@ -911,7 +911,10 @@ address starts a new visit, and so does returning to an earlier one. Candidates 
 allocation observation or a router grant completes. That completed preparation permits one
 fresh attempt even if the gateway granted the same port that failed earlier. Repeating a claim
 cannot rearm it, and preparations at the same URL and certificate cannot overlap native
-constructors. New evidence preserves every other failed attempt's record and does not reset
+constructors. The listener releases its exact unauthenticated reservation when that connection's
+supervisor retires its registry ownership, even if lifecycle-event delivery must wait. A verified upgrade commits ownership under the exact
+native connection id; a late proof cannot claim its successor, and authenticated ownership is
+retained through cancellation. New evidence preserves every other failed attempt's record and does not reset
 Chromium's IP/subnet failure penalty. The native constructor's readiness outcome
 owns the claim, even if cancellation or channel setup finishes later;
 channel failure cannot turn a successful native handshake into a failed handshake, and a
