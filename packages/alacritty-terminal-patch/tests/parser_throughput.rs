@@ -5,6 +5,7 @@ use std::io::Write;
 use std::time::Instant;
 
 use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term};
@@ -368,7 +369,7 @@ fn csi_mix(chunk: usize) -> Corpus {
                 write!(bytes, "\x1b[?{mode}{action}").expect("write corpus");
             }
             choice => {
-                let action = [b'A', b'B', b'C', b'D', b'X', b'@', b'P'][choice - 5] as char;
+                let action = b"ABCDX@P"[choice - 5] as char;
                 write!(bytes, "\x1b[{}{action}", range(&mut seed, 1, 40)).expect("write corpus");
             }
         }
@@ -627,7 +628,15 @@ fn pass(
 fn measure(corpus: &Corpus, target: usize, samples: usize) {
     let mut term = terminal(corpus);
     let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
-    pass(corpus, &mut parser, &mut term);
+    // Warm until the scrollback stops growing, so the counted passes neither
+    // allocate rows nor take the page faults that growth brings with it.
+    loop {
+        let history = term.grid().history_size();
+        pass(corpus, &mut parser, &mut term);
+        if term.grid().history_size() == history {
+            break;
+        }
+    }
     let passes = target.div_ceil(corpus.bytes.len()).max(1);
     let total_bytes = corpus.bytes.len() as f64 * passes as f64;
     ALLOCATIONS.set(0);
