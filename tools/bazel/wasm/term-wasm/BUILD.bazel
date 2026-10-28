@@ -60,12 +60,32 @@ wasm_module(
     simd128 = True,
 )
 
-wasm_package(
-    name = "pkg",
+[wasm_package(
+    name = name,
     glue = "//scripts:term_wasm_current_glue",
     license = "AGPL-3.0-only",
-    module = ":module",
+    module = module,
     out_name = "term_wasm",
     package_name = "term-wasm",
     version = "0.1.0",
+) for name, module in [
+    ("pkg", ":module"),
+    ("pkg_unprofiled", ":module_unprofiled"),
+]]
+
+# The same module without the profile, which the tests load (`//tools/bazel/wasm:profiled`).
+wasm_module(
+    name = "module_unprofiled",
+    crate = ":term_wasm",
+    simd128 = True,
+)
+
+# The package where the TypeScript imports it from: the shipped one in what ships, the
+# unprofiled one everywhere else.
+alias(
+    name = "imported_pkg",
+    actual = select({
+        "//tools/bazel/wasm:profiled_build": ":pkg",
+        "//conditions:default": ":pkg_unprofiled",
+    }),
 )

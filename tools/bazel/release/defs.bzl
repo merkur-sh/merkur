@@ -127,9 +127,21 @@ and must pass.""",
     toolchains = ["@rules_rust//rust:toolchain_type"],
 )
 
+_PROFILED = str(Label("//tools/bazel/wasm:profiled"))
+
+# What ships bundles the profile-guided terminal module, whatever the command line's configuration.
+def _profiled_transition_impl(_settings, _attr):
+    return {_PROFILED: True}
+
+_profiled_transition = transition(
+    implementation = _profiled_transition_impl,
+    inputs = [],
+    outputs = [_PROFILED],
+)
+
 def _bun_compile_impl(ctx):
     output = ctx.actions.declare_directory(ctx.attr.out) if ctx.attr.directory else ctx.actions.declare_file(ctx.attr.out)
-    tool = ctx.attr._checkout[DefaultInfo].files_to_run
+    tool = ctx.attr._checkout[0][DefaultInfo].files_to_run
     ctx.actions.run_shell(
         command = 'TEST_TMPDIR="$(mktemp -d)" "$PWD/{tool}" {arguments} "$PWD/{out}"'.format(
             arguments = " ".join(['"%s"' % arg for arg in (
@@ -162,7 +174,7 @@ With an `entry`, the arguments follow `bun run <entry>`.""",
         "settings": attr.label_keyed_string_dict(
             doc = "String settings, by the environment variable the compile reads each from.",
         ),
-        "_checkout": attr.label(default = "//tools/bazel/release:checkout", executable = True, cfg = "target"),
+        "_checkout": attr.label(default = "//tools/bazel/release:checkout", executable = True, cfg = _profiled_transition),
     },
 )
 

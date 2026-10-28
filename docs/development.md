@@ -147,7 +147,10 @@ toolchain's `llvm-profdata`, and builds the shipped module with `-Cprofile-use`.
 build output of their own (`scripts/term-wasm-pgo-stream.ts`), which the training reads
 (`scripts/term-wasm-pgo.ts`), so a `display-fixture` rebuild that codes the same bytes retrains
 nothing. A training run is deterministic: the same module and frames give the same profile. Both
-builds compile the same targets, so every function keeps its name and its profile.
+builds compile the same targets, so every function keeps its name and its profile. What ships
+(the release's `bun_compile` bundles) and `bun run build:wasm` take the profile-guided package;
+the Bazel tests that load the terminal take the same source built without the profile
+(`//tools/bazel/wasm:profiled`), whose crates never recompile when the profile changes.
 
 Signing and deployment packaging commands are in [`docs/releases.md`](../docs/releases.md).
 

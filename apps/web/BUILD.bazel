@@ -40,7 +40,7 @@ js_library(
 wasm_package_files(
     name = "term_wasm_files",
     directory = "src/term-wasm/pkg",
-    package = "//tools/bazel/wasm/term-wasm:pkg",
+    package = "//tools/bazel/wasm/term-wasm:imported_pkg",
 )
 
 bun_test_files(

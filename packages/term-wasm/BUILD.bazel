@@ -67,5 +67,5 @@ rust_doc_test(
 # The browser module where the TypeScript that loads it imports it from, `pkg/`.
 wasm_package_files(
     name = "pkg_files",
-    package = "//tools/bazel/wasm/term-wasm:pkg",
+    package = "//tools/bazel/wasm/term-wasm:imported_pkg",
 )

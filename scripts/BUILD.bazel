@@ -76,7 +76,7 @@ bun_test_files(
         },
         "bench-input-ack.test.ts": {"tools": _ORACLE},
         "bench-input-send-path.test.ts": {"tools": _ORACLE},
-        # Loads the shipped terminal WebAssembly where the web app imports it.
+        # Loads the terminal WebAssembly where the web app imports it.
         "bench-kernels-row-geometry.test.ts": {"data": [
             "//apps/web:fonts",
             "//apps/web:term_wasm_files",

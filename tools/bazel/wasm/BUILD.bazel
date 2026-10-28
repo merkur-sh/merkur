@@ -18,6 +18,19 @@ config_setting(
     flag_values = {":instrumented": "true"},
 )
 
+# Set by what ships the web app (`bun_compile` in `//tools/bazel/release`): the terminal module
+# where the TypeScript imports it is then the profile-guided one. The tests load the same source
+# built without the profile, whose crates never recompile when the profile does.
+bool_flag(
+    name = "profiled",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "profiled_build",
+    flag_values = {":profiled": "true"},
+)
+
 # The packaging tools for the platform a build runs on.
 alias(
     name = "wasm-bindgen",
