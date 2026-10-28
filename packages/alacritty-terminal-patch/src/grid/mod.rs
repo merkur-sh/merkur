@@ -239,7 +239,7 @@ impl<T: GridCell + Default + PartialEq> Grid<T> {
     fn increase_scroll_limit(&mut self, count: usize) {
         let count = min(count, self.max_scroll_limit - self.history_size());
         if count != 0 {
-            self.raw.initialize(count, self.columns);
+            self.raw.initialize(count, self.columns, self.lines + self.max_scroll_limit);
         }
     }
 
@@ -551,8 +551,11 @@ impl<T> Grid<T> {
         self.truncate();
 
         // Initialize everything with empty new lines.
-        self.raw
-            .initialize(self.max_scroll_limit - self.history_size(), self.columns);
+        self.raw.initialize(
+            self.max_scroll_limit - self.history_size(),
+            self.columns,
+            self.lines + self.max_scroll_limit,
+        );
     }
 
     /// This is used only for truncating before saving ref-tests.

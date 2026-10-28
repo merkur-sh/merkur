@@ -1,4 +1,4 @@
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::mem;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
@@ -17,6 +17,24 @@ use crate::index::{Column, Line, Point};
 
 /// Maximum number of buffered lines outside of the grid for performance optimization.
 const MAX_CACHE_SIZE: usize = 1_000;
+
+/// Rotate `slice` left by `mid` with whole-block swaps, so a large element moves at block-copy
+/// speed instead of one at a time.
+fn rotate_left_by_swaps<T>(mut slice: &mut [T], mut mid: usize) {
+    while mid != 0 && mid != slice.len() {
+        let right = slice.len() - mid;
+        if mid <= right {
+            let (left, rest) = slice.split_at_mut(mid);
+            left.swap_with_slice(&mut rest[..mid]);
+            slice = rest;
+        } else {
+            let (left, rest) = slice.split_at_mut(mid);
+            left[..right].swap_with_slice(rest);
+            slice = &mut slice[right..];
+            mid -= right;
+        }
+    }
+}
 
 /// A ring buffer for optimizing indexing and rotation.
 ///
@@ -56,6 +74,11 @@ pub struct Storage<T> {
     /// As long as `len` is bigger than `inner`, it is also possible to grow the scrollback buffer
     /// without any additional insertions.
     len: usize,
+
+    /// Rows the open growth chunk reserves: `initialize` materializes rows up to it by doubling and
+    /// opens the next chunk only when a request passes it. Never below `inner.len()` once growth ran.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    chunk_end: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
     anchor_domain: Option<Arc<AnchorDomain>>,
 }
@@ -67,6 +90,7 @@ impl<T: Clone> Clone for Storage<T> {
             zero: self.zero,
             visible_lines: self.visible_lines,
             len: self.len,
+            chunk_end: self.chunk_end,
             anchor_domain: None,
         }
     }
@@ -97,13 +121,14 @@ impl<T> Storage<T> {
             zero: 0,
             visible_lines,
             len: visible_lines,
+            chunk_end: visible_lines,
             anchor_domain: None,
         }
     }
 
     /// Increase the number of lines in the buffer.
     #[inline]
-    pub fn grow_visible_lines(&mut self, next: usize)
+    pub fn grow_visible_lines(&mut self, next: usize, max_scroll_limit: usize)
     where
         T: Default,
     {
@@ -111,7 +136,7 @@ impl<T> Storage<T> {
         let additional_lines = next - self.visible_lines;
 
         let columns = self[Line(0)].len();
-        self.initialize(additional_lines, columns);
+        self.initialize(additional_lines, columns, next + max_scroll_limit);
 
         // Update visible lines.
         self.visible_lines = next;
@@ -160,19 +185,31 @@ impl<T> Storage<T> {
         self.rezero();
 
         self.inner.truncate(self.len);
+        self.chunk_end = self.len;
     }
 
     /// Dynamically grow the storage buffer at runtime.
     #[inline]
-    pub fn initialize(&mut self, additional_rows: usize, columns: usize)
+    pub fn initialize(&mut self, additional_rows: usize, columns: usize, max_lines: usize)
     where
         T: Default,
     {
-        if self.len + additional_rows > self.inner.len() {
+        let needed = self.len + additional_rows;
+        let rows = self.inner.len();
+        debug_assert!(needed <= max_lines);
+        if needed > rows {
+            if needed > self.chunk_end {
+                // A deserialized storage carries no chunk, so it starts at its rows.
+                let base = max(self.chunk_end, rows);
+                let chunk_end = base + max(additional_rows, MAX_CACHE_SIZE);
+                let chunk_end = min(chunk_end, max_lines);
+                self.chunk_end = max(chunk_end, needed);
+                self.inner.reserve(self.chunk_end - rows);
+            }
             self.rezero();
 
-            let realloc_size = self.inner.len() + max(additional_rows, MAX_CACHE_SIZE);
-            self.inner.resize_with(realloc_size, || Row::new(columns));
+            let target = min(self.chunk_end, max(needed, rows * 2));
+            self.inner.resize_with(target, || Row::new(columns));
         }
 
         self.len += additional_rows;
@@ -181,6 +218,11 @@ impl<T> Storage<T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    #[cfg(test)]
+    pub(super) fn materialized_rows(&self) -> usize {
+        self.inner.len()
     }
 
     /// Swap whole rows, including attachment ownership.
@@ -261,6 +303,7 @@ impl<T> Storage<T> {
     /// Update the raw storage buffer.
     #[inline]
     pub fn replace_inner(&mut self, vec: Vec<Row<T>>) {
+        self.chunk_end = vec.len();
         self.len = vec.len();
         self.inner = vec;
         self.zero = 0;
@@ -309,7 +352,7 @@ impl<T> Storage<T> {
             return;
         }
 
-        self.inner.rotate_left(self.zero);
+        rotate_left_by_swaps(&mut self.inner, self.zero);
         self.zero = 0;
         self.refresh_anchor_slots();
     }
@@ -606,7 +649,7 @@ impl<T> IndexMut<Line> for Storage<T> {
 mod tests {
     use crate::grid::GridCell;
     use crate::grid::row::Row;
-    use crate::grid::storage::{MAX_CACHE_SIZE, Storage};
+    use crate::grid::storage::{Storage, rotate_left_by_swaps};
     use crate::index::{Column, Line};
     use crate::term::cell::Flags;
 
@@ -626,6 +669,41 @@ mod tests {
         fn flags_mut(&mut self) -> &mut Flags {
             unimplemented!();
         }
+    }
+
+    #[test]
+    fn rotate_left_by_swaps_matches_rotate_left() {
+        for len in 0..=70 {
+            for mid in 0..=len {
+                let mut actual: Vec<u32> = (0..len).collect();
+                let mut expected = actual.clone();
+                rotate_left_by_swaps(&mut actual, mid as usize);
+                expected.rotate_left(mid as usize);
+                assert_eq!(actual, expected, "len={len}, mid={mid}");
+            }
+        }
+    }
+
+    #[test]
+    fn truncate_rotated_rows() {
+        let mut storage: Storage<char> = Storage {
+            inner: ('0'..='6').map(filled_row).collect(),
+            zero: 3,
+            visible_lines: 3,
+            len: 5,
+            chunk_end: 7,
+            anchor_domain: None,
+        };
+
+        storage.truncate();
+
+        let expected: Vec<_> = ['3', '4', '5', '6', '0']
+            .into_iter()
+            .map(filled_row)
+            .collect();
+        assert_eq!(storage.inner, expected);
+        assert_eq!(storage.zero, 0);
+        assert_eq!(storage.chunk_end, 5);
     }
 
     #[test]
@@ -672,94 +750,76 @@ mod tests {
         assert_eq!(storage.zero, 2);
     }
 
-    /// Grow the buffer one line at the end of the buffer.
-    ///
-    /// Before:
-    ///   0: 0 <- Zero
-    ///   1: 1
-    ///   2: -
-    /// After:
-    ///   0: 0 <- Zero
-    ///   1: 1
-    ///   2: -
-    ///   3: \0
-    ///   ...
-    ///   MAX_CACHE_SIZE: \0
+    /// Grow the buffer with its starting point at the beginning.
     #[test]
     fn grow_after_zero() {
-        // Setup storage area.
         let mut storage: Storage<char> = Storage {
             inner: vec![filled_row('0'), filled_row('1'), filled_row('-')],
             zero: 0,
             visible_lines: 3,
             len: 3,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
-        // Grow buffer.
-        storage.grow_visible_lines(4);
+        storage.grow_visible_lines(4, 1000);
 
-        // Make sure the result is correct.
-        let mut expected = Storage {
-            inner: vec![filled_row('0'), filled_row('1'), filled_row('-')],
-            zero: 0,
-            visible_lines: 4,
-            len: 4,
-            anchor_domain: None,
-        };
-        expected
-            .inner
-            .append(&mut vec![filled_row('\0'); MAX_CACHE_SIZE]);
-
-        assert_eq!(storage.visible_lines, expected.visible_lines);
-        assert_eq!(storage.inner, expected.inner);
-        assert_eq!(storage.zero, expected.zero);
-        assert_eq!(storage.len, expected.len);
+        assert_eq!(storage.visible_lines, 4);
+        assert_eq!(storage.len(), 4);
+        assert_eq!(storage.materialized_rows(), 6);
+        assert_eq!(storage.chunk_end, 1003);
+        assert!(storage.inner.capacity() >= storage.chunk_end);
+        for (line, content) in ['\0', '-', '1', '0'].into_iter().enumerate() {
+            assert_eq!(storage[Line(line as i32)], filled_row(content));
+        }
+        assert_eq!(storage.zero, 0);
+        assert_eq!(
+            storage.inner,
+            vec![
+                filled_row('0'),
+                filled_row('1'),
+                filled_row('-'),
+                filled_row('\0'),
+                filled_row('\0'),
+                filled_row('\0'),
+            ]
+        );
     }
 
-    /// Grow the buffer one line at the start of the buffer.
-    ///
-    /// Before:
-    ///   0: -
-    ///   1: 0 <- Zero
-    ///   2: 1
-    /// After:
-    ///   0: 0 <- Zero
-    ///   1: 1
-    ///   2: -
-    ///   3: \0
-    ///   ...
-    ///   MAX_CACHE_SIZE: \0
+    /// Grow the buffer with its starting point inside the ring.
     #[test]
     fn grow_before_zero() {
-        // Setup storage area.
         let mut storage: Storage<char> = Storage {
             inner: vec![filled_row('-'), filled_row('0'), filled_row('1')],
             zero: 1,
             visible_lines: 3,
             len: 3,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
-        // Grow buffer.
-        storage.grow_visible_lines(4);
+        storage.grow_visible_lines(4, 1000);
 
-        // Make sure the result is correct.
-        let mut expected = Storage {
-            inner: vec![filled_row('0'), filled_row('1'), filled_row('-')],
-            zero: 0,
-            visible_lines: 4,
-            len: 4,
-            anchor_domain: None,
-        };
-        expected
-            .inner
-            .append(&mut vec![filled_row('\0'); MAX_CACHE_SIZE]);
-
-        assert_eq!(storage.visible_lines, expected.visible_lines);
-        assert_eq!(storage.inner, expected.inner);
-        assert_eq!(storage.zero, expected.zero);
-        assert_eq!(storage.len, expected.len);
+        assert_eq!(storage.visible_lines, 4);
+        assert_eq!(storage.len(), 4);
+        assert_eq!(storage.materialized_rows(), 6);
+        assert_eq!(storage.chunk_end, 1003);
+        assert!(storage.inner.capacity() >= storage.chunk_end);
+        for (line, content) in ['\0', '-', '1', '0'].into_iter().enumerate() {
+            assert_eq!(storage[Line(line as i32)], filled_row(content));
+        }
+        assert_eq!(storage.zero, 0);
+        assert_eq!(
+            storage.inner,
+            vec![
+                filled_row('0'),
+                filled_row('1'),
+                filled_row('-'),
+                filled_row('\0'),
+                filled_row('\0'),
+                filled_row('\0'),
+            ]
+        );
     }
 
     /// Shrink the buffer one line at the start of the buffer.
@@ -780,6 +840,7 @@ mod tests {
             zero: 1,
             visible_lines: 3,
             len: 3,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
@@ -792,6 +853,7 @@ mod tests {
             zero: 1,
             visible_lines: 2,
             len: 2,
+            chunk_end: 0,
             anchor_domain: None,
         };
         assert_eq!(storage.visible_lines, expected.visible_lines);
@@ -818,6 +880,7 @@ mod tests {
             zero: 0,
             visible_lines: 3,
             len: 3,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
@@ -830,6 +893,7 @@ mod tests {
             zero: 0,
             visible_lines: 2,
             len: 2,
+            chunk_end: 0,
             anchor_domain: None,
         };
         assert_eq!(storage.visible_lines, expected.visible_lines);
@@ -869,6 +933,7 @@ mod tests {
             zero: 2,
             visible_lines: 6,
             len: 6,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
@@ -888,6 +953,7 @@ mod tests {
             zero: 2,
             visible_lines: 2,
             len: 2,
+            chunk_end: 0,
             anchor_domain: None,
         };
         assert_eq!(storage.visible_lines, expected.visible_lines);
@@ -923,6 +989,7 @@ mod tests {
             zero: 2,
             visible_lines: 1,
             len: 2,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
@@ -935,6 +1002,7 @@ mod tests {
             zero: 0,
             visible_lines: 1,
             len: 2,
+            chunk_end: 0,
             anchor_domain: None,
         };
         assert_eq!(storage.visible_lines, expected.visible_lines);
@@ -960,6 +1028,7 @@ mod tests {
             zero: 2,
             visible_lines: 1,
             len: 2,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
@@ -972,6 +1041,7 @@ mod tests {
             zero: 0,
             visible_lines: 1,
             len: 2,
+            chunk_end: 0,
             anchor_domain: None,
         };
         assert_eq!(storage.visible_lines, expected.visible_lines);
@@ -1019,6 +1089,7 @@ mod tests {
             zero: 2,
             visible_lines: 0,
             len: 6,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
@@ -1038,6 +1109,7 @@ mod tests {
             zero: 2,
             visible_lines: 0,
             len: 3,
+            chunk_end: 0,
             anchor_domain: None,
         };
         assert_eq!(storage.inner, shrinking_expected.inner);
@@ -1045,7 +1117,7 @@ mod tests {
         assert_eq!(storage.len, shrinking_expected.len);
 
         // Grow buffer.
-        storage.initialize(1, 1);
+        storage.initialize(1, 1, 1000);
 
         // Make sure the previously freed elements are reused.
         let growing_expected = Storage {
@@ -1060,6 +1132,7 @@ mod tests {
             zero: 2,
             visible_lines: 0,
             len: 4,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
@@ -1083,35 +1156,31 @@ mod tests {
             zero: 2,
             visible_lines: 0,
             len: 6,
+            chunk_end: 0,
             anchor_domain: None,
         };
 
         // Initialize additional lines.
         let init_size = 3;
-        storage.initialize(init_size, 1);
+        storage.initialize(init_size, 1, 2000);
 
-        // Generate expected grid.
-        let mut expected_inner = vec![
-            filled_row('0'),
-            filled_row('1'),
-            filled_row('2'),
-            filled_row('3'),
-            filled_row('4'),
-            filled_row('5'),
-        ];
-        let expected_init_size = std::cmp::max(init_size, MAX_CACHE_SIZE);
-        expected_inner.append(&mut vec![filled_row('\0'); expected_init_size]);
-        let expected_storage = Storage {
-            inner: expected_inner,
-            zero: 0,
-            visible_lines: 0,
-            len: 9,
-            anchor_domain: None,
-        };
-
-        assert_eq!(storage.len, expected_storage.len);
-        assert_eq!(storage.zero, expected_storage.zero);
-        assert_eq!(storage.inner, expected_storage.inner);
+        assert_eq!(storage.len(), 9);
+        assert_eq!(storage.materialized_rows(), 12);
+        assert_eq!(storage.chunk_end, 1006);
+        assert!(storage.inner.capacity() >= storage.chunk_end);
+        for (line, content) in ['\0', '\0', '\0', '5', '4', '3', '2', '1', '0']
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(storage[Line(line as i32 - 9)], filled_row(content));
+        }
+        assert_eq!(storage.zero, 0);
+        let mut expected_inner: Vec<_> = ['0', '1', '2', '3', '4', '5']
+            .into_iter()
+            .map(filled_row)
+            .collect();
+        expected_inner.extend((0..6).map(|_| filled_row('\0')));
+        assert_eq!(storage.inner, expected_inner);
     }
 
     #[test]
@@ -1121,6 +1190,7 @@ mod tests {
             zero: 2,
             visible_lines: 0,
             len: 3,
+            chunk_end: 0,
             anchor_domain: None,
         };
 

@@ -1110,3 +1110,263 @@ fn capture_key_proves_cells_across_grid_lifecycle() {
         }
     }
 }
+
+#[test]
+fn storage_growth_preserves_terminal_content() {
+    use std::fmt::Write;
+
+    use crate::event::VoidListener;
+    use crate::term::test::TermSize;
+    use crate::term::{Config, Term};
+    use crate::vte::ansi::{Processor, StdSyncHandler};
+
+    fn random(state: &mut u64, bound: usize) -> usize {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        (*state % bound as u64) as usize
+    }
+
+    fn fold(digest: &mut u64, bytes: &[u8]) {
+        for byte in bytes {
+            *digest = (*digest ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+
+    let mut digest = 0xcbf29ce484222325;
+    for seed in 1..=48 {
+        let mut rng = seed;
+        let history = [0, 1, 3, 37, 999, 1000, 1001, 2500][(seed as usize - 1) % 8];
+        let size = TermSize::new(2 + random(&mut rng, 59), 1 + random(&mut rng, 30));
+        let config = Config {
+            scrolling_history: history,
+            ..Config::default()
+        };
+        let mut term = Term::new(config, &size, VoidListener);
+        let mut parser = Processor::<StdSyncHandler>::new();
+        for op in 0..100 {
+            let columns = term.columns();
+            let lines = term.screen_lines();
+            let mut input = String::new();
+            match if op == 0 { 3 } else { random(&mut rng, 12) } {
+                0..=2 => {
+                    let wrap = random(&mut rng, 2) == 0;
+                    input.push_str(if wrap { "\x1b[?7h" } else { "\x1b[?7l" });
+                    let count = 1 + random(&mut rng, columns * 3);
+                    for _ in 0..count {
+                        match random(&mut rng, 7) {
+                            0 => input.push((b'!' + random(&mut rng, 94) as u8) as char),
+                            1 => input.push_str("漢字"),
+                            2 => input.push_str("☀\u{fe0f}👩\u{200d}💻e\u{301}"),
+                            // A background only without autowrap: a wrap under a coloured
+                            // background resets the new row to it with `occ == 0`, and a
+                            // later column grow appends default cells after it, so the
+                            // next default reset keeps the colour wherever that row is
+                            // recycled. That is upstream `Row` behaviour; it would tie
+                            // this digest to physical recycling order.
+                            3 => {
+                                let fg = random(&mut rng, 256);
+                                let bg = random(&mut rng, 256);
+                                if wrap {
+                                    write!(input, "\x1b[1;38;5;{fg}m").unwrap();
+                                } else {
+                                    write!(input, "\x1b[1;38;5;{fg};48;5;{bg}m").unwrap();
+                                }
+                            }
+                            4 => write!(
+                                input,
+                                "\x1b[4:3;58;2;{};{};{}mu",
+                                random(&mut rng, 256),
+                                random(&mut rng, 256),
+                                random(&mut rng, 256),
+                            )
+                            .unwrap(),
+                            5 => write!(
+                                input,
+                                "\x1b]8;;https://example.com/{}\x1b\\link\x1b]8;;\x1b\\",
+                                random(&mut rng, 100),
+                            )
+                            .unwrap(),
+                            _ => input.push_str("\x1b[0mtext"),
+                        }
+                    }
+                    input.push_str("\x1b[0m\r\n");
+                }
+                // Fill history across chunk boundaries before the random operations.
+                3 => {
+                    let count = if op == 0 {
+                        3000
+                    } else {
+                        1 + random(&mut rng, 3000)
+                    };
+                    input = "\r\n".repeat(count);
+                }
+                4 => {
+                    let top = 1 + random(&mut rng, lines);
+                    let bottom = top + random(&mut rng, lines - top + 1);
+                    let count = 1 + random(&mut rng, lines + 2);
+                    let command = if random(&mut rng, 2) == 0 { 'S' } else { 'T' };
+                    write!(input, "\x1b[{top};{bottom}r\x1b[{count}{command}\x1b[r").unwrap();
+                }
+                5 => {
+                    let line = 1 + random(&mut rng, lines);
+                    let count = 1 + random(&mut rng, lines + 2);
+                    let command = if random(&mut rng, 2) == 0 { 'L' } else { 'M' };
+                    write!(input, "\x1b[{line};1H\x1b[{count}{command}").unwrap();
+                }
+                6 => input.push_str("\x1b[H\x1bM"),
+                7 => input.push_str(if random(&mut rng, 2) == 0 {
+                    "\x1b[2J"
+                } else {
+                    "\x1b[3J"
+                }),
+                8 => input.push_str(if random(&mut rng, 2) == 0 {
+                    "\x1b[?1049h"
+                } else {
+                    "\x1b[?1049l"
+                }),
+                9 => term.resize(TermSize::new(columns, 1 + random(&mut rng, 50))),
+                10 => term.resize(TermSize::new(2 + random(&mut rng, 59), lines)),
+                _ => {
+                    term.grid_mut().update_history(lines);
+                    term.grid_mut().initialize_all();
+                    term.resize(TermSize::new(
+                        2 + random(&mut rng, 59),
+                        1 + random(&mut rng, 50),
+                    ));
+                    term.grid_mut().update_history(0);
+                    term.grid_mut().update_history(history);
+                }
+            }
+            parser.advance(&mut term, input.as_bytes());
+
+            let grid = term.grid();
+            for value in [
+                grid.history_size() as u64,
+                grid.screen_lines() as u64,
+                grid.columns() as u64,
+                grid.cursor.point.line.0 as u64,
+                grid.cursor.point.column.0 as u64,
+            ] {
+                fold(&mut digest, &value.to_le_bytes());
+            }
+            // Reuse the encoding of adjacent equal cells, including empty history rows.
+            let mut previous = None;
+            let mut encoded = String::new();
+            for line in -(grid.history_size() as i32)..grid.screen_lines() as i32 {
+                for column in 0..grid.columns() {
+                    let cell = &grid[Line(line)][Column(column)];
+                    if previous != Some(cell) {
+                        encoded.clear();
+                        write!(
+                            encoded,
+                            "{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?};",
+                            cell.c,
+                            cell.flags.bits(),
+                            cell.fg,
+                            cell.bg,
+                            cell.zerowidth(),
+                            cell.underline_color(),
+                            cell.hyperlink_ref().map(|link| link.uri()),
+                        )
+                        .unwrap();
+                        previous = Some(cell);
+                    }
+                    fold(&mut digest, encoded.as_bytes());
+                }
+            }
+        }
+    }
+    assert_eq!(digest, 0x31ec0287afe93c2b);
+}
+
+#[test]
+fn zero_history_growth_materializes_only_visible_rows() {
+    let mut grid = Grid::<Cell>::new(40, 80, 0);
+    grid.resize(false, 41, 80);
+    assert_eq!(grid.raw.materialized_rows(), 41);
+    grid.resize(false, 50, 80);
+    assert_eq!(grid.raw.materialized_rows(), 50);
+    grid.resize(false, 30, 80);
+    assert_eq!(grid.raw.materialized_rows(), 50);
+    grid.resize(false, 50, 80);
+    assert_eq!(grid.raw.materialized_rows(), 50);
+}
+
+#[test]
+fn history_growth_doubles_rows_within_reserved_chunks() {
+    let mut resized = Grid::<Cell>::new(40, 80, 10_000);
+    resized.resize(false, 41, 80);
+    assert_eq!(resized.raw.materialized_rows(), 80);
+
+    let mut grid = Grid::<Cell>::new(40, 4, 10_000);
+    let mut counts = vec![grid.raw.materialized_rows()];
+    for _ in 0..10_000 {
+        grid.scroll_up(&(Line(0)..Line(40)), 1);
+        let rows = grid.raw.materialized_rows();
+        if counts.last() != Some(&rows) {
+            counts.push(rows);
+        }
+    }
+    assert_eq!(
+        counts,
+        [
+            40, 80, 160, 320, 640, 1040, 2040, 3040, 4040, 5040, 6040, 7040, 8040, 9040, 10040,
+        ]
+    );
+    assert_eq!(grid.history_size(), 10_000);
+    for _ in 0..5000 {
+        grid.scroll_up(&(Line(0)..Line(40)), 1);
+        assert_eq!(grid.raw.materialized_rows(), 10040);
+    }
+}
+
+#[test]
+fn history_growth_clamps_the_last_chunk_and_restarts_after_clear() {
+    let mut grid = Grid::<Cell>::new(40, 4, 1460);
+    for _ in 0..1460 {
+        grid.scroll_up(&(Line(0)..Line(40)), 1);
+    }
+    assert_eq!(grid.history_size(), 1460);
+    assert_eq!(grid.raw.materialized_rows(), 1500);
+    grid.clear_history();
+    assert_eq!(grid.raw.materialized_rows(), grid.screen_lines());
+    grid.scroll_up(&(Line(0)..Line(40)), 1);
+    assert_eq!(grid.raw.materialized_rows(), 80);
+}
+
+#[test]
+fn temporary_history_initializes_exactly_the_grid_bound() {
+    for rows in [1, 40, 600, 1000, 2500] {
+        let mut grid = Grid::<Cell>::new(40, 80, 0);
+        grid.update_history(rows);
+        grid.initialize_all();
+        assert_eq!(grid.raw.materialized_rows(), 40 + rows);
+        assert_eq!(grid.history_size(), rows);
+    }
+}
+
+#[test]
+fn storage_growth_preserves_visible_and_history_image_anchors() {
+    let mut grid = Grid::<Cell>::new(40, 4, 3000);
+    for boundary in [80, 160, 320, 640, 1040, 2040] {
+        while grid.raw.len() < boundary {
+            grid.scroll_up(&(Line(0)..Line(40)), 1);
+        }
+        assert_eq!(grid.raw.materialized_rows(), boundary);
+        // Scrolling leaves the ring start inside the allocation, so growth
+        // rotates every live row; anchor each one.
+        let anchors: Vec<_> = (-(grid.history_size() as i32)..40)
+            .enumerate()
+            .map(|(id, line)| {
+                let anchor = image(&mut grid, line, 1, id as u64 + 1);
+                (anchor, Point::new(Line(line), Column(1)))
+            })
+            .collect();
+        grid.increase_scroll_limit(1);
+        assert!(grid.raw.materialized_rows() > boundary);
+        for (anchor, point) in anchors {
+            assert_eq!(grid.resolve_anchor(&anchor), Some(point));
+        }
+    }
+}

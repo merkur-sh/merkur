@@ -2304,8 +2304,9 @@ impl Terminal {
             // the daemon will send real scrollback — but they are wrong in the
             // place the correction is going to land anyway, above content that
             // stays put. It is allocated only for a resize that can consume it
-            // and handed back immediately below, so nothing accumulates across
-            // a drag.
+            // and the history bound drops back to zero immediately below; the
+            // storage keeps at most one screen of spare rows, so nothing
+            // accumulates across a drag.
             if reflow
                 && (usize::from(cols) > grid.columns() || usize::from(rows) > grid.screen_lines())
             {
