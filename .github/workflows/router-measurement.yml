@@ -1,0 +1,60 @@
+name: Owned router measurement
+on:
+  push:
+    branches: [nat-router-measurement]
+    paths:
+      - .github/workflows/router-measurement.yml
+      - scripts/natlab/router_peer.py
+      - scripts/natlab/router_browser.py
+permissions:
+  contents: read
+jobs:
+  peer:
+    strategy:
+      matrix:
+        peer: [a, b]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prepare isolated peer environment
+        run: |
+          python3 -m venv /tmp/router-peer-venv
+          /tmp/router-peer-venv/bin/pip -q install cryptography==50.0.2 websockets==15.0.1
+          mkdir -p /tmp/router-peer-bin
+          ln -s "$(command -v google-chrome)" /tmp/router-peer-bin/chromium
+      - name: Start bounded external peer
+        env:
+          ROUTER_LAB_PEER: ${{ matrix.peer }}
+          ROUTER_LAB_KEY: ${{ secrets.NAT_ROUTER_LAB_7CEC257F8BA7 }}
+          ROUTER_LAB_https://gist.githubusercontent.com/ph1losof/5bfd205623b9d8d36a5be1480f21fb1d/raw/command.txt: https://gist.githubusercontent.com/ph1losof/5bfd205623b9d8d36a5be1480f21fb1d/raw/command.txt
+        run: |
+          PATH="/tmp/router-peer-bin:$PATH" /tmp/router-peer-venv/bin/python scripts/natlab/router_peer.py > /tmp/router-peer.log 2>&1 &
+          echo "$!" > /tmp/router-peer.pid
+          for attempt in $(seq 1 30); do
+            if test -f router-peer-output/ready.enc; then exit 0; fi
+            if ! kill -0 "$(cat /tmp/router-peer.pid)"; then cat /tmp/router-peer.log; exit 1; fi
+            sleep 1
+          done
+          exit 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: router-peer-ready-${{ matrix.peer }}
+          path: router-peer-output/ready.enc
+          retention-days: 1
+      - name: Await experiment completion
+        run: |
+          for attempt in $(seq 1 610); do
+            if test -f router-peer-output/done; then exit 0; fi
+            if ! kill -0 "$(cat /tmp/router-peer.pid)"; then cat /tmp/router-peer.log; exit 1; fi
+            sleep 1
+          done
+          exit 1
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: router-peer-result-${{ matrix.peer }}
+          path: router-peer-output/result.enc
+          retention-days: 1
