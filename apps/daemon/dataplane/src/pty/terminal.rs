@@ -3126,10 +3126,9 @@ mod tests {
     /// Paired A/B for the batched printable-run write, both arms in one
     /// process.
     ///
-    /// The parser hands the terminal whole runs of ground-state text. The
-    /// baseline arm is what it used to do with them — `Handler::input` once per
-    /// character, which is still exactly what `Handler::input_str` falls back to
-    /// — and the candidate arm is the batched override. Cursor positioning runs
+    /// The parser hands the terminal runs of printable ASCII. The baseline
+    /// arm calls `Handler::input` once per character, and the candidate arm
+    /// calls the batched `Handler::input_str` override. Cursor positioning runs
     /// through the real parser in both arms, so the only difference measured is
     /// how the printable bytes between escapes reach the grid.
     ///
@@ -3144,23 +3143,14 @@ mod tests {
         const ROWS: u16 = 40;
         let samples = 400usize;
 
-        // Three shapes, because the batch length is the whole mechanism.
+        // Two ASCII shapes, because the batch length is the whole mechanism.
         // Full-width rows are the repaint case the pipeline benchmark uses;
-        // short runs are ordinary shell output; CJK never takes the fast path
-        // at all and exists to prove the guard costs nothing measurable.
+        // short runs are ordinary shell output.
         let full_row: String = (0..COLS)
             .map(|col| char::from(b' ' + (col as u8) % 95))
             .collect();
         let short_run = "$ ".to_owned();
-        let cjk: String = (0..COLS / 2)
-            .map(|col| char::from_u32(0x4e00 + u32::from(col)).unwrap_or('a'))
-            .collect();
-
-        for (label, text) in [
-            ("full-row", &full_row),
-            ("short-run", &short_run),
-            ("cjk", &cjk),
-        ] {
+        for (label, text) in [("full-row", &full_row), ("short-run", &short_run)] {
             let (event_tx, _event_rx) = crossbeam_channel::unbounded();
             let mut terminal = TerminalState::new(COLS, ROWS, event_tx);
             let cursor_moves: Vec<Vec<u8>> = (0..ROWS)

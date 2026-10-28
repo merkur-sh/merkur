@@ -1486,67 +1486,32 @@ impl<T: EventListener> Handler for Term<T> {
         }
     }
 
-    /// A run of printable characters, written a row-span at a time.
+    /// A run of printable ASCII, written a row-span at a time. The parser
+    /// classifies every byte before it gets here, so this never rescans it.
     ///
-    /// The parser hands over whole runs of ground-state text; walking them
-    /// character by character re-resolves the same row, re-reads the same
-    /// template, and re-bounds-checks the same slice once per cell.
+    /// Walking the run character by character re-resolves the same row,
+    /// re-reads the same template, and re-bounds-checks the same slice per cell.
     /// `write_printable_run` takes the longest prefix it can write in one pass
     /// and reports how far it got, so anything it declines — a wrap, insert
-    /// mode, a fullwidth cell, a non-ASCII character — still goes through
-    /// `input` exactly as before, one character at a time, until the batch path
-    /// can pick up again.
+    /// mode, a fullwidth cell — still goes through `input` one character at a
+    /// time, until the batch path can pick up again.
     #[inline]
     fn input_str(&mut self, s: &str) {
-        let mut rest = s;
-
-        while !rest.is_empty() {
-            let bytes = rest.as_bytes();
-
-            // Anything that is not printable ASCII needs the width lookup, the
-            // zero-width branch, or the fullwidth arm, so it goes one character
-            // at a time exactly as before. Deciding that per character rather
-            // than scanning ahead for the end of the stretch is deliberate:
-            // `input` costs far more than the one byte test that precedes it,
-            // whereas a scan would walk every continuation byte of every
-            // character for a fast path that stream never enters. That scan is
-            // what made a pure CJK stream measurably slower than the
-            // per-character path it was supposed to leave untouched.
-            if !matches!(bytes[0], 0x20..=0x7E) {
-                let mut chars = rest.chars();
-                if let Some(c) = chars.next() {
-                    self.input(c);
-                }
-                rest = chars.as_str();
-                continue;
-            }
-
-            // A printable run is worth finding the end of: the whole point is
-            // to hand the writer as many cells as it can take at once. The cut
-            // cannot land inside a character, because continuation bytes are
-            // `0x80..=0xBF` and leading bytes are `>= 0xC2`, so neither can be
-            // mistaken for printable ASCII.
-            let mut end = 1;
-            while end < bytes.len() && matches!(bytes[end], 0x20..=0x7E) {
-                end += 1;
-            }
-
+        let bytes = s.as_bytes();
+        debug_assert!(bytes.iter().all(|byte| matches!(byte, 0x20..=0x7E)));
+        let mut cursor = 0;
+        while cursor < bytes.len() {
             // The writer takes what this row can hold and reports how far it
             // got. It stops short at the row edge and at a fullwidth cell, and
             // declines outright on a pending wrap or insert mode — all cases
             // where `input` has to make the next step itself.
-            let mut cursor = 0;
-            while cursor < end {
-                let written = self.write_printable_run(&bytes[cursor..end]);
-                if written > 0 {
-                    cursor += written;
-                } else {
-                    self.input(char::from(bytes[cursor]));
-                    cursor += 1;
-                }
+            let written = self.write_printable_run(&bytes[cursor..]);
+            if written > 0 {
+                cursor += written;
+            } else {
+                self.input(char::from(bytes[cursor]));
+                cursor += 1;
             }
-
-            rest = &rest[end..];
         }
     }
 
@@ -3225,7 +3190,7 @@ mod tests {
     ///
     /// The corpus is deliberately hostile to the fast path. Insert mode and
     /// autowrap-off make it decline outright; fullwidth glyphs, combining
-    /// marks, DEL, and Latin-1 make it stop mid-run; the line-drawing charset
+    /// marks, DEL, and Latin-1 split ASCII runs; the line-drawing charset
     /// makes it remap every byte it writes; and a 24x8 screen means runs cross
     /// the row edge and scroll the screen constantly.
     #[test]
@@ -3261,9 +3226,8 @@ mod tests {
             b"\x1b[L",       //
         ];
 
-        // Printable payloads. The fast path takes the ASCII ones whole, stops
-        // at the first byte of anything else, and must hand that byte back to
-        // the per-character path in both arms identically.
+        // Printable payloads. Only printable ASCII runs use input_str; every
+        // other character uses input in both arms, just as the parser dispatches it.
         let texts: [&str; 12] = [
             "abc",
             "hello world",
@@ -3303,7 +3267,21 @@ mod tests {
                     per_char_parser.advance(&mut per_char, control);
                 } else {
                     let text = texts[next() % texts.len()];
-                    batched.input_str(text);
+                    let mut rest = text;
+                    while !rest.is_empty() {
+                        let end = rest
+                            .bytes()
+                            .position(|byte| !matches!(byte, 0x20..=0x7E))
+                            .unwrap_or(rest.len());
+                        if end > 0 {
+                            batched.input_str(&rest[..end]);
+                            rest = &rest[end..];
+                        } else {
+                            let mut chars = rest.chars();
+                            batched.input(chars.next().unwrap());
+                            rest = chars.as_str();
+                        }
+                    }
                     for c in text.chars() {
                         per_char.input(c);
                     }

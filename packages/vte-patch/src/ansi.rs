@@ -665,9 +665,9 @@ pub trait Handler {
     /// A character to be displayed.
     fn input(&mut self, _c: char) {}
 
-    /// A run of printable characters to be displayed.
+    /// A non-empty run of printable ASCII (`0x20..=0x7E`) to be displayed.
     ///
-    /// `s` contains no C0 or C1 control character and is never empty. The
+    /// DEL and every non-ASCII printable character arrive through [`Handler::input`]. The
     /// default forwards to [`Handler::input`] per character; override it when
     /// the run can be written in one pass.
     #[inline]
@@ -1489,6 +1489,7 @@ where
         self.state.preceding_char = Some(c);
     }
 
+    /// Forward a non-empty printable ASCII run, retaining its last character for REP.
     #[inline]
     fn print_str(&mut self, s: &str) {
         self.handler.input_str(s);

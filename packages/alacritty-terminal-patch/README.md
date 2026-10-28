@@ -14,7 +14,10 @@ user-facing terminal, installation and configuration guidance live in the reposi
 - Damage is tracked per line as a bitset, and `TermDamageIterator` yields line numbers;
   Merkur reads only which lines changed.
 - `Term::input_str` (`src/term/mod.rs`) overrides the batched printable hook that
-  `packages/vte-patch` adds, writing a whole printable run into the row in one pass.
+  `packages/vte-patch` adds. It receives only non-empty printable ASCII runs
+  (`0x20..=0x7E`) and writes them a row-span at a time without rescanning. The parser
+  classifies ground bytes in one forward pass and decodes non-ASCII characters once;
+  DEL and every non-ASCII printable character reach `Term::input` individually.
 - The grid carries image anchors (`src/grid/anchor.rs`, `src/grid/image_motion.rs`) that
   follow row rotation, reflow, scrolling and history retirement, so the graphics scene in
   `packages/merkur-graphics` binds placements to live rows without scanning the grid.

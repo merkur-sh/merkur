@@ -10,21 +10,37 @@ attribution.
 
 ## Batched printable runs
 
-`Parser::advance_ground` already holds an entire run of printable text as a `&str`, and
-upstream fans that run out one character at a time through `Perform::print`. Every
-character then pays a fresh grid index, a fresh template read and a fresh bounds check
-inside the terminal. The patch adds a batched hook so a consumer writes the whole run in
-one pass:
+`Parser::advance_ground` classifies ground text in one forward pass, out of line from
+the per-byte state machine. C0 controls execute as they come, and ESC enters
+`escape_from_ground`. A block scan finds each printable ASCII run (`0x20..=0x7E`) and
+hands it to the terminal, which does not scan it again. Text that goes on past DEL or an
+eight-bit byte is observed once up to the next C0 control and split into ASCII runs and
+UTF-8 characters, which the parser validates and decodes once: C1 controls execute and
+every other character is printed individually. Malformed sequences keep the standard
+replacement semantics (`str::from_utf8`'s error lengths), and an incomplete character at
+the end of a read is completed by the next one. C1 controls and replacement characters
+inside such text are therefore observed together with the text around them.
 
 | Hook | Role |
 | --- | --- |
-| `Perform::print_str` | A run of printable characters. Defaults to a per-character `print` loop, so existing implementations are unaffected. |
-| `Parser::ground_dispatch` | Splits ground-state text at C0/C1 controls and hands each maximal printable run to `print_str`. |
-| `ansi::Handler::input_str` | The same batched hook one layer up. Defaults to a per-character `input` loop. |
-| `ansi::Performer::print_str` | Forwards the run to `Handler::input_str` and updates `preceding_char` from its last character. |
+| `Perform::print_str` | A non-empty printable ASCII run (`0x20..=0x7E`). Defaults to a per-character `print` loop. DEL and every non-ASCII printable character use `print` individually. |
+| `ansi::Handler::input_str` | The same non-empty printable ASCII contract one layer up. Defaults to a per-character `input` loop; other printable characters use `input` individually. |
+| `ansi::Performer::print_str` | Forwards the ASCII run to `Handler::input_str` and updates `preceding_char` from its last character. |
 
-`alacritty_terminal`'s `Term` overrides `input_str` with a bulk row write; see
+`alacritty_terminal`'s `Term` overrides `input_str` with a bulk row write. It trusts the
+parser's ASCII classification and does not rescan or decode the run; see
 `packages/alacritty-terminal-patch/src/term/mod.rs`.
+
+## Controls from ground text
+
+When ESC `[`, `]` or `P` follows ground text in the same read, the parser consumes
+the CSI, OSC string or DCS in one out-of-line call with the per-byte table's semantics.
+OSC payload is scanned in 16-byte blocks and stored in bulk; an OSC continuing into
+the next read resumes in bulk. Bytes the per-byte machine would execute or cancel on,
+a CSI or DCS split across reads, and DCS continuations go through the per-byte machine.
+Consumed bytes are observed as slices before the actions they cause. Termination is
+honoured after dispatches; printing, execution, payload, hook, control-boundary and
+observation callbacks must not start terminating parsing.
 
 ## APC framing and semantic boundaries
 
