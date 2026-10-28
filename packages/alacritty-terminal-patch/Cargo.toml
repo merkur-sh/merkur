@@ -50,6 +50,10 @@ path = "tests/ref.rs"
 name = "anchor_allocations"
 path = "tests/anchor_allocations.rs"
 
+[[test]]
+name = "parser_throughput"
+path = "tests/parser_throughput.rs"
+
 [dependencies.base64]
 version = "0.23.1"
 
