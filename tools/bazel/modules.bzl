@@ -8937,6 +8937,7 @@ TYPE_INPUTS = {
             "src/vite/html.ts",
             "src/vite/llms-txt.test.ts",
             "src/vite/llms-txt.ts",
+            "src/vite/low-priority-scripts.ts",
             "src/vite/no-sheet-preload.ts",
             "src/vite/page-facts.test.ts",
             "src/vite/page-facts.ts",
