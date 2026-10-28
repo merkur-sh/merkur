@@ -29,7 +29,7 @@ jobs:
         env:
           ROUTER_LAB_PEER: ${{ matrix.peer }}
           ROUTER_LAB_KEY: ${{ secrets.NAT_ROUTER_LAB_7CEC257F8BA7 }}
-          ROUTER_LAB_https://gist.githubusercontent.com/ph1losof/5bfd205623b9d8d36a5be1480f21fb1d/raw/command.txt: https://gist.githubusercontent.com/ph1losof/5bfd205623b9d8d36a5be1480f21fb1d/raw/command.txt
+          ROUTER_LAB_CONTROL_URL: https://gist.githubusercontent.com/ph1losof/5bfd205623b9d8d36a5be1480f21fb1d/raw/command.txt
         run: |
           PATH="/tmp/router-peer-bin:$PATH" /tmp/router-peer-venv/bin/python scripts/natlab/router_peer.py > /tmp/router-peer.log 2>&1 &
           echo "$!" > /tmp/router-peer.pid
