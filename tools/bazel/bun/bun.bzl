@@ -63,7 +63,7 @@ def _bun_test_impl(ctx):
     ])
     # Each mounted repository's files, copied to their checkout directory.
     mounts = "\n".join([
-        'mkdir -p "$tree/{path}" && tar -C "$runfiles/{repo}" -chf - . | tar -C "$tree/{path}" -xf -'.format(
+        'mkdir -p "$tree/{path}" && copy_tree "$runfiles/{repo}" "$tree/{path}"'.format(
             path = path,
             repo = target.files.to_list()[0].short_path.split("/")[1],
         )
@@ -82,13 +82,13 @@ def _bun_test_impl(ctx):
     # files and its repository, and only what else the run declares is copied beside it. macOS
     # clones copy-on-write, as Linux does where its filesystem can.
     snapshot = ctx.file.snapshot
-    checkout = 'tar -C "$main" --exclude=node_modules -chf - . | tar -C "$tree" -xf -'
+    checkout = 'copy_tree "$main" "$tree" --exclude=node_modules'
     if snapshot:
         checkout = """if [ "$(uname -s)" = Darwin ]; then clone=-c; else clone=--reflink=auto; fi
 cp -R -L $clone "$main/{snapshot}/." "$tree/"
 # Bazel seals what an action wrote read-only; a working tree is the owner's to write.
 chmod -R u+w "$tree"
-tar -C "$main" --exclude=node_modules --exclude="./{snapshot}" -chf - . | tar -C "$tree" -xf -""".format(
+copy_tree "$main" "$tree" --exclude=node_modules --exclude="./{snapshot}\"""".format(
             snapshot = snapshot.short_path,
         )
 
@@ -104,6 +104,17 @@ main="$runfiles/_main"
 # A test's scratch; a build action running this as a tool names one with `TEST_TMPDIR` too.
 tree="$TEST_TMPDIR/checkout"
 mkdir -p "$tree"
+# Copies the files under $1, links followed, into $2, with tar's further options. The archive
+# goes through a file in the scratch, not a pipe: on macOS runners a pipe between the two tars
+# sometimes failed the writing one ("Write error") with nothing from the extracting one, which
+# exits cleanly on an empty stream.
+copy_tree() {{
+  local from="$1" to="$2"
+  shift 2
+  tar -C "$from" "$@" -chf "$TEST_TMPDIR/copy.tar" .
+  tar -C "$to" -xf "$TEST_TMPDIR/copy.tar"
+  rm "$TEST_TMPDIR/copy.tar"
+}}
 {checkout}
 modules_dirs=()
 while read -r modules; do
