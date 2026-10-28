@@ -25,7 +25,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Preserve identical additional full-session assertions
-        run: cp tests/e2e/browser-helper-cases.ts "$RUNNER_TEMP/browser-helper-cases.ts"
+        run: |
+          cp tests/e2e/browser-helper-cases.ts "$RUNNER_TEMP/browser-helper-cases.ts"
+          cp scripts/natlab/forward.py "$RUNNER_TEMP/browser-helper-forward.py"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ matrix.revision.sha }}
@@ -49,9 +51,10 @@ jobs:
           git rev-parse HEAD > test-results/browser-helper-regression/product-sha.txt
           git status --porcelain > test-results/browser-helper-regression/product-status.txt
           cp "$RUNNER_TEMP/browser-helper-cases.ts" tests/e2e/
+          cp "$RUNNER_TEMP/browser-helper-forward.py" scripts/natlab/forward.py
           printf '\nimport "./browser-helper-cases";\n' >> tests/e2e/tui-nat.e2e.ts
-          sha256sum tests/e2e/browser-helper-cases.ts > test-results/browser-helper-regression/fixture.sha256
-          git diff -- tests/e2e/tui-nat.e2e.ts > test-results/browser-helper-regression/fixture.patch
+          sha256sum tests/e2e/browser-helper-cases.ts scripts/natlab/forward.py > test-results/browser-helper-regression/fixture.sha256
+          git diff -- tests/e2e/tui-nat.e2e.ts scripts/natlab/forward.py > test-results/browser-helper-regression/fixture.patch
           bash scripts/natlab/run-native.sh eim-pdf 2>&1 | tee test-results/browser-helper-regression/run.log
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

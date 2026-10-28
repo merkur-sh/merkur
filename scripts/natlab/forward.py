@@ -122,6 +122,7 @@ class DatagramForwarder(asyncio.DatagramProtocol):
                 except OSError:
                     pass
         self.connections.clear()
+        print("NATLAB_PROXY_RESET", flush=True)
 
     def partition_established(self):
         self.partitioned.update(self.connections)

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { Schema } from 'effect';
@@ -225,6 +225,20 @@ async function clean(): Promise<void> {
     path.resolve(__dirname, '../../scripts/natlab/native-topology.sh'),
     'clear-peer-flows',
   ]);
+  const output = process.env.PW_E2E_OUTPUT_DIR;
+  if (output === undefined) throw new Error('The owned relay proxy logs are required');
+  for (const role of ['daemon', 'client']) {
+    const log = path.join(path.dirname(output), `${role}-relay.log`);
+    const resets = (): number => readFileSync(log, 'utf8').split('NATLAB_PROXY_RESET\n').length - 1;
+    const previous = resets();
+    const pid = Number(
+      readFileSync(`/tmp/merkur-native-topology/proxy-${role}-relay.pid`, 'utf8').trim(),
+    );
+    process.kill(pid, 'SIGUSR1');
+    await expect
+      .poll(resets, { message: 'The completed test must retire its proxy sockets' })
+      .toBe(previous + 1);
+  }
 }
 
 for (let repetition = 1; repetition <= 3; repetition += 1) {
