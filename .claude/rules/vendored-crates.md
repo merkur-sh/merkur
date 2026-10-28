@@ -17,11 +17,13 @@ declaration; do not "harmonize" those away. The comment in `Cargo.toml` says why
 transport patches are deliberately not workspace members; read it before moving them.
 
 - `vte-patch` exists for the batched printable-run hook (`Perform::print_str`,
-  `ansi::Handler::input_str`) upstream lacks; both new trait methods default to the
-  per-character loop they replace. A CSI, OSC or DCS that follows ground text in the same
-  read is parsed in an out-of-line slice pass with the per-byte table's semantics; the
-  big advance loop is left alone, because any arm added to it reshuffles register
-  allocation and slows escape-heavy streams. VTE also owns synchronized-output completion/deadline
+  `ansi::Handler::input_str`) upstream lacks; both carry only printable ASCII runs, which
+  the parser's one classifying pass over ground text finds (every other character comes
+  through `print`/`input`), and both default to the per-character loop. A CSI, OSC or DCS
+  that follows ground text in the same read is parsed in an out-of-line slice pass with the
+  per-byte table's semantics. Ground text and those passes live out of line; the big advance
+  loop is left alone, because any arm added to it reshuffles register allocation and slows
+  escape-heavy streams. VTE also owns synchronized-output completion/deadline
   evidence and canonical shell-boundary callbacks below application buffering. Never
   restore a parallel raw ANSI scanner for speculative authority: its semantics diverge on
   C1, cancellation, compound private modes, and OSC termination. Fresh canonical boundaries
