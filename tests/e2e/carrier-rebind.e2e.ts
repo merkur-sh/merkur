@@ -647,7 +647,12 @@ test('a rebound carrier keeps its display generation and is repaired, not repain
   );
   expect(repairCommit.coherent).toBe(true);
   expect(repairCommit.endSeen).toBe(true);
-  expect(repairCommit.releaseFrameCount).toBe(1);
+  // Group end releases at the first frame after the last member: the hold's
+  // second when one passed while members were still arriving. Members still
+  // missing at the second frame would have been a deadline release instead,
+  // which the reason above rules out.
+  expect(repairCommit.releaseFrameCount).toBeGreaterThanOrEqual(1);
+  expect(repairCommit.releaseFrameCount).toBeLessThanOrEqual(2);
   expect(repairCommit.membershipReleaseDisableBits).toBe(0);
   expect(
     repairCommit.datagramCount,
