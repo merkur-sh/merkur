@@ -5,12 +5,14 @@ build --incompatible_strict_action_env
 # sources only. `bazel info output_path` names Bazel's outputs.
 build --symlink_prefix=/
 test --test_output=errors
+# A test command builds what its tests need and nothing else: the release programs, the syncs and
+# the profile-guided builds `//...` also names are `bazel build`'s and the artifacts jobs'.
+test --build_tests_only
 
 # The edit loop: every test but those of the repository as a whole (the static gates' whole-tree
-# checks and the tests that read every file), which rerun after any edit and are the push's to run,
-# and nothing built only for them. `bazel test --config=quick //...`, or `bun run test:quick`.
+# checks and the tests that read every file), which rerun after any edit and are the push's to run.
+# `bazel test --config=quick //...`, or `bun run test:quick`.
 test:quick --test_tag_filters=-repository
-test:quick --build_tests_only
 
 # `fastbuild`, what `bazel build` and `bazel test` use, is Cargo's test profile: first-party crates
 # at opt-level 1 (`MODULE.bazel`) with line tables and every assertion on, dependencies at

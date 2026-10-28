@@ -1,9 +1,15 @@
 name: Build CI artifacts
 # The WebAssembly packages and the native programs the browser suites run, built once into the
 # remote cache with the commands every consumer runs (`bun run build:wasm`, the harnesses'
-# `bun run build:native`), so each consuming job's own build is a cache hit.
+# `bun run build:native`), so each consuming job's own build, and a workstation's on the same
+# platform, is a cache hit.
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        description: The runner image whose platform the artifacts are built for
+        type: string
+        default: ubuntu-26.04
     secrets:
       BUILDBUDDY_API_KEY:
         required: false
@@ -11,7 +17,7 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: ubuntu-26.04
+    runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

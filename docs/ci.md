@@ -18,7 +18,7 @@ filtering.
 
 | Job | What it proves |
 | --- | --- |
-| `artifacts` | Builds the WebAssembly packages (`//tools/bazel/wasm:sync`) and the native programs the browser suites run (`//tools/bazel/native:sync`, release profile) into the remote cache, with the commands every consumer runs, so each consumer's build is a cache hit. |
+| `artifacts`, `artifacts-macos` | Build the WebAssembly packages (`//tools/bazel/wasm:sync`) and the native programs the browser suites run (`//tools/bazel/native:sync`, release profile) into the remote cache on Linux and Apple Silicon macOS, with the commands every consumer runs, so each consumer's build, a workstation's included, is a cache hit. |
 | `test` | `bazel test //...` on Linux and Apple Silicon macOS: every Rust, WebAssembly and Bun test, Clippy's ratchet (`//:rust_lint`), and the static gates (`//:static_gates`: `check:types`, `check:lint`, `check:latency-boundaries`, `check:span-lifetimes`, `check:span-attributes`, `check:dead`, `check:ratchet` against `fallow-baselines/`, `check:slop` against its baseline, `check:docs`, and `check:bazel-sources`). The dataplane's real-helper tests take the image helper their test target builds; the browser tests launch Bazel's pinned Chromium. Each job keeps Bazel's profile of the run as an artifact (`bazel-profile-<OS>-<run id>`), which the `bazel-*` profile queries read. |
 | `workflow` | The Python CI tests, ShellCheck over `scripts/ci/*.sh`, and Actionlint over the workflows. |
 | `integration` | Three runners: Dragonfly compatibility with the hermetic account flows, calibrated carrier rebind, and handshake reorder, each against a real edge and daemon. |

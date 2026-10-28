@@ -18,6 +18,13 @@ jobs:
   artifacts:
     uses: ./.github/workflows/ci-artifacts.yml
     secrets: inherit
+  # The same artifacts for Apple Silicon, beside the macOS tests rather than inside them: a
+  # workstation's `bun run build:native` and `bun run build:wasm` read them from the remote cache.
+  artifacts-macos:
+    uses: ./.github/workflows/ci-artifacts.yml
+    with:
+      runs-on: macos-26
+    secrets: inherit
   # Every unit test and static gate: Bazel runs the ones whose inputs changed and answers the
   # rest from the remote cache.
   test:
@@ -181,7 +188,7 @@ jobs:
   required:
     name: CI required
     if: always()
-    needs: [artifacts, test, workflow, integration, transport]
+    needs: [artifacts, artifacts-macos, test, workflow, integration, transport]
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:

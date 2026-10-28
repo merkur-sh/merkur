@@ -108,7 +108,8 @@ release_binary(
 )
 
 # The unit suite's harness as a binary, for the profile-guided release build to train on
-# (`//tools/bazel/release:dataplane_profile`): a test target cannot feed a shipped one.
+# (`//tools/bazel/release:dataplane_profile`): a test target cannot feed a shipped one. Only the
+# release builds it, by name.
 rust_e2e_testing_binary(
     name = "training",
     srcs = glob(["src/**/*.rs"]),
@@ -122,7 +123,10 @@ rust_e2e_testing_binary(
     ),
     rustc_env = {"MERKUR_IMAGE_WORKER": "$(rootpath //packages/merkur-image-worker:merkur-image-worker)"},
     rustc_flags = ["--test"],
-    tags = ["noclippy"],
+    tags = [
+        "manual",
+        "noclippy",
+    ],
     deps = _DEPS + _DEV_DEPS + all_crate_deps(
         normal = True,
         normal_dev = True,

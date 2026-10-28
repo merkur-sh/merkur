@@ -7,6 +7,24 @@ inputs:
 runs:
   using: composite
   steps:
+    # The Xcode `.xcode-version` names, whose macOS 26 SDK declares CryptoKit's
+    # SecureEnclave.MLDSA87 for the Secure Enclave bridge. Bazel's macOS actions name the SDK by
+    # its real path, so it moves to where Xcodes installs it on a workstation, which then reads
+    # these jobs' results from the remote cache.
+    - if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        version=$(cat .xcode-version)
+        sudo mv "/Applications/Xcode_${version%.0}.app" "/Applications/Xcode-$version.app"
+        sudo xcode-select --switch "/Applications/Xcode-$version.app"
+    # The LLVM repository decodes its release with the host's xz (`tools/bazel/llvm/distribution.bzl`),
+    # which the macOS image does not list.
+    - if: runner.os == 'macOS'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: '1'
+        HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      run: brew install xz
     - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
       # No repository cache: a runner downloads the archives a build needs from their sources,
       # faster than restoring every toolchain's.
