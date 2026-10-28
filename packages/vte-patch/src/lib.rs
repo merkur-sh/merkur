@@ -808,7 +808,7 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             Ok(parsed) => {
                 let c = unsafe { parsed.chars().next().unwrap_unchecked() };
                 performer.observe_application_bytes(&bytes[..c.len_utf8() - old_bytes]);
-                performer.print(c);
+                Self::dispatch_completed_char(performer, c);
 
                 self.partial_utf8_len = 0;
                 c.len_utf8() - old_bytes
@@ -816,19 +816,20 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
             Err(err) => {
                 let valid_bytes = err.valid_up_to();
                 // If we have any valid bytes, that means we partially copied another
-                // utf8 character into `partial_utf8`. Since we only care about the
-                // first character, we just ignore the rest.
+                // utf8 character into `partial_utf8`. Only the first character is
+                // consumed here; whatever follows it is parsed again from `bytes`.
                 if valid_bytes > 0 {
                     let c = unsafe {
                         let parsed = str::from_utf8_unchecked(&self.partial_utf8[..valid_bytes]);
                         parsed.chars().next().unwrap_unchecked()
                     };
 
-                    performer.observe_application_bytes(&bytes[..valid_bytes - old_bytes]);
-                    performer.print(c);
+                    let consumed = c.len_utf8() - old_bytes;
+                    performer.observe_application_bytes(&bytes[..consumed]);
+                    Self::dispatch_completed_char(performer, c);
 
                     self.partial_utf8_len = 0;
-                    return valid_bytes - old_bytes;
+                    return consumed;
                 }
 
                 match err.error_len() {
@@ -848,6 +849,18 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                     },
                 }
             },
+        }
+    }
+
+    /// A character completed across `advance` calls means what it would have
+    /// meant in one call: a C1 control (`U+0080..=U+009F`) is executed, as
+    /// [`Self::ground_dispatch`] executes it, and anything else is printed.
+    #[inline]
+    fn dispatch_completed_char<P: Perform>(performer: &mut P, c: char) {
+        if ('\u{80}'..='\u{9f}').contains(&c) {
+            performer.execute(c as u8);
+        } else {
+            performer.print(c);
         }
     }
 
@@ -2030,6 +2043,33 @@ mod tests {
         assert_eq!(dispatcher.dispatched.len(), 2);
         assert_eq!(dispatcher.dispatched[0], Sequence::Print('ĸ'));
         assert_eq!(dispatcher.dispatched[1], Sequence::Print('🎉'));
+    }
+
+    /// A character completed across reads must leave whatever follows it in
+    /// the same read to the ordinary path: the four-byte completion window can
+    /// hold a whole second character (here the space after `а`) before an
+    /// incomplete third. A C1 control completed across reads is executed.
+    #[test]
+    fn ground_text_is_independent_of_every_pair_of_read_boundaries() {
+        let fixtures: &[&[u8]] = &[
+            "ица а 漢字 é ü".as_bytes(),
+            "x\u{0085}y\u{009b}z é\u{0090}".as_bytes(),
+            b"\xd0\xb0 \xe6\xbc\xa2\xd0\xb0\xe6\xbc",
+        ];
+        for fixture in fixtures {
+            let mut whole = Dispatcher::default();
+            Parser::new().advance(&mut whole, fixture);
+            for first in 0..=fixture.len() {
+                for second in first..=fixture.len() {
+                    let mut parser = Parser::new();
+                    let mut split = Dispatcher::default();
+                    for chunk in [&fixture[..first], &fixture[first..second], &fixture[second..]] {
+                        parser.advance(&mut split, chunk);
+                    }
+                    assert_eq!(split.dispatched, whole.dispatched, "cuts {first}/{second}");
+                }
+            }
+        }
     }
 
     #[test]
