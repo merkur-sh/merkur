@@ -1103,9 +1103,11 @@ impl TerminalState {
     }
 
     fn project_graphics(&mut self) {
-        if let Some(damage) = self.graphics.project(&mut self.term, self.cols, self.rows) {
-            self.dirty_rows.mark_bits(&damage);
+        if self.graphics.idle() {
+            return;
         }
+        let damage = self.graphics.project(&mut self.term, self.cols, self.rows);
+        self.dirty_rows.mark_bits(&damage);
     }
 
     /// The physical release the owner loop waits on, while the parser's storage
@@ -2542,10 +2544,12 @@ mod tests {
     }
 
     #[test]
-    fn graphics_projection_without_graphics_returns_none() {
+    fn graphics_projection_is_idle_without_graphics_and_idle_projects_no_damage() {
         let (event_tx, _event_rx) = crossbeam_channel::unbounded();
         let mut terminal = TerminalState::new(160, 48, event_tx);
-        assert_eq!(terminal.graphics.project(&mut terminal.term, 160, 48), None);
+        let none = [0; (crate::pty::dimensions::MAX_TERMINAL_ROWS as usize).div_ceil(64)];
+        assert!(terminal.graphics.idle());
+        assert_eq!(terminal.graphics.project(&mut terminal.term, 160, 48), none);
         for bytes in [
             b"".as_slice(),
             b"hello",
@@ -2554,21 +2558,20 @@ mod tests {
             b"\r\nmore",
         ] {
             terminal.apply_bytes(bytes);
-            assert_eq!(terminal.graphics.project(&mut terminal.term, 160, 48), None);
+            assert!(terminal.graphics.idle());
+            assert_eq!(terminal.graphics.project(&mut terminal.term, 160, 48), none);
         }
     }
 
-    #[test]
-    fn graphics_capture_snapshot_hashes_match_the_receiver_and_captures_hold_no_charge() {
-        use merkur_graphics::budget::{Budget, Usage};
+    /// A one-pixel image row on an 8-column terminal, and the charge standing in for the
+    /// projector's own lease on it.
+    fn one_pixel_graphics_row(
+        budget: &merkur_graphics::budget::Budget,
+    ) -> (PreparedGraphics, Option<merkur_graphics::budget::Lease>) {
         use merkur_graphics::geometry::{CELL_UNIT, RowSlice};
         use merkur_graphics::projection::{Fragment, Stack};
         use merkur_graphics::source::SourceManifest;
 
-        let budget = Budget::new(Usage {
-            bytes: 4096,
-            objects: 4,
-        });
         let pixels = merkur_graphics::processing::Pixels::new(
             1,
             1,
@@ -2594,9 +2597,19 @@ mod tests {
                 source_bottom: CELL_UNIT,
             },
         };
+        PreparedGraphics::new(budget, 8, &[fragment], &mut Default::default()).unwrap()
+    }
+
+    #[test]
+    fn graphics_capture_snapshot_hashes_match_the_receiver_and_captures_hold_no_charge() {
+        use merkur_graphics::budget::{Budget, Usage};
+
+        let budget = Budget::new(Usage {
+            bytes: 4096,
+            objects: 4,
+        });
         // `charge` stands in for the projector's own lease on the row.
-        let (prepared, charge) =
-            PreparedGraphics::new(&budget, 8, &[fragment], &mut Default::default()).unwrap();
+        let (prepared, charge) = one_pixel_graphics_row(&budget);
         let (event_tx, _event_rx) = crossbeam_channel::unbounded();
         let mut terminal = TerminalState::new(8, 2, event_tx);
         terminal.apply_bytes(b"hello");
@@ -2661,11 +2674,12 @@ mod tests {
             pixel_height: 32,
         });
         // Clearing the old projection during resize still owes full row damage.
+        assert!(!terminal.graphics.idle());
         assert_eq!(
             terminal.graphics.project(&mut terminal.term, 8, 2),
-            Some([u64::MAX; (crate::pty::dimensions::MAX_TERMINAL_ROWS as usize).div_ceil(64)]),
+            [u64::MAX; (crate::pty::dimensions::MAX_TERMINAL_ROWS as usize).div_ceil(64)],
         );
-        assert_eq!(terminal.graphics.project(&mut terminal.term, 8, 2), None);
+        assert!(terminal.graphics.idle());
         drop((captured, graphics, captures));
     }
 
