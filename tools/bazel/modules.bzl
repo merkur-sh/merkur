@@ -10655,6 +10655,7 @@ TYPE_INPUTS = {
             "e2e/auth-cross-tab.e2e.ts",
             "e2e/auth-email.e2e.ts",
             "e2e/auth-resilience.e2e.ts",
+            "e2e/browser-helper-cases.ts",
             "e2e/carrier-rebind.e2e.ts",
             "e2e/client-idle-work.e2e.ts",
             "e2e/device-list-updates.e2e.ts",

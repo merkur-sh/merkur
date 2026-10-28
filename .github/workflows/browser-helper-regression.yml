@@ -1,0 +1,64 @@
+name: Browser NAT helper connection comparison
+on:
+  push:
+    branches: [nat-connection-verification]
+    paths:
+      - .github/workflows/browser-helper-regression.yml
+      - tests/e2e/browser-helper-cases.ts
+permissions:
+  contents: read
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        revision:
+          - name: base
+            sha: 7bb34fdf8b7c131c30a8eb1b08ad16c7614fd99b
+          - name: integrated
+            sha: e7846d765a389a80a01cad9fdd08cc78ad74cb2e
+    name: ${{ matrix.revision.name }} / full browser helpers
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Preserve identical additional full-session assertions
+        run: cp tests/e2e/browser-helper-cases.ts "$RUNNER_TEMP/browser-helper-cases.ts"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.revision.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust: 'false'
+          bazel: 'true'
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+      - name: Load real kernel helpers on the disposable runner
+        run: |
+          sudo modprobe nf_conntrack_sip
+          sudo modprobe nf_nat_sip
+          sudo modprobe nf_conntrack_tftp
+          sudo modprobe nf_nat_tftp
+          cat /sys/module/nf_conntrack_sip/parameters/sip_direct_media
+      - name: Run the same authorized-shell cases against frozen product bytes
+        run: |
+          set -o pipefail
+          mkdir -p test-results/browser-helper-regression
+          git rev-parse HEAD > test-results/browser-helper-regression/product-sha.txt
+          git status --porcelain > test-results/browser-helper-regression/product-status.txt
+          cp "$RUNNER_TEMP/browser-helper-cases.ts" tests/e2e/
+          printf '\nimport "./browser-helper-cases";\n' >> tests/e2e/tui-nat.e2e.ts
+          sha256sum tests/e2e/browser-helper-cases.ts > test-results/browser-helper-regression/fixture.sha256
+          git diff -- tests/e2e/tui-nat.e2e.ts > test-results/browser-helper-regression/fixture.patch
+          bun run scripts/natlab/run-native.sh eim-pdf 2>&1 | tee test-results/browser-helper-regression/run.log
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: browser-helper-${{ matrix.revision.name }}
+          path: |
+            test-results/browser-helper-regression/
+            test-results/natlab-native/
+          retention-days: 3
+          compression-level: 1
