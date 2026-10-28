@@ -2,8 +2,8 @@
  * The display-delta frames term-wasm is profiled on and benchmarked against.
  *
  * Its own module, importing no WebAssembly and nothing beyond the display
- * constants, because `term-wasm-pgo.ts` builds its training set from it inside
- * Bazel's training action, before any term-wasm package exists.
+ * constants, because `term-wasm-pgo-stream.ts` builds its training set from it
+ * inside a Bazel action, before any term-wasm package exists.
  */
 
 import { writeU32BE } from '../packages/shared/src/binary';

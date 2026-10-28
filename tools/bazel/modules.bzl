@@ -10600,6 +10600,7 @@ TYPE_INPUTS = {
             "term-wasm-current-glue.test.ts",
             "term-wasm-current-glue.ts",
             "term-wasm-ingress-fixture.ts",
+            "term-wasm-pgo-stream.ts",
             "term-wasm-pgo.ts",
             "test-executables.test.ts",
             "test-executables.ts",

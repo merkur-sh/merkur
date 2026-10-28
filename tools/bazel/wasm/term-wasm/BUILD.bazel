@@ -42,11 +42,13 @@ wasm_module(
     simd128 = True,
 )
 
-# Trained on the ingress benchmark's raw frames and their MZ-coded twins (`scripts/term-wasm-pgo.ts`).
+# Trained on the ingress benchmark's raw frames and their MZ-coded twins
+# (`scripts/term-wasm-pgo-stream.ts`, `scripts/term-wasm-pgo.ts`).
 wasm_profile(
     name = "profile",
     font = "//apps/web:public/fonts/JetBrainsMonoNF-Regular.ttf",
     instrumented = ":instrumented",
+    stream_builder = "//scripts:term_wasm_pgo_stream",
     trainer = "//scripts:term_wasm_pgo",
     display_fixture = "//packages/display-fixture",
 )

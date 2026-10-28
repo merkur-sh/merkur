@@ -68,18 +68,33 @@ _no_profile_transition = transition(
 
 def _wasm_profile_impl(ctx):
     toolchain = ctx.toolchains["@rules_rust//rust:toolchain_type"]
+
+    # The frames are an output of their own, so a fixture rebuild that codes the same bytes
+    # leaves the training, and every crate that optimizes with its profile, a cache hit.
+    stream = ctx.actions.declare_file(ctx.label.name + ".stream")
+    ctx.actions.run_shell(
+        command = '"{builder}" "$PWD/{fixture}" "$PWD/{stream}"'.format(
+            builder = ctx.executable.stream_builder.path,
+            fixture = ctx.executable.display_fixture.path,
+            stream = stream.path,
+        ),
+        outputs = [stream],
+        tools = [ctx.attr.stream_builder[DefaultInfo].files_to_run, ctx.attr.display_fixture[DefaultInfo].files_to_run],
+        mnemonic = "WasmTrainingStream",
+        progress_message = "Writing the training frames of %{label}",
+    )
     raw = ctx.actions.declare_file(ctx.label.name + ".profraw")
     ctx.actions.run_shell(
-        command = '"{trainer}" "$PWD/{module}" "$PWD/{fixture}" "$PWD/{font}" "$PWD/{raw}"'.format(
+        command = '"{trainer}" "$PWD/{module}" "$PWD/{font}" "$PWD/{stream}" "$PWD/{raw}"'.format(
             trainer = ctx.executable.trainer.path,
             module = ctx.file.instrumented.path,
-            fixture = ctx.executable.display_fixture.path,
             font = ctx.file.font.path,
+            stream = stream.path,
             raw = raw.path,
         ),
-        inputs = [ctx.file.instrumented, ctx.file.font],
+        inputs = [ctx.file.instrumented, ctx.file.font, stream],
         outputs = [raw],
-        tools = [ctx.attr.trainer[DefaultInfo].files_to_run, ctx.attr.display_fixture[DefaultInfo].files_to_run],
+        tools = [ctx.attr.trainer[DefaultInfo].files_to_run],
         mnemonic = "WasmProfileTrain",
         progress_message = "Training %{label}",
     )
@@ -102,6 +117,7 @@ wasm_profile = rule(
     attrs = {
         "font": attr.label(allow_single_file = True, mandatory = True),
         "instrumented": attr.label(allow_single_file = [".wasm"], mandatory = True),
+        "stream_builder": attr.label(cfg = "exec", executable = True, mandatory = True),
         "trainer": attr.label(cfg = "exec", executable = True, mandatory = True),
         "display_fixture": attr.label(cfg = "exec", executable = True, mandatory = True),
     },

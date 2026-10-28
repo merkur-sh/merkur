@@ -2348,7 +2348,6 @@
   },
   "scripts/term-wasm-pgo.ts": {
     "no-chained-type-assertions": 1,
-    "no-known-value-widening": 1,
     "require-safety-comment-for-type-assertion": 2
   },
   "scripts/test-executables.test.ts": {

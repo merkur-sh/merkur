@@ -13,14 +13,20 @@ exports_files([
     "compile-daemon-cli.ts",
 ])
 
-# Trains the profile-guided terminal (`//tools/bazel/wasm/term-wasm:profile`).
+# The frames the profile-guided terminal trains on (`//tools/bazel/wasm/term-wasm:profile`).
 bun_binary(
-    name = "term_wasm_pgo",
+    name = "term_wasm_pgo_stream",
     data = [
         "term-wasm-ingress-fixture.ts",
         "//packages/shared:src/binary.ts",
         "//packages/shared:src/display-stream.ts",
     ],
+    entry = "term-wasm-pgo-stream.ts",
+)
+
+# Trains the profile-guided terminal on those frames.
+bun_binary(
+    name = "term_wasm_pgo",
     entry = "term-wasm-pgo.ts",
 )
 
