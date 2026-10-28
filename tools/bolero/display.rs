@@ -122,18 +122,15 @@ fn fuzz_display_roundtrip() {
     ];
     seeds::persist(&seeds);
     let check = |bytes: &[u8]| {
-        let cells: Vec<_> = if bytes.is_empty() {
-            vec![test_cell(' ')]
-        } else {
-            bytes
-                .iter()
-                .map(|byte| {
-                    let mut cell = test_cell(char::from(b' ' + byte % 95));
-                    cell.fg = [*byte, byte.rotate_left(2), byte.rotate_left(4)];
-                    cell
-                })
-                .collect()
-        };
+        let mut cells: Vec<_> = bytes
+            .iter()
+            .map(|byte| {
+                let mut cell = test_cell(char::from(b' ' + byte % 95));
+                cell.fg = [*byte, byte.rotate_left(2), byte.rotate_left(4)];
+                cell
+            })
+            .collect();
+        cells.resize(cells.len().max(MIN_TERMINAL_COLUMNS), test_cell(' '));
         let cols = u16::try_from(cells.len()).expect("bounded cells");
         let raw = test_frame(
             FrameKind::Delta,
