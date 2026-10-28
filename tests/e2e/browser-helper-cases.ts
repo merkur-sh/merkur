@@ -61,6 +61,10 @@ async function nft(role: string, ...args: string[]): Promise<string> {
 }
 
 async function configure(mode: Mode): Promise<void> {
+  await execute('bash', [
+    path.resolve(__dirname, '../../scripts/natlab/native-topology.sh'),
+    'clear-peer-flows',
+  ]);
   for (const role of ['daemon', 'client']) {
     await nft(role, 'add', 'table', 'inet', 'browser_helper');
   }
@@ -217,6 +221,10 @@ async function clean(): Promise<void> {
       String(entry.rule.handle),
     );
   }
+  await execute('bash', [
+    path.resolve(__dirname, '../../scripts/natlab/native-topology.sh'),
+    'clear-peer-flows',
+  ]);
 }
 
 for (let repetition = 1; repetition <= 3; repetition += 1) {
