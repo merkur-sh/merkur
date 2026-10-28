@@ -239,7 +239,14 @@ impl Graphics {
         term: &mut Term<EventForwarder>,
         columns: u16,
         rows: u16,
-    ) -> [u64; ROWS.div_ceil(64)] {
+    ) -> Option<[u64; ROWS.div_ceil(64)]> {
+        if self.placeholders.is_none()
+            && self.placements.virtuals().len() == 0
+            && !self.projection_reset
+            && (!self.projection_dirty || self.projection_deferred)
+        {
+            return None;
+        }
         let mut damage = [0; ROWS.div_ceil(64)];
         // A full placeholder rebuild waits with a deferred projection; commands rebuild
         // on demand, and an existing index still consumes this chunk's grid damage.
@@ -252,12 +259,12 @@ impl Graphics {
         // A deferred projection stays dirty: later chunks neither rerun its failed
         // admission nor refill damage before the owner loop resumes it.
         if !self.projection_dirty || self.projection_deferred {
-            return damage;
+            return Some(damage);
         }
         self.projection_dirty = false;
         // Geometry authority exists before any placement can be admitted.
         let Some(viewport) = term.event_listener().viewport else {
-            return damage;
+            return Some(damage);
         };
         // A viewport that states no cell pixels projects nothing, as an empty
         // scene does.
@@ -270,7 +277,7 @@ impl Graphics {
                     }
                 }
                 self.clear_projection();
-                return damage;
+                return Some(damage);
             }
         };
         assert!(usize::from(rows) <= ROWS, "validated terminal dimensions");
@@ -312,7 +319,7 @@ impl Graphics {
             } else if !self.evict_projection_source(term) || self.placements.is_empty() {
                 self.clear_projection();
                 damage.fill(u64::MAX);
-                return damage;
+                return Some(damage);
             }
         }
         let mut work = self
@@ -435,9 +442,9 @@ impl Graphics {
                 {
                     self.projection_workspace = None;
                     self.projection_dirty = true;
-                    self.project(term, columns, rows);
+                    let _ = self.project(term, columns, rows);
                     damage.fill(u64::MAX);
-                    return damage;
+                    return Some(damage);
                 }
                 self.projection_workspace
                     .as_mut()
@@ -449,7 +456,7 @@ impl Graphics {
             } else if !self.evict_projection_source(term) || self.placements.is_empty() {
                 self.clear_projection();
                 damage.fill(u64::MAX);
-                return damage;
+                return Some(damage);
             }
         };
         let work = self.projection_workspace.as_mut().expect("workspace");
@@ -477,7 +484,7 @@ impl Graphics {
         }
         self.projection_dirty = false;
         self.projection_reset = false;
-        damage
+        Some(damage)
     }
 }
 

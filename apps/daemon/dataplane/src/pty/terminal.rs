@@ -734,7 +734,7 @@ pub struct TerminalState {
     /// Positive only when the latest PTY application completed an explicit ESU.
     completed_sync_update_epoch: u64,
     prediction_safe: bool,
-    last_cursor: Option<(usize, usize)>,
+    last_cursor_line: Option<usize>,
     row_cells_scratch: Vec<CellRepr>,
     row_captures: RowCapturePool,
     next_capture_key: u64,
@@ -994,7 +994,7 @@ impl TerminalState {
             display_revision: 1,
             completed_sync_update_epoch: 0,
             prediction_safe: false,
-            last_cursor: None,
+            last_cursor_line: None,
             row_cells_scratch: vec![CellRepr::BLANK; usize::from(normalized_cols)],
             row_captures: RowCapturePool::default(),
             next_capture_key: 1,
@@ -1103,8 +1103,9 @@ impl TerminalState {
     }
 
     fn project_graphics(&mut self) {
-        let damage = self.graphics.project(&mut self.term, self.cols, self.rows);
-        self.dirty_rows.mark_bits(&damage);
+        if let Some(damage) = self.graphics.project(&mut self.term, self.cols, self.rows) {
+            self.dirty_rows.mark_bits(&damage);
+        }
     }
 
     /// The physical release the owner loop waits on, while the parser's storage
@@ -1601,7 +1602,7 @@ impl TerminalState {
         self.project_graphics();
         self.row_cells_scratch
             .resize(usize::from(self.cols), CellRepr::BLANK);
-        self.last_cursor = None;
+        self.last_cursor_line = None;
         self.term
             .event_listener_mut()
             .shell_integration
@@ -1886,7 +1887,7 @@ impl TerminalState {
         }
         let header = self.display_header(FrameKind::Snapshot, 0);
         let row_count_offset = write_display_header(&mut payload, &header);
-        self.last_cursor = self.current_cursor_position();
+        self.last_cursor_line = self.current_cursor_line();
 
         let mut row_cells = std::mem::take(&mut self.row_cells_scratch);
         let mut row_digest = std::mem::take(&mut self.row_digest_scratch);
@@ -1960,7 +1961,7 @@ impl TerminalState {
         payload.reserve(rows_to_send.len().saturating_mul(cols).saturating_mul(4));
         let header = self.display_header(FrameKind::Delta, 0);
         let row_count_offset = write_display_header(&mut payload, &header);
-        self.last_cursor = self.current_cursor_position();
+        self.last_cursor_line = self.current_cursor_line();
 
         let mut row_cells = std::mem::take(&mut self.row_cells_scratch);
         let mut row_digest = std::mem::take(&mut self.row_digest_scratch);
@@ -2027,7 +2028,7 @@ impl TerminalState {
         header.closure_digest = closure_digest;
         header.echo_horizon = echo_horizon;
         write_display_header(&mut payload, &header);
-        self.last_cursor = self.current_cursor_position();
+        self.last_cursor_line = self.current_cursor_line();
         self.last_encoded_row_count = 0;
         payload
     }
@@ -2150,19 +2151,31 @@ impl TerminalState {
             TermDamage::Full => self.dirty_rows.mark_all(),
             TermDamage::Partial(lines) => {
                 for line in lines {
-                    self.dirty_rows.mark(line.line);
+                    self.dirty_rows.mark(line);
                 }
             }
         }
-        let current_cursor = self.current_cursor_position();
-        if let Some((line, _)) = self.last_cursor {
+        let current_cursor = self.current_cursor_line();
+        if let Some(line) = self.last_cursor_line {
             self.dirty_rows.mark(line);
         }
-        if let Some((line, _)) = current_cursor {
+        if let Some(line) = current_cursor {
             self.dirty_rows.mark(line);
         }
-        self.last_cursor = current_cursor;
+        self.last_cursor_line = current_cursor;
         self.term.reset_damage();
+    }
+
+    /// The line of [`Self::current_cursor_position`], read from the cursor itself: damage
+    /// needs only the row, and building `RenderableContent` for it costs more than the rest of
+    /// a keystroke's damage pass.
+    fn current_cursor_line(&self) -> Option<usize> {
+        let point = if self.term.mode().contains(TermMode::VI) {
+            self.term.vi_mode_cursor.point
+        } else {
+            self.term.grid().cursor.point
+        };
+        point_to_viewport(self.term.grid().display_offset(), point).map(|point| point.line)
     }
 
     pub fn current_cursor_position(&self) -> Option<(usize, usize)> {
@@ -2460,6 +2473,92 @@ fn clamp_usize_to_u16(value: usize) -> u16 {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn current_cursor_line_matches_renderable_cursor() {
+        use alacritty_terminal::grid::Scroll;
+        use alacritty_terminal::vi_mode::ViMotion;
+
+        let steps = [
+            "printable runs",
+            "\r",
+            "overwrite",
+            "\n",
+            "\x1b[2A",
+            "\x1b[3B",
+            "\x1b[4C",
+            "\x1b[2D",
+            "\x1b[2;3H",
+            "中文",
+            "\x1b[D",
+            "\x1b[1;8H",
+            "界界wraps across rows",
+            "\r\n0\r\n1\r\n2\r\n3\r\n4\r\n5\r\n6",
+            "\x1b[?1049h",
+            "alternate 中文",
+            "\x1b[H",
+            "\x1b[4B",
+            "\x1b[?1049l",
+        ];
+        let check = |terminal: &TerminalState| {
+            assert_eq!(
+                terminal.current_cursor_line(),
+                terminal.current_cursor_position().map(|cursor| cursor.0)
+            );
+        };
+        for bytewise in [false, true] {
+            let (event_tx, _event_rx) = crossbeam_channel::unbounded();
+            let mut terminal = TerminalState::new(10, 4, event_tx);
+            check(&terminal);
+            for step in steps {
+                let bytes = step.as_bytes();
+                for chunk in bytes.chunks(if bytewise { 1 } else { bytes.len() }) {
+                    assert_eq!(terminal.apply_bytes(chunk), chunk.len());
+                    check(&terminal);
+                }
+            }
+            terminal.term.scroll_display(Scroll::Delta(2));
+            check(&terminal);
+            terminal.term.toggle_vi_mode();
+            check(&terminal);
+            for motion in [
+                ViMotion::Up,
+                ViMotion::Left,
+                ViMotion::Up,
+                ViMotion::Right,
+                ViMotion::Down,
+                ViMotion::Down,
+            ] {
+                terminal.term.vi_motion(motion);
+                check(&terminal);
+            }
+            terminal.term.vi_goto_point(Point::new(Line(-1), Column(1)));
+            check(&terminal);
+            // A history cursor is outside the viewport when its offset is removed.
+            terminal.term.grid_mut().scroll_display(Scroll::Bottom);
+            assert_eq!(terminal.current_cursor_line(), None);
+            check(&terminal);
+            terminal.term.toggle_vi_mode();
+            check(&terminal);
+        }
+    }
+
+    #[test]
+    fn graphics_projection_without_graphics_returns_none() {
+        let (event_tx, _event_rx) = crossbeam_channel::unbounded();
+        let mut terminal = TerminalState::new(160, 48, event_tx);
+        assert_eq!(terminal.graphics.project(&mut terminal.term, 160, 48), None);
+        for bytes in [
+            b"".as_slice(),
+            b"hello",
+            b"\r\n",
+            b"plain text",
+            b"\r\nmore",
+        ] {
+            terminal.apply_bytes(bytes);
+            assert_eq!(terminal.graphics.project(&mut terminal.term, 160, 48), None);
+        }
+    }
+
+    #[test]
     fn graphics_capture_snapshot_hashes_match_the_receiver_and_captures_hold_no_charge() {
         use merkur_graphics::budget::{Budget, Usage};
         use merkur_graphics::geometry::{CELL_UNIT, RowSlice};
@@ -2551,6 +2650,22 @@ mod tests {
                 objects: 0
             })
         );
+        terminal.graphics.projected.push(captured.graphics.clone());
+        terminal.resize_viewport(crate::pty::Viewport {
+            geometry_generation: 1,
+            cols: 8,
+            rows: 2,
+            seq: 1,
+            cell: merkur_graphics::geometry::CellMetrics::new(8 << 16, 16 << 16),
+            pixel_width: 64,
+            pixel_height: 32,
+        });
+        // Clearing the old projection during resize still owes full row damage.
+        assert_eq!(
+            terminal.graphics.project(&mut terminal.term, 8, 2),
+            Some([u64::MAX; (crate::pty::dimensions::MAX_TERMINAL_ROWS as usize).div_ceil(64)]),
+        );
+        assert_eq!(terminal.graphics.project(&mut terminal.term, 8, 2), None);
         drop((captured, graphics, captures));
     }
 

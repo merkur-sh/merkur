@@ -138,8 +138,8 @@ impl Index {
                 TermDamage::Full => dirty[..usize::from(self.height)].fill(true),
                 TermDamage::Partial(lines) => {
                     for line in lines {
-                        if line.line < usize::from(self.height) {
-                            dirty[line.line] = true;
+                        if line < usize::from(self.height) {
+                            dirty[line] = true;
                         }
                     }
                 }

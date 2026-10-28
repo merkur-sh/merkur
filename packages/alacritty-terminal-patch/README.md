@@ -11,6 +11,8 @@ user-facing terminal, installation and configuration guidance live in the reposi
 
 ## Merkur's changes
 
+- Damage is tracked per line as a bitset, and `TermDamageIterator` yields line numbers;
+  Merkur reads only which lines changed.
 - `Term::input_str` (`src/term/mod.rs`) overrides the batched printable hook that
   `packages/vte-patch` adds, writing a whole printable run into the row in one pass.
 - The grid carries image anchors (`src/grid/anchor.rs`, `src/grid/image_motion.rs`) that
