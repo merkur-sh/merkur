@@ -10,8 +10,6 @@
 import 'virtual:uno.css';
 import './styles/base.css';
 
-import monoFace from './fonts/JetBrainsMono-latin.woff2?url';
-import terminalFace from './fonts/MerkurTerminal.woff2?url';
 import { initWaitlist } from './waitlist';
 
 /** The Rybbit event a question's summary names while the question is closed. */
@@ -55,35 +53,65 @@ function loadAnalytics(): void {
   script.dataset.siteId = siteId;
   document.head.append(script);
 }
-/** Fetches the face at `href` as a preload, which the stylesheet's own request then takes. */
-function preloadFace(href: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'font';
-    link.type = 'font/woff2';
-    link.crossOrigin = 'anonymous';
-    link.href = href;
-    link.addEventListener('load', () => resolve(), { once: true });
-    link.addEventListener('error', () => reject(new Error(`site: ${href} did not load`)), {
-      once: true,
-    });
-    document.head.append(link);
+/** The code points a face's `unicode-range` names, as `[first, last]` pairs. */
+function codeRanges(range: string): [number, number][] {
+  return range.split(',').map((part) => {
+    const [first = '', last = first] = part.trim().replace(/^U\+/i, '').split('-');
+    return [Number.parseInt(first, 16), Number.parseInt(last, 16)];
   });
+}
+
+/** Whether the page's text has a character in `range`, which is when the browser would fetch the face. */
+function pageSets(range: string): boolean {
+  const ranges = codeRanges(range);
+  for (const character of document.body.textContent ?? '') {
+    const point = character.codePointAt(0) ?? 0;
+    if (ranges.some(([first, last]) => point >= first && point <= last)) return true;
+  }
+  return false;
+}
+
+/** Fetches the face `rule` declares and adds it to the page's fonts once its bytes are in. */
+async function addFace(rule: CSSFontFaceRule): Promise<void> {
+  const style = rule.style;
+  const url = /url\(["']?([^"')]+)["']?\)/.exec(style.getPropertyValue('src'))?.[1];
+  if (url === undefined) throw new Error('site: a mono face names no url');
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`site: ${url} answered ${response.status}`);
+  // The CSSOM hands the family back quoted; a face is added under the bare name.
+  const family = style.getPropertyValue('font-family').replace(/^(["'])(.*)\1$/, '$2');
+  const face = new FontFace(family, await response.arrayBuffer(), {
+    weight: style.getPropertyValue('font-weight') || 'normal',
+    style: style.getPropertyValue('font-style') || 'normal',
+    unicodeRange: style.getPropertyValue('unicode-range') || 'U+0-10FFFF',
+  });
+  document.fonts.add(await face.load());
 }
 
 /**
  * The mono faces, which the first paint set in their fallbacks (`uno.config.ts`),
- * switched on in one step once they have arrived. They are fetched as preloads
- * from here rather than found by the stylesheet, so no request the first paint
- * could have waited on hangs off the page. Every page sets mono text; the
- * terminal face is cut to the marks `.tg` holds, so only a page with one
- * fetches it.
+ * switched on in one step once they have arrived. The stylesheet declares them
+ * for a page without script only; here each is fetched by script and added to
+ * the page's fonts, so no request the first paint could have waited on hangs
+ * off the page. A face with a `unicode-range` is fetched only when the page
+ * sets one of its characters, as the browser would.
  */
 function loadMonoFaces(): void {
-  const faces = [preloadFace(monoFace)];
-  if (document.querySelector('.tg') !== null) faces.push(preloadFace(terminalFace));
-  void Promise.all(faces).then(() => {
+  const rules: CSSFontFaceRule[] = [];
+  for (const sheet of document.styleSheets) {
+    for (const rule of sheet.cssRules) {
+      if (!(rule instanceof CSSMediaRule) || !rule.conditionText.includes('scripting: none')) {
+        continue;
+      }
+      for (const inner of rule.cssRules) if (inner instanceof CSSFontFaceRule) rules.push(inner);
+    }
+  }
+  if (rules.length === 0) throw new Error('site: the stylesheet declares no mono faces');
+  const wanted = rules.filter((rule) => {
+    const range = rule.style.getPropertyValue('unicode-range');
+    return range === '' || pageSets(range);
+  });
+  void Promise.all(wanted.map(addFace)).then(() => {
     document.documentElement.dataset.faces = 'all';
   });
 }

@@ -82,10 +82,15 @@ const FIRST_PAINT_FAMILIES = new Set(['Geist', 'Instrument Serif']);
  * The cut faces, from the record `subset-fonts` wrote beside them. The terminal
  * face names its few marks as its range, so only a page that sets one of them
  * ever fetches it.
+ *
+ * The mono faces are declared for a page without script only. With script,
+ * `main.ts` reads these same rules, fetches each face after the first paint and
+ * adds it to the page's fonts itself: a face the stylesheet found would be a
+ * request hanging off the page, which a preload from script does not replace.
  */
 function siteFaces(): string {
   const record = readSubsets(fileURLToPath(new URL('./src/fonts', import.meta.url)));
-  return FONT_SUBSETS.map((face) => {
+  const faces = FONT_SUBSETS.map((face) => {
     const cut = record[face.file];
     if (cut === undefined) throw new Error(`uno.config: no cut of ${face.file}`);
     const range =
@@ -94,15 +99,22 @@ function siteFaces(): string {
             .map((character) => `U+${(character.codePointAt(0) ?? 0).toString(16).toUpperCase()}`)
             .join(', ')};`
         : '';
-    return `
+    const firstPaint = FIRST_PAINT_FAMILIES.has(cut.family);
+    const rule = `
         @font-face {
           font-family: '${cut.family}';
           font-style: ${face.style ?? 'normal'};
           font-weight: ${cut.weight};
-          font-display: ${FIRST_PAINT_FAMILIES.has(cut.family) ? 'optional' : 'swap'};
+          font-display: ${firstPaint ? 'optional' : 'swap'};
           src: url('/src/fonts/${face.file}') format('woff2');${range}
         }`;
-  }).join('\n');
+    return { firstPaint, rule };
+  });
+  const later = faces.filter((face) => !face.firstPaint).map((face) => face.rule);
+  return [
+    ...faces.filter((face) => face.firstPaint).map((face) => face.rule),
+    `\n        @media (scripting: none) {${later.join('\n')}\n        }`,
+  ].join('\n');
 }
 
 /** A Quicksilver stack with the fallback face second, after the web face it stands in for. */
