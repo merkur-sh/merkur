@@ -134,8 +134,14 @@ def run():
         request = urllib.request.Request(path, data=json.dumps(body).encode(), method=method,
             headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
                      'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return json.load(response)
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    return json.load(response)
+            except OSError:
+                if attempt == 2:
+                    raise
+                time.sleep(1)
 
     check = check_update(api, 'POST', {'name': 'Owned router peer ' + label,
         'head_sha': os.environ['GITHUB_SHA'], 'status': 'in_progress'})
