@@ -334,6 +334,17 @@ fn older(a: u32, b: u32) -> bool {
     matches!(b.wrapping_sub(a), 1..0x8000_0000)
 }
 
+/// Where `key` sits in a sequence-ordered queue, walked from the back as an
+/// insertion is: only sources at or after its sequence are visited.
+fn queued(queue: &VecDeque<SourceKey>, key: SourceKey) -> Option<usize> {
+    let back = queue
+        .iter()
+        .rev()
+        .take_while(|held| !older(held.1, key.1))
+        .position(|&held| held == key)?;
+    Some(queue.len() - 1 - back)
+}
+
 impl MzPeerState {
     /// Identify the history/epoch regime used by the next encode.
     pub(crate) fn row_regime(&self) -> usize {
@@ -428,8 +439,11 @@ impl MzPeerState {
         { self.source_admissions += 1; }
         if self.sources.contains_key(&key) {
             self.remove_source(key);
-            self.order.retain(|&held| held != key);
-            self.previous_order.retain(|&held| held != key);
+            if let Some(at) = queued(&self.order, key) {
+                self.order.remove(at);
+            } else if let Some(at) = queued(&self.previous_order, key) {
+                self.previous_order.remove(at);
+            }
         }
         let Some(source) = cells.mz_source(#[cfg(test)] &mut self.source_preparations) else { return };
         for (index, hashes) in source.hashes.windows(2).enumerate() {

@@ -447,6 +447,43 @@ fn reused_key_retires_old_pairs_and_has_one_queue_entry() {
 }
 
 #[test]
+fn reused_key_keeps_every_other_source_queued_once_in_sequence_order() {
+    let mut state = MzPeerState {
+        generation: 1,
+        ..MzPeerState::default()
+    };
+    let line = cells(3, 24, true);
+    for seq in 0..64 {
+        for row in 0..2 {
+            state.add_source((1, seq, row), &line);
+        }
+    }
+    let check = |state: &MzPeerState, queue: &VecDeque<SourceKey>| {
+        let held: HashSet<_> = queue.iter().copied().collect();
+        assert_eq!(held.len(), queue.len(), "a key is queued once");
+        assert!(queue.iter().zip(queue.iter().skip(1)).all(|(a, b)| !older(b.1, a.1)));
+        assert_eq!(state.sources.len(), state.order.len() + state.previous_order.len());
+    };
+    for key in [(1, 63, 1), (1, 30, 0), (1, 0, 0)] {
+        state.add_source(key, &line);
+        check(&state, &state.order);
+        assert_eq!(state.order.len(), 128);
+    }
+    state.apply(MzFact::Generation {
+        generation: 2,
+        previous_floor: None,
+    });
+    for seq in 0..4 {
+        state.add_source((2, seq, 0), &line);
+    }
+    state.add_source((1, 40, 1), &line);
+    check(&state, &state.previous_order);
+    assert_eq!(state.previous_order.len(), 127);
+    assert_eq!(state.order.len(), 5);
+    assert!(state.order.contains(&(1, 40, 1)));
+}
+
+#[test]
 fn repeated_pair_retirement_preserves_other_sources_in_order() {
     let row: RowCells = (0..384)
         .map(|i| CellRepr {
