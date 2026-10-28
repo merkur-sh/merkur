@@ -75,6 +75,11 @@ struct Media {
     second: super::super::router_grants::Lease,
 }
 
+enum Allocation {
+    Public(super::super::router_grants::Lease),
+    Intermediate(Media),
+}
+
 impl Media {
     fn live(&self) -> bool {
         self.first.is_owned()
@@ -89,6 +94,7 @@ pub(super) type MediaSlot = Arc<Mutex<Option<Vec<MediaOwner>>>>;
 struct Custody {
     media: MediaSlot,
     retirements: Retirement,
+    observed: IpAddr,
 }
 
 impl Custody {
@@ -155,7 +161,7 @@ impl Retirement {
         companion: Arc<UdpSocket>,
         path: &Path,
         custody: Custody,
-    ) -> Option<Media> {
+    ) -> Option<Allocation> {
         let IpAddr::V4(local) = path.address else {
             return None;
         };
@@ -187,7 +193,7 @@ impl Retirement {
         ports: portmap::GatewayPorts,
         schedule: portmap::RetransmitSchedule,
         custody: Custody,
-    ) -> Option<Media> {
+    ) -> Option<Allocation> {
         let address = IpAddr::V4(egress.local_ipv4);
         let port = companion.local_addr().ok()?.port().checked_sub(1)?;
         let companion = DiscoverySocket::new(companion.try_clone().ok()?).ok()?;
@@ -204,6 +210,9 @@ impl Retirement {
                 if !custody.retain(&first) {
                     return None;
                 }
+                if first.external.port() != 0 && first.external.ip() == custody.observed {
+                    return Some(Allocation::Public(first));
+                }
                 if first.external.port() == 0 || !first.external.port().is_multiple_of(2) {
                     return None;
                 }
@@ -213,7 +222,7 @@ impl Retirement {
                     return None;
                 }
                 let media = Media { first, second };
-                media.live().then_some(media)
+                media.live().then_some(Allocation::Intermediate(media))
             }
             .await;
             drop(sender.send(acquired));
@@ -245,7 +254,7 @@ impl Enhancement {
             info!(claim = self.claim.id, %endpoint, "direct admission SIP allocation observed");
             return Some(candidate(endpoint, CandidateFlavor::Sip));
         }
-        let media = self
+        let allocation = self
             .retirements
             .acquire_media(
                 self.socket.clone(),
@@ -254,39 +263,42 @@ impl Enhancement {
                 Custody {
                     media: self.media.clone(),
                     retirements: self.retirements.clone(),
+                    observed: self.observed.ip(),
                 },
             )
             .await?;
         if !self.claim.accepts(self.claim.identity.browser) {
             return None;
         }
-        let endpoint = if media.first.external.ip() == self.observed.ip() {
-            media.first.external
-        } else {
-            self.observation.as_ref()?;
-            ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut self.nonce)
-                .ok()?;
-            let packet = wire::offer(
-                self.signaling.local_addr().ok()?,
-                media.first.external,
-                self.claim.identity.browser,
-                &self.nonce,
-            );
-            let signaling = self.signaling.try_clone().ok()?;
-            let browser = self.claim.identity.browser;
-            tokio::task::spawn_blocking(move || signaling.send_to(&packet, (browser, 5060)))
-                .await
-                .ok()?
-                .ok()?;
-            self.receive(public).await?
-        };
-        if !media.live() {
-            return None;
-        }
-        let kind = if media.first.external.ip() == self.observed.ip() {
-            CandidateFlavor::NatMap
-        } else {
-            CandidateFlavor::Sip
+        let (endpoint, kind) = match allocation {
+            Allocation::Public(grant) => {
+                if !grant.is_owned() || grant.expires_at <= std::time::Instant::now() {
+                    return None;
+                }
+                (grant.external, CandidateFlavor::NatMap)
+            }
+            Allocation::Intermediate(media) => {
+                self.observation.as_ref()?;
+                ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut self.nonce)
+                    .ok()?;
+                let packet = wire::offer(
+                    self.signaling.local_addr().ok()?,
+                    media.first.external,
+                    self.claim.identity.browser,
+                    &self.nonce,
+                );
+                let signaling = self.signaling.try_clone().ok()?;
+                let browser = self.claim.identity.browser;
+                tokio::task::spawn_blocking(move || signaling.send_to(&packet, (browser, 5060)))
+                    .await
+                    .ok()?
+                    .ok()?;
+                let endpoint = self.receive(public).await?;
+                if !media.live() {
+                    return None;
+                }
+                (endpoint, CandidateFlavor::Sip)
+            }
         };
         if !self.claim.accepts(self.claim.identity.browser) {
             return None;
@@ -316,10 +328,83 @@ pub(super) fn candidate(endpoint: SocketAddr, kind: CandidateFlavor) -> serde_js
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn a_public_odd_mapping_needs_no_companion_grant() {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let gateway_port = socket.local_addr().unwrap().port();
+        let retirement = Retirement::new();
+        let path = super::super::tests::loopback_path(false);
+        let (listener, companion) = pair(&path, &retirement).unwrap();
+        let media_port = listener.local_addr().unwrap().port();
+        let socket_owner = DiscoverySocket::new(listener).unwrap();
+        let released = Arc::downgrade(&socket_owner);
+        let gateway = tokio::spawn(async move {
+            let mut buffer = [0; 100];
+            loop {
+                let (length, from) = socket.recv_from(&mut buffer).await.unwrap();
+                let bytes = &buffer[..length];
+                let deleting = length == 12 && bytes[8..12] == [0; 4];
+                let response = if bytes[0] == 2 {
+                    vec![0, 0x80, 0, 1, 0, 0, 0, 0]
+                } else if length == 2 {
+                    vec![0, 0x80, 0, 0, 0, 0, 0, 5, 127, 0, 0, 1]
+                } else {
+                    let internal = u16::from_be_bytes(bytes[4..6].try_into().unwrap());
+                    assert_eq!(
+                        internal, media_port,
+                        "public mapping must not allocate RTCP"
+                    );
+                    let mut answer = vec![0, 0x81, 0, 0, 0, 0, 0, 5];
+                    answer.extend_from_slice(&internal.to_be_bytes());
+                    answer.extend_from_slice(&45001u16.to_be_bytes());
+                    answer.extend_from_slice(if deleting { &[0; 4] } else { &[0, 0, 0, 120] });
+                    answer
+                };
+                socket.send_to(&response, from).await.unwrap();
+                if deleting {
+                    return;
+                }
+            }
+        });
+        let custody = Custody {
+            observed: std::net::Ipv4Addr::LOCALHOST.into(),
+            ..custody(&retirement)
+        };
+        let media = custody.media.clone();
+        let allocation = retirement
+            .acquire_media_with(
+                socket_owner,
+                companion,
+                egress::EgressPath {
+                    local_ipv4: std::net::Ipv4Addr::LOCALHOST,
+                    interface_index: path.index,
+                    interface_name: path.name,
+                    gateway: Some(std::net::Ipv4Addr::LOCALHOST),
+                },
+                portmap::GatewayPorts {
+                    pxp: gateway_port,
+                    ..portmap::GatewayPorts::STANDARD
+                },
+                portmap::RetransmitSchedule::PRODUCTION,
+                custody,
+            )
+            .await;
+        assert!(
+            allocation.is_some(),
+            "an odd public UDP mapping is a usable WebTransport path"
+        );
+        drop(allocation);
+        drop(media.lock().unwrap().take());
+        retirement.shutdown().await;
+        gateway.await.unwrap();
+        assert!(released.upgrade().is_none());
+    }
+
     fn custody(retirements: &Retirement) -> Custody {
         Custody {
             media: Arc::new(Mutex::new(Some(Vec::new()))),
             retirements: retirements.clone(),
+            observed: "198.51.100.1".parse().unwrap(),
         }
     }
 

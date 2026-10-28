@@ -10,8 +10,32 @@ enum Selected {
     Upnp(upnp::ControlUrl, Ipv4Addr),
 }
 
-/// Probe without mutation, then acquire one media mapping from the first proven
-/// protocol. The caller must retain its socket and own cleanup across cancellation.
+enum MapFailure {
+    Refused,
+    Uncertain,
+}
+
+impl From<pcp::Failure> for MapFailure {
+    fn from(error: pcp::Failure) -> Self {
+        match error {
+            pcp::Failure::Result(_) => Self::Refused,
+            pcp::Failure::Silent | pcp::Failure::Socket => Self::Uncertain,
+        }
+    }
+}
+
+impl From<upnp::SoapError> for MapFailure {
+    fn from(error: upnp::SoapError) -> Self {
+        match error {
+            upnp::SoapError::Upnp(_) => Self::Refused,
+            upnp::SoapError::Transport => Self::Uncertain,
+        }
+    }
+}
+
+/// Probe without mutation, then map through proven protocols in arrival order.
+/// Only a definitive refusal permits another protocol to mutate the same tuple.
+/// The caller retains its socket and owns cleanup across cancellation.
 pub async fn acquire(
     internal_port: u16,
     egress: &EgressPath,
@@ -54,13 +78,19 @@ pub async fn acquire(
             }
         };
         if let Some(selected) = selected {
-            return map(
+            match map(
                 egress,
                 selected,
                 internal_port,
                 SocketAddr::from((Ipv4Addr::UNSPECIFIED, external_port)),
+                schedule,
             )
-            .await;
+            .await
+            {
+                Ok(grant) if !grant.lifetime.is_zero() => return Some(grant),
+                Ok(_) | Err(MapFailure::Refused) => {}
+                Err(MapFailure::Uncertain) => return None,
+            }
         }
     }
     None
@@ -88,8 +118,10 @@ pub async fn companion(media: &Lease, internal_port: u16) -> Option<Box<Lease>> 
         selected,
         internal_port,
         SocketAddr::new(media.external.ip(), media.external.port().checked_add(1)?),
+        RetransmitSchedule::PRODUCTION,
     )
     .await
+    .ok()
 }
 
 async fn map(
@@ -97,11 +129,11 @@ async fn map(
     selected: Selected,
     internal: u16,
     suggested: SocketAddr,
-) -> Option<Box<Lease>> {
-    let schedule = RetransmitSchedule::PRODUCTION;
+    schedule: RetransmitSchedule,
+) -> Result<Box<Lease>, MapFailure> {
     let grant = match selected {
         Selected::Pcp(server) => {
-            let nonce = random_nonce()?;
+            let nonce = random_nonce().ok_or(MapFailure::Uncertain)?;
             let mapped = pcp::map_to(
                 IpAddr::V4(egress.local_ipv4),
                 server,
@@ -112,7 +144,7 @@ async fn map(
                 schedule,
             )
             .await
-            .ok()?;
+            .map_err(MapFailure::from)?;
             let mut grant = lease(
                 egress,
                 Ipv4Addr::UNSPECIFIED,
@@ -141,7 +173,7 @@ async fn map(
                 schedule,
             )
             .await
-            .ok()?;
+            .map_err(MapFailure::from)?;
             lease(
                 egress,
                 external,
@@ -164,7 +196,7 @@ async fn map(
                 REQUESTED_LIFETIME_SECS,
             )
             .await
-            .ok()?;
+            .map_err(MapFailure::from)?;
             lease(
                 egress,
                 external,
@@ -182,7 +214,7 @@ async fn map(
             )
         }
     };
-    Some(grant)
+    Ok(grant)
 }
 
 /// Both grants name one actual even RTP/RTCP allocation in the same realm.
@@ -198,6 +230,69 @@ pub fn compatible(media: &Lease, companion: &Lease) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_present_protocols_map_refusal_does_not_discard_another_proven_protocol() {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let router = tokio::spawn(async move {
+            let mut buffer = [0; 100];
+            let mut external_request = None;
+            let mut refused = false;
+            loop {
+                let (length, from) = socket.recv_from(&mut buffer).await.unwrap();
+                let packet = &buffer[..length];
+                let response = if packet[0] == pcp::VERSION {
+                    let mut answer = vec![0; 24];
+                    answer[0] = pcp::VERSION;
+                    answer[1] = packet[1] | 0x80;
+                    if packet[1] == 1 {
+                        answer[3] = 2;
+                        refused = true;
+                    }
+                    answer
+                } else if length == 2 {
+                    external_request = Some(from);
+                    Vec::new()
+                } else {
+                    assert!(refused, "PCP refusal precedes any NAT-PMP mutation");
+                    let lifetime = u32::from_be_bytes(packet[8..12].try_into().unwrap());
+                    let response = natpmp::tests::map_answer(packet, lifetime);
+                    socket.send_to(&response, from).await.unwrap();
+                    if lifetime == 0 {
+                        return;
+                    }
+                    continue;
+                };
+                if !response.is_empty() {
+                    socket.send_to(&response, from).await.unwrap();
+                }
+                if refused && let Some(client) = external_request.take() {
+                    let answer = natpmp::tests::external_answer(5, Ipv4Addr::LOCALHOST);
+                    socket.send_to(&answer, client).await.unwrap();
+                }
+            }
+        });
+        let egress = EgressPath {
+            local_ipv4: Ipv4Addr::LOCALHOST,
+            interface_index: 0,
+            interface_name: "test".into(),
+            gateway: Some(Ipv4Addr::LOCALHOST),
+        };
+        let ports = GatewayPorts {
+            pxp: port,
+            ..GatewayPorts::STANDARD
+        };
+        let acquired = acquire(42000, &egress, ports, RetransmitSchedule::DELETE).await;
+        assert!(
+            acquired.is_some(),
+            "a refused PCP map must leave NAT-PMP eligible"
+        );
+        let acquired = acquired.unwrap();
+        assert_eq!(acquired.protocol, Protocol::NatPmp);
+        assert!(release(*acquired).await);
+        router.await.unwrap();
+    }
 
     #[tokio::test]
     async fn a_gateway_pair_keeps_its_realm_and_granted_ports_across_renewal_and_delete() {
