@@ -4900,15 +4900,13 @@ mod tests {
     }
 
     /// Exact allocation oracle for the owner loop's keystroke echo: one dirty
-    /// row, flushed inline, sealed, sent, parity behind it, acknowledged by
-    /// the viewer, 200 times after warm-up.
+    /// row, flushed inline, sealed, sent, acknowledged by the viewer, 200
+    /// times after warm-up.
     ///
-    /// Two windows, because the flush has exactly two allocation sources left
-    /// and they belong to different decisions. The hash pass captures each
-    /// dirty row into a fresh `RowCells` — pooling that was measured and
-    /// rejected (`PERF.md`, the `CellRepr` layout entry) — so its window must
-    /// count exactly one allocation per captured row. The peer flush — capture,
-    /// encode, batch, seal, send, parity, ACK bookkeeping — must allocate only
+    /// Two windows, because they belong to different decisions. The hash pass
+    /// captures each dirty row into storage the capture pool took back, so its
+    /// window must count nothing. The peer flush — capture, encode, batch,
+    /// seal, send, ACK bookkeeping — must allocate only
     /// what the carrier copies: `CARRIER_COPY_ALLOCATIONS` per admitted
     /// datagram, and nothing for the frame, its row list, the parity frame or
     /// the burst itself, all of which are pooled or inline.
@@ -4920,12 +4918,15 @@ mod tests {
     fn keystroke_flush_allocates_only_the_carrier_copy() {
         const COLS: u16 = 80;
         const ROWS: u16 = 24;
-        // Past two tokio mpsc blocks of the prepare completion channel, so its
+        // Past the reference ledger's window of two copy reaches, whose
+        // datagram slots each grow their row list once, by when retired
+        // sources' forms refill the free list admissions take from; and past
+        // two tokio mpsc blocks of the prepare completion channel, so its
         // block list has reached its steady state — the push of message 32
         // allocates a second block before the receiver has reclaimed the
         // first, after which the two alternate — and every pooled buffer has
         // grown to its high-water size before anything is counted.
-        const WARM_UP: usize = 64;
+        const WARM_UP: usize = 2 * merkur_codec::mz::MZ_REFERENCE_DATAGRAMS as usize + 64;
         const ROUNDS: usize = 200;
 
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -4955,12 +4956,12 @@ mod tests {
                 "a keystroke echo dirties exactly the cursor row"
             );
             assert_eq!(
-                tally.hash.allocations, tally.captured_rows,
-                "the hash pass allocates exactly one row capture per dirty row"
+                tally.hash.allocations, 0,
+                "the hash pass captures into storage the row pool released"
             );
             assert_eq!(
-                tally.admitted, 2,
-                "one delta datagram and the parity shard behind it"
+                tally.admitted, 1,
+                "one delta datagram: on a lossless carrier the planner prices no repair"
             );
             assert_eq!(
                 tally.flush.allocations,
@@ -5007,12 +5008,15 @@ mod tests {
     fn offloaded_flush_recycles_its_prepare_shell() {
         const COLS: u16 = 80;
         const ROWS: u16 = 24;
-        // Past two tokio mpsc blocks of the prepare completion channel, so its
+        // Past the reference ledger's window of two copy reaches, whose
+        // datagram slots each grow their row list once, by when retired
+        // sources' forms refill the free list admissions take from; and past
+        // two tokio mpsc blocks of the prepare completion channel, so its
         // block list has reached its steady state — the push of message 32
         // allocates a second block before the receiver has reclaimed the
         // first, after which the two alternate — and every pooled buffer has
         // grown to its high-water size before anything is counted.
-        const WARM_UP: usize = 64;
+        const WARM_UP: usize = 2 * merkur_codec::mz::MZ_REFERENCE_DATAGRAMS as usize + 64;
         const ROUNDS: usize = 200;
 
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -5065,10 +5069,10 @@ mod tests {
                  whenever the cursor moves off it"
             );
             assert_eq!(
-                tally.hash.allocations, tally.captured_rows,
-                "the hash pass allocates exactly one row capture per dirty row"
+                tally.hash.allocations, 0,
+                "the hash pass captures into storage the row pool released"
             );
-            assert!(tally.admitted >= 2, "at least one datagram and its parity");
+            assert!(tally.admitted >= 1, "the flush admits its datagrams");
             assert_eq!(
                 tally.flush.allocations,
                 tally.admitted * CARRIER_COPY_ALLOCATIONS,
