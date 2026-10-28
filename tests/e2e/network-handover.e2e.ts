@@ -23,7 +23,7 @@ import { expectOutput, primeTerminal } from './terminal-e2e-helpers';
  * Needs `FORCE_EDGE=0` and the edge delay proxy: `bun run test:e2e:handover`.
  */
 
-const DIRECT_LABEL = /^Direct(?: · \d+ms)?$/;
+const DIRECT_TITLE = /^Direct(?: · \d+ms)?\. Traffic/u;
 const CONNECT_BUDGET_MS = 40_000;
 const PATH_BUDGET_MS = 15_000;
 /** Outlasts any race; the spec ends it explicitly with a 1 ms partition. */
@@ -127,7 +127,7 @@ async function connectWithDirectSpent(
       })
       .toBe(1);
     expect(dials.length, 'the race must have dialled through the direct proxy').toBeGreaterThan(0);
-    await expect(page.getByText(DIRECT_LABEL)).toHaveCount(0);
+    await expect(page.getByTitle(DIRECT_TITLE)).toHaveCount(0);
   } catch (error) {
     // The caller's `finally` owns the proxy only once this returns it.
     await proxy.close();
@@ -183,7 +183,7 @@ test('a migrating connection carries the direct path to each new network', async
     // Back on A: a new visit, so nothing is spent there any more.
     await proxy.partition(1);
     await moveEdgeProxyBrowserSource('configured');
-    await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
+    await expect(page.getByTitle(DIRECT_TITLE).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
     const log = linkedDaemon.logText().slice(logMark);
     expect(pathMoves(log)).toHaveLength(2);
     expect(pathMoves(log)[1]).toContain(`address=${NETWORK_A}`);
@@ -217,7 +217,7 @@ test('a network change that ends the carrier re-dials the direct path after the 
         timeout: RECOVERY_BUDGET_MS,
       })
       .toBeGreaterThanOrEqual(1);
-    await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
+    await expect(page.getByTitle(DIRECT_TITLE).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
     expect(
       linesWith(
         linkedDaemon.logText().slice(logMark),
@@ -251,7 +251,7 @@ test('authenticated direct input and display survive complete relay withdrawal',
     if (new URL(request.url()).pathname === '/api/sessions/request') issuances += 1;
   });
   const output = await primeTerminal(page, linkedDaemon.daemonName);
-  await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
+  await expect(page.getByTitle(DIRECT_TITLE).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
   const initialIssuances = issuances;
   const logMark = linkedDaemon.logText().length;
   try {
@@ -260,7 +260,7 @@ test('authenticated direct input and display survive complete relay withdrawal',
     await page.keyboard.type("printf '%s%s\\n' relay_withdrawn_ direct_alive\n");
     await expectOutput(output, 'relay_withdrawn_direct_alive');
     await expectConnected(page);
-    await expect(page.getByText(DIRECT_LABEL).first()).toBeVisible();
+    await expect(page.getByTitle(DIRECT_TITLE).first()).toBeVisible();
     expect(issuances, 'the original authorized session carries the input').toBe(initialIssuances);
     expect(committedRebinds(linkedDaemon.logText().slice(logMark))).toBe(0);
     await page.screenshot({ path: test.info().outputPath('direct-without-relay.png') });

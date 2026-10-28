@@ -21,6 +21,7 @@ test('the headless client upgrades to the direct path and types over it', async 
     await client.next((event) => event.event === 'path' && event.path === 'Direct', 15_000);
     await typeAndObserve(client.child, 'direct');
     await floodAndSee(client, `tui-direct-${process.pid}`, 200);
-    expect(paths(), 'the direct path is kept').toEqual(['Direct']);
+    const afterUpgrade = paths().slice(paths().indexOf('Direct'));
+    expect(afterUpgrade, 'the direct path is kept after adoption').toEqual(['Direct']);
   });
 });

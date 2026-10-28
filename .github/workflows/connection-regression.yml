@@ -1,0 +1,75 @@
+name: NAT connection regression comparison
+on:
+  push:
+    branches: [nat-connection-verification]
+permissions:
+  contents: read
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        revision:
+          - name: base
+            sha: 7bb34fdf8b7c131c30a8eb1b08ad16c7614fd99b
+          - name: integrated
+            sha: e7846d765a389a80a01cad9fdd08cc78ad74cb2e
+        suite: [natlab, handover]
+    name: ${{ matrix.revision.name }} / ${{ matrix.suite }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    env:
+      PW_E2E_GPU: swiftshader
+      HEADED: '1'
+    steps:
+      - name: Read common verification fixtures
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Preserve the exact same handover assertions for both revisions
+        run: |
+          mkdir -p "$RUNNER_TEMP/nat-regression-fixtures"
+          cp tests/e2e/network-handover.e2e.ts tests/e2e/tui-direct.e2e.ts "$RUNNER_TEMP/nat-regression-fixtures/"
+          sha256sum "$RUNNER_TEMP/nat-regression-fixtures/"* > "$RUNNER_TEMP/nat-regression-fixtures.sha256"
+      - name: Check out the frozen product revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ matrix.revision.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-merkur
+        with:
+          rust: 'false'
+          bazel: 'true'
+          buildbuddy-api-key: ${{ secrets.BUILDBUDDY_API_KEY }}
+          browser: ${{ matrix.suite == 'handover' && 'true' || 'false' }}
+      - name: Record product and fixture provenance
+        run: |
+          mkdir -p test-results/connection-regression
+          git rev-parse HEAD > test-results/connection-regression/product-sha.txt
+          git status --porcelain > test-results/connection-regression/product-status.txt
+          cp "$RUNNER_TEMP/nat-regression-fixtures.sha256" test-results/connection-regression/
+      - if: matrix.suite == 'natlab'
+        name: Run the entire real-session NAT matrix
+        run: |
+          set -o pipefail
+          bun run test:natlab 2>&1 | tee test-results/connection-regression/natlab.log
+      - if: matrix.suite == 'handover'
+        name: Run authenticated direct migration and relay withdrawal
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/test-results/connection-regression/handover.json
+        run: |
+          set -o pipefail
+          cp "$RUNNER_TEMP/nat-regression-fixtures/"*.ts tests/e2e/
+          git diff -- tests/e2e/network-handover.e2e.ts tests/e2e/tui-direct.e2e.ts > test-results/connection-regression/fixture.patch
+          bun run build:wasm
+          xvfb-run -a bun run test:e2e:handover --reporter=line,json 2>&1 | tee test-results/connection-regression/handover.log
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: connection-${{ matrix.revision.name }}-${{ matrix.suite }}
+          path: |
+            test-results/connection-regression/
+            test-results/natlab-native/
+            test-results/e2e-edge/
+          retention-days: 3
+          compression-level: 1
