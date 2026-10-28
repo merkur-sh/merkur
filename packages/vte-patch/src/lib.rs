@@ -1045,7 +1045,8 @@ impl<const OSC_RAW_BUF_SIZE: usize> Parser<OSC_RAW_BUF_SIZE> {
                         i += 1;
                         performer.observe_application_bytes(&bytes[observed..i]);
                         self.advance_dcs_passthrough(performer, 0x1B);
-                        if i < bytes.len() {
+                        // Termination is honoured after `unhook`, as the byte machine does.
+                        if i < bytes.len() && !performer.terminated() {
                             let byte = bytes[i];
                             performer.observe_application_bytes(core::slice::from_ref(&byte));
                             self.advance_esc(performer, byte);
@@ -1402,6 +1403,7 @@ mod tests {
         events: Vec<Event>,
         observed: Vec<u8>,
         stop_on_csi: Option<char>,
+        stop_on_unhook: bool,
         stopped: bool,
     }
 
@@ -1471,6 +1473,7 @@ mod tests {
 
         fn unhook(&mut self) {
             self.events.push(Event::Unhook(self.observed.len()));
+            self.stopped |= self.stop_on_unhook;
         }
 
         fn apc_start(&mut self) {
@@ -1738,6 +1741,19 @@ mod tests {
             }
         }
         (recorder, stops, parser.control_pending())
+    }
+
+    #[test]
+    fn termination_after_unhook_leaves_the_next_byte_unread() {
+        let input = b"\x1bPq\x1bc";
+        let mut parser = Parser::new();
+        let mut recorder = Recorder { stop_on_unhook: true, ..Default::default() };
+        assert_eq!(parser.advance_until_terminated(&mut recorder, input), 4);
+        assert_eq!(recorder.observed, input[..4]);
+        assert!(!recorder.events.iter().any(|event| matches!(event, Event::Esc(..))));
+        recorder.stopped = false;
+        assert_eq!(parser.advance_until_terminated(&mut recorder, &input[4..]), 1);
+        assert!(matches!(recorder.events.last(), Some(Event::Esc(_, false, b'c', 5))));
     }
 
     #[test]
