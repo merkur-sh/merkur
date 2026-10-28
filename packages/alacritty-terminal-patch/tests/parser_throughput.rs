@@ -4,7 +4,7 @@ use std::hint::black_box;
 use std::io::Write;
 use std::time::Instant;
 
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::test::TermSize;
@@ -578,7 +578,31 @@ fn recordings(chunk: usize) -> Vec<Corpus> {
     result
 }
 
-fn terminal(corpus: &Corpus) -> Term<VoidListener> {
+/// The daemon's per-byte provenance hooks (`EventForwarder` in
+/// apps/daemon/dataplane/src/pty/terminal.rs), so that the number of
+/// observation and control-start callbacks a parser design makes costs here
+/// what it costs in production. Every other event is dropped.
+#[derive(Default)]
+struct Provenance {
+    ignored_shell_evidence_bytes: usize,
+    last_application_fresh: bool,
+    control_fresh: bool,
+}
+
+impl EventListener for Provenance {
+    #[inline]
+    fn observe_terminal_bytes(&mut self, bytes: &[u8]) {
+        let ignored = self.ignored_shell_evidence_bytes.min(bytes.len());
+        self.ignored_shell_evidence_bytes -= ignored;
+        self.last_application_fresh = ignored < bytes.len();
+    }
+
+    fn terminal_control_started(&mut self) {
+        self.control_fresh = self.last_application_fresh;
+    }
+}
+
+fn terminal(corpus: &Corpus) -> Term<Provenance> {
     Term::new(
         Config {
             kitty_keyboard: true,
@@ -586,13 +610,13 @@ fn terminal(corpus: &Corpus) -> Term<VoidListener> {
             ..Config::default()
         },
         &TermSize::new(corpus.cols, corpus.rows),
-        VoidListener,
+        Provenance::default(),
     )
 }
 
 fn feed(
     parser: &mut ansi::Processor<ansi::StdSyncHandler>,
-    term: &mut Term<VoidListener>,
+    term: &mut Term<Provenance>,
     bytes: &[u8],
 ) {
     let mut rest = bytes;
@@ -606,7 +630,7 @@ fn feed(
 fn pass(
     corpus: &Corpus,
     parser: &mut ansi::Processor<ansi::StdSyncHandler>,
-    term: &mut Term<VoidListener>,
+    term: &mut Term<Provenance>,
 ) {
     match &corpus.plan {
         Plan::Chunks(chunk) => {
