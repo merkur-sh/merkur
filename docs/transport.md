@@ -846,12 +846,16 @@ session-key proof establish the connection. Missing, shortened or unrelated quot
 allocation. Observation ends after the admission network-exchange budget and cannot infer a
 port from a checksum or a timeout.
 
-When the first offer supplies no usable allocation, the same binding can acquire a media
-pair from its first-hop gateway using PCP, NAT-PMP or UPnP. Each grant retains its actual
-external address and port, even when the address belongs to an inner NAT. The first request
-asks for a fresh even external port; the companion requests the next port. Only live grants
-for an actual even adjacent pair in one address realm are usable. A public pair supplies a
-`nat_map` candidate. An intermediate pair is advertised in one further short SIP offer to
+When the first offer supplies no usable allocation, the same binding can acquire a mapping
+from its first-hop gateway using PCP, NAT-PMP or UPnP. Presence discovery runs concurrently;
+mapping requests run one at a time. A definitive refusal leaves the other proven protocols
+eligible, while an unanswered mapping ends acquisition because it may have created state.
+Each grant retains its actual external address and port, even when the address belongs to
+an inner NAT. A live grant on the independently observed public address supplies a `nat_map`
+candidate without requiring port parity or a second mapping. For an intermediate grant,
+the first request suggests an even external port and the companion requests the next port.
+Only live grants for an actual even adjacent pair in one address realm may be composed.
+An intermediate pair is advertised in one further short SIP offer to
 the same browser IP; only an observed outer allocation supplies a public `sip` candidate.
 The intermediate address is never published as a public endpoint.
 
