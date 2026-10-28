@@ -72,7 +72,7 @@ function configureDatagrams(stream: NativeDatagrams): number {
 }
 
 // Native handshake admission belongs to the browser. A cancelled Rust attempt
-// detaches from an already-started edge handshake: Chromium must decide ready
+// detaches from every already-started handshake: Chromium must decide ready
 // before close, otherwise cancellation itself adds a native throttle penalty.
 const edgeHandshakes = (() => {
   const waiting: Array<() => void> = [];
@@ -168,7 +168,6 @@ async function nativeTransport(
   };
   const retired = Promise.withResolvers<false>();
   const detach = (): void => {
-    if (direct) close();
     retired.resolve(false);
   };
   signal.addEventListener('abort', detach, { once: true });

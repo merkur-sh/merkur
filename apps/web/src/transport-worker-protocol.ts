@@ -255,7 +255,7 @@ export type TransportToMain =
     }
   | { kind: 'abandon_issuance'; issuanceId: string }
   | ({ kind: 'renew_session'; startId: number; requestId: number } & RenewSessionRequest)
-  | { kind: 'direct_dial'; startId: number; requestId: number; endpoint: string }
+  | { kind: 'direct_dial'; startId: number; requestId: number; endpoint: string; admission: number }
   | {
       kind: 'direct_dial_settle';
       startId: number;

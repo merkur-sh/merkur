@@ -15,8 +15,9 @@
 //!
 //! The first handshake starts a grace window in which a faster one may still
 //! win; the winner's authenticated upgrade then decides. An endpoint whose
-//! handshake failed or went unanswered, or whose upgrade failed, is not
-//! dialled again from this network. A live direct path is kept.
+//! handshake or upgrade failed is spent for this network visit. A completed
+//! router preparation supplies one new attempt even at the same tuple. A live
+//! direct path is kept.
 //!
 //! A dead path need not close: a phone that leaves the LAN, or one whose radio
 //! slept, keeps a QUIC connection open until its idle timeout. Every heartbeat
@@ -49,9 +50,6 @@ pub struct NativeTraversalSetup {
 
 /// Spacing of the race's dials, mirrored from `CANDIDATE_INTERLEAVE_MS`.
 const CANDIDATE_INTERLEAVE_MS: u64 = 30;
-/// Ceiling on a race from its batch's first dial, mirrored from
-/// `RACE_DEADLINE_MS`: anything slower loses to staying on the relay.
-const RACE_DEADLINE_MS: u64 = 2_500;
 /// After the first handshake, a faster one may still win for three times its
 /// duration, within 80..=400 ms. Mirrored from `raceGraceMs`.
 const GRACE_FLOOR_MS: u64 = 80;
@@ -76,6 +74,7 @@ struct Endpoint {
     addr: SocketAddr,
     cert_hash: [u8; 32],
     binding: u64,
+    admission: u64,
 }
 
 struct Manifest {
@@ -112,7 +111,6 @@ struct Attempt {
 
 struct Race {
     attempts: Vec<Attempt>,
-    deadline_ms: u64,
     grace_ms: Option<u64>,
     nat_type: NatType,
 }
@@ -254,10 +252,7 @@ impl Direct {
                     AttemptState::Queued { start_ms } => Some(start_ms),
                     _ => None,
                 });
-            starts
-                .chain(Some(race.deadline_ms))
-                .chain(race.grace_ms)
-                .collect::<Vec<_>>()
+            starts.chain(race.grace_ms).collect::<Vec<_>>()
         });
         race.chain(self.upgrade.iter().map(|upgrade| upgrade.deadline_ms))
             .chain(self.probe.deadline.map(|(_, at_ms)| at_ms))
@@ -339,9 +334,11 @@ impl Direct {
         };
         let racing = |endpoint: &Endpoint| {
             self.race.as_ref().is_some_and(|race| {
-                race.attempts
-                    .iter()
-                    .any(|attempt| attempt.endpoint == *endpoint)
+                race.attempts.iter().any(|attempt| {
+                    attempt.state != AttemptState::Failed
+                        && attempt.endpoint.addr == endpoint.addr
+                        && attempt.endpoint.cert_hash == endpoint.cert_hash
+                })
             })
         };
         let mut entries: Vec<(Endpoint, CandidateKind)> = Vec::new();
@@ -355,15 +352,21 @@ impl Direct {
                     addr: SocketAddr::new(candidate.addr, candidate.port),
                     cert_hash: manifest.cert_hash,
                     binding: 0,
+                    admission: candidate.admission,
                 };
-                if !self.spent.contains(&endpoint)
-                    && !racing(&endpoint)
-                    && !entries.iter().any(|(entry, _)| *entry == endpoint)
-                {
+                if let Some((existing, kind)) = entries.iter_mut().find(|(entry, _)| {
+                    entry.addr == endpoint.addr && entry.cert_hash == endpoint.cert_hash
+                }) {
+                    if existing.admission == 0 && endpoint.admission != 0 {
+                        *existing = endpoint;
+                        *kind = candidate.kind;
+                    }
+                } else {
                     entries.push((endpoint, candidate.kind));
                 }
             }
         }
+        entries.retain(|(endpoint, _)| !self.spent.contains(endpoint) && !racing(endpoint));
         entries
     }
 }
@@ -557,6 +560,7 @@ impl Session {
             addr: address,
             cert_hash,
             binding,
+            admission: 0,
         };
         if self
             .direct
@@ -793,12 +797,16 @@ impl Session {
             .unwrap_or(NatType::None);
         let race = self.direct.race.get_or_insert_with(|| Race {
             attempts: Vec::new(),
-            deadline_ms: 0,
             grace_ms: None,
             nat_type,
         });
-        race.deadline_ms = race.deadline_ms.max(now_ms + RACE_DEADLINE_MS);
         for (index, (endpoint, kind)) in entries.into_iter().enumerate() {
+            // A new preparation supersedes the failed observation of this tuple.
+            race.attempts.retain(|attempt| {
+                attempt.state != AttemptState::Failed
+                    || attempt.endpoint.addr != endpoint.addr
+                    || attempt.endpoint.cert_hash != endpoint.cert_hash
+            });
             race.attempts.push(Attempt {
                 endpoint,
                 kind,
@@ -829,6 +837,7 @@ impl Session {
                     addr: attempt.endpoint.addr,
                     cert_hash: attempt.endpoint.cert_hash,
                     binding: attempt.endpoint.binding,
+                    admission: attempt.endpoint.admission,
                 });
             }
         }
@@ -845,9 +854,14 @@ impl Session {
             self.retire_direct_path(now_ms, true);
         }
         self.start_due_dials(now_ms);
-        if self.direct.race.as_ref().is_some_and(|race| {
-            race.deadline_ms <= now_ms || race.grace_ms.is_some_and(|at| at <= now_ms)
-        }) {
+        // A constructor can still be queued inside the browser. Only its native
+        // outcome ends a race with no ready path; time cannot prove reachability.
+        if self
+            .direct
+            .race
+            .as_ref()
+            .is_some_and(|race| race.grace_ms.is_some_and(|at| at <= now_ms))
+        {
             self.finalize_race(now_ms);
         }
         if self
@@ -916,6 +930,7 @@ impl Session {
             let endpoint = attempt.endpoint;
             self.direct.spent.push(endpoint);
         }
+        self.refresh_direct(now_ms);
         self.try_finish_race(now_ms);
     }
 

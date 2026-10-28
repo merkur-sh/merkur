@@ -5,8 +5,8 @@
  *   network. Whatever later becomes of that connection — a clean close, the
  *   daemon retiring it, its death — is not a failed handshake, and Chromium's
  *   throttle does not charge it either, so the endpoint is dialable again.
- * - `failed`: the handshake failed, or never answered before its race gave
- *   up. The endpoint stays spent for the rest of this network visit.
+ * - `failed`: the native handshake failed. That preparation stays spent for
+ *   this network visit; a newly completed router preparation is new evidence.
  * - `unused`: no handshake started; the reservation is simply returned.
  */
 export type DirectDialOutcome = 'ready' | 'failed' | 'unused';
@@ -36,11 +36,13 @@ interface NetworkVisit {
 export function createDirectDialAdmission() {
   let visit: NetworkVisit = { address: null, reserved: new Set(), failed: new Set() };
   return {
-    claim(endpoint: string): DirectDialClaim | null {
+    claim(endpoint: string, admission: number): DirectDialClaim | null {
       // Captured: a late outcome settles into the visit it was claimed in,
       // never into a newer network's.
       const claimed = visit;
-      if (claimed.reserved.has(endpoint) || claimed.failed.has(endpoint)) return null;
+      // Preparation can rearm a failed tuple, but cannot overlap its constructor.
+      const attempt = JSON.stringify([endpoint, admission]);
+      if (claimed.reserved.has(endpoint) || claimed.failed.has(attempt)) return null;
       claimed.reserved.add(endpoint);
       let settled = false;
       return {
@@ -48,7 +50,7 @@ export function createDirectDialAdmission() {
           if (settled) return;
           settled = true;
           claimed.reserved.delete(endpoint);
-          if (outcome === 'failed') claimed.failed.add(endpoint);
+          if (outcome === 'failed') claimed.failed.add(attempt);
         },
       };
     },

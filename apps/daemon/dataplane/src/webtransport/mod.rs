@@ -69,10 +69,10 @@ static DIRECT_WT_ADMITTED: AtomicU64 = AtomicU64::new(0);
 
 /// How long a browser stays "expected" after an offer naming it was built.
 ///
-/// Comfortably longer than the browser's whole retry ladder, whose individual
-/// races are bounded by `RACE_DEADLINE_MS`. Erring long only ever moves an
-/// arrival from `unexpected` into `expected`, which is the direction that
-/// cannot manufacture a false filtering verdict.
+/// Observation window for classifying incoming traffic, independent of browser
+/// handshake scheduling. Keeping an address expected longer only moves an
+/// arrival from `unexpected` into `expected`, which cannot manufacture a false
+/// filtering verdict.
 const EXPECTED_BROWSER_TTL: Duration = Duration::from_secs(60);
 /// Fixed capacity, sized well past `MAX_CONCURRENT_SESSIONS`-worth of distinct
 /// browsers in one TTL window. A ring rather than a map so this cannot grow
@@ -863,6 +863,7 @@ pub fn manifest_json(
                 "port": c.port,
                 "kind": c.kind,
                 "scope": pairing::candidate_scope(&c.addr),
+                "admission": 0,
             })
         })
         .collect();

@@ -1157,7 +1157,9 @@ first-hop mapping acquisition. A live inner media pair authorizes one further SI
 the same validated browser IP, with the granted intermediate endpoint in SDP. Only a matching
 outer allocation can be published as a public helper candidate. Grant custody spans pending
 acquisition, renewal, authenticated use, listener retirement and deletion. These operations
-run outside terminal I/O and cannot bypass the existing direct-upgrade proof.
+run outside terminal I/O and cannot bypass the existing direct-upgrade proof. The binding's
+completed `admission` claim permits one fresh constructor at a previously failed tuple; it
+grants no address or peer authority and cannot admit terminal traffic.
 
 Native peer checks have separate address authority. The authenticated session API issues a
 short-lived STUN ticket and requester integrity key, and delivers a separately derived

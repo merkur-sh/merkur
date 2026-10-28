@@ -286,6 +286,7 @@ fn candidates(
                 port: candidate.port,
                 kind,
                 scope,
+                admission: 0,
             })
         })
         .take(merkur_wire::traversal::MAX_BINDINGS)

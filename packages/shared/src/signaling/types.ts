@@ -20,6 +20,8 @@ export interface SignalingWebTransportCandidate {
   readonly port: number;
   readonly kind: WebTransportCandidateKind;
   readonly scope: WebTransportCandidateScope;
+  /** Completed router preparation claim; zero for an address without new allocation evidence. */
+  readonly admission: number;
 }
 
 export type WebTransportNatType = 'endpoint_independent' | 'endpoint_dependent' | 'none';
@@ -68,11 +70,9 @@ export type WebTransportErrorClass =
  * - `not_dialled` — the race ended before this candidate's stagger timer fired,
  *   so nothing was learned about it. NOT the same as `no_settle`, and merging
  *   the two re-creates the ambiguity this exists to remove.
- * - `no_settle` — dialled, and the QUIC handshake never settled either way
- *   before the race deadline. This is the signature of a filtered or
- *   black-holed path, and it is the single most diagnostic value here: it used
- *   to be unrecordable, because a pending attempt was neither `ready` nor
- *   `failed` and was dropped at finalize.
+ * - `no_settle` — dialled, but the native handshake was still pending when a
+ *   ready candidate won the race. This includes constructors queued inside the
+ *   browser and does not establish that the path was filtered or black-holed.
  * - `refused` / `tls_rejected` / `closed_during_connect` / `other` — the
  *   handshake settled as a failure, classified from the browser's error.
  * - `ready_lost_race` — connected fine; another candidate simply measured

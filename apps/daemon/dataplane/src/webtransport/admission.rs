@@ -921,7 +921,7 @@ async fn prepare_binding(
     info!(claim = claim.id, interface = path.name, local = %path.address, port, ?kind, bytes = bytes.len(), "direct admission request sent; router acceptance unknown");
     Ok((
         binding,
-        serde_json::json!({ "addr": observed.ip(), "port": candidate_port, "kind": kind, "scope": "public" }),
+        serde_json::json!({ "addr": observed.ip(), "port": candidate_port, "kind": kind, "scope": "public", "admission": 0 }),
     ))
 }
 

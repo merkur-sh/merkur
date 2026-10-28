@@ -125,6 +125,8 @@ pub enum Action {
         cert_hash: [u8; 32],
         /// Zero for browser-managed sockets; a native host's exact binding otherwise.
         binding: u64,
+        /// The daemon's completed router preparation, or zero without one.
+        admission: u64,
     },
     /// One record on the connection's persistent stream for `channel`.
     SendReliable {

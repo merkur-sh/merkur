@@ -747,7 +747,7 @@ its candidates; the browser orders and dials them. Seven candidate kinds exist:
 | `nat_map` | An explicit port-mapping lease; the one kind that does not depend on NAT filter state |
 | `loopback` | `127.0.0.1` or `::1`, offered only to a browser the edge observed on loopback |
 | `tftp` | An endpoint on its own interface-bound QUIC socket, STUN-observed for IPv4 or the owned IPv6 address, prepared by a TFTP read request from that exact socket |
-| `sip` | An unverified requested SDP media endpoint on a separate interface-bound QUIC socket; helper rewriting can make it unreachable |
+| `sip` | An SDP media endpoint on a separate interface-bound QUIC socket; a correlated allocation observation replaces the requested tuple when a helper rewrites it |
 
 Every browser gets the daemon's whole candidate set, its **manifest**. Whether a LAN, overlay or
 reflexive candidate answers is something only a dial establishes, so no address heuristic
@@ -897,21 +897,27 @@ is a new connection, which reaches the session by rebind. Safari's connections m
 browser exposes a handover event: `online` and `offline` do not fire on a make-before-break
 handover, and Chrome's workers never receive them. Chromium on Android fires `typechange` on
 `navigator.connection`, the one hint there is; it only warms a standby carrier. The browser
-dials each candidate once, staggered, under a `RACE_DEADLINE_MS` (2.5 s) deadline per batch with
-an adaptive `GRACE_FLOOR_MS` .. `GRACE_CEILING_MS` (80 ms to 400 ms) selection grace after the
-first success. The edge relay carries the session throughout, and an unsuccessful race never
+dials candidates staggered. A race with no ready candidate waits for native handshake outcomes;
+elapsed time includes browser scheduling and cannot establish path failure. Selection uses an
+adaptive `GRACE_FLOOR_MS` .. `GRACE_CEILING_MS` (80 ms to 400 ms) grace after the first success. The edge relay carries the session throughout, and an unsuccessful race never
 delays typing.
 
-Each endpoint (`addr:port` under one certificate hash) gets one handshake per network visit,
-page-wide (`apps/web/src/session/direct-dial-admission.ts`), because Chromium's throttle charges
+Each endpoint (`addr:port` under one certificate hash) gets one handshake per preparation and
+network visit, page-wide (`apps/web/src/session/direct-dial-admission.ts`), because Chromium's throttle charges
 every failed handshake against later dials, relay dials included. A visit is one stay on one
 address, the one the edge validated on the active session's committed carrier: moving to another
-address starts a new visit, and so does returning to an earlier one. Preparation allocates an
-independently owned binding without clearing any failed endpoint's record; preparation
-does not reset Chromium's IP/subnet failure penalty. The native constructor's readiness outcome
+address starts a new visit, and so does returning to an earlier one. Candidates carry an
+`admission` claim: zero for an address hint, or the independently owned binding's claim after
+allocation observation or a router grant completes. That completed preparation permits one
+fresh attempt even if the gateway granted the same port that failed earlier. Repeating a claim
+cannot rearm it, and preparations at the same URL and certificate cannot overlap native
+constructors. New evidence preserves every other failed attempt's record and does not reset
+Chromium's IP/subnet failure penalty. The native constructor's readiness outcome
 owns the claim, even if cancellation or channel setup finishes later;
 channel failure cannot turn a successful native handshake into a failed handshake, and a
-started constructor cannot be refunded as unused. A handshake that succeeded
+started constructor cannot be refunded as unused. Retiring a started constructor detaches its
+owner until native readiness settles, then closes it; cancellation cannot manufacture a failed
+handshake. A handshake that succeeded
 is not charged, so an endpoint whose path later died is dialable again. There is no retry timer
 and no give-up. The session's one race is joined by whatever becomes dialable: the winner cached
 for this daemon on this address first, then a manifest's public candidates, then its local
