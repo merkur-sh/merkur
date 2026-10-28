@@ -29,11 +29,11 @@ export const UPSTREAM_TIMEOUT_MS = 5_000;
 
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 /**
- * Browsers revalidate every navigation; the CDN holds an hour and may serve a
- * stale copy for a day while it refetches. A deploy purges the CDN's HTML
- * (`docs/releases.md`), so the hour is never what bounds a release.
+ * Browsers revalidate every navigation; the CDN holds a page until the next
+ * deploy purges it (`docs/releases.md`), so a visitor far from the host is
+ * answered by the edge rather than by a trip to it.
  */
-const REVALIDATED_CACHE_CONTROL = 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400';
+const REVALIDATED_CACHE_CONTROL = 'public, max-age=0, s-maxage=31536000';
 const NOT_FOUND_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
 const NO_STORE = 'no-store';
 const HTML_CONTENT_TYPE = 'text/html; charset=utf-8';

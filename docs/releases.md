@@ -563,9 +563,12 @@ page itself asks for no animation frames at rest.
 
 ### Deploy order
 
-Cloudflare holds a page for an hour and a hashed asset for a year, and the host serves only
-one build. The purge runs only after the new build reports serving: purged any earlier, an
-edge would refetch the page from the previous build and keep it for another hour. Between the
+Cloudflare holds a page until the next deploy's purge and a hashed asset for a year, through
+Smart Tiered Cache, so an edge far from the host refetches from an upper tier near it. It
+passes the site's own `max-age` to browsers (the zone's browser TTL respects origin
+headers), so a browser revalidates every page. The host serves only one build. The purge
+runs only after the new build reports serving: purged any earlier, an edge would refetch the
+page from the previous build and keep it until the next deploy. Between the
 switch and the purge, an edge can still hand out the previous page; if it no longer holds that
 page's assets, it gets the 404 document for them, cached for a minute. A page opened before
 the switch meets the same 404 when it loads its motion and render worker after `load`. The

@@ -116,9 +116,32 @@ resource "cloudflare_zone_setting" "merkur" {
   value      = each.value
 }
 
+# Browsers get the origin's own `max-age`. Cloudflare's default raises anything
+# lower to four hours, which kept a site page past the deploy that purged the
+# assets it names.
+resource "cloudflare_zone_setting" "browser_cache_ttl" {
+  zone_id    = local.zone_id
+  setting_id = "browser_cache_ttl"
+  value      = 0
+}
+
+# A miss at an edge far from the host asks an upper tier near it, over
+# Cloudflare's own connections, instead of opening one across the world to the
+# origin; only the upper tier reaches the host.
+resource "cloudflare_argo_tiered_caching" "merkur" {
+  zone_id = local.zone_id
+  value   = "on"
+}
+
+resource "cloudflare_tiered_cache" "merkur" {
+  zone_id = local.zone_id
+  value   = "on"
+}
+
 # The website's pages are cached at the edge for as long as the site's own
-# `s-maxage` says (an hour); Cloudflare would otherwise cache only its default
-# file extensions. Deploy site purges both hosts once the new build serves.
+# `s-maxage` says (until the next deploy); Cloudflare would otherwise cache only
+# its default file extensions. Deploy site purges both hosts once the new build
+# serves.
 resource "cloudflare_ruleset" "cache" {
   zone_id = local.zone_id
   name    = "cache"

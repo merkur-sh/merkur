@@ -204,9 +204,7 @@ describe('documents and files', () => {
       const response = await fetch(url(target), { headers: { 'accept-encoding': 'identity' } });
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
-      expect(response.headers.get('cache-control')).toBe(
-        'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400',
-      );
+      expect(response.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=31536000');
       expect(response.headers.get('content-encoding')).toBeNull();
       expectSecurityHeaders(response);
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(fixture.fileBytes(file));
@@ -224,10 +222,7 @@ describe('documents and files', () => {
         'public, max-age=31536000, immutable',
         'application/octet-stream',
       ],
-      [FIXTURE_PATHS.robots]: [
-        'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400',
-        'text/plain; charset=utf-8',
-      ],
+      [FIXTURE_PATHS.robots]: ['public, max-age=0, s-maxage=31536000', 'text/plain; charset=utf-8'],
     };
     for (const [target, [cacheControl, contentType]] of Object.entries(expected)) {
       const response = await fetch(url(target), { headers: { 'accept-encoding': 'identity' } });

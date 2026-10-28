@@ -38,7 +38,7 @@ const FIRST_PAINT_BUDGET = 40_000;
 const AFTER_LOAD_RESOURCE =
   /\/assets\/(?:(?:motion|client|worker)-[^/]+\.js|(?:icon|word)-[^/]+\.webp)$/;
 
-const REVALIDATED = 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400';
+const REVALIDATED = 'public, max-age=0, s-maxage=31536000';
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 const REDIRECTED = 'public, max-age=3600';
 
