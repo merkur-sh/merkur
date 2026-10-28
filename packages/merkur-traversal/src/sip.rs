@@ -294,6 +294,67 @@ fn quoted_payload(packet: &[u8], local: SocketAddr, browser: SocketAddr) -> Opti
 mod tests {
     use super::*;
 
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "requires an explicitly owned router and external experiment peer"]
+    async fn physical_router_sip_observation() {
+        let local: Ipv4Addr = std::env::var("MERKUR_SIP_TEST_LOCAL")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let public: Ipv4Addr = std::env::var("MERKUR_SIP_TEST_PUBLIC")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let browser: IpAddr = std::env::var("MERKUR_SIP_TEST_PEER")
+            .unwrap()
+            .parse()
+            .unwrap();
+        // SAFETY: the static C string is NUL-terminated and lives through this call.
+        let interface = unsafe { libc::if_nametoindex(c"en0".as_ptr()) };
+        assert_ne!(interface, 0);
+        for trial in 0..3 {
+            let (media, _companion) = loop {
+                let media = UdpSocket::bind((local, 0)).unwrap();
+                let port = media.local_addr().unwrap().port();
+                if port.is_multiple_of(2)
+                    && let Ok(companion) = UdpSocket::bind((local, port + 1))
+                {
+                    break (media, companion);
+                }
+            };
+            let signal = UdpSocket::bind((local, 0)).unwrap();
+            let observation = Observation::new(&signal, interface, browser).unwrap();
+            let mut nonce = [0; 16];
+            ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce).unwrap();
+            let payload = offer(
+                signal.local_addr().unwrap(),
+                media.local_addr().unwrap(),
+                browser,
+                &nonce,
+            );
+            let began = std::time::Instant::now();
+            signal
+                .send_to(&payload, SocketAddr::new(browser, 5060))
+                .unwrap();
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                observation.receive(&nonce, public),
+            )
+            .await;
+            let status = match result {
+                Ok(Ok(Some(_))) => "observed_allocation",
+                Ok(Ok(None)) => "matched_quote_without_accepted_allocation",
+                Ok(Err(_)) => "receive_error",
+                Err(_) => "no_matching_quote_within_budget",
+            };
+            println!(
+                "MERKUR_SIP_OBSERVATION trial={trial} status={status} payload_bytes={} elapsed_ms={:.3}",
+                payload.len(),
+                began.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
+
     #[test]
     fn an_icmp_quote_must_match_the_owned_signaling_tuple_and_cannot_be_a_fragment() {
         let local = "10.10.0.2:33000".parse().unwrap();

@@ -128,6 +128,24 @@ def run():
     key = dec64(os.environ['ROUTER_LAB_KEY'])
     url = os.environ['ROUTER_LAB_CONTROL_URL']
     label = os.environ['ROUTER_LAB_PEER']
+    api = 'https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + '/check-runs'
+
+    def check_update(path, method, body):
+        request = urllib.request.Request(path, data=json.dumps(body).encode(), method=method,
+            headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                     'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+
+    check = check_update(api, 'POST', {'name': 'Owned router peer ' + label,
+        'head_sha': os.environ['GITHUB_SHA'], 'status': 'in_progress'})
+
+    def acknowledge(result, complete=False):
+        body = {'output': {'title': 'Encrypted router experiment acknowledgment',
+                          'summary': seal(key, result)}}
+        if complete:
+            body.update(status='completed', conclusion='success')
+        check_update(api + '/' + str(check['id']), 'PATCH', body)
     out = Path('router-peer-output')
     out.mkdir(exist_ok=True)
     logs, stop = [], threading.Event()
@@ -161,14 +179,15 @@ def run():
             try:
                 request = urllib.request.Request(url + '?t=' + str(time.time_ns()), headers={'Cache-Control': 'no-cache'})
                 with urllib.request.urlopen(request, timeout=10) as response:
-                    command = unseal(key, response.read(65536).decode())
+                    document = json.load(response)
+                command = unseal(key, document['files']['command.txt']['content'])
                 if control is None:
                     control = command
                 if command.get('peer', '*') not in (label, '*'):
-                    time.sleep(1)
+                    time.sleep(15)
                     continue
                 if command['owner_ip'] != control['owner_ip'] or command['id'] in seen:
-                    time.sleep(1)
+                    time.sleep(15)
                     continue
                 seen.add(command['id'])
                 if command['expires'] < time.time():
@@ -176,6 +195,7 @@ def run():
                 result = {'id': command['id'], 'action': command['action'], 'started': time.time()}
                 if command['action'] == 'stop':
                     logs.append(result)
+                    acknowledge(result, complete=True)
                     break
                 if command['action'] == 'udp':
                     target = (control['owner_ip'], int(command['port']))
@@ -205,9 +225,11 @@ def run():
                     raise ValueError('unknown experiment action')
                 result['finished'] = time.time()
                 logs.append(result)
+                acknowledge(result)
             except Exception as error:
                 logs.append({'event': 'error', 'type': type(error).__name__, 'time': time.time()})
-            time.sleep(1)
+            # At most forty anonymous Gist API reads per peer in the ten-minute run.
+            time.sleep(15)
     finally:
         stop.set()
         worker.join()

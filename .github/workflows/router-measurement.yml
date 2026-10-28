@@ -8,6 +8,7 @@ on:
       - scripts/natlab/router_browser.py
 permissions:
   contents: read
+  checks: write
 jobs:
   peer:
     strategy:
@@ -27,9 +28,10 @@ jobs:
           ln -s "$(command -v google-chrome)" /tmp/router-peer-bin/chromium
       - name: Start bounded external peer
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           ROUTER_LAB_PEER: ${{ matrix.peer }}
           ROUTER_LAB_KEY: ${{ secrets.NAT_ROUTER_LAB_7CEC257F8BA7 }}
-          ROUTER_LAB_CONTROL_URL: https://gist.githubusercontent.com/ph1losof/5bfd205623b9d8d36a5be1480f21fb1d/raw/command.txt
+          ROUTER_LAB_CONTROL_URL: https://api.github.com/gists/5bfd205623b9d8d36a5be1480f21fb1d
         run: |
           PATH="/tmp/router-peer-bin:$PATH" /tmp/router-peer-venv/bin/python scripts/natlab/router_peer.py > /tmp/router-peer.log 2>&1 &
           echo "$!" > /tmp/router-peer.pid
