@@ -8,6 +8,7 @@ import { blogPages, blogSolid, openBlog } from './src/vite/blog-pages';
 import { figures } from './src/vite/figures';
 import { fontCoverage } from './src/vite/font-coverage';
 import { fontLicences } from './src/vite/font-licences';
+import { lowPriorityScripts } from './src/vite/low-priority-scripts';
 import { noSheetPreload } from './src/vite/no-sheet-preload';
 import { pageFacts } from './src/vite/page-facts';
 import { readSiteEnvironment } from './src/vite/site-environment';
@@ -108,6 +109,7 @@ export default defineConfig(async ({ command }): Promise<UserConfig> => {
       ),
       inlineStylesheet(),
       noSheetPreload(),
+      lowPriorityScripts(),
       siteManifest(
         environment,
         routes,

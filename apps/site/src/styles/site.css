@@ -209,7 +209,7 @@
   gap: 0.77em;
 }
 
-.strip rect {
+.strip path {
   fill: var(--ok);
 }
 

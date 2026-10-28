@@ -49,6 +49,11 @@ Blog). `docs/releases.md` ("Website") covers the image, the deploy workflow and 
   head, so only a link in the body follows it there. Check a style change on both.
 - A character Geist has no glyph for (an arrow, a prompt mark) is set alone in
   `<span class="tg">`; the build names any other.
+- The first paint's faces, Geist and both Instrument Serif cuts, are `font-display:
+  optional`, so a page preloads each one it sets: a face that misses the first frame is
+  never swapped in, and nothing shifts. The mono faces are preloaded by `main.ts` after the
+  first paint. Module scripts are fetched at low priority (`lowPriorityScripts`), so no
+  request chains off the page.
 - Text reads at 4.5:1 or better on the ground it sits on, a mock screen's included: the
   audit checks text under `aria-hidden` too. Quicksilver's `--faint` is 3.6:1 at best, so
   no text is set in it; the small print is `--note` (`base.css`), and a terminal's dim

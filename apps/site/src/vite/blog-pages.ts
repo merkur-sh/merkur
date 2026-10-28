@@ -314,6 +314,7 @@ function blogDocument(parts: DocumentParts): string {
 <link rel="icon" href="/src/brand/favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preload" href="/src/fonts/Geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/src/fonts/InstrumentSerif-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/src/fonts/InstrumentSerif-Italic-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/src/fonts/Literata-latin.woff2" as="font" type="font/woff2" crossorigin>
 <script type="module" src="/src/main.ts"></script>

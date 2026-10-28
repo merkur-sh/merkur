@@ -463,7 +463,7 @@ test.describe('analytics', () => {
     // Rybbit's own policy fields never become the site's.
     expectHeaders(script, {
       ...securityHeaders(manifest),
-      'cache-control': 'public, max-age=3600',
+      'cache-control': 'public, max-age=0, s-maxage=86400',
       'access-control-allow-origin': undefined,
     });
     expect(UPSTREAM_ONLY_HEADERS['strict-transport-security']).not.toBe(

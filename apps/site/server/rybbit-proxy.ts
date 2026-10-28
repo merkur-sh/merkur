@@ -52,7 +52,12 @@ export interface RybbitProxyOptions {
   readonly logger: Logger;
 }
 
-const SCRIPT_CACHE_CONTROL = 'public, max-age=3600';
+/**
+ * The script's address carries no version, so a browser revalidates it on each
+ * page (Rybbit sends an ETag: a 304 with no body) and the CDN holds it for a
+ * day; a site deploy purges it with the pages.
+ */
+const SCRIPT_CACHE_CONTROL = 'public, max-age=0, s-maxage=86400';
 export const TRACKING_CONFIG_CACHE_CONTROL = 'public, max-age=300';
 const NO_STORE = 'no-store';
 /**

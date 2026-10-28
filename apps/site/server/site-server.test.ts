@@ -530,7 +530,7 @@ describe('rybbit proxy', () => {
     expect(await script.text()).toBe('window.rybbit = {};');
     expect(script.headers.get('content-type')).toBe('application/javascript');
     expect(script.headers.get('etag')).toBe('"script-v1"');
-    expect(script.headers.get('cache-control')).toBe('public, max-age=3600');
+    expect(script.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=86400');
     expect(script.headers.get('access-control-allow-origin')).toBeNull();
     expect(script.headers.get('nel')).toBeNull();
     expectSecurityHeaders(script);
@@ -548,7 +548,7 @@ describe('rybbit proxy', () => {
     });
     expect(response.status).toBe(304);
     expect(lastUpstream().headers.get('if-none-match')).toBe('"script-v1"');
-    expect(response.headers.get('cache-control')).toBe('public, max-age=3600');
+    expect(response.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=86400');
     expectSecurityHeaders(response);
   });
 

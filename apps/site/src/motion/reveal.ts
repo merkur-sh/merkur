@@ -6,7 +6,7 @@
  */
 import { animate, animateMini, hover, inView, scroll, spring } from 'motion';
 
-import { STRIP_PITCH, stripRandom, stripStep } from '../link-strip';
+import { STRIP_PITCH, stripColumns, stripPath, stripRandom, stripStep } from '../link-strip';
 import { belowFold, createAgenda, firstLook, onScreen } from './clock';
 
 /** A section coming to rest where it belongs. */
@@ -155,31 +155,23 @@ function tiltCard(card: HTMLElement): void {
 
 /** A mock terminal's traffic strip moves on a bar every 120 ms while it is on screen. */
 function runStrip(strip: SVGSVGElement): void {
-  const bars = strip.querySelector<SVGGElement>('g');
+  const bars = strip.querySelector<SVGPathElement>('path');
   const view = strip.viewBox.baseVal;
   if (bars === null) throw new Error('site: a traffic strip has no bars');
-  const random = stripRandom(`${strip.dataset.strip ?? ''}+`);
+  const seed = strip.dataset.strip ?? '';
+  // The still's own columns, from the seed the build drew them with (`stripStill`).
+  let columns = stripColumns(seed, view.width, view.height);
+  const random = stripRandom(`${seed}+`);
   const span = Math.floor((view.height - 1) / 2);
   const middle = Math.floor(view.height / 2);
   let shifted = 0;
-  const bar = (x: number, y: number, height: number): void => {
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', String(x));
-    rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(STRIP_PITCH - 1));
-    rect.setAttribute('height', String(height));
-    bars.append(rect);
-  };
   const agenda = createAgenda();
   const step = (): void => {
     shifted += STRIP_PITCH;
-    for (const rect of [...bars.children]) {
-      if (Number(rect.getAttribute('x')) < shifted) rect.remove();
-    }
     const x = shifted + (Math.floor(view.width / STRIP_PITCH) - 1) * STRIP_PITCH;
-    const { sent, received } = stripStep(random, span);
-    if (sent > 0) bar(x, middle - sent, sent);
-    if (received > 0) bar(x, middle + 1, received);
+    columns = columns.filter((column) => column.x >= shifted);
+    columns.push({ x, ...stripStep(random, span) });
+    bars.setAttribute('d', stripPath(columns, middle));
     bars.setAttribute('transform', `translate(${-shifted} 0)`);
     agenda.at(120, step);
   };

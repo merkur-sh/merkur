@@ -10,6 +10,8 @@
 import 'virtual:uno.css';
 import './styles/base.css';
 
+import monoFace from './fonts/JetBrainsMono-latin.woff2?url';
+import terminalFace from './fonts/MerkurTerminal.woff2?url';
 import { initWaitlist } from './waitlist';
 
 /** The Rybbit event a question's summary names while the question is closed. */
@@ -53,9 +55,40 @@ function loadAnalytics(): void {
   script.dataset.siteId = siteId;
   document.head.append(script);
 }
+/** Fetches the face at `href` as a preload, which the stylesheet's own request then takes. */
+function preloadFace(href: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'font';
+    link.type = 'font/woff2';
+    link.crossOrigin = 'anonymous';
+    link.href = href;
+    link.addEventListener('load', () => resolve(), { once: true });
+    link.addEventListener('error', () => reject(new Error(`site: ${href} did not load`)), {
+      once: true,
+    });
+    document.head.append(link);
+  });
+}
+
+/**
+ * The mono faces, which the first paint set in their fallbacks (`uno.config.ts`),
+ * switched on in one step once they have arrived. They are fetched as preloads
+ * from here rather than found by the stylesheet, so no request the first paint
+ * could have waited on hangs off the page. Every page sets mono text; the
+ * terminal face is cut to the marks `.tg` holds, so only a page with one
+ * fetches it.
+ */
+function loadMonoFaces(): void {
+  const faces = [preloadFace(monoFace)];
+  if (document.querySelector('.tg') !== null) faces.push(preloadFace(terminalFace));
+  void Promise.all(faces).then(() => {
+    document.documentElement.dataset.faces = 'all';
+  });
+}
 void firstPaint.then(() => {
-  // The mono faces, which the first paint set in their fallbacks (`uno.config.ts`).
-  document.documentElement.dataset.faces = 'all';
+  loadMonoFaces();
   loadAnalytics();
   void import('./motion').then(({ startMotion }) => startMotion());
 });

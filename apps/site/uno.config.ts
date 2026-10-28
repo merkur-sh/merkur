@@ -17,9 +17,12 @@ import { FONT_SUBSETS, readSubsets, TERMINAL_FACE } from './src/vite/font-covera
  * preset in place of its own blocks, so each family has one declaration.
  *
  * Fallback faces. The headline is the page's largest paint and it is text, so
- * it paints in whatever face is ready. `font-display: swap` paints it at once
- * in a local face and swaps when the web face lands; without these overrides
- * the swap re-wraps the headline and moves everything under it. Each fallback
+ * it paints in whatever face is ready. The faces of the first paint, Geist and
+ * Instrument Serif, are preloaded by every page and `font-display: optional`:
+ * Chromium holds the first frame briefly for a preloaded optional face, and a
+ * face that misses it is not swapped in for that page, so nothing moves even on
+ * a machine without the local faces below. The mono faces load after the first
+ * paint and swap in for their fallback. Each fallback
  * is a local face scaled to the web face's advance and given its ascent and
  * descent, measured in Chromium on 2026-09-26 over a line of this page's copy
  * (the web face's width over the local face's, at 1000px): Geist over Arial
@@ -72,6 +75,9 @@ const FALLBACK_FACES = [
   ),
 ].join('\n');
 
+/** The families the first paint sets; every page preloads their faces. */
+const FIRST_PAINT_FAMILIES = new Set(['Geist', 'Instrument Serif']);
+
 /**
  * The cut faces, from the record `subset-fonts` wrote beside them. The terminal
  * face names its few marks as its range, so only a page that sets one of them
@@ -93,7 +99,7 @@ function siteFaces(): string {
           font-family: '${cut.family}';
           font-style: ${face.style ?? 'normal'};
           font-weight: ${cut.weight};
-          font-display: swap;
+          font-display: ${FIRST_PAINT_FAMILIES.has(cut.family) ? 'optional' : 'swap'};
           src: url('/src/fonts/${face.file}') format('woff2');${range}
         }`;
   }).join('\n');

@@ -37,28 +37,41 @@ export function stripStep(random: () => number, span: number): StripBar {
   return { sent, received };
 }
 
-/**
- * The strip `width` by `height` shows: its baseline, then its bars in one
- * group, which the page's script slides along as traffic arrives.
- */
-export function stripStill(seed: string, width: number, height: number): string {
+/** One column of the strip: its bars at `x`. */
+export interface StripColumn extends StripBar {
+  readonly x: number;
+}
+
+/** The columns a strip `width` by `height` starts with, the same for its seed every time. */
+export function stripColumns(seed: string, width: number, height: number): StripColumn[] {
   const random = stripRandom(seed);
   const span = Math.floor((height - 1) / 2);
-  const middle = Math.floor(height / 2);
-  const rects: string[] = [];
-  for (let index = 0; index < Math.floor(width / STRIP_PITCH); index += 1) {
-    const { sent, received } = stripStep(random, span);
-    const x = index * STRIP_PITCH;
-    if (sent > 0) {
-      rects.push(
-        `<rect x="${x}" y="${middle - sent}" width="${STRIP_PITCH - 1}" height="${sent}"/>`,
-      );
-    }
-    if (received > 0) {
-      rects.push(
-        `<rect x="${x}" y="${middle + 1}" width="${STRIP_PITCH - 1}" height="${received}"/>`,
-      );
-    }
+  return Array.from({ length: Math.floor(width / STRIP_PITCH) }, (_, index) => ({
+    x: index * STRIP_PITCH,
+    ...stripStep(random, span),
+  }));
+}
+
+/**
+ * Every bar of `columns` as one path: sent above the baseline at `middle`,
+ * received below it. One element draws the whole strip.
+ */
+export function stripPath(columns: readonly StripColumn[], middle: number): string {
+  const width = STRIP_PITCH - 1;
+  let path = '';
+  for (const { x, sent, received } of columns) {
+    if (sent > 0) path += `M${x} ${middle - sent}h${width}v${sent}h-${width}z`;
+    if (received > 0) path += `M${x} ${middle + 1}h${width}v${received}h-${width}z`;
   }
-  return `<rect class="base" x="0" y="${middle}" width="${width}" height="1"/><g>${rects.join('')}</g>`;
+  return path;
+}
+
+/**
+ * The strip `width` by `height` shows: its baseline, then its bars as one
+ * path, which the page's script slides along as traffic arrives.
+ */
+export function stripStill(seed: string, width: number, height: number): string {
+  const middle = Math.floor(height / 2);
+  const bars = stripPath(stripColumns(seed, width, height), middle);
+  return `<rect class="base" x="0" y="${middle}" width="${width}" height="1"/><path d="${bars}"/>`;
 }
