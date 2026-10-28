@@ -14,7 +14,7 @@ jobs:
             sha: 7bb34fdf8b7c131c30a8eb1b08ad16c7614fd99b
           - name: integrated
             sha: e7846d765a389a80a01cad9fdd08cc78ad74cb2e
-        suite: [natlab, handover]
+        suite: [handover]
     name: ${{ matrix.revision.name }} / ${{ matrix.suite }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90

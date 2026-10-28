@@ -68,8 +68,19 @@ function failedRaces(log: string): number {
   return linesWith(log, 'webtransport NAT outcome', 'outcome="failed"').length;
 }
 
-function pathMoves(log: string): string[] {
-  return linesWith(log, 'browser signaling path moved');
+function manifestMoves(log: string): string[] {
+  const moves: string[] = [];
+  let previous = NETWORK_A;
+  for (const line of linesWith(log, 'webtransport_manifest')) {
+    const address = [NETWORK_A, NETWORK_B].find((value) =>
+      line.includes(`browser_address=${value} `),
+    );
+    if (address !== undefined && address !== previous) {
+      moves.push(address);
+      previous = address;
+    }
+  }
+  return moves;
 }
 
 function committedRebinds(log: string): number {
@@ -153,11 +164,10 @@ test('a migrating connection carries the direct path to each new network', async
     await proxy.partition(DIRECT_OUTAGE_MS);
     await moveEdgeProxyBrowserSource('ipv4-loopback');
     await expect
-      .poll(() => pathMoves(linkedDaemon.logText().slice(logMark)).length, {
+      .poll(() => manifestMoves(linkedDaemon.logText().slice(logMark)), {
         timeout: PATH_BUDGET_MS,
       })
-      .toBe(1);
-    expect(pathMoves(linkedDaemon.logText().slice(logMark))[0]).toContain(`address=${NETWORK_B}`);
+      .toEqual([NETWORK_B]);
     await expect
       .poll(
         () =>
@@ -185,8 +195,7 @@ test('a migrating connection carries the direct path to each new network', async
     await moveEdgeProxyBrowserSource('configured');
     await expect(page.getByTitle(DIRECT_TITLE).first()).toBeVisible({ timeout: PATH_BUDGET_MS });
     const log = linkedDaemon.logText().slice(logMark);
-    expect(pathMoves(log)).toHaveLength(2);
-    expect(pathMoves(log)[1]).toContain(`address=${NETWORK_A}`);
+    expect(manifestMoves(log)).toEqual([NETWORK_B, NETWORK_A]);
     expect(committedRebinds(log), 'a migrated carrier needs no rebind').toBe(0);
     expect(issuances(), 'nor a new session').toBe(initialIssuances);
   } finally {
