@@ -140,8 +140,8 @@ resource "cloudflare_tiered_cache" "merkur" {
 
 # The website's pages are cached at the edge for as long as the site's own
 # `s-maxage` says (until the next deploy); Cloudflare would otherwise cache only
-# its default file extensions. Deploy site purges both hosts once the new build
-# serves.
+# its default file extensions. Deploy site purges the build's cache tag once the
+# new build serves.
 resource "cloudflare_ruleset" "cache" {
   zone_id = local.zone_id
   name    = "cache"

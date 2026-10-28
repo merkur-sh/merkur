@@ -142,10 +142,12 @@ jobs:
             '.commit == $commit and ."site-server" == $digest and .active == "active"' "$RUNNER_TEMP/site.json"
           # Only now: the previous build has stopped serving, so a page the CDN
           # refetches can only name assets this build has (docs/releases.md).
+          # Every response a build can change carries this tag; hashed assets
+          # carry none and stay at the edge.
           curl --fail --silent --show-error -X POST \
             --header "Authorization: Bearer $SITE_CLOUDFLARE_PURGE_TOKEN" \
             --header 'Content-Type: application/json' \
-            --data "$(jq -cn --arg host "${SITE_ORIGIN#https://}" '{hosts: [$host, "www." + $host]}')" \
+            --data '{"tags":["merkur-site-build"]}' \
             "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/purge_cache" \
             | jq -e '.success' > /dev/null
           for attempt in $(seq 1 30); do

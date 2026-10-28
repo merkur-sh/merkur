@@ -540,7 +540,7 @@ gh workflow run deploy-site.yml --ref main
 
 The workflow requires a green CI run of the commit, builds the site with Bazel, serves the result locally and records its CSP and the home page's
 Brotli entity tag, checks that `/install` answers with the app's installer address, installs
-it on the app host, purges both hosts from Cloudflare's cache, then polls production until it
+it on the app host, purges the build's cache tag from Cloudflare, then polls production until it
 presents that entity tag and the same CSP with `content-encoding: br`. A request without
 Brotli must get identity bytes, and the `www.` host must answer with the bare host's address.
 
@@ -573,8 +573,10 @@ switch and the purge, an edge can still hand out the previous page; if it no lon
 page's assets, it gets the 404 document for them, cached for a minute. A page opened before
 the switch meets the same 404 when it loads its motion and render worker after `load`. The
 page reads without script and every picture is a still in the markup until the worker draws,
-so what such a visitor sees is the page at rest. The purge covers both hosts entirely, so
-unhashed files (`robots.txt`, `sitemap.xml`, `llms.txt`, icons) are fresh after it too.
+so what such a visitor sees is the page at rest. The purge takes every response the site
+server tags `merkur-site-build`: the pages, the 404 document, the redirects and the unhashed
+files (`robots.txt`, `sitemap.xml`, `llms.txt`, icons). A hashed asset carries no tag and
+stays at the edge across deploys, so a deploy leaves a far edge's fonts and scripts warm.
 
 Carrying the previous build's assets into the new deployment would close that window, but it
 needs the previous build's bytes at build time, from the live site or a retained artifact.

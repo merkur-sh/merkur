@@ -156,6 +156,7 @@ describe('the addresses the server answers without a file', () => {
     const response = await fetch(url('/install'), { redirect: 'manual' });
     expect(response.status).toBe(308);
     expect(response.headers.get('location')).toBe(`${API_ORIGIN}/install`);
+    expect(response.headers.get('cache-tag')).toBe('merkur-site-build');
     expectSecurityHeaders(response);
     const posted = await fetch(url('/install'), { method: 'POST', redirect: 'manual' });
     expect(posted.status).toBe(405);
@@ -205,6 +206,7 @@ describe('documents and files', () => {
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
       expect(response.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=31536000');
+      expect(response.headers.get('cache-tag')).toBe('merkur-site-build');
       expect(response.headers.get('content-encoding')).toBeNull();
       expectSecurityHeaders(response);
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(fixture.fileBytes(file));
@@ -229,6 +231,10 @@ describe('documents and files', () => {
       expect(response.status).toBe(200);
       expect(response.headers.get('cache-control')).toBe(cacheControl ?? '');
       expect(response.headers.get('content-type')).toBe(contentType ?? '');
+      // A deploy purges what a build can change by this tag; a hashed asset has none.
+      expect(response.headers.get('cache-tag')).toBe(
+        cacheControl?.includes('immutable') === true ? null : 'merkur-site-build',
+      );
       expectSecurityHeaders(response);
       await response.arrayBuffer();
     }
@@ -239,6 +245,7 @@ describe('documents and files', () => {
     expect(response.status).toBe(404);
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
     expect(response.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+    expect(response.headers.get('cache-tag')).toBe('merkur-site-build');
     expectSecurityHeaders(response);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(fixture.fileBytes('404.html'));
   });

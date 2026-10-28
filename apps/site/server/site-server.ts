@@ -35,6 +35,12 @@ const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
  */
 const REVALIDATED_CACHE_CONTROL = 'public, max-age=0, s-maxage=31536000';
 const NOT_FOUND_CACHE_CONTROL = 'public, max-age=0, s-maxage=60';
+/**
+ * Every response a deploy can change carries this tag, and a deploy purges the
+ * CDN by it (`deploy-site.yml`). A hashed asset never changes under its name,
+ * so it carries none and stays at the edge across deploys.
+ */
+const BUILD_CACHE_TAG = { 'cache-tag': 'merkur-site-build' } as const;
 const NO_STORE = 'no-store';
 const HTML_CONTENT_TYPE = 'text/html; charset=utf-8';
 const HEALTH_PATH = '/healthz';
@@ -212,7 +218,12 @@ function createSiteFetch(
   const redirect = (location: string): Response =>
     new Response(null, {
       status: STATUS_PERMANENT_REDIRECT,
-      headers: { ...site.baseHeaders, location, 'cache-control': REDIRECT_CACHE_CONTROL },
+      headers: {
+        ...site.baseHeaders,
+        ...BUILD_CACHE_TAG,
+        location,
+        'cache-control': REDIRECT_CACHE_CONTROL,
+      },
     });
 
   return (request, server) => {
@@ -285,6 +296,7 @@ async function loadDocument(
   // Every document is HTML, which `scripts/compress-site.ts` always compresses.
   return loadResource(distDirectory, file, true, {
     ...base,
+    ...BUILD_CACHE_TAG,
     'content-type': HTML_CONTENT_TYPE,
     'cache-control': cacheControl,
   });
@@ -295,11 +307,15 @@ function loadFile(
   entry: SiteManifestFile,
   base: Readonly<Record<string, string>>,
 ): Promise<StaticResource> {
-  return loadResource(distDirectory, entry.file, entry.brotli, {
-    ...base,
-    'content-type': entry.contentType,
-    'cache-control': entry.immutable ? IMMUTABLE_CACHE_CONTROL : REVALIDATED_CACHE_CONTROL,
-  });
+  const typed = { ...base, 'content-type': entry.contentType };
+  return loadResource(
+    distDirectory,
+    entry.file,
+    entry.brotli,
+    entry.immutable
+      ? { ...typed, 'cache-control': IMMUTABLE_CACHE_CONTROL }
+      : { ...typed, ...BUILD_CACHE_TAG, 'cache-control': REVALIDATED_CACHE_CONTROL },
+  );
 }
 
 async function loadResource(
