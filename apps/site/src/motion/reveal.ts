@@ -7,7 +7,7 @@
 import { animate, animateMini, hover, inView, scroll, spring } from 'motion';
 
 import { STRIP_PITCH, stripRandom, stripStep } from '../link-strip';
-import { createAgenda, onScreen } from './clock';
+import { belowFold, createAgenda, firstLook, onScreen } from './clock';
 
 /** A section coming to rest where it belongs. */
 const ARRIVE = { type: 'spring', visualDuration: 0.7, bounce: 0.14 } as const;
@@ -20,8 +20,8 @@ const RISE_PX = 28;
 
 /**
  * Sections below the fold start lowered and transparent and rise when they
- * are reached. Only what is out of view when this runs is hidden, so nothing
- * a visitor is already looking at blinks.
+ * are reached. Only what lies below the window at the first layout after this
+ * runs is hidden, so nothing a visitor is already looking at blinks.
  */
 function revealOnArrival(): void {
   const targets: { element: HTMLElement; order: number }[] = [
@@ -33,10 +33,12 @@ function revealOnArrival(): void {
     }
   }
   for (const { element, order } of targets) {
-    if (element.getBoundingClientRect().top < window.innerHeight) continue;
-    animate(element, { opacity: 0, y: RISE_PX }, { duration: 0 });
-    inView(element, () => {
-      animate(element, { opacity: 1, y: 0 }, { ...ARRIVE, delay: order * STAGGER_S });
+    firstLook(element, (entry) => {
+      if (!belowFold(entry)) return;
+      animate(element, { opacity: 0, y: RISE_PX }, { duration: 0 });
+      inView(element, () => {
+        animate(element, { opacity: 1, y: 0 }, { ...ARRIVE, delay: order * STAGGER_S });
+      });
     });
   }
 }
@@ -93,26 +95,29 @@ function openFan(fan: HTMLElement): void {
   const inner = fan.querySelector<HTMLElement>('[data-fan-inner]');
   const cards = [...fan.querySelectorAll<HTMLElement>('[data-fan-card]')];
   if (inner === null || cards.length === 0) throw new Error('site: the fan has no phones');
-  // Where the stylesheet fans each phone to; until the fan is reached they sit in one stack.
-  const fanned = cards.map((card) => getComputedStyle(card).transform);
-  for (const card of cards) card.style.transform = 'translateZ(0px)';
-  inView(
-    fan,
-    () => {
-      for (const [index, card] of cards.entries()) {
-        const open = animateMini(
-          card,
-          { transform: ['translateZ(0px)', fanned[index] ?? 'none'] },
-          { type: spring, visualDuration: 0.9, bounce: 0.3, delay: 0.15 + index * 0.06 },
-        );
-        // Back to the stylesheet's own transform, which a narrower window may change.
-        void open.finished.then(() => {
-          card.style.transform = '';
-        });
-      }
-    },
-    { amount: 0.2 },
-  );
+  // Where the stylesheet fans each phone to, read where the layout is already
+  // measured; until the fan is reached they sit in one stack.
+  firstLook(fan, () => {
+    const fanned = cards.map((card) => getComputedStyle(card).transform);
+    for (const card of cards) card.style.transform = 'translateZ(0px)';
+    inView(
+      fan,
+      () => {
+        for (const [index, card] of cards.entries()) {
+          const open = animateMini(
+            card,
+            { transform: ['translateZ(0px)', fanned[index] ?? 'none'] },
+            { type: spring, visualDuration: 0.9, bounce: 0.3, delay: 0.15 + index * 0.06 },
+          );
+          // Back to the stylesheet's own transform, which a narrower window may change.
+          void open.finished.then(() => {
+            card.style.transform = '';
+          });
+        }
+      },
+      { amount: 0.2 },
+    );
+  });
   overPointer(
     fan,
     (x, y) => {

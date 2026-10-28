@@ -9,6 +9,7 @@
  */
 import { animate, animateMini, hover, inView, press, spring, stagger } from 'motion';
 
+import { belowFold, firstLook } from './clock';
 import { unfold, wipe } from './unfold';
 
 const TOUCH = { type: 'spring', visualDuration: 0.22, bounce: 0.3 } as const;
@@ -42,21 +43,23 @@ export function playQuestions(): void {
     const questions = [...list.querySelectorAll<HTMLDetailsElement>('details[data-question]')];
     for (const question of questions) playQuestion(question);
     // They arrive one after another, unless the reader is already looking at them.
-    if (list.getBoundingClientRect().top < window.innerHeight) continue;
-    for (const question of questions) question.style.opacity = '0';
-    inView(
-      list,
-      () => {
-        const arriving = animateMini(
-          questions,
-          { opacity: [0, 1], transform: ['translateY(22px)', 'translateY(0px)'] },
-          { type: spring, visualDuration: 0.55, bounce: 0.18, delay: stagger(0.07) },
-        );
-        void arriving.finished.then(() => {
-          for (const question of questions) wipe(question, 'opacity', 'transform');
-        });
-      },
-      { amount: 0.15 },
-    );
+    firstLook(list, (entry) => {
+      if (!belowFold(entry)) return;
+      for (const question of questions) question.style.opacity = '0';
+      inView(
+        list,
+        () => {
+          const arriving = animateMini(
+            questions,
+            { opacity: [0, 1], transform: ['translateY(22px)', 'translateY(0px)'] },
+            { type: spring, visualDuration: 0.55, bounce: 0.18, delay: stagger(0.07) },
+          );
+          void arriving.finished.then(() => {
+            for (const question of questions) wipe(question, 'opacity', 'transform');
+          });
+        },
+        { amount: 0.15 },
+      );
+    });
   }
 }

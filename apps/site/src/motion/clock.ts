@@ -30,6 +30,51 @@ export function onScreen(element: Element, change: (on: boolean) => void, thresh
   document.addEventListener('visibilitychange', settle);
 }
 
+/**
+ * Runs `task` once the browser has next laid the page out. A resize
+ * observation is delivered after layout, so what `task` reads first is
+ * already measured instead of laid out again on the spot.
+ */
+export function afterLayout(task: () => void): void {
+  const observer = new ResizeObserver(() => {
+    observer.disconnect();
+    task();
+  });
+  observer.observe(document.documentElement);
+}
+
+const looking = new Map<Element, ((entry: IntersectionObserverEntry) => void)[]>();
+let looker: IntersectionObserver | null = null;
+
+/**
+ * Calls `then` once with where `element` was at the browser's next layout, as
+ * the intersection observer reports it, so learning it lays nothing out.
+ */
+export function firstLook(
+  element: Element,
+  then: (entry: IntersectionObserverEntry) => void,
+): void {
+  looker ??= new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const waiting = looking.get(entry.target) ?? [];
+      looking.delete(entry.target);
+      looker?.unobserve(entry.target);
+      for (const look of waiting) look(entry);
+    }
+  });
+  const waiting = looking.get(element);
+  if (waiting !== undefined) {
+    waiting.push(then);
+    return;
+  }
+  looking.set(element, [then]);
+  looker.observe(element);
+}
+
+/** Whether a first look found its element wholly below the window: not reached yet. */
+export const belowFold = (entry: IntersectionObserverEntry): boolean =>
+  !entry.isIntersecting && entry.boundingClientRect.top > 0;
+
 export interface Agenda {
   /** Runs `task` once `ms` of running time from now have passed. */
   at(ms: number, task: () => void): void;

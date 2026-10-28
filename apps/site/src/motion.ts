@@ -15,7 +15,7 @@ import { animate } from 'motion';
 import { OUTPUT_LATENCY } from './content/latency-model';
 import { createLatency } from './latency';
 import { playCards } from './motion/cards';
-import { onScreen, reducedMotion } from './motion/clock';
+import { afterLayout, onScreen, reducedMotion } from './motion/clock';
 import { blink, float } from './motion/loops';
 import { playQuestions } from './motion/questions';
 import { playArrival } from './motion/reveal';
@@ -92,7 +92,16 @@ function wireCopy(button: HTMLButtonElement): void {
   });
 }
 
+/**
+ * Starts everything once the browser has laid out the page it was handed:
+ * `main.ts` has just switched the mono faces on, and the first read of a box
+ * would otherwise lay the whole page out inside this task.
+ */
 export function startMotion(): void {
+  afterLayout(play);
+}
+
+function play(): void {
   for (const terminal of document.querySelectorAll<HTMLElement>('[data-term]')) {
     playSession(terminal);
   }
@@ -111,5 +120,5 @@ export function startMotion(): void {
   }
   for (const element of document.querySelectorAll<HTMLElement>('[data-float]')) float(element);
   // The shader pictures replace their stills from a worker of their own.
-  void import('./gfx/client').then(({ startGraphics }) => startGraphics());
+  void import('./gfx/client').then(({ startGraphics }) => afterLayout(startGraphics));
 }

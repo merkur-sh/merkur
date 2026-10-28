@@ -206,21 +206,23 @@ export function playSimulator(root: HTMLElement): void {
     button.addEventListener('click', () => go(Number(button.dataset.spStop), 900));
   }
 
-  /** How many lines the screen holds, from its own box and line height. */
-  const rows = (): number => {
-    const body = history.parentElement;
-    if (body === null) return 4;
-    const style = getComputedStyle(body);
-    const inner =
-      body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-    return Math.max(4, Math.floor(inner / parseFloat(style.lineHeight)));
-  };
-  let capacity = rows();
+  const screen = history.parentElement;
+  if (screen === null) throw new Error('site: the simulator history has no screen');
+  /** How many lines the screen holds; nothing is trimmed until its box is first measured. */
+  let capacity = Number.POSITIVE_INFINITY;
   let busy = false;
   const trim = (): void => {
     const room = capacity - (busy ? 0 : 1);
     while (history.childElementCount > room) history.firstElementChild?.remove();
   };
+  // From the screen's content box and line height, as the browser has just laid
+  // them out, whenever the box takes a new size.
+  new ResizeObserver(([entry]) => {
+    if (entry === undefined) return;
+    const line = parseFloat(getComputedStyle(screen).lineHeight);
+    capacity = Math.max(4, Math.floor(entry.contentRect.height / line));
+    trim();
+  }).observe(screen);
   const setBusy = (on: boolean): void => {
     busy = on;
     terminal.toggleAttribute('data-busy', on);
@@ -325,10 +327,6 @@ export function playSimulator(root: HTMLElement): void {
     agenda.at(at + 260 + Math.random() * 240, () => enter(job));
   }
 
-  window.addEventListener('resize', () => {
-    capacity = rows();
-    trim();
-  });
   let started = false;
   onScreen(
     root,

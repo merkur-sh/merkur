@@ -71,6 +71,11 @@ Blog). `docs/releases.md` ("Website") covers the image, the deploy workflow and 
     when the spring settles.
   - `scroll()` takes a callback, never an animation: an animation handed to it is sampled
     on every frame in a browser without scroll timelines (Gecko).
+- Starting forces no layout. `main.ts` switches the mono faces on just before `motion.ts`
+  loads, so a box read in the same task lays the whole page out. `startMotion` and
+  `startGraphics` run from `afterLayout` (`motion/clock.ts`); a check for what lies below
+  the fold, or a style read before a write, goes through `firstLook`; a size that follows
+  the layout comes from a `ResizeObserver`, never a read on `resize`.
 - Three things stay in the stylesheet: a page's arrival, which plays at first paint before
   any script has loaded (the hero's parts on the home page, the whole `<main>` elsewhere),
   the passage between pages, and hover and focus transitions on links and buttons, which

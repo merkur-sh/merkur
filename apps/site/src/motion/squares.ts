@@ -8,6 +8,8 @@
  */
 import { animate, inView } from 'motion';
 
+import { belowFold, firstLook } from './clock';
+
 /** A square settling into its size: long enough to read as shrinking, barely past it. */
 const SHRINK = { type: 'spring', visualDuration: 0.5, bounce: 0.1 } as const;
 /** MZ's square starts once zstd's is most of the way down. */
@@ -16,14 +18,21 @@ const MZ_DELAY_S = 0.25;
 const LABEL_DELAY_S = 0.6;
 
 export function playSquares(root: HTMLElement): void {
-  if (root.getBoundingClientRect().top < window.innerHeight) return;
+  firstLook(root, (entry) => {
+    if (belowFold(entry)) shrink(root);
+  });
+}
+
+function shrink(root: HTMLElement): void {
   const zstd = root.querySelector<HTMLElement>('[data-mz-shrink="zstd"]');
   const mz = root.querySelector<HTMLElement>('[data-mz-shrink="mz"]');
   if (zstd === null || mz === null) throw new Error('site: the codec squares are missing');
   const labels = [...root.querySelectorAll<HTMLElement>('[data-mz-label]')];
-  // Each start is a ratio of laid-out sides, so it follows the figure.
-  animate(zstd, { scale: root.clientWidth / zstd.offsetWidth }, { duration: 0 });
-  animate(mz, { scale: zstd.offsetWidth / mz.offsetWidth, opacity: 0.01 }, { duration: 0 });
+  // Each start is a ratio of laid-out sides, so it follows the figure; all
+  // three are read before any of them is set.
+  const [side, zstdSide, mzSide] = [root.clientWidth, zstd.offsetWidth, mz.offsetWidth];
+  animate(zstd, { scale: side / zstdSide }, { duration: 0 });
+  animate(mz, { scale: zstdSide / mzSide, opacity: 0.01 }, { duration: 0 });
   for (const label of labels) animate(label, { opacity: 0.01 }, { duration: 0 });
   inView(
     root,
