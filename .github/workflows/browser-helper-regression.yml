@@ -41,7 +41,7 @@ jobs:
           sudo modprobe nf_nat_sip
           sudo modprobe nf_conntrack_tftp
           sudo modprobe nf_nat_tftp
-          cat /sys/module/nf_conntrack_sip/parameters/sip_direct_media
+          test "$(sudo cat /sys/module/nf_conntrack_sip/parameters/sip_direct_media)" = 1
       - name: Run the same authorized-shell cases against frozen product bytes
         run: |
           set -o pipefail
