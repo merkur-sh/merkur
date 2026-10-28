@@ -30,8 +30,9 @@ one analysis cache; a different `--config` on the command line would discard it.
 ## The cache
 
 Every checkout and worktree on a machine shares one disk cache, `~/.cache/merkur-bazel/disk`,
-which Bazel collects past 30 GB or 14 days of disuse; a new worktree starts from what the others
-built. A CI runner keeps none.
+which Bazel collects past 50 GB or 14 days of disuse: the size holds what every checkout used
+within those 14 days wrote. A new worktree starts from what the others built. A CI runner keeps
+none.
 
 A long-lived checkout also compiles the workspace's crates incrementally, with
 `common --config=incremental` in its `.bazelrc.local`: rustc keeps each crate's state in the
@@ -46,7 +47,8 @@ BuildBuddy's remote cache holds what CI built. A workstation reads it and upload
 `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
 `--remote_header=x-buildbuddy-api-key=...` line, the key coming from the Keychain. CI writes
 the same file from the `BUILDBUDDY_API_KEY` secret with `--config=ci`, the only writer. A fork's
-pull request has no key and builds everything itself. A runner restores no repository cache: it
+pull request has no key and builds everything itself. Blobs travel zstd-compressed both ways
+(`--remote_cache_compression`); a digest names the uncompressed bytes. A runner restores no repository cache: it
 downloads the archives its build needs from their sources, each held to its pinned checksum.
 `--jobs=32` keeps remote lookups in flight beside the local work the runner's CPUs bound, and a
 test run downloads only the outputs a local action reads (`--remote_download_minimal`), not
