@@ -76,9 +76,17 @@ function committedRebinds(log: string): number {
   return linesWith(log, 'rebind committed').length;
 }
 
+async function grantLocalNetworkAccess(page: Page, browserName: string): Promise<void> {
+  if (browserName === 'chromium') {
+    await page.context().grantPermissions(['local-network-access'], {
+      origin: new URL(page.url()).origin,
+    });
+  }
+}
+
 interface Handover {
   readonly proxy: DirectNetworkProxy;
-  readonly dials: string[];
+  readonly dials: () => number;
   readonly issuances: () => number;
 }
 
@@ -101,14 +109,10 @@ async function connectWithDirectSpent(
   // The linked daemon's page lives in its worker-scoped context, not the
   // test's own `context` fixture.
   const context = page.context();
-  if (browserName === 'chromium') {
-    await context.grantPermissions(['local-network-access'], {
-      origin: new URL(page.url()).origin,
-    });
-  }
-  const dials: string[] = [];
+  await grantLocalNetworkAccess(page, browserName);
+  let dials = 0;
   page.on('console', (message) => {
-    if (message.text().startsWith(DIRECT_PROXY_DIAL_MARKER)) dials.push(message.text());
+    if (message.text().startsWith(DIRECT_PROXY_DIAL_MARKER)) dials += 1;
   });
   let issuances = 0;
   page.on('request', (request) => {
@@ -126,14 +130,14 @@ async function connectWithDirectSpent(
         timeout: CONNECT_BUDGET_MS,
       })
       .toBe(1);
-    expect(dials.length, 'the race must have dialled through the direct proxy').toBeGreaterThan(0);
+    expect(dials, 'the race must have dialled through the direct proxy').toBeGreaterThan(0);
     await expect(page.getByRole('img', { name: DIRECT_LABEL })).toHaveCount(0);
   } catch (error) {
     // The caller's `finally` owns the proxy only once this returns it.
     await proxy.close();
     throw error;
   }
-  return { proxy, dials, issuances: () => issuances };
+  return { proxy, dials: () => dials, issuances: () => issuances };
 }
 
 test('a migrating connection carries the direct path to each new network', async ({
@@ -145,7 +149,7 @@ test('a migrating connection carries the direct path to each new network', async
   const initialIssuances = issuances();
   try {
     const logMark = linkedDaemon.logText().length;
-    const dialsOnA = dials.length;
+    const dialsOnA = dials();
 
     // A port-only move is a NAT rebinding, not another network: it moves
     // nothing. The move to B right behind it is reported first, and alone.
@@ -178,7 +182,7 @@ test('a migrating connection carries the direct path to each new network', async
         timeout: PATH_BUDGET_MS,
       })
       .toBe(1);
-    expect(dials.length).toBeGreaterThan(dialsOnA);
+    expect(dials()).toBeGreaterThan(dialsOnA);
 
     // Back on A: a new visit, so nothing is spent there any more.
     await proxy.partition(1);
@@ -246,9 +250,7 @@ test('authenticated direct input and display survive complete relay withdrawal',
   linkedDaemon,
 }) => {
   test.skip(process.env.FORCE_EDGE !== '0', 'the direct path requires FORCE_EDGE=0');
-  if (browserName === 'chromium') {
-    await page.context().grantPermissions(['local-network-access'], { origin: page.url() });
-  }
+  await grantLocalNetworkAccess(page, browserName);
   test.skip(!(await partitionEdgeProxy(1)), 'relay withdrawal requires the edge proxy');
   let issuances = 0;
   page.on('request', (request) => {
@@ -284,9 +286,7 @@ test('a direct handshake queued for three seconds still authenticates', async ({
   linkedDaemon,
 }) => {
   test.skip(process.env.FORCE_EDGE !== '0', 'the direct path requires FORCE_EDGE=0');
-  if (browserName === 'chromium') {
-    await page.context().grantPermissions(['local-network-access'], { origin: page.url() });
-  }
+  await grantLocalNetworkAccess(page, browserName);
   const remove = await instrumentTransportWorker(
     page.context(),
     `{
