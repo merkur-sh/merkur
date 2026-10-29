@@ -76,8 +76,8 @@
     "cognitive": 34
   },
   "apps/web/src/transport-worker-client.ts::handleWorkerMessage": {
-    "cyclomatic": 94,
-    "cognitive": 116
+    "cyclomatic": 93,
+    "cognitive": 114
   },
   "packages/keyboard/src/engine.ts::endPointerAt": {
     "cyclomatic": 37,
