@@ -1,0 +1,5 @@
+diff --git a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -44 +43,0 @@
+-register_toolchains("@build_bazel_rules_swift_local_config//:all")

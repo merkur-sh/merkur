@@ -4,6 +4,10 @@ build --incompatible_strict_action_env
 # No `bazel-*` links in the checkout: Biome, fallow, the doc checks and every other tree walk see
 # sources only. `bazel info output_path` names Bazel's outputs.
 build --symlink_prefix=/
+# A runfiles tree is written when a test, a `bazel run` or a local action reads it, not for every
+# target built: a test answered from a cache never needs its tree, and a CI test job spent 800 s of
+# action time writing hundreds of them, a rustdoc test's toolchain tree taking 20 s each.
+build --nobuild_runfile_links
 test --test_output=errors
 # A test command builds what its tests need and nothing else: the release programs, the syncs and
 # the profile-guided builds `//...` also names are `bazel build`'s and the artifacts jobs'.

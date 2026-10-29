@@ -82,8 +82,11 @@ bun_test_files(
             "//apps/web:term_wasm_files",
         ]},
         "bench-keyboard-hotpaths.test.ts": {"data": [":bench-keyboard-hotpaths.ts.module"]},
-        # Walks the web app's terminal sources for the pool's call sites.
-        "bench-retained-wire-payload-pool.test.ts": {"browsers": True, "checkout": True},
+        # Bundles the web app's retained payload pool for the browser it launches.
+        "bench-retained-wire-payload-pool.test.ts": {
+            "browsers": True,
+            "data": ["//apps/web:src/terminal/retained-wire-payload-pool.ts.module"],
+        },
         "bench-shadow-terminal.test.ts": _FONTS,
         "bench-wasm-font-init.test.ts": _FONTS,
         "bench-wasm-font-style-upgrade.test.ts": _FONTS,
