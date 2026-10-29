@@ -273,6 +273,7 @@ export function createTransportSession(
   // worker completion from settling or mutating its replacement.
   let nextStartId = 1;
   const directDialClaims = new Map<number, { startId: number; claim: DirectDialClaim }>();
+  let directDialOwner = new AbortController();
   let activeStartId: number | null = null;
   let pendingStart: {
     readonly startId: number;
@@ -292,6 +293,8 @@ export function createTransportSession(
   let cancellationRecoveryListenersAttached = false;
 
   function abortSessionRequests(): void {
+    directDialOwner.abort();
+    directDialOwner = new AbortController();
     for (const controller of renewalControllers.values()) controller.abort();
     renewalControllers.clear();
     for (const request of sessionRequestControllers.values()) {
@@ -461,7 +464,13 @@ export function createTransportSession(
   worker.onmessage = (event: MessageEvent<TransportToMain>): void => {
     if (terminated) return;
     const data = event.data;
-    if (closing && data.kind !== 'shutdown_complete' && data.kind !== 'recovery_event') return;
+    if (
+      closing &&
+      data.kind !== 'shutdown_complete' &&
+      data.kind !== 'recovery_event' &&
+      data.kind !== 'direct_dial_settle'
+    )
+      return;
     void handleWorkerMessage(data);
   };
   worker.onerror = (event: ErrorEvent): void => {
@@ -573,15 +582,21 @@ export function createTransportSession(
       }
       case 'direct_dial': {
         if (closing || message.startId !== activeStartId) return;
-        const claim = directDialAdmission.claim(message.endpoint, message.admission);
-        if (claim !== null) {
-          directDialClaims.set(message.requestId, { startId: message.startId, claim });
-        }
-        post({
-          kind: 'direct_dial_result',
-          startId: message.startId,
-          requestId: message.requestId,
-          allowed: claim !== null,
+        const signal = directDialOwner.signal;
+        directDialAdmission.claim(message.endpoint, message.admission, signal, (claim) => {
+          if (signal.aborted || closing || message.startId !== activeStartId) {
+            claim?.settle('unused');
+            return;
+          }
+          if (claim !== null) {
+            directDialClaims.set(message.requestId, { startId: message.startId, claim });
+          }
+          post({
+            kind: 'direct_dial_result',
+            startId: message.startId,
+            requestId: message.requestId,
+            allowed: claim !== null,
+          });
         });
         return;
       }

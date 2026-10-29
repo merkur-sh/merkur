@@ -1,73 +1,103 @@
 import { describe, expect, test } from 'bun:test';
-import { createDirectDialAdmission } from './direct-dial-admission';
+import { createDirectDialAdmission, type DirectDialClaim } from './direct-dial-admission';
+
+interface ClaimResult {
+  value: DirectDialClaim | null | undefined;
+}
+
+function request(
+  ledger: ReturnType<typeof createDirectDialAdmission>,
+  endpoint: string,
+  admission = 0,
+  controller = new AbortController(),
+) {
+  const result: ClaimResult = { value: undefined };
+  ledger.claim(endpoint, admission, controller.signal, (value) => {
+    result.value = value;
+  });
+  return result;
+}
 
 describe('page-owned direct dial admission', () => {
-  test('an in-flight endpoint cannot be dialled twice, and only a failed handshake spends it', () => {
-    const admission = createDirectDialAdmission();
-    const ready = admission.claim('ready', 0);
-    expect(ready).not.toBeNull();
-    expect(admission.claim('ready', 0)).toBeNull();
-    // A handshake that succeeded is not charged whatever becomes of the path:
-    // one that later dies may be dialled again.
-    ready?.settle('ready');
-    expect(admission.claim('ready', 0)).not.toBeNull();
-
-    admission.claim('failed', 0)?.settle('failed');
-    expect(admission.claim('failed', 0)).toBeNull();
-
-    admission.claim('unused', 0)?.settle('unused');
-    expect(admission.claim('unused', 0)).not.toBeNull();
-    expect(admission.claim('different-certificate-or-port', 0)).not.toBeNull();
+  test('a second terminal waits for native readiness and owns the next constructor', () => {
+    const ledger = createDirectDialAdmission();
+    const first = request(ledger, 'endpoint');
+    const second = request(ledger, 'endpoint');
+    expect(first.value).toEqual({ settle: expect.any(Function) });
+    expect(second.value).toBeUndefined();
+    first.value?.settle('ready');
+    expect(second.value).toEqual({ settle: expect.any(Function) });
+    const third = request(ledger, 'endpoint');
+    first.value?.settle('failed');
+    expect(third.value).toBeUndefined();
+    second.value?.settle('ready');
+    expect(third.value).toEqual({ settle: expect.any(Function) });
   });
 
-  test('new allocation evidence rearms a failed tuple without overlapping constructors', () => {
-    const admission = createDirectDialAdmission();
-    const requested = admission.claim('endpoint', 0);
-    expect(admission.claim('endpoint', 41)).toBeNull();
-    requested?.settle('failed');
-    expect(admission.claim('endpoint', 0)).toBeNull();
-    const prepared = admission.claim('endpoint', 41);
-    expect(prepared).not.toBeNull();
-    expect(admission.claim('endpoint', 42)).toBeNull();
-    prepared?.settle('failed');
-    expect(admission.claim('endpoint', 41)).toBeNull();
-    expect(admission.claim('endpoint', 42)).not.toBeNull();
+  test('native failure denies the same preparation and transfers to completed new evidence', () => {
+    const ledger = createDirectDialAdmission();
+    const original = request(ledger, 'endpoint');
+    const duplicate = request(ledger, 'endpoint');
+    const prepared = request(ledger, 'endpoint', 41);
+    expect(prepared.value).toBeUndefined();
+    original.value?.settle('failed');
+    expect(duplicate.value).toBeNull();
+    expect(prepared.value).toEqual({ settle: expect.any(Function) });
+    const repeated = request(ledger, 'endpoint', 41);
+    const successor = request(ledger, 'endpoint', 42);
+    expect(successor.value).toBeUndefined();
+    prepared.value?.settle('failed');
+    expect(repeated.value).toBeNull();
+    expect(successor.value).toEqual({ settle: expect.any(Function) });
   });
 
-  test('the first outcome decides', () => {
-    const admission = createDirectDialAdmission();
-    const claim = admission.claim('endpoint', 0);
-    claim?.settle('ready');
-    claim?.settle('failed');
-    expect(admission.claim('endpoint', 0)).not.toBeNull();
+  test('unused reservations transfer without spending reachability evidence', () => {
+    const ledger = createDirectDialAdmission();
+    const unused = request(ledger, 'endpoint');
+    const next = request(ledger, 'endpoint');
+    unused.value?.settle('unused');
+    expect(next.value).toEqual({ settle: expect.any(Function) });
+    expect(request(ledger, 'another-endpoint').value).toEqual({ settle: expect.any(Function) });
   });
 
-  test('another proven address is another network, and a return is a new visit', () => {
-    const admission = createDirectDialAdmission();
-    expect(admission.observePath('192.0.2.1')).toBe(true);
-    admission.claim('failed', 0)?.settle('failed');
-    expect(admission.observePath('192.0.2.1')).toBe(false);
-    expect(admission.claim('failed', 0)).toBeNull();
-
-    expect(admission.observePath('198.51.100.7')).toBe(true);
-    const onB = admission.claim('failed', 0);
-    expect(onB).not.toBeNull();
-    onB?.settle('failed');
-
-    // Back on the first network: what failed there before says nothing now.
-    expect(admission.observePath('192.0.2.1')).toBe(true);
-    expect(admission.claim('failed', 0)).not.toBeNull();
+  test('a cancelled waiter cannot reserve the endpoint when its predecessor ends', () => {
+    const ledger = createDirectDialAdmission();
+    const first = request(ledger, 'endpoint');
+    const controller = new AbortController();
+    const cancelled = request(ledger, 'endpoint', 0, controller);
+    controller.abort();
+    expect(cancelled.value).toBeNull();
+    const live = request(ledger, 'endpoint');
+    first.value?.settle('ready');
+    expect(live.value).toEqual({ settle: expect.any(Function) });
+    expect(request(ledger, 'unused', 0, controller).value).toBeNull();
   });
 
-  test('a late outcome settles into the visit it was claimed in', () => {
-    const admission = createDirectDialAdmission();
-    admission.observePath('192.0.2.1');
-    const onA = admission.claim('endpoint', 0);
-    admission.observePath('198.51.100.7');
-    const onB = admission.claim('endpoint', 0);
-    expect(onB).not.toBeNull();
-    onA?.settle('failed');
-    onB?.settle('ready');
-    expect(admission.claim('endpoint', 0)).not.toBeNull();
+  test('a network change retires waiting requests and late outcomes stay in their visit', () => {
+    const ledger = createDirectDialAdmission();
+    ledger.observePath('192.0.2.1');
+    const onA = request(ledger, 'endpoint');
+    const waitingA = request(ledger, 'endpoint');
+    expect(ledger.observePath('192.0.2.1')).toBe(false);
+    expect(waitingA.value).toBeUndefined();
+    expect(ledger.observePath('198.51.100.7')).toBe(true);
+    expect(waitingA.value).toBeNull();
+    const onB = request(ledger, 'endpoint');
+    onA.value?.settle('failed');
+    const waitingB = request(ledger, 'endpoint');
+    expect(waitingB.value).toBeUndefined();
+    onB.value?.settle('failed');
+    expect(waitingB.value).toBeNull();
+    expect(ledger.observePath('192.0.2.1')).toBe(true);
+    expect(request(ledger, 'endpoint').value).toEqual({ settle: expect.any(Function) });
+  });
+
+  test('one failed native handshake denies every duplicate without another constructor', () => {
+    const ledger = createDirectDialAdmission();
+    const first = request(ledger, 'endpoint');
+    const waiting = Array.from({ length: 8 }, () => request(ledger, 'endpoint'));
+    expect(waiting.every((item) => item.value === undefined)).toBe(true);
+    first.value?.settle('failed');
+    expect(waiting.every((item) => item.value === null)).toBe(true);
   });
 });

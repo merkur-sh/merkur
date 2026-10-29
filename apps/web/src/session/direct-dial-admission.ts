@@ -18,7 +18,7 @@ export interface DirectDialClaim {
 
 interface NetworkVisit {
   readonly address: string | null;
-  readonly reserved: Set<string>;
+  readonly reserved: Map<string, Set<(retired?: boolean) => void>>;
   readonly failed: Set<string>;
 }
 
@@ -34,25 +34,54 @@ interface NetworkVisit {
  * says nothing about now.
  */
 export function createDirectDialAdmission() {
-  let visit: NetworkVisit = { address: null, reserved: new Set(), failed: new Set() };
-  return {
-    claim(endpoint: string, admission: number): DirectDialClaim | null {
-      // Captured: a late outcome settles into the visit it was claimed in,
-      // never into a newer network's.
-      const claimed = visit;
-      // Preparation can rearm a failed tuple, but cannot overlap its constructor.
-      const attempt = JSON.stringify([endpoint, admission]);
-      if (claimed.reserved.has(endpoint) || claimed.failed.has(attempt)) return null;
-      claimed.reserved.add(endpoint);
+  let visit: NetworkVisit = { address: null, reserved: new Map(), failed: new Set() };
+  function claim(
+    claimed: NetworkVisit,
+    endpoint: string,
+    admission: number,
+    signal: AbortSignal,
+    receive: (value: DirectDialClaim | null) => void,
+  ): void {
+    const attempt = JSON.stringify([endpoint, admission]);
+    if (signal.aborted || claimed !== visit || claimed.failed.has(attempt)) {
+      receive(null);
+      return;
+    }
+    const pending = claimed.reserved.get(endpoint);
+    if (pending !== undefined) {
+      const wake = (retired = false): void => {
+        pending.delete(wake);
+        signal.removeEventListener('abort', cancel);
+        if (retired) receive(null);
+        else claim(claimed, endpoint, admission, signal, receive);
+      };
+      const cancel = (): void => wake(true);
+      pending.add(wake);
+      signal.addEventListener('abort', cancel, { once: true });
+    } else {
+      const waiting = new Set<(retired?: boolean) => void>();
+      claimed.reserved.set(endpoint, waiting);
       let settled = false;
-      return {
+      receive({
         settle(outcome: DirectDialOutcome): void {
           if (settled) return;
           settled = true;
           claimed.reserved.delete(endpoint);
           if (outcome === 'failed') claimed.failed.add(attempt);
+          for (const wake of waiting) wake();
         },
-      };
+      });
+    }
+  }
+  return {
+    /** A pending native constructor owns the tuple until its actual outcome. */
+    claim(
+      endpoint: string,
+      admission: number,
+      signal: AbortSignal,
+      receive: (value: DirectDialClaim | null) => void,
+    ): void {
+      claim(visit, endpoint, admission, signal, receive);
     },
     /**
      * The active session's committed carrier proved `address`. Returns whether
@@ -60,7 +89,11 @@ export function createDirectDialAdmission() {
      */
     observePath(address: string): boolean {
       if (visit.address === address) return false;
-      visit = { address, reserved: new Set(), failed: new Set() };
+      const previous = visit;
+      visit = { address, reserved: new Map(), failed: new Set() };
+      for (const waiting of previous.reserved.values()) {
+        for (const wake of waiting) wake(true);
+      }
       return true;
     },
   };

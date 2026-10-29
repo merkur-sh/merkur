@@ -341,6 +341,117 @@ describe('transport worker client start ownership', () => {
     worker.emit({ kind: 'shutdown_complete' });
   });
 
+  test('another terminal waits for the native outcome instead of losing a reachable endpoint', async () => {
+    const owners = [0, 1, 2].map(() => {
+      const session = createTransportSession(
+        { onConnected: () => {}, onDisconnected: () => {}, onMetrics: () => {} },
+        createTerminalRingBundle('task'),
+        {
+          ...BROWSER_AUTHORIZATION_BRIDGE,
+          requestSession: async () => requestResult,
+          cancelSessionRequest: async () => {},
+        },
+      );
+      const worker = FakeWorker.current;
+      if (worker === null) throw new Error('worker missing');
+      const started = session.start('daemon-a');
+      const start = worker.messages.find((message) => message.kind === 'start');
+      if (start?.kind !== 'start') throw new Error('start missing');
+      worker.emit({
+        kind: 'connected',
+        startId: start.startId,
+        preserveDisplay: false,
+        displayRingFenceToken: 0,
+        sessionId: requestResult.sessionId,
+      });
+      return { session, worker, startId: start.startId, started };
+    });
+    try {
+      await Promise.all(owners.map(({ started }) => started));
+      const first = owners[0];
+      const second = owners[1];
+      const third = owners[2];
+      if (first === undefined || second === undefined || third === undefined)
+        throw new Error('terminal owners missing');
+      const endpoint = 'https://192.0.2.44:443|shared-certificate';
+      for (const owner of owners.slice(0, 2)) {
+        owner.worker.emit({
+          kind: 'direct_dial',
+          startId: owner.startId,
+          requestId: 1,
+          endpoint,
+          admission: 0,
+        });
+      }
+      expect(first.worker.messages.at(-1)).toMatchObject({
+        kind: 'direct_dial_result',
+        allowed: true,
+      });
+      expect(
+        second.worker.messages.filter((message) => message.kind === 'direct_dial_result'),
+      ).toHaveLength(0);
+      first.session.close();
+      first.worker.emit({
+        kind: 'direct_dial_settle',
+        startId: first.startId,
+        requestId: 1,
+        outcome: 'ready',
+      });
+      expect(second.worker.messages.at(-1)).toMatchObject({
+        kind: 'direct_dial_result',
+        allowed: true,
+      });
+      second.worker.emit({
+        kind: 'direct_dial_settle',
+        startId: second.startId,
+        requestId: 1,
+        outcome: 'ready',
+      });
+      first.worker.emit({ kind: 'shutdown_complete' });
+      for (const owner of owners.slice(1)) {
+        owner.worker.emit({
+          kind: 'direct_dial',
+          startId: owner.startId,
+          requestId: 2,
+          endpoint: `${endpoint}-cancelled`,
+          admission: 0,
+        });
+      }
+      third.session.close();
+      third.worker.emit({ kind: 'shutdown_complete' });
+      second.worker.emit({
+        kind: 'direct_dial_settle',
+        startId: second.startId,
+        requestId: 2,
+        outcome: 'ready',
+      });
+      expect(
+        third.worker.messages.filter(
+          (message) => message.kind === 'direct_dial_result' && message.requestId === 2,
+        ),
+      ).toHaveLength(0);
+      second.worker.emit({
+        kind: 'direct_dial',
+        startId: second.startId,
+        requestId: 3,
+        endpoint: `${endpoint}-cancelled`,
+        admission: 0,
+      });
+      expect(second.worker.messages.at(-1)).toMatchObject({ allowed: true });
+      second.worker.emit({
+        kind: 'direct_dial_settle',
+        startId: second.startId,
+        requestId: 3,
+        outcome: 'ready',
+      });
+    } finally {
+      for (const { session, worker } of owners) {
+        session.close();
+        worker.emit({ kind: 'shutdown_complete' });
+      }
+    }
+  });
+
   test('direct dial admission survives worker replacement and settles only its own claim', async () => {
     const endpoint = 'https://192.0.2.42:443|test-certificate';
     for (let iteration = 0; iteration < 2; iteration += 1) {
@@ -387,12 +498,20 @@ describe('transport worker client start ownership', () => {
         endpoint,
         admission: 0,
       });
-      expect(worker.messages.at(-1)).toEqual({
-        kind: 'direct_dial_result',
-        startId: start.startId,
-        requestId: 2,
-        allowed: false,
-      });
+      expect(
+        worker.messages.find(
+          (message) => message.kind === 'direct_dial_result' && message.requestId === 2,
+        ),
+      ).toEqual(
+        iteration === 0
+          ? undefined
+          : {
+              kind: 'direct_dial_result',
+              startId: start.startId,
+              requestId: 2,
+              allowed: false,
+            },
+      );
       const successfulEndpoint = endpoint + iteration;
       worker.emit({
         kind: 'direct_dial',
