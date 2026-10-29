@@ -19,6 +19,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{info, warn};
+use wtransport::quinn::AsyncUdpSocket;
 
 #[path = "admission_sip.rs"]
 mod sip;
@@ -72,6 +73,7 @@ pub struct Claim {
     stable_connection: AtomicU64,
     connection_transition: Mutex<()>,
     authenticated: AtomicBool,
+    sip_offer: Mutex<Option<sip::Offer>>,
     epoch_owner: Arc<AtomicU64>,
     epoch: u64,
 }
@@ -87,6 +89,7 @@ impl Claim {
             stable_connection: AtomicU64::new(0),
             connection_transition: Mutex::new(()),
             authenticated: AtomicBool::new(false),
+            sip_offer: Mutex::new(None),
         })
     }
 
@@ -118,6 +121,7 @@ impl Claim {
 
     pub(super) fn authenticate(&self, stable_id: usize) -> bool {
         let _transition = self.connection_transition.lock().unwrap();
+        let _send = sip::SEND_GATE.lock().unwrap();
         if !self.live.load(Ordering::Acquire)
             || self.epoch_owner.load(Ordering::Acquire) != self.epoch
             || self.stable_connection.load(Ordering::Acquire) != stable_id as u64 + 1
@@ -125,6 +129,7 @@ impl Claim {
             return false;
         }
         self.authenticated.store(true, Ordering::Release);
+        self.sip_offer.lock().unwrap().take();
         true
     }
 
@@ -252,8 +257,14 @@ pub fn channel() -> (Handle, mpsc::Receiver<Command>) {
 struct Retirement {
     tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
     stopping: watch::Sender<bool>,
-    companions: Arc<Mutex<HashMap<CompanionKey, Arc<UdpSocket>>>>,
+    companions: Arc<Mutex<HashMap<CompanionKey, ReservedPair>>>,
     gateways: Arc<Mutex<Option<super::router_grants::Owner>>>,
+}
+
+#[derive(Debug)]
+struct ReservedPair {
+    media: Arc<DiscoverySocket>,
+    companion: Arc<DiscoverySocket>,
 }
 
 impl Retirement {
@@ -271,7 +282,7 @@ impl Retirement {
         &self,
         mut server: WebTransportServer,
         events: mpsc::Sender<PeerEvent>,
-        sockets: (Option<Arc<UdpSocket>>, Option<UdpSocket>),
+        sockets: (Option<Arc<DiscoverySocket>>, Option<UdpSocket>),
         media: Vec<sip::MediaOwner>,
     ) {
         let mut stopping = self.stopping.subscribe();
@@ -332,6 +343,7 @@ impl Retirement {
         {
             warn!(%error, "direct admission gateway cleanup incomplete");
         }
+        self.companions.lock().unwrap().clear();
     }
 }
 
@@ -341,10 +353,9 @@ struct Binding {
     server: Option<WebTransportServer>,
     events: mpsc::Sender<PeerEvent>,
     // RTP/RTCP helpers can admit both ports even when SDP requests only RTP.
-    // Keep the unused companion bound exclusively and silent for this binding's
-    // entire lifetime. The coordinator retains its reservation after retirement
-    // so still-live helper state cannot expose a newly bound unrelated service.
-    companion: Option<Arc<UdpSocket>>,
+    // The coordinator retains both tuple reservations after retirement because
+    // still-live helper state can admit either media or companion traffic.
+    companion: Option<Arc<DiscoverySocket>>,
     signaling: Option<UdpSocket>,
     enhancement: Option<futures::future::BoxFuture<'static, Option<serde_json::Value>>>,
     media: sip::MediaSlot,
@@ -352,7 +363,7 @@ struct Binding {
 
 impl Drop for Binding {
     fn drop(&mut self) {
-        self.claim.live.store(false, Ordering::Release);
+        self.claim.retire();
         let media = self
             .media
             .lock()
@@ -516,7 +527,10 @@ impl Owner {
     }
 
     pub fn invalidate(&mut self, peers: &PeerMap) {
-        self.epoch.fetch_add(1, Ordering::AcqRel);
+        {
+            let _send = sip::SEND_GATE.lock().unwrap();
+            self.epoch.fetch_add(1, Ordering::AcqRel);
+        }
         self.reconcile(peers);
     }
 
@@ -663,28 +677,27 @@ fn bind(path: &Path, port: u16) -> std::io::Result<UdpSocket> {
 
 /// Reserve the complete even RTP/RTCP pair before any SIP packet leaves. Search
 /// is local bind allocation only, never network traffic or guessed WAN ports.
-fn pair(path: &Path, retirements: &Retirement) -> std::io::Result<(UdpSocket, Arc<UdpSocket>)> {
+fn pair(
+    path: &Path,
+    retirements: &Retirement,
+) -> std::io::Result<(Arc<DiscoverySocket>, Arc<DiscoverySocket>)> {
     let mut companions = retirements
         .companions
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Reservations outlive individual candidates because router-side expiry is
-    // not observable. At capacity, reuse only ports whose silent companion we
-    // already own. No unrelated service can inherit that companion mid-process.
-    if companions.len() == MAX_COMPANIONS {
-        for (key, companion) in companions.iter() {
-            if *key != path.companion_key(key.local.port()) {
-                continue;
-            }
-            match bind(path, key.local.port() - 1) {
-                Ok(media) => return Ok((media, companion.clone())),
-                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
-                Err(error) => return Err(error),
-            }
+    // Router expiry is unobservable. Retain both ports, and reuse only when
+    // every listener, observer and gateway cleanup has released the media owner.
+    for (key, reserved) in companions.iter_mut() {
+        if *key == path.companion_key(key.local.port())
+            && Arc::strong_count(&reserved.companion) == 1
+            && Arc::weak_count(&reserved.companion) == 0
+            && let Some(media) = DiscoverySocket::reuse_reserved(&mut reserved.media)
+        {
+            return Ok((media, reserved.companion.clone()));
         }
-    } else {
-        // The OS allocates from its current ephemeral pool; a fixed starting
-        // port would reuse still-live router state after every process restart.
+    }
+    if companions.len() < MAX_COMPANIONS {
+        // Search is local bind allocation only, never guessed WAN traffic.
         for _ in 0..8192 {
             let media = bind(path, 0)?;
             let port = media.local_addr()?.port();
@@ -692,13 +705,17 @@ fn pair(path: &Path, retirements: &Retirement) -> std::io::Result<(UdpSocket, Ar
                 continue;
             }
             let key = path.companion_key(port + 1);
-            if let Some(companion) = companions.get(&key) {
-                return Ok((media, companion.clone()));
-            }
             match reserve_companion(path, media) {
                 Ok((media, companion)) => {
-                    let companion = Arc::new(companion);
-                    companions.insert(key, companion.clone());
+                    let media = DiscoverySocket::new(media)?;
+                    let companion = DiscoverySocket::new(companion)?;
+                    companions.insert(
+                        key,
+                        ReservedPair {
+                            media: media.clone(),
+                            companion: companion.clone(),
+                        },
+                    );
                     return Ok((media, companion));
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
@@ -883,7 +900,9 @@ async fn prepare_binding(
     let (socket, companion, signaling) =
         tokio::task::spawn_blocking(move || -> std::io::Result<_> {
             match kind {
-                CandidateFlavor::Tftp => Ok((bind(&path_for_bind, 0)?, None, None)),
+                CandidateFlavor::Tftp => {
+                    Ok((DiscoverySocket::new(bind(&path_for_bind, 0)?)?, None, None))
+                }
                 CandidateFlavor::Sip => {
                     let (media, companion) = pair(&path_for_bind, &allocation_owner)?;
                     Ok((media, Some(companion), Some(bind(&path_for_bind, 0)?)))
@@ -902,7 +921,7 @@ async fn prepare_binding(
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     let port = socket.local_addr().map_err(|e| e.to_string())?.port();
-    let discovery = DiscoverySocket::new(socket).map_err(|e| e.to_string())?;
+    let discovery = socket;
     let config = wtransport::ServerConfig::builder()
         .with_bind_address(SocketAddr::from((path.address, port)))
         .build_with_quic_config(config.clone());
@@ -946,7 +965,7 @@ async fn prepare_binding(
             .map_err(|e| e.to_string())?;
         (bytes, observed.port())
     } else {
-        let bytes = sip::send(&mut binding, path, &discovery, observed, nonce).await?;
+        let bytes = sip::send(&mut binding, path, &discovery, observed, nonce)?;
         // This is a requested endpoint, not an observed lease. A helper may
         // rewrite its address/port through collisions or multiple NAT layers.
         // No adjacent WAN port is guessed; authentication decides reachability.
@@ -1280,8 +1299,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn companion_ownership_is_distinct_across_addresses_families_and_interfaces() {
+    #[tokio::test]
+    async fn companion_ownership_is_distinct_across_addresses_families_and_interfaces() {
         let v4 = loopback_path(false);
         let v6 = loopback_path(true);
         let (port, first, second) = (61000..62000)
@@ -1317,10 +1336,21 @@ mod tests {
         assert_ne!(v6_key, another_interface.companion_key(port + 1));
         {
             let mut companions = owner.companions.lock().unwrap();
-            companions.insert(v4_key, Arc::new(v4_companion));
-            companions.insert(v6_key, Arc::new(v6_companion));
+            companions.insert(
+                v4_key,
+                ReservedPair {
+                    media: DiscoverySocket::new(v4_media).unwrap(),
+                    companion: DiscoverySocket::new(v4_companion).unwrap(),
+                },
+            );
+            companions.insert(
+                v6_key,
+                ReservedPair {
+                    media: DiscoverySocket::new(v6_media).unwrap(),
+                    companion: DiscoverySocket::new(v6_companion).unwrap(),
+                },
+            );
         }
-        drop((v4_media, v6_media));
         for path in [&v4, &v6] {
             assert_eq!(
                 bind(path, port + 1).unwrap_err().kind(),
@@ -1329,8 +1359,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn an_occupied_companion_refuses_the_pair_and_a_reserved_pair_excludes_unrelated_services() {
+    #[tokio::test]
+    async fn an_occupied_companion_refuses_the_pair_and_a_reserved_pair_excludes_unrelated_services()
+     {
         let interface = netdev::get_interfaces()
             .into_iter()
             .find(|iface| iface.is_loopback() && !iface.ipv4.is_empty())
@@ -1370,8 +1401,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn retiring_media_cannot_release_a_helper_admitted_companion_to_an_unrelated_service() {
+    #[tokio::test]
+    async fn retiring_media_cannot_release_a_helper_admitted_companion_to_an_unrelated_service() {
         let interface = netdev::get_interfaces()
             .into_iter()
             .find(|iface| iface.is_loopback() && !iface.ipv4.is_empty())
@@ -1386,6 +1417,12 @@ mod tests {
         let port = companion.local_addr().unwrap().port();
         drop((media, companion));
         assert_eq!(
+            UdpSocket::bind((path.address, port - 1))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::AddrInUse
+        );
+        assert_eq!(
             UdpSocket::bind((path.address, port)).unwrap_err().kind(),
             std::io::ErrorKind::AddrInUse
         );
@@ -1393,8 +1430,8 @@ mod tests {
         assert!(UdpSocket::bind((path.address, port)).is_ok());
     }
 
-    #[test]
-    fn the_companion_reservation_bound_reuses_owned_pairs_without_growing_descriptors() {
+    #[tokio::test]
+    async fn the_companion_reservation_bound_reuses_owned_pairs_without_growing_descriptors() {
         let interface = netdev::get_interfaces()
             .into_iter()
             .find(|iface| iface.is_loopback() && !iface.ipv4.is_empty())
@@ -1407,12 +1444,13 @@ mod tests {
         let owner = Retirement::new();
         for port in (49152..65534).step_by(2) {
             if let Ok((media, companion)) = reserve_pair(&path, port) {
-                owner
-                    .companions
-                    .lock()
-                    .unwrap()
-                    .insert(path.companion_key(port + 1), Arc::new(companion));
-                drop(media);
+                owner.companions.lock().unwrap().insert(
+                    path.companion_key(port + 1),
+                    ReservedPair {
+                        media: DiscoverySocket::new(media).unwrap(),
+                        companion: DiscoverySocket::new(companion).unwrap(),
+                    },
+                );
             }
             if owner.companions.lock().unwrap().len() == MAX_COMPANIONS {
                 break;
@@ -1430,7 +1468,7 @@ mod tests {
         assert_eq!(companions.len(), MAX_COMPANIONS);
         assert!(Arc::ptr_eq(
             &companion,
-            &companions[&path.companion_key(companion_port)]
+            &companions[&path.companion_key(companion_port)].companion
         ));
         assert_eq!(
             UdpSocket::bind((path.address, companion_port))

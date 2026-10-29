@@ -717,6 +717,13 @@ type DynFutureIncomingSession =
 pub struct IncomingSession(quinn::Incoming);
 
 impl IncomingSession {
+    /// Take the underlying QUIC attempt before accepting HTTP/3.
+    #[cfg(feature = "quinn")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "quinn")))]
+    pub fn into_quic_incoming(self) -> quinn::Incoming {
+        self.0
+    }
+
     /// The peer's UDP address.
     pub fn remote_address(&self) -> SocketAddr {
         self.0.remote_address()
@@ -789,6 +796,13 @@ impl IncomingSessionFuture {
             let quic_connection = quic_connecting.await?;
             Self::accept(quic_connection).await
         }))
+    }
+
+    /// Accept HTTP/3 on an already established QUIC connection.
+    #[cfg(feature = "quinn")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "quinn")))]
+    pub fn with_quic_connection(quic_connection: quinn::Connection) -> Self {
+        Self(Box::pin(Self::accept(quic_connection)))
     }
 
     fn new(quic_incoming: quinn::Incoming) -> Self {

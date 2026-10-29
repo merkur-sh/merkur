@@ -1970,25 +1970,29 @@ async fn accept_loop(
         let claim = claim.clone();
         session_tasks.spawn(async move {
             let _session_slot = session_slot;
-            let connection = match tokio::time::timeout(
-                Duration::from_millis(SESSION_SETUP_TIMEOUT_MS),
-                async move {
-                    let session_request = incoming.await?;
+            let connection =
+                match tokio::time::timeout(Duration::from_millis(SESSION_SETUP_TIMEOUT_MS), async {
+                    let quic = incoming.into_quic_incoming().accept()?.await?;
+                    if let Some(claim) = &claim {
+                        claim.handshake_completed(quic.remote_address().ip());
+                    }
+                    let session_request =
+                        wtransport::endpoint::IncomingSessionFuture::with_quic_connection(quic)
+                            .await?;
                     session_request.accept().await
-                },
-            )
-            .await
-            {
-                Ok(Ok(connection)) => connection,
-                Ok(Err(error)) => {
-                    warn!("WebTransport session setup failed: {error}");
-                    return;
-                }
-                Err(_) => {
-                    warn!("WebTransport session setup timed out");
-                    return;
-                }
-            };
+                })
+                .await
+                {
+                    Ok(Ok(connection)) => connection,
+                    Ok(Err(error)) => {
+                        warn!("WebTransport session setup failed: {error}");
+                        return;
+                    }
+                    Err(_) => {
+                        warn!("WebTransport session setup timed out");
+                        return;
+                    }
+                };
 
             let connection = Arc::new(connection);
             let _close_connection = CloseConnectionOnDrop(Arc::clone(&connection));

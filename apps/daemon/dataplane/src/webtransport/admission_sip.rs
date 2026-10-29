@@ -4,7 +4,65 @@ use super::*;
 use merkur_traversal::{egress, portmap, sip as wire};
 use tokio::sync::oneshot;
 
-pub(super) async fn send(
+// Cold-path sends and revocation share this gate. No packet can leave after a
+// binding retires, a network epoch changes, or session authentication commits.
+pub(super) static SEND_GATE: Mutex<()> = Mutex::new(());
+
+pub(super) struct Offer {
+    socket: UdpSocket,
+    packet: Vec<u8>,
+}
+
+impl Claim {
+    fn send_sip(&self, socket: &UdpSocket, packet: &[u8]) -> std::io::Result<bool> {
+        let _send = SEND_GATE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.authenticated.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+        if !self.accepts(self.identity.browser) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "retired admission",
+            ));
+        }
+        socket.set_nonblocking(true)?;
+        let socket = socket.try_clone()?;
+        socket.send_to(packet, (self.identity.browser, 5060))?;
+        *self
+            .sip_offer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Offer {
+            socket,
+            packet: packet.to_vec(),
+        });
+        Ok(true)
+    }
+
+    pub(in crate::webtransport) fn handshake_completed(&self, remote: IpAddr) {
+        let _send = SEND_GATE.lock().unwrap();
+        if !self.accepts(remote) || self.authenticated.load(Ordering::Acquire) {
+            return;
+        }
+        let offer = self.sip_offer.lock().unwrap();
+        if let Some(offer) = offer.as_ref()
+            && let Err(error) = offer
+                .socket
+                .send_to(&offer.packet, (self.identity.browser, 5060))
+        {
+            warn!(claim = self.id, %error, "direct admission SIP reoffer failed");
+        }
+    }
+
+    pub(super) fn retire(&self) {
+        let _send = SEND_GATE.lock().unwrap();
+        self.live.store(false, Ordering::Release);
+        self.sip_offer.lock().unwrap().take();
+    }
+}
+
+pub(super) fn send(
     binding: &mut Binding,
     path: &Path,
     discovery: &Arc<DiscoverySocket>,
@@ -53,12 +111,13 @@ pub(super) async fn send(
             .boxed(),
         );
     }
-    let signaling = signaling.try_clone().map_err(|error| error.to_string())?;
-    let packet = bytes.clone();
-    tokio::task::spawn_blocking(move || signaling.send_to(&packet, (browser, 5060)))
-        .await
+    if !binding
+        .claim
+        .send_sip(signaling, &bytes)
         .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())?;
+    {
+        binding.enhancement = None;
+    }
     Ok(bytes)
 }
 
@@ -158,7 +217,7 @@ impl Retirement {
     async fn acquire_media(
         &self,
         socket: Arc<DiscoverySocket>,
-        companion: Arc<UdpSocket>,
+        companion: Arc<DiscoverySocket>,
         path: &Path,
         custody: Custody,
     ) -> Option<Allocation> {
@@ -188,7 +247,7 @@ impl Retirement {
     async fn acquire_media_with(
         &self,
         socket: Arc<DiscoverySocket>,
-        companion: Arc<UdpSocket>,
+        companion: Arc<DiscoverySocket>,
         egress: egress::EgressPath,
         ports: portmap::GatewayPorts,
         schedule: portmap::RetransmitSchedule,
@@ -196,7 +255,6 @@ impl Retirement {
     ) -> Option<Allocation> {
         let address = IpAddr::V4(egress.local_ipv4);
         let port = companion.local_addr().ok()?.port().checked_sub(1)?;
-        let companion = DiscoverySocket::new(companion.try_clone().ok()?).ok()?;
         let factory = self.gateway_factory();
         let first_reservation = factory.reserve(address, port, socket)?;
         let second_reservation = factory.reserve(address, port + 1, companion)?;
@@ -236,7 +294,7 @@ pub(super) struct Enhancement {
     pub path: Path,
     pub claim: Arc<Claim>,
     pub socket: Arc<DiscoverySocket>,
-    pub companion: Arc<UdpSocket>,
+    pub companion: Arc<DiscoverySocket>,
     pub signaling: UdpSocket,
     pub observation: Option<wire::Observation>,
     pub nonce: [u8; 16],
@@ -287,12 +345,9 @@ impl Enhancement {
                     self.claim.identity.browser,
                     &self.nonce,
                 );
-                let signaling = self.signaling.try_clone().ok()?;
-                let browser = self.claim.identity.browser;
-                tokio::task::spawn_blocking(move || signaling.send_to(&packet, (browser, 5060)))
-                    .await
-                    .ok()?
-                    .ok()?;
+                if !self.claim.send_sip(&self.signaling, &packet).ok()? {
+                    return None;
+                }
                 let endpoint = self.receive(public).await?;
                 if !media.live() {
                     return None;
@@ -332,6 +387,100 @@ pub(super) fn candidate(
 mod tests {
     use super::*;
 
+    fn test_identity() -> Identity {
+        Identity {
+            peer: Arc::from("browser"),
+            session: "session".into(),
+            rebind: 0,
+            manifest: 1,
+            browser: "127.0.0.1".parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn completed_handshakes_reoffer_only_the_current_live_unauthenticated_claim() {
+        let browser: IpAddr = "127.0.0.1".parse().unwrap();
+        let receiver = UdpSocket::bind((browser, 5060)).unwrap();
+        receiver
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let signaling = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let epoch = Arc::new(AtomicU64::new(0));
+        let claim = Claim::new(
+            Identity {
+                browser,
+                ..test_identity()
+            },
+            epoch.clone(),
+            0,
+        );
+        let receive = |expected: &[u8]| {
+            let mut bytes = [0; 64];
+            let (length, source) = receiver.recv_from(&mut bytes).unwrap();
+            assert_eq!(&bytes[..length], expected);
+            assert_eq!(source, signaling.local_addr().unwrap());
+        };
+        let empty = || {
+            receiver.set_nonblocking(true).unwrap();
+            assert_eq!(
+                receiver.recv_from(&mut [0; 64]).unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+            receiver.set_nonblocking(false).unwrap();
+        };
+        assert!(claim.send_sip(&signaling, b"original owned media").unwrap());
+        receive(b"original owned media");
+        claim.handshake_completed("127.0.0.2".parse().unwrap());
+        empty();
+        claim.handshake_completed(browser);
+        receive(b"original owned media");
+        assert!(claim.send_sip(&signaling, b"composed owned media").unwrap());
+        receive(b"composed owned media");
+        claim.handshake_completed(browser);
+        receive(b"composed owned media");
+        let ownership = claim.connected(17).unwrap();
+        assert!(claim.authenticate(17));
+        claim.handshake_completed(browser);
+        assert!(!claim.send_sip(&signaling, b"late preparation").unwrap());
+        empty();
+        assert!(claim.sip_offer.lock().unwrap().is_none());
+        drop(ownership);
+
+        let retired = Claim::new(
+            Identity {
+                browser,
+                ..test_identity()
+            },
+            epoch.clone(),
+            0,
+        );
+        assert!(retired.send_sip(&signaling, b"retiring").unwrap());
+        receive(b"retiring");
+        retired.retire();
+        retired.handshake_completed(browser);
+        assert!(retired.send_sip(&signaling, b"stale").is_err());
+        empty();
+        assert!(retired.sip_offer.lock().unwrap().is_none());
+
+        let changed = Claim::new(
+            Identity {
+                browser,
+                ..test_identity()
+            },
+            epoch.clone(),
+            0,
+        );
+        assert!(changed.send_sip(&signaling, b"old network").unwrap());
+        receive(b"old network");
+        {
+            let _send = SEND_GATE.lock().unwrap();
+            epoch.fetch_add(1, Ordering::AcqRel);
+        }
+        changed.handshake_completed(browser);
+        assert!(changed.send_sip(&signaling, b"old network").is_err());
+        empty();
+    }
+
     #[tokio::test]
     async fn a_public_odd_mapping_needs_no_companion_grant() {
         let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -340,7 +489,7 @@ mod tests {
         let path = super::super::tests::loopback_path(false);
         let (listener, companion) = pair(&path, &retirement).unwrap();
         let media_port = listener.local_addr().unwrap().port();
-        let socket_owner = DiscoverySocket::new(listener).unwrap();
+        let socket_owner = listener;
         let released = Arc::downgrade(&socket_owner);
         let gateway = tokio::spawn(async move {
             let mut buffer = [0; 100];
@@ -472,7 +621,6 @@ mod tests {
         let path = super::super::tests::loopback_path(false);
         let (socket, companion) = pair(&path, &retirement).unwrap();
         let address = socket.local_addr().unwrap();
-        let socket = DiscoverySocket::new(socket).unwrap();
         let released = Arc::downgrade(&socket);
         let egress = egress::EgressPath {
             local_ipv4: std::net::Ipv4Addr::LOCALHOST,
@@ -527,7 +675,6 @@ mod tests {
         let path = super::super::tests::loopback_path(false);
         let (socket, companion) = pair(&path, &retirement).unwrap();
         let address = socket.local_addr().unwrap();
-        let socket = DiscoverySocket::new(socket).unwrap();
         let released = Arc::downgrade(&socket);
         let egress = egress::EgressPath {
             local_ipv4: std::net::Ipv4Addr::LOCALHOST,
