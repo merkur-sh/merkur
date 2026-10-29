@@ -142,6 +142,13 @@ impl DiscoverySocket {
         })
     }
 
+    /// Reuse a reserved tuple only when no listener, observer or grant owns it.
+    /// Preserve socket-lifetime discovery history across authenticated sessions.
+    pub fn reuse_reserved(socket: &mut Arc<Self>) -> Option<Arc<Self>> {
+        Arc::get_mut(socket)?;
+        Some(socket.clone())
+    }
+
     // Discovery observers are reserved infrastructure, never application peers.
     // The ledger is socket-lifetime scoped and fails closed when full: eviction
     // could turn a familiar source into a false filtering pass.
@@ -492,6 +499,25 @@ mod tests {
             ecn: Some(udp::EcnCodepoint::Ect0),
             dst_ip: Some(addr.ip()),
         }
+    }
+
+    #[tokio::test]
+    async fn reserved_tuple_reuse_requires_exclusive_custody_and_preserves_discovery_history() {
+        let mut socket =
+            DiscoverySocket::new(std::net::UdpSocket::bind("127.0.0.1:0").unwrap()).unwrap();
+        let address = socket.local_addr().unwrap();
+        let observer = "192.0.2.1:3478".parse().unwrap();
+        socket.record_discovery_contact(observer);
+        let active = socket.clone();
+        assert!(DiscoverySocket::reuse_reserved(&mut socket).is_none());
+        drop(active);
+        let weak = Arc::downgrade(&socket);
+        assert!(DiscoverySocket::reuse_reserved(&mut socket).is_none());
+        drop(weak);
+        let successor = DiscoverySocket::reuse_reserved(&mut socket).unwrap();
+        assert_eq!(successor.local_addr().unwrap(), address);
+        assert!(successor.contacted_discovery_endpoint(observer));
+        assert!(std::net::UdpSocket::bind(address).is_err());
     }
 
     #[tokio::test]

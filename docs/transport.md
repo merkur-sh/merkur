@@ -825,11 +825,13 @@ through a helper-enabled port-dependent filter. It does not discover a destinati
 
 SIP uses a separate signaling socket directed to that browser's IP on UDP5060, with an SDP
 media offer naming an exclusively owned even UDP listener port. IPv6 SDP uses `IN IP6` and
-SIP hosts use bracketed IPv6 literals. The adjacent RTCP port is reserved and silent for the coordinator's lifetime, including after a candidate retires:
-router-side expiry is unobservable, so releasing it could expose a subsequently bound local
-service. Reservations belong to the exact address, family and interface. At most 160 companion
-reservations are retained across both families; after that, allocation reuses only pairs whose
-companion is already owned on that path. The OS allocates an ephemeral media socket; odd ports
+SIP hosts use bracketed IPv6 literals. Both media and adjacent silent RTCP ports remain
+reserved for the coordinator's lifetime, including after a candidate retires: router-side
+expiry is unobservable, so releasing either could expose a subsequently bound local service.
+Reservations belong to the exact address, family and interface. At most 160 pairs (320 sockets)
+are retained across both families. Allocation first reuses an owned pair only after every
+listener, observer and gateway cleanup has released it, while preserving socket-lifetime
+discovery history. The OS allocates an ephemeral media socket for a new pair; odd ports
 and occupied companion ports are discarded before any SIP request leaves. Allocation never
 searches neighboring WAN ports or restarts from a fixed local port after a daemon restart. The requested media port at the same
 interface's observed public IPv4 or owned global IPv6 is a `sip` candidate, never a verified
@@ -874,6 +876,16 @@ coordinator admits at most 32 preparing/live peer cohorts and uses only the rema
 in the ten-candidate manifest bound. All listeners share the daemon's 64-session admission
 semaphore. Candidates are published only after their helper sends complete; the ordinary
 session-key upgrade proof still decides which connection may carry terminal frames.
+
+A completed QUIC handshake on a live, unauthenticated SIP binding reoffers its current media
+allocation from the same owned signaling socket. This replenishes one-shot helper admission
+when a browser opens more than one QUIC flow for a constructor. The event precedes HTTP/3
+CONNECT; no timer, guessed source port or additional round trip gates the established flow.
+An intermediate mapping's send atomically replaces the retained offer. Sends serialize with
+session authentication, binding retirement and network invalidation, so revoked preparation
+cannot reoffer. Authentication releases the retained packet and signaling-socket clone.
+Renewal cannot repair a second flow already cached as an untranslated connection by a router;
+a helper send remains a candidate hint, and only the ordinary session proof establishes direct access.
 
 A client reports completion of the exact manifest after its race and upgrade settle. The
 peer retains that completion even when the coordinator wake queue is full.
