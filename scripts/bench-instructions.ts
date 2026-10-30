@@ -120,7 +120,10 @@ async function main(args: readonly string[]): Promise<void> {
     JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')),
     { onExcessProperty: 'ignore' },
   );
-  bazel(['build', TARGET]);
+  // `bazel run` writes the runfiles tree the benchmarks run in, which `bazel build` leaves to
+  // whatever reads it (`--nobuild_runfile_links`); `--script_path` builds without running.
+  const launcher = path.join(mkdtempSync(path.join(tmpdir(), 'bench-instructions-')), 'run');
+  bazel(['run', `--script_path=${launcher}`, TARGET]);
   const file = bazel(['cquery', '--output=files', TARGET]);
   const binary = path.join(bazel(['info', 'execution_root']), file);
   const counts: Record<string, number> = {};
