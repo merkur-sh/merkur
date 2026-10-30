@@ -68,7 +68,7 @@ Every toolchain is prebuilt and pinned by digest, with one source of truth each,
 | Bun | `.bun-version` (`tools/bazel/bun/extensions.bzl`) |
 | Node | `.node-version`, through `rules_nodejs` |
 | pnpm | `packageManager` in `package.json` |
-| C and C++ | `toolchains_llvm`, with a Linux sysroot; the release LLVM unpacked to what the toolchain uses (`tools/bazel/llvm/distribution.bzl`), about 900 MB of its 8 GB, which the host's `xz` decodes |
+| C and C++ | `toolchains_llvm`, with a Linux sysroot; the release LLVM cut to what the toolchain uses, about 900 MB of its 8 GB, which `bun run build:llvm-distribution` (`scripts/llvm-distribution.ts`) writes reproducibly from the checksummed release and publishes as the repository's `toolchain-llvm-<version>` release, 190-235 MB of zstd (`tools/bazel/llvm/distribution.bzl`) |
 | wasm-bindgen, binaryen | the `wasm-bindgen` crate `Cargo.lock` pins (`tools/bazel/wasm/extensions.bzl`) |
 | Chromium | the revision `playwright-core` names (`tools/bazel/playwright/extensions.bzl`) |
 | Redis, OpenSSL | the Bazel Central Registry, Redis with TLS (`tools/bazel/redis/redis-tls.patch`) |

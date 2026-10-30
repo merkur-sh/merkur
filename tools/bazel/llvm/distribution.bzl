@@ -1,82 +1,21 @@
-"""The LLVM release the C and C++ toolchain runs, unpacked to the files the toolchain names.
+"""The LLVM release the C and C++ toolchain runs, as the files the toolchain names.
 
 A release archive holds about 8 GB, most of it MLIR, LLDB, Flang, BOLT and LLVM's development
-headers and libraries. Bazel's own decoder unpacked all of it on one CPU, six minutes of every CI
-job. The host's `xz` decodes it here on every CPU (bsdtar's libarchive used one: 148 s on a macOS
-runner), and `tar` writes only what `@toolchains_llvm//toolchain:BUILD.llvm_repo.tpl` and the
-toolchain's tools directory name, with the programs their links resolve to.
+headers and libraries, in 1.5 GB of xz: over two minutes of every macOS CI job's download and a
+minute of a Linux job's decoding. `scripts/llvm-distribution.ts` cuts each release to what
+`@toolchains_llvm//toolchain:BUILD.llvm_repo.tpl` and the toolchain's tools directory name, the
+programs their links resolve to and LLVM's licence, and publishes the result, 190-235 MB of
+zstd, as the repository's `toolchain-llvm-<version>` release, which this rule fetches.
 """
 
-_RELEASE = "https://github.com/llvm/llvm-project/releases/download/llvmorg-{version}/{archive}.tar.xz"
-
-_PROGRAMS = [
-    "clang",
-    "clang++",
-    "clang-23",
-    "clang-cpp",
-    "clang-format",
-    "clang-tidy",
-    "clangd",
-    "ld.lld",
-    "ld64.lld",
-    "lld",
-    "llvm-ar",
-    "llvm-as",
-    "llvm-cov",
-    "llvm-dwp",
-    "llvm-install-name-tool",
-    "llvm-nm",
-    "llvm-objcopy",
-    "llvm-objdump",
-    "llvm-profdata",
-    "llvm-ranlib",
-    "llvm-readelf",
-    "llvm-readobj",
-    "llvm-strip",
-    "llvm-symbolizer",
-    "wasm-ld",
-]
-
-_HEADERS = [
-    "include/c++",
-    "include/__libunwind_config.h",
-    "include/libunwind.h",
-    "include/libunwind.modulemap",
-    "include/unwind.h",
-    "include/unwind_arm_ehabi.h",
-    "include/unwind_itanium.h",
-]
-
-# Darwin's libc++ and libunwind sit in `lib`, beside the LTO plugin Apple's linker loads; Linux
-# keeps its libraries and `__config_site` under the target's triple.
-_DARWIN = [
-    "bin/llvm-libtool-darwin",
-    "lib/libc++.a",
-    "lib/libc++abi.a",
-    "lib/libc++experimental.a",
-    "lib/libunwind.a",
-    "lib/libLTO.dylib",
-]
+_RELEASE = "https://github.com/merkur-sh/merkur/releases/download/toolchain-llvm-{version}/LLVM-{version}-{platform}.tar.zst"
 
 def _llvm_distribution_impl(rctx):
-    archive = "LLVM-%s-%s" % (rctx.attr.version, rctx.attr.platform)
-    rctx.download(
-        url = _RELEASE.format(version = rctx.attr.version, archive = archive),
+    rctx.download_and_extract(
+        url = _RELEASE.format(version = rctx.attr.version, platform = rctx.attr.platform),
         sha256 = rctx.attr.sha256,
-        output = "llvm.tar.xz",
+        type = "tar.zst",
     )
-    members = ["bin/" + program for program in _PROGRAMS] + _HEADERS + ["lib/clang"] + (
-        ["include/" + rctx.attr.triple, "lib/" + rctx.attr.triple] if rctx.attr.triple else _DARWIN
-    )
-    rctx.file("members", "".join(["%s/%s\n" % (archive, member) for member in members]))
-    result = rctx.execute(
-        ["bash", "-o", "pipefail", "-c", "xz -dc llvm.tar.xz | tar -xf - --strip-components=1 -T members"],
-        timeout = 1800,
-    )
-    if result.return_code:
-        fail("unpacking %s: %s" % (archive, result.stderr))
-    rctx.delete("llvm.tar.xz")
-    rctx.delete("members")
     rctx.file("BUILD.bazel", rctx.read(Label("@toolchains_llvm//toolchain:BUILD.llvm_repo.tpl")).format(
         LLVM_VERSION = rctx.attr.version.split(".")[0],
     ))
@@ -85,9 +24,8 @@ def _llvm_distribution_impl(rctx):
 llvm_distribution = repository_rule(
     implementation = _llvm_distribution_impl,
     attrs = {
-        "platform": attr.string(mandatory = True, doc = "The release's platform, `Linux-X64` in `LLVM-23.1.3-Linux-X64.tar.xz`."),
-        "sha256": attr.string(mandatory = True),
-        "triple": attr.string(doc = "The target triple Linux's libraries and `__config_site` sit under; empty for Darwin."),
+        "platform": attr.string(mandatory = True, doc = "The release's platform, `Linux-X64` in `LLVM-23.1.3-Linux-X64`."),
+        "sha256": attr.string(mandatory = True, doc = "The trimmed archive's, which `scripts/llvm-distribution.ts` prints."),
         "version": attr.string(mandatory = True),
     },
 )

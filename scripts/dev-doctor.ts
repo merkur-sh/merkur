@@ -41,8 +41,6 @@ checks.push({
 // Bazel brings Rust, Node and the WebAssembly tools; the Secure Enclave bridge compiles with the
 // selected Xcode's Swift.
 checks.push(await checkCommand('bazel', true));
-// The LLVM repository decodes its release with the host's xz (`tools/bazel/llvm/distribution.bzl`).
-checks.push(await checkCommand('xz', true));
 if (process.platform === 'darwin') {
   checks.push(await checkCommand('swiftc', true));
   checks.push(checkXcode());

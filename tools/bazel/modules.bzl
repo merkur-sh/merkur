@@ -10515,6 +10515,7 @@ TYPE_INPUTS = {
             "keyboard-decoder-lab.ts",
             "lint-ratchet.test.ts",
             "lint-ratchet.ts",
+            "llvm-distribution.ts",
             "native-artifacts.ts",
             "natlab/bootstrap.test.ts",
             "natlab/native-edge.ts",

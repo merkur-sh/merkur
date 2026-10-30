@@ -26,6 +26,7 @@
     "build:wasm-workspaces": "bun run scripts/wasm-artifact-manifests.ts",
     "build:vendored-workspace": "bun run scripts/vendored-workspace.ts",
     "build:sim-workspace": "bun run scripts/sim-workspace.ts",
+    "build:llvm-distribution": "bun run scripts/llvm-distribution.ts",
     "bench:graphics-codec:browser": "bun run scripts/bench-graphics-codec-browser.ts",
     "release:public-key": "bun run scripts/derive-release-public-key.ts",
     "ci:canary": "bun run scripts/ci-release-canary.ts",
