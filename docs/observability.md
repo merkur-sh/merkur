@@ -774,7 +774,9 @@ before draining, including when a newer start overtakes the capture thread. A ca
 observation of the session typed into most recently, captures it after its window, ends it,
 and with `--cpu` samples the dataplane with samply for the same window; a CLI observation
 supersedes a browser profiler's, whose token then fails closed. The e2e harness requests its
-captures over the same socket.
+captures over the same socket. The CLI handles Ctrl-C before sending start and retains that
+handler through capture and cleanup. Every attempted start ends its own observation on exit;
+a samply child is stopped and awaited even when start or capture fails.
 
 Each record has an owner, an ordinal, a process-monotonic `at_us`, a closed `kind`, and
 sixteen integer words. Kinds are `pty_enqueue`, `pty_write`, `pty_read`, `pty_read_handled`,

@@ -110,50 +110,71 @@ async function record(options: RecordOptions): Promise<number> {
   await mkdir(bundle, { recursive: true, mode: 0o700 });
 
   let samply: Bun.Subprocess | null = null;
-  if (options.cpu) {
-    if (listed.dataplanePid === null) {
-      process.stderr.write('merkur profile: the dataplane is not running\n');
-      return 1;
-    }
-    samply = Bun.spawn(
-      [
-        process.env.MERKUR_SAMPLY ?? 'samply',
-        'record',
-        '--save-only',
-        '--presymbolicate',
-        '-o',
-        path.join(bundle, 'cpu.json.gz'),
-        '-p',
-        String(listed.dataplanePid),
-      ],
-      { stdout: 'ignore', stderr: 'inherit' },
-    );
-  }
-
+  let samplyExit = 0;
   const observationId = crypto.randomUUID();
-  const started = await request({ op: 'start', sessionId: session.sessionId, observationId });
-  if (!started.ok || !('observationId' in started) || started.observationId !== observationId) {
-    samply?.kill('SIGINT');
-    return fail(started);
-  }
-  process.stderr.write(
-    `Recording session ${session.sessionId} for ${options.seconds} s (Ctrl-C stops it now)…\n`,
-  );
-  // An interrupt closes the window early; the capture and the end still run, so no
-  // observation outlives the command and keeps filling the dataplane's rings.
+  let startAttempted = false;
+  let ended: ProfileReply | undefined;
   const interrupted = Promise.withResolvers<void>();
   const onInterrupt = () => interrupted.resolve();
-  process.once('SIGINT', onInterrupt);
-  await Promise.race([Bun.sleep(options.seconds * 1000), interrupted.promise]);
-  process.off('SIGINT', onInterrupt);
-  const captured = await request({ op: 'capture', observationId });
-  const ended = await request({ op: 'end', observationId });
-  // samply saves its profile when interrupted while its target still runs.
-  samply?.kill('SIGINT');
-  const samplyExit = samply === null ? 0 : await samply.exited;
-  if (!captured.ok || !('path' in captured)) return fail(captured);
-  const spans = path.join(bundle, 'spans.mtrace');
-  await rename(captured.path, spans);
+  process.on('SIGINT', onInterrupt);
+  try {
+    if (options.cpu) {
+      if (listed.dataplanePid === null) {
+        process.stderr.write('merkur profile: the dataplane is not running\n');
+        return 1;
+      }
+      samply = Bun.spawn(
+        [
+          process.env.MERKUR_SAMPLY ?? 'samply',
+          'record',
+          '--save-only',
+          '--presymbolicate',
+          '-o',
+          path.join(bundle, 'cpu.json.gz'),
+          '-p',
+          String(listed.dataplanePid),
+        ],
+        { stdout: 'ignore', stderr: 'inherit' },
+      );
+    }
+
+    // The daemon may apply start even if the reply is lost or rejected locally.
+    startAttempted = true;
+    const started = await request({ op: 'start', sessionId: session.sessionId, observationId });
+    if (!started.ok || !('observationId' in started) || started.observationId !== observationId) {
+      return fail(started);
+    }
+    process.stderr.write(
+      `Recording session ${session.sessionId} for ${options.seconds} s (Ctrl-C stops it now)…\n`,
+    );
+    const deadline = setTimeout(interrupted.resolve, options.seconds * 1000);
+    try {
+      await interrupted.promise;
+    } finally {
+      clearTimeout(deadline);
+    }
+    const captured = await request({ op: 'capture', observationId });
+    if (!captured.ok || !('path' in captured)) return fail(captured);
+    await rename(captured.path, path.join(bundle, 'spans.mtrace'));
+  } finally {
+    try {
+      if (startAttempted) ended = await request({ op: 'end', observationId });
+    } finally {
+      try {
+        if (samply !== null) {
+          // samply saves its profile when interrupted while its target still runs.
+          try {
+            samply.kill('SIGINT');
+          } finally {
+            samplyExit = await samply.exited;
+          }
+        }
+      } finally {
+        process.off('SIGINT', onInterrupt);
+      }
+    }
+  }
+  if (ended === undefined) throw new Error('Profile observation cleanup did not complete');
   if (!ended.ok) return fail(ended);
   process.stdout.write(`${bundle}\n`);
   if (samplyExit !== 0) {

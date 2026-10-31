@@ -1,4 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import type { ProfileReply } from '../services/profile-socket';
 import { decodeProfileRequest } from '../services/profile-socket';
 import { decodeReply, parseRecordOptions, pickSession } from './profile';
 
@@ -81,4 +85,170 @@ describe('merkur profile', () => {
     expect(decodeProfileRequest('{"op":"shell"}')).toBeNull();
     expect(decodeProfileRequest('not json')).toBeNull();
   });
+});
+
+test.each(['start', 'capture'] as const)(
+  'Ctrl-C during the %s reply ends its observation before exit',
+  async (phase) => {
+    const home = await mkdtemp(path.join(os.tmpdir(), 'merkur-profile-interrupt-'));
+    const directory = path.join(home, '.merkur');
+    await mkdir(directory);
+    const reached = Promise.withResolvers<void>();
+    const operations: string[] = [];
+    let held: Bun.Socket<{ buffer: string }> | undefined;
+    let heldReply: ProfileReply = { ok: false, reason: 'not_reached' };
+    let observationId: string | undefined;
+    const listener = Bun.listen<{ buffer: string }>({
+      unix: path.join(directory, 'profile.sock'),
+      socket: {
+        open(socket) {
+          socket.data = { buffer: '' };
+        },
+        data(socket, chunk) {
+          socket.data.buffer += chunk.toString();
+          if (!socket.data.buffer.includes('\n')) return;
+          const request = decodeProfileRequest(socket.data.buffer.trim());
+          if (request === null) throw new Error('invalid test request');
+          operations.push(request.op);
+          let reply: ProfileReply;
+          if (request.op === 'sessions') {
+            reply = {
+              ok: true,
+              sessions: [{ sessionId: 's', peerId: 'p', inputMsAgo: 0 }],
+              dataplanePid: 42,
+            };
+          } else if (request.op === 'start') {
+            observationId = request.observationId;
+            reply = { ok: true, observationId };
+          } else if (request.op === 'capture') {
+            expect(request.observationId).toBe(observationId);
+            reply = { ok: false, reason: 'controlled_capture_failure' };
+          } else if (request.op === 'end') {
+            expect(request.observationId).toBe(observationId);
+            reply = { ok: true };
+          } else {
+            throw new Error('unexpected browser capture');
+          }
+          if (request.op === phase) {
+            held = socket;
+            heldReply = reply;
+            reached.resolve();
+          } else {
+            socket.end(`${JSON.stringify(reply)}\n`);
+          }
+        },
+      },
+    });
+    const script = `
+    const on = process.on;
+    process.on = function(event, callback) {
+      return on.call(this, event, event === 'SIGINT' ? (...args) => {
+        callback(...args);
+        process.stdout.write('interrupted\\n');
+      } : callback);
+    };
+    const { runProfileCommand } = await import(${JSON.stringify(new URL('./profile.ts', import.meta.url).href)});
+    process.exit(await runProfileCommand(['record', '--seconds', '0.001']));
+  `;
+    const child = Bun.spawn([process.execPath, '-e', script], {
+      env: { ...process.env, MERKUR_DAEMON_HOME: home },
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    try {
+      await reached.promise;
+      child.kill('SIGINT');
+      // The instrumented handler reports actual signal delivery; an unhandled signal exits.
+      await Promise.race([child.exited, child.stdout.getReader().read()]);
+      held?.end(`${JSON.stringify(heldReply)}\n`);
+      await child.exited;
+      expect(operations).toContain('end');
+      expect(await child.exited).toBe(1);
+    } finally {
+      child.kill('SIGKILL');
+      await child.exited;
+      listener.stop(true);
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
+
+test('a rejected start stops samply and awaits its actual exit', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'merkur-profile-cpu-'));
+  await mkdir(path.join(home, '.merkur'));
+  const ready = Promise.withResolvers<void>();
+  const stopped = Promise.withResolvers<void>();
+  let sampler: Bun.Socket | undefined;
+  const samplerListener = Bun.listen({
+    unix: path.join(home, 'sampler.sock'),
+    socket: {
+      data(socket, chunk) {
+        sampler = socket;
+        if (chunk.toString() === 'ready') ready.resolve();
+        else if (chunk.toString() === 'stopped') stopped.resolve();
+      },
+    },
+  });
+  const executable = path.join(home, 'samply');
+  await writeFile(
+    executable,
+    `#!${process.execPath}
+    let socket;
+    process.on('SIGINT', () => socket.write('stopped'));
+    socket = await Bun.connect({ unix: ${JSON.stringify(path.join(home, 'sampler.sock'))}, socket: {
+      open(socket) { socket.write('ready'); },
+      data() { process.exit(0); }
+    }});
+  `,
+    { mode: 0o700 },
+  );
+  let ended = false;
+  const listener = Bun.listen<{ buffer: string }>({
+    unix: path.join(home, '.merkur', 'profile.sock'),
+    socket: {
+      open(socket) {
+        socket.data = { buffer: '' };
+      },
+      data(socket, chunk) {
+        socket.data.buffer += chunk.toString();
+        if (!socket.data.buffer.includes('\n')) return;
+        const request = decodeProfileRequest(socket.data.buffer.trim());
+        if (request?.op === 'sessions') {
+          socket.end(
+            `${JSON.stringify({ ok: true, sessions: [{ sessionId: 's', peerId: 'p', inputMsAgo: 0 }], dataplanePid: 42 })}\n`,
+          );
+        } else if (request?.op === 'start') {
+          void ready.promise.then(() =>
+            socket.end(`${JSON.stringify({ ok: false, reason: 'controlled_start_failure' })}\n`),
+          );
+        } else if (request?.op === 'end') {
+          ended = true;
+          socket.end('{"ok":true}\n');
+        } else {
+          throw new Error('unexpected profile request');
+        }
+      },
+    },
+  });
+  const script = `const { runProfileCommand } = await import(${JSON.stringify(new URL('./profile.ts', import.meta.url).href)}); process.exit(await runProfileCommand(['record', '--cpu']));`;
+  const child = Bun.spawn([process.execPath, '-e', script], {
+    env: { ...process.env, MERKUR_DAEMON_HOME: home, MERKUR_SAMPLY: executable },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  try {
+    await stopped.promise;
+    expect(ended).toBe(true);
+    expect(child.exitCode).toBeNull();
+    sampler?.write('exit');
+    expect(await child.exited).toBe(1);
+  } finally {
+    sampler?.write('exit');
+    child.kill('SIGKILL');
+    await child.exited;
+    listener.stop(true);
+    samplerListener.stop(true);
+    await rm(home, { recursive: true, force: true });
+  }
 });
