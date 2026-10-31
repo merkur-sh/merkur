@@ -1523,10 +1523,15 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     let mut wt_start_awaiting_credential = false;
 
     let mut running = true;
-    // An accepted `CMD_UPGRADE` and the owner socket bound for it: the loop ends, and the
-    // terminal goes to the next release instead of being shut down.
+    // A committed preparation: cleanup retires serving resources before this staged file
+    // and its descriptors replace the process image.
     #[cfg(not(merkur_sim))]
-    let mut pending_upgrade: Option<(UpgradeCmd, std::os::unix::net::UnixListener)> = None;
+    let mut pending_upgrade: Option<(
+        PrepareUpgradeCmd,
+        handoff::OwnerListener,
+        handoff::Staged,
+        pty::ReaderPause,
+    )> = None;
     let mut fatal_event_failure: Option<EventSinkFailure> = None;
     let mut fatal_ipc_failure: Option<io::Error> = None;
     let start_instant = Instant::now();
@@ -2946,8 +2951,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     #[cfg(not(merkur_sim))]
-                    CMD_UPGRADE => {
-                        let cmd: UpgradeCmd = match serde_json::from_slice(&payload) {
+                    CMD_PREPARE_UPGRADE => {
+                        let cmd: PrepareUpgradeCmd = match serde_json::from_slice(&payload) {
                             Ok(command) => command,
                             Err(error) => {
                                 warn!(%error, "invalid upgrade command");
@@ -2959,21 +2964,118 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             reject_command(&event_tx, &cmd.command_id, "invalid_command");
                             continue;
                         }
-                        match handoff::prepare(
+                        let owner = match handoff::prepare(
                             std::path::Path::new(&cmd.executable),
                             std::path::Path::new(&cmd.socket_path),
                         ) {
-                            Ok(listener) => {
-                                info!(executable = %cmd.executable, "upgrade requested");
-                                pending_upgrade = Some((cmd, listener));
-                                running = false;
-                            }
+                            Ok(owner) => owner,
                             Err(error) => {
                                 warn!(%error, "upgrade refused");
                                 reject_command(&event_tx, &cmd.command_id, "upgrade_unavailable");
+                                continue;
                             }
+                        };
+                        let pause = pty::ReaderPause(Arc::clone(&pty_reader_stop));
+                        let staged = prepare_terminal_handoff(
+                            &cmd, &owner.listener, &mut terminal, pty_master.as_ref(),
+                            pty_child.process_id(), &pty_reader_stop, &mut pty_async_rx,
+                            &mut pending_pty_read, &buffer_return_tx,
+                            |terminal| {
+                                if let Ok(completion) = pty_write_completion_rx.try_recv() {
+                                    match handle_pty_write_completions(
+                                        completion, &mut pty_write_completion_rx, &mut pty_writer,
+                                        terminal, &mut registry.peers, &mut registry.parked,
+                                        &mut registry.input_refill, &mut perf_timing,
+                                    ) {
+                                        Ok(turn) => input_ack_pending |= turn.input_ack_queued,
+                                        Err(()) => { running = false; return Err(io::Error::other("PTY write failed during preparation")); }
+                                    }
+                                    settle_geometry_fences(None, pty_master.as_ref(), &mut pty_writer,
+                                        terminal, &mut registry.peers, &mut registry.parked,
+                                        &mut registry.input_refill, start_instant, &mut perf_timing);
+                                }
+                                if !enqueue_terminal_events(&terminal_event_rx, &mut pty_writer) {
+                                    running = false;
+                                    return Err(io::Error::other("PTY reply failed during preparation"));
+                                }
+                                Ok(())
+                            },
+                        ).await;
+                        if let Ok(staged) = staged {
+                            accept_command(&event_tx, &cmd.command_id);
+                            // The screen and kernel suffix stay at this exact boundary until
+                            // the owner activates the release and commits, or explicitly aborts.
+                            loop {
+                                let Some(input) = ipc_rx.recv().await else {
+                                    running = false;
+                                    break;
+                                };
+                                let (kind, payload) = match input {
+                                    IpcInput::Frame(kind, payload) => (kind, payload),
+                                    IpcInput::ReadError(error) => {
+                                        fatal_ipc_failure = Some(error);
+                                        running = false;
+                                        break;
+                                    }
+                                };
+                                if kind == CMD_SHUTDOWN {
+                                    running = false;
+                                    break;
+                                }
+                                if kind != CMD_COMMIT_UPGRADE && kind != CMD_ABORT_UPGRADE {
+                                    reject_command_from_payload(&event_tx, &payload, "upgrade_prepared");
+                                    continue;
+                                }
+                                let finish: FinishUpgradeCmd = match serde_json::from_slice(&payload) {
+                                    Ok(finish) => finish,
+                                    Err(_) => {
+                                        reject_command_from_payload(&event_tx, &payload, "invalid_command");
+                                        continue;
+                                    }
+                                };
+                                if !is_valid_command_id(&finish.command_id) || finish.prepared_id != cmd.command_id {
+                                    reject_command(&event_tx, &finish.command_id, "unknown_preparation");
+                                    continue;
+                                }
+                                if kind == CMD_ABORT_UPGRADE {
+                                    // Resume before acknowledging that serving ownership returned.
+                                    drop(staged);
+                                    drop(owner);
+                                    drop(pause);
+                                    accept_command(&event_tx, &finish.command_id);
+                                } else {
+                                    let mut commit = cmd;
+                                    commit.command_id = finish.command_id;
+                                    pending_upgrade = Some((commit, owner, staged, pause));
+                                    running = false;
+                                }
+                                break;
+                            }
+                        } else if let Err(error) = staged {
+                            warn!(%error, "handoff preparation refused");
+                            if error.kind() == io::ErrorKind::UnexpectedEof { running = false; }
+                            reject_command(&event_tx, &cmd.command_id, "upgrade_failed");
+                        }
+                        if running {
+                            prediction_safety_sample_pending = true;
+                            display::send::note_display_output(&mut registry.peers, now_ms_since(start_instant));
+                            schedule_display_flush(include_prediction_sample_wake(
+                                compute_next_flush_delay_ms(&registry.peers, terminal.pending_display_damage(),
+                                    terminal.current_display_header_signal(), &display_scratch.current_row_hashes,
+                                    now_ms_since(start_instant)), true, has_active_display_peers(&registry.peers)),
+                                flush_sleep.as_mut(), &mut flush_armed, &mut flush_now);
                         }
                     }
+                    #[cfg(not(merkur_sim))]
+                    CMD_ABORT_UPGRADE => {
+                        // An abort also resolves a preparation whose rejection or ACK was lost.
+                        match serde_json::from_slice::<FinishUpgradeCmd>(&payload) {
+                            Ok(cmd) if is_valid_command_id(&cmd.command_id) => accept_command(&event_tx, &cmd.command_id),
+                            _ => reject_command_from_payload(&event_tx, &payload, "invalid_command"),
+                        }
+                    }
+                    #[cfg(not(merkur_sim))]
+                    CMD_COMMIT_UPGRADE => reject_command_from_payload(&event_tx, &payload, "unknown_preparation"),
                     CMD_SHUTDOWN => {
                         info!("shutdown requested");
                         running = false;
@@ -4111,10 +4213,9 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     // An upgrade keeps the native broker's socket bound for the next process; its clients
     // are reaped like any other image work.
     #[cfg(not(merkur_sim))]
-    let native_handover = match &pending_upgrade {
-        Some(_) => terminal.hand_over_native_graphics().await,
-        None => Ok(None),
-    };
+    if pending_upgrade.is_some() {
+        terminal.preserve_native_socket();
+    }
 
     // Retire publication authority and reap image workers before the runtime or
     // the terminal's reservations disappear, including IPC/read-error exits.
@@ -4172,29 +4273,19 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     // An upgrade hands the shell over instead of ending it; this returns only if it failed,
     // and the process then ends as a crash would.
     #[cfg(not(merkur_sim))]
-    if let Some((upgrade, owner_listener)) = pending_upgrade.take() {
+    if let Some((upgrade, _owner_listener, staged, _pause)) = pending_upgrade.take() {
         if let Some(mut server) = wt_server.take() {
             // Its retired connections close with this process image.
             drop(server.shutdown().await);
         }
         management_signatures.abort_all();
-        let error = hand_over_terminal(
-            &upgrade,
-            &owner_listener,
-            native_handover,
-            &mut terminal,
-            pty_master.as_ref(),
-            pty_child.process_id(),
-            &pty_reader_stop,
-            &mut pty_async_rx,
-            pending_pty_read.take(),
-            &event_tx,
-            &mut event_output,
-        )
-        .await;
-        if let Err(removal) = std::fs::remove_file(&upgrade.socket_path) {
-            warn!(error = %removal, "the owner socket of a failed upgrade stays at its path");
+        accept_command(&event_tx, &upgrade.command_id);
+        if let Err(failure) = event_output.shutdown().await {
+            return Err(
+                io::Error::other(format!("upgrade acknowledgement failed: {failure}")).into(),
+            );
         }
+        let error = staged.exec(std::path::Path::new(&upgrade.executable));
         return Err(Box::new(error));
     }
 
@@ -4240,47 +4331,40 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The upgrade's last steps, after every peer and transport is gone: take the reader's
-/// last reads into the terminal, write the handoff, acknowledge the upgrade and replace this
-/// process (`handoff`). Returns only on failure, having refused the upgrade when it still can.
+/// Prepare the file while every serving resource is still owned. The caller's pause guard
+/// resumes the reader on rejection or abort; only a subsequent commit ends the owner loop.
 #[cfg(not(merkur_sim))]
 #[expect(
     clippy::too_many_arguments,
-    reason = "the owner loop's locals, borrowed once at exit"
+    reason = "borrows the owner loop's terminal and reader once during preparation"
 )]
-async fn hand_over_terminal(
-    upgrade: &UpgradeCmd,
+async fn prepare_terminal_handoff(
+    upgrade: &PrepareUpgradeCmd,
     owner_listener: &std::os::unix::net::UnixListener,
-    native_handover: io::Result<Option<pty::terminal::NativeHandover>>,
     terminal: &mut TerminalState,
     pty_master: &(dyn portable_pty::MasterPty + Send),
     child_pid: Option<u32>,
     reader: &pty::ReaderStop,
     pty_async_rx: &mut mpsc::Receiver<TerminalEvent>,
-    pending_pty_read: Option<(pty::PtyRead, usize, Option<pty::PtyTraceStamp>)>,
-    event_tx: &EventSink,
-    event_output: &mut EventOutput,
-) -> io::Error {
-    /// How long one interrupt waits for the reader to report before it is sent again; see
-    /// `pty::ReaderStop`. Only liveness depends on it: a byte is never lost to a resend.
+    pending_pty_read: &mut Option<(pty::PtyRead, usize, Option<pty::PtyTraceStamp>)>,
+    buffer_return_tx: &crossbeam_channel::Sender<Vec<u8>>,
+    mut before_apply: impl FnMut(&mut TerminalState) -> io::Result<()>,
+) -> io::Result<handoff::Staged> {
+    // Retransmission of the interrupt closes the check/read race; only the reader's
+    // ordered acknowledgement establishes quiescence, never this resend interval.
     const READER_STOP_RESEND_MS: u64 = 5;
-
-    let refuse = |error: io::Error| {
-        reject_command(event_tx, &upgrade.command_id, "upgrade_failed");
-        error
-    };
-    let image = match native_handover {
-        Ok(Some(image)) => image,
-        Ok(None) => return refuse(io::Error::other("no native image broker to hand over")),
-        Err(error) => return refuse(error),
-    };
+    let image = terminal
+        .prepare_native_handover()?
+        .ok_or_else(|| io::Error::other("no native image broker to hand over"))?;
     let (Some(pty_fd), Some(child_pid)) = (pty_master.as_raw_fd(), child_pid) else {
-        return refuse(io::Error::other(
+        return Err(io::Error::other(
             "the PTY has no descriptor or shell to hand over",
         ));
     };
-    if let Some((bytes, offset, _)) = &pending_pty_read {
-        terminal.apply_bytes(&bytes[*offset..]);
+    apply_handoff_bytes(terminal, &[], &mut before_apply).await?;
+    if let Some((bytes, offset, _)) = pending_pty_read.take() {
+        apply_handoff_bytes(terminal, &bytes[offset..], &mut before_apply).await?;
+        drop(buffer_return_tx.send(bytes.into_buffer()));
     }
     loop {
         reader.request();
@@ -4291,21 +4375,25 @@ async fn hand_over_terminal(
         .await
         {
             Ok(Some(TerminalEvent::PtyBytes(read, _))) => {
-                terminal.apply_bytes(&read);
+                apply_handoff_bytes(terminal, &read, &mut before_apply).await?;
+                drop(buffer_return_tx.send(read.into_buffer()));
             }
-            Ok(Some(TerminalEvent::PtyWrite(_))) => {}
-            Ok(Some(
-                TerminalEvent::PtyReaderStopped
-                | TerminalEvent::PtyReadClosed
-                | TerminalEvent::PtyReadError(_),
-            ))
-            | Ok(None) => break,
+            Ok(Some(TerminalEvent::PtyReaderStopped)) => break,
+            Ok(Some(TerminalEvent::PtyWrite(_))) => {
+                return Err(io::Error::other("reply on reader channel"));
+            }
+            Ok(Some(TerminalEvent::PtyReadClosed | TerminalEvent::PtyReadError(_))) | Ok(None) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "PTY reader closed during preparation",
+                ));
+            }
             Err(_) => {}
         }
     }
     let mut replay = zeroize::Zeroizing::new(Vec::new());
-    terminal.write_replay(&mut replay);
-    let staged = match handoff::stage(
+    terminal.write_replay(&mut replay)?;
+    handoff::stage(
         handoff::Outgoing {
             socket_path: std::path::Path::new(&upgrade.socket_path),
             pty_fd,
@@ -4316,18 +4404,31 @@ async fn hand_over_terminal(
             replay: &replay,
         },
         owner_listener,
-    ) {
-        Ok(staged) => staged,
-        Err(error) => return refuse(error),
-    };
-    accept_command(event_tx, &upgrade.command_id);
-    // The acknowledgement must reach the owner before this image goes.
-    if let Err(failure) = event_output.shutdown().await {
-        return io::Error::other(format!(
-            "the upgrade acknowledgement was not delivered: {failure}"
-        ));
+    )
+}
+
+#[cfg(not(merkur_sim))]
+async fn apply_handoff_bytes(
+    terminal: &mut TerminalState,
+    bytes: &[u8],
+    before_apply: &mut impl FnMut(&mut TerminalState) -> io::Result<()>,
+) -> io::Result<()> {
+    let wake = terminal.graphics_wake();
+    let mut offset = 0;
+    loop {
+        before_apply(terminal)?;
+        offset += terminal.apply_bytes(&bytes[offset..]);
+        if !terminal.graphics_pending() {
+            break;
+        }
+        if let Some(release) = terminal.graphics_release() {
+            release.wait().await;
+            terminal.observe_graphics_release();
+        } else {
+            wake.notified().await;
+        }
     }
-    staged.exec(std::path::Path::new(&upgrade.executable))
+    before_apply(terminal)
 }
 
 fn capture_pending_event_failure(

@@ -25,9 +25,11 @@ const DAEMON_COMMAND_GOLDEN = {
   CMD_PROFILE_SESSIONS: 0x12,
   CMD_PROFILE_START: 0x13,
   CMD_PROFILE_END: 0x14,
-  CMD_UPGRADE: 0x15,
+  CMD_PREPARE_UPGRADE: 0x15,
   CMD_ADOPT: 0x16,
   CMD_REGISTER_TRAVERSAL: 0x17,
+  CMD_COMMIT_UPGRADE: 0x18,
+  CMD_ABORT_UPGRADE: 0x19,
 } as const;
 
 const DAEMON_EVENT_GOLDEN = {
@@ -163,10 +165,14 @@ describe('daemon dataplane IPC wire conformance', () => {
   });
 
   test('the upgrade and adopt commands are the exact key sets the daemon writes', () => {
-    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'UpgradeCmd')).toEqual([
+    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'PrepareUpgradeCmd')).toEqual([
       'command_id',
       'executable',
       'socket_path',
+    ]);
+    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'FinishUpgradeCmd')).toEqual([
+      'command_id',
+      'prepared_id',
     ]);
     expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'AdoptCmd')).toEqual(['args']);
   });

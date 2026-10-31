@@ -3,7 +3,7 @@ import * as filesystem from 'node:fs/promises';
 import { chmod, mkdir, mkdtemp, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { Effect } from 'effect';
+import { Deferred, Effect, Fiber } from 'effect';
 
 import type { DaemonConfig } from '../config';
 import { createLogger } from '../logger';
@@ -56,19 +56,34 @@ function context(
   installRoot: string,
   upgrade: (executable: string, socketPath: string) => DataplaneCommandResult,
 ) {
+  const decisions: string[] = [];
+  const preparedIds: string[] = [];
   const upgrades: Array<{ executable: string; socketPath: string }> = [];
   return {
     upgrades,
+    decisions,
+    preparedIds,
     value: {
       // SAFETY: convergence reads only the origin, which the release store is fetched from.
       config: { server_origin: 'https://merkur.test' } as DaemonConfig,
       logger,
       installRoot,
       dataplane: {
+        commitUpgradeEffect: (_id: string, preparedId: string) =>
+          Effect.sync(() => {
+            decisions.push(`commit:${preparedId}`);
+            return { status: 'accepted' } as const;
+          }),
+        abortUpgradeEffect: (_id: string, preparedId: string) =>
+          Effect.sync(() => {
+            decisions.push(`abort:${preparedId}`);
+            return { status: 'accepted' } as const;
+          }),
         dataplanePid: () => 4242,
-        upgradeEffect: (_commandId: string, executable: string, socketPath: string) =>
+        prepareUpgradeEffect: (commandId: string, executable: string, socketPath: string) =>
           Effect.sync(() => {
             upgrades.push({ executable, socketPath });
+            preparedIds.push(commandId);
             return upgrade(executable, socketPath);
           }),
       },
@@ -291,6 +306,7 @@ describe('convergence', () => {
       expect(harness.upgrades).toEqual([
         { executable: path.join(versionDirectory, 'merkur-dataplane'), socketPath },
       ]);
+      expect(harness.decisions).toEqual([`commit:${harness.preparedIds[0]}`]);
       expect(failure.file).toBe(path.join(versionDirectory, 'merkur'));
       expect(failure.args).toEqual([path.join(versionDirectory, 'merkur'), 'daemon']);
       expect(failure.env[DATAPLANE_ADOPT_ENV]).toBe(`4242:${socketPath}`);
@@ -310,6 +326,77 @@ describe('convergence', () => {
         Effect.flip(convergeEffect(harness.value, stagerFor(versionDirectory), 'v2.0.0')),
       );
       expect(failure.message).toContain('upgrade_unavailable');
+      expect(harness.decisions).toEqual([`abort:${harness.preparedIds[0]}`]);
+      await expect(readlink(path.join(installRoot, 'current'))).rejects.toThrow();
+    } finally {
+      await rm(installRoot, { recursive: true, force: true });
+    }
+  });
+  test('activation failure aborts preparation without committing or replacing either process', async () => {
+    const { installRoot, versionDirectory } = await stagedInstall('v2.0.0');
+    try {
+      // A directory at current makes the atomic activation rename fail.
+      await mkdir(path.join(installRoot, 'current'));
+      const harness = context(installRoot, () => ({ status: 'accepted' }));
+      const failure = await Effect.runPromise(
+        Effect.flip(convergeEffect(harness.value, stagerFor(versionDirectory), 'v2.0.0')),
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(harness.decisions).toEqual([`abort:${harness.preparedIds[0]}`]);
+      expect(harness.upgrades).toHaveLength(1);
+    } finally {
+      await rm(installRoot, { recursive: true, force: true });
+    }
+  });
+  test('cancellation while preparing aborts before activation after the prepared acknowledgement', async () => {
+    const { installRoot, versionDirectory } = await stagedInstall('v2.0.0');
+    try {
+      const harness = context(installRoot, () => ({ status: 'accepted' }));
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const entered = yield* Deferred.make<void>();
+          const prepared = yield* Deferred.make<void>();
+          const original = harness.value.dataplane.prepareUpgradeEffect;
+          harness.value.dataplane.prepareUpgradeEffect = (id, executable, socketPath) =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(prepared);
+              return yield* original(id, executable, socketPath);
+            });
+          const fiber = yield* convergeEffect(
+            harness.value,
+            stagerFor(versionDirectory),
+            'v2.0.0',
+          ).pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          // Immediate interruption injection at the preparation barrier, with no elapsed-time guess.
+          fiber.interruptUnsafe();
+          yield* Deferred.succeed(prepared, undefined);
+          yield* Fiber.await(fiber);
+        }),
+      );
+      expect(harness.decisions).toEqual([`abort:${harness.preparedIds[0]}`]);
+      await expect(readlink(path.join(installRoot, 'current'))).rejects.toThrow();
+    } finally {
+      await rm(installRoot, { recursive: true, force: true });
+    }
+  });
+  test('a lost preparation acknowledgement is aborted before another attempt gets a fresh token', async () => {
+    const { installRoot, versionDirectory } = await stagedInstall('v2.0.0');
+    try {
+      const harness = context(installRoot, () => ({
+        status: 'rejected',
+        reason: 'dataplane_ack_timeout',
+      }));
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const failure = await Effect.runPromise(
+          Effect.flip(convergeEffect(harness.value, stagerFor(versionDirectory), 'v2.0.0')),
+        );
+        expect(failure.message).toContain('dataplane_ack_timeout');
+      }
+      expect(new Set(harness.preparedIds).size).toBe(2);
+      expect(harness.decisions).toEqual(harness.preparedIds.map((id) => `abort:${id}`));
+      await expect(readlink(path.join(installRoot, 'current'))).rejects.toThrow();
     } finally {
       await rm(installRoot, { recursive: true, force: true });
     }

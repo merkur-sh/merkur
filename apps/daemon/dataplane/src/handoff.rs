@@ -83,11 +83,25 @@ pub fn decode(bytes: &[u8]) -> io::Result<(Header, &[u8])> {
     Ok((header, &bytes[end + 1..]))
 }
 
+/// A preparation owns its socket path until abort or process replacement.
+pub struct OwnerListener {
+    pub listener: UnixListener,
+    path: PathBuf,
+}
+
+impl Drop for OwnerListener {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            tracing::debug!(%error, "owner socket removal failed");
+        }
+    }
+}
+
 /// Checks an upgrade's paths and binds the socket the parent will connect to as the new
 /// owner. Done before the owner loop ends, so a refused upgrade leaves this process serving;
 /// and before the upgrade is acknowledged, so the parent can connect the moment it has
 /// replaced itself: until the successor accepts, the connection waits in the backlog.
-pub fn prepare(executable: &Path, socket_path: &Path) -> io::Result<UnixListener> {
+pub fn prepare(executable: &Path, socket_path: &Path) -> io::Result<OwnerListener> {
     use std::os::unix::fs::PermissionsExt;
     if !executable.is_absolute() || !socket_path.is_absolute() {
         return Err(io::Error::new(
@@ -102,18 +116,33 @@ pub fn prepare(executable: &Path, socket_path: &Path) -> io::Result<UnixListener
             "upgrade target is not executable",
         ));
     }
-    UnixListener::bind(socket_path)
+    Ok(OwnerListener {
+        listener: UnixListener::bind(socket_path)?,
+        path: socket_path.to_owned(),
+    })
 }
 
-/// The handoff written and its descriptors marked to survive `execve`.
+/// A complete handoff whose descriptors stay close-on-exec until commit.
 pub struct Staged {
     file: File,
     fds: [RawFd; 3],
     _image: crate::pty::terminal::NativeHandover,
+    inheriting: bool,
 }
 
-/// Writes the handoff and marks every descriptor it names to survive `execve`.
+/// Writes the complete handoff without changing serving ownership or descriptor flags.
 pub fn stage(outgoing: Outgoing<'_>, owner_listener: &UnixListener) -> io::Result<Staged> {
+    stage_with(outgoing, owner_listener, unlinked_file, |file, bytes| {
+        file.write_all(bytes)
+    })
+}
+
+fn stage_with(
+    outgoing: Outgoing<'_>,
+    owner_listener: &UnixListener,
+    create: impl FnOnce(&Path) -> io::Result<File>,
+    write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
+) -> io::Result<Staged> {
     let header = Header {
         pty_fd: outgoing.pty_fd,
         child_pid: outgoing.child_pid,
@@ -129,37 +158,48 @@ pub fn stage(outgoing: Outgoing<'_>, owner_listener: &UnixListener) -> io::Resul
         .socket_path
         .parent()
         .ok_or_else(|| io::Error::other("owner socket path has no directory"))?;
-    let mut file = unlinked_file(directory)?;
-    file.write_all(&bytes)?;
+    let mut file = create(directory)?;
+    write(&mut file, &bytes)?;
     file.rewind()?;
     let fds = [
         header.pty_fd,
         header.owner_listener_fd,
         header.image_listener_fd,
     ];
-    for fd in fds.into_iter().chain([file.as_raw_fd()]) {
-        inherit(fd)?;
-    }
     Ok(Staged {
         file,
         fds,
         _image: outgoing.image,
+        inheriting: false,
     })
+}
+
+impl Drop for Staged {
+    fn drop(&mut self) {
+        if !self.inheriting {
+            return;
+        }
+        for fd in self.fds.into_iter().chain([self.file.as_raw_fd()]) {
+            if let Err(error) = close_on_exec(fd) {
+                tracing::warn!(%error, fd, "handoff descriptor stays inheritable");
+            }
+        }
+    }
 }
 
 impl Staged {
     /// Replaces this process with `executable`. Returns only if `execve` fails; the
     /// descriptors are then this process's again, and it ends as a crash would.
-    pub fn exec(self, executable: &Path) -> io::Error {
-        let error = std::process::Command::new(executable)
-            .env(HANDOFF_FD_ENV, self.file.as_raw_fd().to_string())
-            .exec();
-        for fd in self.fds {
-            if let Err(error) = close_on_exec(fd) {
-                tracing::warn!(%error, fd, "a descriptor kept for the next image stays inheritable");
+    pub fn exec(mut self, executable: &Path) -> io::Error {
+        self.inheriting = true;
+        for fd in self.fds.into_iter().chain([self.file.as_raw_fd()]) {
+            if let Err(error) = inherit(fd) {
+                return error;
             }
         }
-        error
+        std::process::Command::new(executable)
+            .env(HANDOFF_FD_ENV, self.file.as_raw_fd().to_string())
+            .exec()
     }
 }
 
@@ -477,6 +517,119 @@ mod tests {
         assert_eq!(encode(&header, replay).expect("encode"), bytes);
         let credential = decode_credential(&header.image_credential).expect("credential");
         assert_eq!(credential[31], 0x1f);
+    }
+
+    #[tokio::test]
+    async fn handoff_prepare_failure_preserves_session_retained_read() {
+        let directory =
+            std::env::temp_dir().join(format!("merkur-handoff-retained-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let owner = prepare(Path::new("/bin/sh"), &directory.join("owner.sock")).unwrap();
+        let pair = portable_pty::native_pty_system()
+            .openpty(portable_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let (events, _events_rx) = crossbeam_channel::unbounded();
+        let mut terminal = crate::pty::TerminalState::new(80, 24, events);
+        let (_reader_tx, mut reader_rx) = tokio::sync::mpsc::channel(1);
+        let (returned, _returned_rx) = crossbeam_channel::unbounded();
+        let mut pending = Some((crate::pty::PtyRead::from(b"retained".to_vec()), 2, None));
+        let result = crate::prepare_terminal_handoff(
+            &crate::ipc::commands::PrepareUpgradeCmd {
+                command_id: "p".into(),
+                executable: "/bin/sh".into(),
+                socket_path: directory.join("owner.sock").to_str().unwrap().into(),
+            },
+            &owner.listener,
+            &mut terminal,
+            pair.master.as_ref(),
+            Some(42),
+            &crate::pty::ReaderStop::default(),
+            &mut reader_rx,
+            &mut pending,
+            &returned,
+            |_| Ok(()),
+        )
+        .await;
+        assert!(result.is_err(), "no image broker was installed");
+        let (bytes, offset, _) = pending.unwrap();
+        assert_eq!(&bytes[..], b"retained");
+        assert_eq!(offset, 2);
+        drop(owner);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn handoff_prepare_failure_preserves_session_descriptors() {
+        let directory =
+            std::env::temp_dir().join(format!("merkur-handoff-faults-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let owner = prepare(Path::new("/bin/sh"), &directory.join("owner.sock")).unwrap();
+        let pty = File::open("/dev/null").unwrap();
+        for fault in [libc::EMFILE, libc::ENOSPC, libc::EIO, 0] {
+            let image_path = directory.join(format!("image-{fault}.sock"));
+            let image = UnixListener::bind(&image_path).unwrap();
+            let outgoing = Outgoing {
+                socket_path: &directory.join("owner.sock"),
+                pty_fd: pty.as_raw_fd(),
+                child_pid: 42,
+                cols: 80,
+                rows: 24,
+                image: crate::pty::terminal::NativeHandover {
+                    listener: image.into(),
+                    path: image_path.clone(),
+                    credential: Zeroizing::new([0; 32]),
+                },
+                replay: b"unchanged replay",
+            };
+            let result = stage_with(
+                outgoing,
+                &owner.listener,
+                |directory| {
+                    if fault == libc::EMFILE {
+                        Err(io::Error::from_raw_os_error(fault))
+                    } else {
+                        unlinked_file(directory)
+                    }
+                },
+                |file, bytes| {
+                    if fault == 0 {
+                        return file.write_all(bytes);
+                    }
+                    if fault == libc::EIO {
+                        file.write_all(&bytes[..7])?;
+                    }
+                    Err(io::Error::from_raw_os_error(fault))
+                },
+            );
+            match result {
+                Ok(mut staged) => {
+                    assert_eq!(fault, 0);
+                    let mut bytes = Vec::new();
+                    staged.file.read_to_end(&mut bytes).unwrap();
+                    assert_eq!(decode(&bytes).unwrap().1, b"unchanged replay");
+                    for fd in staged.fds {
+                        // SAFETY: each descriptor stays owned by this preparation.
+                        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+                        assert_ne!(flags & libc::FD_CLOEXEC, 0);
+                    }
+                }
+                Err(error) => assert_eq!(error.raw_os_error(), Some(fault)),
+            }
+            // SAFETY: F_GETFD takes an owned, live descriptor and no pointer.
+            let flags = unsafe { libc::fcntl(pty.as_raw_fd(), libc::F_GETFD) };
+            assert_ne!(flags & libc::FD_CLOEXEC, 0);
+            let client = UnixStream::connect(directory.join("owner.sock")).unwrap();
+            let (accepted, _) = owner.listener.accept().unwrap();
+            drop((client, accepted));
+            std::fs::remove_file(image_path).unwrap();
+        }
+        drop(owner);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

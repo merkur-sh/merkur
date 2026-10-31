@@ -891,6 +891,33 @@ describe('DataplaneClient lifecycle', () => {
 });
 
 describe('DataplaneClient acknowledged commands', () => {
+  test('upgrade decisions carry the exact preparation token and wait for an actual acknowledgement', async () => {
+    const sidecars: FakeSidecar[] = [];
+    const timers: ScheduledTimer[] = [];
+    const client = createClient(logger, createHandlers(), {
+      ...createDependencies(sidecars),
+      scheduleTimer: (delayMs, callback) => scheduleCallback(timers, delayMs, callback),
+    });
+    client.start();
+    const sidecar = required(sidecars[0]);
+    const before = timers.length;
+    for (const [kind, commandId, effect] of [
+      [0x18, 'commit', client.commitUpgradeEffect('commit', 'preparation')],
+      [0x19, 'abort', client.abortUpgradeEffect('abort', 'preparation')],
+    ] as const) {
+      const result = Effect.runPromise(effect);
+      const sent = required(readFrames(sidecar.inputChunks).find((frame) => frame.kind === kind));
+      expect(JSON.parse(new TextDecoder().decode(sent.payload))).toEqual({
+        command_id: commandId,
+        prepared_id: 'preparation',
+      });
+      expect(timers).toHaveLength(before);
+      sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: commandId, status: 'accepted' });
+      await expect(result).resolves.toEqual({ status: 'accepted' });
+    }
+    client.stop();
+  });
+
   test('asks for one exact file capture and accepts its correlated ACK', async () => {
     const sidecars: FakeSidecar[] = [];
     const client = createClient(logger, createHandlers(), createDependencies(sidecars));

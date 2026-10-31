@@ -74,7 +74,9 @@ async fn wrong_terminal_credential_cannot_reach_descriptor_admission() {
 async fn a_handed_over_socket_keeps_its_path_and_credential_for_the_adopter() {
     let executable = PathBuf::from("/merkur-test-nonexistent-image-worker");
     let (broker, endpoint) = broker(executable.clone());
-    let handover = broker.hand_over().await.unwrap();
+    let handover = broker.prepare_handover().unwrap();
+    broker.preserve_socket();
+    broker.shutdown().await;
     assert_eq!(handover.path, endpoint.path);
     assert_eq!(hex(handover.credential.as_ref()), *endpoint.credential);
     assert!(endpoint.path.exists(), "a handover leaves the socket bound");
@@ -97,6 +99,20 @@ async fn a_handed_over_socket_keeps_its_path_and_credential_for_the_adopter() {
     assert_eq!(stream.read(&mut [0]).await.unwrap(), 0);
     adopted.shutdown().await;
     assert!(!endpoint.path.exists(), "the adopter's shutdown removes the socket");
+}
+
+#[tokio::test]
+async fn handoff_prepare_failure_preserves_session_broker() {
+    let (broker, endpoint) = broker(PathBuf::from("/merkur-test-nonexistent-image-worker"));
+    let staged = broker.prepare_handover().unwrap();
+    assert_eq!(staged.path, endpoint.path);
+    assert_eq!(hex(staged.credential.as_ref()), *endpoint.credential);
+    drop(staged);
+    let mut stream = UnixStream::connect(&endpoint.path).await.unwrap();
+    stream.write_all(&[0; 33]).await.unwrap();
+    assert_eq!(stream.read(&mut [0]).await.unwrap(), 0);
+    broker.shutdown().await;
+    assert!(!endpoint.path.exists());
 }
 
 fn send_rights(stream: i32, marker: u8, descriptors: &[i32]) {

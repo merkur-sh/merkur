@@ -474,6 +474,13 @@ impl<T: Timeout> Processor<T> {
             - self.state.sync_state.drain.as_ref().map_or(0, |drain| drain.consumed)
     }
 
+    /// Unapplied synchronization bytes, borrowed only for a quiescent terminal snapshot.
+    /// A host must finish any semantic drain before replaying this as a held update.
+    pub fn pending_sync_bytes(&self) -> &[u8] {
+        let start = self.state.sync_state.drain.as_ref().map_or(0, |drain| drain.consumed);
+        &self.state.sync_state.buffer[start..]
+    }
+
     /// A released synchronized update has entered the grid but has not finished
     /// its semantic transaction. Its partial grid must not enter display capture.
     #[inline]

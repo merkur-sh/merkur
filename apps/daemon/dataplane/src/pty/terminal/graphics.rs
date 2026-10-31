@@ -398,12 +398,16 @@ impl Graphics {
         Ok(endpoint)
     }
 
-    /// Detaches the native broker for an upgrade: its clients are reaped, and its socket
-    /// and credential go to the next process (`native::Broker::hand_over`).
-    pub(super) async fn hand_over_native(&mut self) -> std::io::Result<Option<NativeHandover>> {
-        match self.native.take() {
-            Some(broker) => broker.hand_over().await.map(Some),
-            None => Ok(None),
+    pub(super) fn prepare_native_handover(&self) -> std::io::Result<Option<NativeHandover>> {
+        self.native
+            .as_ref()
+            .map(native::Broker::prepare_handover)
+            .transpose()
+    }
+
+    pub(super) fn preserve_native_socket(&self) {
+        if let Some(broker) = &self.native {
+            broker.preserve_socket();
         }
     }
 

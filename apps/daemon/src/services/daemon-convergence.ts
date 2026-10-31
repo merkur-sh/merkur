@@ -27,6 +27,8 @@ import type { DataplaneClient } from './dataplane-client';
 const CONVERGENCE_RETRY_INITIAL = Duration.seconds(5);
 const CONVERGENCE_RETRY_CEILING = Duration.minutes(5);
 
+let nextPreparationId = 0n;
+
 /**
  * Replaces this process image, keeping its pid: Bun's `process.execve`. A seam for tests;
  * the default never returns.
@@ -44,7 +46,10 @@ export interface ConvergenceContext {
   readonly config: DaemonConfig;
   readonly logger: Logger;
   readonly installRoot: string;
-  readonly dataplane: Pick<DataplaneClient, 'upgradeEffect' | 'dataplanePid'>;
+  readonly dataplane: Pick<
+    DataplaneClient,
+    'prepareUpgradeEffect' | 'commitUpgradeEffect' | 'abortUpgradeEffect' | 'dataplanePid'
+  >;
   readonly execve?: Execve;
 }
 
@@ -142,7 +147,7 @@ function releaseStagerScoped(context: Omit<ConvergenceContext, 'dataplane' | 'ex
  * `current` at it, hands the terminal to its dataplane, and replaces this process with its
  * owner. On success this never returns: the process that continues is the new release,
  * which adopts the dataplane (`dataplane-adoption.ts`). A failure before the dataplane
- * accepts leaves this release running as it was.
+ * commits leaves this release serving; failed preparation or activation resumes its reader.
  */
 export function convergeEffect(
   context: ConvergenceContext,
@@ -150,13 +155,10 @@ export function convergeEffect(
   release: string,
 ): Effect.Effect<never, Error> {
   return Effect.gen(function* () {
+    if (context.execve === undefined && process.execve === undefined) {
+      return yield* Effect.fail(new Error('this runtime cannot replace its process image'));
+    }
     const versionDirectory = yield* stager.stage(release);
-    yield* activateReleaseEffect({
-      logger: context.logger,
-      installRoot: context.installRoot,
-      versionDirectory,
-      running: merkurRelease(),
-    });
     const executables = resolveVersionedDaemonExecutables(versionDirectory);
     const pid = context.dataplane.dataplanePid();
     if (pid === null) {
@@ -171,23 +173,62 @@ export function convergeEffect(
       },
       catch: normalizeUnknownError,
     });
-    const result = yield* context.dataplane.upgradeEffect(
-      `upgrade-${release}-${process.pid}`,
-      executables.dataplane,
-      socketPath,
+    const preparedId = `upgrade-${process.pid}-${nextPreparationId++}`;
+    let committed = false;
+    return yield* Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const prepared = yield* context.dataplane.prepareUpgradeEffect(
+          preparedId,
+          executables.dataplane,
+          socketPath,
+        );
+        if (prepared.status !== 'accepted') {
+          return yield* Effect.fail(
+            new Error(`the dataplane refused preparation: ${prepared.reason}`),
+          );
+        }
+        // Cancellation before activation returns ownership through the abort finalizer.
+        yield* restore(Effect.void);
+        yield* activateReleaseEffect({
+          logger: context.logger,
+          installRoot: context.installRoot,
+          versionDirectory,
+          running: merkurRelease(),
+        });
+        const result = yield* context.dataplane.commitUpgradeEffect(
+          `${preparedId}-commit`,
+          preparedId,
+        );
+        if (result.status !== 'accepted') {
+          return yield* Effect.fail(
+            new Error(`the dataplane refused the commit: ${result.reason}`),
+          );
+        }
+        committed = true;
+        yield* logEffect('info', 'daemon', 'daemon_release_handover', {
+          from: merkurRelease(),
+          to: release,
+        });
+        return (context.execve ?? liveExecve)(executables.daemon, [executables.daemon, 'daemon'], {
+          ...process.env,
+          [DATAPLANE_ADOPT_ENV]: encodeDataplaneAdoption({ pid, socketPath }),
+        });
+      }).pipe(
+        Effect.ensuring(
+          Effect.gen(function* () {
+            if (committed) return;
+            const aborted = yield* context.dataplane.abortUpgradeEffect(
+              `${preparedId}-abort`,
+              preparedId,
+            );
+            if (aborted.status !== 'accepted') {
+              yield* logEffect('error', 'daemon', 'daemon_handoff_abort_failed', {
+                reason: aborted.reason,
+              });
+            }
+          }),
+        ),
+      ),
     );
-    if (result.status !== 'accepted') {
-      return yield* Effect.fail(new Error(`the dataplane refused the upgrade: ${result.reason}`));
-    }
-    yield* logEffect('info', 'daemon', 'daemon_release_handover', {
-      from: merkurRelease(),
-      to: release,
-    });
-    // The dataplane is replacing itself now. This process follows, keeping the pid the
-    // dataplane accepts as its owner; nothing after this line runs in this release.
-    return (context.execve ?? liveExecve)(executables.daemon, [executables.daemon, 'daemon'], {
-      ...process.env,
-      [DATAPLANE_ADOPT_ENV]: encodeDataplaneAdoption({ pid, socketPath }),
-    });
   });
 }

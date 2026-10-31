@@ -257,15 +257,26 @@ other ends the control client, and the daemon converges:
    the next release into the store before deploying its server, the running server watches the
    store and announces it (`release_staged`, and `stagedRelease` on `registered`), and every
    registered daemon stages it then.
-2. **Activate.** Check the staged identity against the current rollback floor under the trust-state
-   lock, point `current` at the release, and remove every version but it and the running one. The
-   service unit, `bin/merkur` and the shell integration all run `current`, so no update rewrites or
-   restarts the unit.
-3. **Hand over.** The dataplane closes its peers and transports, takes every byte its PTY reader
-   has read into the terminal, writes the handoff, and `execve`s the new dataplane in its own
-   pid, so the shell stays its child. The Bun owner then `execve`s the new owner in its own pid,
-   so it stays the dataplane's parent, and adopts the dataplane over a socket only its parent may
-   connect to. launchd and systemd see no exit.
+2. **Prepare.** The dataplane binds the next owner's socket, reversibly pauses its PTY reader,
+   applies every byte the reader consumed, and writes the complete handoff while retaining
+   its serving resources. Its acknowledgement names this preparation; it has not committed
+   the upgrade. The reader remains paused at that boundary until commit or abort.
+3. **Activate and commit.** Validate the executables, check the staged identity against the
+   current rollback floor under the trust-state lock, atomically point `current` at the release,
+   then prune inactive versions while retaining the running one. The service unit, `bin/merkur`
+   and the shell integration all run `current`, so no update rewrites or restarts the unit. An
+   activation failure aborts the preparation and resumes the reader. Commit names the exact preparation; only
+   commit retires peers and transports and `execve`s the new dataplane in its own pid, so the
+   shell stays its child. The Bun owner waits for that commit acknowledgement, then `execve`s
+   the new owner in its own pid and adopts the dataplane over a socket only its parent may
+   connect to. launchd and systemd see no exit. Commit and abort wait for acknowledgements or
+   the IPC connection's actual end, without a deadline deciding ownership.
+
+A preparation failure removes its owner socket and resumes the existing reader. Cancellation
+before activation aborts preparation; activation and commit then run as one uninterrupted
+owner operation. A duplicate preparation or a foreign preparation token cannot commit or
+abort the live transaction. An abort with no live preparation acknowledges the already
+serving owner, including after a lost preparation acknowledgement.
 
 A staging failure leaves the running release serving; the daemon reads the release again after a
 doubling delay. A release it refuses for good (signature, rollback floor, minimum sequence,

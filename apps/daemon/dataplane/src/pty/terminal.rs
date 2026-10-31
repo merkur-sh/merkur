@@ -1229,11 +1229,14 @@ impl TerminalState {
         self.graphics.enable_native()
     }
 
-    /// See `Graphics::hand_over_native`; taken before `shutdown_graphics` at an upgrade.
-    pub(crate) async fn hand_over_native_graphics(
-        &mut self,
+    pub(crate) fn prepare_native_handover(
+        &self,
     ) -> std::io::Result<Option<graphics::NativeHandover>> {
-        self.graphics.hand_over_native().await
+        self.graphics.prepare_native_handover()
+    }
+
+    pub(crate) fn preserve_native_socket(&self) {
+        self.graphics.preserve_native_socket();
     }
 
     pub(crate) fn adopt_native_graphics(
@@ -1341,12 +1344,20 @@ impl TerminalState {
         true
     }
 
-    /// The screen as the escape sequences a fresh terminal of this size rebuilds it from
-    /// (`Term::write_replay`), for the process that takes this terminal over at an upgrade.
-    /// A held synchronized update is released first, so what the shell already wrote is in.
-    pub fn write_replay(&mut self, out: &mut Vec<u8>) {
-        self.stop_synchronized_update();
+    /// Snapshot the screen and held output without changing the running terminal.
+    /// An asynchronous semantic transaction must finish before this boundary is captured.
+    pub fn write_replay(&self, out: &mut Vec<u8>) -> std::io::Result<()> {
+        if self.display_commit_pending() || self.graphics_pending() {
+            return Err(std::io::Error::other(
+                "terminal semantics are not quiescent",
+            ));
+        }
         self.term.write_replay(out);
+        if self.synchronized_update_deadline().is_some() {
+            out.extend_from_slice(b"\x1b[?2026h");
+            out.extend_from_slice(self.parser.pending_sync_bytes());
+        }
+        Ok(())
     }
 
     /// Rebuilds the screen a predecessor process described with `write_replay`, followed by
@@ -2604,6 +2615,32 @@ fn clamp_usize_to_u16(value: usize) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn handoff_prepare_failure_preserves_session_synchronized_output() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut terminal = TerminalState::new(80, 24, tx);
+        terminal.apply_bytes(b"before\x1b[?2026hheld");
+        let pending = terminal.parser.pending_sync_bytes_count();
+        let deadline = terminal.synchronized_update_deadline();
+        let cursor = terminal.term.grid().cursor.point;
+        let mut replay = Vec::new();
+        terminal.write_replay(&mut replay).unwrap();
+        assert_eq!(terminal.parser.pending_sync_bytes_count(), pending);
+        assert_eq!(terminal.synchronized_update_deadline(), deadline);
+        assert_eq!(terminal.term.grid().cursor.point, cursor);
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut successor = TerminalState::new(80, 24, tx);
+        assert_eq!(successor.apply_replay(&replay), replay.len());
+        assert_eq!(successor.parser.pending_sync_bytes_count(), pending);
+        terminal.apply_bytes(b"\x1b[?2026l");
+        successor.apply_bytes(b"\x1b[?2026l");
+        let mut original = Vec::new();
+        let mut restored = Vec::new();
+        terminal.term.write_replay(&mut original);
+        successor.term.write_replay(&mut restored);
+        assert_eq!(restored, original);
+    }
+
     #[test]
     fn current_cursor_line_matches_renderable_cursor() {
         use alacritty_terminal::grid::Scroll;

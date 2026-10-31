@@ -387,15 +387,22 @@ The helper signals that captured process and waits for its actual exit before th
 the instance lock. Service definitions preserve the owner's child cleanup: systemd terminates
 the main process first, and both systemd and launchd allow the cleanup to finish.
 
-An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). On `upgrade`,
-the dataplane binds an owner socket, stops its PTY reader with a `SIGURG` that ends its blocking
-`read` and applies every byte it had read, writes the handoff (`handoff.rs`), and `execve`s the
-new release's dataplane with the PTY master, the owner listener and the image broker's listener
-inherited. The new dataplane rebuilds the screen from the replay, adopts the master and reaps
-the shell as its own child, serves the inherited broker socket, and accepts one owner
-connection whose peer pid is its parent's. The Bun owner `execve`s the new release's owner after
-the acknowledgement; it reclaims the single-instance lock that holds its own pid, connects to
-the socket, states the arguments a spawn would pass (`CMD_ADOPT`), and supervises the adopted
+An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). Preparation
+binds an owner socket and pauses the PTY reader with a `SIGURG` that ends its blocking `read`.
+The reader acknowledges only after queueing every byte it read, then parks on a condition
+variable. The owner applies those bytes and writes the complete handoff (`handoff.rs`) while
+retaining graphics, listeners, router custody and edge connections. A preparation or activation
+failure discards the file and socket and resumes that same reader. The preparation's command
+id correlates the owner's explicit commit or abort; preparation alone never ends the owner loop.
+
+Only commit retires serving resources and `execve`s the new release's dataplane with the PTY
+master, owner listener and image broker listener inherited. Prepared descriptors remain
+close-on-exec until that final replacement, so concurrent image helpers cannot inherit them.
+The new dataplane rebuilds the screen from the replay, adopts the master and reaps the shell
+as its own child, serves the inherited broker socket, and accepts one owner connection whose
+peer pid is its parent's. The Bun owner `execve`s the new release's owner after the commit
+acknowledgement; it reclaims the single-instance lock that holds its own pid, connects to the
+socket, states the arguments a spawn would pass (`CMD_ADOPT`), and supervises the adopted
 dataplane over the socket. A later crash restarts it with a fresh spawn.
 
 ## Hosted Processes Outside The Session Path

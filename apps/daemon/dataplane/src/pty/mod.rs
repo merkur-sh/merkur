@@ -177,7 +177,7 @@ pub struct PtyHandle {
     pub reader: std::sync::Arc<ReaderStop>,
 }
 
-/// Stops the reader thread so an upgrade hands every byte it read to the terminal before
+/// Pauses the reader thread so an upgrade hands every byte it read to the terminal before
 /// the process is replaced; what it has not read stays in the kernel for the successor.
 ///
 /// The thread blocks in `read`, so a flag alone would wait for the shell's next output. A
@@ -188,22 +188,37 @@ pub struct PtyHandle {
 #[derive(Default)]
 pub struct ReaderStop {
     stop: std::sync::atomic::AtomicBool,
-    thread: std::sync::OnceLock<libc::pthread_t>,
+    thread: std::sync::Mutex<Option<libc::pthread_t>>,
+    resumed: std::sync::Condvar,
 }
 
 impl ReaderStop {
     pub fn request(&self) {
         self.stop.store(true, std::sync::atomic::Ordering::Release);
-        if let Some(thread) = self.thread.get() {
-            // SAFETY: `pthread_kill` reads no pointer; the reader thread runs until it has
-            // reported `PtyReaderStopped`, which the caller has not yet seen, so `thread`
-            // names a live thread.
-            unsafe { libc::pthread_kill(*thread, libc::SIGURG) };
+        let thread = self.thread.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(thread) = *thread {
+            // SAFETY: registration and thread exit take this same lock, so the stored
+            // pthread id remains live through this call; pthread_kill reads no pointer.
+            unsafe { libc::pthread_kill(thread, libc::SIGURG) };
         }
+    }
+
+    pub fn resume(&self) {
+        let _guard = self.thread.lock().unwrap_or_else(|e| e.into_inner());
+        self.stop.store(false, std::sync::atomic::Ordering::Release);
+        self.resumed.notify_one();
     }
 
     fn stopping(&self) -> bool {
         self.stop.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+pub struct ReaderPause(pub std::sync::Arc<ReaderStop>);
+
+impl Drop for ReaderPause {
+    fn drop(&mut self) {
+        self.0.resume();
     }
 }
 
@@ -525,15 +540,30 @@ fn start_pty_reader(
         .name("merkur-pty-reader".to_string())
         .spawn(move || {
             // SAFETY: `pthread_self` takes no argument and names the calling thread.
-            stop.thread.get_or_init(|| unsafe { libc::pthread_self() });
+            *stop.thread.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(unsafe { libc::pthread_self() });
+            struct Registration<'a>(&'a ReaderStop);
+            impl Drop for Registration<'_> {
+                fn drop(&mut self) {
+                    *self.0.thread.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                }
+            }
+            let _registration = Registration(&stop);
             let mut buf = vec![0u8; PTY_READ_BYTES];
             let mut read_ordinal = 0u64;
             loop {
                 if stop.stopping() {
-                    if let Err(error) = event_tx.blocking_send(TerminalEvent::PtyReaderStopped) {
-                        tracing::debug!(%error, "the owner left before the reader stopped");
+                    if event_tx
+                        .blocking_send(TerminalEvent::PtyReaderStopped)
+                        .is_err()
+                    {
+                        break;
                     }
-                    break;
+                    let mut guard = stop.thread.lock().unwrap_or_else(|e| e.into_inner());
+                    while stop.stopping() {
+                        guard = stop.resumed.wait(guard).unwrap_or_else(|e| e.into_inner());
+                    }
+                    continue;
                 }
                 // The last read's buffer went to the owner. Take back one it has
                 // finished with; only a pipeline deeper than before allocates.
@@ -2125,6 +2155,54 @@ mod tests {
         assert!(matches!(second, TerminalEvent::PtyReadClosed));
     }
 
+    #[test]
+    fn handoff_prepare_failure_preserves_session_reader() {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args([
+            "-c",
+            "stty raw -echo; printf ready; IFS= read -r line; printf resumed",
+        ]);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        let pid = child.process_id();
+        drop(pair.slave);
+        let (event_tx, event_rx) = pty_event_channel(8);
+        let (_return_tx, return_rx) = unbounded();
+        let stop = std::sync::Arc::new(ReaderStop::default());
+        start_pty_reader(
+            pair.master.try_clone_reader().unwrap(),
+            event_tx,
+            return_rx,
+            std::sync::Arc::clone(&stop),
+        )
+        .unwrap();
+        receive_until_pty_marker(&event_rx, b"ready", 1);
+        let pause = ReaderPause(std::sync::Arc::clone(&stop));
+        loop {
+            stop.request();
+            if matches!(
+                event_rx.recv_timeout(Duration::from_millis(5)),
+                Ok(TerminalEvent::PtyReaderStopped)
+            ) {
+                break;
+            }
+        }
+        assert!(child.try_wait().unwrap().is_none());
+        drop(pause);
+        let mut writer = pair.master.take_writer().unwrap();
+        writer.write_all(b"go\n").unwrap();
+        receive_until_pty_marker(&event_rx, b"resumed", 1);
+        assert_eq!(child.process_id(), pid);
+        assert!(child.wait().unwrap().success());
+    }
+
     /// The upgrade's stop: a reader blocked on a silent shell reports `PtyReaderStopped`
     /// once interrupted, having lost nothing, and leaves the PTY open for a successor.
     #[test]
@@ -2165,6 +2243,7 @@ mod tests {
             child.try_wait().unwrap().is_none(),
             "the shell outlives its reader"
         );
+        stop.resume();
         child.kill().expect("end the shell");
         child.wait().expect("reap the shell");
     }

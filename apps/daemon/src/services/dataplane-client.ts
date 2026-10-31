@@ -24,6 +24,7 @@ import {
   Duration,
   Effect,
   Layer,
+  Match,
   Option,
   Queue,
   Schema,
@@ -63,10 +64,12 @@ const CMD_UPDATE_EDGE_ADMISSION = 0x11;
 const CMD_PROFILE_SESSIONS = 0x12;
 const CMD_PROFILE_START = 0x13;
 const CMD_PROFILE_END = 0x14;
-const CMD_UPGRADE = 0x15;
+const CMD_PREPARE_UPGRADE = 0x15;
 /** The adopted dataplane's first frame; written by `dataplane-adoption.ts`. */
 export const CMD_ADOPT = 0x16;
 const CMD_REGISTER_TRAVERSAL = 0x17;
+const CMD_COMMIT_UPGRADE = 0x18;
+const CMD_ABORT_UPGRADE = 0x19;
 
 const EVT_PTY_READY = 0x82;
 const EVT_PTY_CLOSED = 0x83;
@@ -436,16 +439,14 @@ export interface DataplaneClient {
    * the dataplane has written it (`@merkur/profile` reads it).
    */
   capturePerfTraceEffect(commandId: string, path: string): Effect.Effect<DataplaneCommandResult>;
-  /**
-   * Hand the terminal to the release whose dataplane is `executable` (`handoff.rs`). Accepted
-   * once the handoff is written, just before the dataplane replaces itself: the owner then
-   * replaces itself too and adopts it on `socketPath` (`dataplane-adoption.ts`).
-   */
-  upgradeEffect(
+  /** Prepare a complete handoff; the command id names it until commit or abort. */
+  prepareUpgradeEffect(
     commandId: string,
     executable: string,
     socketPath: string,
   ): Effect.Effect<DataplaneCommandResult>;
+  commitUpgradeEffect(commandId: string, preparedId: string): Effect.Effect<DataplaneCommandResult>;
+  abortUpgradeEffect(commandId: string, preparedId: string): Effect.Effect<DataplaneCommandResult>;
   updateRevocation(generation: number): void;
   /**
    * Replace the STUN credential used for NAT discovery.
@@ -800,16 +801,24 @@ function makeDataplaneClient(
       });
     },
 
-    upgradeEffect(
+    prepareUpgradeEffect(
       commandId: string,
       executable: string,
       socketPath: string,
     ): Effect.Effect<DataplaneCommandResult> {
-      return requestAcknowledgedCommandEffect(commandId, CMD_UPGRADE, {
+      return requestAcknowledgedCommandEffect(commandId, CMD_PREPARE_UPGRADE, {
         command_id: commandId,
         executable,
         socket_path: socketPath,
       });
+    },
+
+    commitUpgradeEffect(commandId, preparedId) {
+      return requestUpgradeDecisionEffect(commandId, CMD_COMMIT_UPGRADE, preparedId);
+    },
+
+    abortUpgradeEffect(commandId, preparedId) {
+      return requestUpgradeDecisionEffect(commandId, CMD_ABORT_UPGRADE, preparedId);
     },
 
     captureTransportStatsEffect(commandId: string): Effect.Effect<DataplaneCommandResult> {
@@ -913,6 +922,50 @@ function makeDataplaneClient(
     },
   };
 
+  // A commit cannot be inferred to have failed from elapsed time. Its ACK (or the
+  // transport's actual end) decides ownership; abort likewise waits for resumed serving.
+  function requestUpgradeDecisionEffect(
+    commandId: string,
+    kind: typeof CMD_COMMIT_UPGRADE | typeof CMD_ABORT_UPGRADE,
+    preparedId: string,
+  ): Effect.Effect<DataplaneCommandResult> {
+    return Effect.uninterruptible(
+      Effect.gen(function* () {
+        if (pendingCommands.has(commandId)) return rejectedDataplaneCommand('duplicate_command');
+        if (pendingCommands.size >= MAX_PENDING_DATAPLANE_COMMANDS) {
+          return rejectedDataplaneCommand('dataplane_backpressure');
+        }
+        const deferred = yield* Deferred.make<DataplaneCommandResult>();
+        pendingCommands.set(commandId, {
+          daemonProof: null,
+          profileSessions: null,
+          deferred,
+          timer: null,
+        });
+        const admission = writeJsonCommand(
+          kind,
+          { command_id: commandId, prepared_id: preparedId },
+          null,
+          false,
+        );
+        if (admission !== 'accepted') {
+          settlePendingCommand(
+            commandId,
+            rejectedDataplaneCommand(
+              Match.value(admission).pipe(
+                Match.when('backpressure', () => 'dataplane_backpressure'),
+                Match.when('invalid', () => 'invalid_command'),
+                Match.when('unavailable', () => 'dataplane_unavailable'),
+                Match.exhaustive,
+              ),
+            ),
+          );
+        }
+        return yield* Deferred.await(deferred);
+      }),
+    );
+  }
+
   function requestAcknowledgedCommandEffect(
     commandId: string,
     kind:
@@ -926,7 +979,7 @@ function makeDataplaneClient(
       | typeof CMD_PROFILE_SESSIONS
       | typeof CMD_PROFILE_START
       | typeof CMD_PROFILE_END
-      | typeof CMD_UPGRADE,
+      | typeof CMD_PREPARE_UPGRADE,
     payload: object,
     onDaemonProof?: (proof: DataplaneProof) => void,
     onProfileSessions?: (sessions: readonly DataplaneProfileSession[]) => void,

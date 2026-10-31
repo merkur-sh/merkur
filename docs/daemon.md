@@ -178,8 +178,10 @@ connection it asks the server which release that is, and on a difference it stag
 release from the server's store, verified against the ML-DSA-87 key compiled into the running
 binary, so the server is only transport. The manifest's sequence number is written to
 `release-trust.json` and acts as a durable rollback floor: a later manifest with a lower
-sequence is refused even if its signature is valid. It then switches the `current` symlink,
-and the dataplane and daemon replace themselves in place: the shell and everything running in
+sequence is refused even if its signature is valid. The dataplane prepares its complete terminal
+handoff before the owner switches the `current` symlink and commits the replacement. A preparation
+or activation failure resumes the existing terminal. On commit the dataplane and daemon replace
+themselves in place: the shell and everything running in
 it carry on, the screen and scrollback come back, and connected browsers reconnect. The
 terminal client converges the same way before it signs in or dials a session. The signing key, manifest format,
 the handover and the release pipeline are in [`docs/releases.md`](../docs/releases.md).

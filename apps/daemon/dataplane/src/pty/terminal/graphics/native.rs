@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -66,6 +66,7 @@ struct Entries {
 }
 
 struct Shared {
+    listener: UnixListener,
     entries: Mutex<Entries>,
     storage: Budget,
     processing: Budget,
@@ -78,10 +79,9 @@ struct Shared {
 pub(super) struct Broker {
     shared: Arc<Shared>,
     stop: watch::Sender<bool>,
-    /// Set before a handover's stop, so the serving task returns its socket instead of
-    /// removing it.
+    /// A committed handoff retains the socket path for its staged duplicate listener.
     keep: Arc<std::sync::atomic::AtomicBool>,
-    task: Option<JoinHandle<Option<UnixListener>>>,
+    task: Option<JoinHandle<()>>,
     path: PathBuf,
 }
 
@@ -161,6 +161,7 @@ impl Broker {
         path: PathBuf,
     ) -> Self {
         let shared = Arc::new(Shared {
+            listener,
             entries: Mutex::new(Entries::default()),
             storage,
             processing,
@@ -172,7 +173,6 @@ impl Broker {
         let (stop, stopped) = watch::channel(false);
         let keep = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let task = tokio::spawn(serve(
-            listener,
             Arc::clone(&shared),
             stopped,
             stop.clone(),
@@ -188,19 +188,13 @@ impl Broker {
         }
     }
 
-    /// Stops serving like `shutdown`, reaping every client's helper, but keeps the socket
-    /// bound at its path and returns it with the credential for the next process.
-    pub(super) async fn hand_over(mut self) -> io::Result<Handover> {
+    pub(super) fn preserve_socket(&self) {
         self.keep.store(true, std::sync::atomic::Ordering::Release);
-        self.retire();
-        let listener = match self.task.take() {
-            Some(task) => task.await.map_err(io::Error::other)?,
-            None => None,
-        }
-        .ok_or_else(|| io::Error::other("native broker stopped before its handover"))?;
-        let listener = OwnedFd::from(listener.into_std()?);
+    }
+
+    pub(super) fn prepare_handover(&self) -> io::Result<Handover> {
         Ok(Handover {
-            listener,
+            listener: self.shared.listener.as_fd().try_clone_to_owned()?,
             path: self.path.clone(),
             credential: self.shared.credential.clone(),
         })
@@ -261,13 +255,13 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
 }
 
 async fn serve(
-    listener: UnixListener,
     shared: Arc<Shared>,
     mut stop: watch::Receiver<bool>,
     stopping: watch::Sender<bool>,
     keep: Arc<std::sync::atomic::AtomicBool>,
     path: PathBuf,
-) -> Option<UnixListener> {
+) {
+    let listener = &shared.listener;
     let mut clients = JoinSet::new();
     // SAFETY: geteuid takes no pointers and identifies this local broker's owner.
     let uid = unsafe { libc::geteuid() };
@@ -289,14 +283,12 @@ async fn serve(
     // returning. Aborting the tasks would release their bookkeeping too early.
     while clients.join_next().await.is_some() {}
     if keep.load(std::sync::atomic::Ordering::Acquire) {
-        return Some(listener);
+        return;
     }
-    drop(listener);
     let _ = std::fs::remove_file(&path);
     if let Some(directory) = path.parent() {
         let _ = std::fs::remove_dir(directory);
     }
-    None
 }
 
 async fn client(mut stream: UnixStream, shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {
