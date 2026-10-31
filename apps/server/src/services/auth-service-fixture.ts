@@ -387,7 +387,34 @@ export function createFakeRedis(): RedisService {
     // publishes on its second key; the cursor it advances is not modelled.
     [
       'EVAL',
-      ([script, , , channel, epoch]) => {
+      ([script, , flow, channel, epoch, mac]) => {
+        if (script?.includes('-- attach-email-code')) {
+          if (flow === undefined || channel === undefined || mac === undefined || !values.has(flow))
+            return null;
+          const code = hash(channel);
+          code.set('mac', mac);
+          if (!code.has('attempts')) code.set('attempts', '0');
+          const sends = Number(code.get('sends') ?? '0') + 1;
+          code.set('sends', String(sends));
+          return sends;
+        }
+        if (script?.includes('-- check-email-code')) {
+          if (flow === undefined || channel === undefined) return undefined;
+          const code = hashes.get(channel);
+          const stored = code?.get('mac');
+          if (!values.has(flow) || code === undefined || stored === undefined) {
+            hashes.delete(channel);
+            return null;
+          }
+          const attempts = Number(code.get('attempts') ?? '0') + 1;
+          code.set('attempts', String(attempts));
+          if (attempts > Number(epoch)) {
+            hashes.delete(channel);
+            values.delete(flow);
+            return 'exhausted';
+          }
+          return stored;
+        }
         if (script?.includes('local epoch = tonumber(ARGV[1])')) return Number(epoch);
         if (channel === undefined) return undefined;
         published.push({ channel, message: 'resync' });

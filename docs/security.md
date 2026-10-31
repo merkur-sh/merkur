@@ -119,7 +119,9 @@ notice that its password was wrong, and its flow records a code nobody was sent.
 are the same response, one send each, so the code step does not enumerate addresses either.
 `/api/auth/register/finish` then carries `emailCode`: attempts are counted before comparison, the
 sixth destroys the flow, and a wrong code is `invalid_email_code` while the flow stays open.
-Nothing beyond syntax is checked before the send: whether the mailbox exists is settled by the code.
+Code attachment and each attempt mutate their Redis hash together with its expiry or deletion in
+one atomic script; interruption cannot leave a permanent code hash. MAC comparison remains
+constant-time in the server. Nothing beyond syntax is checked before the send: whether the mailbox exists is settled by the code.
 
 Client registration and login use Argon2id with 64 MiB, six iterations, four lanes, and
 the OPAQUE library's fixed salt (`OPAQUE_PASSWORD_STRETCHING`). Every stored registration

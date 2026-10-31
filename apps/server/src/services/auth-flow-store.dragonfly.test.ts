@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { RedisClient } from 'bun';
-import { Effect } from 'effect';
+import { Effect, Fiber } from 'effect';
 
 import {
   type AuthStartFlow,
@@ -16,6 +16,77 @@ if (dragonflyUrl === undefined) {
   test.skip('consumes credential-bound OPAQUE flows once across Dragonfly clients', () => {});
   test.skip('a password reset is proven once and spent once, and only as a reset', () => {});
 } else {
+  test.each(['attach', 'missing-check'] as const)(
+    'email code mutation is atomic across interruption: %s',
+    async (operation) => {
+      const client = new RedisClient(dragonflyUrl);
+      await client.connect();
+      const commands = createRedisCommandClient(client);
+      const applied = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const settled = Promise.withResolvers<void>();
+      const id = await Effect.runPromise(
+        createAuthFlowStore(service(client)).createResetCode({
+          kind: 'password-reset-code',
+          userId: 'atomic-code',
+          username: 'atomic@example.test',
+          accountExists: true,
+          credentialFingerprint: 'a'.repeat(64),
+          rootEpoch: 1,
+        }),
+      );
+      const gated: RedisService = {
+        ...service(client),
+        useCommands: (fn) =>
+          useRedisClient(
+            {
+              async sendCommand<T>(args: string[]): Promise<T> {
+                const result = await commands.sendCommand<T>(args);
+                if (
+                  args[0] === 'HSET' ||
+                  args[0] === 'HINCRBY' ||
+                  args[0] === 'EVAL' ||
+                  args[0] === 'EVALSHA'
+                ) {
+                  applied.resolve();
+                  await release.promise;
+                }
+                return result;
+              },
+            },
+            async (leased) => {
+              try {
+                return await fn(leased);
+              } finally {
+                settled.resolve();
+              }
+            },
+            'atomic-code',
+          ),
+      };
+      try {
+        await Effect.runPromise(
+          Effect.gen(function* () {
+            const store = createAuthFlowStore(gated);
+            const mutation =
+              operation === 'attach'
+                ? store.attachEmailCode(id, 'b'.repeat(64)).pipe(Effect.asVoid)
+                : store.checkEmailCode(id, 'b'.repeat(64)).pipe(Effect.asVoid);
+            const attachment = yield* mutation.pipe(Effect.forkChild);
+            yield* Effect.promise(() => applied.promise);
+            yield* Fiber.interrupt(attachment);
+            expect(yield* Effect.promise(() => client.pttl(`auth:flow-code:${id}`))).not.toBe(-1);
+          }),
+        );
+      } finally {
+        release.resolve();
+        await settled.promise;
+        await client.del(`auth:flow:${id}`, `auth:flow-code:${id}`);
+        client.close();
+      }
+    },
+  );
+
   test('consumes credential-bound OPAQUE flows once across Dragonfly clients', async () => {
     const first = new RedisClient(dragonflyUrl);
     const second = new RedisClient(dragonflyUrl);

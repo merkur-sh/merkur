@@ -1433,6 +1433,8 @@ MODULES = {
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/services/redis-reply.ts.module",
+            ":src/services/redis-script.ts.module",
+            ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/auth-service-account.test.ts": [
