@@ -1125,10 +1125,13 @@ mod tests {
             .unwrap();
     }
 
-    async fn rejected_mapping()
-    -> Result<(Mapping, Arc<AtomicBool>, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>>
+    async fn rejected_mapping(
+        internal_port: u16,
+        gateway_port: u16,
+    ) -> Result<(Mapping, Arc<AtomicBool>, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>>
     {
-        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        let udp =
+            tokio::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, gateway_port)).await?;
         let gateway_port = udp.local_addr()?.port();
         let allow = Arc::new(AtomicBool::new(false));
         let allow_delete = allow.clone();
@@ -1150,11 +1153,12 @@ mod tests {
                     } else {
                         0
                     };
-                    response[44..60].copy_from_slice(
-                        &std::net::Ipv4Addr::new(100, 64, 0, 9)
-                            .to_ipv6_mapped()
-                            .octets(),
-                    );
+                    let external = if !delete && allow_delete.load(Ordering::Acquire) {
+                        std::net::Ipv4Addr::new(203, 0, 113, 7)
+                    } else {
+                        std::net::Ipv4Addr::new(100, 64, 0, 9)
+                    };
+                    response[44..60].copy_from_slice(&external.to_ipv6_mapped().octets());
                 }
                 if udp.send_to(&response, from).await.is_err() {
                     return;
@@ -1181,7 +1185,7 @@ mod tests {
             attempts: 2,
         };
         let outcome = portmap::acquire_with(
-            44_433,
+            internal_port,
             Some(&path),
             Some("203.0.113.7".parse()?),
             schedule,
@@ -1211,7 +1215,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejected_pcp_grant_is_cleanup_only() -> Result<(), Box<dyn std::error::Error>> {
-        let (mut mapping, allow, gateway) = rejected_mapping().await?;
+        let (mut mapping, allow, gateway) = rejected_mapping(44_433, 0).await?;
         mapping.schedule();
         assert!(mapping.renewal.is_none(), "rejected grants must not renew");
         let (updates, mut candidates) = mpsc::channel(1);
@@ -1262,8 +1266,10 @@ mod tests {
     #[tokio::test]
     async fn worker_retries_rejected_cleanup_before_reacquiring()
     -> Result<(), Box<dyn std::error::Error>> {
-        let (mapping, allow, gateway) = rejected_mapping().await?;
         let binding = test_binding(1, 4)?;
+        // Production acquisition addresses PCP's standard control port.
+        let (mapping, allow, gateway) = rejected_mapping(binding.local.port(), 5351).await?;
+        let path = mapping.path.clone();
         let (updates, mut snapshots) = mpsc::channel(8);
         let current = MaintenanceInput {
             credential: Arc::new(Credential::without_observers()),
@@ -1274,11 +1280,21 @@ mod tests {
         let (retirements, _retired) = mpsc::channel(1);
         let observed = ObservedPath {
             local: "127.0.0.1".parse()?,
-            mapped: "100.64.0.9".parse()?,
+            mapped: "203.0.113.7".parse()?,
             observer: "127.0.0.1:3478".parse()?,
         };
-        // The resolver supplies a fresh control context only after cleanup;
-        // acquisition without an egress is an immediate, non-mutating refusal.
+        let address = SocketAddr::new(observed.mapped, binding.local.port());
+        let proof = Candidate {
+            address,
+            kind: CandidateKind::Srflx,
+            observation: Observation {
+                ticket: String::new(),
+                transaction: String::new(),
+                mapped: address,
+                observer: observed.observer,
+                receipt: String::new(),
+            },
+        };
         let resolutions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let resolved = resolutions.clone();
         let worker = Worker {
@@ -1290,6 +1306,7 @@ mod tests {
                 generation: 1,
                 gathered: Gathered {
                     paths: vec![observed],
+                    candidates: vec![proof],
                     ..Gathered::default()
                 },
             })),
@@ -1299,11 +1316,8 @@ mod tests {
         };
         let task = tokio::spawn(worker.run_with_resolver(lifetime, move |local| {
             resolved.fetch_add(1, Ordering::AcqRel);
-            Some(RouterPath {
-                local,
-                egress: None,
-                egress6: None,
-            })
+            assert_eq!(local, path.local);
+            Some(path.clone())
         }));
         snapshots.recv().await.ok_or("missing initial snapshot")?;
         owner.send_replace(current.clone());
@@ -1318,10 +1332,16 @@ mod tests {
         );
         allow.store(true, Ordering::Release);
         owner.send_replace(current);
-        snapshots
-            .recv()
-            .await
+        let (_, acquired) = tokio::time::timeout(Duration::from_secs(3), snapshots.recv())
+            .await?
             .ok_or("missing reacquisition snapshot")?;
+        assert!(
+            acquired
+                .iter()
+                .any(|candidate| candidate.kind == CandidateKind::NatMap
+                    && candidate.address == address),
+            "the running worker publishes its reacquired grant"
+        );
         assert_eq!(
             resolutions.load(Ordering::Acquire),
             1,
