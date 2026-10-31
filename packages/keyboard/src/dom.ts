@@ -223,6 +223,9 @@ export function createDomKeyboard(
     }
 
     if (nextGeometry !== geometry) {
+      // Commit held contacts before clearing highlights or rebinding the old
+      // geometry: a layer switch still owes each undecided character its byte.
+      engine?.commitLiveContacts();
       // Clear old pointer highlights while keyElements still describes the old
       // layer. Rebinding first could remove the pressed state from an unrelated
       // key that happens to reuse the same numeric index.

@@ -5680,6 +5680,15 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cupertino.css": [],
+        "src/dom.test.ts": [
+            ":package.json.module",
+            ":src/dom.ts.module",
+            ":src/engine.ts.module",
+            ":src/geometry.ts.module",
+            ":src/layout.ts.module",
+            ":src/layouts/terminal-us.ts.module",
+            ":tsconfig.json.module",
+        ],
         "src/dom.ts": [
             ":package.json.module",
             ":src/behavior.ts.module",
@@ -9914,6 +9923,7 @@ TYPE_INPUTS = {
         "packages/keyboard/tsconfig.json": [
             "package.json",
             "src/behavior.ts",
+            "src/dom.test.ts",
             "src/dom.ts",
             "src/engine.ts",
             "src/geometry.ts",

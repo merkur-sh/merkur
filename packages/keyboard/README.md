@@ -70,7 +70,9 @@ key and value and keeps the production path allocation-free through recognition 
 dispatch. `onKeyCommit` adds pointer coordinates, hold duration, layer and repeat metadata
 at the cost of one commit object per key. The controller can replace its layout, geometry
 profile, behaviour, active modifiers and theme, toggle visibility and refresh geometry
-without being recreated.
+without being recreated. Geometry replacement commits held, release-decided contacts against
+their original geometry before clearing highlights and rebinding the keys. Explicit pointer
+cancellation and destruction discard those contacts.
 
 ## How a tap is decided
 

@@ -68,6 +68,8 @@ export interface KeyboardEngine {
   endPointerAt(pointerId: number, x: number, y: number, timeStamp: number): boolean;
   cancelPointer(pointerId: number): boolean;
   activateKey(keyId: string, timeStamp?: number): boolean;
+  /** Commit held release-decided contacts before the host rebinds their geometry. */
+  commitLiveContacts(): void;
   updateGeometry(geometry: ResolvedKeyboardGeometry, profile?: KeyboardGeometryProfile): void;
   updateTouchModel(model: KeyboardTouchModel): void;
   /**
@@ -628,7 +630,7 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
 
   /**
    * Commits every still-down, release-decided contact from where it currently
-   * sits. Only `updateGeometry` calls this: `destroy` and a real `pointercancel`
+   * sits. Geometry replacement calls this before rebinding: `destroy` and a real `pointercancel`
    * must keep discarding, because there the contact genuinely did not become a
    * keystroke. Contacts decided at touch-down have already committed and are
    * skipped.
@@ -912,6 +914,7 @@ export function createKeyboardEngine(options: KeyboardEngineOptions): KeyboardEn
     endPointerAt,
     cancelPointer,
     activateKey,
+    commitLiveContacts,
     updateGeometry,
     updateTouchModel,
     setKeyPrior,
