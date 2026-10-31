@@ -874,6 +874,11 @@ notifications are reconstructed as fixed OSC 777 notification sequences.
 Title admission applies the same text contract before canonical terminal storage. A rejected
 title changes neither the current title nor the titles saved by subsequent stack pushes.
 
+The native composer renders C0, C1 and DEL display-cell values as blanks, preserving their
+declared column occupancy. Display cells cannot emit host controls; authoritative cells, row
+hashes and browser rendering retain their original values. Host effects use the validated
+typed channel above.
+
 The current title is sent at authenticated attachment and rebind. Transient effects belong to
 attached peers: the daemon retains at most 16 unsent effects with a combined 2 MiB text bound,
 and advances offline cursors instead of replaying offline notifications or clipboard writes.
