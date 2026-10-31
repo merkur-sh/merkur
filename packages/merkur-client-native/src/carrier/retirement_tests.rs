@@ -134,7 +134,7 @@ async fn retired_source_steady_and_finite_payloads_stay_identical() {
             let end = received.display.recv().await.unwrap().into_parts().0;
             assert!(matches!(end, Inbound::Finite { part: Finite::End { complete: actual }, .. } if actual == complete));
         }
-        edge.send_datagram(&[2, 9, 8, 7]).unwrap();
+        edge.send_datagram([2, 9, 8, 7]).unwrap();
         let datagram = received.pulse.recv().await.unwrap().into_parts().0;
         assert!(matches!(datagram, Inbound::Datagram { payload, .. } if payload.as_ref() == [2, 9, 8, 7]));
         assert!(peer.quic_connection().close_reason().is_none());
