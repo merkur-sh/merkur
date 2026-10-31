@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import {
   createDaemonControlCommandAckMessage,
   createDaemonControlSessionCancelMessage,
@@ -38,6 +38,10 @@ import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { createDeviceService, type DeviceService, DeviceServiceTag } from './device-service';
 import { type EdgeRegistryService, EdgeRegistryServiceTag } from './edge-registry-service';
 import { infrastructureError } from './errors';
+import {
+  NotificationOutboxServiceLive,
+  NotificationOutboxServiceTag,
+} from './notification-outbox-service';
 import {
   type DaemonCarrierIdentity,
   type DaemonPresence,
@@ -1010,14 +1014,61 @@ describe('DaemonControlService', () => {
     },
   );
 
+  test('idle replicas do not scan security tables after registration', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const dependencies = Layer.mergeAll(
+      Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
+      Layer.succeed(RedisServiceTag, {
+        ...bus.redis,
+        subscribe: () => Effect.void,
+        unsubscribe: () => Effect.void,
+      }),
+      Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
+      testDatabaseLayer(),
+      Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
+      Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
+    );
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const service = yield* DaemonControlServiceTag;
+          const db = yield* DatabaseService;
+          yield* service.acceptConnection({
+            daemonBindingJson: '{}',
+            daemonId: DAEMON_ID,
+            userId: USER_ID,
+            boxId: null,
+            daemonVersion: 'test',
+            connectionId: 'idle',
+            presenceId: 'idle-presence',
+            socket: new TestSocket(),
+            zone: null,
+          });
+          const reads = spyOn(db, 'selectFrom');
+          try {
+            yield* TestClock.adjust('3 seconds');
+            expect(
+              reads.mock.calls.filter(
+                ([table]) => table === 'delegation_revocation_outbox' || table === 'daemon_unlinks',
+              ),
+            ).toEqual([]);
+          } finally {
+            reads.mockRestore();
+          }
+        }).pipe(
+          Effect.provide(DaemonControlServiceLive.pipe(Layer.provideMerge(dependencies))),
+          Effect.provide(TestClock.layer()),
+        ),
+      ),
+    );
+  });
+
   test('unlink retires daemon control', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
-    const redis: RedisService = {
-      ...bus.redis,
-      subscribe: () => Effect.void,
-      unsubscribe: () => Effect.void,
-    };
+    const redis = bus.redis;
     const dependencies = Layer.mergeAll(
       Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
       Layer.succeed(RedisServiceTag, redis),
@@ -1027,10 +1078,13 @@ describe('DaemonControlService', () => {
       Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
       Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
     );
-    const controlLayer = DaemonControlServiceLive.pipe(Layer.provideMerge(dependencies));
+    const controlLayer = Layer.merge(DaemonControlServiceLive, NotificationOutboxServiceLive).pipe(
+      Layer.provideMerge(dependencies),
+    );
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
+          yield* (yield* NotificationOutboxServiceTag).start;
           const control = yield* DaemonControlServiceTag;
           const db = yield* DatabaseService;
           const socket = new TestSocket();
@@ -1147,6 +1201,87 @@ describe('DaemonControlService', () => {
     );
   });
 
+  test('subscriber recovery drains connected daemons once without installing a poll', async () => {
+    let reads = 0;
+    const service = createService(
+      createFakeCoordination('instance-a', createCoordinationState()),
+      createBrokerBus().redis,
+      {
+        deliverUnlinks: () =>
+          Effect.sync(() => {
+            reads++;
+            return false;
+          }),
+      },
+    );
+    try {
+      await register(service, new TestSocket());
+      expect(reads).toBe(1);
+      await Effect.runPromise(
+        service.processBrokerFrame(
+          JSON.stringify({ type: 'daemon_work_resync', version: 1, ownerInstanceId: 'instance-a' }),
+        ),
+      );
+      await waitFor(() => reads === 2);
+      await Effect.runPromise(service.livenessTick);
+      expect(reads).toBe(2);
+    } finally {
+      await Effect.runPromise(service.shutdown);
+    }
+  });
+
+  test('daemon work retries only on its lease and a blocked daemon cannot hold another', async () => {
+    let at = 0;
+    let pending = false;
+    let attempts = 0;
+    const service = createService(
+      createFakeCoordination('instance-a', createCoordinationState()),
+      createBrokerBus().redis,
+      {
+        monotonicNow: () => at,
+        deliverUnlinks: (daemonId) =>
+          Effect.suspend(() => {
+            if (daemonId === 'blocked-daemon') return Effect.never;
+            if (!pending) return Effect.succeed(false);
+            attempts++;
+            return attempts === 1
+              ? Effect.fail(new RedisError({ cause: null, message: 'delivery interrupted' }))
+              : Effect.succeed(false);
+          }),
+      },
+    );
+    try {
+      const handle = await registerHandle(service, new TestSocket());
+      const wake = (daemonId: string) =>
+        service.processBrokerFrame(
+          JSON.stringify({
+            type: 'daemon_work',
+            version: 1,
+            daemonId,
+            ownerInstanceId: 'instance-a',
+          }),
+        );
+      pending = true;
+      await Effect.runPromise(wake('blocked-daemon'));
+      await Effect.runPromise(wake(DAEMON_ID));
+      await waitFor(() => attempts === 1);
+      at = 1_000;
+      handle.observePing();
+      await Effect.runPromise(service.livenessTick);
+      expect(attempts).toBe(1);
+      at = DAEMON_CONTROL_LEASE_RENEWAL_MS;
+      handle.observePing();
+      await Effect.runPromise(service.livenessTick);
+      await waitFor(() => attempts === 2);
+      at += DAEMON_CONTROL_LEASE_RENEWAL_MS;
+      handle.observePing();
+      await Effect.runPromise(service.livenessTick);
+      expect(attempts).toBe(2);
+    } finally {
+      await Effect.runPromise(service.shutdown);
+    }
+  });
+
   test('a failing daemon cannot starve another pending revocation', async () => {
     const bus = createBrokerBus();
     const first = createFakeCoordination('instance-a', createCoordinationState());
@@ -1212,11 +1347,7 @@ describe('DaemonControlService', () => {
   test('committed revocation survives request interruption', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
-    const redis: RedisService = {
-      ...bus.redis,
-      subscribe: () => Effect.void,
-      unsubscribe: () => Effect.void,
-    };
+    const redis = bus.redis;
     const dependencies = Layer.mergeAll(
       Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
       Layer.succeed(RedisServiceTag, redis),
@@ -1226,10 +1357,13 @@ describe('DaemonControlService', () => {
       Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
       Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
     );
-    const controlLayer = DaemonControlServiceLive.pipe(Layer.provideMerge(dependencies));
+    const controlLayer = Layer.merge(DaemonControlServiceLive, NotificationOutboxServiceLive).pipe(
+      Layer.provideMerge(dependencies),
+    );
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
+          yield* (yield* NotificationOutboxServiceTag).start;
           const control = yield* DaemonControlServiceTag;
           const db = yield* DatabaseService;
           const socket = new TestSocket();
@@ -3267,6 +3401,7 @@ function createService(
       | 'touchDaemonsSeen'
       | 'stagedRelease'
       | 'revocationOutbox'
+      | 'deliverUnlinks'
       | 'edges'
       | 'telemetryEnabled'
       | 'logger'
@@ -3443,8 +3578,18 @@ function createBrokerBus(): BrokerBus {
             message: 'fake Redis publish failed',
           }),
       }),
-    subscribe: () => Effect.die(new Error('unexpected Redis subscribe call')),
-    unsubscribe: () => Effect.die(new Error('unexpected Redis unsubscribe call')),
+    subscribe: (channel, handler) =>
+      Effect.sync(() => {
+        const subscribers = listeners.get(channel) ?? new Set();
+        subscribers.add(async (frame) => {
+          handler(frame);
+        });
+        listeners.set(channel, subscribers);
+      }),
+    unsubscribe: (channel) =>
+      Effect.sync(() => {
+        listeners.delete(channel);
+      }),
     healthSnapshot: () =>
       Effect.succeed({
         commandsReady: true,

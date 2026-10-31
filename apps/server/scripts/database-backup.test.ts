@@ -110,7 +110,18 @@ describe('database backup', () => {
       const removals = await restored.selectFrom('box_removals').selectAll().execute();
       expect(removals).toEqual([{ box_id: 'box-1', requested_at: 4 }]);
       const outbox = await restored.selectFrom('notification_outbox').selectAll().execute();
-      expect(outbox).toEqual([{ id: 'note-1', user_id: 'user-1', kind: 'welcome', payload: '{}' }]);
+      expect(outbox.filter((row) => row.kind !== 'daemon-control')).toEqual([
+        { id: 'note-1', user_id: 'user-1', kind: 'welcome', payload: '{}' },
+      ]);
+      const wakes = outbox.filter((row) => row.kind === 'daemon-control');
+      expect(wakes).toHaveLength(2);
+      for (const wake of wakes)
+        expect(JSON.parse(wake.payload)).toEqual({
+          type: 'daemon_work',
+          version: 1,
+          daemonId: 'daemon-1',
+          ownerInstanceId: 'replica-1',
+        });
     } finally {
       await restored.destroy();
     }

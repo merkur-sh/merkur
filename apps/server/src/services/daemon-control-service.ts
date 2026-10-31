@@ -58,10 +58,15 @@ import {
 } from '../observability/metrics';
 import { currentTraceparent } from '../observability/traceparent';
 import { readAccountTelemetryConsent } from './account-telemetry-service';
-import { BROKER_BROADCAST_CHANNEL, BROKER_PROTOCOL_VERSION } from './daemon-control-broadcast';
+import {
+  BROKER_BROADCAST_CHANNEL,
+  BROKER_PROTOCOL_VERSION,
+  type BrokerDaemonWork,
+  daemonControlChannel,
+  parseDaemonWork,
+} from './daemon-control-broadcast';
 import { deliverDaemonUnlinks, fenceDaemonRegistration } from './daemon-control-ownership';
 import { DaemonReleaseStoreTag } from './daemon-release-store';
-import { runDaemonRevocationDelivery } from './daemon-revocation-delivery';
 import { DeviceServiceTag } from './device-service';
 import { createEdgeAttachTicketIssuer, type EdgeAttachTicketIssuer } from './edge-attach-ticket';
 import { EdgeRegistryServiceTag } from './edge-registry-service';
@@ -123,7 +128,6 @@ const LEASE_RENEWAL_CHUNK = 128;
 const LEASE_RENEWAL_RETRY_MS = 2_000;
 /** Shortest sleep between liveness walks, so a stuck deadline cannot spin. */
 const LIVENESS_TICK_FLOOR_MS = 250;
-const BROKER_CHANNEL_PREFIX = 'merkur:daemon-control:instance:';
 const UTF8_ENCODER = new TextEncoder();
 
 export class DaemonUnavailable extends Data.TaggedError('DaemonUnavailable')<{
@@ -611,7 +615,15 @@ interface BrokerTelemetryChanged {
   readonly userId: string;
 }
 
+interface BrokerDaemonWorkResync {
+  readonly type: 'daemon_work_resync';
+  readonly version: number;
+  readonly ownerInstanceId: string;
+}
+
 type BrokerEnvelope =
+  | BrokerDaemonWorkResync
+  | BrokerDaemonWork
   | BrokerCommandRequest
   | BrokerCommandResult
   | BrokerSuperseded
@@ -620,7 +632,6 @@ type BrokerEnvelope =
   | BrokerTelemetryChanged;
 
 interface DaemonControlRuntime extends DaemonControlService {
-  readonly awaitFirstConnection: Effect.Effect<void>;
   readonly retireUnlinkedPresence: (
     presence: DaemonPresence,
     generation: number | null,
@@ -675,6 +686,9 @@ export interface DaemonControlServiceDependencies {
     acquire: Effect.Effect<ClaimDaemonOnlineResult, RedisError>,
   ) => Effect.Effect<ClaimDaemonOnlineResult, RedisError | InfrastructureError>;
   readonly revocationOutbox?: DelegationRevocationOutbox;
+  readonly deliverUnlinks?: (
+    daemonId: string,
+  ) => Effect.Effect<boolean, InfrastructureError | RedisError>;
   readonly logger: Logger;
   /**
    * Mints the STUN credential carried on `registered` and every `lease`.
@@ -752,6 +766,8 @@ export const DaemonControlServiceLive = Layer.effect(
       telemetryEnabled: (userId) =>
         readAccountTelemetryConsent(db, userId).pipe(Effect.map((consent) => consent === true)),
       revocationOutbox: createDelegationRevocationOutbox(db),
+      deliverUnlinks: (daemonId) =>
+        deliverDaemonUnlinks(db, redis, service.retireUnlinkedPresence, coordination, daemonId),
       logger,
       now: () => clock.currentTimeMillisUnsafe(),
       monotonicNow: () => performance.now(),
@@ -789,6 +805,20 @@ export const DaemonControlServiceLive = Layer.effect(
     yield* Effect.acquireRelease(redis.subscribe(BROKER_BROADCAST_CHANNEL, brokerListener), () =>
       redis.unsubscribe(BROKER_BROADCAST_CHANNEL, brokerListener).pipe(Effect.ignore),
     );
+    if (redis.onSubscriberReconnected !== undefined) {
+      yield* Effect.acquireRelease(
+        redis.onSubscriberReconnected(() =>
+          brokerListener(
+            JSON.stringify({
+              type: 'daemon_work_resync',
+              version: BROKER_PROTOCOL_VERSION,
+              ownerInstanceId: coordination.instanceId,
+            }),
+          ),
+        ),
+        (unsubscribe) => unsubscribe,
+      );
+    }
     yield* Effect.forEach(
       Array.from({ length: BROKER_HANDLER_CONCURRENCY }),
       (_, workerIndex) =>
@@ -809,19 +839,6 @@ export const DaemonControlServiceLive = Layer.effect(
     yield* Effect.forever(
       Queue.take(releaseStore.announcements).pipe(Effect.flatMap(service.announceStagedRelease)),
     ).pipe(Effect.forkScoped);
-    // HTTP admits connections only after migrations; registration also replays
-    // pending entries before readiness. Waiting avoids querying an unmigrated DB.
-    yield* service.awaitFirstConnection.pipe(
-      Effect.andThen(
-        runDaemonRevocationDelivery(
-          db,
-          service.deliverPendingRevocations,
-          logger,
-          deliverDaemonUnlinks(db, redis, service.retireUnlinkedPresence, coordination),
-        ),
-      ),
-      Effect.forkScoped,
-    );
     return service;
   }),
 );
@@ -838,8 +855,9 @@ export function createDaemonControlService(
     DAEMON_CONTROL_MAX_PENDING_COMMANDS_PER_CONNECTION;
   const maxPendingRemoteCommands =
     dependencies.maxPendingRemoteCommands ?? MAX_PENDING_REMOTE_COMMANDS;
-  const firstConnection = Deferred.makeUnsafe<void>();
   const connections = new Map<string, ControlConnection>();
+  const deliveryScope = Scope.makeUnsafe('parallel');
+  const daemonWork = new Map<string, { pending: boolean; running: boolean }>();
   const connectionIdByDaemonId = new Map<string, string>();
   /** Revoke-all fan-out is O(this user's daemons), not O(connections). */
   const connectionIdsByUserId = new Map<string, Set<string>>();
@@ -937,7 +955,6 @@ export function createDaemonControlService(
   }
 
   const service: DaemonControlRuntime = {
-    awaitFirstConnection: Deferred.await(firstConnection),
     retireUnlinkedPresence: (presence, generation) =>
       Effect.gen(function* () {
         if (presence.ownerInstanceId === coordination.instanceId) {
@@ -978,22 +995,7 @@ export function createDaemonControlService(
       Effect.forEach(
         daemonIds,
         (daemonId) =>
-          Effect.gen(function* () {
-            const connectionId = connectionIdByDaemonId.get(daemonId);
-            const connection =
-              connectionId === undefined ? undefined : connections.get(connectionId);
-            if (connection === undefined || !connection.sessionReady || connection.peerClosed)
-              return;
-            const presence = yield* coordination.getDaemonPresence(daemonId);
-            if (
-              presence === null ||
-              presence.connectionId !== connection.connectionId ||
-              presence.ownerInstanceId !== coordination.instanceId
-            )
-              return;
-            const applied = yield* flushDaemonDelegationRevocations(presence);
-            if (!applied) yield* retireDelegationRevocationPresence(presence);
-          }).pipe(
+          deliverDaemonRevocations(daemonId).pipe(
             Effect.catch((error) =>
               logWithLoggerEffect(logger, 'warn', 'daemon_revocation_delivery_failed', {
                 daemonId,
@@ -1252,8 +1254,11 @@ export function createDaemonControlService(
           });
           return handle;
         }
+        const unlinksRemain = yield* dependencies.deliverUnlinks?.(input.daemonId) ??
+          Effect.succeed(false);
+        if (connection.peerClosed) return handle;
         connection.sessionReady = true;
-        yield* Deferred.succeed(firstConnection, undefined);
+        if (unlinksRemain) yield* wakeDaemonWork(input.daemonId);
         yield* logWithLoggerEffect(logger, 'info', 'daemon_control_registered', {
           daemonId: input.daemonId,
           connectionId: input.connectionId,
@@ -1538,8 +1543,16 @@ export function createDaemonControlService(
       if (envelope.type === 'revocation_generation') {
         return deliverRevocationGeneration(envelope.userId, envelope.generation);
       }
+      if (envelope.type === 'daemon_work') {
+        return envelope.ownerInstanceId === coordination.instanceId
+          ? wakeDaemonWork(envelope.daemonId)
+          : Effect.void;
+      }
       if (envelope.ownerInstanceId !== coordination.instanceId) {
         return Effect.void;
+      }
+      if (envelope.type === 'daemon_work_resync') {
+        return Effect.forEach(connectionIdByDaemonId.keys(), wakeDaemonWork, { discard: true });
       }
       if (envelope.type === 'command_result') {
         const pending = pendingRemoteCommands.get(envelope.commandId);
@@ -1676,6 +1689,7 @@ export function createDaemonControlService(
           if (connection === undefined || renewal === undefined || !connection.linked) continue;
           if (renewal.presence === 'refreshed') {
             connection.leaseRenewedAtMono = tickAt;
+            yield* retryDaemonWork(connection.daemonId);
             if (!connection.silent) provenAlive.push(connection.daemonId);
             // Silence convergence can lose a Redis round trip; the renewal is
             // the bound on how long the stored state may lag the observed one.
@@ -1776,6 +1790,8 @@ export function createDaemonControlService(
       pendingRemoteCommands.clear();
       const connectionIds = Array.from(connections.keys());
       return Effect.gen(function* () {
+        yield* Scope.close(deliveryScope, Exit.void);
+        daemonWork.clear();
         yield* Effect.forEach(
           remoteCommands,
           ([commandId, pending]) =>
@@ -2219,6 +2235,77 @@ export function createDaemonControlService(
       return yield* deliverRemoteCommand(current, command);
     });
     return instrumentCommandDelivery(expectedPresence, command, delivery);
+  }
+
+  function deliverDaemonRevocations(daemonId: string) {
+    return Effect.gen(function* () {
+      const connectionId = connectionIdByDaemonId.get(daemonId);
+      const connection = connectionId === undefined ? undefined : connections.get(connectionId);
+      if (connection === undefined || !connection.sessionReady || connection.peerClosed) return;
+      const presence = yield* coordination.getDaemonPresence(daemonId);
+      if (
+        presence === null ||
+        presence.connectionId !== connection.connectionId ||
+        presence.ownerInstanceId !== coordination.instanceId
+      )
+        return;
+      const applied = yield* flushDaemonDelegationRevocations(presence);
+      if (!applied) yield* retireDelegationRevocationPresence(presence);
+    });
+  }
+
+  function retryDaemonWork(daemonId: string): Effect.Effect<void> {
+    const work = daemonWork.get(daemonId);
+    return work?.pending && !work.running ? wakeDaemonWork(daemonId) : Effect.void;
+  }
+
+  function wakeDaemonWork(daemonId: string): Effect.Effect<void> {
+    return Effect.suspend(() => {
+      if (closed) return Effect.void;
+      let work = daemonWork.get(daemonId);
+      if (work === undefined) {
+        work = { pending: true, running: false };
+        daemonWork.set(daemonId, work);
+      }
+      work.pending = true;
+      if (work.running) return Effect.void;
+      work.running = true;
+      const owned = work;
+      return Effect.gen(function* () {
+        while (owned.pending) {
+          owned.pending = false;
+          const outcome = yield* Effect.result(
+            Effect.gen(function* () {
+              const unlinksRemain = yield* dependencies.deliverUnlinks?.(daemonId) ??
+                Effect.succeed(false);
+              yield* deliverDaemonRevocations(daemonId);
+              return unlinksRemain;
+            }),
+          );
+          if (Result.isFailure(outcome)) {
+            owned.pending = true;
+            yield* logWithLoggerEffect(logger, 'warn', 'daemon_security_delivery_failed', {
+              daemonId,
+              ...errorLogContext(outcome.failure),
+            });
+            break;
+          }
+          if (outcome.success) {
+            owned.pending = true;
+            break;
+          }
+        }
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            owned.running = false;
+            if (!owned.pending) daemonWork.delete(daemonId);
+          }),
+        ),
+        Effect.forkIn(deliveryScope),
+        Effect.asVoid,
+      );
+    });
   }
 
   function flushDaemonDelegationRevocations(
@@ -2926,6 +3013,14 @@ function parseBrokerEnvelope(frame: string): BrokerEnvelope | null {
       ? null
       : { type: 'telemetry_changed', version: BROKER_PROTOCOL_VERSION, userId };
   }
+  if (value.type === 'daemon_work_resync') {
+    if (!hasExactKeys(value, ['type', 'version', 'ownerInstanceId'])) return null;
+    const ownerInstanceId = readIdentifier(value.ownerInstanceId);
+    return ownerInstanceId === null
+      ? null
+      : { type: 'daemon_work_resync', version: BROKER_PROTOCOL_VERSION, ownerInstanceId };
+  }
+  if (value.type === 'daemon_work') return parseDaemonWork(frame);
   if (value.type === 'command_request') return parseBrokerCommandRequest(value);
   if (value.type === 'command_result') return parseBrokerCommandResult(value);
   if (value.type === 'superseded') return parseBrokerSuperseded(value);
@@ -3227,7 +3322,7 @@ function isSamePresenceLease(left: DaemonPresence, right: DaemonPresence): boole
 }
 
 function brokerChannelForInstance(instanceId: string): string {
-  return `${BROKER_CHANNEL_PREFIX}${instanceId}`;
+  return daemonControlChannel(instanceId);
 }
 
 function closeSocket(connection: ControlConnection, code: number, reason: string): void {

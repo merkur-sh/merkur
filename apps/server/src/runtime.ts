@@ -64,7 +64,12 @@ import {
 } from './services/session-issuance-service';
 import { SessionServiceLive, type SessionServiceTag } from './services/session-service';
 
+const RealtimeCoordinationResolvedLive = RealtimeCoordinationServiceLive.pipe(
+  Layer.provideMerge(RedisServiceLive),
+);
+
 const NotificationOutboxResolvedLive = NotificationOutboxServiceLive.pipe(
+  Layer.provideMerge(RealtimeCoordinationResolvedLive),
   Layer.provideMerge(RedisServiceLive),
 );
 
@@ -79,10 +84,6 @@ const CoreServicesLive = Layer.mergeAll(
   BoxHostServiceLive,
   DaemonLinkClaimServiceLive.pipe(Layer.provideMerge(NotificationOutboxResolvedLive)),
   DeviceServiceLive.pipe(Layer.provideMerge(NotificationOutboxResolvedLive)),
-);
-
-const RealtimeCoordinationResolvedLive = RealtimeCoordinationServiceLive.pipe(
-  Layer.provideMerge(RedisServiceLive),
 );
 
 const EdgeRegistryResolvedLive = EdgeRegistryServiceLive.pipe(Layer.provideMerge(RedisServiceLive));

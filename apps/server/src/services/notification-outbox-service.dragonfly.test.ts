@@ -10,10 +10,71 @@ import { deliverPendingNotifications, enqueueDeviceResync } from './notification
 import { createRedisCommandClient, RedisError, type RedisService } from './redis-service';
 import { enqueueResetRevocation } from './session-revocation-outbox';
 
+const coordination = { getDaemonPresence: () => Effect.succeed(null) };
+
 const url = process.env.DRAGONFLY_TEST_URL;
 if (url === undefined) {
   test.skip('durable device invalidation advances the shared Dragonfly cursor', () => {});
 } else {
+  test('an unlink publishes a wake on its exact replica channel', async () => {
+    const db = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
+    const publisher = new RedisClient(url);
+    const subscriber = new RedisClient(url);
+    const replica = randomUUID();
+    const channel = `merkur:daemon-control:instance:${replica}`;
+    const observed = Promise.withResolvers<string>();
+    await Promise.all([publisher.connect(), subscriber.connect()]);
+    const commands = createRedisCommandClient(publisher);
+    const redis: RedisService = {
+      useCommands: (fn) =>
+        Effect.tryPromise({
+          try: async () => await fn(commands),
+          catch: (cause) => new RedisError({ cause, message: String(cause) }),
+        }),
+      publish: (target, payload) =>
+        Effect.tryPromise({
+          try: async () => {
+            await publisher.publish(target, payload);
+          },
+          catch: (cause) => new RedisError({ cause, message: String(cause) }),
+        }),
+      subscribe: () => Effect.void,
+      unsubscribe: () => Effect.void,
+      healthSnapshot: () =>
+        Effect.succeed({ commandsReady: true, publisherReady: true, subscriberReady: true }),
+    };
+    try {
+      await subscriber.subscribe(channel, (message) => observed.resolve(message));
+      await db.transaction().execute(async (trx) => {
+        await trx
+          .insertInto('daemon_unlinks')
+          .values({
+            daemon_id: 'daemon',
+            user_id: 'account',
+            connection_id: 'old-connection',
+            owner_instance_id: replica,
+            presence_id: 'old-presence',
+            claim_seq: 1,
+            root_epoch: 0,
+          })
+          .execute();
+      });
+      await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
+      expect(JSON.parse(await observed.promise)).toEqual({
+        type: 'daemon_work',
+        version: 1,
+        daemonId: 'daemon',
+        ownerInstanceId: replica,
+      });
+      expect(await db.selectFrom('daemon_unlinks').selectAll().execute()).toEqual([]);
+      expect(await db.selectFrom('notification_outbox').selectAll().execute()).toEqual([]);
+    } finally {
+      subscriber.close();
+      publisher.close();
+      await db.destroy();
+    }
+  });
+
   test('reset revocation survives Redis failure without incrementing twice', async () => {
     const db = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
     const probe = new RedisClient(url);
@@ -43,17 +104,17 @@ if (url === undefined) {
     };
     try {
       await db.transaction().execute((trx) => enqueueResetRevocation(trx, userId, 2));
-      await expect(Effect.runPromise(deliverPendingNotifications(db, redis))).rejects.toThrow(
-        'Redis unavailable',
-      );
+      await expect(
+        Effect.runPromise(deliverPendingNotifications(db, redis, coordination)),
+      ).rejects.toThrow('Redis unavailable');
       expect(await db.selectFrom('notification_outbox').selectAll().execute()).toHaveLength(1);
       mode = 'after';
-      await expect(Effect.runPromise(deliverPendingNotifications(db, redis))).rejects.toThrow(
-        'Redis reply lost',
-      );
+      await expect(
+        Effect.runPromise(deliverPendingNotifications(db, redis, coordination)),
+      ).rejects.toThrow('Redis reply lost');
       expect(await probe.get(generationKey)).toBe('1');
       mode = 'healthy';
-      await Effect.runPromise(deliverPendingNotifications(db, redis));
+      await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
       expect(await probe.get(generationKey)).toBe('1');
       expect(broadcasts.map((message) => JSON.parse(message))).toEqual([
         { type: 'revocation_generation', version: 1, userId, generation: 1 },
@@ -63,7 +124,7 @@ if (url === undefined) {
         await enqueueResetRevocation(trx, userId, 3);
         await enqueueResetRevocation(trx, userId, 2);
       });
-      await Effect.runPromise(deliverPendingNotifications(db, redis));
+      await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
       expect(await probe.get(generationKey)).toBe('2');
     } finally {
       await probe.del(generationKey, marker);
@@ -126,7 +187,7 @@ if (url === undefined) {
           }),
         ),
       );
-      await Effect.runPromise(deliverPendingNotifications(db, redis));
+      await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
       await observed.promise;
       expect(messages).toEqual(['resync', 'resync']);
       expect(await probe.send('HGETALL', [cursor])).toEqual([

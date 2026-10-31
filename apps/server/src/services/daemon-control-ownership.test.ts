@@ -40,6 +40,7 @@ test('restored reset unlink retires a missing exact owner without Redis reset ma
             return true;
           }),
         { getDaemonPresence: () => Effect.succeed(null) },
+        'daemon',
       ),
     );
     expect(retired).toBe(true);

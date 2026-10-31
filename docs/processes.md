@@ -97,13 +97,17 @@ can repeat delivery. Browser changes carry exact delegation IDs. Device invalida
 the account cursor and request an authoritative snapshot, so replay cannot restore an obsolete
 name or resurrect a removed device. Pending intents survive account erasure until acknowledged.
 
-Each control replica also scans pending daemon revocations once a second after its first
-successful registration and delivers only to its own ready connections. The SQL outbox owns
-recovery independently of request cancellation; entries leave pending state only after daemon
-acknowledgement. Concurrent delivery of the same revocation shares its in-flight acknowledgement.
-The same worker drains `daemon_unlinks`, which retains the exact deleted control ownership until
-its socket and lease are retired. Registration records ownership under the unlink transaction's
-write lock; relinking cannot make an old unlink retire the new connection.
+Daemon revocation and unlink intents append replica-addressed wakes to `notification_outbox`
+in the same transaction. The existing notification worker publishes each wake on the owner's
+control channel and retires unlink intents whose exact owner is gone. Restoring pending rows
+recreates those wakes. Each daemon drains independently, so one failed or unacknowledged
+delivery cannot hold another daemon. Registration drains that daemon's pending rows before
+readiness; a live connection with pending work retries from its existing lease tick. Idle
+control replicas perform no security-table scans. Subscriber reconnection drains connected
+daemons once to recover wakes lost during the Redis subscription gap. SQL entries leave pending state only after
+daemon acknowledgement or exact unlink retirement. Concurrent delivery of the same revocation
+shares its in-flight acknowledgement. Registration records ownership under the unlink
+transaction's write lock; relinking cannot make an old unlink retire the new connection.
 
 Failed-login push notices use a separate scoped queue; request completion does not wait for
 push delivery. Box-host and push HTTP requests pass Effect's cancellation signal to fetch and

@@ -13,7 +13,13 @@ import {
   NotificationOutboxServiceLive,
   NotificationOutboxServiceTag,
 } from './notification-outbox-service';
+import {
+  type RealtimeCoordinationService,
+  RealtimeCoordinationServiceTag,
+} from './realtime-coordination-service';
 import { RedisError, type RedisService, RedisServiceTag } from './redis-service';
+
+const coordination = { getDaemonPresence: () => Effect.succeed(null) };
 
 let db: Kysely<DatabaseSchema>;
 const change = { issuedDelegationIds: [], revokedDelegationIds: ['exact-delegation'] };
@@ -38,6 +44,46 @@ beforeEach(async () => {
 afterEach(() => db.destroy());
 
 describe('durable notification publication', () => {
+  test('unlink intent commits a durable wake for its exact owner', async () => {
+    await db.transaction().execute(async (trx) => {
+      await trx
+        .insertInto('daemon_unlinks')
+        .values({
+          daemon_id: 'daemon',
+          user_id: 'account',
+          connection_id: 'connection',
+          owner_instance_id: 'replica',
+          presence_id: 'presence',
+          claim_seq: 1,
+          root_epoch: 0,
+        })
+        .execute();
+    });
+    const messages: Array<{ channel: string; payload: string }> = [];
+    await Effect.runPromise(
+      deliverPendingNotifications(
+        db,
+        fakeRedis((channel, payload) => {
+          messages.push({ channel, payload });
+        }),
+        coordination,
+      ),
+    );
+    expect(messages).toEqual([
+      {
+        channel: 'merkur:daemon-control:instance:replica',
+        payload: JSON.stringify({
+          type: 'daemon_work',
+          version: 1,
+          daemonId: 'daemon',
+          ownerInstanceId: 'replica',
+        }),
+      },
+    ]);
+    expect(await pending()).toEqual([]);
+    expect(await db.selectFrom('daemon_unlinks').selectAll().execute()).toEqual([]);
+  });
+
   test('a rollback removes notification intent along with its state change', async () => {
     const failed = withDatabaseTransaction(db, (trx) =>
       tryDatabaseTransactionPromise({
@@ -71,14 +117,15 @@ describe('durable notification publication', () => {
           return yield* new RedisError({ cause: null, message: 'reply lost after publication' });
         }),
     };
-    await expect(Effect.runPromise(deliverPendingNotifications(db, unknown))).rejects.toThrow(
-      'reply lost',
-    );
+    await expect(
+      Effect.runPromise(deliverPendingNotifications(db, unknown, coordination)),
+    ).rejects.toThrow('reply lost');
     expect(await pending()).toHaveLength(1);
     await Effect.runPromise(
       deliverPendingNotifications(
         db,
         fakeRedis((_channel, payload) => messages.push(payload)),
+        coordination,
       ),
     );
     expect(messages).toEqual([JSON.stringify(change), JSON.stringify(change)]);
@@ -92,12 +139,12 @@ describe('durable notification publication', () => {
     );
     const messages: string[] = [];
     const redis = fakeRedis((_channel, payload) => messages.push(payload));
-    await expect(Effect.runPromise(deliverPendingNotifications(db, redis))).rejects.toThrow(
-      'ack failed',
-    );
+    await expect(
+      Effect.runPromise(deliverPendingNotifications(db, redis, coordination)),
+    ).rejects.toThrow('ack failed');
     expect(await pending()).toHaveLength(1);
     await sql`DROP TRIGGER refuse_ack`.execute(db);
-    await Effect.runPromise(deliverPendingNotifications(db, redis));
+    await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
     expect(messages).toHaveLength(2);
     expect(await pending()).toHaveLength(0);
   });
@@ -126,7 +173,7 @@ describe('durable notification publication', () => {
           catch: (cause) => new RedisError({ cause, message: String(cause) }),
         }),
     };
-    await Effect.runPromise(deliverPendingNotifications(db, redis));
+    await Effect.runPromise(deliverPendingNotifications(db, redis, coordination));
     const command = commands[0];
     expect(command?.slice(2, 5)).toEqual([
       '2',
@@ -146,6 +193,11 @@ describe('durable notification publication', () => {
       Layer.provide(
         Layer.mergeAll(
           Layer.succeed(DatabaseService, db),
+          Layer.succeed(
+            RealtimeCoordinationServiceTag,
+            // SAFETY: publication reads only getDaemonPresence from coordination.
+            coordination as RealtimeCoordinationService,
+          ),
           Layer.succeed(
             RedisServiceTag,
             fakeRedis((_channel, payload) => {
@@ -188,6 +240,7 @@ describe('durable notification publication', () => {
         deliverPendingNotifications(
           db,
           fakeRedis((_channel, payload) => messages.push(payload)),
+          coordination,
         ),
       ),
     ).rejects.toThrow('Invalid notification kind');
@@ -199,7 +252,7 @@ describe('durable notification publication', () => {
     await enqueueChange();
     await db.deleteFrom('users').where('id', '=', 'account').execute();
     expect(await pending()).toHaveLength(1);
-    await Effect.runPromise(deliverPendingNotifications(db, fakeRedis()));
+    await Effect.runPromise(deliverPendingNotifications(db, fakeRedis(), coordination));
     expect(await pending()).toHaveLength(0);
   });
 });

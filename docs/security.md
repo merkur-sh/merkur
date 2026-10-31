@@ -78,7 +78,8 @@ leaked deployment key would let its holder relay through the edge, and nothing m
 Control registration holds the database write lock while checking that the authenticated daemon
 binding still matches the linked row, claiming its Redis lease and recording its exact ownership
 in `daemon_control_owners`. Unlinking cascades that record into
-`daemon_unlinks` in the deletion transaction. Each replica's scoped consumer retires its matching
+`daemon_unlinks` and a notification wake in the deletion transaction. The existing notification
+worker wakes the recorded replica, whose scoped delivery retires its matching
 socket, lease and presence before acknowledging the intent; a later relink has a different
 connection identity and is left alone. A password reset waits for its allocated revocation
 generation and sends it on the old socket before closing that socket. An intent whose exact

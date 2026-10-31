@@ -85,11 +85,14 @@ export const deliverDaemonUnlinks = Effect.fnUntraced(function* (
     generation: number | null,
   ) => Effect.Effect<boolean, RedisError | InfrastructureError>,
   coordination: Pick<RealtimeCoordinationService, 'getDaemonPresence'>,
+  daemonId: string,
 ) {
   const pending = yield* Effect.tryPromise({
-    try: () => db.selectFrom('daemon_unlinks').selectAll().execute(),
+    try: () =>
+      db.selectFrom('daemon_unlinks').selectAll().where('daemon_id', '=', daemonId).execute(),
     catch: infrastructureError('daemon-control', 'pending-unlinks'),
   });
+  let remaining = false;
   for (const row of pending) {
     let generation: number | null = null;
     // The reset's atomic epoch marker proves its generation has been allocated.
@@ -112,7 +115,10 @@ export const deliverDaemonUnlinks = Effect.fnUntraced(function* (
           commands.sendCommand<string | null>(['GET', `merkur:auth:revocation:${row.user_id}`]),
         ]),
       );
-      if (applied === null || applied === undefined) continue;
+      if (applied === null || applied === undefined) {
+        remaining = true;
+        continue;
+      }
       if (
         !Number.isSafeInteger(Number(applied)) ||
         current === null ||
@@ -120,7 +126,10 @@ export const deliverDaemonUnlinks = Effect.fnUntraced(function* (
       ) {
         return yield* new RedisError({ cause: null, message: 'Invalid reset revocation state' });
       }
-      if (Number(applied) < row.root_epoch) continue;
+      if (Number(applied) < row.root_epoch) {
+        remaining = true;
+        continue;
+      }
       generation = Number(current);
     }
     const retired = yield* retire(
@@ -137,6 +146,7 @@ export const deliverDaemonUnlinks = Effect.fnUntraced(function* (
       },
       generation,
     );
+    if (!retired) remaining = true;
     if (retired)
       yield* Effect.tryPromise({
         try: () =>
@@ -144,4 +154,5 @@ export const deliverDaemonUnlinks = Effect.fnUntraced(function* (
         catch: infrastructureError('daemon-control', 'acknowledge-unlink'),
       });
   }
+  return remaining;
 });

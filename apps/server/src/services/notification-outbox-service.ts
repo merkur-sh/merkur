@@ -5,7 +5,13 @@ import { DatabaseService } from '../db/client';
 import type { DatabaseSchema } from '../db/types';
 import { createLogger, errorLogContext, logWithLoggerEffect } from '../logger';
 import type { BrowserSessionChange } from './browser-session-presence';
+import { daemonControlChannel, parseDaemonWork } from './daemon-control-broadcast';
+import { deliverDaemonUnlinks } from './daemon-control-ownership';
 import { type InfrastructureError, infrastructureError } from './errors';
+import {
+  type RealtimeCoordinationService,
+  RealtimeCoordinationServiceTag,
+} from './realtime-coordination-service';
 import { defineRedisScript } from './redis-script';
 import {
   evalRedisScript,
@@ -46,6 +52,7 @@ export const NotificationOutboxServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DatabaseService;
     const redis = yield* RedisServiceTag;
+    const coordination = yield* RealtimeCoordinationServiceTag;
     const logger = createLogger('server');
     const started = yield* Deferred.make<void>();
     const wakeups = yield* Queue.make<void>({ capacity: 1, strategy: 'dropping' });
@@ -54,7 +61,7 @@ export const NotificationOutboxServiceLive = Layer.effect(
       yield* Deferred.await(started);
       yield* Effect.forever(
         Effect.gen(function* () {
-          yield* deliverPendingNotifications(db, redis).pipe(
+          yield* deliverPendingNotifications(db, redis, coordination).pipe(
             Effect.catchCause((cause) => {
               if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
               return logWithLoggerEffect(logger, 'warn', 'notification_outbox_delivery_failed', {
@@ -112,13 +119,39 @@ export async function enqueueDeviceResync(
 }
 
 const publishNotification = Effect.fnUntraced(function* (
+  db: Kysely<DatabaseSchema>,
   redis: RedisService,
+  coordination: Pick<RealtimeCoordinationService, 'getDaemonPresence'>,
   row: { readonly kind: string; readonly user_id: string; readonly payload: string },
 ) {
   if (row.kind === 'browser-sessions') {
     yield* redis.publish(`browser:presence:events:${row.user_id}`, row.payload);
   } else if (row.kind === 'reset-revocation') {
     yield* deliverResetRevocation(redis, row.user_id, row.payload);
+  } else if (row.kind === 'daemon-control') {
+    const wake = parseDaemonWork(row.payload);
+    if (wake === null)
+      return yield* infrastructureError(
+        'notification-outbox',
+        'decode-daemon-work',
+      )(new Error('Invalid daemon work wake'));
+    const current = yield* coordination.getDaemonPresence(wake.daemonId);
+    yield* deliverDaemonUnlinks(
+      db,
+      redis,
+      (expected) =>
+        Effect.succeed(
+          current === null ||
+            current.userId !== expected.userId ||
+            current.connectionId !== expected.connectionId ||
+            current.ownerInstanceId !== expected.ownerInstanceId ||
+            current.presenceId !== expected.presenceId ||
+            current.claimSeq !== expected.claimSeq,
+        ),
+      coordination,
+      wake.daemonId,
+    );
+    yield* redis.publish(daemonControlChannel(wake.ownerInstanceId), row.payload);
   } else if (row.kind === 'devices') {
     yield* redis.useCommands((commands) =>
       evalRedisScript(
@@ -144,6 +177,7 @@ const publishNotification = Effect.fnUntraced(function* (
 export const deliverPendingNotifications = Effect.fnUntraced(function* (
   db: Kysely<DatabaseSchema>,
   redis: RedisService,
+  coordination: Pick<RealtimeCoordinationService, 'getDaemonPresence'>,
 ) {
   let after: string | undefined;
   let firstFailure: InfrastructureError | RedisError | undefined;
@@ -167,7 +201,7 @@ export const deliverPendingNotifications = Effect.fnUntraced(function* (
     const published: string[] = [];
     for (const row of rows) {
       after = row.id;
-      const result = yield* Effect.result(publishNotification(redis, row));
+      const result = yield* Effect.result(publishNotification(db, redis, coordination, row));
       if (result._tag === 'Failure') {
         firstFailure ??= result.failure;
       } else {
