@@ -1870,6 +1870,15 @@ Hashing in server services, edge registration and CSP generation uses `Bun.Crypt
 retaining the exact algorithms, transcript bytes and digest encodings. One-shot hashes use
 its static API; multipart transcripts use incremental updates. Redis script identities and
 verification content keys remain byte-identical.
+
+Bun's lazy authorization WASM loader passes its owned file Buffer directly to synchronous
+compilation. Importing the loader performs no compilation; subsequent cryptographic operations
+reuse the installed bindings. `scripts/bench-bun-wasm-bootstrap.ts` measures fresh source or
+compiled executables, checks hashes and valid/invalid signatures, and counts full-file copies
+separately from timing. Optional baseline and identical-control executables support alternating
+comparisons. macOS additionally reports child instructions retired and peak process memory;
+JavaScriptCore heap size describes retained JS storage only.
+
 Daemon binary file reads use `Bun.file().bytes()` without copying a Node buffer into a second
 typed array. Text reads retain Node's UTF-8 decoding, which preserves a leading BOM for strict
 JSON, lock ownership and existing shell-file contents. Permission-sensitive writes, exclusive

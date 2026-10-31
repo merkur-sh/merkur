@@ -107,6 +107,17 @@ const BENCHMARKS: readonly WorkloadSpec[] = [
     requireMetrics: true,
   },
   {
+    service: 'server',
+    name: 'bun-wasm-bootstrap',
+    fidelity: 'component',
+    processMetrics: 'diagnostic',
+    kind: 'benchmark',
+    command: ['bun', 'run', 'scripts/bench-bun-wasm-bootstrap.ts'],
+    timeoutMs: 120_000,
+    quickEnv: { BENCH_SAMPLES: '6' },
+    requireMetrics: true,
+  },
+  {
     service: 'web',
     name: 'session-crypto-startup',
     fidelity: 'component',

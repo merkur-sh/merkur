@@ -24,6 +24,6 @@ import { provideE2eWasm } from './e2e-wasm-runtime';
 provideE2eWasm(() => {
   const path: unknown = wasmPath;
   if (typeof path !== 'string') throw new Error('e2e-wasm module path did not resolve to a file');
-  bindings.initSync({ module: new Uint8Array(readFileSync(path)) });
+  bindings.initSync({ module: readFileSync(path) });
   return bindings;
 });
