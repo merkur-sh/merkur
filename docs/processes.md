@@ -400,8 +400,9 @@ The helper signals that captured process and waits for its actual exit. The inst
 file stays in place; closing the owner descriptor or process death releases the kernel lock.
 Its PID is metadata, and child processes do not inherit its descriptor. A daemon executing
 from an installed release also holds that release's shared `.owner.lock`; setup and update
-prune it only after an exclusive acquisition proves no daemon owns it. Service definitions preserve the owner's child cleanup: systemd terminates
-the main process first, and both systemd and launchd allow the cleanup to finish.
+prune it only after an exclusive acquisition proves no daemon owns it. Service definitions
+preserve the owner's child cleanup: systemd terminates the main process first, and both
+systemd and launchd allow the cleanup to finish.
 
 An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). On `upgrade`,
 the dataplane binds an owner socket, stops its PTY reader with a `SIGURG` that ends its blocking

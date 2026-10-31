@@ -301,36 +301,34 @@ export function stageVerifiedReleaseEffect(input: {
 }
 
 /** Holds the actual installed executable's release while its daemon scope is alive. */
-export function acquireReleaseOwnershipEffect(
+export const acquireReleaseOwnershipEffect = Effect.fnUntraced(function* (
   installRoot: string,
   executable: string,
-): Effect.Effect<void, Error, Scope.Scope> {
-  return Effect.gen(function* () {
-    const { directory, root } = yield* Effect.tryPromise({
-      try: async () => ({
-        directory: path.dirname(await realpath(executable)),
-        root: await realpath(installRoot),
-      }),
-      catch: normalizeUnknownError,
-    });
-    // Source builds run Bun outside the versioned install tree.
-    if (path.dirname(directory) !== path.join(root, 'versions')) return;
-    yield* Effect.acquireRelease(
-      withReleaseTrustLockEffect(
-        installRoot,
-        Effect.tryPromise({
-          try: async () => {
-            const owner = await tryAcquireFileLock(path.join(directory, '.owner.lock'), 'shared');
-            if (owner === null) throw new Error('release is being pruned');
-            return owner;
-          },
-          catch: normalizeUnknownError,
-        }),
-      ),
-      (owner) => Effect.promise(() => owner.close()),
-    );
+): Effect.fn.Return<void, Error, Scope.Scope> {
+  const { directory, root } = yield* Effect.tryPromise({
+    try: async () => ({
+      directory: path.dirname(await realpath(executable)),
+      root: await realpath(installRoot),
+    }),
+    catch: normalizeUnknownError,
   });
-}
+  // Source builds run Bun outside the versioned install tree.
+  if (path.dirname(directory) !== path.join(root, 'versions')) return;
+  yield* Effect.acquireRelease(
+    withReleaseTrustLockEffect(
+      installRoot,
+      Effect.tryPromise({
+        try: async () => {
+          const owner = await tryAcquireFileLock(path.join(directory, '.owner.lock'), 'shared');
+          if (owner === null) throw new Error('release is being pruned');
+          return owner;
+        },
+        catch: normalizeUnknownError,
+      }),
+    ),
+    (owner) => Effect.promise(() => owner.close()),
+  );
+});
 
 /**
  * Points `current` at a staged release, which is what every later start runs: the service
