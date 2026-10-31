@@ -546,6 +546,7 @@ interface SidecarCommandWriter {
 }
 
 interface PendingDataplaneCommand {
+  readonly onAccepted: (() => void) | undefined;
   readonly daemonProof: {
     readonly onProof: (proof: DataplaneProof) => void;
     received: boolean;
@@ -793,11 +794,31 @@ function makeDataplaneClient(
       actorCertificate: UserDelegationCertificate,
       revocation: DelegationRevocationStatement,
     ): Effect.Effect<DataplaneCommandResult> {
-      return requestAcknowledgedCommandEffect(commandId, CMD_REVOKE_DELEGATION, {
-        command_id: commandId,
-        actor_certificate: actorCertificate,
-        revocation,
-      });
+      return requestAcknowledgedCommandEffect(
+        commandId,
+        CMD_REVOKE_DELEGATION,
+        { command_id: commandId, actor_certificate: actorCertificate, revocation },
+        undefined,
+        undefined,
+        () => {
+          if (lastConfig === null) return;
+          const targets = new Map(
+            lastConfig.revoked_delegations.map((target) => [target.delegationId, target.expiresAt]),
+          );
+          for (const target of revocation.targets) {
+            targets.set(
+              target.delegationId,
+              Math.max(targets.get(target.delegationId) ?? 0, target.expiresAt),
+            );
+          }
+          lastConfig = {
+            ...lastConfig,
+            revoked_delegations: [...targets]
+              .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+              .map(([delegationId, expiresAt]) => ({ delegationId, expiresAt })),
+          };
+        },
+      );
     },
 
     upgradeEffect(
@@ -930,6 +951,7 @@ function makeDataplaneClient(
     payload: object,
     onDaemonProof?: (proof: DataplaneProof) => void,
     onProfileSessions?: (sessions: readonly DataplaneProfileSession[]) => void,
+    onAccepted?: () => void,
   ): Effect.Effect<DataplaneCommandResult> {
     return Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
@@ -942,6 +964,7 @@ function makeDataplaneClient(
 
         const deferred = yield* Deferred.make<DataplaneCommandResult>();
         const pending: PendingDataplaneCommand = {
+          onAccepted,
           daemonProof:
             onDaemonProof === undefined ? null : { onProof: onDaemonProof, received: false },
           profileSessions:
@@ -2438,6 +2461,8 @@ function makeDataplaneClient(
     pendingCommands.delete(commandId);
     pending.timer?.cancel();
     pending.timer = null;
+    // Commit replay state before another callback can restart the sidecar.
+    if (result.status === 'accepted') pending.onAccepted?.();
     Deferred.doneUnsafe(pending.deferred, Effect.succeed(result));
   }
 

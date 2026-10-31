@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import {
   daemonControlTranscript,
   deriveSessionAuthorizationKeyPair,
@@ -29,6 +31,7 @@ import {
   parseDaemonControlDaemonMessage,
 } from '@merkur/daemon-control-protocol';
 import { isRecord } from '@merkur/shared';
+import { SidecarFrameReader } from '@merkur/shared/node-sidecar';
 import type {
   DelegationRevocationStatement,
   UserDelegationCertificate,
@@ -62,6 +65,7 @@ import type {
   DataplaneEdgeAdmission,
   DataplaneStunCredential,
 } from './dataplane-client';
+import { createDataplaneClient, type DataplaneSidecarProcess } from './dataplane-client';
 
 const CERT_HASH = Buffer.alloc(32, 7).toString('base64');
 const USER_ID = 'user-1';
@@ -954,8 +958,65 @@ describe('daemon control connection', () => {
     expect(socket.terminated).toBe(true);
   });
 
-  test('persists delegation tombstones before acknowledging their durable application', async () => {
+  test('persists and replays accepted delegation tombstones after a sidecar restart', async () => {
     const harness = createHarness();
+    const sidecars: Array<{
+      child: DataplaneSidecarProcess;
+      frames: Array<{ kind: number; payload: Uint8Array }>;
+      ack: () => void;
+    }> = [];
+    const client = createDataplaneClient(
+      { info() {}, warn() {}, error() {} },
+      {
+        onSidecarExited() {},
+        onPtyReady() {},
+        onPtyClosed() {},
+        onBell() {},
+        onPeerDisconnected() {},
+        onError() {},
+        onNetworkPathChanged() {},
+        onNatMappingOutcome() {},
+        onWebTransportReady() {},
+        onPeerAuthenticated() {},
+      },
+      {
+        resolveBinaryPath: () => '/fake/merkur-dataplane',
+        spawnSidecar(_binary, _reader, handleFrame) {
+          const stdin = new PassThrough();
+          const reader = new SidecarFrameReader();
+          const frames: Array<{ kind: number; payload: Uint8Array }> = [];
+          stdin.on('data', (chunk: Buffer) => {
+            reader.push(chunk);
+            reader.processFrames((kind, payload) =>
+              frames.push({ kind, payload: Uint8Array.from(payload) }),
+            );
+          });
+          const child: DataplaneSidecarProcess = Object.assign(new EventEmitter(), {
+            stdin,
+            stdout: new PassThrough(),
+            stderr: new PassThrough(),
+            kill: () => true,
+          });
+          sidecars.push({
+            child,
+            frames,
+            ack: () =>
+              handleFrame(
+                0x8f,
+                Buffer.from(JSON.stringify({ command_id: 'command-revoke', status: 'accepted' })),
+              ),
+          });
+          return child;
+        },
+      },
+    );
+    client.configure({
+      ...daemonConfig(),
+      shell_token_path: null,
+      open_url_bin_dir: null,
+      public_wt_endpoint: null,
+    });
+    client.start();
     const persisted: DaemonConfig[] = [];
     let finishPersistence: (() => void) | undefined;
     const persistence = new Promise<void>((resolve) => {
@@ -970,7 +1031,11 @@ describe('daemon control connection', () => {
           ...harness.dataplane,
           revokeDelegationEffect(commandId) {
             revocations.push(commandId);
-            return Effect.succeed({ status: 'accepted' });
+            return client.revokeDelegationEffect(
+              commandId,
+              DELEGATION_CERTIFICATE,
+              DELEGATION_REVOCATION,
+            );
           },
         },
         {
@@ -1013,7 +1078,12 @@ describe('daemon control connection', () => {
         '',
       ),
     );
-    await waitFor(() => revocations.length === 1);
+    await waitFor(() => required(sidecars[0]).frames.some((frame) => frame.kind === 0x0b));
+    required(sidecars[0]).ack();
+    // A crash in the ACK callback must already see the retained tombstones.
+    client.stop();
+    required(sidecars[0]).child.emit('close', 0, null);
+    client.start();
     expect(outboundMessages(socket)).toEqual([]);
     expect(persisted).toEqual([]);
 
@@ -1021,6 +1091,12 @@ describe('daemon control connection', () => {
     await waitFor(() => outboundMessages(socket).length === 1);
     expect(persisted).toHaveLength(1);
     expect(required(persisted[0]).revoked_delegations).toEqual(DELEGATION_REVOCATION.targets);
+    const configure = required(required(sidecars[1]).frames.find((frame) => frame.kind === 0x01));
+    expect(JSON.parse(Buffer.from(configure.payload).toString()).revoked_delegations).toEqual(
+      DELEGATION_REVOCATION.targets,
+    );
+    client.stop();
+    required(sidecars[1]).child.emit('close', 0, null);
     expect(outboundMessages(socket)[0]).toEqual({
       type: 'command_ack',
       version: 1,

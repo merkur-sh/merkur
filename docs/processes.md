@@ -357,7 +357,8 @@ identity against a fresh WSS challenge before registration, and signs each HTTP 
 Those checks never enter the Rust PTY/display path.
 
 For browser-session revocation, the dataplane verifies and applies the signed tombstone, evicts
-affected live/dialing/parked peers, and reports acceptance over IPC. The Bun owner merges and
+affected live/dialing/parked peers, and reports acceptance over IPC. The Bun owner synchronously
+merges accepted targets into the configuration replayed to a replacement dataplane, then
 atomically saves the tombstone set before it acknowledges `delegation_revoke` to the server. Config
 saves, rollback and removal share a kernel file lock that is released on process death; each
 mutation reads the latest config while holding it. A server outbox item is marked delivered only
