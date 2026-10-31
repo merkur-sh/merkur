@@ -371,12 +371,8 @@ export interface AuthService {
   /** Accounts whose grace period has run out, oldest request first. */
   accountsDueForDeletion(): Effect.Effect<readonly string[], InfrastructureError>;
   /**
-   * Erases the account.
-   *
-   * One statement: every table that belongs to an account declares
-   * `references('users.id').onDelete('cascade')`, so SQLite removes the rest.
-   * Destroy the account's hosted boxes before calling this — a container that
-   * outlives its account is the erasure failure that matters.
+   * Rechecks the deletion deadline, queues owned box removals, and erases the
+   * eligible account in one transaction. A cancelled deletion changes nothing.
    */
   purgeAccount(userId: string): Effect.Effect<void, InfrastructureError>;
 }
@@ -1135,14 +1131,26 @@ export function createAuthService(
       });
     }),
 
-    purgeAccount(userId) {
-      return Effect.tryPromise({
-        try: async () => {
-          await db.deleteFrom('users').where('id', '=', userId).execute();
-        },
-        catch: infrastructureError('auth', 'purge-account'),
-      });
-    },
+    purgeAccount: Effect.fnUntraced(function* (userId: string) {
+      const now = yield* Clock.currentTimeMillis;
+      yield* withDatabaseTransaction(db, (trx) =>
+        tryDatabaseTransactionPromise({
+          try: async () => {
+            const eligible = await trx
+              .selectFrom('users')
+              .select('id')
+              .where('id', '=', userId)
+              .where('deletion_scheduled_at', '<=', now)
+              .executeTakeFirst();
+            if (eligible === undefined) return;
+            const boxes = await readAccountBoxes(trx, userId);
+            await queueBoxRemovals(trx, boxes.owned, now);
+            await trx.deleteFrom('users').where('id', '=', userId).execute();
+          },
+          catch: infrastructureError('auth', 'purge-account'),
+        }),
+      );
+    }),
   };
 }
 

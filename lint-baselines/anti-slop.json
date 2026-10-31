@@ -439,10 +439,6 @@
     "no-known-value-widening": 1,
     "require-safety-comment-for-type-assertion": 1
   },
-  "apps/server/src/services/account-deletion-sweep.test.ts": {
-    "no-conditional-empty-object-spread": 1,
-    "no-unsafe-dictionary-type": 2
-  },
   "apps/server/src/services/auth-flow-store.dragonfly.test.ts": {
     "no-skipped-tests": 2
   },

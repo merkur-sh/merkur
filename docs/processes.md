@@ -440,10 +440,10 @@ reaches it through `BoxHostService` at `BOX_HOST_URL`, authorized by the bearer 
 | `DELETE /boxes/:id` | Destroy a box. An exact 404 means the box is already gone; any other refusal is an error. |
 
 The server destroys a box when its device is unlinked, its account is erased, a password is
-reset, or account retention expires. Unlinking and the requested account-erasure sweep both
-call the host first and drop the row only once it answers. Password reset and retention expiry
-record the account's boxes in `box_removals` in the same transaction that drops
-the rows that named them, and a maintenance loop (`BOX_REMOVAL_INTERVAL`, one minute) destroys
+reset, or account retention expires. Unlinking calls the host first and drops the row only
+once it answers. Requested account erasure rechecks the deadline in its deletion transaction.
+Account erasure, password reset and retention expiry record the account's boxes in
+`box_removals` in the same transaction that drops the rows that named them, and a maintenance loop (`BOX_REMOVAL_INTERVAL`, one minute) destroys
 each queued box and removes its entry when the host confirms. A box the host refuses stays
 queued for the next pass. `POST /api/boxes` answers `box_removal_pending` for a name still in
 the queue, so a new box cannot take a name whose removal is owed.
