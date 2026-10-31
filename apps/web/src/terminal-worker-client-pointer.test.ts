@@ -149,3 +149,16 @@ test('a physical right click reports one press and one release', () => {
     ),
   ).toBe(true);
 });
+
+for (const [modifier, mods] of [
+  ['ctrlKey', protocol.KEY_MOD_CTRL],
+  ['altKey', protocol.KEY_MOD_ALT],
+] as const) {
+  test(`wheel reports preserve ${modifier}`, () => {
+    const host = pointerHost();
+    host.dispatch('wheel', { deltaY: 30, deltaX: 0, clientX: 24, clientY: 64, [modifier]: true });
+    const record = host.records[0];
+    if (record?.kind !== 'wheel') throw new Error('expected a wheel record');
+    expect(record.mods).toBe(mods);
+  });
+}
