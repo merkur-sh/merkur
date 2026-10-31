@@ -617,14 +617,14 @@ fn resident_animation_boundary_requests_paint() {
         },
     );
     view.drained(0.0);
-    let key = format!(
-        "animation:{}",
-        manifest
-            .root()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    );
+    let key = std::iter::from_fn(|| view.viewer.poll_output(0.0))
+        .find_map(|output| match output {
+            viewer::Output::GraphicsDemand { demands, .. } => {
+                demands.into_iter().next().map(|demand| demand.key)
+            }
+            _ => None,
+        })
+        .expect("the animation manifest was requested");
     view.viewer
         .graphics_manifest(0.0, 1, &key, manifest.bytes().to_vec());
     view.viewer.graphics_clock(0.0, 0, 0.0);
