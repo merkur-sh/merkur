@@ -5,6 +5,27 @@ import path from 'node:path';
 
 import { serveStaticAsset } from './web-ui';
 
+describe('web ui content-hashed assets', () => {
+  test.each([
+    '/assets/account-opaque-worker-wWE-Tljz.js',
+    '/assets/e2e_wasm_bg-DGh7xeuh.wasm',
+    '/assets/event-stream-worker-D0PIy9AX.js',
+    '/assets/telemetry-worker-DanzIxwS.js',
+    '/assets/term_wasm_bg-DTZcVAjb.wasm',
+    '/assets/terminal-worker-Cfb7V_lM.js',
+    '/assets/transport-worker-By_coIzA.js',
+  ])('keeps emitted asset %s immutable', async (assetPath) => {
+    const sourceFile = writeTempAsset(path.basename(assetPath), 'asset bytes');
+    const response = serveStaticAsset(
+      new Request(`https://merkur.example${assetPath}`),
+      sourceFile,
+    );
+
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(await response.text()).toBe('asset bytes');
+  });
+});
+
 describe('web ui brotli assets', () => {
   test('serves br when the client accepts it and a precompressed file exists', () => {
     const sourceFile = writeTempAsset('app.js', 'console.log("hello");');
