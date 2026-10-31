@@ -66,7 +66,7 @@ function measure(event: TerminalPerfEvent, sample: number): void {
   };
   const fill = Uint32Array.prototype.fill;
   try {
-    Uint32Array.prototype.fill = function (value, start = 0, end = this.length) {
+    Uint32Array.prototype.fill = function (this: Uint32Array, value, start = 0, end = this.length) {
       if (this.buffer === sab) clearedBytes += (end - start) * 4;
       return fill.call(this, value, start, end);
     };
