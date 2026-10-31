@@ -450,6 +450,10 @@ Only explicit worker failure replaces the worker, with callbacks fenced to their
 Recovery progress crosses to main for diagnostics; it cannot drive retry decisions. Main writes
 one outcome per attempt to its perf ring, including the last observed phase if the worker crashes.
 
+A terminal-worker pump failure retires both consumers, revokes prediction readiness, cancels
+presentation work and reports one fatal event before closing the worker. Idle-wait callbacks
+belong to their pump generation; a retired generation cannot resume or fail its successor.
+
 On a shell-cache miss, a successful network response is delivered even if caching it fails.
 A service-worker update installs only after its complete generated shell manifest is cached.
 It then waits while the current worker serves the running pages and their hashed worker scripts.

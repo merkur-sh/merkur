@@ -41,6 +41,11 @@ import loadWasm, { init_display_receiver_calibration } from './term-wasm/pkg/ter
 import { displayProcessSliceBudgetMs } from './terminal/display-process-budget';
 import { createFirstDisplayGpuFenceTracker } from './terminal/first-display-gpu-fence';
 import {
+  createPredictionFastPathBuffer,
+  createPredictionFastPathConsumer,
+  createPredictionFastPathWriter,
+} from './terminal/prediction-fast-path';
+import {
   createFrameRingReader,
   createFrameRingWriter,
   FRAME_KIND_CLIENT_INGRESS_BASE,
@@ -909,3 +914,288 @@ test('account replacement discards the old Viewer and admits a fresh lineage one
     terminal.destroy();
   }
 });
+
+function asyncPumpHarness() {
+  const ring = new SharedArrayBuffer(FRAME_RING_SIZE);
+  const reader = createFrameRingReader(ring);
+  const writer = createFrameRingWriter(ring);
+  const predictionBuffer = createPredictionFastPathBuffer();
+  const consumer = createPredictionFastPathConsumer(predictionBuffer);
+  const predictionWriter = createPredictionFastPathWriter(predictionBuffer);
+  predictionWriter.beginEpoch();
+  consumer.adoptRequiredEpoch();
+  const notifications: { kind: string; message: string }[] = [];
+  const rejected: unknown[] = [];
+  const callbacks = new Set<unknown>();
+  const waits: ReturnType<typeof Promise.withResolvers<void>>[] = [];
+  const observed: Promise<unknown>[] = [];
+  let receives = 0,
+    predictions = 0,
+    closes = 0,
+    destroys = 0,
+    subscriptions = 0,
+    failReceive = false,
+    failPrediction = false;
+  function waitAsync() {
+    const wait = Promise.withResolvers<void>();
+    waits.push(wait);
+    return {
+      // biome-ignore lint/suspicious/noThenProperty: observe the production promise continuation.
+      then(fulfilled: () => void, failed?: (error: Error) => void) {
+        subscriptions++;
+        callbacks.add(fulfilled);
+        const continuation = wait.promise.then(fulfilled, failed);
+        observed.push(continuation.catch((error) => rejected.push(error)));
+        return continuation;
+      },
+    };
+  }
+  const cancel = () => {};
+  const fastPath = { ...consumer, waitAsync };
+  const context = {
+    fatalReported: false,
+    self: {
+      postMessage: (event: { kind: string; message: string }) => notifications.push(event),
+      close: () => closes++,
+    },
+    wasmTerminal: {
+      viewer: { set_presentation_ready() {}, present_now() {}, discard_presentation() {} },
+      receive() {
+        receives++;
+        if (failReceive) throw new Error('receive trap');
+      },
+      destroy: () => destroys++,
+    },
+    frameRingReader: { ...reader, waitAsync },
+    predictionFastPath: fastPath,
+    predictionAdmissionResolver: null,
+    predictionRingPumpActive: false,
+    predictionRingPumpToken: 0,
+    predictionRingWaitPending: false,
+    predictionRingResume: undefined,
+    predictionRingReject: undefined,
+    frameRingPumpActive: false,
+    frameRingPumpToken: 0,
+    frameRingWaitPending: false,
+    frameRingResume: undefined,
+    frameRingReject: undefined,
+    displayOwnerActive: false,
+    displayOwnerDatagrams: 0,
+    displayEpoch: { pumpScheduled: false },
+    displayPumpContinuation: { cancel },
+    predictionRingContinuation: { cancel },
+    controlPumpContinuation: { cancel },
+    displayAvailableWake: { wake() {} },
+    controlPumpActive: false,
+    activeControlBlocksDataPlane: false,
+    controlPumpScheduled: false,
+    controlQueue: { hasDataPlaneBarrier: () => false, clear() {} },
+    controlQueueSize: () => 0,
+    scheduleControlPump() {},
+    tuning: { predictionCommandsPerSlice: 64, displayProcessBudgetMs: 6 },
+    refreshRate: { presentationPeriodMs: () => 16.67 },
+    displayProcessSliceBudgetMs,
+    performance: { now: () => 1 },
+    nowMs: () => 1,
+    viewerNowMs: () => 1,
+    renderer: { canSubmitFrame: () => true, destroy() {} },
+    rendererContextLost: false,
+    FRAME_KIND_CLIENT_INGRESS_BASE,
+    FRAME_KIND_LINEAGE_FENCE,
+    FRAME_RING_SPACE_EDGE,
+    perfEnabled: false,
+    perfWriter: null,
+    handlePredictionCommand() {
+      predictions++;
+      if (failPrediction) throw new Error('prediction trap');
+    },
+    handleProvisionalPreviewSnapshot() {},
+    publishPredictionModel() {},
+    renderPredictionIfDirty() {},
+    observeViewerPresentation() {},
+    drainViewerOutputs() {},
+    scheduleRenderFrame() {},
+    armPresentationCommit() {},
+    armViewerDeadline() {},
+    cancelPerfGridConvergence: cancel,
+    cancelViewerDeadline: cancel,
+    presentationAnimationFrame: { cancel },
+    displayOutputSettle: { reset: cancel },
+    cancelFontStyleUpgrade: cancel,
+    abortActiveFontFamilyUpdate: cancel,
+    refreshCalibrator: { stop: cancel },
+    displayReceiverCalibrationScheduler: { cancel },
+    renderMailbox: { reset: cancel },
+    cancelRenderOpportunity: cancel,
+    renderSubmissions: { contextDestroyed: cancel },
+    discardLatencyToken: cancel,
+    resetRenderGateAccumulators: cancel,
+    retireWaitingGraphicsAsset: cancel,
+    provisionalPreview: { clear: cancel },
+    presentedPredictionSources: { reset: cancel },
+    firstDisplayGpuFence: { resetEpoch: cancel },
+    graphicsResidents: new Set(),
+  };
+  runInNewContext(
+    productionFunctions([
+      'startPredictionRingPump',
+      'stopPredictionRingPump',
+      'pumpPredictionRing',
+      'startFrameRingPump',
+      'stopFrameRingPump',
+      'continueDisplayOwner',
+      'hasDisplayOwnerWork',
+      'runDisplayPump',
+      'drainDisplayQueue',
+      'consumeDisplayRingEntry',
+      'reportFatal',
+      'disposeInstalledRuntime',
+      'clearQueuedPredictions',
+    ]),
+    context,
+  );
+  return {
+    context,
+    notifications,
+    rejected,
+    reader,
+    callbacks,
+    predictionWriter,
+    get counts() {
+      return { receives, predictions, closes, destroys, subscriptions };
+    },
+    run: (code: string) => runInNewContext(code, context),
+    write() {
+      expect(writer.write(new Uint8Array([42]), FRAME_KIND_CLIENT_INGRESS_BASE + 3, false)).toBe(
+        true,
+      );
+    },
+    predict() {
+      expect(predictionWriter.writePrintable(1, 97, 1, true)).toBe(true);
+    },
+    trap(lane: string) {
+      if (lane === 'display') failReceive = true;
+      else failPrediction = true;
+    },
+    async wake(index: number, error?: Error) {
+      const wait = waits[index];
+      if (wait === undefined) throw new Error(`missing wait ${index}`);
+      if (error === undefined) wait.resolve();
+      else wait.reject(error);
+      await observed[index];
+    },
+  };
+}
+
+for (const lane of ['display', 'prediction']) {
+  const start = lane === 'display' ? 'startFrameRingPump()' : 'startPredictionRingPump()';
+  const stop = lane === 'display' ? 'stopFrameRingPump()' : 'stopPredictionRingPump()';
+  test(`async_pump_failure ${lane} trap closes once and releases the display lease`, async () => {
+    const harness = asyncPumpHarness();
+    harness.run(start);
+    harness.trap(lane);
+    if (lane === 'display') harness.write();
+    else harness.predict();
+    await harness.wake(0);
+    expect(harness.notifications).toHaveLength(1);
+    expect(harness.notifications[0]?.kind).toBe('fatal');
+    expect(harness.rejected).toHaveLength(0);
+    expect(harness.counts.closes).toBe(1);
+    expect(harness.counts.destroys).toBe(1);
+    expect(harness.context.predictionRingPumpActive).toBe(false);
+    expect(harness.context.frameRingPumpActive).toBe(false);
+    expect(harness.context.wasmTerminal).toBeNull();
+    expect(harness.predictionWriter.epochReady()).toBe(false);
+    expect(harness.reader.hasPending()).toBe(false);
+    harness.run(
+      "reportFatal(new Error('duplicate')); runDisplayPump(); pumpPredictionRing(predictionRingPumpToken)",
+    );
+    expect(harness.notifications).toHaveLength(1);
+    expect(harness.counts.closes).toBe(1);
+    expect(harness.counts.receives + harness.counts.predictions).toBe(1);
+  });
+
+  test(`async_pump_failure ${lane} rejected wait is fatal only for its owner`, async () => {
+    const current = asyncPumpHarness();
+    current.run(start);
+    await current.wake(0, new Error('wait failed'));
+    expect(current.notifications).toHaveLength(1);
+    expect(current.rejected).toHaveLength(0);
+    const stale = asyncPumpHarness();
+    stale.run(start);
+    const successorReader = stale.context.frameRingReader;
+    stale.run(stop);
+    stale.context.frameRingReader = successorReader;
+    stale.run(start);
+    await stale.wake(0, new Error('retired wait failed'));
+    expect(stale.notifications).toHaveLength(0);
+    expect(stale.rejected).toHaveLength(0);
+    expect(stale.counts.closes).toBe(0);
+    expect(stale.context.wasmTerminal).not.toBeNull();
+  });
+
+  test(`async_pump_failure ${lane} successful wakes retain one subscription and one apply`, async () => {
+    const harness = asyncPumpHarness();
+    harness.run(start);
+    for (let index = 0; index < 8; index++) {
+      if (lane === 'display') harness.write();
+      else harness.predict();
+      await harness.wake(index);
+    }
+    expect(harness.counts.receives + harness.counts.predictions).toBe(8);
+    expect(harness.counts.subscriptions).toBe(9);
+    expect(harness.callbacks.size).toBe(1);
+    expect(harness.notifications).toHaveLength(0);
+    expect(harness.rejected).toHaveLength(0);
+    expect(harness.counts.closes).toBe(0);
+    harness.run(stop);
+  });
+}
+
+test('async_pump_failure a display trap retires both parked consumers without another prediction', async () => {
+  const harness = asyncPumpHarness();
+  harness.run('startFrameRingPump(); startPredictionRingPump()');
+  harness.write();
+  harness.predict();
+  harness.trap('display');
+  await harness.wake(0);
+  await harness.wake(1);
+  expect(harness.counts.receives).toBe(1);
+  expect(harness.counts.predictions).toBe(0);
+  expect(harness.counts.closes).toBe(1);
+  expect(harness.notifications).toHaveLength(1);
+  expect(harness.rejected).toHaveLength(0);
+});
+
+test('async_pump_failure a cleanup trap still notifies once and closes with admission revoked', () => {
+  const harness = asyncPumpHarness();
+  harness.context.wasmTerminal.viewer.discard_presentation = () => {
+    throw new Error('cleanup trap');
+  };
+  harness.run("reportFatal(new Error('initial trap')); reportFatal(new Error('duplicate'))");
+  expect(harness.notifications).toHaveLength(1);
+  expect(harness.notifications[0]?.message).toContain('initial trap');
+  expect(harness.notifications[0]?.message).toContain('cleanup trap');
+  expect(harness.counts.closes).toBe(1);
+  expect(harness.predictionWriter.epochReady()).toBe(false);
+});
+
+for (const lane of ['display', 'prediction']) {
+  test(`async_pump_failure stale ${lane} success cannot invoke a successor pump`, async () => {
+    const harness = asyncPumpHarness();
+    const start = lane === 'display' ? 'startFrameRingPump()' : 'startPredictionRingPump()';
+    harness.run(start);
+    const successorReader = harness.context.frameRingReader;
+    harness.run(lane === 'display' ? 'stopFrameRingPump()' : 'stopPredictionRingPump()');
+    harness.context.frameRingReader = successorReader;
+    harness.run(start);
+    harness.trap(lane);
+    if (lane === 'display') harness.write();
+    else harness.predict();
+    await harness.wake(0);
+    expect(harness.counts.receives + harness.counts.predictions).toBe(0);
+    expect(harness.notifications).toHaveLength(0);
+    expect(harness.rejected).toHaveLength(0);
+    expect(harness.counts.closes).toBe(0);
+  });
+}

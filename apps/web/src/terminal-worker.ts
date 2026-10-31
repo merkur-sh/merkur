@@ -881,16 +881,34 @@ const displayPumpContinuation = createOwnedTimeout(
   (timer) => clearTimeout(timer),
 );
 
+let fatalReported = false;
+
 function reportFatal(err: unknown): void {
+  if (fatalReported) return;
+  fatalReported = true;
+  let message = String(err);
   try {
-    self.postMessage({
-      kind: 'fatal',
-      message: String(err),
-    } satisfies WorkerEvent);
-  } catch {
-    // no-op
+    controlPumpContinuation.cancel();
+    controlQueue.clear();
+    cancelPerfGridConvergence();
+    disposeInstalledRuntime();
+  } catch (cleanupError) {
+    message += `; terminal cleanup failed: ${String(cleanupError)}`;
   }
+  try {
+    self.postMessage({ kind: 'fatal', message } satisfies WorkerEvent);
+  } catch {
+    self.close();
+    return;
+  }
+  // Closing also retires already queued task, animation and port callbacks.
+  self.close();
 }
+
+self.addEventListener('error', (event) => {
+  event.preventDefault();
+  reportFatal(event.error ?? event.message);
+});
 
 const DISPLAY_DIAG_MIN_INTERVAL_MS = 1_000;
 
@@ -1072,12 +1090,28 @@ function scheduleControlPumpContinuation(): void {
   bounceControlPumpContinuation(0);
 }
 
+let predictionRingResume: (() => void) | undefined;
+let predictionRingReject: typeof reportFatal | undefined;
+
 function startPredictionRingPump(): void {
   if (predictionRingPumpActive || predictionFastPath === null) return;
   predictionRingPumpActive = true;
   predictionRingWaitPending = false;
   predictionRingPumpToken = (predictionRingPumpToken + 1) >>> 0;
-  pumpPredictionRing(predictionRingPumpToken);
+  const token = predictionRingPumpToken;
+  predictionRingReject = (err) => {
+    if (token === predictionRingPumpToken) reportFatal(err);
+  };
+  predictionRingResume = () => {
+    if (token !== predictionRingPumpToken) return;
+    predictionRingWaitPending = false;
+    try {
+      pumpPredictionRing(token);
+    } catch (err) {
+      reportFatal(err);
+    }
+  };
+  pumpPredictionRing(token);
 }
 
 function stopPredictionRingPump(): void {
@@ -1132,11 +1166,7 @@ function pumpPredictionRing(token: number): void {
     schedulePredictionRingContinuation(token);
   } else {
     predictionRingWaitPending = true;
-    void wait.then(() => {
-      if (token !== predictionRingPumpToken) return;
-      predictionRingWaitPending = false;
-      pumpPredictionRing(token);
-    });
+    void wait.then(predictionRingResume, predictionRingReject);
   }
 }
 
@@ -1212,6 +1242,7 @@ async function runControlPump(): Promise<void> {
         if (handling !== undefined) await handling;
       } catch (err) {
         reportFatal(err);
+        return;
       } finally {
         activeControlBlocksDataPlane = false;
       }
@@ -1823,10 +1854,26 @@ function hasDisplayOwnerWork(): boolean {
   return frameRingReader?.hasPending() === true;
 }
 
+let frameRingResume: (() => void) | undefined;
+let frameRingReject: typeof reportFatal | undefined;
+
 function startFrameRingPump(): void {
   if (frameRingPumpActive || frameRingReader === null) return;
   frameRingPumpActive = true;
   frameRingPumpToken = (frameRingPumpToken + 1) >>> 0;
+  const token = frameRingPumpToken;
+  frameRingReject = (err) => {
+    if (token === frameRingPumpToken) reportFatal(err);
+  };
+  frameRingResume = () => {
+    if (token !== frameRingPumpToken) return;
+    frameRingWaitPending = false;
+    try {
+      runDisplayPump();
+    } catch (err) {
+      reportFatal(err);
+    }
+  };
   runDisplayPump();
 }
 
@@ -1850,18 +1897,13 @@ function continueDisplayOwner(): void {
   // A presentation/control callback can drain while an idle waiter exists.
   // There is exactly one park per generation, never one per caller.
   if (reader === null || frameRingWaitPending) return;
-  const token = frameRingPumpToken;
   const result = reader.waitAsync();
   if (result === 'not-equal') {
     scheduleDisplayPumpContinuation();
     return;
   }
   frameRingWaitPending = true;
-  void result.then(() => {
-    if (token !== frameRingPumpToken) return;
-    frameRingWaitPending = false;
-    runDisplayPump();
-  });
+  void result.then(frameRingResume, frameRingReject);
 }
 
 function consumeDisplayRingEntry(): boolean {
