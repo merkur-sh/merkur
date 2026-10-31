@@ -782,12 +782,18 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     ) {
       const mapping = { ...frameMapping };
       const payload = actionBytes().slice();
-      do {
+      // The refusal is now registered. Recheck before parking in case the
+      // reader drained between the first cursor snapshot and that registration.
+      while (
+        !host.frames.write(payload, FRAME_KIND_CLIENT_INGRESS_BASE + channel, allowLarge, mapping)
+      ) {
         await waitSpace();
         if (!active || owner !== generation) break;
-      } while (
-        !host.frames.write(payload, FRAME_KIND_CLIENT_INGRESS_BASE + channel, allowLarge, mapping)
-      );
+        if (
+          host.frames.write(payload, FRAME_KIND_CLIENT_INGRESS_BASE + channel, allowLarge, mapping)
+        )
+          break;
+      }
       payload.fill(0);
     }
   }
@@ -805,6 +811,8 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
     // A full ring holds only the ended lineage, which the announcement lets the
     // reader discard; its space edge says when the fence fits.
     while (!host.frames.publishFence()) {
+      // As with frames, register refusal before the final admission check.
+      if (host.frames.publishFence()) break;
       await waitSpace();
       if (!active || owner !== generation) return;
     }

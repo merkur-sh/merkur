@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { MAX_DISPLAY_FRAME_BYTES } from '@merkur/shared';
@@ -30,6 +30,7 @@ function extract(signature: string): string {
 const program = new Bun.Transpiler({ loader: 'ts' }).transformSync(
   [
     extract('async function fenceLineage('),
+    extract('async function deliverFrame('),
     extract('function deliverDatagram('),
     extract('function signalSpace('),
     extract('function waitSpace('),
@@ -43,6 +44,9 @@ function host(ringBytes: number) {
   const received: number[] = [];
   let currentFrame: Uint8Array = new Uint8Array(0);
   const context = {
+    FRAME_KIND_CLIENT_INGRESS_BASE,
+    frameMapping: { epoch: 0, localMinusWire: 0, wireMin: 0, wireMax: 0 },
+    actionBytes: () => Uint8Array.of(42),
     active: true,
     generation: 1,
     lineage: 0,
@@ -205,3 +209,43 @@ test('a split 640-link reset and subsequent display reach the terminal consumer'
   expect(reader.tryRead()?.payload).toEqual(display);
   expect(reader.hasPending()).toBe(false);
 });
+for (const operation of ['frame', 'fence'] as const) {
+  test(`${operation} retries admission when the reader drains before refusal registration`, async () => {
+    const session = host(4 * 1024);
+    const writer = createFrameRingWriter(session.ring);
+    while (writer.write(new Uint8Array(256), FRAME_KIND_DISPLAY, false)) {}
+    while (writer.write(Uint8Array.of(0), FRAME_KIND_DISPLAY, false)) {}
+    const reader = createFrameRingReader(session.ring);
+    reader.takeRefusal();
+    const add = Atomics.add;
+    let drained = false;
+    const refusal = spyOn(Atomics, 'add').mockImplementation((meta, index, value) => {
+      if (meta.buffer === session.ring && index === 2 && !drained) {
+        drained = true;
+        while (reader.tryRead() !== null) {}
+        expect(reader.takeRefusal()).toBe(false);
+      }
+      return add(meta, index, value);
+    });
+    try {
+      let delivered = false;
+      const pending = session.run<Promise<void>>(
+        operation === 'frame' ? 'deliverFrame(1, new Uint32Array(6))' : 'fenceLineage(1, 3)',
+      );
+      void pending.then(() => {
+        delivered = true;
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(drained).toBe(true);
+      expect(delivered).toBe(true);
+      expect(reader.tryRead()?.kind).toBe(
+        operation === 'frame' ? FRAME_KIND_CLIENT_INGRESS_BASE : FRAME_KIND_LINEAGE_FENCE,
+      );
+    } finally {
+      refusal.mockRestore();
+      session.context.active = false;
+      session.run<void>('signalSpace()');
+    }
+  });
+}
