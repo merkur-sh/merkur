@@ -392,10 +392,12 @@ pub async fn accept_loop(
                     connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-ticket");
                     return;
                 }
+                let mut candidate_budget = None;
                 let promoted = match &preface.attachment {
                     RoutingAttachment::Primary | RoutingAttachment::Tunnel { .. } => None,
                     RoutingAttachment::Announce { incarnation } => {
-                        let retired = registry.announce_incarnation(&preface.daemon_id, incarnation);
+                        let retired =
+                            registry.announce_incarnation(&preface.daemon_id, incarnation);
                         info!(
                             daemon_id = %preface.daemon_id,
                             retired,
@@ -418,7 +420,10 @@ pub async fn accept_loop(
                         )
                         .await
                         {
-                            Ok(handle) => Some(handle),
+                            Ok((handle, budget)) => {
+                                candidate_budget = Some(budget);
+                                Some(handle)
+                            }
                             Err(()) => {
                                 connection.close(VarInt::from_u32(CLOSE_CODE), b"candidate-ended");
                                 return;
@@ -463,6 +468,7 @@ pub async fn accept_loop(
                     control,
                     quote_control,
                     promoted,
+                    candidate_budget,
                 )
                 .instrument(session_span)
                 .await;
@@ -1050,11 +1056,12 @@ async fn run_spliced_session(
     control: wtransport::SendStream,
     quote_control: Option<(wtransport::SendStream, wtransport::RecvStream)>,
     promoted: Option<crate::splice::AttachHandle>,
+    candidate_budget: Option<RelayDataControl>,
 ) {
     let budget = preface
         .session_id
         .ends_with("#signaling")
-        .then(|| RelayDataControl::new(&registry));
+        .then(|| candidate_budget.unwrap_or_else(|| RelayDataControl::new(&registry)));
     let mut control = ContainedStream::new(control);
     // Reliable ingress fans out one task per accepted uni-stream. Keep the
     // routing label in shared immutable storage so that fan-out only bumps a

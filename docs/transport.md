@@ -692,7 +692,9 @@ Primary and candidate signaling attachments receive `{"type":"relay_data_paused"
 after their initial presence event only when already paused. `Open` adds zero attachment
 bytes. The registry publishes the newest budget state before retiring data lanes; signaling
 control writers send `true` on `Open -> SignalingOnly` and `false` on reopening at the first
-new-month sample. `Stopped` sends no event. A pause event or a typed data-lane budget close
+new-month sample. Candidate promotion carries the same budget watcher into the session loop;
+selected control records finish before promotion completes, and an unsent reopening remains
+pending across the handoff. `Stopped` sends no event. A pause event or a typed data-lane budget close
 pauses both data lanes. Neither peer redials, counts attempts, parks, or rebinds for that
 pause. A `false` event immediately dials exactly the paused lanes with fresh generations and
 attempt budgets; no peer resume timer is involved. The daemon retains its peer while its

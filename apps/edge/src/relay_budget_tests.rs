@@ -349,7 +349,8 @@ async fn budget_attach_and_bind_races_use_the_typed_close() {
                 );
             } else {
                 registry.apply_egress_state(BudgetState::SignalingOnly);
-                run_spliced_session(edge.clone(), registry, preface, control, None, None).await;
+                run_spliced_session(edge.clone(), registry, preface, control, None, None, None)
+                    .await;
             }
             // Keep the endpoint alive until the peer acknowledges the close.
             server.wait_idle().await;
@@ -382,4 +383,60 @@ async fn relay_data_control_keeps_the_newest_resume_and_stopped_sends_no_event()
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn candidate_promotion_preserves_pending_resume() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::egress_budget::BudgetState;
+    use std::future::Future;
+    use std::task::Poll;
+    let (server, client, url) = retirement_tests::endpoints();
+    let accept = async { server.accept().await.await?.accept().await };
+    let (edge, browser) = tokio::join!(accept, client.connect(&url));
+    let edge = edge?;
+    let browser = browser?;
+    let registry = SpliceRegistry::new();
+    registry.apply_egress_state(BudgetState::SignalingOnly);
+    let budget = RelayDataControl::new(&registry);
+    let (mut control, _inbound) = edge.open_bi().await?.await?;
+    let (complete, ready) = tokio::sync::oneshot::channel();
+    let proof = async {
+        ready.await.map_err(|_closed| ())?;
+        // Reopen in the proof's final poll: even a controls-first select has
+        // already seen no transition, and cannot deliver this before promotion.
+        registry.apply_egress_state(BudgetState::Open);
+        Ok::<_, ()>(())
+    };
+    let read_pause = async {
+        let (_send, mut events) = browser.accept_bi().await?;
+        assert_eq!(
+            tests::read_test_control(&mut events).await,
+            SpliceControlEvent::RelayDataPaused { paused: true }
+        );
+        complete.send(()).map_err(|_| "proof ended before pause")?;
+        Ok::<_, Box<dyn std::error::Error>>(events)
+    };
+    let (promoted, events) = tokio::join!(
+        candidate::drive_proof(proof, budget, &mut control),
+        read_pause
+    );
+    let (_, mut budget) = promoted.map_err(|()| "candidate proof failed")?;
+    let mut events = events?;
+    let next = budget.next();
+    tokio::pin!(next);
+    assert_eq!(
+        std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await,
+        Poll::Ready(false),
+        "promotion discarded pending relay resume"
+    );
+    write_splice_control(
+        &mut control,
+        &SpliceControlEvent::RelayDataPaused { paused: false },
+    )
+    .await?;
+    assert_eq!(
+        tests::read_test_control(&mut events).await,
+        SpliceControlEvent::RelayDataPaused { paused: false }
+    );
+    Ok(())
 }

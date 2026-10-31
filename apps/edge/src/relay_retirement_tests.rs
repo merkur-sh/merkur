@@ -4,7 +4,7 @@ use std::future::Future;
 use wtransport::endpoint::endpoint_side::Client;
 use wtransport::{ClientConfig, Endpoint};
 
-fn endpoints() -> (Endpoint<Server>, Endpoint<Client>, String) {
+pub(super) fn endpoints() -> (Endpoint<Server>, Endpoint<Client>, String) {
     crate::install_crypto_provider();
     let cert = EdgeCert::generate(&["localhost"]).unwrap();
     let server = build_server(

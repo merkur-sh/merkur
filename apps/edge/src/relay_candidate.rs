@@ -38,9 +38,9 @@ pub(super) async fn admit(
     daemon_id: &str,
     nonce: &str,
     control: &mut SendStream,
-) -> Result<AttachHandle, ()> {
+) -> Result<(AttachHandle, super::RelayDataControl), ()> {
     let deadline = Instant::now() + PROOF_LIFETIME;
-    let mut budget = super::RelayDataControl::new(registry);
+    let budget = super::RelayDataControl::new(registry);
     let target = registry.candidate_target(session, daemon_id)?;
     let presence = SpliceControlEvent::CounterpartPresent {
         present: target.is_some(),
@@ -50,14 +50,6 @@ pub(super) async fn admit(
         .await
         .map_err(|_| ())?
         .map_err(|_| ())?;
-    let controls = async {
-        loop {
-            let paused = budget.next().await;
-            super::write_splice_control(control, &SpliceControlEvent::RelayDataPaused { paused })
-                .await
-                .map_err(|_| ())?;
-        }
-    };
     let proof = async {
         let Some(crate::splice::CandidateTarget {
             attachment_id: daemon_attachment,
@@ -114,7 +106,10 @@ pub(super) async fn admit(
                 let bytes = read_record(&mut from_browser).await?;
                 write_record(to_daemon.get_mut().ok_or(())?, &bytes).await?;
             }
-            #[expect(unreachable_code, reason = "the loop exits only through `?`; this types the task")]
+            #[expect(
+                unreachable_code,
+                reason = "the loop exits only through `?`; this types the task"
+            )]
             Ok::<(), ()>(())
         });
         loop {
@@ -165,8 +160,24 @@ pub(super) async fn admit(
             }
         }
     };
-    tokio::select! {
-        result = proof => result,
-        result = controls => result,
+    drive_proof(proof, budget, control).await
+}
+
+pub(super) async fn drive_proof<T>(
+    proof: impl std::future::Future<Output = Result<T, ()>>,
+    mut budget: super::RelayDataControl,
+    control: &mut SendStream,
+) -> Result<(T, super::RelayDataControl), ()> {
+    tokio::pin!(proof);
+    loop {
+        let paused = tokio::select! {
+            result = &mut proof => return result.map(|handle| (handle, budget)),
+            paused = budget.next() => paused,
+        };
+        // Finish a selected record before polling promotion again. Cancelling a
+        // write_all can strand both a consumed watch event and a partial record.
+        super::write_splice_control(control, &SpliceControlEvent::RelayDataPaused { paused })
+            .await
+            .map_err(|_| ())?;
     }
 }
