@@ -112,6 +112,7 @@ pub struct Playback {
     template: Option<Scene>,
     static_tiles: Vec<GraphicsDemand>,
     scene: Scene,
+    revision: u64,
     prefetch: Prefetch,
     /// The daemon's microseconds, uncertainty included, at `local_ms`.
     clock: Option<(f64, f64)>,
@@ -142,6 +143,7 @@ impl Playback {
             template: None,
             static_tiles: Vec::new(),
             scene: Scene::default(),
+            revision: 0,
             prefetch: Prefetch::Owed,
             clock: None,
             deadline_ms: None,
@@ -167,6 +169,11 @@ impl Playback {
             Prefetch::Settled(Some(scene)) => scene,
             _ => &self.scene,
         }
+    }
+
+    /// Advances when accepted placement geometry or animation bindings change.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// The daemon's clock read `native_us` at `local_ms`, within
@@ -344,6 +351,7 @@ impl Playback {
                 .cloned()
                 .collect();
             self.scene = template.clone();
+            self.revision += 1;
             self.template = Some(template);
         } else if changed && let Some(template) = &self.template {
             let original: HashMap<&str, &GraphicsDemand> = template
@@ -397,6 +405,7 @@ impl Playback {
             };
             if admit(&scene) {
                 self.scene = scene;
+                self.revision += 1;
             } else {
                 // Admission picks the common coarser level: a working-set
                 // change, never the ordinary frame path.
@@ -511,6 +520,7 @@ impl Playback {
         self.prefetch = Prefetch::Owed;
         self.static_tiles.clear();
         self.scene = Scene::default();
+        self.revision += 1;
         self.clock = None;
     }
 

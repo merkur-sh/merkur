@@ -85,6 +85,7 @@ pub struct SessionView {
     ready: VecDeque<Command>,
     routing_mode: u32,
     dirty: bool,
+    painted_graphics_revision: u64,
     mouse_mode: Option<u16>,
     title: String,
     last_refresh_tick: Option<u64>,
@@ -105,6 +106,7 @@ impl SessionView {
             ready: VecDeque::new(),
             routing_mode: 0,
             dirty: true,
+            painted_graphics_revision: 0,
             mouse_mode: None,
             title: String::new(),
             last_refresh_tick: None,
@@ -268,11 +270,11 @@ impl SessionView {
     }
 
     pub fn needs_paint(&self) -> bool {
-        self.dirty
+        self.dirty || self.painted_graphics_revision != self.viewer.graphics_scene_revision()
     }
 
     pub fn wants_frame(&self) -> bool {
-        self.dirty || self.viewer.wants_frame(true)
+        self.needs_paint() || self.viewer.wants_frame(true)
     }
 
     /// Called only after `HostFrames::begin` reserves consumption credit. A background
@@ -310,6 +312,7 @@ impl SessionView {
         out.truncate(out.len() - end.len());
         self.graphics
             .compose(self.viewer.graphics_scene(), self.size, out)?;
+        self.painted_graphics_revision = self.viewer.graphics_scene_revision();
         out.extend_from_slice(end);
         for (epoch, key) in self.graphics.retired() {
             self.viewer

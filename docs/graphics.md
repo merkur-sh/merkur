@@ -119,7 +119,8 @@ Switching tabs or opening a dialog removes placements while keeping acknowledged
 available. Closing a tab, replacing its authenticated lineage or retiring an unused tile
 releases its host images. Retiring a tile also removes its residency from the shared
 viewer, so an animation or later placement cannot rely on deleted pixels. Hidden timelines
-own no animation deadline.
+own no animation deadline. Accepted scene geometry and animation bindings advance a shared
+viewer revision; an unpainted revision requests a native host frame even without text damage.
 
 ## Verification boundaries
 

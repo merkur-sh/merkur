@@ -515,3 +515,142 @@ fn extra_host_paints_do_not_spend_an_incomplete_redraws_frame_bound() {
     view.frame(2.0 * FRAME_PERIOD_MS, &mut Vec::new()).unwrap();
     assert_eq!(view.viewer.grid().cursor().unwrap().col, 1);
 }
+
+#[test]
+fn resident_animation_boundary_requests_paint() {
+    use merkur_graphics::animation::{Entry, Manifest, Mode, Playback as Timeline};
+    use merkur_graphics::budget::{Budget as GraphicsBudget, Usage};
+    use merkur_graphics::geometry::{CELL_UNIT, RowSlice};
+    use merkur_graphics::projection::{Content, ContentKind, Fragment, Stack};
+    let budget = GraphicsBudget::new(Usage {
+        bytes: 1 << 20,
+        objects: 16,
+    });
+    let mut lease = budget.reserve(Manifest::charge(2).unwrap()).unwrap();
+    let manifest = Manifest::new(
+        16,
+        16,
+        1,
+        Timeline {
+            mode: Mode::Loop,
+            anchor_us: 0,
+            frame: 0,
+            loops: 0,
+            completed: 0,
+            elapsed_us: 0,
+        },
+        &[
+            Entry {
+                root: [1; 32],
+                gap_ms: 100,
+            },
+            Entry {
+                root: [2; 32],
+                gap_ms: 100,
+            },
+        ],
+        &mut lease,
+    )
+    .unwrap();
+    let fragment = Fragment {
+        content: Content {
+            kind: ContentKind::Animation,
+            root: manifest.root(),
+            width: 16,
+            height: 16,
+        },
+        stack: Stack {
+            z: 0,
+            image_id: 1,
+            placement: 1,
+        },
+        slice: RowSlice {
+            left: 0,
+            right: CELL_UNIT,
+            top: 0,
+            bottom: CELL_UNIT,
+            source_left: 0,
+            source_right: 16 * CELL_UNIT,
+            source_top: 0,
+            source_bottom: 16 * CELL_UNIT,
+        },
+    };
+    let graphics = [fragment];
+    let mut header = merkur_codec::parse_frame_header(&staged_snapshot(8, 3, 0)).unwrap();
+    header.memory_only = true;
+    header.row_count = 1;
+    let mut payload = Vec::new();
+    encode_frame_into(
+        &mut payload,
+        &header,
+        std::iter::once(RowRef {
+            row_index: 0,
+            left: 0,
+            cells: &[merkur_codec::CellRepr::BLANK],
+            graphics: &graphics,
+        }),
+    );
+    let body_len = (payload.len() - STREAM_HEADER_BYTES) as u32;
+    write_stream_header(
+        &mut payload,
+        &StreamHeader {
+            msg_type: MSG_TYPE_DISPLAY_PATCH,
+            flags: 0,
+            body_len,
+            seq: 0,
+            generation: 1,
+            input_seq: 0,
+        },
+    );
+    let mut view = SessionView::new(size(), 1);
+    view.receive(
+        0.0,
+        Output::DisplayFence(merkur_client::session::DisplayFence { lineage: 1 }),
+    );
+    view.receive(
+        0.0,
+        Output::Terminal {
+            datagram: false,
+            channel: CHANNEL_DISPLAY_COMMIT,
+            payload: wire(payload),
+            input: InputMapping::default(),
+        },
+    );
+    view.drained(0.0);
+    let key = format!(
+        "animation:{}",
+        manifest
+            .root()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    view.viewer
+        .graphics_manifest(0.0, 1, &key, manifest.bytes().to_vec());
+    view.viewer.graphics_clock(0.0, 0, 0.0);
+    // Acknowledge the visible tiles, then the successor fetched ahead.
+    for _ in 0..2 {
+        let keys: Vec<_> = view
+            .viewer
+            .graphics_scene()
+            .tiles
+            .iter()
+            .map(|tile| tile.key.clone())
+            .collect();
+        assert!(!keys.is_empty(), "the animation must have resident tiles");
+        for key in keys {
+            view.viewer.set_graphics_resident(0.0, 1, &key, true);
+        }
+    }
+    let before = view.viewer.graphics_scene().animations[0].bindings.clone();
+    view.frame(0.0, &mut Vec::new()).unwrap();
+    assert!(!view.needs_paint());
+    view.handle_timeout(99.0);
+    assert!(!view.needs_paint(), "a clock advance alone needs no paint");
+    view.handle_timeout(100.0);
+    assert_ne!(view.viewer.graphics_scene().animations[0].bindings, before);
+    assert!(
+        view.needs_paint(),
+        "resident animation boundary must request a paint"
+    );
+}

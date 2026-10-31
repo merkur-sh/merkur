@@ -1072,6 +1072,11 @@ impl<G: DisplayGrid> Viewer<G> {
         self.playback.scene()
     }
 
+    /// Accepted scene changes, independent of text presentation commits.
+    pub fn graphics_scene_revision(&self) -> u64 {
+        self.playback.revision()
+    }
+
     /// Whether the host holds tile `key` of lineage `epoch`. A frame whose
     /// tiles are not all held stays on screen.
     pub fn set_graphics_resident(&mut self, now_ms: f64, epoch: u32, key: &str, resident: bool) {
