@@ -225,7 +225,10 @@ The daemon persists the highest accepted sequence and the SHA-512 hash of its ma
 `~/.merkur/release-trust.json`. The write is flushed, atomically renamed, and directory-synced
 under an Effect-owned lock. A lower sequence or a different manifest reusing the same sequence is
 rejected. The sequence embedded in the running binary remains a rollback floor even if no state
-file exists.
+file exists. Every activation reads the staged release's sequence and manifest hash and checks
+them against the current durable and embedded floors, including for cached releases. The same
+lock excludes floor advancement until the atomic `current` swap completes. Activation makes no
+network request.
 
 Release archives are never accumulated in memory. The daemon streams the response into an
 exclusive mode-0600 file beside its final download path, incrementally enforces the manifest's
@@ -234,8 +237,10 @@ timed-out, retried, or interrupted attempt removes its uniquely named temporary 
 requests retain their short fixed deadline; archive downloads instead use separate header and
 reset-on-progress inactivity deadlines plus a whole-attempt deadline derived from the signed size,
 so a healthy large transfer is not treated like a hung metadata lookup. The archive is extracted
-into a sibling directory and renamed into `versions/<tag>`, so a version directory exists only
-complete.
+into a sibling directory. Its verified sequence and manifest hash are flushed to
+`release-trust.json` inside that directory before it is renamed into `versions/<tag>`, publishing
+the executables and their identity together. A directory without valid identity metadata is not
+staged and is downloaded again.
 
 ## Convergence
 
@@ -252,9 +257,10 @@ other ends the control client, and the daemon converges:
    the next release into the store before deploying its server, the running server watches the
    store and announces it (`release_staged`, and `stagedRelease` on `registered`), and every
    registered daemon stages it then.
-2. **Activate.** Point `current` at the release and remove every version but it and the running
-   one. The service unit, `bin/merkur` and the shell integration all run `current`, so no update
-   rewrites or restarts the unit.
+2. **Activate.** Check the staged identity against the current rollback floor under the trust-state
+   lock, point `current` at the release, and remove every version but it and the running one. The
+   service unit, `bin/merkur` and the shell integration all run `current`, so no update rewrites or
+   restarts the unit.
 3. **Hand over.** The dataplane closes its peers and transports, takes every byte its PTY reader
    has read into the terminal, writes the handoff, and `execve`s the new dataplane in its own
    pid, so the shell stays its child. The Bun owner then `execve`s the new owner in its own pid,

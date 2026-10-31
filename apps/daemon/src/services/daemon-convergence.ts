@@ -107,7 +107,7 @@ export function runConvergingControlEffect(
 
 /**
  * The scope's one stager. A staged release is found complete on disk, so a second request
- * for it costs a directory check.
+ * for it checks the executables and their staged identity.
  */
 function releaseStagerScoped(context: Omit<ConvergenceContext, 'dataplane' | 'execve'>) {
   return Effect.gen(function* () {
