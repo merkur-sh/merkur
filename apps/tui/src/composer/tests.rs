@@ -626,7 +626,7 @@ fn cursor_instruction_profile() {
     composer.compose(&screen, &mut out);
     for index in 0..1_000_000 {
         out.clear();
-        let col = 1 + (index % 2) as u16;
+        let col = 1 + u16::try_from(index % 2).unwrap();
         match case.as_str() {
             "echo" => {
                 screen.rows[0][0].c = if index % 2 == 0 { 'x' } else { 'y' };

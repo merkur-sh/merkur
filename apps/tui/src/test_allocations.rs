@@ -16,13 +16,15 @@ struct CountingAllocator;
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 fn record(bytes: usize) {
-    let _ = TALLY.try_with(|slot| {
-        if let Some(mut tally) = slot.get() {
-            tally.allocations += 1;
-            tally.bytes += bytes;
-            slot.set(Some(tally));
-        }
-    });
+    TALLY
+        .try_with(|slot| {
+            if let Some(mut tally) = slot.get() {
+                tally.allocations += 1;
+                tally.bytes += bytes;
+                slot.set(Some(tally));
+            }
+        })
+        .unwrap_or(());
 }
 
 // SAFETY: every operation forwards System's allocation identity and layout unchanged.

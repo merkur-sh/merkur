@@ -2109,6 +2109,8 @@ preserve their offset while input and display grants continue. Graphics raster p
 runs on a lazy worker, and uploads require host acknowledgements before
 replacement placements become visible. The composer reuses its known cursor position after
 text output; the workspace restores the remote cursor only after painting the status row.
+Kitty uploads use literal continuation headers. Variable graphics headers are formatted into
+a stack buffer sized for the longest command before one append to the host output buffer.
 
 Native carrier and UI deliveries retain count and byte reservations through every forwarding
 queue; enqueueing to a second queue does not release their original credit. Control, display

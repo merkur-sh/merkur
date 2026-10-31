@@ -4,7 +4,7 @@
 //! scene replaces the previous placements together; an incomplete scene never
 //! tears. Rasterization runs only when a tile or its geometry changes.
 use std::collections::{BTreeMap, BTreeSet};
-use std::io;
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -42,7 +42,7 @@ impl HostImages {
     fn restore(&mut self) -> Vec<u8> {
         let mut bytes = Vec::new();
         for id in std::mem::take(&mut self.live) {
-            bytes.extend_from_slice(format!("\x1b_Ga=d,d=I,i={id},q=2\x1b\\").as_bytes());
+            command(&mut bytes, format_args!("\x1b_Ga=d,d=I,i={id},q=2\x1b\\"));
         }
         self.deleting.clear();
         bytes
@@ -438,15 +438,15 @@ impl Graphics {
                     1 => -1_073_741_824,
                     _ => 0,
                 } + placement.order as i32;
-                out.extend_from_slice(
-                    format!(
+                command(
+                    out,
+                    format_args!(
                         "\x1b[{};{}H\x1b_Ga=p,i={},p={},X={x},Y={y},C=1,z={z}\x1b\\",
                         row + 1,
                         column + 1,
                         raster.id,
                         placement.order + 1
-                    )
-                    .as_bytes(),
+                    ),
                 );
             }
             out.extend_from_slice(b"\x1b8");
@@ -666,6 +666,19 @@ fn rasterize(
     Ok(pixels)
 }
 
+// The placement header is the longest: six u32 fields and one signed z.
+const COMMAND_BYTES: usize = b"\x1b[;H\x1b_Ga=p,i=,p=,X=,Y=,C=1,z=\x1b\\".len() + 6 * 10 + 11;
+
+fn command(out: &mut Vec<u8>, arguments: std::fmt::Arguments<'_>) {
+    let mut bytes = [0; COMMAND_BYTES];
+    let mut remaining = bytes.as_mut_slice();
+    remaining
+        .write_fmt(arguments)
+        .expect("graphics command capacity");
+    let length = COMMAND_BYTES - remaining.len();
+    out.extend_from_slice(&bytes[..length]);
+}
+
 fn upload(out: &mut Vec<u8>, id: u32, format: u32, width: u32, height: u32, bytes: &[u8]) {
     // Three decoded bytes per quartet; no intermediate encoded allocation.
     let mut encoded = [0; 4096];
@@ -674,13 +687,17 @@ fn upload(out: &mut Vec<u8>, id: u32, format: u32, width: u32, height: u32, byte
     while let Some(chunk) = chunks.next() {
         let more = u8::from(chunks.peek().is_some());
         if first {
-            out.extend_from_slice(
-                format!("\x1b_Ga=t,t=d,f={format},s={width},v={height},i={id},m={more};")
-                    .as_bytes(),
+            command(
+                out,
+                format_args!("\x1b_Ga=t,t=d,f={format},s={width},v={height},i={id},m={more};"),
             );
             first = false;
         } else {
-            out.extend_from_slice(format!("\x1b_Gm={more};").as_bytes());
+            out.extend_from_slice(if more == 0 {
+                b"\x1b_Gm=0;"
+            } else {
+                b"\x1b_Gm=1;"
+            });
         }
         let length = STANDARD
             .encode_slice(chunk, &mut encoded)
@@ -697,17 +714,20 @@ fn delete(out: &mut Vec<u8>, id: u32, free: bool) {
             .deleting
             .insert(id);
     }
-    out.extend_from_slice(
-        format!(
+    command(
+        out,
+        format_args!(
             "\x1b_Ga=d,d={},i={id},q=2\x1b\\",
             if free { 'I' } else { 'i' }
-        )
-        .as_bytes(),
+        ),
     );
 }
 
 fn delete_placement(out: &mut Vec<u8>, id: u32, placement: u32) {
-    out.extend_from_slice(format!("\x1b_Ga=d,d=i,i={id},p={placement},q=2\x1b\\").as_bytes());
+    command(
+        out,
+        format_args!("\x1b_Ga=d,d=i,i={id},p={placement},q=2\x1b\\"),
+    );
 }
 
 #[cfg(test)]
