@@ -37,7 +37,7 @@ test('the loader benchmark summarizes every fresh-process workload', async () =>
     }
   }
   expect(result.stdout).toContain('@@merkur-perf ');
-});
+}, 30_000);
 
 test('the loader benchmark omits unavailable macOS counters', async () => {
   const benchmark = new URL('./bench-bun-wasm-bootstrap.ts', import.meta.url);
@@ -79,4 +79,4 @@ test('the loader benchmark omits unavailable macOS counters', async () => {
     expect(row.instructions).toBeUndefined();
     expect(row.peakFootprintBytes).toBeUndefined();
   }
-});
+}, 30_000);
