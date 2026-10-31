@@ -1,6 +1,7 @@
 //! Browser host binding for the one sans-IO session. Network records and input
 //! borrow reusable, wiping ingress; only public cold action metadata is JSON.
 
+use crate::authorization::MlDsa87SigningKey;
 use merkur_authorization::{DelegationCertificate, PUBLIC_KEY_BYTES, parse_canonical};
 use merkur_client::{
     Entropy,
@@ -47,8 +48,7 @@ pub struct ClientSession {
 
 #[wasm_bindgen]
 impl ClientSession {
-    /// wasm-bindgen copies the mutable seed and writes its wiped bytes back.
-    /// The Rust copy is zeroizing; immutable browser strings are not used for keys.
+    /// Moves the checked signer's key and wipes its borrowed source storage.
     #[wasm_bindgen(constructor)]
     pub fn new(
         certificate: &str,
@@ -56,23 +56,15 @@ impl ClientSession {
         server_origin: String,
         browser_node_id: String,
         relay_only: bool,
-        seed: &mut [u8],
+        delegate_key: &mut MlDsa87SigningKey,
     ) -> Result<Self, JsError> {
-        let mut seed_copy = Zeroizing::new([0; 32]);
-        if seed.len() != seed_copy.len() {
-            seed.zeroize();
-            return Err(JsError::new("invalid delegate seed"));
-        }
-        seed_copy.copy_from_slice(seed);
-        seed.zeroize();
         let certificate: DelegationCertificate =
             parse_canonical(certificate, "delegation certificate")
                 .map_err(|error| JsError::new(&error.to_string()))?;
         let root: [u8; PUBLIC_KEY_BYTES] = root_public_key
             .try_into()
             .map_err(|_| JsError::new("invalid delegation root public key"))?;
-        let delegate_key = DaemonIdentitySigningKey::from_seed(&mut *seed_copy)
-            .map_err(|error| JsError::new(&error.to_string()))?;
+        let delegate_key = delegate_key.take_key()?;
         let delegation = Delegation {
             certificate,
             root_public_key: Box::new(root),

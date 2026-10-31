@@ -239,8 +239,12 @@ refreshing a token, reloading, or restarting a phone does not extend it. The ser
 | Refresh cookie family (HttpOnly, rotating) | Until the certificate expires | Delegation id |
 
 The browser stores one active delegation in the `merkur-auth` IndexedDB database, the 32-byte
-delegate seed AES-256-GCM encrypted under a non-extractable `CryptoKey` in the same profile. The
-refresh family's absolute expiry is the certificate expiry, so rotation cannot slide the 30-day trust window.
+delegate seed AES-256-GCM encrypted under a non-extractable `CryptoKey` in the same profile.
+Transport unlock expands the seed once, wipes the plaintext immediately, checks the signer's public
+key against the certificate, and moves that same-realm WASM key into the session. The handoff wipes
+the signer's source slot, and its caller frees the wrapper in every outcome. Account workflows free
+the validation key before returning the seed to its caller.
+The refresh family's absolute expiry is the certificate expiry, so rotation cannot slide the 30-day trust window.
 
 The trust is scoped to a browser origin and profile, not to a PWA installation, a handset, or a
 hardware key. Clearing site data removes the delegation and requires the password again.

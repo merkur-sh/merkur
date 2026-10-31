@@ -2,7 +2,9 @@ import { hasExactKeys, isRecord } from '@merkur/shared';
 import {
   decodeUserAuthorizationBytes,
   deriveUserAuthorizationPublicKey,
+  deriveUserAuthorizationSigningKey,
   equalBytes,
+  type MlDsa87SigningKey,
   parseUserDelegationCertificate,
   serializeUserDelegationCertificate,
   USER_AUTHORIZATION_PUBLIC_KEY_BYTES,
@@ -40,6 +42,23 @@ export interface UnlockedBrowserDelegation {
   /** Caller owns this plaintext and must wipe it as soon as the operation ends. */
   readonly delegateSeed: Uint8Array;
 }
+
+export interface BrowserSessionDelegation {
+  readonly username: string;
+  readonly userId: string;
+  readonly rootPublicKey: Uint8Array;
+  readonly certificate: UserDelegationCertificate;
+  /** ClientSession moves the key; caller always frees this wrapper. */
+  readonly delegateKey: MlDsa87SigningKey;
+}
+
+type UnlockDelegation<T> = (
+  username: string,
+  userId: string,
+  rootPublicKey: Uint8Array,
+  certificate: UserDelegationCertificate,
+  delegateSeed: Uint8Array,
+) => T;
 
 export interface BrowserDelegationIdentity {
   readonly userId: string;
@@ -136,9 +155,22 @@ export async function hasBrowserDelegation(): Promise<boolean> {
   return keyValue !== undefined && delegationValue !== undefined;
 }
 
-export async function loadBrowserDelegation(
+export function loadBrowserDelegation(
   expectedUserId: string,
 ): Promise<UnlockedBrowserDelegation | null> {
+  return loadDelegation(expectedUserId, unlockSeed);
+}
+
+export function loadBrowserSessionDelegation(
+  expectedUserId: string,
+): Promise<BrowserSessionDelegation | null> {
+  return loadDelegation(expectedUserId, unlockSigner);
+}
+
+async function loadDelegation<T>(
+  expectedUserId: string,
+  unlock: UnlockDelegation<T>,
+): Promise<T | null> {
   if (expectedUserId.length === 0) return null;
   const [keyValue, delegationValue] = await readVaultRecords();
   if (keyValue === undefined && delegationValue === undefined) return null;
@@ -191,14 +223,7 @@ export async function loadBrowserDelegation(
           if (delegateSeed.byteLength !== USER_AUTHORIZATION_SEED_BYTES) {
             throw new Error('Decrypted browser delegate seed has an invalid length');
           }
-          verifyDelegateSeed(certificate, delegateSeed);
-          return {
-            username: record.username,
-            userId: expectedUserId,
-            rootPublicKey: rootPublicKey.slice(),
-            certificate,
-            delegateSeed,
-          };
+          return unlock(record.username, expectedUserId, rootPublicKey, certificate, delegateSeed);
         } catch (error) {
           delegateSeed.fill(0);
           throw error;
@@ -214,6 +239,57 @@ export async function loadBrowserDelegation(
   } catch (error) {
     await clearBrowserDelegation(observedIdentity ?? undefined).catch(() => undefined);
     throw error;
+  }
+}
+
+function unlockSeed(
+  username: string,
+  userId: string,
+  rootPublicKey: Uint8Array,
+  certificate: UserDelegationCertificate,
+  delegateSeed: Uint8Array,
+): UnlockedBrowserDelegation {
+  verifyDelegateSeed(certificate, delegateSeed);
+  return { username, userId, rootPublicKey: rootPublicKey.slice(), certificate, delegateSeed };
+}
+
+function unlockSigner(
+  username: string,
+  userId: string,
+  rootPublicKey: Uint8Array,
+  certificate: UserDelegationCertificate,
+  delegateSeed: Uint8Array,
+): BrowserSessionDelegation {
+  const expectedPublicKey = decodeUserAuthorizationBytes(
+    certificate.delegatePublicKey,
+    USER_AUTHORIZATION_PUBLIC_KEY_BYTES,
+    'delegate public key',
+  );
+  let delegateKey: MlDsa87SigningKey | null = null;
+  let publicKey: Uint8Array | null = null;
+  try {
+    try {
+      delegateKey = deriveUserAuthorizationSigningKey(delegateSeed);
+    } finally {
+      delegateSeed.fill(0);
+    }
+    publicKey = delegateKey.publicKey;
+    if (!equalBytes(publicKey, expectedPublicKey)) {
+      throw new Error('Browser delegate seed does not match its certificate');
+    }
+    const unlocked = {
+      username,
+      userId,
+      rootPublicKey: rootPublicKey.slice(),
+      certificate,
+      delegateKey,
+    };
+    delegateKey = null;
+    return unlocked;
+  } finally {
+    delegateKey?.free();
+    publicKey?.fill(0);
+    expectedPublicKey.fill(0);
   }
 }
 

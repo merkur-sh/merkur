@@ -8,11 +8,13 @@
 //! paths (sign-in, one per session connect, one per issuance or daemon proof),
 //! so they return owned copies rather than lending linear-memory views.
 
+use std::mem::MaybeUninit;
+
 use merkur_e2e::{
     DAEMON_IDENTITY_SEED_BYTES, DAEMON_IDENTITY_SIGNING_RANDOM_BYTES, DaemonIdentitySigningKey,
 };
 use wasm_bindgen::prelude::*;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 /// An expanded ML-DSA-87 signing key held only in linear memory.
 ///
@@ -20,7 +22,8 @@ use zeroize::Zeroizing;
 /// and the core key wipes itself on drop. Callers free it in a `finally`.
 #[wasm_bindgen]
 pub struct MlDsa87SigningKey {
-    key: DaemonIdentitySigningKey,
+    key: MaybeUninit<DaemonIdentitySigningKey>,
+    populated: bool,
 }
 
 #[wasm_bindgen]
@@ -37,13 +40,16 @@ impl MlDsa87SigningKey {
         copy.copy_from_slice(seed);
         let key = DaemonIdentitySigningKey::from_seed(&mut *copy)
             .map_err(|error| JsError::new(&error.to_string()))?;
-        Ok(Self { key })
+        Ok(Self {
+            key: MaybeUninit::new(key),
+            populated: true,
+        })
     }
 
     /// The 2,592-byte verification key, as a copy.
     #[wasm_bindgen(getter, js_name = publicKey)]
     pub fn public_key(&self) -> Vec<u8> {
-        self.key.public_key().to_vec()
+        self.key().public_key().to_vec()
     }
 
     /// Hedged FIPS 204 signature under an external context of at most 255
@@ -58,10 +64,51 @@ impl MlDsa87SigningKey {
         let randomness: [u8; DAEMON_IDENTITY_SIGNING_RANDOM_BYTES] = randomness
             .try_into()
             .map_err(|_| JsError::new("ML-DSA-87 signing randomness must be exactly 32 bytes"))?;
-        self.key
+        self.key()
             .sign_with_context(context, message, randomness)
             .map(|signature| signature.to_vec())
             .map_err(|error| JsError::new(&error.to_string()))
+    }
+}
+
+impl MlDsa87SigningKey {
+    fn key(&self) -> &DaemonIdentitySigningKey {
+        if !self.populated {
+            wasm_bindgen::throw_str("ML-DSA-87 signer was consumed");
+        }
+        // SAFETY: only from_seed sets populated, after initializing the slot;
+        // take_key clears it before moving the key, under an exclusive borrow.
+        unsafe { self.key.assume_init_ref() }
+    }
+
+    pub(crate) fn take_key(&mut self) -> Result<DaemonIdentitySigningKey, JsError> {
+        if !self.populated {
+            return Err(JsError::new("ML-DSA-87 signer was consumed"));
+        }
+        self.populated = false;
+        // SAFETY: populated proved initialization, and clearing it prevents a
+        // second read or drop. The mutable WASM borrow keeps this slot in place.
+        let key = unsafe { self.key.assume_init_read() };
+        // SAFETY: this is exactly the MaybeUninit slot's writable byte range.
+        // Wipe it before returning: an owned wasm-bindgen argument would first
+        // move the inline key out of its allocation without wiping that copy.
+        let source = unsafe {
+            std::slice::from_raw_parts_mut(
+                self.key.as_mut_ptr().cast::<u8>(),
+                std::mem::size_of::<DaemonIdentitySigningKey>(),
+            )
+        };
+        source.zeroize();
+        Ok(key)
+    }
+}
+
+impl Drop for MlDsa87SigningKey {
+    fn drop(&mut self) {
+        if self.populated {
+            // SAFETY: populated means the initialized key has not been moved.
+            unsafe { self.key.assume_init_drop() };
+        }
     }
 }
 
@@ -92,4 +139,39 @@ pub fn hmac_sha512(key: &[u8], message: &[u8]) -> Result<Vec<u8>, JsError> {
     merkur_e2e::hmac_sha512(key, message)
         .map(|mac| mac.to_vec())
         .map_err(|error| JsError::new(&error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signer_transfer_wipes_the_source_storage() {
+        let mut signer = MlDsa87SigningKey::from_seed(&[2; 32]).unwrap();
+        let public_key = signer.public_key();
+        let signature = signer.sign(b"transfer", b"session", &[3; 32]).unwrap();
+        let moved = signer.take_key().unwrap();
+        assert_eq!(moved.public_key().as_slice(), public_key);
+        assert_eq!(
+            moved
+                .sign_with_context(b"transfer", b"session", [3; 32])
+                .unwrap()
+                .as_slice(),
+            signature
+        );
+        assert!(!signer.populated);
+        // SAFETY: take_key initialized every byte of the slot with zero.
+        let source = unsafe {
+            std::slice::from_raw_parts(
+                signer.key.as_ptr().cast::<u8>(),
+                std::mem::size_of::<DaemonIdentitySigningKey>(),
+            )
+        };
+        assert!(source.iter().all(|byte| *byte == 0));
+        println!(
+            "key_bytes={} wrapper_bytes={}",
+            std::mem::size_of::<DaemonIdentitySigningKey>(),
+            std::mem::size_of::<MlDsa87SigningKey>()
+        );
+    }
 }
