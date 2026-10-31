@@ -323,27 +323,38 @@ impl Writer<'_> {
         self.at = Some((row, col));
     }
 
+    // Glyph encoding stays out of the row comparison loop.
+    #[inline(never)]
     fn cell(&mut self, row: u16, col: u16, cell: DisplayedCell, width: usize) {
         self.move_to(row, col);
+        let next = col + width as u16;
+        // At the last column the host holds a pending wrap: the next write
+        // must place itself.
+        self.at = (next < self.cols).then_some((row, next));
         self.pen(Pen {
             fg: cell.fg,
             bg: cell.bg,
             attrs: cell.attrs & STYLE,
         });
-        // A wide character with no room for its second column is shown as
-        // what the host would leave there: a blank.
+        // A wide character clipped to one column leaves a blank.
         let c = if cell.attrs & DISPLAYED_WIDE != 0 && width == 1 {
             ' '
         } else {
             cell.c
         };
-        let mut utf8 = [0; 4];
-        self.out
-            .extend_from_slice(c.encode_utf8(&mut utf8).as_bytes());
-        let next = col + width as u16;
-        // At the last column the host holds a pending wrap: the next write
-        // must place itself.
-        self.at = (next < self.cols).then_some((row, next));
+        if ('!'..='~').contains(&c) {
+            self.out.push(c as u8);
+        } else if c <= '\u{9f}' {
+            // Cell data cannot issue host controls. Keep its declared columns.
+            self.out.extend_from_slice(&b"  "[..width]);
+        } else {
+            let mut utf8 = [0; 4];
+            match c.encode_utf8(&mut utf8).len() {
+                2 => self.out.extend_from_slice(&utf8[..2]),
+                3 => self.out.extend_from_slice(&utf8[..3]),
+                _ => self.out.extend_from_slice(&utf8),
+            }
+        }
     }
 
     fn erase_tail(&mut self, row: u16, col: u16, bg: Option<[u8; 3]>) {
