@@ -650,7 +650,8 @@ function applyGraphicsClock(clock: ClientGraphicsClock): void {
   observeViewerPresentation();
   drainViewerOutputs();
   armViewerDeadline();
-  wakeGraphics();
+  // Scene admission above marks actual graphics changes; clock calibration alone does not.
+  scheduleRenderFrame();
 }
 
 function installRingWakePort(port: MessagePort): void {
