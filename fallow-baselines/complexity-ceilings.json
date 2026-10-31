@@ -68,8 +68,8 @@
     "cognitive": 41
   },
   "apps/web/src/terminal/input-controller.ts::onKeyDown": {
-    "cyclomatic": 48,
-    "cognitive": 34
+    "cyclomatic": 38,
+    "cognitive": 28
   },
   "apps/web/src/transport-worker-client.ts::handleWorkerMessage": {
     "cyclomatic": 93,

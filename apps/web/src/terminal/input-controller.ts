@@ -896,23 +896,15 @@ export function createTerminalInputController(
     return IS_APPLE_PLATFORM && e.altKey && isRightAltHeld();
   }
 
-  const onKeyDown = (e: KeyboardEvent): void => {
-    const handlerEnteredAtMs = isTerminalPerfRecording() ? terminalPerfNowMs() : 0;
-    // First, ahead of every shortcut below it. This listener is on the window
-    // and knows nothing about the command palette or the dialogs stacked over
-    // the terminal, so a field that owns focus is the only signal that the
-    // press was aimed somewhere else — and the clipboard shortcuts in
-    // particular used to run before this check, which sent a ⌘V aimed at the
-    // palette's query straight into the shell as a paste.
-    const tgt = e.target;
+  function terminalOwnsKeyTarget(tgt: EventTarget | null): boolean {
     if (
       (tgt instanceof HTMLInputElement ||
         tgt instanceof HTMLTextAreaElement ||
         tgt instanceof HTMLSelectElement) &&
       !isHiddenInput(tgt)
     )
-      return;
-    if (tgt instanceof HTMLElement && tgt.isContentEditable && !isHiddenInput(tgt)) return;
+      return false;
+    if (tgt instanceof HTMLElement && tgt.isContentEditable && !isHiddenInput(tgt)) return false;
     // Focus on a control outside the panel — a dialog's button, the update
     // banner — means the press is that control's: Enter and Space activate it
     // and Tab leaves it. With nothing focused the target is the body, which
@@ -923,7 +915,28 @@ export function createTerminalInputController(
       tgt !== document.documentElement &&
       !options.ownerEl.contains(tgt)
     )
-      return;
+      return false;
+
+    if (
+      tgt instanceof HTMLElement &&
+      !isHiddenInput(tgt) &&
+      tgt.closest(
+        'button, a[href], [role="button"], [role="link"], [role="tab"], [role="switch"], [role="menuitem"]',
+      ) !== null
+    )
+      return false;
+    return true;
+  }
+
+  const onKeyDown = (e: KeyboardEvent): void => {
+    const handlerEnteredAtMs = isTerminalPerfRecording() ? terminalPerfNowMs() : 0;
+    // First, ahead of every shortcut below it. This listener is on the window
+    // and knows nothing about the command palette or the dialogs stacked over
+    // the terminal, so a field that owns focus is the only signal that the
+    // press was aimed somewhere else — and the clipboard shortcuts in
+    // particular used to run before this check, which sent a ⌘V aimed at the
+    // palette's query straight into the shell as a paste.
+    if (!terminalOwnsKeyTarget(e.target)) return;
 
     // Right ⌘ only, so left ⌘ S still reaches the terminal and the shortcut
     // cannot fire from a chord the user aimed at the shell.

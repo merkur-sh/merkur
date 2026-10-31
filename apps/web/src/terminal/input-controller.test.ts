@@ -679,7 +679,13 @@ function installKeyboardWindow(): {
     'HTMLElement',
   ]) {
     saved.set(name, globals[name]);
-    globals[name] ??= class {};
+    globals[name] ??= class {
+      dataset: Record<string, string> = {};
+      offsetParent = {};
+      closest(): null {
+        return null;
+      }
+    };
   }
   const sink = {
     addEventListener: (type: string, handler: (event: unknown) => void) => {
@@ -1291,3 +1297,45 @@ for (const path of ['virtual', 'hardware'] as const) {
     });
   }
 }
+
+test('terminal chrome keeps Enter, Space and Tab outside PTY capture', () => {
+  const keyboard = installKeyboardWindow();
+  try {
+    const backButton = Object.assign(new HTMLElement(), {
+      dataset: {},
+      offsetParent: {},
+      tagName: 'BUTTON',
+    });
+    Object.assign(backButton, { closest: () => backButton });
+    const sent: SentFrame[] = [],
+      prevented: string[] = [];
+    const controller = createController(
+      sent,
+      { flushes: 0 },
+      undefined,
+      undefined,
+      fakePanel(backButton),
+    );
+    try {
+      controller.attach();
+      for (const [key, code] of [
+        ['Enter', 'Enter'],
+        [' ', 'Space'],
+        ['Tab', 'Tab'],
+      ] as const) {
+        keyboard.press({
+          key,
+          code,
+          target: backButton,
+          preventDefault: () => prevented.push(code),
+        });
+      }
+      expect(sent.filter((frame) => decoded(frame).kind === 'key')).toEqual([]);
+      expect(prevented).toEqual([]);
+    } finally {
+      controller.destroy();
+    }
+  } finally {
+    keyboard.restore();
+  }
+});
