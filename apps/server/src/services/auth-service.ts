@@ -1920,7 +1920,8 @@ async function revokeBrowserSessionsTransaction(
     delegationId: browser.delegationId,
     serverOrigin: config.publicOrigin,
     rootEpoch: userRow.root_epoch,
-    nowMs: actorRow.revoked_at === null ? now : parsedStatement.issuedAt,
+    nowMs:
+      semantics.kind === 'self' || actorRow.revoked_at !== null ? parsedStatement.issuedAt : now,
   });
   if (
     actorCertificate === null ||
@@ -1941,35 +1942,33 @@ async function revokeBrowserSessionsTransaction(
     canonicalStatement.rootKeyCommitment !== userRow.root_key_commitment ||
     canonicalStatement.actorDelegationId !== browser.delegationId ||
     canonicalStatement.issuedAt > now + REVOCATION_CLOCK_SKEW_MS ||
-    canonicalStatement.issuedAt < now - USER_DELEGATION_LIFETIME_MS - REVOCATION_CLOCK_SKEW_MS
+    (semantics.kind !== 'self' &&
+      canonicalStatement.issuedAt < now - USER_DELEGATION_LIFETIME_MS - REVOCATION_CLOCK_SKEW_MS)
   ) {
     throw invalidDelegationError();
   }
+  const selfLogout =
+    semantics.kind === 'self' &&
+    targetsExactSelf(canonicalStatement, browser.delegationId, actorRow.expires_at);
+  if (semantics.kind === 'self' && !selfLogout) throw invalidDelegationError();
   if (actorRow.revoked_at !== null) {
-    const target = canonicalStatement.targets[0];
-    if (
-      semantics.kind === 'self' &&
-      canonicalStatement.targets.length === 1 &&
-      target?.delegationId === browser.delegationId &&
-      target.expiresAt === actorRow.expires_at
-    ) {
-      return 0;
-    }
+    if (selfLogout) return 0;
     throw invalidDelegationError();
   }
-  if (actorRow.expires_at <= now) throw invalidDelegationError();
-
-  const active = await activeDelegationTargets(db, browser.userId, now);
-  const expectedIds = expectedRevocationTargets(active, browser.delegationId, semantics);
-  const actualIds = canonicalStatement.targets.map((target) => target.delegationId);
-  if (!sameStrings(expectedIds, actualIds)) throw invalidDelegationError();
-  const activeById = new Map(active.map((target) => [target.delegationId, target.expiresAt]));
-  if (
-    canonicalStatement.targets.some(
-      (target) => activeById.get(target.delegationId) !== target.expiresAt,
-    )
-  ) {
-    throw invalidDelegationError();
+  if (!selfLogout) {
+    if (actorRow.expires_at <= now) throw invalidDelegationError();
+    const active = await activeDelegationTargets(db, browser.userId, now);
+    const expectedIds = expectedRevocationTargets(active, browser.delegationId, semantics);
+    const actualIds = canonicalStatement.targets.map((target) => target.delegationId);
+    if (!sameStrings(expectedIds, actualIds)) throw invalidDelegationError();
+    const activeById = new Map(active.map((target) => [target.delegationId, target.expiresAt]));
+    if (
+      canonicalStatement.targets.some(
+        (target) => activeById.get(target.delegationId) !== target.expiresAt,
+      )
+    ) {
+      throw invalidDelegationError();
+    }
   }
 
   let revoked = 0;
@@ -1990,6 +1989,19 @@ async function revokeBrowserSessionsTransaction(
     revokedDelegationIds: canonicalStatement.targets.map((target) => target.delegationId),
   });
   return revoked;
+}
+
+function targetsExactSelf(
+  statement: DelegationRevocationStatement,
+  delegationId: string,
+  expiresAt: number,
+): boolean {
+  const target = statement.targets[0];
+  return (
+    statement.targets.length === 1 &&
+    target?.delegationId === delegationId &&
+    target.expiresAt === expiresAt
+  );
 }
 
 type DelegationTarget = {

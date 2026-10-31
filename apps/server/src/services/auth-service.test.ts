@@ -3,7 +3,11 @@ import { createOpaqueServerSetup } from '@merkur/auth';
 import { OPAQUE_PASSWORD_STRETCHING } from '@merkur/shared/opaque-password-policy';
 import {
   createDelegationRevocationStatement,
+  createUserDelegationCertificate,
+  deriveUserAuthorizationSigningKey,
   encodeUserAuthorizationBytes,
+  serializeUserDelegationCertificate,
+  USER_DELEGATION_LIFETIME_MS,
 } from '@merkur/shared/user-authorization';
 import * as opaque from '@serenity-kit/opaque';
 import { Effect } from 'effect';
@@ -23,6 +27,7 @@ import {
   OLD_PASSWORD,
   ORIGIN,
   published,
+  ROOT,
   ROOT_KEY_COMMITMENT,
   ROOT_PUBLIC_KEY,
   registerAccount,
@@ -283,6 +288,158 @@ describe('AuthService user-root OPAQUE flows', () => {
       })),
     ]);
   });
+
+  test.each([1, 40 * 24 * 60 * 60 * 1_000])(
+    'first aged self logout affects only its exact delegation after %i ms',
+    async (age) => {
+      const actor = await registerAccount(OLD_PASSWORD, 0x61, 'delegation-aged-actor');
+      const now = actor.certificate.expiresAt + age;
+      const laterKey = deriveUserAuthorizationSigningKey(new Uint8Array(32).fill(0x62));
+      const later = createUserDelegationCertificate(
+        {
+          userId: actor.userId,
+          rootKeyCommitment: ROOT_KEY_COMMITMENT,
+          delegationId: 'delegation-later-browser',
+          delegatePublicKey: encodeUserAuthorizationBytes(laterKey.publicKey),
+          scopes: ['terminal-session', 'session-revoke'],
+          serverOrigin: ORIGIN,
+          rootEpoch: 1,
+          issuedAt: now - 60_000,
+          expiresAt: now - 60_000 + USER_DELEGATION_LIFETIME_MS,
+        },
+        ROOT,
+      );
+      await db
+        .insertInto('browser_delegations')
+        .values({
+          id: later.delegationId,
+          user_id: actor.userId,
+          root_epoch: 1,
+          delegate_public_key: later.delegatePublicKey,
+          certificate_json: serializeUserDelegationCertificate(later),
+          issued_at: later.issuedAt,
+          expires_at: later.expiresAt,
+          revoked_at: null,
+        })
+        .execute();
+      await db
+        .insertInto('daemons')
+        .values({
+          id: 'aged-logout-daemon',
+          user_id: actor.userId,
+          name: 'Daemon',
+          platform: 'test',
+          daemon_identity_public_key: 'identity',
+          daemon_identity_p256_public_key: 'p256',
+          identity_seal_backend: 'software',
+          daemon_identity_key_commitment: 'commitment',
+          daemon_binding_json: '{}',
+          last_seen: null,
+          version: null,
+        })
+        .execute();
+      const own = {
+        delegationId: actor.certificate.delegationId,
+        expiresAt: actor.certificate.expiresAt,
+      };
+      const other = { delegationId: later.delegationId, expiresAt: later.expiresAt };
+      const proofFor = (
+        targets: readonly { delegationId: string; expiresAt: number }[],
+        nonce: number,
+        issuedAt = actor.certificate.expiresAt - 1,
+      ) => ({
+        actorCertificate: actor.certificate,
+        revocation: createDelegationRevocationStatement(
+          {
+            userId: actor.userId,
+            rootKeyCommitment: ROOT_KEY_COMMITMENT,
+            actorDelegationId: actor.certificate.delegationId,
+            targets,
+            issuedAt,
+            nonce: encodeUserAuthorizationBytes(new Uint8Array(32).fill(nonce)),
+          },
+          actor.delegate,
+        ),
+      });
+      const atExpiry = <A, E>(effect: Effect.Effect<A, E>) =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            yield* TestClock.setTime(now);
+            return yield* effect;
+          }).pipe(Effect.provide(TestClock.layer())),
+        );
+      const proof = proofFor([own], 0x63);
+      // A captured self statement cannot become an aged operation on another browser.
+      await expect(
+        atExpiry(
+          service.revokeBrowserSessions(
+            {
+              userId: actor.userId,
+              delegationId: actor.certificate.delegationId,
+              delegationExpiresAt: actor.certificate.expiresAt,
+            },
+            proof,
+            { kind: 'one', delegationId: later.delegationId },
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'invalid_delegation' });
+      await expect(atExpiry(service.logout(proof))).resolves.toContain('Max-Age=0');
+      await expect(
+        atExpiry(
+          service.revokeBrowserSessions(
+            {
+              userId: actor.userId,
+              delegationId: actor.certificate.delegationId,
+              delegationExpiresAt: actor.certificate.expiresAt,
+            },
+            proof,
+            { kind: 'one', delegationId: later.delegationId },
+          ),
+        ),
+      ).resolves.toBe(1);
+
+      await expect(atExpiry(service.logout(proof))).resolves.toContain('Max-Age=0');
+      for (const invalid of [
+        proofFor([other], 0x64, now - 1),
+        proofFor([{ ...own, expiresAt: own.expiresAt + 1 }], 0x64),
+        {
+          actorCertificate: actor.certificate,
+          revocation: { ...proof.revocation, targets: [own, other] },
+        },
+      ]) {
+        await expect(atExpiry(service.logout(invalid))).rejects.toMatchObject({
+          code: 'invalid_delegation',
+        });
+      }
+      expect(
+        (
+          await db
+            .selectFrom('browser_delegations')
+            .select('revoked_at')
+            .where('id', '=', actor.certificate.delegationId)
+            .executeTakeFirstOrThrow()
+        ).revoked_at,
+      ).toBe(now);
+      expect(
+        (
+          await db
+            .selectFrom('browser_delegations')
+            .select('revoked_at')
+            .where('id', '=', later.delegationId)
+            .executeTakeFirstOrThrow()
+        ).revoked_at,
+      ).toBeNull();
+      expect(await db.selectFrom('delegation_revocations').select('nonce').execute()).toEqual([
+        { nonce: proof.revocation.nonce },
+      ]);
+      expect(
+        await db
+          .selectFrom('delegation_revocation_outbox')
+          .select(['revocation_nonce', 'acknowledged_at'])
+          .execute(),
+      ).toEqual([{ revocation_nonce: proof.revocation.nonce, acknowledged_at: null }]);
+    },
+  );
 
   test('accepts an already-signed self logout after another delegate revokes its actor', async () => {
     const actor = await registerAccount(OLD_PASSWORD, 0x35, 'delegation-offline-logout');

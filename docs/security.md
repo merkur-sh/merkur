@@ -296,7 +296,10 @@ Explicit logout is self-revocation. The signed transaction alone selects the del
 families to revoke; the logout route clears the refresh cookie without using it as authority.
 The browser signs its own target, keeps only the public certificate and signed statement as an offline
 tombstone, deletes the usable delegate before network delivery, and retries the tombstone before any
-later refresh or login.
+later refresh or login. First delivery after expiry verifies the certificate at the signed issuance
+time and accepts only the signer's single self-target with its exact stored expiry. It persists
+the revocation and daemon delivery intent even though the target is expired. This aged path
+cannot revoke another delegation or extend a target's lifetime.
 
 The daemon receives each statement as a `delegation_revoke` control command. The Rust dataplane
 verifies the actor certificate and statement, records the tombstone, and evicts affected live,
