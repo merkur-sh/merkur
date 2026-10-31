@@ -68,7 +68,7 @@
     "no-runtime-typeof": 1
   },
   "apps/daemon/src/cli/legacy-daemon-config-migration.test.ts": {
-    "no-compat-names": 18,
+    "no-compat-names": 14,
     "no-known-value-widening": 1,
     "no-unsafe-dictionary-type": 9
   },

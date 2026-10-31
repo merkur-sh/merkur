@@ -40,13 +40,15 @@ test('a release refuses missing or noncanonical pins before compiling', () => {
 
 test('the CLI stamps in its release identity and origin, and nothing else', () => {
   const args = compileArguments(releaseIdentity(release), '/out/merkur');
-  expect(args.slice(0, 5)).toEqual([
+  expect(args.slice(0, 6)).toEqual([
     'build',
     expect.stringContaining('apps/daemon/src/index.ts'),
+    expect.stringContaining('packages/config/src/daemon-config-lock-worker.ts'),
     '--compile',
     '--outfile',
     '/out/merkur',
   ]);
+  expect(args.slice(6, 8)).toEqual(['--entry-naming', '[name].[ext]']);
   expect(args.filter((arg) => arg.startsWith('process.env.'))).toEqual([
     'process.env.MERKUR_VERSION="v1.0.0"',
     'process.env.MERKUR_RELEASE="v1.0.0"',

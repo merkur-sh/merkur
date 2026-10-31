@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   daemonControlTranscript,
   deriveSessionAuthorizationKeyPair,
@@ -7,6 +10,11 @@ import {
   signDaemonProof,
   verifyDaemonProof,
 } from '@merkur/auth';
+import {
+  persistDaemonRevocationsToPath,
+  requireDaemonConfigFromPath,
+  saveDaemonConfigToPath,
+} from '@merkur/config';
 import {
   createDaemonControlDelegationRevokeMessage,
   createDaemonControlLeaseMessage,
@@ -966,10 +974,12 @@ describe('daemon control connection', () => {
           },
         },
         {
-          persistConfig: (config) =>
+          persistRevocations: (config, targets) =>
             Effect.promise(async () => {
               await persistence;
-              persisted.push(config);
+              const next = { ...config, revoked_delegations: targets };
+              persisted.push(next);
+              return next;
             }),
         },
       ),
@@ -1020,6 +1030,208 @@ describe('daemon control connection', () => {
     await Effect.runPromise(Fiber.interrupt(fiber));
   });
 
+  test.each([false, true])(
+    'concurrent_revocation preserves the current enrollment and rejects a replaced lineage (%s)',
+    async (replaceLineage) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-control-config-'));
+      const configPath = path.join(directory, 'config.json');
+      const initial = daemonConfig();
+      await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+      const harness = createHarness();
+      const fiber = Effect.runFork(
+        runHarnessControlClient(
+          harness,
+          undefined,
+          {
+            ...harness.dataplane,
+            revokeDelegationEffect: () => Effect.succeed({ status: 'accepted' }),
+          },
+          {
+            persistRevocations: (expected, targets) =>
+              persistDaemonRevocationsToPath(configPath, expected, targets),
+          },
+        ),
+      );
+      try {
+        await waitFor(() => harness.sockets.length === 1);
+        const socket = required(harness.sockets[0]);
+        socket.emitMessage(
+          createDaemonControlRegisteredMessage(
+            'connection-1',
+            'presence-1',
+            1,
+            0,
+            1_000,
+            3_000,
+            ['stun.test:3478', 'stun.test:3479'],
+            'ticket',
+            'secret',
+            4_000,
+            'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            EDGES,
+            null,
+            true,
+          ),
+        );
+        await waitFor(() => socket.pings === 1);
+        const relinked = {
+          ...initial,
+          root_epoch: replaceLineage ? 2 : initial.root_epoch,
+          daemon_binding: { ...initial.daemon_binding, linkClaimId: 'relinked-claim' },
+          revoked_delegations: [
+            { delegationId: 'previous-revocation', expiresAt: 1_950_000_000_000 },
+          ],
+        };
+        await Effect.runPromise(saveDaemonConfigToPath(configPath, relinked, initial));
+        socket.emitMessage(
+          createDaemonControlDelegationRevokeMessage(
+            'command-concurrent-revoke',
+            DELEGATION_CERTIFICATE,
+            DELEGATION_REVOCATION,
+            '',
+          ),
+        );
+        if (replaceLineage) {
+          await waitFor(() =>
+            harness.logs.some(
+              (entry) => entry.message === 'daemon_control_revocation_persistence_failed',
+            ),
+          );
+          expect(outboundMessages(socket)).toEqual([]);
+          expect(await Effect.runPromise(requireDaemonConfigFromPath(configPath))).toEqual(
+            relinked,
+          );
+        } else {
+          await waitFor(() => outboundMessages(socket).length === 1);
+          expect(outboundMessages(socket)[0]).toMatchObject({ status: 'accepted' });
+          expect(await Effect.runPromise(requireDaemonConfigFromPath(configPath))).toEqual({
+            ...relinked,
+            revoked_delegations: [
+              ...DELEGATION_REVOCATION.targets,
+              ...relinked.revoked_delegations,
+            ],
+          });
+        }
+      } finally {
+        await Effect.runPromise(Fiber.interrupt(fiber));
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test('concurrent_revocation waits for the config lock while session commands still complete', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-control-config-'));
+    const configPath = path.join(directory, 'config.json');
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, daemonConfig(), null));
+    const holder = Bun.spawn(
+      [
+        process.execPath,
+        new URL('../cli/config-transaction-fixture.ts', import.meta.url).pathname,
+        configPath,
+        'holder-revocation',
+        'hold',
+      ],
+      { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+    );
+    const reader = holder.stdout.getReader();
+    let output = '';
+    while (!output.includes('locked\n')) {
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error('Config lock owner exited');
+      output += new TextDecoder().decode(chunk.value);
+    }
+    const harness = createHarness();
+    const requested = Deferred.makeUnsafe<void>();
+    const fiber = Effect.runFork(
+      runHarnessControlClient(
+        harness,
+        undefined,
+        {
+          ...harness.dataplane,
+          revokeDelegationEffect: () => Effect.succeed({ status: 'accepted' }),
+          startSessionEffect: () => Effect.succeed({ status: 'accepted' }),
+        },
+        {
+          persistRevocations: (expected, targets) =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(requested, undefined);
+              return yield* persistDaemonRevocationsToPath(configPath, expected, targets);
+            }),
+        },
+      ),
+    );
+    try {
+      await waitFor(() => harness.sockets.length === 1);
+      const socket = required(harness.sockets[0]);
+      socket.emitMessage(
+        createDaemonControlRegisteredMessage(
+          'connection-1',
+          'presence-1',
+          1,
+          0,
+          1_000,
+          3_000,
+          ['stun.test:3478', 'stun.test:3479'],
+          'ticket',
+          'secret',
+          4_000,
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          EDGES,
+          null,
+          true,
+        ),
+      );
+      await waitFor(() => socket.pings === 1);
+      socket.emitMessage(
+        createDaemonControlDelegationRevokeMessage(
+          'command-revoke',
+          DELEGATION_CERTIFICATE,
+          DELEGATION_REVOCATION,
+          '',
+        ),
+      );
+      await Effect.runPromise(Deferred.await(requested));
+      socket.emitMessage(
+        createDaemonControlSessionStartMessage(
+          'command-start',
+          'session-1',
+          'browser-1',
+          {
+            userId: USER_ID,
+            delegationId: DELEGATION_ID,
+            clientNonce: CLIENT_NONCE,
+            encapsulationKey: ENCAPSULATION_KEY,
+            edgeWtUrl: 'https://edge.example/session',
+            edgeCertHashes: [CERT_HASH],
+          },
+          '',
+        ),
+      );
+      await waitFor(() => outboundMessages(socket).length === 1);
+      expect(outboundMessages(socket)).toEqual([
+        {
+          type: 'command_ack',
+          version: 1,
+          commandId: 'command-start',
+          status: 'accepted',
+        },
+      ]);
+      holder.stdin.write('r');
+      holder.stdin.end();
+      expect(await holder.exited).toBe(0);
+      await waitFor(() => outboundMessages(socket).length === 2);
+      expect(outboundMessages(socket)[1]).toMatchObject({
+        commandId: 'command-revoke',
+        status: 'accepted',
+      });
+    } finally {
+      holder.kill('SIGKILL');
+      await holder.exited;
+      await Effect.runPromise(Fiber.interrupt(fiber));
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test('reconnects without acknowledging when delegation tombstone persistence fails', async () => {
     const harness = createHarness();
     const revocations: string[] = [];
@@ -1035,7 +1247,7 @@ describe('daemon control connection', () => {
           },
         },
         {
-          persistConfig: () => Effect.fail(new Error('disk unavailable')),
+          persistRevocations: () => Effect.fail(new Error('disk unavailable')),
         },
       ),
     );

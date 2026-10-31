@@ -1,10 +1,20 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   deriveDaemonIdentityKeyCommitment,
   deriveSessionAuthorizationKeyPair,
   deriveSoftwareDaemonP256PublicKey,
   SESSION_AUTHORIZATION_SEED_BYTES,
 } from '@merkur/auth';
+import {
+  loadDaemonConfigFromPath,
+  persistDaemonRevocationsToPath,
+  restoreDaemonConfigAtPath,
+  saveDaemonConfigToPath,
+  withDaemonEnrollmentLockAtPath,
+} from '@merkur/config';
 import {
   createDaemonBinding,
   createDaemonLinkApproval,
@@ -14,7 +24,7 @@ import {
   parseDaemonLinkCode,
   USER_ROOT_INITIAL_EPOCH,
 } from '@merkur/shared/user-authorization';
-import { Effect } from 'effect';
+import { Deferred, Effect } from 'effect';
 
 import type { DaemonConfig } from '../config';
 import type { Logger } from '../logger';
@@ -236,6 +246,110 @@ describe('two-phase daemon link claim', () => {
     expect(required(saved[0]).revoked_delegations).toEqual(existing.revoked_delegations);
   });
 
+  test.each(['approval', 'completion-rejection'] as const)(
+    'concurrent_revocation survives relink at %s',
+    async (phase) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-link-transaction-'));
+      const configPath = path.join(directory, 'config.json');
+      const initial = existingConfig();
+      const target = { delegationId: 'concurrent-delegation', expiresAt: 1_950_000_000_000 };
+      let request: DaemonLinkCreateRequest | null = null;
+      await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+      const addRevocation = async () => {
+        const current = required(await Effect.runPromise(loadDaemonConfigFromPath(configPath)));
+        await Effect.runPromise(
+          saveDaemonConfigToPath(
+            configPath,
+            {
+              ...current,
+              revoked_delegations: [target, ...current.revoked_delegations],
+            },
+            current,
+          ),
+        );
+      };
+      const dependencies = createDependencies({
+        loadExistingConfig: () => loadDaemonConfigFromPath(configPath),
+        createClaim: (_origin, value) => {
+          request = value;
+          return Promise.resolve(createdClaim());
+        },
+        pollClaim: async () => {
+          if (phase === 'approval') await addRevocation();
+          return approvedClaim(required(request), Buffer.from(LINK_SECRET));
+        },
+        saveConfig: (config, expected) =>
+          saveDaemonConfigToPath(configPath, config, expected).pipe(Effect.asVoid),
+        completeClaim: async () => {
+          if (phase === 'approval') return { data: null, error: null };
+          await addRevocation();
+          return { data: null, error: { status: 409, value: { error: 'claim_conflict' } } };
+        },
+        restoreConfig: (previous, installed) =>
+          restoreDaemonConfigAtPath(configPath, previous, installed),
+      });
+      try {
+        expect(
+          await Effect.runPromise(runLinkCommandEffect([SERVER_ORIGIN], noopLogger, dependencies)),
+        ).toBe(phase === 'approval' ? 0 : 1);
+        const final = required(await Effect.runPromise(loadDaemonConfigFromPath(configPath)));
+        expect(final.revoked_delegations).toEqual([target, ...initial.revoked_delegations]);
+        expect(final.daemon_binding.linkClaimId).toBe(
+          phase === 'approval' ? 'claim-1' : 'old-claim',
+        );
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test('concurrent_revocation rejects overlapping enrollment before it can stage a claim', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-link-transaction-'));
+    const configPath = path.join(directory, 'config.json');
+    const initial = existingConfig();
+    const target = { delegationId: 'concurrent-delegation', expiresAt: 1_950_000_000_000 };
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    const firstCompleting = Deferred.makeUnsafe<void>();
+    const rejectFirst = Deferred.makeUnsafe<void>();
+    const dependencies = (claimId: string) =>
+      createDependencies({
+        withEnrollmentLock: (body) => withDaemonEnrollmentLockAtPath(configPath, body),
+        generateLinkClaimId: () => claimId,
+        loadExistingConfig: () => loadDaemonConfigFromPath(configPath),
+        saveConfig: (config, expected) =>
+          saveDaemonConfigToPath(configPath, config, expected).pipe(Effect.asVoid),
+        restoreConfig: (previous, installed) =>
+          restoreDaemonConfigAtPath(configPath, previous, installed),
+        completeClaim: async () => {
+          if (claimId === 'first-claim') {
+            await Effect.runPromise(Deferred.succeed(firstCompleting, undefined));
+            await Effect.runPromise(Deferred.await(rejectFirst));
+          }
+          return { data: null, error: { status: 409, value: { error: 'claim_conflict' } } };
+        },
+      });
+    const first = Effect.runPromise(
+      runLinkCommandEffect([SERVER_ORIGIN], noopLogger, dependencies('first-claim')),
+    );
+    await Effect.runPromise(Deferred.await(firstCompleting));
+    const second = Effect.runPromise(
+      runLinkCommandEffect([SERVER_ORIGIN], noopLogger, dependencies('second-claim')),
+    );
+    try {
+      await expect(second).rejects.toThrow('already in progress');
+      await Effect.runPromise(persistDaemonRevocationsToPath(configPath, initial, [target]));
+      await Effect.runPromise(Deferred.succeed(rejectFirst, undefined));
+      expect(await first).toBe(1);
+      const final = required(await Effect.runPromise(loadDaemonConfigFromPath(configPath)));
+      expect(final.daemon_binding).toEqual(initial.daemon_binding);
+      expect(final.revoked_delegations).toEqual([target, ...initial.revoked_delegations]);
+    } finally {
+      await Effect.runPromise(Deferred.succeed(rejectFirst, undefined));
+      await Promise.allSettled([first, second]);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test('restores the prior config after a definitive completion conflict', async () => {
     const existing = existingConfig();
     const requests: DaemonLinkCreateRequest[] = [];
@@ -336,6 +450,7 @@ function createDependencies(
 ): DaemonLinkCommandDependencies {
   let request: DaemonLinkCreateRequest | null = null;
   return {
+    withEnrollmentLock: (body) => body,
     generateDaemonId: () => 'daemon-1',
     createIdentitySeal: () => Effect.succeed(identityFixture()),
     inspectIdentitySeal: (seal) => Effect.succeed({ ...identityFixture(), seal }),
@@ -356,6 +471,7 @@ function createDependencies(
     pollClaim: () => Promise.resolve(approvedClaim(required(request), Buffer.from(LINK_SECRET))),
     completeClaim: () => Promise.resolve({ data: null, error: null }),
     saveConfig: () => Effect.void,
+    saveMigratedConfig: () => Effect.void,
     restoreConfig: () => Effect.void,
     ...overrides,
   };

@@ -30,6 +30,13 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "src/cli/config-transaction-fixture.ts": [
+            "//apps/daemon:node_modules/effect",
+            "//packages/config:src/index.ts.module",
+            "//packages/shared:src/e2e-wasm-bun.ts.module",
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
         "src/cli/help.test.ts": [
             ":package.json.module",
             ":src/cli/help.ts.module",
@@ -72,6 +79,7 @@ MODULES = {
         ],
         "src/cli/legacy-daemon-config-migration.test.ts": [
             "//apps/daemon:node_modules/effect",
+            "//packages/config:src/index.ts.module",
             ":package.json.module",
             ":src/cli/legacy-daemon-config-migration.ts.module",
             ":tsconfig.json.module",
@@ -95,6 +103,7 @@ MODULES = {
         "src/cli/link.test.ts": [
             "//apps/daemon:node_modules/effect",
             "//packages/auth:src/index.ts.module",
+            "//packages/config:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
             ":src/cli/identity-seal.ts.module",
@@ -317,9 +326,11 @@ MODULES = {
         "src/services/daemon-control-client.test.ts": [
             "//apps/daemon:node_modules/effect",
             "//packages/auth:src/index.ts.module",
+            "//packages/config:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
+            ":src/cli/config-transaction-fixture.ts.module",
             ":src/services/daemon-control-client.ts.module",
             ":tsconfig.json.module",
         ],
@@ -5415,9 +5426,21 @@ MODULES = {
     },
     "packages/config": {
         "package.json": [],
-        "src/daemon-config.test.ts": [
+        "src/daemon-config-lock-worker.ts": [
             "//packages/config:node_modules/effect",
             ":package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "src/daemon-config-lock.ts": [
+            ":package.json.module",
+            ":src/daemon-config-lock-worker.ts.module",
+            ":tsconfig.json.module",
+        ],
+        "src/daemon-config.test.ts": [
+            "//apps/daemon:src/cli/config-transaction-fixture.ts.module",
+            "//packages/config:node_modules/effect",
+            ":package.json.module",
+            ":src/daemon-config-lock-worker.ts.module",
             ":src/daemon-config.ts.module",
             ":tsconfig.json.module",
         ],
@@ -5426,6 +5449,7 @@ MODULES = {
             "//packages/shared:src/index.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
+            ":src/daemon-config-lock.ts.module",
             ":tsconfig.json.module",
         ],
         "src/environment.test.ts": [
@@ -8179,6 +8203,7 @@ TYPE_INPUTS = {
             "package.json",
             "src/cli/cli-output.test.ts",
             "src/cli/cli-output.ts",
+            "src/cli/config-transaction-fixture.ts",
             "src/cli/help.test.ts",
             "src/cli/help.ts",
             "src/cli/identity-seal.ts",
@@ -9566,6 +9591,7 @@ TYPE_INPUTS = {
     "packages/config": {
         "apps/daemon/tsconfig.json": [
             "package.json",
+            "src/daemon-config-lock.ts",
             "src/daemon-config.ts",
             "src/index.ts",
             "src/retry-schedules.ts",
@@ -9574,6 +9600,7 @@ TYPE_INPUTS = {
         ],
         "apps/server/scripts/tsconfig.json": [
             "package.json",
+            "src/daemon-config-lock.ts",
             "src/daemon-config.ts",
             "src/index.ts",
             "src/retry-schedules.ts",
@@ -9582,6 +9609,7 @@ TYPE_INPUTS = {
         ],
         "apps/server/tsconfig.json": [
             "package.json",
+            "src/daemon-config-lock.ts",
             "src/daemon-config.ts",
             "src/index.ts",
             "src/retry-schedules.ts",
@@ -9590,6 +9618,7 @@ TYPE_INPUTS = {
         ],
         "apps/web/tsconfig.json": [
             "package.json",
+            "src/daemon-config-lock.ts",
             "src/daemon-config.ts",
             "src/index.ts",
             "src/reconnect-policy.ts",
@@ -9599,6 +9628,8 @@ TYPE_INPUTS = {
         ],
         "packages/config/tsconfig.json": [
             "package.json",
+            "src/daemon-config-lock-worker.ts",
+            "src/daemon-config-lock.ts",
             "src/daemon-config.test.ts",
             "src/daemon-config.ts",
             "src/environment.test.ts",
@@ -9614,6 +9645,7 @@ TYPE_INPUTS = {
         ],
         "scripts/tsconfig.json": [
             "package.json",
+            "src/daemon-config-lock.ts",
             "src/daemon-config.ts",
             "src/environment.ts",
             "src/index.ts",
@@ -9624,6 +9656,7 @@ TYPE_INPUTS = {
         ],
         "tests/tsconfig.json": [
             "package.json",
+            "src/daemon-config-lock.ts",
             "src/daemon-config.ts",
             "src/index.ts",
             "src/reconnect-policy.ts",

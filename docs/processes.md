@@ -336,9 +336,11 @@ Those checks never enter the Rust PTY/display path.
 
 For browser-session revocation, the dataplane verifies and applies the signed tombstone, evicts
 affected live/dialing/parked peers, and reports acceptance over IPC. The Bun owner merges and
-atomically saves the tombstone set before it acknowledges `delegation_revoke` to the server. A
-server outbox item is marked delivered only after a successful acknowledgement. A rejection is
-retained as undelivered, keeps the daemon unavailable for sessions, and is retried after reconnect;
+atomically saves the tombstone set before it acknowledges `delegation_revoke` to the server. Config
+saves, rollback and removal share a kernel file lock that is released on process death; each
+mutation reads the latest config while holding it. A server outbox item is marked delivered only
+after a successful acknowledgement. A rejection is retained as undelivered, keeps the daemon
+unavailable for sessions, and is retried after reconnect;
 newly linked daemons also receive retained signed revocations with still-live targets before they
 become session-ready.
 

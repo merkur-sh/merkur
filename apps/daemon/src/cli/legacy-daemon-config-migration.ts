@@ -1,6 +1,10 @@
 import { readFile } from 'node:fs/promises';
 
-import { validateDaemonConfig } from '@merkur/config';
+import {
+  type DaemonConfig,
+  replaceDaemonConfigForApprovedLinkAtPath,
+  validateDaemonConfig,
+} from '@merkur/config';
 import { Effect } from 'effect';
 
 const LEGACY_CONFIG_FIELDS = new Set([
@@ -35,13 +39,15 @@ export interface LegacyDaemonLinkMigration {
  * exactly that schema, rejects mixed/current/malformed objects, and returns no
  * credential material.
  */
-export function parseLegacyDaemonConfigForLinkMigration(value: unknown): LegacyDaemonLinkMigration {
+function decodeLinkIdentity(value: unknown): LegacyDaemonLinkMigration {
   try {
     return parseExactLegacyDaemonConfig(value);
   } catch {
     throw new Error(LEGACY_CONFIG_ERROR);
   }
 }
+
+export const parseLegacyDaemonConfigForLinkMigration = decodeLinkIdentity;
 
 export function loadLegacyDaemonConfigForLinkMigration(
   configPath: string,
@@ -56,6 +62,18 @@ export function loadLegacyDaemonConfigForLinkMigration(
       }
     },
     catch: () => new Error(LEGACY_CONFIG_ERROR),
+  });
+}
+
+export function replaceApprovedDaemonConfig(
+  configPath: string,
+  config: DaemonConfig,
+  expectedDaemonId: string,
+): Effect.Effect<void, Error> {
+  return replaceDaemonConfigForApprovedLinkAtPath(configPath, config, (contents) => {
+    if (decodeLinkIdentity(JSON.parse(contents)).daemonId !== expectedDaemonId) {
+      throw new Error('Daemon identity changed during link migration');
+    }
   });
 }
 
