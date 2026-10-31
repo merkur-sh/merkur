@@ -162,3 +162,23 @@ for (const [modifier, mods] of [
     expect(record.mods).toBe(mods);
   });
 }
+
+for (const [deltaX, direction] of [
+  [-20, protocol.WHEEL_LEFT],
+  [20, protocol.WHEEL_RIGHT],
+] as const) {
+  test(`horizontal wheel ${deltaX} emits only its horizontal direction`, () => {
+    const host = pointerHost();
+    host.dispatch('wheel', { deltaX, deltaY: 0, clientX: 24, clientY: 64 });
+    const record = host.records[0];
+    if (record?.kind !== 'wheel') throw new Error('expected a wheel record');
+    expect(record.direction).toBe(direction);
+    expect(host.records).toHaveLength(1);
+  });
+}
+
+test('a stationary wheel event emits no notch', () => {
+  const host = pointerHost();
+  host.dispatch('wheel', { deltaX: 0, deltaY: 0 });
+  expect(host.records).toEqual([]);
+});

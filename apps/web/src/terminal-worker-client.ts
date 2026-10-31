@@ -16,7 +16,9 @@ import {
   MOUSE_RECORD_MAX_BYTES,
   type MouseButton,
   WHEEL_DOWN,
+  WHEEL_LEFT,
   WHEEL_RECORD_MAX_COUNT,
+  WHEEL_RIGHT,
   WHEEL_UP,
 } from '@merkur/protocol';
 import {
@@ -631,17 +633,31 @@ export function createTerminalWorkerClient(
    * cursor-key mode the application set; the mirrored bits here only decide
    * whether the wheel belongs to the application at all.
    */
-  function sendScrollInput(deltaY: number, clientX: number, clientY: number, mods: number): void {
-    sendScrollNotches(deltaY < 0 ? -1 : 1, clientX, clientY, mods);
+  function sendScrollInput(e: WheelEvent): void {
+    const mods = pointerMods(e);
+    if (e.deltaY !== 0) sendScrollNotches(e.deltaY < 0 ? -1 : 1, e.clientX, e.clientY, mods);
+    if (e.deltaX !== 0) sendScrollNotches(e.deltaX < 0 ? -1 : 1, e.clientX, e.clientY, mods, true);
   }
 
   /** `notches` wheel notches, negative upward, in as few records as their count field holds. */
-  function sendScrollNotches(notches: number, clientX: number, clientY: number, mods = 0): void {
+  function sendScrollNotches(
+    notches: number,
+    clientX: number,
+    clientY: number,
+    mods = 0,
+    horizontal = false,
+  ): void {
     // Wheel events arrive at display rate while a shell owns the screen, so
     // only one the application asked for hit-tests, into a reused cell.
     if (notches === 0 || !(mouseMode & MM_WHEEL)) return;
     terminalCellAtPointInto(clientX, clientY, syncPointerGeometry(), wheelCell);
-    const direction = notches < 0 ? WHEEL_UP : WHEEL_DOWN;
+    const direction = horizontal
+      ? notches < 0
+        ? WHEEL_LEFT
+        : WHEEL_RIGHT
+      : notches < 0
+        ? WHEEL_UP
+        : WHEEL_DOWN;
     for (let remaining = Math.abs(notches); remaining > 0; remaining -= WHEEL_RECORD_MAX_COUNT) {
       const count = Math.min(remaining, WHEEL_RECORD_MAX_COUNT);
       callbacks.onMouseInput(
@@ -1151,7 +1167,7 @@ export function createTerminalWorkerClient(
       // no local scrollback here for Shift+wheel to move instead.
       e.preventDefault();
       if (selectionOwnsMouse(e)) return;
-      sendScrollInput(e.deltaY, e.clientX, e.clientY, pointerMods(e));
+      sendScrollInput(e);
     },
     { passive: false },
   );
