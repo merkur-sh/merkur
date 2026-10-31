@@ -1501,3 +1501,71 @@ pub fn encode_full_row_entry(out: &mut Vec<u8>, row: u16, cells: &[crate::CellRe
 pub fn full_row_entry_bytes(cells: &[crate::CellRepr]) -> usize {
     ROW_PREFIX_BYTES + crate::encoded_cells_size(cells)
 }
+
+/// These are the domains before key masking, including values read before a
+/// corrupt stream is rejected. A failed mode, segment, source kind, same-block
+/// bit or colour symbol returns before it can become the next context. Every
+/// decode starts a new Walk. The test-only assertion in key also checks the
+/// actual walk during malformed-stream decoding.
+#[cfg(test)]
+#[test]
+fn context_domains_fit_ten_bits() {
+    let check = |field, aux| {
+        assert!(aux < 1024);
+        let _ = key(field, aux);
+    };
+    for high in 0..=255 {
+        check(F_LEFT, 1 | high << 1);
+        check(F_COUNT, 1 | high << 1);
+        check(F_TAG, high);
+    }
+    check(F_TAG, Walk::new().prev_tag);
+    check(F_MODE, Walk::new().prev_mode);
+    for class in 0..4 {
+        for same in 0..=2 {
+            check(F_SAME_BLOCK, same | class << 2);
+        }
+        check(F_BLOCK_MTF, class);
+        for same in 0..=1 {
+            for low in 0..128 {
+                check(F_LOW7, class << 8 | same << 7 | low);
+            }
+        }
+    }
+    for slot in 0..2 {
+        check(F_PALETTE, slot);
+        for mode in 0..=1 {
+            for previous in 0..=10 {
+                check(F_COLOR_MTF, slot | mode << 1 | previous << 2);
+            }
+        }
+        for channel in 0..3 {
+            for previous in 0..16 {
+                check(F_DCOLOR, slot | channel << 1 | previous << 3);
+            }
+        }
+    }
+    for previous in 0..=3 {
+        for copy in 0..=1 {
+            check(F_SEG, previous | copy << 2);
+        }
+    }
+    for kind in 0..=2 {
+        check(F_SRC_KIND, kind);
+    }
+    for field in [
+        F_ROW, F_BACK, F_SEQ, F_SRC_ROW, F_SRC_ITEM, F_ITEMS, F_BLOCK, F_RUN,
+    ] {
+        for aux in [0, 8] {
+            for index in 0..5 {
+                check(field, aux | index);
+            }
+        }
+    }
+    for index in 0..LINK_TABLE_COUNT_BYTES + LINK_SPAN_BYTES * u16::MAX as usize {
+        check(F_LINK, link_aux(index));
+    }
+    for index in [0, 1, 2, 3, 4, MAX_GRAPHICS_SECTION_BYTES, usize::MAX] {
+        check(F_GRAPHICS, graphics_aux(index));
+    }
+}
