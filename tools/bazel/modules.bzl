@@ -1631,6 +1631,7 @@ MODULES = {
             ":src/config.ts.module",
             ":src/db/client.ts.module",
             ":src/db/migrate.ts.module",
+            ":src/services/daemon-control-ownership.ts.module",
             ":src/services/daemon-control-service.ts.module",
             ":src/services/daemon-release-store.ts.module",
             ":src/services/device-service.ts.module",

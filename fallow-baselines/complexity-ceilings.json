@@ -7,10 +7,6 @@
     "cyclomatic": 40,
     "cognitive": 39
   },
-  "apps/server/src/services/daemon-control-service.ts::livenessTick": {
-    "cyclomatic": 26,
-    "cognitive": 48
-  },
   "apps/server/src/services/edge-registry-service.test.ts::execute": {
     "cyclomatic": 32,
     "cognitive": 49

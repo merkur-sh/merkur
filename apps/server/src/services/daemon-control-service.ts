@@ -464,8 +464,9 @@ interface ControlConnection {
   silentCommitted: boolean;
   /** True while the node sits in the liveness and lease lists. */
   linked: boolean;
-  /** Last renewal attempt — the lease list is ordered by this, not by success. */
-  leaseAttemptedAtMono: number;
+  /** The exact next attempt, including a failed renewal's shorter retry. */
+  leaseNextRenewalAtMono: number;
+  leaseRetrying: boolean;
   leaseRenewedAtMono: number;
   readonly liveLink: ListLink;
   readonly leaseLink: ListLink;
@@ -645,6 +646,14 @@ interface DaemonControlRuntime extends DaemonControlService {
     component: keyof Omit<DaemonControlHealthSnapshot, 'controlConnections'>,
     cause: Cause.Cause<unknown>,
   ) => Effect.Effect<void>;
+}
+
+function collectDueLeases(list: ConnectionList, at: number, output: ControlConnection[]): void {
+  let node = list.head;
+  while (node !== null && node.leaseNextRenewalAtMono <= at) {
+    output.push(node);
+    node = node.leaseLink.next;
+  }
 }
 
 export interface DaemonControlServiceDependencies {
@@ -833,10 +842,11 @@ export function createDaemonControlService(
   const connectionIdByDaemonId = new Map<string, string>();
   /** Revoke-all fan-out is O(this user's daemons), not O(connections). */
   const connectionIdsByUserId = new Map<string, Set<string>>();
-  // Registered connections, ordered by last ping and by last renewal attempt.
+  // Registered connections, ordered by ping and by their next lease deadlines.
   // See `ConnectionList` for why ordering costs nothing to maintain.
   const liveList = new ConnectionList('liveLink');
   const leaseList = new ConnectionList('leaseLink');
+  const retryLeaseList = new ConnectionList('leaseLink');
   // The ticker sleeps until the earliest deadline it computed. An insert or a
   // recovery from silence can create an earlier one; they wake it through this
   // queue, sliding so a burst collapses into one wake.
@@ -875,7 +885,8 @@ export function createDaemonControlService(
   function linkConnection(connection: ControlConnection): void {
     const at = monotonicNow();
     connection.lastSeenAtMono = at;
-    connection.leaseAttemptedAtMono = at;
+    connection.leaseNextRenewalAtMono = at + DAEMON_CONTROL_LEASE_RENEWAL_MS;
+    connection.leaseRetrying = false;
     connection.leaseRenewedAtMono = at;
     connection.linked = true;
     liveList.append(connection);
@@ -889,7 +900,25 @@ export function createDaemonControlService(
     if (!connection.linked) return;
     connection.linked = false;
     liveList.remove(connection);
-    leaseList.remove(connection);
+    (connection.leaseRetrying ? retryLeaseList : leaseList).remove(connection);
+  }
+
+  function scheduleLease(connection: ControlConnection, deadline: number, retrying: boolean): void {
+    const previous = connection.leaseRetrying ? retryLeaseList : leaseList;
+    const next = retrying ? retryLeaseList : leaseList;
+    if (previous === next) next.moveToTail(connection);
+    else {
+      previous.remove(connection);
+      next.append(connection);
+    }
+    connection.leaseNextRenewalAtMono = deadline;
+    connection.leaseRetrying = retrying;
+  }
+
+  function retryLeases(chunk: readonly ControlConnection[], deadline: number): void {
+    for (const connection of chunk) {
+      if (connection.linked) scheduleLease(connection, deadline, true);
+    }
   }
 
   function observePing(connection: ControlConnection): void {
@@ -1025,7 +1054,8 @@ export function createDaemonControlService(
               silent: false,
               silentCommitted: false,
               linked: false,
-              leaseAttemptedAtMono: 0,
+              leaseNextRenewalAtMono: 0,
+              leaseRetrying: false,
               leaseRenewedAtMono: 0,
               liveLink: { prev: null, next: null },
               leaseLink: { prev: null, next: null },
@@ -1585,26 +1615,18 @@ export function createDaemonControlService(
       }
 
       // Leases: everything at the head that is due, renewed in bounded chunks.
-      // `leaseAttemptedAtMono` advances on attempt, so a renewal that keeps
-      // failing cannot pin the head in the past and spin the ticker.
+      // Regular attempts and retries each have a fixed offset from their
+      // attempt time, so two FIFO lists preserve O(1) insertion and O(due) walks.
       const due: ControlConnection[] = [];
-      let leaseNode = leaseList.head;
-      while (
-        leaseNode !== null &&
-        tickAt - leaseNode.leaseAttemptedAtMono >= DAEMON_CONTROL_LEASE_RENEWAL_MS
-      ) {
-        due.push(leaseNode);
-        leaseNode = leaseNode.leaseLink.next;
-      }
-      let renewalFailed = false;
+      collectDueLeases(leaseList, tickAt, due);
+      collectDueLeases(retryLeaseList, tickAt, due);
       for (let offset = 0; offset < due.length; offset += LEASE_RENEWAL_CHUNK) {
         const chunk = due
           .slice(offset, offset + LEASE_RENEWAL_CHUNK)
           .filter((connection) => connection.linked && connection.claimSeq !== null);
         if (chunk.length === 0) continue;
         for (const connection of chunk) {
-          connection.leaseAttemptedAtMono = tickAt;
-          leaseList.moveToTail(connection);
+          scheduleLease(connection, tickAt + DAEMON_CONTROL_LEASE_RENEWAL_MS, false);
         }
         // The registry read rides with the renewal: one statement of the edges
         // per chunk, and a failed read retries the chunk as a failed renewal.
@@ -1625,7 +1647,7 @@ export function createDaemonControlService(
           if (renewals.failure instanceof RedisReplyError) {
             return yield* Effect.die(renewals.failure);
           }
-          renewalFailed = true;
+          retryLeases(chunk, tickAt + LEASE_RENEWAL_RETRY_MS);
           yield* logWithLoggerEffect(logger, 'error', 'daemon_control_lease_renewal_failed', {
             connections: chunk.length,
             ...errorLogContext(renewals.failure),
@@ -1714,11 +1736,10 @@ export function createDaemonControlService(
               firstNonSilentDeadline,
             );
       const leaseHead = leaseList.head;
-      const leaseDeadline = renewalFailed
-        ? tickAt + LEASE_RENEWAL_RETRY_MS
-        : leaseHead === null
-          ? Number.POSITIVE_INFINITY
-          : leaseHead.leaseAttemptedAtMono + DAEMON_CONTROL_LEASE_RENEWAL_MS;
+      const leaseDeadline = Math.min(
+        leaseHead?.leaseNextRenewalAtMono ?? Number.POSITIVE_INFINITY,
+        retryLeaseList.head?.leaseNextRenewalAtMono ?? Number.POSITIVE_INFINITY,
+      );
       const deadline = Math.min(liveDeadline, leaseDeadline);
       if (!Number.isFinite(deadline)) {
         armedDeadlineMono = Number.POSITIVE_INFINITY;

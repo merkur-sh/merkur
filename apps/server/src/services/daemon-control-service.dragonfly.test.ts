@@ -15,7 +15,9 @@ import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
 import { createMigratedKyselyDatabase } from '../db/migrate';
 import type { DatabaseSchema } from '../db/types';
+import { fenceDaemonRegistration } from './daemon-control-ownership';
 import {
+  createDaemonControlService,
   DaemonControlServiceLive,
   DaemonControlServiceTag,
   type DaemonControlSocket,
@@ -39,6 +41,83 @@ if (dragonflyUrl === undefined) {
   test.skip('routes a fenced session_start across live Redis Pub/Sub and completes only after command_ack', () => {});
 } else {
   describe('DaemonControlService Redis broker integration', () => {
+    test('failed renewal retries at its retry deadline against Redis', async () => {
+      const id = randomUUID();
+      const daemonId = `retry-daemon-${id}`;
+      const userId = `retry-user-${id}`;
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const context = yield* Layer.build(createReplicaLayer(dragonflyUrl));
+            const base = Context.get(context, RealtimeCoordinationServiceTag);
+            const redis = Context.get(context, RedisServiceTag);
+            const db = Context.get(context, DatabaseService);
+            yield* Effect.promise(() => insertUser(db, userId, daemonId));
+            let mono = 0;
+            const attempts: number[] = [];
+            const coordination = {
+              ...base,
+              renewDaemonLeases: (inputs: Parameters<typeof base.renewDaemonLeases>[0]) =>
+                Effect.suspend(() => {
+                  attempts.push(mono);
+                  return mono === 20_000
+                    ? Effect.fail(new RedisError({ cause: null, message: 'transient renewal' }))
+                    : base.renewDaemonLeases(inputs);
+                }),
+            };
+            const control = yield* Effect.acquireRelease(
+              Effect.sync(() =>
+                createDaemonControlService({
+                  coordination,
+                  redis,
+                  registrationFence: (input, acquire) =>
+                    fenceDaemonRegistration(db, coordination, input, acquire),
+                  touchDaemon: () => Effect.void,
+                  touchDaemonsSeen: () => Effect.void,
+                  telemetryEnabled: () => Effect.succeed(false),
+                  logger: { info() {}, warn() {}, error() {} },
+                  monotonicNow: () => mono,
+                  stun: {
+                    serversFor: () => ['stun.test:3478', 'stun.test:3479'],
+                    issue: () => ({
+                      ticket: 'A'.repeat(55),
+                      secret: 'A'.repeat(43),
+                      lifetimeMs: 90_000,
+                    }),
+                  },
+                  edgeAttach: { forDaemon: () => 'A'.repeat(35), forBrowser: () => 'A'.repeat(35) },
+                  edges: Effect.succeed([
+                    { edgeWtUrl: 'https://edge.test:4433/', certHashes: [CERT_HASH] },
+                  ]),
+                }),
+              ),
+              (service) => service.shutdown,
+            );
+            const socket = new ExactControlSocket(
+              yield* Queue.unbounded<DaemonControlServerMessage>(),
+            );
+            const handle = yield* control.acceptConnection({
+              daemonId,
+              userId,
+              boxId: null,
+              daemonVersion: 'test',
+              connectionId: `connection-${id}`,
+              presenceId: `presence-${id}`,
+              socket,
+              zone: null,
+            });
+            for (const at of [20_000, 22_000]) {
+              mono = at;
+              handle.observePing();
+              yield* control.livenessTick;
+              expect(attempts.at(-1)).toBe(at);
+            }
+            expect((yield* coordination.getDaemonPresence(daemonId))?.state).toBe('online');
+          }),
+        ),
+      );
+    });
+
     test.each([false, true])(
       'unlink retires daemon control while pings continue after reset: %s',
       async (reset) => {

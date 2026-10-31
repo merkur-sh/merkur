@@ -74,7 +74,7 @@ The Effect runtime owns:
   refresh families, signed revocations, ordered daemon outboxes, and migrations.
 - Redis/Dragonfly presence, active sessions, rate limits, and pub/sub.
 - Authenticated daemon WebSocket registrations, bounded outbound queues, ping deadlines and
-  batched lease renewal,
+  batched lease renewal with per-connection regular and failure-retry deadlines,
   session commands, ordered delegation-revocation delivery, and command acknowledgements.
 - Replica-addressed Redis subscriptions and scoped socket/timer cleanup.
 - A supervised five-second health monitor for the database, Redis command/publisher/subscriber

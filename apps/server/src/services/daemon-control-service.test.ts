@@ -508,6 +508,47 @@ describe('DaemonControlService', () => {
     ]);
   });
 
+  test('failed renewal retries at its retry deadline and preserves presence', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const base = createFakeCoordination('instance-a', state);
+    let mono = 0;
+    let leaseExpiresAt = 60_000;
+    const attempts: number[] = [];
+    const coordination: RealtimeCoordinationService = {
+      ...base,
+      renewDaemonLeases: (inputs) =>
+        Effect.suspend(() => {
+          attempts.push(mono);
+          if (mono === 20_000 || mono === 42_000)
+            return Effect.fail(new RedisError({ cause: null, message: 'transient' }));
+          if (mono >= leaseExpiresAt)
+            return Effect.succeed(
+              inputs.map(() => ({ presence: 'not-owner' as const, revocationGeneration: 7 })),
+            );
+          leaseExpiresAt = mono + 60_000;
+          return base.renewDaemonLeases(inputs);
+        }),
+    };
+    const socket = new TestSocket();
+    const service = createService(coordination, bus.redis, { monotonicNow: () => mono });
+    try {
+      const handle = await registerHandle(service, socket);
+      for (const at of [20_000, 22_000, 42_000, 44_000, 64_000]) {
+        mono = at;
+        handle.observePing();
+        await Effect.runPromise(service.livenessTick);
+        expect(attempts.at(-1)).toBe(at);
+      }
+      expect(attempts).toEqual([0, 20_000, 22_000, 42_000, 44_000, 64_000]);
+      expect(socket.closed).toEqual([]);
+      expect(state.presence?.state).toBe('online');
+      expect(socket.messagesOfType('lease')).toHaveLength(3);
+    } finally {
+      await Effect.runPromise(service.shutdown);
+    }
+  });
+
   test('a registry read that fails sends no lease frame until a read succeeds', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
