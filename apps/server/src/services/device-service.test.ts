@@ -28,6 +28,25 @@ beforeEach(async () => {
 });
 
 describe('DeviceService', () => {
+  test('cross-account box reuse cannot resolve an actionable box', async () => {
+    const service = createDeviceService(
+      db,
+      { tokenHmacSecret: HMAC_SECRET, publicOrigin: PUBLIC_ORIGIN },
+      Effect.void,
+    );
+    await insertUser(db, 'user-2');
+    await insertDaemon(db, 'stale', 'reused-box');
+    await insertDaemon(db, 'replacement', 'reused-box', 'user-2');
+    expect(await Effect.runPromise(service.resolveBox('user-1', 'stale'))).toEqual({
+      boxId: null,
+      ambiguousBoxId: 'reused-box',
+    });
+    expect(await Effect.runPromise(service.resolveBox('user-2', 'replacement'))).toEqual({
+      boxId: null,
+      ambiguousBoxId: 'reused-box',
+    });
+  });
+
   test('rename and unlink roll back when their durable invalidation cannot be recorded', async () => {
     const service = createDeviceService(
       db,

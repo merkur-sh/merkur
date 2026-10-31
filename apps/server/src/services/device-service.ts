@@ -373,7 +373,6 @@ export function createDeviceService(
           const sharing = await db
             .selectFrom('daemons')
             .select((expression) => expression.fn.countAll<number>().as('count'))
-            .where('user_id', '=', userId)
             .where('box_id', '=', boxId)
             .executeTakeFirstOrThrow();
           return Number(sharing.count) === 1

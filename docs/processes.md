@@ -448,6 +448,9 @@ each queued box and removes its entry when the host confirms. A box the host ref
 queued for the next pass. `POST /api/boxes` answers `box_removal_pending` for a name still in
 the queue, so a new box cannot take a name whose removal is owed.
 
+Starting or unlinking a box requires its box ID to identify exactly one linked daemon globally;
+sharing that ID within or across accounts makes it unsafe for either account to act on.
+
 The host owns every policy decision (image, lifetime, quotas, capacity), so none of it is on
 the wire. A box is a hosted variant of the ordinary local daemon: the container runs its own
 Merkur daemon and appears as its own device, so a box host adds no transport, no auth path,
