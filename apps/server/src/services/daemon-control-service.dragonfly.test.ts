@@ -166,7 +166,11 @@ if (dragonflyUrl === undefined) {
               yield* devices.deleteDevice(userId, daemonId);
               handle.observePing();
               if (reset) {
-                yield* deliverPendingNotifications(db, Context.get(context, RedisServiceTag));
+                yield* deliverPendingNotifications(
+                  db,
+                  Context.get(context, RedisServiceTag),
+                  coordination,
+                );
                 expect((yield* takeMessage(frames, 'revocation')).revocationGeneration).toBe(1);
               }
               yield* Deferred.await(socket.closed).pipe(Effect.timeout(UNLINK_TEST_DEADLINE));
@@ -323,10 +327,10 @@ if (dragonflyUrl === undefined) {
               Effect.fail(new RedisError({ cause: null, message: 'reset Redis unavailable' })),
           };
           const failedReset = yield* Effect.result(
-            deliverPendingNotifications(ownerDb, unavailable),
+            deliverPendingNotifications(ownerDb, unavailable, ownerCoordination),
           );
           expect(failedReset._tag).toBe('Failure');
-          yield* deliverPendingNotifications(ownerDb, ownerRedis);
+          yield* deliverPendingNotifications(ownerDb, ownerRedis, ownerCoordination);
           const resetRevocation = yield* takeMessage(socketFrames, 'revocation');
           expect(resetRevocation.revocationGeneration).toBe(1);
           expect((yield* ownerCoordination.getDaemonPresence(daemonId))?.connectionId).toBe(

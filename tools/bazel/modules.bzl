@@ -1641,6 +1641,7 @@ MODULES = {
             ":package.json.module",
             ":src/db/migrate.ts.module",
             ":src/services/daemon-control-ownership.ts.module",
+            ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-ownership.ts": [
@@ -1648,6 +1649,7 @@ MODULES = {
             ":package.json.module",
             ":src/db/transaction.ts.module",
             ":src/services/errors.ts.module",
+            ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-service.dragonfly.test.ts": [

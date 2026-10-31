@@ -19,7 +19,28 @@ import {
 } from './realtime-coordination-service';
 import { RedisError, type RedisService, RedisServiceTag } from './redis-service';
 
-const coordination = { getDaemonPresence: () => Effect.succeed(null) };
+const unexpectedCoordination = () => Effect.die('unexpected coordination operation');
+const coordination: RealtimeCoordinationService = {
+  instanceId: 'replica',
+  healthSnapshot: () => Effect.succeed({ presenceExpirySchedulerHealthy: true }),
+  awaitCriticalFailure: Effect.never,
+  getDaemonPresence: () => Effect.succeed(null),
+  claimDaemonOnline: unexpectedCoordination,
+  renewDaemonLeases: unexpectedCoordination,
+  markDaemonSilent: unexpectedCoordination,
+  clearDaemonSilent: unexpectedCoordination,
+  unmarkDaemonOnline: unexpectedCoordination,
+  suspendDaemonPresence: unexpectedCoordination,
+  resumeDaemonPresence: unexpectedCoordination,
+  getUserDaemonPresence: unexpectedCoordination,
+  publishDeviceDelta: unexpectedCoordination,
+  readDeviceEventsCursor: unexpectedCoordination,
+  subscribeDeviceEvents: unexpectedCoordination,
+  incrementRevocationGeneration: unexpectedCoordination,
+  createSessionForDaemonPresence: unexpectedCoordination,
+  removeSessionForUser: unexpectedCoordination,
+  removeDaemonSessions: unexpectedCoordination,
+};
 
 let db: Kysely<DatabaseSchema>;
 const change = { issuedDelegationIds: [], revokedDelegationIds: ['exact-delegation'] };
@@ -193,11 +214,7 @@ describe('durable notification publication', () => {
       Layer.provide(
         Layer.mergeAll(
           Layer.succeed(DatabaseService, db),
-          Layer.succeed(
-            RealtimeCoordinationServiceTag,
-            // SAFETY: publication reads only getDaemonPresence from coordination.
-            coordination as RealtimeCoordinationService,
-          ),
+          Layer.succeed(RealtimeCoordinationServiceTag, coordination),
           Layer.succeed(
             RedisServiceTag,
             fakeRedis((_channel, payload) => {

@@ -69,7 +69,9 @@ export function useAuthServiceFixture(): void {
         opaqueServerSetup: await createOpaqueServerSetup(),
         publicOrigin: ORIGIN,
       },
-      deliverPendingNotifications(db, createFakeRedis()).pipe(Effect.orDie),
+      deliverPendingNotifications(db, createFakeRedis(), {
+        getDaemonPresence: () => Effect.succeed(null),
+      }).pipe(Effect.orDie),
     );
   });
 }
@@ -115,7 +117,9 @@ export function recordingMail(sent: SentMail[]): MailSender {
 export async function useEmailIdentity(
   sent: SentMail[],
   overrides: Partial<AuthServiceConfig> = {},
-  wakeNotifications = deliverPendingNotifications(db, createFakeRedis()).pipe(Effect.orDie),
+  wakeNotifications = deliverPendingNotifications(db, createFakeRedis(), {
+    getDaemonPresence: () => Effect.succeed(null),
+  }).pipe(Effect.orDie),
 ): Promise<void> {
   service = createAuthService(
     db,

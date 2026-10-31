@@ -115,7 +115,9 @@ describe('AuthService user-root OPAQUE flows', () => {
           opaqueServerSetup: await createOpaqueServerSetup(),
           publicOrigin: ORIGIN,
         },
-        deliverPendingNotifications(db, createFakeRedis()).pipe(Effect.orDie),
+        deliverPendingNotifications(db, createFakeRedis(), {
+          getDaemonPresence: () => Effect.succeed(null),
+        }).pipe(Effect.orDie),
       ),
     );
     const started = await startClientAndServerAuth(OLD_PASSWORD);
@@ -146,7 +148,9 @@ describe('AuthService user-root OPAQUE flows', () => {
         db,
         createFakeRedis(),
         { ...config, allowRegistration: true },
-        deliverPendingNotifications(db, createFakeRedis()).pipe(Effect.orDie),
+        deliverPendingNotifications(db, createFakeRedis(), {
+          getDaemonPresence: () => Effect.succeed(null),
+        }).pipe(Effect.orDie),
       ),
     );
     await registerAccount(OLD_PASSWORD, 0x22, 'delegation-existing');
@@ -155,7 +159,9 @@ describe('AuthService user-root OPAQUE flows', () => {
         db,
         createFakeRedis(),
         { ...config, allowRegistration: false },
-        deliverPendingNotifications(db, createFakeRedis()).pipe(Effect.orDie),
+        deliverPendingNotifications(db, createFakeRedis(), {
+          getDaemonPresence: () => Effect.succeed(null),
+        }).pipe(Effect.orDie),
       ),
     );
 
