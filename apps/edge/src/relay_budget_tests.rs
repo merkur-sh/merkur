@@ -413,7 +413,9 @@ async fn candidate_promotion_preserves_pending_resume() -> Result<(), Box<dyn st
             tests::read_test_control(&mut events).await,
             SpliceControlEvent::RelayDataPaused { paused: true }
         );
-        complete.send(()).map_err(|_| "proof ended before pause")?;
+        complete
+            .send(())
+            .map_err(|_proof| "proof ended before pause")?;
         Ok::<_, Box<dyn std::error::Error>>(events)
     };
     let (promoted, events) = tokio::join!(
@@ -438,5 +440,87 @@ async fn candidate_promotion_preserves_pending_resume() -> Result<(), Box<dyn st
         tests::read_test_control(&mut events).await,
         SpliceControlEvent::RelayDataPaused { paused: false }
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_candidate_controls_detach_promoted_browser()
+-> Result<(), Box<dyn std::error::Error>> {
+    use crate::egress_budget::BudgetState;
+    use crate::splice::AttachmentLifecycle;
+    let (server, client, url) = retirement_tests::endpoints();
+    let accept = async { server.accept().await.await?.accept().await };
+    let (edge, browser) = tokio::join!(accept, client.connect(&url));
+    let edge = edge?;
+    let browser = browser?;
+    let registry = SpliceRegistry::new();
+    let session = "failed-controls#signaling";
+    let daemon_id = crate::attach_ticket::TEST_DAEMON_ID;
+    let daemon = registry
+        .attach(session, Role::Daemon, daemon_id)
+        .map_err(|error| format!("{error:?}"))?;
+    let (mut control, _inbound) = edge.open_bi().await?.await?;
+    write_splice_control(
+        &mut control,
+        &SpliceControlEvent::CounterpartPresent {
+            present: true,
+            counterpart_attachment_id: Some(daemon.attachment_id.as_u64()),
+        },
+    )
+    .await?;
+    let (_send, mut events) = browser.accept_bi().await?;
+    tests::read_test_control(&mut events).await;
+    events.stop(VarInt::from_u32(0));
+    control.stopped().await;
+    let (promoted, ready) = tokio::sync::oneshot::channel();
+    let response = async {
+        promoted.send(())?;
+        // The final proof response is held at its await, as with exhausted
+        // stream credit. This exercises cancellation without relying on a QUIC
+        // window size or timing to manufacture backpressure.
+        std::future::pending::<Result<(), ()>>().await
+    };
+    let proof = candidate::complete_promotion(
+        &registry,
+        session,
+        daemon_id,
+        daemon.attachment_id,
+        response,
+    );
+    let fail_controls = async {
+        ready.await?;
+        assert!(matches!(
+            *daemon.lifecycle_rx.borrow(),
+            Some(AttachmentLifecycle::CounterpartAttached { .. })
+        ));
+        registry.apply_egress_state(BudgetState::SignalingOnly);
+        Ok::<_, Box<dyn std::error::Error>>(())
+    };
+    let (admitted, failed) = tokio::join!(
+        candidate::drive_proof(proof, RelayDataControl::new(&registry), &mut control),
+        fail_controls
+    );
+    failed?;
+    assert!(admitted.is_err(), "reset controls must end admission");
+    assert!(
+        matches!(
+            *daemon.lifecycle_rx.borrow(),
+            Some(AttachmentLifecycle::CounterpartDetached { .. })
+        ),
+        "failed candidate controls left a promoted browser attached"
+    );
+    assert!(!daemon.datagram_route.route(crate::splice::Frame::datagram(
+        bytes::Bytes::from_static(b"ownerless")
+    )));
+    let attached =
+        candidate::complete_promotion(&registry, session, daemon_id, daemon.attachment_id, async {
+            Ok(())
+        })
+        .await
+        .map_err(|()| "promotion failed")?;
+    assert!(
+        matches!(*daemon.lifecycle_rx.borrow(), Some(AttachmentLifecycle::CounterpartAttached { attachment_id }) if attachment_id == attached.attachment_id)
+    );
+    registry.detach(session, Role::Browser, attached.attachment_id);
     Ok(())
 }

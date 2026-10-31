@@ -135,25 +135,23 @@ pub(super) async fn admit(
                 1 => {
                     // Compare and attach under the registry's one write lock. A
                     // replaced daemon cannot select a browser for its successor.
-                    let handle = registry
-                        .promote_candidate(session, daemon_id, daemon_attachment)
-                        .map_err(|_| ())?;
-                    if !matches!(
-                        timeout_at(
-                            deadline,
-                            write_record(to_browser.get_mut().ok_or(())?, &bytes)
-                        )
-                        .await,
-                        Ok(Ok(()))
-                    ) {
-                        registry.detach(
-                            session,
-                            crate::splice::Role::Browser,
-                            handle.attachment_id,
-                        );
-                        return Err(());
-                    }
-                    ingress.shutdown().await;
+                    let handle = complete_promotion(
+                        registry,
+                        session,
+                        daemon_id,
+                        daemon_attachment,
+                        async {
+                            timeout_at(
+                                deadline,
+                                write_record(to_browser.get_mut().ok_or(())?, &bytes),
+                            )
+                            .await
+                            .map_err(|_elapsed| ())??;
+                            ingress.shutdown().await;
+                            Ok(())
+                        },
+                    )
+                    .await?;
                     return Ok(handle);
                 }
                 _ => return Err(()),
@@ -179,5 +177,44 @@ pub(super) async fn drive_proof<T>(
         super::write_splice_control(control, &SpliceControlEvent::RelayDataPaused { paused })
             .await
             .map_err(|_| ())?;
+    }
+}
+
+pub(super) async fn complete_promotion(
+    registry: &SpliceRegistry,
+    session: &str,
+    daemon_id: &str,
+    daemon: crate::splice::AttachmentId,
+    response: impl std::future::Future<Output = Result<(), ()>>,
+) -> Result<AttachHandle, ()> {
+    let handle = registry
+        .promote_candidate(session, daemon_id, daemon)
+        .map_err(|_| ())?;
+    let mut pending = PendingPromotion {
+        registry,
+        session,
+        handle: Some(handle),
+    };
+    response.await?;
+    pending.handle.take().ok_or(())
+}
+
+// Until the proof response and ingress shutdown finish, cancellation still
+// belongs to admission. The session loop takes over only on successful return.
+struct PendingPromotion<'a> {
+    registry: &'a SpliceRegistry,
+    session: &'a str,
+    handle: Option<AttachHandle>,
+}
+
+impl Drop for PendingPromotion<'_> {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            self.registry.detach(
+                self.session,
+                crate::splice::Role::Browser,
+                handle.attachment_id,
+            );
+        }
     }
 }

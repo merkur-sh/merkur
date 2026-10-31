@@ -601,7 +601,9 @@ daemon's responses add one edge-facing selection byte before that envelope. Only
 daemon owner can mark its committed candidate for selection. The edge compares the retained daemon
 attachment id under the registry lock before replacing the browser; a changed or expired daemon
 attachment invalidates promotion. The edge strips the selection byte and relays the authenticated
-acknowledgement. The browser verifies it before publishing successor Noise and activating its
+acknowledgement. Admission owns cancellation cleanup for the promoted browser until the response
+and proof ingress shutdown finish; a control-stream failure detaches that exact attachment.
+The browser verifies the acknowledgement before publishing successor Noise and activating its
 interactive and bulk prefaces.
 
 Proof records are limited to 64 KiB. The edge admits at most 64 concurrent proof tasks and two per
