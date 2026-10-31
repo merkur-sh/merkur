@@ -378,3 +378,185 @@ fn a_fence_cancels_preparation_without_refunding_live_worker_buffers() {
     );
     assert!(graphics.tiles.is_empty() && graphics.rasters.is_empty());
 }
+
+fn reference_upload(id: u32, format: u32, width: u32, height: u32, bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (index, chunk) in bytes.chunks(3072).enumerate() {
+        let more = u8::from((index + 1) * 3072 < bytes.len());
+        let header = if index == 0 {
+            format!("\x1b_Ga=t,t=d,f={format},s={width},v={height},i={id},m={more};")
+        } else {
+            format!("\x1b_Gm={more};")
+        };
+        out.extend_from_slice(header.as_bytes());
+        out.extend_from_slice(STANDARD.encode(chunk).as_bytes());
+        out.extend_from_slice(b"\x1b\\");
+    }
+    out
+}
+
+#[test]
+fn upload_serialization_matches_each_chunk_boundary_and_numeric_extreme() {
+    for length in [0, 1, 3, 3071, 3072, 3073, 266_256] {
+        let bytes: Vec<_> = (0..length)
+            .map(|index| u8::try_from(index % 251).unwrap())
+            .collect();
+        for (id, format, width, height) in [(1, 100, 3, 3), (u32::MAX, 32, u32::MAX, u32::MAX)] {
+            let mut out = Vec::new();
+            upload(&mut out, id, format, width, height, &bytes);
+            assert_eq!(out, reference_upload(id, format, width, height, &bytes));
+        }
+    }
+    for id in [0, 1, u32::MAX] {
+        let mut out = Vec::new();
+        delete(&mut out, id, false);
+        assert_eq!(out, format!("\x1b_Ga=d,d=i,i={id},q=2\x1b\\").as_bytes());
+        out.clear();
+        delete_placement(&mut out, id, u32::MAX);
+        assert_eq!(
+            out,
+            format!("\x1b_Ga=d,d=i,i={id},p=4294967295,q=2\x1b\\").as_bytes()
+        );
+    }
+}
+
+#[test]
+fn the_largest_placement_header_fits_its_stack_storage() {
+    let max = u32::MAX;
+    let z = i32::MIN;
+    let expected =
+        format!("\x1b[{max};{max}H\x1b_Ga=p,i={max},p={max},X={max},Y={max},C=1,z={z}\x1b\\");
+    let mut out = Vec::new();
+    command(
+        &mut out,
+        format_args!("\x1b[{max};{max}H\x1b_Ga=p,i={max},p={max},X={max},Y={max},C=1,z={z}\x1b\\"),
+    );
+    assert_eq!(out, expected.as_bytes());
+    assert_eq!(out.len(), COMMAND_BYTES);
+}
+
+#[test]
+#[ignore = "graphics serialization allocation census; run with --ignored --nocapture"]
+fn graphics_upload_cost_profile() {
+    for length in [0, 1, 3, 3071, 3072, 3073, 266_256] {
+        let bytes = vec![255; length];
+        for capacity in [0, length * 2 + 256] {
+            let mut out = Vec::with_capacity(capacity);
+            let tally = crate::test_allocations::measure(|| {
+                upload(&mut out, u32::MAX, 32, 258, 258, &bytes);
+            });
+            assert_eq!(out, reference_upload(u32::MAX, 32, 258, 258, &bytes));
+            println!(
+                "upload {length} reserved={capacity}: bytes={} capacity={} {tally:?}",
+                out.len(),
+                out.capacity()
+            );
+        }
+    }
+    for (name, id) in [("small", 1), ("large", u32::MAX)] {
+        let mut out = Vec::with_capacity(256);
+        let tally = crate::test_allocations::measure(|| delete(&mut out, id, false));
+        println!(
+            "delete {name}: bytes={} capacity={} {tally:?}",
+            out.len(),
+            out.capacity()
+        );
+        out.clear();
+        let tally = crate::test_allocations::measure(|| delete_placement(&mut out, id, u32::MAX));
+        println!(
+            "delete placement {name}: bytes={} capacity={} {tally:?}",
+            out.len(),
+            out.capacity()
+        );
+    }
+}
+
+#[test]
+#[ignore = "retired-instruction population; select MERKUR_TUI_UPLOAD_BYTES"]
+fn graphics_upload_instruction_profile() {
+    let length: usize = std::env::var("MERKUR_TUI_UPLOAD_BYTES")
+        .unwrap_or_else(|_| "3073".into())
+        .parse()
+        .unwrap();
+    let rounds: usize = std::env::var("MERKUR_TUI_PROFILE_ROUNDS")
+        .unwrap_or_else(|_| "100000".into())
+        .parse()
+        .unwrap();
+    let command = std::env::var("MERKUR_TUI_GRAPHICS_COMMAND").unwrap_or_else(|_| "upload".into());
+    let bytes = vec![255; length];
+    let mut out = Vec::with_capacity(length * 2 + 256);
+    for _ in 0..rounds {
+        out.clear();
+        match command.as_str() {
+            "upload" => upload(
+                std::hint::black_box(&mut out),
+                u32::MAX,
+                32,
+                258,
+                258,
+                std::hint::black_box(&bytes),
+            ),
+            "delete" => delete(
+                std::hint::black_box(&mut out),
+                std::hint::black_box(u32::MAX),
+                false,
+            ),
+            "delete-placement" => delete_placement(
+                std::hint::black_box(&mut out),
+                std::hint::black_box(u32::MAX),
+                u32::MAX,
+            ),
+            _ => panic!("unknown graphics command"),
+        }
+        std::hint::black_box(&out);
+    }
+}
+
+#[test]
+#[ignore = "placement serialization allocation census; run with --ignored --nocapture"]
+fn graphics_placement_cost_profile() {
+    let mut graphics = Graphics::default();
+    graphics.fence(1);
+    graphics
+        .tile(1, "tile".into(), png(3, 3, &[255; 36]))
+        .unwrap();
+    let scene = scene("tile");
+    let mut out = Vec::with_capacity(1024);
+    compose(&mut graphics, &scene, size(), &mut out);
+    acknowledge(&mut graphics);
+    compose(&mut graphics, &scene, size(), &mut out);
+    for (name, order, layer) in [
+        ("front", 0, 2),
+        ("back", 0, 0),
+        ("large", i32::MAX as u32, 2),
+    ] {
+        graphics.desired[0].order = order;
+        graphics.desired[0].layer = layer;
+        graphics.shown.clear();
+        graphics.erased = true;
+        graphics.dirty = true;
+        out.clear();
+        let tally = crate::test_allocations::measure(|| {
+            graphics.compose(&scene, size(), &mut out).unwrap()
+        });
+        let id = graphics.rasters[&graphics.desired[0].key].id;
+        let z = if layer == 0 {
+            i32::MIN
+        } else {
+            i32::try_from(order).unwrap()
+        };
+        assert_eq!(
+            out,
+            format!(
+                "\x1b7\x1b[2;2H\x1b_Ga=p,i={id},p={},X=0,Y=0,C=1,z={z}\x1b\\\x1b8",
+                order + 1
+            )
+            .as_bytes()
+        );
+        println!(
+            "placement {name}: bytes={} capacity={} {tally:?}",
+            out.len(),
+            out.capacity()
+        );
+    }
+}
