@@ -445,6 +445,24 @@ impl Graphics {
         self.readmit(ready);
     }
 
+    /// Retire every finite reader owned by a carrier, including readers whose
+    /// aborted task cannot report an End. Authenticated prefixes remain resumable.
+    pub(super) fn retire_carrier(&mut self, conn: u64, ready: bool) {
+        let mut requests = Vec::new();
+        self.streams.retain(|(owner, _), state| {
+            if *owner != conn {
+                return true;
+            }
+            if !state.failed && state.request != 0 {
+                requests.push(state.request);
+            }
+            false
+        });
+        for request in requests {
+            self.abort(request, true, ready);
+        }
+    }
+
     /// A carrier became available: refusals it may have caused are retried.
     pub(super) fn readmit(&mut self, ready: bool) {
         self.refused.retain(|_, invalid| *invalid);

@@ -2050,3 +2050,124 @@ fn reliable_backlog_is_split_into_valid_runs() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn carrier_retirement_resumes_graphics_without_finite_end() {
+    use merkur_e2e::{
+        CONTENT_CHUNK_BYTES, CONTENT_CHUNK_OVERHEAD, CONTENT_HEADER_BYTES, ContentDescriptor,
+    };
+    const CONTENT_STREAM: u8 = 0x80 | merkur_wire::protocol::CHANNEL_GRAPHICS_CONTENT;
+    let (mut h, mut daemon) = ready();
+    drain(&mut h.session);
+    let lineage = h.session.display_lineage;
+    let demand = graphics::GraphicsDemand {
+        asset: graphics::GraphicsAsset::Tile,
+        authority: [17; 32],
+        frame: 0,
+        key: "tile".into(),
+        source: [17; 32],
+        level: 0,
+        x: 0,
+        y: 0,
+        width: 258,
+        height: 258,
+    };
+    h.session.graphics_demand(lineage, vec![demand]);
+    drain(&mut h.session);
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.extend_from_slice(&258u32.to_be_bytes());
+    png.extend_from_slice(&258u32.to_be_bytes());
+    png.extend_from_slice(&[8, 6, 0, 0, 0]);
+    png.extend_from_slice(&[0; 4]);
+    png.extend_from_slice(&40_000u32.to_be_bytes());
+    png.extend_from_slice(b"IDAT");
+    png.extend((0..40_000).map(|n| n as u8));
+    png.extend_from_slice(&[0; 4]);
+    png.extend_from_slice(b"\0\0\0\0IEND\xae\x42\x60\x82");
+    let mut answer = |request, first, count| {
+        let descriptor = ContentDescriptor::new(
+            request,
+            [17; 32],
+            merkur_graphics::tile::object_root(&png),
+            png.len() as u32,
+            first,
+            count,
+        )
+        .unwrap();
+        let mut sender = daemon.content_sender(descriptor).unwrap();
+        let mut wire = sender.header().to_vec();
+        let mut record = vec![0; CONTENT_CHUNK_BYTES + CONTENT_CHUNK_OVERHEAD];
+        for chunk in png[descriptor.range()].chunks(CONTENT_CHUNK_BYTES) {
+            let n = sender.seal_next(chunk, &mut record).unwrap();
+            wire.extend_from_slice(&record[..n]);
+        }
+        wire
+    };
+    let wire = answer(1, 0, 3);
+    h.session.handle(
+        NOW + 31,
+        Event::Finite {
+            conn: h.bulk,
+            stream: 7,
+            part: graphics::FinitePart::Begin {
+                channel: CONTENT_STREAM,
+                total: wire.len() as u32,
+            },
+        },
+        &mut h.entropy,
+    );
+    // Fill the remaining old-carrier slots: retirement must release all of them.
+    for stream in 8..8 + merkur_e2e::CONTENT_MAX_TRANSFERS as u64 - 1 {
+        h.session.handle(
+            NOW + 31,
+            Event::Finite {
+                conn: h.bulk,
+                stream,
+                part: graphics::FinitePart::Begin {
+                    channel: CONTENT_STREAM,
+                    total: wire.len() as u32,
+                },
+            },
+            &mut h.entropy,
+        );
+    }
+    let two = CONTENT_HEADER_BYTES + 2 * (CONTENT_CHUNK_BYTES + CONTENT_CHUNK_OVERHEAD);
+    h.session.handle(
+        NOW + 31,
+        Event::Finite {
+            conn: h.bulk,
+            stream: 7,
+            part: graphics::FinitePart::Data(&wire[..two]),
+        },
+        &mut h.entropy,
+    );
+    h.session.handle(NOW + 32, closed(h.bulk), &mut h.entropy);
+    // No finite End: the native carrier has aborted its readers.
+    drain(&mut h.session);
+    h.session.graphics.unavailable(1, true);
+    let rest = answer(2, 2, 1);
+    let replacement = h.session.lanes.as_ref().unwrap().bulk;
+    for part in [
+        graphics::FinitePart::Begin {
+            channel: CONTENT_STREAM,
+            total: rest.len() as u32,
+        },
+        graphics::FinitePart::Data(&rest),
+        graphics::FinitePart::End { complete: true },
+    ] {
+        h.session.handle(
+            NOW + 33,
+            Event::Finite {
+                conn: replacement,
+                stream: 8,
+                part,
+            },
+            &mut h.entropy,
+        );
+    }
+    assert!(
+        drain(&mut h.session).iter().any(|action| matches!(action,
+        Action::GraphicsAsset { bytes, .. } if bytes == &png)),
+        "retirement must resume the authenticated partial asset"
+    );
+}

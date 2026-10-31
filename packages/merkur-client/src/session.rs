@@ -995,6 +995,8 @@ impl Session {
             .position(|action| matches!(action, Action::Close { .. }))?;
         let action = self.actions.remove(index)?;
         if let Action::Close { conn } = &action {
+            self.graphics.retire_carrier(conn.0, self.is_ready());
+            self.drain_graphics();
             self.reliable_blocked.retain(|writer| writer.0 != *conn);
             self.pong_owed.retain(|(owner, _)| *owner != *conn);
             self.actions.retain(|action| {
@@ -1267,7 +1269,10 @@ impl Session {
         if self.is_closed() {
             return;
         }
-        let retiring = matches!(event, Event::Closed { .. } | Event::DialFailed(_));
+        let retired = match &event {
+            Event::Closed { conn, .. } | Event::DialFailed(conn) => Some(*conn),
+            _ => None,
+        };
         if let Event::Closed { conn, .. } | Event::DialFailed(conn) = &event {
             self.reliable_blocked.retain(|writer| writer.0 != *conn);
             self.pong_owed.retain(|(owner, _)| *owner != *conn);
@@ -1346,7 +1351,11 @@ impl Session {
                 self.drain_graphics();
             }
         }
-        if retiring {
+        if let Some(conn) = retired {
+            self.graphics.retire_carrier(conn.0, self.is_ready());
+            self.drain_graphics();
+        }
+        if retired.is_some() {
             self.flush_reliable_owed(now_ms, CHANNEL_CTRL);
             self.flush_reliable_owed(now_ms, CHANNEL_PTY);
         }
