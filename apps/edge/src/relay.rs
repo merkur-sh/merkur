@@ -1845,10 +1845,10 @@ impl Drop for ReliableSourceStream<'_> {
             if self.source.quic_connection().close_reason().is_some()
                 && let Some(stream) = self.stream.get_mut()
             {
-                let _ = stream.reset(
-                    VarInt::try_from_u64(RETIRED_SOURCE_STREAM_QUIC_CODE)
-                        .expect("stream retirement code"),
-                );
+                let Ok(code) = VarInt::try_from_u64(RETIRED_SOURCE_STREAM_QUIC_CODE) else {
+                    return;
+                };
+                stream.reset(code).unwrap_or_default();
             }
         }));
         if retired.is_err() {
@@ -1898,7 +1898,10 @@ async fn forward_reliable_lane(
             stream: ContainedStream::new(send),
             source: &source_connection,
         };
-        let send = output.stream.get_mut().expect("new reliable output");
+        let send = output
+            .stream
+            .get_mut()
+            .ok_or(ReliableLaneError::DestinationStopped)?;
         let stopped = send.quic_stream().stopped();
         tokio::pin!(stopped);
 

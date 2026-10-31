@@ -105,7 +105,7 @@ async fn retired_source_steady_record_allocations_stay_exact() {
     ] {
         let body = vec![0xa5; len];
         let mut wire = Vec::with_capacity(len + 4);
-        wire.extend_from_slice(&(len as u32).to_be_bytes());
+        wire.extend_from_slice(&u32::try_from(len).unwrap().to_be_bytes());
         wire.extend_from_slice(&body);
         let mut reader = MockReliableReader::new(&wire[1..], fragment);
         test_allocations::begin_thread();

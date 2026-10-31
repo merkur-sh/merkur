@@ -93,7 +93,7 @@ async fn attach(
         ticket: crate::attach_ticket::test_ticket(role.into(), session_id),
     })
     .unwrap();
-    send.write_all(&(preface.len() as u32).to_be_bytes())
+    send.write_all(&u32::try_from(preface.len()).unwrap().to_be_bytes())
         .await
         .unwrap();
     send.write_all(&preface).await.unwrap();

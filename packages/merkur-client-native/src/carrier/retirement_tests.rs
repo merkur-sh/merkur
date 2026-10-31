@@ -6,7 +6,9 @@ async fn connections() -> (
     Connection,
     Connection,
 ) {
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .unwrap_or_default();
     let identity = wtransport::Identity::self_signed(["localhost"]).unwrap();
     let hash = *identity.certificate_chain().as_slice()[0].hash().as_ref();
     let server = Endpoint::server(
@@ -39,7 +41,7 @@ async fn retired_source_returns_reader_slots_and_preserves_successor() {
         successor.write_all(&[0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 1, 42]).await.unwrap();
         let first = received.control.recv().await.unwrap().into_parts().0;
         assert!(matches!(first, Inbound::Reliable { source: 2, payload, .. } if payload == [42]));
-        for value in 0..(MAX_READER_TASKS * 2) as u8 {
+        for value in 0..u8::try_from(MAX_READER_TASKS * 2).unwrap() {
             let mut old = edge.open_uni().await.unwrap().await.unwrap();
             old.write_all(&[0, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 1, value]).await.unwrap();
             let event = received.control.recv().await.unwrap().into_parts().0;
@@ -52,7 +54,7 @@ async fn retired_source_returns_reader_slots_and_preserves_successor() {
         assert!(peer.quic_connection().close_reason().is_none());
         println!("retired_source readers_retired=32 successor_records=33 payload_bytes=65 carrier_closes=0");
         task.abort();
-        let _ = task.await;
+        drop(task.await);
     }).await.expect("bounded native retirement");
 }
 
@@ -83,7 +85,7 @@ async fn retired_source_keeps_active_lane_faults_terminal() {
         }
         let closed = tokio::time::timeout(std::time::Duration::from_secs(2), peer.closed()).await;
         task.abort();
-        let _ = task.await;
+        drop(task.await);
         if closed.is_ok() {
             closes += 1;
         }
@@ -110,8 +112,8 @@ async fn retired_source_steady_and_finite_payloads_stay_identical() {
             let mut send = edge.open_uni().await.unwrap().await.unwrap();
             send.write_all(&[0, 0, 0, 0, 0, 0, 0, 1, channel]).await.unwrap();
             for len in [0usize, 1, 64, 16384, 65536] {
-                let body: Vec<_> = (0..len).map(|index| index as u8).collect();
-                send.write_all(&(len as u32).to_be_bytes()).await.unwrap();
+                let body: Vec<_> = (0..len).map(|index| u8::try_from(index % 256).unwrap()).collect();
+                send.write_all(&u32::try_from(len).unwrap().to_be_bytes()).await.unwrap();
                 send.write_all(&body).await.unwrap();
                 let delivery = if channel == 4 { received.display.recv().await } else { received.control.recv().await };
                 let event = delivery.unwrap().into_parts().0;
@@ -140,7 +142,7 @@ async fn retired_source_steady_and_finite_payloads_stay_identical() {
         assert!(peer.quic_connection().close_reason().is_none());
         println!("steady records={records} payload_bytes={payload_bytes} finite_payload_bytes=6 finite_completions=1 finite_aborts=1 datagrams=1 datagram_bytes=4 carrier_closes=0");
         task.abort(); datagrams.abort();
-        let _ = tokio::join!(task, datagrams);
+        drop(tokio::join!(task, datagrams));
     }).await.expect("bounded steady native payloads");
 }
 
@@ -198,7 +200,7 @@ async fn retired_source_unclaimed_finite_opens_return_reader_slots() {
         assert!(peer.quic_connection().close_reason().is_none());
         println!("unclaimed_finite opens_cancelled=32 successor_records=1 carrier_closes=0");
         task.abort();
-        let _ = task.await;
+        drop(task.await);
     })
     .await
     .expect("bounded unclaimed finite opens");
