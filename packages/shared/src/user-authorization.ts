@@ -801,12 +801,17 @@ function validateRevocationPayload(value: unknown): DelegationRevocationPayload 
   if (!Array.isArray(record.targets) || record.targets.length === 0 || record.targets.length > 32) {
     throw new Error('delegation revocation targets must contain 1 to 32 entries');
   }
+  const issuedAt = requireTimestamp(record.issuedAt, 'revocation issued-at');
   const targets = record.targets.map((target): DelegationRevocationTarget => {
     const item = requireRecord(target, 'delegation revocation target');
     requireExactKeys(item, ['delegationId', 'expiresAt']);
+    const expiresAt = requireTimestamp(item.expiresAt, 'target delegation expiry');
+    if (expiresAt <= issuedAt || expiresAt - issuedAt > USER_DELEGATION_LIFETIME_MS) {
+      throw new Error('delegation revocation target expiry must be within its issuance lifetime');
+    }
     return {
       delegationId: requireId(item.delegationId, 'target delegation id'),
-      expiresAt: requireTimestamp(item.expiresAt, 'target delegation expiry'),
+      expiresAt,
     };
   });
   const sorted = [...targets].sort((left, right) =>
@@ -829,7 +834,7 @@ function validateRevocationPayload(value: unknown): DelegationRevocationPayload 
     ),
     actorDelegationId: requireId(record.actorDelegationId, 'actor delegation id'),
     targets,
-    issuedAt: requireTimestamp(record.issuedAt, 'revocation issued-at'),
+    issuedAt,
     nonce: encodeBase64Url(
       requireBase64Url(record.nonce, USER_AUTHORIZATION_NONCE_BYTES, 'revocation nonce'),
     ),

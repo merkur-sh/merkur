@@ -336,8 +336,6 @@ fn validate_revocation_statement(
         || statement.targets.len() > MAX_REVOCATION_TARGETS
         || statement.issued_at > MAX_SAFE_INTEGER
         || statement.issued_at > now_ms.saturating_add(SESSION_TOKEN_CLOCK_SKEW_MS)
-        || now_ms.saturating_sub(statement.issued_at)
-            > USER_DELEGATION_LIFETIME_MS + SESSION_TOKEN_CLOCK_SKEW_MS
         || decode_canonical_array::<32>(&statement.nonce).is_err()
     {
         return Err(AuthError::InvalidRevocation);
@@ -1134,6 +1132,153 @@ mod tests {
             ),
             Err(AuthError::RevokedDelegation)
         );
+    }
+
+    fn revocation_vector() -> (UserAuthorizationVector, UserAuthorization) {
+        let vector: UserAuthorizationVector = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../packages/shared/test-vectors/user-authorization-mldsa87.json"
+        )))
+        .unwrap();
+        let authorization = UserAuthorization::new(
+            &vector.root_public_key,
+            vector.root_epoch,
+            &vector.server_origin,
+            &vector.daemon_binding,
+            &vector.daemon_binding.daemon_id,
+            &decode_canonical_array(&vector.daemon_identity_key_commitment).unwrap(),
+            &[],
+        )
+        .unwrap();
+        (vector, authorization)
+    }
+
+    #[test]
+    fn aged_revocation_is_replayed_and_still_denies_after_clock_rollback() {
+        let (vector, mut authorization) = revocation_vector();
+        let now = vector.revocation.issued_at + 3 * USER_DELEGATION_LIFETIME_MS;
+        for _ in 0..2 {
+            assert_eq!(
+                authorization.apply_revocation_at(&vector.certificate, &vector.revocation, now),
+                Ok(vector.revocation.targets.clone())
+            );
+        }
+        assert_eq!(
+            authorization.revoked_delegations.len(),
+            vector.revocation.targets.len()
+        );
+        let targets = vector.revocation.targets.clone();
+        let restored = UserAuthorization::new(
+            &vector.root_public_key,
+            vector.root_epoch,
+            &vector.server_origin,
+            &vector.daemon_binding,
+            &vector.daemon_binding.daemon_id,
+            &decode_canonical_array(&vector.daemon_identity_key_commitment).unwrap(),
+            &targets,
+        )
+        .unwrap();
+        assert_eq!(
+            restored.validate_certificate_at(
+                &vector.certificate,
+                &vector.user_id,
+                &vector.delegation_id,
+                vector.verify_at_ms,
+                true,
+            ),
+            Err(AuthError::RevokedDelegation)
+        );
+    }
+
+    #[test]
+    fn aged_revocation_forged_with_expired_actor_cannot_deny_live_delegation() {
+        let (vector, mut authorization) = revocation_vector();
+        let now = vector.verify_at_ms + 3 * USER_DELEGATION_LIFETIME_MS;
+        let actor_key =
+            merkur_authorization::SigningKey::from_seed(&mut std::array::from_fn::<u8, 32, _>(
+                |index| 0x20 + u8::try_from(index).unwrap(),
+            ))
+            .unwrap();
+        let root_key =
+            merkur_authorization::SigningKey::from_seed(&mut std::array::from_fn::<u8, 32, _>(
+                |index| u8::try_from(index).unwrap(),
+            ))
+            .unwrap();
+        let mut live_payload = vector.certificate.payload();
+        live_payload.delegation_id = "live-delegation".into();
+        live_payload.issued_at = now;
+        live_payload.expires_at = now + USER_DELEGATION_LIFETIME_MS;
+        let live = DelegationCertificate::create(live_payload, &root_key, [0x71; 32]).unwrap();
+        let forged = RevocationStatement::create(
+            merkur_authorization::RevocationPayload {
+                user_id: vector.user_id.clone(),
+                root_key_commitment: vector.root_key_commitment.clone(),
+                actor_delegation_id: vector.delegation_id.clone(),
+                targets: vec![RevocationTarget {
+                    delegation_id: live.delegation_id.clone(),
+                    expires_at: vector.verify_at_ms + USER_DELEGATION_LIFETIME_MS,
+                }],
+                issued_at: vector.verify_at_ms,
+                nonce: URL_SAFE_NO_PAD.encode([0x72; 32]),
+            },
+            &actor_key,
+            [0x73; 32],
+        )
+        .unwrap();
+        assert!(now > vector.certificate.expires_at);
+        assert_eq!(
+            authorization.apply_revocation_at(&vector.certificate, &forged, now),
+            Ok(forged.targets.clone())
+        );
+        assert!(
+            authorization
+                .revoked_delegations
+                .values()
+                .all(|expiry| *expiry <= now)
+        );
+        assert!(
+            authorization
+                .validate_certificate_at(&live, &vector.user_id, &live.delegation_id, now, true,)
+                .is_ok()
+        );
+        let mut unbounded = forged.clone();
+        unbounded.targets[0].expires_at = now + 1;
+        assert_eq!(
+            authorization.apply_revocation_at(&vector.certificate, &unbounded, now),
+            Err(AuthError::InvalidRevocation)
+        );
+        assert_eq!(authorization.revoked_delegations.len(), 1);
+    }
+
+    #[test]
+    fn aged_revocation_keeps_signature_binding_and_expiry_checks() {
+        let (vector, mut authorization) = revocation_vector();
+        let now = vector.verify_at_ms + 3 * USER_DELEGATION_LIFETIME_MS;
+        let mut bad = vector.revocation.clone();
+        bad.signature = URL_SAFE_NO_PAD.encode([0; ML_DSA_87_SIGNATURE_BYTES]);
+        assert_eq!(
+            authorization.apply_revocation_at(&vector.certificate, &bad, now),
+            Err(AuthError::InvalidRevocation)
+        );
+        bad = vector.revocation.clone();
+        bad.root_key_commitment = URL_SAFE_NO_PAD.encode([0; COMMITMENT_BYTES]);
+        assert_eq!(
+            authorization.apply_revocation_at(&vector.certificate, &bad, now),
+            Err(AuthError::InvalidRevocation)
+        );
+        bad = vector.revocation.clone();
+        bad.issued_at = now + SESSION_TOKEN_CLOCK_SKEW_MS + 1;
+        assert_eq!(
+            authorization.apply_revocation_at(&vector.certificate, &bad, now),
+            Err(AuthError::InvalidRevocation)
+        );
+        let mut certificate = vector.certificate.clone();
+        certificate.server_origin = "https://foreign.example".into();
+        assert_eq!(
+            authorization.apply_revocation_at(&certificate, &vector.revocation, now),
+            Err(AuthError::InvalidDelegation)
+        );
+        assert!(authorization.revoked_delegations.is_empty());
     }
 
     #[test]

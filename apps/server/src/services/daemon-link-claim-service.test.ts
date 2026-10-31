@@ -177,7 +177,7 @@ describe('DaemonLinkClaimService', () => {
       0x45,
       revocationIssuedAt + USER_DELEGATION_LIFETIME_MS,
     );
-    const expired = makeRevocation('delegation-expired', 0x46, revocationIssuedAt);
+    const expired = makeRevocation('delegation-expired', 0x46, revocationIssuedAt + 1);
     const newLive = makeRevocation(
       'delegation-new-live',
       0x47,

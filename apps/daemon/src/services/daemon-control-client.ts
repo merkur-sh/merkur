@@ -24,7 +24,7 @@ import {
   Tracer,
 } from 'effect';
 
-import { type DaemonConfig, saveDaemonConfigEffect } from '../config';
+import { type DaemonConfig, persistDaemonRevocationsEffect } from '../config';
 import { logEffect } from '../logger';
 import {
   type DaemonHealthService,
@@ -103,7 +103,10 @@ export interface DaemonControlClientOptions {
   readonly dependencies?: DaemonControlClientDependencies;
   readonly health?: DaemonControlHealthReporter;
   readonly pathSignals?: Queue.Dequeue<DaemonControlPathSignal>;
-  readonly persistConfig?: (config: DaemonConfig) => Effect.Effect<void, Error>;
+  readonly persistRevocations?: (
+    expected: DaemonConfig,
+    targets: readonly DelegationRevocationTarget[],
+  ) => Effect.Effect<DaemonConfig, Error>;
   /**
    * Completed by the process-signal handler before it interrupts the runtime.
    * The connection finalizer reads it to decide between a graceful
@@ -439,26 +442,11 @@ export function runDaemonControlClientEffect(
       configPersistence.withPermit(
         Effect.gen(function* () {
           const before = yield* Ref.get(currentConfig);
-          const merged = new Map(
-            before.revoked_delegations.map((target) => [target.delegationId, target.expiresAt]),
-          );
-          for (const target of targets) {
-            merged.set(
-              target.delegationId,
-              Math.max(merged.get(target.delegationId) ?? 0, target.expiresAt),
-            );
-          }
-          const revokedDelegations = [...merged]
-            .map(([delegationId, expiresAt]) => ({ delegationId, expiresAt }))
-            .sort((left, right) =>
-              left.delegationId < right.delegationId
-                ? -1
-                : left.delegationId > right.delegationId
-                  ? 1
-                  : 0,
-            );
-          const next = { ...before, revoked_delegations: revokedDelegations };
-          const result = yield* (options.persistConfig ?? saveDaemonConfigEffect)(next).pipe(
+          return yield* (options.persistRevocations ?? persistDaemonRevocationsEffect)(
+            before,
+            targets,
+          ).pipe(
+            Effect.tap((next) => Ref.set(currentConfig, next)),
             Effect.as({ status: 'accepted' } as const),
             Effect.catch(() =>
               Effect.succeed({
@@ -467,10 +455,6 @@ export function runDaemonControlClientEffect(
               } as const),
             ),
           );
-          if (result.status === 'accepted') {
-            yield* Ref.set(currentConfig, next);
-          }
-          return result;
         }),
       );
     let reconnectDelayMs = dependencies.initialReconnectDelayMs;

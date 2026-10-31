@@ -7,6 +7,7 @@ import {
 } from '@merkur/shared/user-authorization';
 import * as opaque from '@serenity-kit/opaque';
 import { Effect } from 'effect';
+import { TestClock } from 'effect/testing';
 import { SqliteQueryCompiler } from 'kysely';
 import {
   activeDelegationQuery,
@@ -223,7 +224,7 @@ describe('AuthService user-root OPAQUE flows', () => {
   test('accepts a retryable 60-second-old signed revocation and records it idempotently', async () => {
     const actor = await registerAccount(OLD_PASSWORD, 0x33, 'delegation-actor');
     const target = await loginWithNewDelegation(OLD_PASSWORD, 0x44, 'delegation-target');
-    const issuedAt = Date.now() - 60_000;
+    const issuedAt = target.certificate.issuedAt;
     const revocation = createDelegationRevocationStatement(
       {
         userId: actor.userId,
@@ -247,22 +248,15 @@ describe('AuthService user-root OPAQUE flows', () => {
     };
     const proof = { actorCertificate: actor.certificate, revocation };
 
-    await expect(
-      Effect.runPromise(
-        service.revokeBrowserSessions(browser, proof, {
-          kind: 'one',
-          delegationId: target.certificate.delegationId,
-        }),
-      ),
-    ).resolves.toBe(1);
-    await expect(
-      Effect.runPromise(
-        service.revokeBrowserSessions(browser, proof, {
-          kind: 'one',
-          delegationId: target.certificate.delegationId,
-        }),
-      ),
-    ).resolves.toBe(1);
+    const revoke = Effect.gen(function* () {
+      yield* TestClock.setTime(issuedAt + 60_000);
+      return yield* service.revokeBrowserSessions(browser, proof, {
+        kind: 'one',
+        delegationId: target.certificate.delegationId,
+      });
+    }).pipe(Effect.provide(TestClock.layer()));
+    await expect(Effect.runPromise(revoke)).resolves.toBe(1);
+    await expect(Effect.runPromise(revoke)).resolves.toBe(1);
     const targetRow = await db
       .selectFrom('browser_delegations')
       .select('revoked_at')

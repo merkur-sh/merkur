@@ -1,18 +1,24 @@
+import { dlopen, FFIType } from 'bun:ffi';
 import { afterEach, describe, expect, test } from 'bun:test';
+import { closeSync, openSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ConfigProvider, Effect } from 'effect';
+import { ConfigProvider, Deferred, Effect, Fiber } from 'effect';
 
 import {
   canonicalizeDaemonServerOrigin,
   DaemonEnvironmentLive,
   DaemonEnvironmentService,
   loadDaemonConfigFromPath,
+  persistDaemonRevocationsToPath,
   removeDaemonConfigFromPath,
   requireDaemonConfigFromPath,
+  restoreDaemonConfigAtPath,
   saveDaemonConfigToPath,
+  transactDaemonConfigAtPath,
   validateDaemonConfig,
+  withDaemonEnrollmentLockAtPath,
 } from './daemon-config';
 
 const tempDirectories: string[] = [];
@@ -101,18 +107,22 @@ describe('daemon config', () => {
     const configPath = path.join(directory, '.merkur', 'config.json');
 
     await Effect.runPromise(
-      saveDaemonConfigToPath(configPath, {
-        daemon_id: 'daemon-1',
-        server_origin: 'https://example.com',
-        daemon_identity_seal: {
-          backend: 'software' as const,
-          material: DAEMON_IDENTITY_SIGNING_SEED,
+      saveDaemonConfigToPath(
+        configPath,
+        {
+          daemon_id: 'daemon-1',
+          server_origin: 'https://example.com',
+          daemon_identity_seal: {
+            backend: 'software' as const,
+            material: DAEMON_IDENTITY_SIGNING_SEED,
+          },
+          shell: '/bin/zsh',
+          webtransport_port: 44_433,
+          session_token_verify_key: SESSION_TOKEN_VERIFY_KEY,
+          ...authorizationConfigFields(),
         },
-        shell: '/bin/zsh',
-        webtransport_port: 44_433,
-        session_token_verify_key: SESSION_TOKEN_VERIFY_KEY,
-        ...authorizationConfigFields(),
-      }),
+        null,
+      ),
     );
 
     expect((await stat(path.dirname(configPath))).mode & 0o777).toBe(0o700);
@@ -125,21 +135,294 @@ describe('daemon config', () => {
     const initial = createDaemonConfigFile();
     const replacement = { ...initial, shell: '/bin/bash' };
 
-    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial));
-    await Effect.runPromise(saveDaemonConfigToPath(configPath, replacement));
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, replacement, initial));
 
     expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual(replacement);
-    expect(await readdir(path.dirname(configPath))).toEqual(['config.json']);
+    expect((await readdir(path.dirname(configPath))).sort()).toEqual([
+      'config.json',
+      'config.json.lock',
+    ]);
   });
 
   test('removeDaemonConfigFromPath restores the pre-link absence', async () => {
     const directory = await createTempDirectory();
     const configPath = path.join(directory, '.merkur', 'config.json');
-    await Effect.runPromise(saveDaemonConfigToPath(configPath, createDaemonConfigFile()));
+    const initial = createDaemonConfigFile();
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
 
-    await Effect.runPromise(removeDaemonConfigFromPath(configPath));
+    await Effect.runPromise(removeDaemonConfigFromPath(configPath, initial));
 
     expect(await Effect.runPromise(loadDaemonConfigFromPath(configPath))).toBeNull();
+  });
+
+  test('concurrent_revocation survives a stale same-lineage enrollment save', async () => {
+    const directory = await createTempDirectory();
+    const configPath = path.join(directory, 'config.json');
+    const initial = createDaemonConfigFile();
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    const revoked = {
+      ...initial,
+      revoked_delegations: [{ delegationId: 'revoked-a', expiresAt: 100 }],
+    };
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, revoked, initial));
+    const approved = {
+      ...initial,
+      daemon_binding: { ...initial.daemon_binding, linkClaimId: 'claim-2' },
+    };
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, approved, initial));
+    expect(
+      (await Effect.runPromise(requireDaemonConfigFromPath(configPath))).revoked_delegations,
+    ).toEqual(revoked.revoked_delegations);
+  });
+
+  test('concurrent_revocation cannot restore an identity replaced by another writer', async () => {
+    const directory = await createTempDirectory();
+    const configPath = path.join(directory, 'config.json');
+    const initial = createDaemonConfigFile();
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    const replacement = { ...initial, root_epoch: 2 };
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, replacement, initial));
+    const stale = {
+      ...initial,
+      revoked_delegations: [{ delegationId: 'revoked-a', expiresAt: 100 }],
+    };
+    await expect(
+      Effect.runPromise(saveDaemonConfigToPath(configPath, stale, initial)),
+    ).rejects.toThrow();
+    expect(await Effect.runPromise(requireDaemonConfigFromPath(configPath))).toEqual(replacement);
+    await expect(
+      Effect.runPromise(removeDaemonConfigFromPath(configPath, initial)),
+    ).rejects.toThrow();
+    expect(await Effect.runPromise(requireDaemonConfigFromPath(configPath))).toEqual(replacement);
+  });
+
+  test('concurrent_revocation merges maximum expiry after enrollment changes within its lineage', async () => {
+    const directory = await createTempDirectory();
+    const configPath = path.join(directory, 'config.json');
+    const initial = createDaemonConfigFile();
+    const installed = {
+      ...initial,
+      daemon_binding: { ...initial.daemon_binding, linkClaimId: 'claim-2' },
+    };
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, installed, initial));
+    for (const expiresAt of [100, 50, 200]) {
+      await Effect.runPromise(
+        persistDaemonRevocationsToPath(configPath, initial, [
+          { delegationId: 'revoked-a', expiresAt },
+        ]),
+      );
+    }
+    const final = await Effect.runPromise(requireDaemonConfigFromPath(configPath));
+    expect(final.daemon_binding.linkClaimId).toBe('claim-2');
+    expect(final.revoked_delegations).toEqual([{ delegationId: 'revoked-a', expiresAt: 200 }]);
+    await Effect.runPromise(restoreDaemonConfigAtPath(configPath, initial, installed));
+    const restored = await Effect.runPromise(requireDaemonConfigFromPath(configPath));
+    expect(restored.daemon_binding).toEqual(initial.daemon_binding);
+    expect(restored.revoked_delegations).toEqual(final.revoked_delegations);
+  });
+
+  test('rollback cannot overwrite or remove a newer enrollment', async () => {
+    const directory = await createTempDirectory();
+    const configPath = path.join(directory, 'config.json');
+    const initial = createDaemonConfigFile();
+    const installed = {
+      ...initial,
+      daemon_binding: { ...initial.daemon_binding, linkClaimId: 'claim-2' },
+    };
+    const successor = { ...installed, root_epoch: 2 };
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, installed, initial));
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, successor, installed));
+    const bytes = await readFile(configPath, 'utf8');
+    await Effect.runPromise(restoreDaemonConfigAtPath(configPath, initial, installed));
+    await Effect.runPromise(restoreDaemonConfigAtPath(configPath, null, installed));
+    expect(await readFile(configPath, 'utf8')).toBe(bytes);
+    await expect(
+      Effect.runPromise(
+        persistDaemonRevocationsToPath(configPath, initial, [
+          { delegationId: 'revoked-a', expiresAt: 100 },
+        ]),
+      ),
+    ).rejects.toThrow('lineage');
+    expect(await readFile(configPath, 'utf8')).toBe(bytes);
+  });
+
+  test('a failed mutation releases the kernel lock without changing config bytes', async () => {
+    const directory = await createTempDirectory();
+    const configPath = path.join(directory, 'config.json');
+    const initial = createDaemonConfigFile();
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    const bytes = await readFile(configPath, 'utf8');
+    await expect(
+      Effect.runPromise(
+        transactDaemonConfigAtPath(configPath, () => {
+          throw new Error('rejected');
+        }),
+      ),
+    ).rejects.toThrow('rejected');
+    expect(await readFile(configPath, 'utf8')).toBe(bytes);
+    await Effect.runPromise(
+      persistDaemonRevocationsToPath(configPath, initial, [
+        { delegationId: 'revoked-a', expiresAt: 100 },
+      ]),
+    );
+    expect(
+      (await Effect.runPromise(requireDaemonConfigFromPath(configPath))).revoked_delegations,
+    ).toHaveLength(1);
+  });
+
+  test('the parent retains the kernel lock after its acquisition worker exits', async () => {
+    const directory = await createTempDirectory();
+    const configPath = path.join(directory, 'config.json');
+    const initial = createDaemonConfigFile();
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    const libc = dlopen(
+      process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6',
+      {
+        flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+      },
+    );
+    try {
+      await Effect.runPromise(
+        transactDaemonConfigAtPath(configPath, (current) => {
+          const descriptor = openSync(`${configPath}.lock`, 'r+');
+          try {
+            expect(libc.symbols.flock(descriptor, 2 | 4)).toBe(-1);
+          } finally {
+            closeSync(descriptor);
+          }
+          return current;
+        }),
+      );
+    } finally {
+      libc.close();
+    }
+    expect((await stat(`${configPath}.lock`)).mode & 0o777).toBe(0o600);
+  });
+
+  test.each(['release', 'death', 'enrollment-death'] as const)(
+    'cross-process config transaction resumes after owner %s',
+    async (outcome) => {
+      const directory = await createTempDirectory();
+      const configPath = path.join(directory, 'config.json');
+      await Effect.runPromise(saveDaemonConfigToPath(configPath, createDaemonConfigFile(), null));
+      const owner = spawnConfigTransaction(
+        configPath,
+        'revoked-a',
+        outcome === 'enrollment-death' ? 'enrollment-hold' : 'hold',
+      );
+      const ownerOutput = owner.stdout.getReader();
+      let successor: ReturnType<typeof spawnConfigTransaction> | undefined;
+      try {
+        await readTransactionMarker(ownerOutput, 'locked');
+        if (outcome === 'enrollment-death') {
+          owner.kill('SIGKILL');
+          await owner.exited;
+        }
+        successor = spawnConfigTransaction(
+          configPath,
+          'revoked-b',
+          outcome === 'enrollment-death' ? 'enrollment-write' : 'write',
+        );
+        const successorOutput = successor.stdout.getReader();
+        await readTransactionMarker(successorOutput, 'starting');
+        if (outcome !== 'release') owner.kill('SIGKILL');
+        else {
+          owner.stdin.write('r');
+          owner.stdin.end();
+        }
+        await owner.exited;
+        await readTransactionMarker(successorOutput, 'committed');
+        expect(await successor.exited).toBe(0);
+        const final = await Effect.runPromise(requireDaemonConfigFromPath(configPath));
+        expect(final.revoked_delegations).toEqual(
+          outcome !== 'release'
+            ? [{ delegationId: 'revoked-b', expiresAt: 100 }]
+            : [
+                { delegationId: 'revoked-a', expiresAt: 100 },
+                { delegationId: 'revoked-b', expiresAt: 100 },
+              ],
+        );
+      } finally {
+        owner.kill('SIGKILL');
+        successor?.kill('SIGKILL');
+        await owner.exited;
+        if (successor !== undefined) await successor.exited;
+      }
+    },
+  );
+
+  test('interrupting enrollment releases its lock while tombstone persistence remains independent', async () => {
+    const directory = await createTempDirectory();
+    const configPath = path.join(directory, 'config.json');
+    const initial = createDaemonConfigFile();
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, initial, null));
+    const entered = Deferred.makeUnsafe<void>();
+    const owner = Effect.runFork(
+      withDaemonEnrollmentLockAtPath(
+        configPath,
+        Effect.gen(function* () {
+          yield* Deferred.succeed(entered, undefined);
+          yield* Effect.never;
+        }),
+      ),
+    );
+    try {
+      await Effect.runPromise(Deferred.await(entered));
+      await expect(
+        Effect.runPromise(withDaemonEnrollmentLockAtPath(configPath, Effect.void)),
+      ).rejects.toThrow('already in progress');
+      await Effect.runPromise(
+        persistDaemonRevocationsToPath(configPath, initial, [
+          { delegationId: 'revoked-a', expiresAt: 100 },
+        ]),
+      );
+      expect(
+        (await Effect.runPromise(requireDaemonConfigFromPath(configPath))).revoked_delegations,
+      ).toHaveLength(1);
+    } finally {
+      await Effect.runPromise(Fiber.interrupt(owner));
+    }
+    expect(
+      await Effect.runPromise(
+        withDaemonEnrollmentLockAtPath(configPath, Effect.succeed('successor')),
+      ),
+    ).toBe('successor');
+  });
+
+  test('a compiled executable embeds the config lock worker and completes a transaction', async () => {
+    const directory = await createTempDirectory();
+    const executable = path.join(directory, 'config-transaction');
+    const configPath = path.join(directory, 'config.json');
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        'build',
+        new URL('../../../apps/daemon/src/cli/config-transaction-fixture.ts', import.meta.url)
+          .pathname,
+        new URL('./daemon-config-lock-worker.ts', import.meta.url).pathname,
+        '--compile',
+        '--entry-naming',
+        '[name].[ext]',
+        '--outfile',
+        executable,
+      ],
+      { stdout: 'pipe', stderr: 'pipe' },
+    );
+    const [status, stderr] = await Promise.all([build.exited, new Response(build.stderr).text()]);
+    expect({ status, stderr: status === 0 ? '' : stderr }).toEqual({ status: 0, stderr: '' });
+    await Effect.runPromise(saveDaemonConfigToPath(configPath, createDaemonConfigFile(), null));
+    const child = Bun.spawn([executable, configPath, 'compiled-revocation', 'write'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [exitCode, error] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect({ exitCode, error }).toEqual({ exitCode: 0, error: '' });
+    expect(
+      (await Effect.runPromise(requireDaemonConfigFromPath(configPath))).revoked_delegations,
+    ).toEqual([{ delegationId: 'compiled-revocation', expiresAt: 100 }]);
   });
 
   test('requireDaemonConfigFromPath fails when the config is missing', async () => {
@@ -432,4 +715,30 @@ function authorizationConfigFields() {
     },
     revoked_delegations: [],
   } as const;
+}
+
+function spawnConfigTransaction(configPath: string, delegationId: string, mode: string) {
+  return Bun.spawn(
+    [
+      process.execPath,
+      new URL('../../../apps/daemon/src/cli/config-transaction-fixture.ts', import.meta.url)
+        .pathname,
+      configPath,
+      delegationId,
+      mode,
+    ],
+    { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+  );
+}
+
+async function readTransactionMarker(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  marker: string,
+): Promise<void> {
+  let output = '';
+  while (!output.split('\n').includes(marker)) {
+    const chunk = await reader.read();
+    if (chunk.done) throw new Error(`Transaction ended before ${marker}: ${output}`);
+    output += new TextDecoder().decode(chunk.value);
+  }
 }

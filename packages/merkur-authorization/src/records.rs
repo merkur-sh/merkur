@@ -10,8 +10,8 @@ use crate::canonical::{
 use crate::{
     ACCOUNT_DELETION_CONTEXT, AuthorizationError, CLOCK_SKEW_MS, DAEMON_BINDING_CONTEXT,
     DELEGATION_LIFETIME_MS, DELEGATION_REVOCATION_CONTEXT, DELEGATION_SCOPES, HASH_BYTES,
-    NONCE_BYTES, PUBLIC_KEY_BYTES, SEED_BYTES, SESSION_DELEGATION_CONTEXT, SIGNATURE_BYTES,
-    MlDsa87Signer, SigningKey, USER_DELEGATION_CONTEXT, parse_canonical, sign, to_json, verify,
+    MlDsa87Signer, NONCE_BYTES, PUBLIC_KEY_BYTES, SEED_BYTES, SESSION_DELEGATION_CONTEXT,
+    SIGNATURE_BYTES, SigningKey, USER_DELEGATION_CONTEXT, parse_canonical, sign, to_json, verify,
 };
 
 const MAX_REVOCATION_TARGETS: usize = 32;
@@ -400,6 +400,13 @@ impl RevocationPayload {
         for target in &self.targets {
             require_id(&target.delegation_id, "target delegation id")?;
             require_timestamp(target.expires_at, "target delegation expiry")?;
+            if target.expires_at <= self.issued_at
+                || target.expires_at - self.issued_at > DELEGATION_LIFETIME_MS
+            {
+                return Err(AuthorizationError::message(
+                    "delegation revocation target expiry must be within its issuance lifetime",
+                ));
+            }
         }
         // Delegation ids are ASCII, so byte order is JavaScript's string order.
         if self

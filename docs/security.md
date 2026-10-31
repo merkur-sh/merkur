@@ -284,7 +284,23 @@ verifies the actor certificate and statement, records the tombstone, and evicts 
 dialing, and parked peers; the Bun daemon persists the merged set in `~/.merkur/config.json` before
 acknowledging. The server replays pending outbox entries when a daemon reconnects, before it becomes
 session-ready, and backfills a newly linked daemon with every statement that still has a live
-target.
+target. Statements have no maximum delivery age: the actor certificate is verified at the signed
+issuance time, and every target satisfies `issuedAt < expiresAt <= issuedAt + 30 days`.
+A tombstone denies only while `now < expiresAt`, so a statement backdated with a long-expired
+actor key can produce only inert tombstones and cannot deny a live delegation. Expired tombstones
+remain persisted so replayed delivery still protects against clock rollback. Signature, root,
+origin, target and actor-revocation checks also apply to aged delivery.
+
+Config mutations hold one kernel file lock across the fresh read, enrollment or lineage check,
+and durable replacement. The lock file stays in place across replacement and removal; the kernel
+releases ownership when its process dies. Relinking merges the latest same-lineage tombstones.
+A running daemon writes only tombstones into the current matching user-root and daemon identity;
+a stale writer cannot replace newer credentials. A definitive link-completion rejection restores
+only the enrollment that claim installed and preserves concurrent same-lineage tombstones. If a
+newer enrollment has replaced it, rollback leaves that enrollment intact. Link attempts serialize
+under a separate kernel enrollment lock; an overlapping attempt is refused before it reads or
+stages an enrollment, so rollback cannot restore a rejected concurrent claim.
+Revocation persistence continues under the config lock while linking waits for browser approval.
 
 Revocation is not instantaneous when the daemon is offline, and a malicious server can delay or
 suppress delivery: an already active direct terminal can continue until its daemon receives the

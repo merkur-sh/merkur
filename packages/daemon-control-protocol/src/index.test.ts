@@ -404,6 +404,30 @@ describe('daemon control protocol v1', () => {
     }
   });
 
+  test('bounds revocation target expiry relative to statement issuance', () => {
+    const valid = createDaemonControlDelegationRevokeMessage(
+      'command-1',
+      DELEGATION_CERTIFICATE,
+      DELEGATION_REVOCATION,
+      '',
+    );
+    for (const expiresAt of [
+      valid.revocation.issuedAt,
+      valid.revocation.issuedAt - 1,
+      valid.revocation.issuedAt + 30 * 24 * 60 * 60 * 1_000 + 1,
+    ]) {
+      expect(
+        parseDaemonControlServerMessage({
+          ...valid,
+          revocation: {
+            ...valid.revocation,
+            targets: [{ delegationId: 'delegation-1', expiresAt }],
+          },
+        }),
+      ).toBeNull();
+    }
+  });
+
   test('requires canonical delegation certificate and revocation ordering', () => {
     const valid = createDaemonControlDelegationRevokeMessage(
       'command-1',

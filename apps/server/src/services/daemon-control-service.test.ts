@@ -764,199 +764,204 @@ describe('DaemonControlService', () => {
     await expect(delivery).resolves.toBeUndefined();
   });
 
-  test('retries a durably rejected revocation after reconnect and clears rejection only on ACK', async () => {
-    const db = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
-    const issuedAt = Date.now() - 1_000;
-    const expiresAt = issuedAt + 30 * 24 * 60 * 60 * 1_000;
-    const rootKeyCommitment = authorizationBytes(64, 21);
-    const actorCertificate = {
-      userId: USER_ID,
-      rootKeyCommitment,
-      delegationId: 'delegation-actor',
-      delegatePublicKey: authorizationBytes(2_592, 22),
-      scopes: ['terminal-session', 'session-revoke'],
-      serverOrigin: 'https://merkur.example',
-      rootEpoch: 1,
-      issuedAt,
-      expiresAt,
-      signature: authorizationBytes(4_627, 23),
-    } as const;
-    const revocation = {
-      userId: USER_ID,
-      rootKeyCommitment,
-      actorDelegationId: actorCertificate.delegationId,
-      targets: [{ delegationId: 'delegation-target', expiresAt }],
-      issuedAt,
-      nonce: authorizationBytes(32, 24),
-      signature: authorizationBytes(4_627, 25),
-    } as const;
-    await db
-      .insertInto('users')
-      .values({
-        id: USER_ID,
-        username: 'user@example.com',
-        opaque_registration_record: 'opaque-record',
-        root_public_key: authorizationBytes(2_592, 20),
-        root_key_commitment: rootKeyCommitment,
-        root_epoch: 1,
-        root_envelope_nonce: authorizationBytes(12, 19),
-        root_envelope_ciphertext: authorizationBytes(48, 18),
-        created_at: issuedAt,
-      })
-      .execute();
-    await db
-      .insertInto('daemons')
-      .values({
-        id: DAEMON_ID,
-        user_id: USER_ID,
-        name: 'daemon',
-        platform: 'test',
-        daemon_identity_public_key: 'identity-key',
-        daemon_identity_p256_public_key: 'identity-p256',
-        identity_seal_backend: 'software',
-        daemon_identity_key_commitment: 'identity-commitment',
-        daemon_binding_json: '{}',
-        last_seen: issuedAt,
-        version: null,
-      })
-      .execute();
-    await db
-      .insertInto('delegation_revocations')
-      .values({
-        nonce: revocation.nonce,
-        user_id: USER_ID,
-        actor_delegation_id: actorCertificate.delegationId,
-        actor_certificate_json: JSON.stringify(actorCertificate),
-        revocation_json: JSON.stringify(revocation),
-        revoked_count: 1,
-        created_at: issuedAt,
-      })
-      .execute();
-    await db
-      .insertInto('delegation_revocation_outbox')
-      .values({
-        command_id: 'revoke-retry',
-        revocation_nonce: revocation.nonce,
-        daemon_id: DAEMON_ID,
-        user_id: USER_ID,
-        actor_certificate_json: JSON.stringify(actorCertificate),
-        revocation_json: JSON.stringify(revocation),
-        created_at: issuedAt,
-        acknowledged_at: null,
-        rejected_reason: null,
-      })
-      .execute();
-    const state = createCoordinationState();
-    const bus = createBrokerBus();
-    const redis: RedisService = {
-      ...bus.redis,
-      subscribe: () => Effect.void,
-      unsubscribe: () => Effect.void,
-    };
-    const dependencies = Layer.mergeAll(
-      Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
-      Layer.succeed(RedisServiceTag, redis),
-      Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
-      Layer.succeed(DatabaseService, db),
-      // The Live layer mints STUN tickets, so it reads the server config.
-      Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
-      Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
-      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
-    );
-    const controlLayer = DaemonControlServiceLive.pipe(Layer.provide(dependencies));
+  test.each([1_000, 3 * 30 * 24 * 60 * 60 * 1_000])(
+    'expired_revocation retries rejected delivery and durably ACKs after %i ms offline',
+    async (age) => {
+      const db = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
+      const issuedAt = Date.now() - age;
+      const expiresAt = issuedAt + 30 * 24 * 60 * 60 * 1_000;
+      const rootKeyCommitment = authorizationBytes(64, 21);
+      const actorCertificate = {
+        userId: USER_ID,
+        rootKeyCommitment,
+        delegationId: 'delegation-actor',
+        delegatePublicKey: authorizationBytes(2_592, 22),
+        scopes: ['terminal-session', 'session-revoke'],
+        serverOrigin: 'https://merkur.example',
+        rootEpoch: 1,
+        issuedAt,
+        expiresAt,
+        signature: authorizationBytes(4_627, 23),
+      } as const;
+      const revocation = {
+        userId: USER_ID,
+        rootKeyCommitment,
+        actorDelegationId: actorCertificate.delegationId,
+        targets: [{ delegationId: actorCertificate.delegationId, expiresAt }],
+        issuedAt,
+        nonce: authorizationBytes(32, 24),
+        signature: authorizationBytes(4_627, 25),
+      } as const;
+      await db
+        .insertInto('users')
+        .values({
+          id: USER_ID,
+          username: 'user@example.com',
+          opaque_registration_record: 'opaque-record',
+          root_public_key: authorizationBytes(2_592, 20),
+          root_key_commitment: rootKeyCommitment,
+          root_epoch: 1,
+          root_envelope_nonce: authorizationBytes(12, 19),
+          root_envelope_ciphertext: authorizationBytes(48, 18),
+          created_at: issuedAt,
+        })
+        .execute();
+      await db
+        .insertInto('daemons')
+        .values({
+          id: DAEMON_ID,
+          user_id: USER_ID,
+          name: 'daemon',
+          platform: 'test',
+          daemon_identity_public_key: 'identity-key',
+          daemon_identity_p256_public_key: 'identity-p256',
+          identity_seal_backend: 'software',
+          daemon_identity_key_commitment: 'identity-commitment',
+          daemon_binding_json: '{}',
+          last_seen: issuedAt,
+          version: null,
+        })
+        .execute();
+      await db
+        .insertInto('delegation_revocations')
+        .values({
+          nonce: revocation.nonce,
+          user_id: USER_ID,
+          actor_delegation_id: actorCertificate.delegationId,
+          actor_certificate_json: JSON.stringify(actorCertificate),
+          revocation_json: JSON.stringify(revocation),
+          revoked_count: 1,
+          created_at: issuedAt,
+        })
+        .execute();
+      await db
+        .insertInto('delegation_revocation_outbox')
+        .values({
+          command_id: 'revoke-retry',
+          revocation_nonce: revocation.nonce,
+          daemon_id: DAEMON_ID,
+          user_id: USER_ID,
+          actor_certificate_json: JSON.stringify(actorCertificate),
+          revocation_json: JSON.stringify(revocation),
+          created_at: issuedAt,
+          acknowledged_at: null,
+          rejected_reason: null,
+        })
+        .execute();
+      const state = createCoordinationState();
+      const bus = createBrokerBus();
+      const redis: RedisService = {
+        ...bus.redis,
+        subscribe: () => Effect.void,
+        unsubscribe: () => Effect.void,
+      };
+      const dependencies = Layer.mergeAll(
+        Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
+        Layer.succeed(RedisServiceTag, redis),
+        Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
+        Layer.succeed(DatabaseService, db),
+        // The Live layer mints STUN tickets, so it reads the server config.
+        Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
+        Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+        Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
+      );
+      const controlLayer = DaemonControlServiceLive.pipe(Layer.provide(dependencies));
 
-    try {
-      await Effect.runPromise(
-        Effect.scoped(
-          Effect.gen(function* () {
-            const control = yield* DaemonControlServiceTag;
-            const firstSocket = new TestSocket();
-            const firstRegistration = yield* Effect.forkChild(
-              control.acceptConnection({
-                daemonId: DAEMON_ID,
-                userId: USER_ID,
-                boxId: null,
-                daemonVersion: '4.0.0',
-                connectionId: 'connection-1',
-                presenceId: 'presence-1',
-                socket: firstSocket,
-                zone: null,
-              }),
-            );
-            const first = yield* Effect.promise(() =>
-              waitForMessage(firstSocket, 'delegation_revoke'),
-            );
-            expect(first.commandId).toBe('revoke-retry');
-            yield* control.receive(
-              'connection-1',
-              encodeDaemonControlMessage(
-                createDaemonControlCommandAckMessage(first.commandId, {
-                  status: 'rejected',
-                  reason: 'config_persistence_failed',
+      try {
+        await Effect.runPromise(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const control = yield* DaemonControlServiceTag;
+              const firstSocket = new TestSocket();
+              const firstRegistration = yield* Effect.forkChild(
+                control.acceptConnection({
+                  daemonId: DAEMON_ID,
+                  userId: USER_ID,
+                  boxId: null,
+                  daemonVersion: '4.0.0',
+                  connectionId: 'connection-1',
+                  presenceId: 'presence-1',
+                  socket: firstSocket,
+                  zone: null,
                 }),
-              ),
-            );
-            yield* Fiber.join(firstRegistration);
-            expect(firstSocket.closed).toContainEqual({
-              code: 4003,
-              reason: 'delegation_revocation_retry',
-            });
-            expect(
-              yield* Effect.promise(() =>
+              );
+              const first = yield* Effect.promise(() =>
+                waitForMessage(firstSocket, 'delegation_revoke'),
+              );
+              expect(first.commandId).toBe('revoke-retry');
+              yield* control.receive(
+                'connection-1',
+                encodeDaemonControlMessage(
+                  createDaemonControlCommandAckMessage(first.commandId, {
+                    status: 'rejected',
+                    reason: 'config_persistence_failed',
+                  }),
+                ),
+              );
+              yield* Fiber.join(firstRegistration);
+              expect(firstSocket.closed).toContainEqual({
+                code: 4003,
+                reason: 'delegation_revocation_retry',
+              });
+              expect(
+                yield* Effect.promise(() =>
+                  db
+                    .selectFrom('delegation_revocation_outbox')
+                    .select(['acknowledged_at', 'rejected_reason'])
+                    .where('command_id', '=', 'revoke-retry')
+                    .executeTakeFirstOrThrow(),
+                ),
+              ).toEqual({
+                acknowledged_at: null,
+                rejected_reason: 'config_persistence_failed',
+              });
+
+              yield* control.disconnect('connection-1', null);
+              const secondSocket = new TestSocket();
+              const secondRegistration = yield* Effect.forkChild(
+                control.acceptConnection({
+                  daemonId: DAEMON_ID,
+                  userId: USER_ID,
+                  boxId: null,
+                  daemonVersion: '4.0.0',
+                  connectionId: 'connection-2',
+                  presenceId: 'presence-2',
+                  socket: secondSocket,
+                  zone: null,
+                }),
+              );
+              const retried = yield* Effect.promise(() =>
+                waitForMessage(secondSocket, 'delegation_revoke'),
+              );
+              expect(retried.commandId).toBe('revoke-retry');
+              expect(retried.revocation).toEqual(revocation);
+              expect(retried.actorCertificate).toEqual(actorCertificate);
+              yield* control.receive(
+                'connection-2',
+                encodeDaemonControlMessage(
+                  createDaemonControlCommandAckMessage(retried.commandId, {
+                    status: 'accepted',
+                  }),
+                ),
+              );
+              yield* Fiber.join(secondRegistration);
+              const acknowledged = yield* Effect.promise(() =>
                 db
                   .selectFrom('delegation_revocation_outbox')
                   .select(['acknowledged_at', 'rejected_reason'])
                   .where('command_id', '=', 'revoke-retry')
                   .executeTakeFirstOrThrow(),
-              ),
-            ).toEqual({
-              acknowledged_at: null,
-              rejected_reason: 'config_persistence_failed',
-            });
-
-            yield* control.disconnect('connection-1', null);
-            const secondSocket = new TestSocket();
-            const secondRegistration = yield* Effect.forkChild(
-              control.acceptConnection({
-                daemonId: DAEMON_ID,
-                userId: USER_ID,
-                boxId: null,
-                daemonVersion: '4.0.0',
-                connectionId: 'connection-2',
-                presenceId: 'presence-2',
-                socket: secondSocket,
-                zone: null,
-              }),
-            );
-            const retried = yield* Effect.promise(() =>
-              waitForMessage(secondSocket, 'delegation_revoke'),
-            );
-            expect(retried.commandId).toBe('revoke-retry');
-            yield* control.receive(
-              'connection-2',
-              encodeDaemonControlMessage(
-                createDaemonControlCommandAckMessage(retried.commandId, {
-                  status: 'accepted',
-                }),
-              ),
-            );
-            yield* Fiber.join(secondRegistration);
-            const acknowledged = yield* Effect.promise(() =>
-              db
-                .selectFrom('delegation_revocation_outbox')
-                .select(['acknowledged_at', 'rejected_reason'])
-                .where('command_id', '=', 'revoke-retry')
-                .executeTakeFirstOrThrow(),
-            );
-            expect(acknowledged.acknowledged_at).not.toBeNull();
-            expect(acknowledged.rejected_reason).toBeNull();
-          }).pipe(Effect.provide(controlLayer)),
-        ),
-      );
-    } finally {
-      await db.destroy();
-    }
-  });
+              );
+              expect(acknowledged.acknowledged_at).not.toBeNull();
+              expect(acknowledged.rejected_reason).toBeNull();
+            }).pipe(Effect.provide(controlLayer)),
+          ),
+        );
+      } finally {
+        await db.destroy();
+      }
+    },
+  );
 
   test('retires an active presence when a live revocation delivery is not acknowledged', async () => {
     const state = createCoordinationState();

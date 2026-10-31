@@ -326,6 +326,27 @@ describe('post-quantum user authorization', () => {
     ).toThrow('sorted');
   });
 
+  test('bounds revocation targets by issuance even for backdated statements', () => {
+    const { delegate, rootKeyCommitment } = makeCertificate();
+    const payload = {
+      userId: 'user-1',
+      rootKeyCommitment,
+      actorDelegationId: 'delegation-1',
+      targets: [{ delegationId: 'delegation-2', expiresAt: NOW + USER_DELEGATION_LIFETIME_MS }],
+      issuedAt: NOW,
+      nonce: encodeUserAuthorizationBytes(new Uint8Array(32).fill(0x66)),
+    };
+    const statement = createDelegationRevocationStatement(payload, delegate);
+    expect(parseDelegationRevocationStatement(statement)).toEqual(statement);
+    for (const expiresAt of [NOW, NOW - 1, NOW + USER_DELEGATION_LIFETIME_MS + 1]) {
+      const targets = [{ delegationId: 'delegation-2', expiresAt }];
+      expect(() =>
+        createDelegationRevocationStatement({ ...payload, targets }, delegate),
+      ).toThrow();
+      expect(() => parseDelegationRevocationStatement({ ...statement, targets })).toThrow();
+    }
+  });
+
   test('authenticates the complete daemon link claim and root approval with the OOB secret', () => {
     const { root, rootKeyCommitment } = makeCertificate();
     const linkSecret = new Uint8Array(32).fill(0x81);

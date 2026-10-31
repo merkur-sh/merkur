@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { requireDaemonConfigFromPath } from '@merkur/config';
 import { Effect } from 'effect';
 
 import {
   loadLegacyDaemonConfigForLinkMigration,
   parseLegacyDaemonConfigForLinkMigration,
+  replaceApprovedDaemonConfig,
 } from './legacy-daemon-config-migration';
 
 const LEGACY_VALUE_A = Buffer.alloc(32, 0x11).toString('base64url');
@@ -14,7 +16,7 @@ const SESSION_TOKEN_VERIFY_KEY = Buffer.alloc(2_592, 0x33).toString('base64url')
 
 describe('legacy daemon config link migration', () => {
   test('accepts only the exact deployed schema and exposes only a link-safe daemon id', () => {
-    const legacyConfig = createLegacyConfig();
+    const legacyConfig = createStoredConfig();
 
     const migration = parseLegacyDaemonConfigForLinkMigration(legacyConfig);
 
@@ -75,7 +77,7 @@ describe('legacy daemon config link migration', () => {
       },
     },
   ])('rejects $name', ({ mutate }) => {
-    const value: Record<string, unknown> = { ...createLegacyConfig() };
+    const value: Record<string, unknown> = { ...createStoredConfig() };
     mutate(value);
 
     expect(() => parseLegacyDaemonConfigForLinkMigration(value)).toThrow(
@@ -87,11 +89,42 @@ describe('legacy daemon config link migration', () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'merkur-legacy-config-'));
     const configPath = path.join(directory, 'config.json');
     try {
-      await fs.writeFile(configPath, JSON.stringify(createLegacyConfig()));
+      await fs.writeFile(configPath, JSON.stringify(createStoredConfig()));
 
       await expect(
         Effect.runPromise(loadLegacyDaemonConfigForLinkMigration(configPath)),
       ).resolves.toEqual({ daemonId: 'legacy-daemon_123' });
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('rechecks the migration identity under the config transaction lock', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'merkur-legacy-config-'));
+    const configPath = path.join(directory, 'config.json');
+    const stored = createStoredConfig();
+    const { daemon_identity_signing_seed: retiredSeed, ...fields } = stored;
+    void retiredSeed;
+    const current = {
+      ...fields,
+      daemon_identity_seal: {
+        backend: 'software' as const,
+        material: Buffer.alloc(32, 0x22).toString('base64url'),
+      },
+    };
+    try {
+      await fs.writeFile(configPath, JSON.stringify(stored));
+      await expect(
+        Effect.runPromise(replaceApprovedDaemonConfig(configPath, current, 'wrong-daemon')),
+      ).rejects.toThrow('identity changed');
+      expect(await fs.readFile(configPath, 'utf8')).toBe(JSON.stringify(stored));
+      await Effect.runPromise(replaceApprovedDaemonConfig(configPath, current, stored.daemon_id));
+      expect(await Effect.runPromise(requireDaemonConfigFromPath(configPath))).toEqual(current);
+      const bytes = await fs.readFile(configPath, 'utf8');
+      await expect(
+        Effect.runPromise(replaceApprovedDaemonConfig(configPath, current, stored.daemon_id)),
+      ).rejects.toThrow('exact supported');
+      expect(await fs.readFile(configPath, 'utf8')).toBe(bytes);
     } finally {
       await fs.rm(directory, { recursive: true, force: true });
     }
@@ -118,7 +151,7 @@ describe('legacy daemon config link migration', () => {
   });
 });
 
-function createLegacyConfig() {
+function createStoredConfig() {
   return {
     daemon_id: 'legacy-daemon_123',
     server_origin: 'https://merkur.example',
