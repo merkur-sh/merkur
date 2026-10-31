@@ -21,7 +21,9 @@ const FOCUSABLE_SELECTOR = [
 ].join(', ');
 
 export function focusableWithin(root: ParentNode): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => element.tabIndex >= 0,
+  );
 }
 
 /**

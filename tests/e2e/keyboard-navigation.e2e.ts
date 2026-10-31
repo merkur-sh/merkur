@@ -239,3 +239,19 @@ test('palette composition commits text without running its selected command', as
   await expect(query).toBeFocused();
   await expectRoute(page, 'devices');
 });
+
+test('palette Tab containment keeps focus on the query', async ({ page }) => {
+  await page.goto('/');
+  await createAccount(page, `palette-tab-${uniqueSuffix()}`, 'Password123!');
+  await page.keyboard.down('MetaRight');
+  await page.keyboard.press('k');
+  await page.keyboard.up('MetaRight');
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  const query = palette.getByRole('combobox');
+  await expect(palette.getByRole('option').first()).toBeVisible();
+  await expect(query).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(query).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(query).toBeFocused();
+});
