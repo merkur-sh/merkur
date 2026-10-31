@@ -191,6 +191,7 @@ const BrowserSessionRow: Component<{
     <Show when={props.onRevoke !== undefined}>
       <HoldButton
         label={`Hold to revoke ${describeClient(props.session)}`}
+        holdKey="x"
         disabled={props.pending}
         onConfirm={() => void props.onRevoke?.(props.session.delegationId).catch(() => undefined)}
         class="btn-quiet btn-sm text-badink hover:(bg-badsoft text-badink)"

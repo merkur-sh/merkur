@@ -3841,6 +3841,11 @@ MODULES = {
             ":src/lib/aria.ts.module",
             ":tsconfig.json.module",
         ],
+        "src/screens/SettingsScreen.test.ts": [
+            ":package.json.module",
+            ":src/screens/SettingsScreen.tsx.module",
+            ":tsconfig.json.module",
+        ],
         "src/screens/SettingsScreen.tsx": [
             "//apps/web:node_modules/motion",
             "//apps/web:node_modules/solid-js",
@@ -5288,6 +5293,7 @@ MODULES = {
             ":src/screens/PasswordResetScreen.tsx.module",
             ":src/screens/RenameDeviceDialog.tsx.module",
             ":src/screens/SessionSettings.tsx.module",
+            ":src/screens/SettingsScreen.test.ts.module",
             ":src/screens/SettingsScreen.tsx.module",
             ":src/screens/SplashScreen.tsx.module",
             ":src/screens/TelemetryConsentDialog.tsx.module",
@@ -9429,6 +9435,7 @@ TYPE_INPUTS = {
             "src/screens/PasswordResetScreen.tsx",
             "src/screens/RenameDeviceDialog.tsx",
             "src/screens/SessionSettings.tsx",
+            "src/screens/SettingsScreen.test.ts",
             "src/screens/SettingsScreen.tsx",
             "src/screens/SplashScreen.tsx",
             "src/screens/TelemetryConsentDialog.tsx",

@@ -438,3 +438,40 @@ test.describe('OPAQUE account and trusted-browser resilience', () => {
     expect(await response.json()).toEqual({ error: 'invalid_refresh_token' });
   });
 });
+
+test('revoke shortcut aims then holds confirmation for the other browser', async ({
+  baseURL,
+  browser,
+}) => {
+  if (baseURL === undefined) throw new Error('baseURL is required for auth resilience E2E tests');
+  const identity = createIdentity('revoke-shortcut');
+  const firstContext = await browser.newContext({ baseURL });
+  const secondContext = await browser.newContext({ baseURL });
+  try {
+    const first = await firstContext.newPage();
+    await registerIdentity(first, identity);
+    const second = await secondContext.newPage();
+    await openAuthScreen(second, { 'x-forwarded-for': secondaryClientKey(identity) });
+    await signIn(second, identity.username, PASSWORD);
+    await expectLoggedIn(second);
+    await first.getByRole('button', { name: 'Settings', exact: true }).click();
+    await first.getByRole('tab', { name: 'Sessions', exact: true }).click();
+    const revoke = first.getByRole('button', { name: /^Hold to revoke (?!all\b)/u });
+    await expect(revoke).toHaveCount(1);
+    await revoke.locator('..').evaluate((row) => {
+      row.setAttribute('tabindex', '-1');
+      if (!(row instanceof HTMLElement)) throw new Error('session row missing');
+      row.focus();
+    });
+    await first.keyboard.press('x');
+    await expect(revoke).toBeFocused();
+    await expectLoggedIn(second);
+    await first.keyboard.down('x');
+    await expect(revoke).toHaveCount(0);
+    await first.keyboard.up('x');
+    await expectLoggedOut(second);
+  } finally {
+    await firstContext.close();
+    await secondContext.close();
+  }
+});

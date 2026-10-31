@@ -137,7 +137,7 @@ const SettingsScreen: Component<Props> = (props) => {
   function revokeFocusedSession(): void {
     const active = document.activeElement;
     const row = active instanceof Element ? active.closest('[data-session-row]') : null;
-    row?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.click();
+    row?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }
 
   createKeybinds({
