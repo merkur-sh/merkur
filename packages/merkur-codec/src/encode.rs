@@ -275,7 +275,7 @@ pub fn encode_frame_into<'a>(
     header: &FrameHeader,
     rows: impl Iterator<Item = RowRef<'a>>,
 ) {
-    let _ = encode_frame_impl::<false, _>(
+    let _ = encode_frame_impl::<false, false, _>(
         out,
         header,
         rows.map(|row| EncodingRow {
@@ -295,12 +295,17 @@ pub fn encode_prepared_frame_into<'a>(
     header: &FrameHeader,
     rows: impl Iterator<Item = PreparedRowRef<'a>>,
 ) {
-    encode_frame_impl::<false, _>(
+    encode_frame_impl::<false, true, _>(
         out,
         header,
         rows.map(|row| EncodingRow {
             row_index: row.row_index,
-            left: row.left,
+            left: row.left
+                | if row.encoding.links {
+                    ROW_FLAG_LINKS
+                } else {
+                    0
+                },
             cells: row.cells,
             encoding: Some(row.encoding),
             graphics: row.graphics,
@@ -316,7 +321,7 @@ pub fn try_encode_frame_into<'a>(
     header: &FrameHeader,
     rows: impl Iterator<Item = RowRef<'a>>,
 ) -> Result<(), EncodeError> {
-    let result = encode_frame_impl::<true, _>(
+    let result = encode_frame_impl::<true, false, _>(
         out,
         header,
         rows.map(|row| EncodingRow {
@@ -334,7 +339,7 @@ pub fn try_encode_frame_into<'a>(
     result
 }
 
-fn encode_frame_impl<'a, const VALIDATE: bool, G: GraphicsSource>(
+fn encode_frame_impl<'a, const VALIDATE: bool, const PREPARED: bool, G: GraphicsSource>(
     out: &mut Vec<u8>,
     header: &FrameHeader,
     rows: impl Iterator<Item = EncodingRow<'a, G>>,
@@ -382,7 +387,12 @@ fn encode_frame_impl<'a, const VALIDATE: bool, G: GraphicsSource>(
         } else {
             crate::ROW_FLAG_GRAPHICS
         };
-        write_u16(out, row_left_field(row.left, row.cells) | graphics_flag);
+        let left_field = if PREPARED {
+            row.left
+        } else {
+            row_left_field(row.left, row.cells)
+        };
+        write_u16(out, left_field | graphics_flag);
         write_u16(out, cell_count_field);
         let row_byte_count_offset = out.len();
         write_u16(out, 0);

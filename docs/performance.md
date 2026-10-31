@@ -640,7 +640,8 @@ This reduces allocation churn at the cost of higher retained storage.
 
 The capture census also retains the selected color and hyperlink-table modes in
 two bytes per row. Prepared encoding writes that representation directly, with
-separate constant-mode loops for indexed and literal RGB. It never writes a larger
+the row prefix taking its link bit from the same census and separate constant-mode
+loops for indexed and literal RGB. It never writes a larger
 discarded indexed form into a buffer reserved for the final literal size. This is
 necessary when measured sender costs switch a recycled compressed-output buffer
 to raw output. The generic codec API still performs its own census while encoding;
