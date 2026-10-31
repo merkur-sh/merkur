@@ -33,14 +33,11 @@ import { Effect, Layer, Metric } from 'effect';
 import { percentile, perfEnvInteger } from '../../../scripts/perf/harness';
 import { type ServerConfig, ServerConfigService } from '../src/config';
 import { ApiModels } from '../src/http/api-models';
+import { createDaemonIdentityFixture } from '../src/http/daemon-auth-fixture';
 import { telemetryRoutesPlugin } from '../src/http/routes/telemetry-routes';
 import { createLogger } from '../src/logger';
 import type { runServerProgram } from '../src/runtime';
-import {
-  type DeviceService,
-  DeviceServiceTag,
-  type VerifyDaemonResult,
-} from '../src/services/device-service';
+import { DeviceServiceTag } from '../src/services/device-service';
 import { RateLimitServiceTag } from '../src/services/rate-limit-service';
 import { type RedisService, RedisServiceTag } from '../src/services/redis-service';
 
@@ -66,52 +63,14 @@ const counters = { redisCommands: 0, rateLimitConsumes: 0, verifications: 0 };
 
 const unused = () => Effect.die(new Error('bench: unexpected service call'));
 
-function authenticateDaemonProof(
-  id: string,
-  transcript: Uint8Array,
-  signature: string,
-  purpose: 'http',
-  p256Signature: string,
-): Effect.Effect<VerifyDaemonResult | null>;
-function authenticateDaemonProof(
-  id: string,
-  transcript: Uint8Array,
-  signature: string,
-  purpose: 'control',
-  p256Signature: string,
-): Effect.Effect<(VerifyDaemonResult & { readonly daemonBindingJson: string }) | null>;
-function authenticateDaemonProof(
-  id: string,
-  transcript: Uint8Array,
-  signature: string,
-  purpose: 'http' | 'control',
-  p256Signature: string,
-) {
-  return Effect.sync(() => {
+const devices = createDaemonIdentityFixture(
+  DAEMON_ID,
+  PUBLIC_KEY,
+  P256_PUBLIC_KEY,
+  Effect.sync(() => {
     counters.verifications += 1;
-    if (
-      id !== DAEMON_ID ||
-      !verifyDaemonProof(PUBLIC_KEY, P256_PUBLIC_KEY, purpose, transcript, signature, p256Signature)
-    )
-      return null;
-    const identity = { daemonId: id, userId: 'user-1', boxId: null };
-    return purpose === 'control' ? { ...identity, daemonBindingJson: '{}' } : identity;
-  });
-}
-
-const devices: DeviceService = {
-  listDevices: unused,
-  getDevice: unused,
-  createLinkToken: unused,
-  resolveBox: unused,
-  listAccountBoxes: unused,
-  getDaemonSessionIdentity: unused,
-  renameDevice: unused,
-  deleteDevice: unused,
-  touchDaemon: unused,
-  touchDaemonsSeen: unused,
-  authenticateDaemonProof,
-};
+  }),
+);
 
 const redis: RedisService = {
   useCommands: (fn) =>

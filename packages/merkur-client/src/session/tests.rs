@@ -2051,11 +2051,37 @@ fn reliable_backlog_is_split_into_valid_runs() {
     );
 }
 
+fn graphics_content_reply(
+    daemon: &mut NoiseTransport,
+    png: &[u8],
+    request: u64,
+    first: u32,
+    count: u32,
+) -> Vec<u8> {
+    use merkur_e2e::{CONTENT_CHUNK_BYTES, CONTENT_CHUNK_OVERHEAD, ContentDescriptor};
+
+    let descriptor = ContentDescriptor::new(
+        request,
+        [17; 32],
+        merkur_graphics::tile::object_root(png),
+        u32::try_from(png.len()).unwrap(),
+        first,
+        count,
+    )
+    .unwrap();
+    let mut sender = daemon.content_sender(descriptor).unwrap();
+    let mut wire = sender.header().to_vec();
+    let mut record = vec![0; CONTENT_CHUNK_BYTES + CONTENT_CHUNK_OVERHEAD];
+    for chunk in png[descriptor.range()].chunks(CONTENT_CHUNK_BYTES) {
+        let n = sender.seal_next(chunk, &mut record).unwrap();
+        wire.extend_from_slice(&record[..n]);
+    }
+    wire
+}
+
 #[test]
 fn carrier_retirement_resumes_graphics_without_finite_end() {
-    use merkur_e2e::{
-        CONTENT_CHUNK_BYTES, CONTENT_CHUNK_OVERHEAD, CONTENT_HEADER_BYTES, ContentDescriptor,
-    };
+    use merkur_e2e::{CONTENT_CHUNK_BYTES, CONTENT_CHUNK_OVERHEAD, CONTENT_HEADER_BYTES};
     const CONTENT_STREAM: u8 = 0x80 | merkur_wire::protocol::CHANNEL_GRAPHICS_CONTENT;
     let (mut h, mut daemon) = ready();
     drain(&mut h.session);
@@ -2081,29 +2107,10 @@ fn carrier_retirement_resumes_graphics_without_finite_end() {
     png.extend_from_slice(&[0; 4]);
     png.extend_from_slice(&40_000u32.to_be_bytes());
     png.extend_from_slice(b"IDAT");
-    png.extend((0..40_000).map(|n| n as u8));
+    png.extend((0..40_000u32).map(|n| n.to_le_bytes()[0]));
     png.extend_from_slice(&[0; 4]);
     png.extend_from_slice(b"\0\0\0\0IEND\xae\x42\x60\x82");
-    let mut answer = |request, first, count| {
-        let descriptor = ContentDescriptor::new(
-            request,
-            [17; 32],
-            merkur_graphics::tile::object_root(&png),
-            png.len() as u32,
-            first,
-            count,
-        )
-        .unwrap();
-        let mut sender = daemon.content_sender(descriptor).unwrap();
-        let mut wire = sender.header().to_vec();
-        let mut record = vec![0; CONTENT_CHUNK_BYTES + CONTENT_CHUNK_OVERHEAD];
-        for chunk in png[descriptor.range()].chunks(CONTENT_CHUNK_BYTES) {
-            let n = sender.seal_next(chunk, &mut record).unwrap();
-            wire.extend_from_slice(&record[..n]);
-        }
-        wire
-    };
-    let wire = answer(1, 0, 3);
+    let wire = graphics_content_reply(&mut daemon, &png, 1, 0, 3);
     h.session.handle(
         NOW + 31,
         Event::Finite {
@@ -2111,7 +2118,7 @@ fn carrier_retirement_resumes_graphics_without_finite_end() {
             stream: 7,
             part: graphics::FinitePart::Begin {
                 channel: CONTENT_STREAM,
-                total: wire.len() as u32,
+                total: u32::try_from(wire.len()).unwrap(),
             },
         },
         &mut h.entropy,
@@ -2125,7 +2132,7 @@ fn carrier_retirement_resumes_graphics_without_finite_end() {
                 stream,
                 part: graphics::FinitePart::Begin {
                     channel: CONTENT_STREAM,
-                    total: wire.len() as u32,
+                    total: u32::try_from(wire.len()).unwrap(),
                 },
             },
             &mut h.entropy,
@@ -2145,12 +2152,12 @@ fn carrier_retirement_resumes_graphics_without_finite_end() {
     // No finite End: the native carrier has aborted its readers.
     drain(&mut h.session);
     h.session.graphics.unavailable(1, true);
-    let rest = answer(2, 2, 1);
+    let rest = graphics_content_reply(&mut daemon, &png, 2, 2, 1);
     let replacement = h.session.lanes.as_ref().unwrap().bulk;
     for part in [
         graphics::FinitePart::Begin {
             channel: CONTENT_STREAM,
-            total: rest.len() as u32,
+            total: u32::try_from(rest.len()).unwrap(),
         },
         graphics::FinitePart::Data(&rest),
         graphics::FinitePart::End { complete: true },
@@ -2197,16 +2204,17 @@ fn idle_retry_marks_duplicates_for_ack_replacement() {
     let lane = merkur_e2e::lane_for_channel(CHANNEL_PTY).unwrap();
     let mut retries = 0;
     for action in drain(&mut h.session) {
-        let plain = match action {
-            Action::SendInputDatagram { payload, .. } => {
-                daemon.open_datagram(lane, &payload[1..]).unwrap()
-            }
-            Action::SendReliable {
-                channel: CHANNEL_PTY,
-                payload,
-                ..
-            } => daemon.open_stream(lane, &payload).unwrap(),
-            _ => continue,
+        let plain = if let Action::SendInputDatagram { payload, .. } = action {
+            daemon.open_datagram(lane, &payload[1..]).unwrap()
+        } else if let Action::SendReliable {
+            channel: CHANNEL_PTY,
+            payload,
+            ..
+        } = action
+        {
+            daemon.open_stream(lane, &payload).unwrap()
+        } else {
+            continue;
         };
         let (_, body) = decode_proto_frame(&plain).unwrap();
         let (header, entries) = parse_input_run(body).unwrap();

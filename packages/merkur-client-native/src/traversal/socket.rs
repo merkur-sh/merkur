@@ -498,6 +498,13 @@ impl Mapping {
             .min()
             .map(|delay| Instant::now() + delay);
     }
+    async fn release_rejected(&mut self) {
+        if let Some(rejected) = self.rejected.as_ref()
+            && rejected.release().await
+        {
+            self.rejected = None;
+        }
+    }
     async fn release(mut self) -> Result<(), Box<Self>> {
         if let Some(lease) = self.lease.as_ref()
             && portmap::release((**lease).clone()).await
@@ -509,11 +516,7 @@ impl Mapping {
         {
             self.pinhole = None;
         }
-        if let Some(rejected) = self.rejected.as_ref()
-            && rejected.release().await
-        {
-            self.rejected = None;
-        }
+        self.release_rejected().await;
         if self.lease.is_none() && self.pinhole.is_none() && self.rejected.is_none() {
             Ok(())
         } else {
@@ -702,13 +705,7 @@ impl Worker {
                     let mut cleanup = FuturesUnordered::new();
                     for mapping in &mut self.mappings {
                         if mapping.rejected.is_some() {
-                            cleanup.push(async move {
-                                if let Some(rejected) = mapping.rejected.as_ref()
-                                    && rejected.release().await
-                                {
-                                    mapping.rejected = None;
-                                }
-                            });
+                            cleanup.push(mapping.release_rejected());
                         }
                     }
                     while cleanup.next().await.is_some() {}
@@ -1214,6 +1211,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test assertions panic on incorrect behavior while setup propagates I/O errors."
+    )]
     async fn rejected_pcp_grant_is_cleanup_only() -> Result<(), Box<dyn std::error::Error>> {
         let (mut mapping, allow, gateway) = rejected_mapping(44_433, 0).await?;
         mapping.schedule();
@@ -1264,6 +1265,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "Test assertions panic on incorrect behavior while setup propagates I/O errors."
+    )]
     async fn worker_retries_rejected_cleanup_before_reacquiring()
     -> Result<(), Box<dyn std::error::Error>> {
         let binding = test_binding(1, 4)?;

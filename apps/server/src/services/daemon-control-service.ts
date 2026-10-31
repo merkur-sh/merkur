@@ -309,13 +309,15 @@ interface PendingLocalCommand {
   >;
 }
 
-const { Joined: joinedRevocationDelivery } = Data.taggedEnum<{
+type JoinedRevocationDelivery = Data.TaggedEnum<{
   Joined: {
     readonly connection: ControlConnection;
     readonly pending: PendingLocalCommand;
     readonly superseded: undefined;
   };
-}>();
+}>;
+
+const { Joined: joinedRevocationDelivery } = Data.taggedEnum<JoinedRevocationDelivery>();
 
 interface InboundControlMessage<
   Message extends DaemonControlDaemonMessage = DaemonControlDaemonMessage,

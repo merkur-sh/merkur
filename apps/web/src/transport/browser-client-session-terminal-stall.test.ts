@@ -2,6 +2,7 @@ import { expect, spyOn, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { MAX_DISPLAY_FRAME_BYTES } from '@merkur/shared';
+import { Predicate } from 'effect';
 import {
   createFrameRingReader,
   createFrameRingWriter,
@@ -215,14 +216,46 @@ for (const operation of ['frame', 'fence'] as const) {
     reader.takeRefusal();
     const add = Atomics.add;
     let drained = false;
-    const refusal = spyOn(Atomics, 'add').mockImplementation((meta, index, value) => {
+    function addAfterDrain(
+      meta: Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array,
+      index: number,
+      value: number,
+    ): number;
+    function addAfterDrain(
+      meta: BigInt64Array | BigUint64Array,
+      index: number,
+      value: bigint,
+    ): bigint;
+    function addAfterDrain(
+      meta:
+        | Int8Array
+        | Uint8Array
+        | Int16Array
+        | Uint16Array
+        | Int32Array
+        | Uint32Array
+        | BigInt64Array
+        | BigUint64Array,
+      index: number,
+      value: number | bigint,
+    ): number | bigint {
       if (meta.buffer === session.ring && index === 2 && !drained) {
         drained = true;
         while (reader.tryRead() !== null) {}
         expect(reader.takeRefusal()).toBe(false);
       }
+      if (Predicate.isBigInt(value)) {
+        if (!(meta instanceof BigInt64Array || meta instanceof BigUint64Array)) {
+          throw new Error('bigint addition requires a bigint array');
+        }
+        return add(meta, index, value);
+      }
+      if (meta instanceof BigInt64Array || meta instanceof BigUint64Array) {
+        throw new Error('number addition requires a number array');
+      }
       return add(meta, index, value);
-    });
+    }
+    const refusal = spyOn(Atomics, 'add').mockImplementation(addAfterDrain);
     try {
       let delivered = false;
       const pending = session.run<Promise<void>>(

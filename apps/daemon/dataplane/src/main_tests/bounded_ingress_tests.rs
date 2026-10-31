@@ -458,7 +458,10 @@ async fn terminal_query_burst_waits_for_reply_credit() {
     struct Replies(Arc<std::sync::Mutex<Vec<u8>>>);
     impl io::Write for Replies {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
+            self.0
+                .lock()
+                .map_err(|error| io::Error::other(error.to_string()))?
+                .extend_from_slice(bytes);
             Ok(bytes.len())
         }
         fn flush(&mut self) -> io::Result<()> {

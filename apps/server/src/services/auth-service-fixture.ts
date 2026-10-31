@@ -117,7 +117,7 @@ export function recordingMail(sent: SentMail[]): MailSender {
 export async function useEmailIdentity(
   sent: SentMail[],
   overrides: Partial<AuthServiceConfig> = {},
-  wakeNotifications = deliverPendingNotifications(db, createFakeRedis(), {
+  wakeNotifications: Effect.Effect<void> = deliverPendingNotifications(db, createFakeRedis(), {
     getDaemonPresence: () => Effect.succeed(null),
   }).pipe(Effect.orDie),
 ): Promise<void> {

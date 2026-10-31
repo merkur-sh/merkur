@@ -855,6 +855,10 @@ async fn refusing_pcp_cleanup(
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test assertions panic on incorrect behavior while setup propagates I/O errors."
+)]
 async fn rejected_pcp_grant_retains_failed_cleanup() -> Result<(), Box<dyn std::error::Error>> {
     let (pxp, seen, allow) =
         refusing_pcp_cleanup(IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V4(INNER)).await?;
@@ -894,6 +898,10 @@ async fn rejected_pcp_grant_retains_failed_cleanup() -> Result<(), Box<dyn std::
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test assertions panic on incorrect behavior while setup propagates I/O errors."
+)]
 async fn rejected_pcp_grant_retains_failed_cleanup_ipv6() -> Result<(), Box<dyn std::error::Error>>
 {
     let (pxp, seen, allow) =

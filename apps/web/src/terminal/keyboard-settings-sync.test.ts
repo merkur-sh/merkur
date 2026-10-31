@@ -655,7 +655,7 @@ for (const phase of ['coalescing', 'in flight'] as const) {
     }
     saveVirtualKeyboardPreferences({
       ...loadVirtualKeyboardPreferences(),
-      toolbarKeys: a.toolbarKeys,
+      toolbarKeys: [...DEFAULT_TOOLBAR_KEYS],
     });
     saveDelay = null;
     release();

@@ -61,7 +61,7 @@ if (dragonflyUrl === undefined) {
                 settled.resolve();
               }
             },
-            'atomic-code',
+            'Redis.commands',
           ),
       };
       try {

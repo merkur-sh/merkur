@@ -516,8 +516,10 @@ fn extra_host_paints_do_not_spend_an_incomplete_redraws_frame_bound() {
     assert_eq!(view.viewer.grid().cursor().unwrap().col, 1);
 }
 
-#[test]
-fn resident_animation_boundary_requests_paint() {
+fn animation_fixture() -> (
+    merkur_graphics::animation::Manifest,
+    merkur_graphics::projection::Fragment,
+) {
     use merkur_graphics::animation::{Entry, Manifest, Mode, Playback as Timeline};
     use merkur_graphics::budget::{Budget as GraphicsBudget, Usage};
     use merkur_graphics::geometry::{CELL_UNIT, RowSlice};
@@ -575,6 +577,12 @@ fn resident_animation_boundary_requests_paint() {
             source_bottom: 16 * CELL_UNIT,
         },
     };
+    (manifest, fragment)
+}
+
+#[test]
+fn resident_animation_boundary_requests_paint() {
+    let (manifest, fragment) = animation_fixture();
     let graphics = [fragment];
     let mut header = merkur_codec::parse_frame_header(&staged_snapshot(8, 3, 0)).unwrap();
     header.memory_only = true;
@@ -590,7 +598,7 @@ fn resident_animation_boundary_requests_paint() {
             graphics: &graphics,
         }),
     );
-    let body_len = (payload.len() - STREAM_HEADER_BYTES) as u32;
+    let body_len = u32::try_from(payload.len() - STREAM_HEADER_BYTES).unwrap();
     write_stream_header(
         &mut payload,
         &StreamHeader {
@@ -618,11 +626,12 @@ fn resident_animation_boundary_requests_paint() {
     );
     view.drained(0.0);
     let key = std::iter::from_fn(|| view.viewer.poll_output(0.0))
-        .find_map(|output| match output {
-            viewer::Output::GraphicsDemand { demands, .. } => {
+        .find_map(|output| {
+            if let viewer::Output::GraphicsDemand { demands, .. } = output {
                 demands.into_iter().next().map(|demand| demand.key)
+            } else {
+                None
             }
-            _ => None,
         })
         .expect("the animation manifest was requested");
     view.viewer

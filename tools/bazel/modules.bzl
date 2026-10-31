@@ -4947,6 +4947,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/transport/browser-client-session-terminal-stall.test.ts": [
+            "//apps/web:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":src/terminal/shared-ring.ts.module",
@@ -8626,6 +8627,7 @@ TYPE_INPUTS = {
             "src/http/build-identity.ts",
             "src/http/client-ip.ts",
             "src/http/cookies.ts",
+            "src/http/daemon-auth-fixture.ts",
             "src/http/daemon-request-auth.ts",
             "src/http/edge-registration-auth.ts",
             "src/http/effect-route.ts",

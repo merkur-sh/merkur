@@ -6,6 +6,9 @@ import { createMouseGestureOwner } from './terminal/pointer-input';
 import { createTouchScroll } from './terminal/touch-scroll';
 
 interface PointerTestEvent {
+  readonly preventDefault?: () => void;
+  readonly timeStamp?: number;
+  readonly shiftKey?: boolean;
   readonly touches?: ReturnType<typeof touches>;
   readonly changedTouches?: ReturnType<typeof touches>;
   readonly pointerType?: string;

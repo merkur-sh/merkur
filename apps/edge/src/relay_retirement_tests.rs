@@ -233,6 +233,10 @@ async fn active_fault(relay: &Relay, failure: &str) {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test assertions panic on incorrect behavior while setup propagates I/O errors."
+)]
 async fn delayed_old_tunnel_cannot_supersede_new_incarnation()
 -> Result<(), Box<dyn std::error::Error>> {
     let (server, client, url) = endpoints();

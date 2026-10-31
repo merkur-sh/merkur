@@ -29,6 +29,61 @@ const p256PublicKey = Buffer.from(
 ).toString('base64url');
 const unused = () => Effect.die(new Error('Unexpected fixture service call'));
 
+/** Signed daemon identities shared by HTTP fixtures and the request benchmark. */
+export function createDaemonIdentityFixture(
+  daemonId: string,
+  publicKey: string,
+  p256PublicKey: string,
+  beforeVerify: Effect.Effect<void>,
+) {
+  function authenticateDaemonProof(
+    id: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'http',
+    p256Signature: string,
+  ): Effect.Effect<VerifyDaemonResult | null>;
+  function authenticateDaemonProof(
+    id: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'control',
+    p256Signature: string,
+  ): Effect.Effect<(VerifyDaemonResult & { readonly daemonBindingJson: string }) | null>;
+  function authenticateDaemonProof(
+    id: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'http' | 'control',
+    p256Signature: string,
+  ): Effect.Effect<VerifyDaemonResult | null> {
+    return Effect.gen(function* () {
+      yield* beforeVerify;
+      if (
+        id !== daemonId ||
+        !verifyDaemonProof(publicKey, p256PublicKey, purpose, transcript, signature, p256Signature)
+      )
+        return null;
+      const identity = { daemonId: id, userId: 'user-1', boxId: null };
+      return purpose === 'control' ? { ...identity, daemonBindingJson: '{}' } : identity;
+    });
+  }
+  const devices: DeviceService = {
+    listDevices: unused,
+    getDevice: unused,
+    createLinkToken: unused,
+    resolveBox: unused,
+    listAccountBoxes: unused,
+    getDaemonSessionIdentity: unused,
+    renameDevice: unused,
+    deleteDevice: unused,
+    touchDaemon: unused,
+    touchDaemonsSeen: unused,
+    authenticateDaemonProof,
+  };
+  return devices;
+}
+
 /** Shared HTTP/WS boundary fixture; real signatures, explicit unused services. */
 export function daemonAuthFixture(
   options: {
@@ -76,51 +131,12 @@ export function daemonAuthFixture(
     stunServers: ['stun.test:3478', 'stun.test:3479'],
     boxHostStunObservers: [],
   };
-  function authenticateDaemonProof(
-    id: string,
-    transcript: Uint8Array,
-    signature: string,
-    purpose: 'http',
-    p256Signature: string,
-  ): Effect.Effect<VerifyDaemonResult | null>;
-  function authenticateDaemonProof(
-    id: string,
-    transcript: Uint8Array,
-    signature: string,
-    purpose: 'control',
-    p256Signature: string,
-  ): Effect.Effect<(VerifyDaemonResult & { readonly daemonBindingJson: string }) | null>;
-  function authenticateDaemonProof(
-    id: string,
-    transcript: Uint8Array,
-    signature: string,
-    purpose: 'http' | 'control',
-    p256Signature: string,
-  ) {
-    return Effect.gen(function* () {
-      if (options.beforeVerify !== undefined) yield* Effect.promise(options.beforeVerify);
-      if (
-        id !== 'daemon-1' ||
-        !verifyDaemonProof(publicKey, p256PublicKey, purpose, transcript, signature, p256Signature)
-      )
-        return null;
-      const identity = { daemonId: id, userId: 'user-1', boxId: null };
-      return purpose === 'control' ? { ...identity, daemonBindingJson: '{}' } : identity;
-    });
-  }
-  const devices: DeviceService = {
-    listDevices: unused,
-    getDevice: unused,
-    createLinkToken: unused,
-    resolveBox: unused,
-    listAccountBoxes: unused,
-    getDaemonSessionIdentity: unused,
-    renameDevice: unused,
-    deleteDevice: unused,
-    touchDaemon: unused,
-    touchDaemonsSeen: unused,
-    authenticateDaemonProof,
-  };
+  const devices = createDaemonIdentityFixture(
+    'daemon-1',
+    publicKey,
+    p256PublicKey,
+    options.beforeVerify === undefined ? Effect.void : Effect.promise(options.beforeVerify),
+  );
   const redis: RedisService = {
     useCommands: (fn) =>
       Effect.tryPromise({

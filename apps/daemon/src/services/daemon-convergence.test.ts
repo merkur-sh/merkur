@@ -170,9 +170,7 @@ describe('convergence', () => {
     try {
       process.env.MERKUR_RELEASE_SEQUENCE = '43';
       const error = await Effect.runPromise(
-        Effect.flip(
-          activateReleaseEffect({ logger, installRoot, versionDirectory, running: null }),
-        ),
+        Effect.flip(activateReleaseEffect({ logger, installRoot, versionDirectory })),
       );
       expect(error.message).toContain('below rollback floor 43');
       expect(await Bun.file(path.join(installRoot, 'current', 'merkur')).exists()).toBe(false);
@@ -240,7 +238,6 @@ describe('convergence', () => {
         logger,
         installRoot,
         versionDirectory,
-        running: null,
       });
       const advance = persistReleaseTrustFloorEffect(installRoot, {
         manifestSha512: 'cd'.repeat(64),

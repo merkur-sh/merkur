@@ -961,7 +961,7 @@ describe('daemon control connection', () => {
   test('persists and replays accepted delegation tombstones after a sidecar restart', async () => {
     const harness = createHarness();
     const sidecars: Array<{
-      child: DataplaneSidecarProcess;
+      child: DataplaneSidecarProcess & EventEmitter;
       frames: Array<{ kind: number; payload: Uint8Array }>;
       ack: () => void;
     }> = [];
@@ -991,7 +991,7 @@ describe('daemon control connection', () => {
               frames.push({ kind, payload: Uint8Array.from(payload) }),
             );
           });
-          const child: DataplaneSidecarProcess = Object.assign(new EventEmitter(), {
+          const child = Object.assign(new EventEmitter(), {
             stdin,
             stdout: new PassThrough(),
             stderr: new PassThrough(),

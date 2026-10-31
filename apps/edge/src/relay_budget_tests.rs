@@ -386,6 +386,10 @@ async fn relay_data_control_keeps_the_newest_resume_and_stopped_sends_no_event()
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test assertions panic on incorrect behavior while setup propagates I/O errors."
+)]
 async fn candidate_promotion_preserves_pending_resume() -> Result<(), Box<dyn std::error::Error>> {
     use crate::egress_budget::BudgetState;
     use std::future::Future;
@@ -444,6 +448,10 @@ async fn candidate_promotion_preserves_pending_resume() -> Result<(), Box<dyn st
 }
 
 #[tokio::test]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Test assertions panic on incorrect behavior while setup propagates I/O errors."
+)]
 async fn failed_candidate_controls_detach_promoted_browser()
 -> Result<(), Box<dyn std::error::Error>> {
     use crate::egress_budget::BudgetState;

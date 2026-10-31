@@ -587,10 +587,10 @@ async fn prepare_tunnel(
         })?;
     let quote = tokio::time::timeout(PREFACE_TIMEOUT, read_delivery_quote_stream(connection))
         .await
-        .map_err(|_| {
+        .map_err(|error| {
             metrics::record_handshake_failure("quote_preface_timeout");
             connection.close(VarInt::from_u32(CLOSE_CODE), b"quote-preface-timeout");
-            "delivery-quote preface timed out".to_string()
+            format!("delivery-quote preface timed out: {error}")
         })
         .and_then(|result| {
             result.inspect_err(|_| {

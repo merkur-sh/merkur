@@ -121,9 +121,11 @@ test.each(['start', 'capture'] as const)(
             observationId = request.observationId;
             reply = { ok: true, observationId };
           } else if (request.op === 'capture') {
+            if (observationId === undefined) throw new Error('observation has not started');
             expect(request.observationId).toBe(observationId);
             reply = { ok: false, reason: 'controlled_capture_failure' };
           } else if (request.op === 'end') {
+            if (observationId === undefined) throw new Error('observation has not started');
             expect(request.observationId).toBe(observationId);
             reply = { ok: true };
           } else {

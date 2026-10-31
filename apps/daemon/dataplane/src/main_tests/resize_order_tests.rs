@@ -358,7 +358,7 @@ async fn geometry_fence_waits_for_preceding_write_completion() {
     impl io::Write for HeldWriter {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
             if let Some(release) = self.release.take() {
-                self.entered.send(()).unwrap();
+                self.entered.send(()).map_err(io::Error::other)?;
                 release.recv().map_err(io::Error::other)?;
             }
             Ok(bytes.len())

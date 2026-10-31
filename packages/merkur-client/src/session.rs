@@ -1269,9 +1269,10 @@ impl Session {
         if self.is_closed() {
             return;
         }
-        let retired = match &event {
-            Event::Closed { conn, .. } | Event::DialFailed(conn) => Some(*conn),
-            _ => None,
+        let retired = if let Event::Closed { conn, .. } | Event::DialFailed(conn) = &event {
+            Some(*conn)
+        } else {
+            None
         };
         if let Event::Closed { conn, .. } | Event::DialFailed(conn) = &event {
             self.reliable_blocked.retain(|writer| writer.0 != *conn);

@@ -105,7 +105,7 @@ struct ShellCleanup(u32);
 impl Drop for ShellCleanup {
     fn drop(&mut self) {
         if self.0 != 0 {
-            let _ = Command::new("kill")
+            let _cleanup = Command::new("kill")
                 .args(["-KILL", &self.0.to_string()])
                 .status();
         }

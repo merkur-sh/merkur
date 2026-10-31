@@ -580,7 +580,7 @@ fn modify_other_keys_code(code: u32, shifted: Option<u32>, mods: u8, level: u8) 
 /// Unmodified VT application-keypad identities, before main-key folding.
 fn application_keypad(code: u32) -> Option<u8> {
     Some(match code {
-        KP_0..=KP_9 => b'p' + (code - KP_0) as u8,
+        KP_0..=KP_9 => b'p' + u8::try_from(code - KP_0).ok()?,
         KP_DECIMAL => b'n',
         KP_DIVIDE => b'o',
         KP_MULTIPLY => b'j',

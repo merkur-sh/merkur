@@ -5,6 +5,7 @@ import type { runServerProgram } from '../../runtime';
 import type { AuthenticatedBrowser } from '../../services/auth-service';
 import {
   PushDelegationEnded,
+  type PushNotificationService,
   PushNotificationServiceTag,
   UntrustedPushDestination,
 } from '../../services/push-notification-service';
@@ -14,6 +15,9 @@ import { authorizeDaemonRequest, createDaemonRequestAuth } from '../daemon-reque
 import { runLoggedEffect, runRouteEffect } from '../effect-route';
 
 type RunServerProgram = typeof runServerProgram;
+type PushSubscriptionError = Effect.Error<
+  ReturnType<PushNotificationService['upsertSubscription']>
+>;
 
 const STATUS_NO_CONTENT = 204;
 const STATUS_SERVICE_UNAVAILABLE = 503;
@@ -93,7 +97,7 @@ export function notificationRoutesPlugin({
                 eventName: 'push_subscription_upsert_failed',
                 request,
                 signal: request.signal,
-                mapError: (error) =>
+                mapError: (error: PushSubscriptionError) =>
                   error instanceof UntrustedPushDestination
                     ? status(400, { error: 'untrusted_push_destination' })
                     : error instanceof PushDelegationEnded

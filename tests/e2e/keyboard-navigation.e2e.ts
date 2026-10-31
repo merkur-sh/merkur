@@ -25,6 +25,20 @@ async function expectRoute(page: Page, route: string): Promise<void> {
   await expect(page.locator('body')).toHaveAttribute('data-route', route);
 }
 
+async function expectSelectedTab(page: Page, name: string): Promise<void> {
+  await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true');
+}
+
+async function openPalette(page: Page) {
+  await page.keyboard.down('MetaRight');
+  await page.keyboard.press('k');
+  await page.keyboard.up('MetaRight');
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  const query = palette.getByRole('combobox');
+  await expect(palette.getByRole('option').first()).toBeVisible();
+  return { palette, query };
+}
+
 test('drives the machine list, its actions, and the palette from the keyboard', async ({
   baseURL,
   page,
@@ -104,20 +118,11 @@ test('drives the machine list, its actions, and the palette from the keyboard', 
 
     // The four tabs are one screen: `l` and `3` move within it without
     // deepening the stack, so one Escape still leaves for the machine list.
-    await expect(page.getByRole('tab', { name: 'Terminal' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expectSelectedTab(page, 'Terminal');
     await page.keyboard.press('l');
-    await expect(page.getByRole('tab', { name: 'Keyboard' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expectSelectedTab(page, 'Keyboard');
     await page.keyboard.press('3');
-    await expect(page.getByRole('tab', { name: 'Sessions' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expectSelectedTab(page, 'Sessions');
     await expectRoute(page, 'settings');
     await page.keyboard.press('Escape');
     await expectRoute(page, 'devices');
@@ -193,15 +198,9 @@ test('drives the machine list, its actions, and the palette from the keyboard', 
 
     // The tab bar is never a `j` stop: walking the controls of a tab must not
     // wander into the control that replaces them.
-    await expect(page.getByRole('tab', { name: 'Terminal' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expectSelectedTab(page, 'Terminal');
     await page.keyboard.press('l');
-    await expect(page.getByRole('tab', { name: 'Keyboard' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expectSelectedTab(page, 'Keyboard');
     await expectRoute(page, 'settings');
 
     await page.keyboard.press('q');
@@ -214,11 +213,7 @@ test('drives the machine list, its actions, and the palette from the keyboard', 
 test('palette composition commits text without running its selected command', async ({ page }) => {
   await page.goto('/');
   await createAccount(page, `palette-composition-${uniqueSuffix()}`, 'Password123!');
-  await page.keyboard.down('MetaRight');
-  await page.keyboard.press('k');
-  await page.keyboard.up('MetaRight');
-  const palette = page.getByRole('dialog', { name: 'Command palette' });
-  const query = palette.getByRole('combobox');
+  const { palette, query } = await openPalette(page);
   await query.fill('Settings');
   await expect(palette.getByRole('option').first()).toBeVisible();
   await query.evaluate((element) => {
@@ -243,11 +238,7 @@ test('palette composition commits text without running its selected command', as
 test('palette Tab containment keeps focus on the query', async ({ page }) => {
   await page.goto('/');
   await createAccount(page, `palette-tab-${uniqueSuffix()}`, 'Password123!');
-  await page.keyboard.down('MetaRight');
-  await page.keyboard.press('k');
-  await page.keyboard.up('MetaRight');
-  const palette = page.getByRole('dialog', { name: 'Command palette' });
-  const query = palette.getByRole('combobox');
+  const { palette, query } = await openPalette(page);
   await expect(palette.getByRole('option').first()).toBeVisible();
   await expect(query).toBeFocused();
   await page.keyboard.press('Tab');

@@ -2110,7 +2110,7 @@ fn link_viewport_retains_presented_definitions_until_the_next_commit() {
     fn table(id: u32, uri: &str) -> Vec<u8> {
         let mut bytes = vec![1];
         bytes.extend_from_slice(&id.to_be_bytes());
-        bytes.extend_from_slice(&(uri.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&u32::try_from(uri.len()).unwrap().to_be_bytes());
         bytes.extend_from_slice(uri.as_bytes());
         bytes
     }
