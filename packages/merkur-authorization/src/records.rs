@@ -33,36 +33,57 @@ pub struct DelegationPayload {
     pub expires_at: u64,
 }
 
-impl DelegationPayload {
-    pub fn validate(&self) -> Result<(), AuthorizationError> {
-        require_id(&self.user_id, "user id")?;
-        decode_len(&self.root_key_commitment, HASH_BYTES, "root key commitment")?;
-        require_id(&self.delegation_id, "delegation id")?;
-        decode_len(
-            &self.delegate_public_key,
-            PUBLIC_KEY_BYTES,
-            "delegate public key",
-        )?;
-        if self.scopes.len() != 2
-            || self.scopes[0] != DELEGATION_SCOPES[0]
-            || self.scopes[1] != DELEGATION_SCOPES[1]
-        {
-            return Err(AuthorizationError::message(
-                "delegation scopes are not the fixed canonical scopes",
-            ));
-        }
-        require_origin(&self.server_origin)?;
-        require_positive(self.root_epoch, "root epoch")?;
-        require_timestamp(self.issued_at, "delegation issued-at")?;
-        require_timestamp(self.expires_at, "delegation expiry")?;
-        if self.expires_at.checked_sub(self.issued_at) != Some(DELEGATION_LIFETIME_MS) {
-            return Err(AuthorizationError::message(
-                "delegation lifetime must be exactly 30 days",
-            ));
-        }
-        Ok(())
-    }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DelegationPayloadRef<'a> {
+    user_id: &'a str,
+    root_key_commitment: &'a str,
+    delegation_id: &'a str,
+    delegate_public_key: &'a str,
+    scopes: &'a [String],
+    server_origin: &'a str,
+    root_epoch: u64,
+    issued_at: u64,
+    expires_at: u64,
 }
+
+macro_rules! validate_delegation_payload {
+    ($payload:ty) => {
+        impl $payload {
+            pub fn validate(&self) -> Result<(), AuthorizationError> {
+                require_id(&self.user_id, "user id")?;
+                decode_len(&self.root_key_commitment, HASH_BYTES, "root key commitment")?;
+                require_id(&self.delegation_id, "delegation id")?;
+                decode_len(
+                    &self.delegate_public_key,
+                    PUBLIC_KEY_BYTES,
+                    "delegate public key",
+                )?;
+                if self.scopes.len() != 2
+                    || self.scopes[0] != DELEGATION_SCOPES[0]
+                    || self.scopes[1] != DELEGATION_SCOPES[1]
+                {
+                    return Err(AuthorizationError::message(
+                        "delegation scopes are not the fixed canonical scopes",
+                    ));
+                }
+                require_origin(&self.server_origin)?;
+                require_positive(self.root_epoch, "root epoch")?;
+                require_timestamp(self.issued_at, "delegation issued-at")?;
+                require_timestamp(self.expires_at, "delegation expiry")?;
+                if self.expires_at.checked_sub(self.issued_at) != Some(DELEGATION_LIFETIME_MS) {
+                    return Err(AuthorizationError::message(
+                        "delegation lifetime must be exactly 30 days",
+                    ));
+                }
+                Ok(())
+            }
+        }
+    };
+}
+
+validate_delegation_payload!(DelegationPayload);
+validate_delegation_payload!(DelegationPayloadRef<'_>);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -114,9 +135,7 @@ impl DelegationCertificate {
 
     /// Structural rules only: fields, lengths and the fixed lifetime.
     pub fn validate(&self) -> Result<(), AuthorizationError> {
-        self.payload().validate()?;
-        decode_len(&self.signature, SIGNATURE_BYTES, "delegation signature")?;
-        Ok(())
+        self.validated().map(|_| ())
     }
 
     pub fn to_json(&self) -> String {
@@ -141,16 +160,41 @@ impl DelegationCertificate {
         decode_exact(&self.delegate_public_key, "delegate public key")
     }
 
+    fn payload_ref(&self) -> DelegationPayloadRef<'_> {
+        DelegationPayloadRef {
+            user_id: &self.user_id,
+            root_key_commitment: &self.root_key_commitment,
+            delegation_id: &self.delegation_id,
+            delegate_public_key: &self.delegate_public_key,
+            scopes: &self.scopes,
+            server_origin: &self.server_origin,
+            root_epoch: self.root_epoch,
+            issued_at: self.issued_at,
+            expires_at: self.expires_at,
+        }
+    }
+
+    fn validated(&self) -> Result<ValidatedDelegation<'_>, AuthorizationError> {
+        self.payload_ref().validate()?;
+        decode_len(&self.signature, SIGNATURE_BYTES, "delegation signature")?;
+        Ok(ValidatedDelegation(self))
+    }
+
     /// The root's signature over the payload, with no claim about who or when.
     pub fn verify_signature(&self, root_public_key: &[u8]) -> Result<(), AuthorizationError> {
-        self.validate()?;
-        verify(
-            root_public_key,
-            USER_DELEGATION_CONTEXT,
-            to_json(&self.payload()).as_bytes(),
-            &self.signature,
-            "delegation signature",
-        )
+        self.validated()?.verify_signature(root_public_key)
+    }
+
+    /// Shape validation, synchronous caller checks, then the root's signature.
+    pub fn verify_signature_with<E>(
+        &self,
+        root_public_key: &[u8],
+        check: impl FnOnce() -> Result<(), E>,
+        invalid: impl Fn(AuthorizationError) -> E,
+    ) -> Result<(), E> {
+        let validated = self.validated().map_err(&invalid)?;
+        check()?;
+        validated.verify_signature(root_public_key).map_err(invalid)
     }
 
     /// The signature plus every expectation, with the issuance time allowed to
@@ -160,22 +204,27 @@ impl DelegationCertificate {
         root_public_key: &[u8],
         expected: &DelegationExpectation<'_>,
     ) -> Result<(), AuthorizationError> {
-        self.validate()?;
-        if self.user_id != expected.user_id
-            || self.root_key_commitment != expected.root_key_commitment
-            || expected
-                .delegation_id
-                .is_some_and(|id| id != self.delegation_id)
-            || self.server_origin != expected.server_origin
-            || self.root_epoch != expected.root_epoch
-            || expected.now_ms.saturating_add(CLOCK_SKEW_MS) < self.issued_at
-            || expected.now_ms >= self.expires_at
-        {
-            return Err(AuthorizationError::message(
-                "delegation does not match its expected user, root, origin or validity",
-            ));
-        }
-        self.verify_signature(root_public_key)
+        self.verify_signature_with(
+            root_public_key,
+            || {
+                if self.user_id != expected.user_id
+                    || self.root_key_commitment != expected.root_key_commitment
+                    || expected
+                        .delegation_id
+                        .is_some_and(|id| id != self.delegation_id)
+                    || self.server_origin != expected.server_origin
+                    || self.root_epoch != expected.root_epoch
+                    || expected.now_ms.saturating_add(CLOCK_SKEW_MS) < self.issued_at
+                    || expected.now_ms >= self.expires_at
+                {
+                    return Err(AuthorizationError::message(
+                        "delegation does not match its expected user, root, origin or validity",
+                    ));
+                }
+                Ok(())
+            },
+            std::convert::identity,
+        )
     }
 
     fn with_signature(payload: DelegationPayload, signature: String) -> Self {
@@ -191,6 +240,20 @@ impl DelegationCertificate {
             expires_at: payload.expires_at,
             signature,
         }
+    }
+}
+
+struct ValidatedDelegation<'a>(&'a DelegationCertificate);
+
+impl ValidatedDelegation<'_> {
+    fn verify_signature(&self, root_public_key: &[u8]) -> Result<(), AuthorizationError> {
+        verify(
+            root_public_key,
+            USER_DELEGATION_CONTEXT,
+            to_json(&self.0.payload_ref()).as_bytes(),
+            &self.0.signature,
+            "delegation signature",
+        )
     }
 }
 
