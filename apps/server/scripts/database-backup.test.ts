@@ -52,6 +52,57 @@ describe('database backup', () => {
       ]);
       const daemons = await restored.selectFrom('daemons').select(['id', 'name']).execute();
       expect(daemons).toEqual([{ id: 'daemon-1', name: 'quiet-willow' }]);
+      expect(await restored.selectFrom('daemon_control_owners').selectAll().execute()).toEqual([
+        {
+          connection_id: 'connection-live',
+          daemon_id: 'daemon-1',
+          user_id: 'user-1',
+          owner_instance_id: 'replica-1',
+          presence_id: 'presence-live',
+          claim_seq: 2,
+          root_epoch: 1,
+        },
+      ]);
+      expect(await restored.selectFrom('daemon_unlinks').selectAll().execute()).toEqual([
+        {
+          connection_id: 'connection-old',
+          daemon_id: 'daemon-1',
+          user_id: 'user-1',
+          owner_instance_id: 'replica-1',
+          presence_id: 'presence-old',
+          claim_seq: 1,
+          root_epoch: 0,
+        },
+      ]);
+      expect(
+        await restored
+          .selectFrom('delegation_revocation_order')
+          .selectAll()
+          .orderBy('sequence')
+          .execute(),
+      ).toEqual([
+        { sequence: 17, nonce: 'z-first' },
+        { sequence: 23, nonce: 'a-second' },
+      ]);
+      await restored
+        .insertInto('delegation_revocations')
+        .values({
+          nonce: 'after-restore',
+          user_id: 'user-1',
+          actor_delegation_id: 'actor',
+          actor_certificate_json: '{}',
+          revocation_json: '{}',
+          revoked_count: 1,
+          created_at: 10,
+        })
+        .execute();
+      expect(
+        await restored
+          .selectFrom('delegation_revocation_order')
+          .select('sequence')
+          .where('nonce', '=', 'after-restore')
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ sequence: 24 });
       const access = await restored.selectFrom('box_access').select('status').execute();
       expect(access).toEqual([{ status: 'approved' }]);
       const waitlist = await restored.selectFrom('box_waitlist').selectAll().execute();
@@ -152,6 +203,54 @@ async function seed(url: string): Promise<void> {
         daemon_identity_p256_public_key: 'identity-p256',
         identity_seal_backend: 'software',
       })
+      .execute();
+    await db
+      .insertInto('daemon_control_owners')
+      .values({
+        connection_id: 'connection-live',
+        daemon_id: 'daemon-1',
+        user_id: 'user-1',
+        owner_instance_id: 'replica-1',
+        presence_id: 'presence-live',
+        claim_seq: 2,
+        root_epoch: 1,
+      })
+      .execute();
+    await db
+      .insertInto('daemon_unlinks')
+      .values({
+        connection_id: 'connection-old',
+        daemon_id: 'daemon-1',
+        user_id: 'user-1',
+        owner_instance_id: 'replica-1',
+        presence_id: 'presence-old',
+        claim_seq: 1,
+        root_epoch: 0,
+      })
+      .execute();
+    for (const nonce of ['z-first', 'a-second']) {
+      await db
+        .insertInto('delegation_revocations')
+        .values({
+          nonce,
+          user_id: 'user-1',
+          actor_delegation_id: 'actor',
+          actor_certificate_json: '{}',
+          revocation_json: '{}',
+          revoked_count: 1,
+          created_at: 30,
+        })
+        .execute();
+    }
+    await db
+      .updateTable('delegation_revocation_order')
+      .set({ sequence: 17 })
+      .where('nonce', '=', 'z-first')
+      .execute();
+    await db
+      .updateTable('delegation_revocation_order')
+      .set({ sequence: 23 })
+      .where('nonce', '=', 'a-second')
       .execute();
     await db
       .insertInto('box_access')

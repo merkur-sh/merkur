@@ -36,9 +36,12 @@ const TABLES = [
   'users',
   'browser_delegations',
   'daemons',
+  'daemon_control_owners',
+  'daemon_unlinks',
   'refresh_tokens',
   'daemon_link_claims',
   'delegation_revocations',
+  'delegation_revocation_order',
   'delegation_revocation_outbox',
   'link_tokens',
   'push_subscriptions',
@@ -175,6 +178,11 @@ export async function restore(url: string, inFile: string): Promise<Record<strin
     }
     const counts: Record<string, number> = {};
     for (const table of TABLES) {
+      if (table === 'delegation_revocation_order') {
+        // Restoring signed rows fires the allocation trigger. Replace those generated
+        // sequences with the dump's exact commit order, including its gaps.
+        await client.execute('DELETE FROM delegation_revocation_order');
+      }
       const rows = rowsByTable.get(table) ?? [];
       for (let start = 0; start < rows.length; start += INSERT_CHUNK_ROWS) {
         const chunk = rows.slice(start, start + INSERT_CHUNK_ROWS);

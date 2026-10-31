@@ -794,7 +794,7 @@ an authority drops the superseded rows rather than converting them, with no dual
 authentication mode, and no downgrade. Take a database backup with
 `bun run --cwd apps/server db:dump --url <DB_URL> --out <file>` and retain the OPAQUE setup before
 starting a new image, deploy server, daemon, and browser build together, relink physical hosts, and reprovision
-boxes. The config reader accepts only the sealed identity shape: a config carrying `api_key` or a
+boxes. Logical backups preserve pending control retirement and exact revocation commit order. The config reader accepts only the sealed identity shape: a config carrying `api_key` or a
 single-signature proof is rejected without conversion.
 
 ## Speculative Echo And The Prompt Boundary
