@@ -8,7 +8,7 @@ import type {
   DaemonPresence,
   RealtimeCoordinationService,
 } from './realtime-coordination-service';
-import type { RedisError, RedisService } from './redis-service';
+import { RedisError, type RedisService } from './redis-service';
 
 /** The write lock serializes the Redis claim and its SQL owner with unlinking. */
 export const fenceDaemonRegistration = Effect.fnUntraced(function* (
