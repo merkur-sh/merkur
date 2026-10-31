@@ -1025,7 +1025,7 @@ mod admission_tests {
                 let (len, client) = observer.recv_from(&mut bytes).await.unwrap();
                 let request =
                     merkur_stun_protocol::message::parse_binding_request(&bytes[..len]).unwrap();
-                assert!(request.verify_integrity(&bytes[..len], &key));
+                assert!(request.verify_integrity(&key));
                 let mut response = ResponseWriter::new(request.transaction_id);
                 assert!(response.push_address(
                     ATTR_XOR_MAPPED_ADDRESS,
@@ -1076,7 +1076,7 @@ mod native_observation_tests {
             );
             let request = message::parse_binding_request(&packet[..len]).unwrap();
             assert!(request.request_receipt);
-            assert!(request.verify_integrity(&packet[..len], &server_key));
+            assert!(request.verify_integrity(&server_key));
             let identity =
                 SocketAddr::new(std::net::Ipv4Addr::UNSPECIFIED.into(), destination.port());
             let receipt = Receipt::issue(

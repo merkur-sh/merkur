@@ -1256,7 +1256,7 @@ mod tests {
             let request = message::parse_binding_request(&bytes[..len]).unwrap();
             let key = hmac::Key::new(hmac::HMAC_SHA256, &requester_key);
             assert!(request.request_receipt);
-            assert!(request.verify_integrity(&bytes[..len], &key));
+            assert!(request.verify_integrity(&key));
             let mapped = "198.51.100.7:40000".parse().unwrap();
             let receipt_key = hmac::Key::new(hmac::HMAC_SHA256, &[9; 32]);
             let receipt = Receipt::issue(
