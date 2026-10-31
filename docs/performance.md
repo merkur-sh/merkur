@@ -255,6 +255,7 @@ oracle free, and the action graph names exactly what it was built from.
 | `bun run scripts/bench-carrier-reader.ts` | Native reliable-reader record shapes, EOF and rejection paths, with constructor counts, requested buffer bytes, JSC shallow sizes and heap cells, and Darwin per-operation instructions | A/B/B/A and identical-code null comparisons share the unchanged reader layout and methods, excluding stream setup and process startup; `BENCH_COMPARE_SOURCE` names the comparison source |
 | `bun run scripts/bench-carrier-reader-browser.ts` | Production reliable readers in Chromium, Gecko and WebKit over every header partition | Byte checks and paired A/B/B/A batches with an independently compiled identical-code null; batch timings are not physical device tails |
 | `bun run bench:input-ring` | The ring-as-outbox round trip of one keystroke batch between the main thread and the transport worker | Input-ring handoff cost |
+| `bun run scripts/bench-input-credit.ts` | Input-ring release, discard, copy, refusal and empty paths, plus refunds isolated from payload copying | JSC heap cells and Darwin instructions per operation, paired with an independently compiled identical-code null; `BENCH_COMPARE_SOURCE` names the comparison source |
 | `bun run bench:display-ack` | The Rust viewer's ACKs for a batch of frames through the viewer-output ring into the authenticated WASM `Session`, which seals them; live `bun:jsc` heap cells per ACK across both ends of the ring, net of the same frames with their outputs left unread | The browser's ACK path between its workers, and that an ACK mints no JavaScript object there; excludes worker scheduling and the daemon round trip |
 | `bun run bench:reconnect -- --reps=9 --rtt=85 --outage=0` | Authenticated Rust `Session` in WASM against a signed native daemon fixture, with virtual carrier RTT/outage: closed-carrier replacement dial, rebind transmission and committed usable lineage | Core recovery ordering and authenticated post-rebind input/ACK; excludes QUIC, browser networking and OS outage detection |
 | `bun run bench:relay-keystroke-packets` | A relay-pinned Chromium session typing into `cat > /dev/null` at 50 ms RTT through the local edge harness, with profiling off and on: per window (30 s idle, 30 keys at 1/s, 10 s idle, 180 keys at 6/s) the delay proxy's packet count for every relay, and with profiling on the daemon's datagrams grouped by the QUIC packet they were built into, with each input ACK's queued-to-packetized residence. Chromium's net log is on by default (`--no-netlog` is the control arm), and `scripts/analyze-quic-netlog.ts` reads it for the browser leg's per-packet frame composition. `--direct` pins the direct path instead (`FORCE_EDGE=0`): its packets never cross the delay proxy, so both browser-leg figures come from the net log, which that arm requires | Packets per keystroke on each leg and which messages share a packet; a census, not a latency gate |
@@ -1625,6 +1626,13 @@ the diagnostic reporter from quadratic sparse-correlation regressions. It also e
 production ring-as-outbox round trip — publish, read, admit, size the datagram run, acknowledge —
 including its byte/entry accounting and p50/p95/p99 batch latency, and counts the objects one
 keystroke allocates on the send path.
+
+Input-ring publication charges payload bytes and entries before publishing the write cursor.
+The sole reader refunds each held ordinal once on release, or each unread entry once on discard,
+with one atomic subtraction per counter. It publishes released slot space before returning held
+credit and refunds discarded entries individually. Stop and identity replacement release held
+ordinals and discard unread entries; a preserved session keeps their charges. Neither writer nor
+reader construction resets these counters.
 
 Event-driven latency changes use complementary gates instead of timing assertions in unit tests:
 

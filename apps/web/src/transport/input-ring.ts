@@ -522,8 +522,9 @@ export function createInputRingReader(
       // Move the writer's boundary before returning the charge: a producer
       // that sees the freed budget must also see the freed slots.
       publishAckedOffset(Atomics.load(meta, 7));
-      atomicSaturatingSub(meta, 5, bytes);
-      atomicSaturatingSub(meta, 6, entries);
+      // Publication charges every entry before it is visible; each refund owns its charge.
+      Atomics.sub(meta, 5, bytes);
+      Atomics.sub(meta, 6, entries);
     },
 
     discardQueuedEntries(): number {
@@ -539,8 +540,8 @@ export function createInputRingReader(
         }
         const payloadLen = encodedPayloadLen & INPUT_ENTRY_PAYLOAD_LEN_MASK;
         consumedOff += alignUp(INPUT_ENTRY_HEADER_BYTES + payloadLen, INPUT_ENTRY_ALIGN);
-        atomicSaturatingSub(meta, 5, payloadLen);
-        atomicSaturatingSub(meta, 6, 1);
+        Atomics.sub(meta, 5, payloadLen);
+        Atomics.sub(meta, 6, 1);
         discarded += 1;
       }
       Atomics.store(meta, 7, consumedOff);
@@ -554,18 +555,4 @@ export function createInputRingReader(
 export function wakeInputRingReader(sab: SharedArrayBuffer): number {
   const meta = new Int32Array(sab, 0, 8);
   return Atomics.notify(meta, 0, 1) + Atomics.notify(meta, META_RELEASED_SEQ, 1);
-}
-
-function clampSharedCount(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  return Math.min(0x7fff_ffff, Math.floor(value));
-}
-
-function atomicSaturatingSub(meta: Int32Array, index: number, amount: number): void {
-  const decrement = clampSharedCount(amount);
-  for (;;) {
-    const current = Atomics.load(meta, index);
-    const next = Math.max(0, current - decrement);
-    if (Atomics.compareExchange(meta, index, current, next) === current) return;
-  }
 }
