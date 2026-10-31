@@ -102,6 +102,7 @@
     "bench:transport-story": "bun run scripts/bench-transport-story.ts",
     "bench:e2e-crypto": "bun run scripts/bench-e2e-crypto.ts",
     "bench:e2e-display-open": "bun run scripts/bench-e2e-display-open.ts",
+    "bench:wasm-font-memory": "bun run scripts/bench-wasm-font-memory.ts",
     "simulate:keyboard-accuracy": "bun run scripts/simulate-keyboard-accuracy.ts",
     "simulate:keyboard-decoders": "bun run scripts/run-keyboard-decoder-lab.ts",
     "simulate:keyboard-replay": "bun run scripts/run-keyboard-replay.ts",
