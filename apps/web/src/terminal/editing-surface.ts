@@ -129,16 +129,16 @@ export interface SoftDeleteKeyInput {
 export interface SoftDeleteDedup {
   /** Intent to queue (the caller preventDefaults the keydown), or null. */
   keydown(e: SoftDeleteKeyInput): SoftDeleteIntent | null;
-  /** A beforeinput delete took the immediate path; drop any pending intent. */
-  beforeinputDelete(): void;
-  /** Still-pending intent to deliver now, or null if deduped or none. */
-  keyup(key: string): SoftDeleteIntent | null;
+  /** A beforeinput delete consumed one matching keydown intent. */
+  beforeinputDelete(intent: SoftDeleteIntent): void;
+  /** Number of still-pending deletions for the released key. */
+  keyup(key: string): number;
   /** Drop any pending intent (blur). */
   clear(): void;
 }
 
 export function createSoftDeleteDedup(): SoftDeleteDedup {
-  let pending: SoftDeleteIntent | null = null;
+  const pending = { backward: 0, forward: 0 };
   return {
     keydown(e: SoftDeleteKeyInput): SoftDeleteIntent | null {
       // Composition owns these keydowns: intercepting them would corrupt IME
@@ -149,26 +149,28 @@ export function createSoftDeleteDedup(): SoftDeleteDedup {
       }
       if (e.ctrlKey || e.altKey || e.metaKey) return null;
       if (e.key === 'Backspace') {
-        pending = 'backward';
-        return pending;
+        pending.backward += 1;
+        return 'backward';
       }
       if (e.key === 'Delete') {
-        pending = 'forward';
-        return pending;
+        pending.forward += 1;
+        return 'forward';
       }
       return null;
     },
-    beforeinputDelete(): void {
-      pending = null;
+    beforeinputDelete(intent: SoftDeleteIntent): void {
+      if (pending[intent] > 0) pending[intent] -= 1;
     },
-    keyup(key: string): SoftDeleteIntent | null {
-      if (key !== 'Backspace' && key !== 'Delete') return null;
-      const intent = pending;
-      pending = null;
-      return intent;
+    keyup(key: string): number {
+      if (key !== 'Backspace' && key !== 'Delete') return 0;
+      const intent = key === 'Backspace' ? 'backward' : 'forward';
+      const count = pending[intent];
+      pending[intent] = 0;
+      return count;
     },
     clear(): void {
-      pending = null;
+      pending.backward = 0;
+      pending.forward = 0;
     },
   };
 }
@@ -235,8 +237,9 @@ function createTextareaEditingSurface(
 
   const onKeyUp = (e: KeyboardEvent): void => {
     if (deleteDedup === null) return;
-    const intent = deleteDedup.keyup(e.key);
-    if (intent !== null) deliverDelete(intent);
+    const count = deleteDedup.keyup(e.key);
+    const intent = e.key === 'Backspace' ? 'backward' : 'forward';
+    for (let index = 0; index < count; index++) deliverDelete(intent);
   };
 
   const onFocus = (): void => {
@@ -276,12 +279,12 @@ function createTextareaEditingSurface(
     switch (e.inputType) {
       case 'deleteContentBackward':
         e.preventDefault();
-        deleteDedup?.beforeinputDelete();
+        deleteDedup?.beforeinputDelete('backward');
         deliverDelete('backward');
         return;
       case 'deleteContentForward':
         e.preventDefault();
-        deleteDedup?.beforeinputDelete();
+        deleteDedup?.beforeinputDelete('forward');
         deliverDelete('forward');
         return;
       case 'insertLineBreak':
