@@ -1351,7 +1351,7 @@
   },
   "apps/web/src/terminal/input-controller.ts": {
     "no-runtime-typeof": 3,
-    "no-swallowed-error": 3,
+    "no-swallowed-error": 2,
     "require-safety-comment-for-type-assertion": 2
   },
   "apps/web/src/terminal/keyboard-diagnostics-store.ts": {

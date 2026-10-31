@@ -1239,3 +1239,55 @@ test('partial drains retain only outstanding input payloads and bounded storage'
     expect(pendingInputs.length).toBeLessThanOrEqual(4);
   }
 });
+
+for (const path of ['virtual', 'hardware'] as const) {
+  for (const change of ['session', 'destroy', 'both'] as const) {
+    test(`clipboard ownership fences ${path} paste after ${change}`, async () => {
+      const keyboard = installKeyboardWindow();
+      const savedNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+      let resolveRead: (text: string) => void = () => {
+        throw new Error('read not requested');
+      };
+      const read = new Promise<string>((resolve) => {
+        resolveRead = resolve;
+      });
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: { clipboard: { readText: () => read } },
+      });
+      const sentA: SentFrame[] = [],
+        sentB: SentFrame[] = [];
+      const a = createFakeSession(sentA),
+        b = createFakeSession(sentB);
+      let session = a;
+      const controller = createTerminalInputController({
+        touchKeyboardEligible: false,
+        ownerEl: fakePanel(),
+        getSession: () => session,
+        getWorkerClient: () => null,
+        getTouchSurfaceEl: () => null,
+        getVirtualModifiers: () => ({ shift: false, ctrl: false, alt: false, meta: false }),
+        clearVirtualModifiers() {},
+        focusTerminal() {},
+        onToggleFocusMode() {},
+      });
+      try {
+        if (path === 'hardware') {
+          controller.attach();
+          keyboard.press({ key: 'v', code: 'KeyV', metaKey: true });
+        } else controller.pasteFromClipboard();
+        if (change !== 'destroy') session = b;
+        if (change !== 'session') controller.destroy();
+        resolveRead('execute this command');
+        await read;
+        await Promise.resolve();
+        expect([...sentA, ...sentB].filter((frame) => decoded(frame).kind === 'paste')).toEqual([]);
+      } finally {
+        controller.destroy();
+        if (savedNavigator) Object.defineProperty(globalThis, 'navigator', savedNavigator);
+        else Reflect.deleteProperty(globalThis, 'navigator');
+        keyboard.restore();
+      }
+    });
+  }
+}

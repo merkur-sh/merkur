@@ -301,6 +301,7 @@ export function createTerminalInputController(
   const { touchKeyboardEligible } = options;
   let compositionActive = false;
   let attached = false;
+  let destroyed = false;
   let stopTrackingRightMeta: (() => void) | null = null;
   /**
    * ONE queue, not one per source.
@@ -385,11 +386,19 @@ export function createTerminalInputController(
     if (lastAcceptedSeq !== null) workerClient?.flushPredictions(lastAcceptedSeq);
   }
 
-  function pasteFromClipboard(): void {
+  function readClipboardPaste(): void {
+    const session = options.getSession();
+    if (destroyed || session === null) return;
     void navigator.clipboard
       .readText()
-      .then((text) => sendPaste(text))
+      .then((text) => {
+        if (!destroyed && options.getSession() === session) sendPaste(text);
+      })
       .catch(() => {});
+  }
+
+  function pasteFromClipboard(): void {
+    readClipboardPaste();
     options.clearVirtualModifiers();
     options.focusTerminal();
   }
@@ -948,10 +957,7 @@ export function createTerminalInputController(
     // Ctrl+Shift+V (Linux/Windows) or Cmd+V (macOS) → paste from clipboard
     if ((e.ctrlKey && e.shiftKey && e.key === 'V') || (e.metaKey && !e.ctrlKey && e.key === 'v')) {
       e.preventDefault();
-      void navigator.clipboard
-        .readText()
-        .then((t) => sendPaste(t))
-        .catch(() => {});
+      readClipboardPaste();
       return;
     }
 
@@ -1120,6 +1126,7 @@ export function createTerminalInputController(
   }
 
   function destroy(): void {
+    destroyed = true;
     clearPendingInputs();
     pressedKeys.clear();
     pressedUnderCommand.clear();

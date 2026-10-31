@@ -927,6 +927,10 @@ buffers. Headless output reports the byte count without printing clipboard conte
 clipboard writes require the active focused session and platform permission; browser notifications
 follow the account's existing notification preference.
 
+Clipboard reads initiated by terminal input belong to the originating session and input
+controller. Completion pastes only while that controller is alive and that session remains
+current; switching machines or destroying the panel discards the pending paste.
+
 ## Metadata And Telemetry
 
 Merkur hides terminal contents, not the fact of a session. Plaintext signaling exposes
