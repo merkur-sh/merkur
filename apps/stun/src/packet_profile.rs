@@ -461,6 +461,95 @@ fn time_per_op(iterations: usize, mut operation: impl FnMut()) -> f64 {
 }
 
 #[test]
+#[ignore = "parsed integrity prefix allocation and instruction profile"]
+fn stun_integrity_prefix_profile() {
+    let step = std::env::var("STUN_PREFIX_STEP").expect("profile step");
+    let len: usize = std::env::var("STUN_PREFIX_USERNAME")
+        .expect("username length")
+        .parse()
+        .unwrap();
+    let padding: usize = std::env::var("STUN_PREFIX_PADDING")
+        .expect("padding length")
+        .parse()
+        .unwrap();
+    let kind = std::env::var("STUN_PREFIX_KIND").expect("packet kind");
+    let key = hmac::Key::new(hmac::HMAC_SHA256, &[0x57; 32]);
+    let username = vec![b'A'; len];
+    let writer = if kind == "receipt" {
+        message::observation_request(&[7; 12], &username, &key)
+    } else {
+        message::binding_request(
+            &[7; 12],
+            &username,
+            if kind == "change" { 6 } else { 0 },
+            &key,
+        )
+    }
+    .unwrap();
+    let mut packet = writer.as_bytes().to_vec();
+    let mut prefix_len = packet.len() - 4 - message::MESSAGE_INTEGRITY_SHA256_LEN;
+    if padding != 0 {
+        let integrity = packet.split_off(prefix_len);
+        packet.extend_from_slice(&message::ATTR_PADDING.to_be_bytes());
+        packet.extend_from_slice(&u16::try_from(padding).unwrap().to_be_bytes());
+        packet.resize(packet.len() + ((padding + 3) & !3), 0);
+        prefix_len = packet.len();
+        packet.extend_from_slice(&integrity);
+        let covered = u16::try_from(packet.len() - message::HEADER_LEN).unwrap();
+        packet[2..4].copy_from_slice(&covered.to_be_bytes());
+        let tag = hmac::sign(&key, &packet[..prefix_len]);
+        packet[prefix_len + 4..].copy_from_slice(tag.as_ref());
+    }
+    assert!(message::verify_integrity(&packet, &key));
+    if kind == "bad_tag" {
+        *packet.last_mut().unwrap() ^= 1;
+    } else if kind == "nonstun" {
+        packet[0] = 0xc0;
+    } else if kind == "truncated" {
+        packet.pop();
+    } else if kind == "after_integrity" {
+        packet.extend_from_slice(&message::ATTR_PADDING.to_be_bytes());
+        packet.extend_from_slice(&0u16.to_be_bytes());
+        let covered = u16::try_from(packet.len() - message::HEADER_LEN).unwrap();
+        packet[2..4].copy_from_slice(&covered.to_be_bytes());
+    }
+    let parsed = parse_binding_request(&packet);
+    let parse_ok = parsed.is_ok();
+    let verify_ok = parsed
+        .as_ref()
+        .is_ok_and(|request| request.verify_integrity(&key));
+    let parsed = parsed.ok();
+    COUNTED.with(|counted| counted.set(true));
+    let before = allocation_snapshot();
+    let mut successes = 0;
+    for _ in 0..2_000_000 {
+        successes += usize::from(match step.as_str() {
+            "parse" => black_box(parse_binding_request(black_box(&packet))).is_ok(),
+            "verify" => black_box(parsed.as_ref().unwrap()).verify_integrity(black_box(&key)),
+            "parse_verify" => parse_binding_request(black_box(&packet))
+                .is_ok_and(|request| request.verify_integrity(black_box(&key))),
+            "control" => {
+                black_box(hmac::sign(
+                    black_box(&key),
+                    black_box(&packet[..prefix_len]),
+                ));
+                true
+            }
+            _ => panic!("unknown profile step"),
+        });
+    }
+    let after = allocation_snapshot();
+    COUNTED.with(|counted| counted.set(false));
+    let expected = step == "control" || if step == "parse" { parse_ok } else { verify_ok };
+    assert_eq!(successes, if expected { 2_000_000 } else { 0 });
+    assert_eq!(before, after);
+    println!(
+        "step={step} kind={kind} username={len} padding={padding} iterations=2000000 allocations=0 requested_bytes=0 parsed_size={}",
+        size_of::<message::BindingRequest<'_>>()
+    );
+}
+
+#[test]
 #[ignore = "profiling harness; run explicitly with --ignored --nocapture"]
 fn stun_packet_steps_benchmark() {
     let samples: usize = std::env::var("STUN_PROFILE_SAMPLES")
@@ -506,7 +595,7 @@ fn stun_packet_steps_benchmark() {
     assert!(message::parse_success(&answer, parsed.transaction_id).is_some());
 
     // Every step is checked once so the timed loops time the success path.
-    assert!(parsed.verify_integrity(&datagram, &integrity_key));
+    assert!(parsed.verify_integrity(&integrity_key));
     assert!(hoisted_port.is_some());
     let mut ticket_bytes = [0u8; ticket::TICKET_LEN];
     assert_eq!(
@@ -548,7 +637,7 @@ fn stun_packet_steps_benchmark() {
         (
             "BindingRequest::verify_integrity",
             Box::new(|| {
-                black_box(parsed.verify_integrity(black_box(&datagram), &integrity_key));
+                black_box(parsed.verify_integrity(&integrity_key));
             }),
         ),
         (

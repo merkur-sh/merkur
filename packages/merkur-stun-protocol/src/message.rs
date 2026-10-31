@@ -74,12 +74,12 @@ pub struct BindingRequest<'a> {
     pub request_receipt: bool,
     pub transaction_id: &'a [u8; TRANSACTION_ID_LEN],
     pub username: &'a [u8],
-    /// Offset of the MESSAGE-INTEGRITY-SHA256 attribute's value.
-    integrity_value: &'a [u8],
+    /// The MESSAGE-INTEGRITY-SHA256 attribute's value.
+    integrity_value: &'a [u8; MESSAGE_INTEGRITY_SHA256_LEN],
     /// Bytes covered by the integrity HMAC: everything before the attribute's
-    /// own header, with the message length rewritten. Held as an offset because
-    /// the rewrite happens against a copy of the header.
-    integrity_prefix_len: usize,
+    /// own header. Exact message length and a final integrity attribute make
+    /// the received header's length the authenticated length already.
+    integrity_prefix: &'a [u8],
     /// RFC 5780 CHANGE-REQUEST flags, if the attribute was present.
     ///
     /// Read by `serve`, which answers only when the requested different port
@@ -173,7 +173,7 @@ pub fn parse_binding_request(datagram: &[u8]) -> Result<BindingRequest<'_>, Pars
     };
 
     let mut username: Option<&[u8]> = None;
-    let mut integrity: Option<(&[u8], usize)> = None;
+    let mut integrity: Option<(&[u8; MESSAGE_INTEGRITY_SHA256_LEN], &[u8])> = None;
     let mut change_request: Option<ChangeRequest> = None;
     let mut request_receipt = false;
 
@@ -200,10 +200,11 @@ pub fn parse_binding_request(datagram: &[u8]) -> Result<BindingRequest<'_>, Pars
                 username = Some(value);
             }
             ATTR_MESSAGE_INTEGRITY_SHA256 => {
-                if value.len() != MESSAGE_INTEGRITY_SHA256_LEN {
+                let Ok(value) = value.try_into() else {
                     return Err(ParseError::Malformed);
-                }
-                integrity = Some((value, cursor));
+                };
+                let prefix = datagram.get(..cursor).ok_or(ParseError::Malformed)?;
+                integrity = Some((value, prefix));
             }
             ATTR_CHANGE_REQUEST => {
                 let &[0, 0, 0, flags] = value else {
@@ -240,14 +241,14 @@ pub fn parse_binding_request(datagram: &[u8]) -> Result<BindingRequest<'_>, Pars
     }
 
     let username = username.ok_or(ParseError::MissingUsername)?;
-    let (integrity_value, integrity_offset) = integrity.ok_or(ParseError::MissingIntegrity)?;
+    let (integrity_value, integrity_prefix) = integrity.ok_or(ParseError::MissingIntegrity)?;
 
     Ok(BindingRequest {
         request_receipt,
         transaction_id,
         username,
         integrity_value,
-        integrity_prefix_len: integrity_offset,
+        integrity_prefix,
         change_request,
     })
 }
@@ -256,29 +257,11 @@ impl BindingRequest<'_> {
     /// Verify MESSAGE-INTEGRITY-SHA256 against `key`, in constant time.
     ///
     /// RFC 8489 section 14.6: the HMAC covers the message up to but not
-    /// including this attribute, with the header's length field rewritten to
-    /// the value it would have if this attribute were the last one. The rewrite
-    /// is why the header is copied rather than hashed in place — the datagram
-    /// is the caller's receive buffer and must not be mutated.
-    pub fn verify_integrity(&self, datagram: &[u8], key: &hmac::Key) -> bool {
-        let Some(prefix) = datagram.get(..self.integrity_prefix_len) else {
-            return false;
-        };
-        let Some((header, attributes)) = prefix.split_first_chunk::<HEADER_LEN>() else {
-            return false;
-        };
-        let covered = self.integrity_prefix_len + 4 + MESSAGE_INTEGRITY_SHA256_LEN - HEADER_LEN;
-        let Ok(covered) = u16::try_from(covered) else {
-            return false;
-        };
-
-        let mut context = hmac::Context::with_key(key);
-        let mut header = *header;
-        header[2..4].copy_from_slice(&covered.to_be_bytes());
-        context.update(&header);
-        context.update(attributes);
-        let expected = context.sign();
-
+    /// including this attribute, with the header's length set as if integrity
+    /// were last. Parsing enforces that it is last and the length is exact, so
+    /// the original prefix is hashed without copying or rewriting its header.
+    pub fn verify_integrity(&self, key: &hmac::Key) -> bool {
+        let expected = hmac::sign(key, self.integrity_prefix);
         constant_time_eq(expected.as_ref(), self.integrity_value)
     }
 }
@@ -596,6 +579,80 @@ mod tests {
         hmac::Key::new(hmac::HMAC_SHA256, &[7u8; 32])
     }
 
+    fn rebuilt_header_integrity(packet: &[u8], key: &hmac::Key) -> bool {
+        let prefix_len = packet.len() - 4 - MESSAGE_INTEGRITY_SHA256_LEN;
+        let mut header: [u8; HEADER_LEN] = packet[..HEADER_LEN].try_into().unwrap();
+        let covered =
+            u16::try_from(prefix_len + 4 + MESSAGE_INTEGRITY_SHA256_LEN - HEADER_LEN).unwrap();
+        header[2..4].copy_from_slice(&covered.to_be_bytes());
+        let mut context = hmac::Context::with_key(key);
+        context.update(&header);
+        context.update(&packet[HEADER_LEN..prefix_len]);
+        constant_time_eq(context.sign().as_ref(), &packet[prefix_len + 4..])
+    }
+
+    #[test]
+    fn binding_integrity_prefix_matches_rebuilt_header() {
+        assert_eq!(size_of::<BindingRequest<'_>>(), 7 * size_of::<usize>());
+        let key = test_key();
+        let wrong_key = hmac::Key::new(hmac::HMAC_SHA256, b"wrong key");
+        let mut fingerprint = 0xcbf2_9ce4_8422_2325u64;
+        let mut vectors = 0;
+        let mut check = |packet: &[u8]| {
+            vectors += 1;
+            let mut fold = |bytes: &[u8]| {
+                for byte in bytes {
+                    fingerprint = (fingerprint ^ u64::from(*byte)).wrapping_mul(0x100_0000_01b3);
+                }
+            };
+            match parse_binding_request(packet) {
+                Ok(request) => {
+                    let verified = request.verify_integrity(&key);
+                    assert_eq!(verified, rebuilt_header_integrity(packet, &key));
+                    assert_eq!(
+                        request.verify_integrity(&wrong_key),
+                        rebuilt_header_integrity(packet, &wrong_key)
+                    );
+                    fold(&[0xff, u8::from(verified), u8::from(request.request_receipt)]);
+                    fold(request.transaction_id);
+                    fold(request.username);
+                    fold(&[request.change_request.map_or(0, |change| {
+                        1 + u8::from(change.change_ip) * 4 + u8::from(change.change_port) * 2
+                    })]);
+                }
+                Err(error) => fold(&[error as u8]),
+            }
+        };
+        for len in [0, 1, 3, 4, 33, 34, 55, 63, 64, 127, 128, 255, 1140] {
+            for change in [
+                None,
+                Some(ChangeRequest {
+                    change_ip: true,
+                    change_port: true,
+                }),
+            ] {
+                let packet = build_request(&vec![b'A'; len], &key, change);
+                for end in 0..=packet.len() {
+                    check(&packet[..end]);
+                }
+                let mut mutated = packet.clone();
+                for offset in 0..packet.len() {
+                    for bit in 0..8 {
+                        mutated[offset] ^= 1 << bit;
+                        check(&mutated);
+                        mutated[offset] ^= 1 << bit;
+                    }
+                }
+            }
+        }
+        let receipt = observation_request(&[7; 12], &[b'A'; 55], &key).unwrap();
+        check(receipt.as_bytes());
+        println!(
+            "vectors={vectors} fingerprint={fingerprint:016x} parsed_size={}",
+            size_of::<BindingRequest<'_>>()
+        );
+    }
+
     /// Build a well-formed authenticated Binding request the way the daemon
     /// client does, so the parser is exercised against real output rather than
     /// against bytes written to satisfy it.
@@ -645,7 +702,7 @@ mod tests {
         let datagram = build_request(b"ticket", &key, None);
         let request = parse_binding_request(&datagram).expect("parse");
         assert_eq!(request.username, b"ticket");
-        assert!(request.verify_integrity(&datagram, &key));
+        assert!(request.verify_integrity(&key));
         assert_eq!(request.change_request, None);
     }
 
@@ -659,7 +716,7 @@ mod tests {
         let datagram = build_request(b"ticket", &key, Some(change));
         let request = parse_binding_request(&datagram).expect("parse");
         assert_eq!(request.change_request, Some(change));
-        assert!(request.verify_integrity(&datagram, &key));
+        assert!(request.verify_integrity(&key));
     }
 
     /// The whole point of the integrity check: one flipped byte anywhere in the
@@ -673,7 +730,7 @@ mod tests {
             let mut mutated = original.clone();
             mutated[index] ^= 0x01;
             let verified = parse_binding_request(&mutated)
-                .map(|request| request.verify_integrity(&mutated, &key))
+                .map(|request| request.verify_integrity(&key))
                 .unwrap_or(false);
             assert!(!verified, "byte {index} was mutated but still verified");
         }
@@ -685,7 +742,7 @@ mod tests {
         let datagram = build_request(b"ticket", &key, None);
         let request = parse_binding_request(&datagram).expect("parse");
         let other = hmac::Key::new(hmac::HMAC_SHA256, &[8u8; 32]);
-        assert!(!request.verify_integrity(&datagram, &other));
+        assert!(!request.verify_integrity(&other));
     }
 
     /// Attributes after MESSAGE-INTEGRITY-SHA256 are outside the HMAC, so an
@@ -889,13 +946,13 @@ mod tests {
                 change_port: true
             })
         );
-        assert!(parsed.verify_integrity(valid.as_bytes(), &key));
+        assert!(parsed.verify_integrity(&key));
         for i in 0..valid.as_bytes().len() {
             let mut mutated = valid.as_bytes().to_vec();
             mutated[i] ^= 1;
             assert!(
                 !parse_binding_request(&mutated)
-                    .is_ok_and(|request| request.verify_integrity(&mutated, &key)),
+                    .is_ok_and(|request| request.verify_integrity(&key)),
                 "mutated byte {i}"
             );
         }

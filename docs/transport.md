@@ -1039,6 +1039,11 @@ reflexive address it does not have.
 Every rejection drops the datagram silently, because a STUN error response would itself be an
 amplification vector. A success response is never larger than the request that earned it.
 
+Binding parsing requires the exact message length and a final full MESSAGE-INTEGRITY-SHA256
+attribute. The parsed request borrows that tag and its authenticated prefix from the receive
+buffer; verification hashes the original prefix directly, with its header already carrying the
+authenticated length. Native peer checks use the same parser and verifier.
+
 The server mints a ticket over the daemon's authenticated control connection with each `lease`
 and hands over the per-ticket MESSAGE-INTEGRITY-SHA256 key with it; the daemon never sees the
 deployment secret. `apps/server/src/services/stun-ticket-service.ts` issues and

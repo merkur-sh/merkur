@@ -30,7 +30,7 @@ fn fuzz_stun() {
         if let Ok(request) = parse_binding_request(bytes) {
             assert!(bytes.len() <= MAX_MESSAGE_LEN);
             assert_eq!(&bytes[8..HEADER_LEN], request.transaction_id);
-            let _ = request.verify_integrity(bytes, &key);
+            let _ = request.verify_integrity(&key);
             let mut trailing = bytes.to_vec();
             trailing.extend_from_slice(&[0; 4]);
             assert!(parse_binding_request(&trailing).is_err());
@@ -53,13 +53,14 @@ fn fuzz_stun() {
         let encoded = encoded.as_bytes();
         let parsed = parse_binding_request(encoded).expect("encoder output parses");
         assert_eq!(parsed.username, username);
-        assert!(parsed.verify_integrity(encoded, &key));
-        assert!(!parsed.verify_integrity(encoded, &other_key));
+        assert!(parsed.verify_integrity(&key));
+        assert!(!parsed.verify_integrity(&other_key));
         let at = bytes.get(1).copied().unwrap_or(0) as usize % encoded.len();
         let mut changed = encoded.to_vec();
         changed[at] ^= 1 << (bytes.get(2).copied().unwrap_or(0) & 7);
-        assert!(!parse_binding_request(&changed)
-            .is_ok_and(|request| request.verify_integrity(&changed, &key)));
+        assert!(
+            !parse_binding_request(&changed).is_ok_and(|request| request.verify_integrity(&key))
+        );
 
         let address = std::net::SocketAddr::from(([198, 51, 100, 1], 44_433));
         let mut response = ResponseWriter::new(nonce);

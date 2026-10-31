@@ -155,7 +155,7 @@ pub(crate) fn receive(
         return;
     };
     drop(contexts);
-    if request.verify_integrity(packet, &context.incoming_key) && context.live() {
+    if request.verify_integrity(&context.incoming_key) && context.live() {
         context.incoming_count.fetch_add(1, Ordering::AcqRel);
         if context
             .incoming

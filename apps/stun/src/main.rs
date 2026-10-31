@@ -322,7 +322,7 @@ fn serve(
             }
         };
 
-        if !request.verify_integrity(datagram, &integrity_key) {
+        if !request.verify_integrity(&integrity_key) {
             counters
                 .dropped_bad_integrity
                 .fetch_add(1, Ordering::Relaxed);
