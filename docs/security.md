@@ -449,9 +449,12 @@ revocation acknowledgements before the daemon becomes session-ready.
 Each management POST signs the daemon id, method, complete public URL, content type, SHA-512 digest
 of the exact body, millisecond timestamp, and fresh 32-byte nonce, carried in `x-merkur-daemon-id`,
 `x-merkur-timestamp`, `x-merkur-nonce`, `x-merkur-signature`, and `x-merkur-signature-p256`. The
-server hashes the bounded raw body before JSON parsing, derives the audience from its configured
-public origin rather than forwarded host headers, verifies both signatures, and spends the nonce
-atomically with Redis `SET NX PX` shared by all replicas. Redis errors fail closed.
+server rejects missing or malformed proof headers before reading the body. For a plausible proof,
+it reads and hashes the bounded raw body once, derives the audience from its configured public
+origin rather than forwarded host headers, verifies both signatures once, and spends the nonce
+atomically with Redis `SET NX PX` shared by all replicas. It rechecks proof expiry after the replay
+claim, then decodes and parses only authenticated content. The verified principal belongs to that
+exact request and is consumed by its handler without repeating verification. Redis errors fail closed.
 
 | Limit | Value |
 | --- | --- |

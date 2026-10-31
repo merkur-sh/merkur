@@ -2,10 +2,12 @@ import { expect, test } from 'bun:test';
 import { daemonHttpProofHeaders, signDaemonProof } from '@merkur/auth';
 import { RedisClient } from 'bun';
 import { Effect } from 'effect';
+import { Elysia } from 'elysia';
 
 import { createRedisCommandClient, RedisError, type RedisService } from '../services/redis-service';
+import { apiErrorPlugin } from './api-errors';
 import { DAEMON_TEST_SEED, daemonAuthFixture } from './daemon-auth-fixture';
-import { authorizeDaemonRequest, parseDaemonJsonBody } from './daemon-request-auth';
+import { authorizeDaemonRequest, createDaemonRequestAuth } from './daemon-request-auth';
 
 const dragonflyUrl = process.env.DRAGONFLY_TEST_URL;
 if (dragonflyUrl === undefined) {
@@ -48,12 +50,17 @@ if (dragonflyUrl === undefined) {
       });
       const outcomes = await Promise.all(
         fixtures.map(async (f) => {
+          const auth = createDaemonRequestAuth(f.runProgram, f.logger);
+          const server = new Elysia()
+            .use(apiErrorPlugin)
+            .post('/api/daemon/perf', { parse: 'none', transform: auth.json }, ({ request }) =>
+              authorizeDaemonRequest(request),
+            );
           const request = new Request(url, { method: 'POST', headers, body });
-          await parseDaemonJsonBody({ request });
-          return authorizeDaemonRequest(f.runProgram, request, f.logger);
+          return (await server.handle(request)).status;
         }),
       );
-      expect(outcomes.filter((value) => value !== null)).toHaveLength(1);
+      expect(outcomes.sort()).toEqual([200, 401]);
       const client = clients[0];
       if (client === undefined) throw new Error('Missing Redis connection');
       const ttl = await client.pttl(replayKey);

@@ -78,11 +78,7 @@ import type { AuthenticatedBrowser } from '../../services/auth-service';
 import { enforceRateLimit, RateLimitServiceTag } from '../../services/rate-limit-service';
 import { ApiModels } from '../api-models';
 import { authenticatedApiPlugin } from '../authenticated-api';
-import {
-  authorizeDaemonRequest,
-  parseDaemonJsonBody,
-  parseDaemonTextBody,
-} from '../daemon-request-auth';
+import { authorizeDaemonRequest, createDaemonRequestAuth } from '../daemon-request-auth';
 import { runRouteEffect } from '../effect-route';
 
 type RunServerProgram = typeof runServerProgram;
@@ -261,6 +257,7 @@ export function telemetryRoutesPlugin({
   authorizeRequest,
   logger,
 }: TelemetryRoutesOptions) {
+  const daemonAuth = createDaemonRequestAuth(runServerProgram, logger);
   const runTelemetryEffect = <A, E, R extends ServerRuntimeContext>(
     userId: string,
     request: Request,
@@ -282,7 +279,8 @@ export function telemetryRoutesPlugin({
       .post(
         '/api/daemon/perf',
         {
-          parse: parseDaemonJsonBody,
+          parse: 'none',
+          transform: daemonAuth.json,
           body: ApiModels.DaemonPerfReportBody,
           response: {
             204: ApiModels.EmptyResponse,
@@ -290,7 +288,7 @@ export function telemetryRoutesPlugin({
           },
         },
         async ({ body, request }) => {
-          const daemonIdentity = await authorizeDaemonRequest(runServerProgram, request, logger);
+          const daemonIdentity = authorizeDaemonRequest(request);
           if (daemonIdentity === null) {
             return status(STATUS_UNAUTHORIZED, { error: 'unauthorized' as const });
           }
@@ -509,14 +507,15 @@ export function telemetryRoutesPlugin({
         {
           // Relayed verbatim, so it is read as text rather than shaped by a
           // schema the server would only have to re-serialise.
-          parse: parseDaemonTextBody,
+          parse: 'none',
+          transform: daemonAuth.text,
           response: {
             204: ApiModels.EmptyResponse,
             401: ApiModels.ErrorResponse,
           },
         },
         async ({ body, request }) => {
-          const daemonIdentity = await authorizeDaemonRequest(runServerProgram, request, logger);
+          const daemonIdentity = authorizeDaemonRequest(request);
           if (daemonIdentity === null) {
             return status(STATUS_UNAUTHORIZED, { error: 'unauthorized' as const });
           }
