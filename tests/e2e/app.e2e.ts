@@ -388,11 +388,13 @@ test('pending device navigation keeps Settings after the opening frame', async (
   });
   await page.goto('/');
   await createAccount(page, `pending-navigation-${uniqueSuffix()}`, 'Password123!');
+  const loading = page.locator('[role="status"][aria-label="Loading machines"]');
+  await expect(loading).toHaveCount(1);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.locator('#settings')).toBeVisible();
+  await expect(page.locator('body')).toHaveAttribute('data-route', 'settings');
   release();
-  await expect(page.locator('#link-command')).not.toHaveText('');
-  await expect(page.locator('#settings')).toBeVisible();
+  await expect(loading).toHaveCount(0);
+  await expect(page.locator('body')).toHaveAttribute('data-route', 'settings');
   await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
