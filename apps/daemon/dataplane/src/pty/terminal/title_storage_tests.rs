@@ -17,7 +17,7 @@ fn title(terminal: &mut TerminalState, text: &str) {
 
 fn canonical_title(terminal: &mut TerminalState) -> Option<String> {
     let mut replay = Vec::new();
-    terminal.write_replay(&mut replay);
+    terminal.write_replay(&mut replay).unwrap();
     let start = replay.windows(4).position(|bytes| bytes == b"\x1b]2;")? + 4;
     let end = replay[start..]
         .windows(2)
@@ -221,7 +221,7 @@ fn title_storage_non_title_workloads() {
         }
         let tally = end_thread();
         let mut replay = Vec::new();
-        terminal.write_replay(&mut replay);
+        terminal.write_replay(&mut replay).unwrap();
         let fingerprint = replay.iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
             (hash ^ u64::from(*byte)).wrapping_mul(0x100_0000_01b3)
         });
