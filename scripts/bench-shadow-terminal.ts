@@ -17,6 +17,7 @@ import {
 import { DEFAULT_TERMINAL_FONT } from '../apps/web/src/terminal/fonts';
 import { createGeometryCountReader } from './perf/geometry-counts';
 import { emitPerfMetric, perfEnvInteger, summarizeSamples } from './perf/harness';
+import { readTerminalWasm } from './perf/terminal-wasm';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SAMPLES = perfEnvInteger('BENCH_SAMPLES', 500);
@@ -35,9 +36,7 @@ const fontUrl = new URL(DEFAULT_TERMINAL_FONT.regular, 'https://merkur.local');
 const fontBytes = new Uint8Array(
   await readFile(path.join(ROOT, 'apps', 'web', 'public', fontUrl.pathname)),
 );
-const wasmBytes = new Uint8Array(
-  await readFile(path.join(ROOT, 'apps', 'web', 'src', 'term-wasm', 'pkg', 'term_wasm_bg.wasm')),
-);
+const wasmBytes = new Uint8Array(await readTerminalWasm());
 const wasm = await import('../apps/web/src/term-wasm/pkg/term_wasm.js');
 const { memory } = wasm.initSync({ module: wasmBytes });
 
