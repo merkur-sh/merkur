@@ -84,6 +84,7 @@ export const deliverDaemonUnlinks = Effect.fnUntraced(function* (
     presence: DaemonPresence,
     generation: number | null,
   ) => Effect.Effect<boolean, RedisError | InfrastructureError>,
+  coordination: Pick<RealtimeCoordinationService, 'getDaemonPresence'>,
 ) {
   const pending = yield* Effect.tryPromise({
     try: () => db.selectFrom('daemon_unlinks').selectAll().execute(),
@@ -93,7 +94,15 @@ export const deliverDaemonUnlinks = Effect.fnUntraced(function* (
     let generation: number | null = null;
     // The reset's atomic epoch marker proves its generation has been allocated.
     // The owner sends that generation before closing the old control socket.
-    if (row.root_epoch > 0) {
+    const currentOwner = yield* coordination.getDaemonPresence(row.daemon_id);
+    const ownerGone =
+      currentOwner === null ||
+      currentOwner.userId !== row.user_id ||
+      currentOwner.connectionId !== row.connection_id ||
+      currentOwner.ownerInstanceId !== row.owner_instance_id ||
+      currentOwner.presenceId !== row.presence_id ||
+      currentOwner.claimSeq !== row.claim_seq;
+    if (row.root_epoch > 0 && !ownerGone) {
       const [applied, current] = yield* redis.useCommands((commands) =>
         Promise.all([
           commands.sendCommand<string | null>([

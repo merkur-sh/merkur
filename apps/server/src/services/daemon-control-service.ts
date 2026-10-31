@@ -817,7 +817,7 @@ export const DaemonControlServiceLive = Layer.effect(
           db,
           service.deliverPendingRevocations,
           logger,
-          deliverDaemonUnlinks(db, redis, service.retireUnlinkedPresence),
+          deliverDaemonUnlinks(db, redis, service.retireUnlinkedPresence, coordination),
         ),
       ),
       Effect.forkScoped,
