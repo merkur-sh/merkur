@@ -61,9 +61,10 @@ transport patches are deliberately not workspace members; read it before moving 
   `Controller::resume_window` hands each phase's window back; Bbr refuses it and never
   resumes. Move it with both Rust transport crates and the lockfile.
 - `quinn-patch`'s connection driver never holds the connection-state lock across socket I/O,
-  and every release of that lock publishes the connection's `DeliveryState` for lock-free
-  reads (`Connection::delivery_state`, `is_closed`). A reader on a latency path (the daemon
-  owner, a flush, a quote) reads that view; `stats()` locks and stays for cold telemetry.
+  and mutating guards publish the connection's `DeliveryState` on release for lock-free
+  reads (`Connection::delivery_state`, `is_closed`). Incoming datagram guards expose no
+  outgoing state and unlock without rebuilding that projection. A reader on a latency path
+  (the daemon owner, a flush, a quote) reads that view; `stats()` locks and stays for cold telemetry.
   Never move a send back under the lock or publish anywhere but at a release: the
   `driver_io` tests in its `src/tests.rs` fail on either. An `EgressHold`
   (`Connection::hold_egress`) stops packet construction, never admission, until its last

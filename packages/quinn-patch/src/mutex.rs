@@ -3,11 +3,22 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-/// State that completes its own bookkeeping before its lock is released,
-/// whichever caller locked it
+/// State that completes its bookkeeping before a mutating guard releases the lock
 pub(crate) trait Unlock {
     /// Runs as the guard drops, while the lock is still held
     fn before_unlock(&mut self);
+}
+
+/// The incoming operations a receive guard may expose, without mutable access to the state.
+pub(crate) trait DatagramReceive: Unlock {
+    type Error;
+    fn recv(&mut self) -> Option<bytes::Bytes>;
+    fn recv_matching(
+        &mut self,
+        predicate: impl FnMut(&bytes::Bytes) -> bool,
+    ) -> Option<bytes::Bytes>;
+    fn peek_len(&mut self) -> Option<usize>;
+    fn error(&self) -> Option<&Self::Error>;
 }
 
 /// Finish an unwinding-free critical section. A panicking holder leaves the
@@ -131,6 +142,28 @@ mod tracking {
             }
         }
 
+        /// Lock incoming datagram storage without outgoing release bookkeeping.
+        pub(crate) fn lock_receive(&self, purpose: &'static str) -> ReceiveGuard<'_, T>
+        where
+            T: DatagramReceive,
+        {
+            let now = Instant::now();
+            let guard = acquire(&self.inner);
+            let lock_time = Instant::now();
+            let elapsed = lock_time.duration_since(now);
+            if elapsed > Duration::from_millis(1) {
+                warn!(
+                    "Locking the connection for {} took {:?}. Last owners: {:?}",
+                    purpose, elapsed, guard.last_lock_owner
+                );
+            }
+            ReceiveGuard {
+                guard,
+                start_time: lock_time,
+                purpose,
+            }
+        }
+
         /// Whether another holder has the lock right now. Tests only: a real
         /// caller could not act on the answer.
         #[cfg(test)]
@@ -184,6 +217,52 @@ mod tracking {
         }
     }
 
+    pub(crate) struct ReceiveGuard<'a, T: DatagramReceive> {
+        guard: std::sync::MutexGuard<'a, Inner<T>>,
+        start_time: Instant,
+        purpose: &'static str,
+    }
+
+    impl<T: DatagramReceive> Drop for ReceiveGuard<'_, T> {
+        fn drop(&mut self) {
+            if self.guard.last_lock_owner.len() == MAX_LOCK_OWNERS {
+                self.guard.last_lock_owner.pop_back();
+            }
+            let duration = self.start_time.elapsed();
+            if duration > Duration::from_millis(1) {
+                warn!(
+                    "Utilizing the connection for {} took {:?}",
+                    self.purpose, duration
+                );
+            }
+            self.guard
+                .last_lock_owner
+                .push_front((self.purpose, duration));
+        }
+    }
+
+    impl<T: DatagramReceive> ReceiveGuard<'_, T> {
+        #[inline]
+        pub(crate) fn recv(&mut self) -> Option<bytes::Bytes> {
+            self.guard.value.recv()
+        }
+        #[inline]
+        pub(crate) fn recv_matching(
+            &mut self,
+            predicate: impl FnMut(&bytes::Bytes) -> bool,
+        ) -> Option<bytes::Bytes> {
+            self.guard.value.recv_matching(predicate)
+        }
+        #[inline]
+        pub(crate) fn peek_len(&mut self) -> Option<usize> {
+            self.guard.value.peek_len()
+        }
+        #[inline]
+        pub(crate) fn error(&self) -> Option<&T::Error> {
+            self.guard.value.error()
+        }
+    }
+
     const MAX_LOCK_OWNERS: usize = 20;
 }
 
@@ -213,6 +292,16 @@ mod non_tracking {
         /// The purpose will be recorded in the list of last lock owners
         pub(crate) fn lock(&self, _purpose: &'static str) -> MutexGuard<'_, T> {
             MutexGuard {
+                guard: acquire(&self.inner),
+            }
+        }
+
+        /// Lock incoming datagram storage without outgoing release bookkeeping.
+        pub(crate) fn lock_receive(&self, _purpose: &'static str) -> ReceiveGuard<'_, T>
+        where
+            T: DatagramReceive,
+        {
+            ReceiveGuard {
                 guard: acquire(&self.inner),
             }
         }
@@ -249,6 +338,32 @@ mod non_tracking {
     impl<T: Unlock> DerefMut for MutexGuard<'_, T> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             self.guard.deref_mut()
+        }
+    }
+
+    pub(crate) struct ReceiveGuard<'a, T: DatagramReceive> {
+        guard: std::sync::MutexGuard<'a, T>,
+    }
+
+    impl<T: DatagramReceive> ReceiveGuard<'_, T> {
+        #[inline]
+        pub(crate) fn recv(&mut self) -> Option<bytes::Bytes> {
+            self.guard.recv()
+        }
+        #[inline]
+        pub(crate) fn recv_matching(
+            &mut self,
+            predicate: impl FnMut(&bytes::Bytes) -> bool,
+        ) -> Option<bytes::Bytes> {
+            self.guard.recv_matching(predicate)
+        }
+        #[inline]
+        pub(crate) fn peek_len(&mut self) -> Option<usize> {
+            self.guard.peek_len()
+        }
+        #[inline]
+        pub(crate) fn error(&self) -> Option<&T::Error> {
+            self.guard.error()
         }
     }
 }

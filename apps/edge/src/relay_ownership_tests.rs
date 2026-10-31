@@ -97,6 +97,81 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
     }
 }
 
+fn poll_receive<T>(future: impl Future<Output = T>) -> Poll<T> {
+    let mut future = std::pin::pin!(future);
+    future
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+}
+
+#[tokio::test]
+#[ignore = "release receive projection allocation and instruction profile"]
+async fn receive_projection_profile() {
+    use std::hint::black_box;
+    use std::mem::size_of_val;
+
+    let workload = std::env::var("RECEIVE_PROJECTION_WORKLOAD").unwrap_or_else(|_| "single".into());
+    let (_server, _client, local, _remote) = pair().await;
+    let connection = local.quic_connection();
+    let mut out = [const { Bytes::new() }; 8];
+    println!(
+        "single_future={} batch_future={} selective_future={}",
+        size_of_val(&connection.read_datagram()),
+        size_of_val(&connection.read_datagrams(&mut out, 1500)),
+        size_of_val(&connection.read_datagram_matching(|_| true))
+    );
+    let _hold = local.hold_egress();
+    connection
+        .send_datagram(Bytes::from_static(b"warm"))
+        .unwrap();
+    connection.clear_queued_datagrams();
+    if workload == "closed" {
+        connection.close(wtransport::quinn::VarInt::from_u32(0), b"closed");
+    }
+    let (_, tally) = measured(|| {
+        for _ in 0..2_000_000 {
+            match workload.as_str() {
+                "single" => {
+                    assert!(black_box(poll_receive(connection.read_datagram())).is_pending())
+                }
+                "batch" => assert!(
+                    black_box(poll_receive(connection.read_datagrams(&mut out, 1500))).is_pending()
+                ),
+                "selective" => assert!(
+                    black_box(poll_receive(connection.read_datagram_matching(|_| true)))
+                        .is_pending()
+                ),
+                "closed" => assert!(matches!(
+                    black_box(poll_receive(connection.read_datagram())),
+                    Poll::Ready(Err(_))
+                )),
+                "zero_batch" => assert_eq!(
+                    black_box(poll_receive(connection.read_datagrams(&mut [], 1500))),
+                    Poll::Ready(Ok(0))
+                ),
+                "send" => {
+                    connection
+                        .send_datagram(Bytes::from_static(b"send"))
+                        .unwrap();
+                    assert_eq!(connection.clear_queued_datagrams(), 1);
+                }
+                "stats" => {
+                    black_box(connection.stats());
+                }
+                "delivery" => {
+                    black_box(connection.delivery_state());
+                }
+                _ => panic!("unknown profile workload"),
+            }
+        }
+    });
+    assert_eq!(tally, Tally::default());
+    println!(
+        "workload={workload} iterations=2000000 allocations={} requested_bytes={}",
+        tally.allocations, tally.bytes
+    );
+}
+
 async fn pair() -> (Endpoint<Server>, Endpoint<Client>, Connection, Connection) {
     let cert = EdgeCert::generate(&["localhost"]).unwrap();
     let server = build_server(

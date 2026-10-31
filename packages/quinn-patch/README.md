@@ -24,6 +24,8 @@ the patch reaches production.
   `DeliveryState` into a two-copy latch (`src/delivery_view.rs`).
   `Connection::delivery_state` and `Connection::is_closed` read it without the lock, never
   wait on its holder, and equal what a holder saw at the most recent release.
+  Incoming datagram guards expose only receive operations and error inspection, so they
+  retain that outgoing view without recomputing it on release.
 - `Connection::egress_group` reads a handle recorded where membership changes, not the
   connection state.
 - `contention::observe` makes the calling thread time its contended acquisitions of
