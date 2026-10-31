@@ -36,6 +36,7 @@ import {
   Layer,
   Metric,
   Option,
+  Predicate,
   Queue,
   Result,
   Scope,
@@ -58,6 +59,7 @@ import {
 import { currentTraceparent } from '../observability/traceparent';
 import { readAccountTelemetryConsent } from './account-telemetry-service';
 import { DaemonReleaseStoreTag } from './daemon-release-store';
+import { runDaemonRevocationDelivery } from './daemon-revocation-delivery';
 import { DeviceServiceTag } from './device-service';
 import { createEdgeAttachTicketIssuer, type EdgeAttachTicketIssuer } from './edge-attach-ticket';
 import { EdgeRegistryServiceTag } from './edge-registry-service';
@@ -302,6 +304,14 @@ interface PendingLocalCommand {
     DaemonUnavailable | StaleDaemonPresence
   >;
 }
+
+const { Joined: joinedRevocationDelivery } = Data.taggedEnum<{
+  Joined: {
+    readonly connection: ControlConnection;
+    readonly pending: PendingLocalCommand;
+    readonly superseded: undefined;
+  };
+}>();
 
 interface InboundControlMessage<
   Message extends DaemonControlDaemonMessage = DaemonControlDaemonMessage,
@@ -603,6 +613,10 @@ type BrokerEnvelope =
   | BrokerTelemetryChanged;
 
 interface DaemonControlRuntime extends DaemonControlService {
+  readonly awaitFirstConnection: Effect.Effect<void>;
+  readonly deliverPendingRevocations: (
+    daemonIds: readonly string[],
+  ) => Effect.Effect<void, InfrastructureError | RedisError>;
   readonly processBrokerFrame: (frame: string) => Effect.Effect<void, RedisError>;
   /**
    * Tells every registered daemon on this instance that the store now holds `release`, so
@@ -770,6 +784,12 @@ export const DaemonControlServiceLive = Layer.effect(
     yield* Effect.forever(
       Queue.take(releaseStore.announcements).pipe(Effect.flatMap(service.announceStagedRelease)),
     ).pipe(Effect.forkScoped);
+    // HTTP admits connections only after migrations; registration also replays
+    // pending entries before readiness. Waiting avoids querying an unmigrated DB.
+    yield* service.awaitFirstConnection.pipe(
+      Effect.andThen(runDaemonRevocationDelivery(db, service.deliverPendingRevocations, logger)),
+      Effect.forkScoped,
+    );
     return service;
   }),
 );
@@ -786,6 +806,7 @@ export function createDaemonControlService(
     DAEMON_CONTROL_MAX_PENDING_COMMANDS_PER_CONNECTION;
   const maxPendingRemoteCommands =
     dependencies.maxPendingRemoteCommands ?? MAX_PENDING_REMOTE_COMMANDS;
+  const firstConnection = Deferred.makeUnsafe<void>();
   const connections = new Map<string, ControlConnection>();
   const connectionIdByDaemonId = new Map<string, string>();
   /** Revoke-all fan-out is O(this user's daemons), not O(connections). */
@@ -864,6 +885,29 @@ export function createDaemonControlService(
   }
 
   const service: DaemonControlRuntime = {
+    awaitFirstConnection: Deferred.await(firstConnection),
+    deliverPendingRevocations: (daemonIds) =>
+      Effect.forEach(
+        daemonIds,
+        (daemonId) =>
+          Effect.gen(function* () {
+            const connectionId = connectionIdByDaemonId.get(daemonId);
+            const connection =
+              connectionId === undefined ? undefined : connections.get(connectionId);
+            if (connection === undefined || !connection.sessionReady || connection.peerClosed)
+              return;
+            const presence = yield* coordination.getDaemonPresence(daemonId);
+            if (
+              presence === null ||
+              presence.connectionId !== connection.connectionId ||
+              presence.ownerInstanceId !== coordination.instanceId
+            )
+              return;
+            const applied = yield* flushDaemonDelegationRevocations(presence);
+            if (!applied) yield* retireDelegationRevocationPresence(presence);
+          }),
+        { discard: true },
+      ),
     acceptConnection(input) {
       return Effect.gen(function* () {
         if (closed || connections.size >= MAX_CONNECTIONS || connections.has(input.connectionId)) {
@@ -1110,6 +1154,7 @@ export function createDaemonControlService(
           return handle;
         }
         connection.sessionReady = true;
+        yield* Deferred.succeed(firstConnection, undefined);
         yield* logWithLoggerEffect(logger, 'info', 'daemon_control_registered', {
           daemonId: input.daemonId,
           connectionId: input.connectionId,
@@ -2203,6 +2248,13 @@ export function createDaemonControlService(
         const admitted = pendingByPresence.get(current.presenceId);
         const inFlight = admitted?.get(command.commandId);
         if (inFlight !== undefined && inFlight.connectionId === connection.connectionId) {
+          if (command.type === 'delegation_revoke') {
+            return joinedRevocationDelivery({
+              connection,
+              pending: inFlight,
+              superseded: undefined,
+            });
+          }
           return { _tag: 'Backpressure', connection } as const;
         }
         if ((admitted?.size ?? 0) >= maxPendingCommandsPerConnection && inFlight === undefined) {
@@ -2260,7 +2312,8 @@ export function createDaemonControlService(
           resentOn: connection.connectionId,
         });
       }
-      const acknowledge = Deferred.await(pending.deferred).pipe(
+      const activePending = Predicate.isTagged(admission, 'Joined') ? admission.pending : pending;
+      const acknowledge = Deferred.await(activePending.deferred).pipe(
         Effect.timeoutOrElse({
           duration: `${commandTimeoutMs} millis`,
           orElse: () =>
@@ -2274,13 +2327,16 @@ export function createDaemonControlService(
       );
 
       const result = yield* Effect.result(
-        sendFrame(connection, command).pipe(Effect.andThen(acknowledge)),
+        Predicate.isTagged(admission, 'Joined')
+          ? acknowledge
+          : sendFrame(connection, command).pipe(Effect.andThen(acknowledge)),
       ).pipe(
         // `ensuring`, not `tap`: this runs on success, failure, timeout and
         // interruption alike. A path that skipped it would leak an outbox slot
         // that nothing ever reclaims, and the slot is what bounds admission.
         Effect.ensuring(
           Effect.sync(() => {
+            if (Predicate.isTagged(admission, 'Joined')) return;
             const pendingCommands = pendingByPresence.get(current.presenceId);
             if (pendingCommands === undefined) return;
             // Remove only our own registration. A superseded delivery settles

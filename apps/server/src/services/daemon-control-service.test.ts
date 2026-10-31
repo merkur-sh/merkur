@@ -35,7 +35,7 @@ import {
   StaleDaemonPresence,
 } from './daemon-control-service';
 import { DaemonReleaseStoreTag } from './daemon-release-store';
-import { type DeviceService, DeviceServiceTag } from './device-service';
+import { createDeviceService, type DeviceService, DeviceServiceTag } from './device-service';
 import { type EdgeRegistryService, EdgeRegistryServiceTag } from './edge-registry-service';
 import { infrastructureError } from './errors';
 import {
@@ -963,6 +963,145 @@ describe('DaemonControlService', () => {
     },
   );
 
+  test('committed revocation survives request interruption', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const redis: RedisService = {
+      ...bus.redis,
+      subscribe: () => Effect.void,
+      unsubscribe: () => Effect.void,
+    };
+    const dependencies = Layer.mergeAll(
+      Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
+      Layer.succeed(RedisServiceTag, redis),
+      Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
+      testDatabaseLayer(),
+      Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
+      Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
+    );
+    const controlLayer = DaemonControlServiceLive.pipe(Layer.provideMerge(dependencies));
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const control = yield* DaemonControlServiceTag;
+          const db = yield* DatabaseService;
+          const socket = new TestSocket();
+          yield* control.acceptConnection({
+            daemonId: DAEMON_ID,
+            userId: USER_ID,
+            boxId: null,
+            daemonVersion: '4.0.0',
+            connectionId: 'connection-1',
+            presenceId: 'presence-1',
+            socket,
+            zone: null,
+          });
+          const issuedAt = Date.now();
+          const expiresAt = issuedAt + 30 * 24 * 60 * 60 * 1_000;
+          const certificate = {
+            userId: USER_ID,
+            rootKeyCommitment: authorizationBytes(64, 21),
+            delegationId: 'actor',
+            delegatePublicKey: authorizationBytes(2_592, 22),
+            scopes: ['terminal-session', 'session-revoke'],
+            serverOrigin: 'https://merkur.example',
+            rootEpoch: 1,
+            issuedAt,
+            expiresAt,
+            signature: authorizationBytes(4_627, 23),
+          };
+          const revocation = {
+            userId: USER_ID,
+            rootKeyCommitment: certificate.rootKeyCommitment,
+            actorDelegationId: 'actor',
+            targets: [{ delegationId: 'revoked-browser', expiresAt }],
+            issuedAt,
+            nonce: authorizationBytes(32, 24),
+            signature: authorizationBytes(4_627, 25),
+          };
+          const committed = yield* Deferred.make<void>();
+          const request = yield* Effect.gen(function* () {
+            yield* Effect.promise(() =>
+              db.transaction().execute(async (trx) => {
+                await trx
+                  .insertInto('daemons')
+                  .values({
+                    id: DAEMON_ID,
+                    user_id: USER_ID,
+                    name: 'Daemon',
+                    platform: 'linux',
+                    daemon_identity_public_key: 'identity',
+                    daemon_identity_p256_public_key: 'p256',
+                    identity_seal_backend: 'software',
+                    daemon_identity_key_commitment: 'commitment',
+                    daemon_binding_json: '{}',
+                    last_seen: null,
+                    version: null,
+                  })
+                  .execute();
+                await trx
+                  .insertInto('delegation_revocations')
+                  .values({
+                    nonce: revocation.nonce,
+                    user_id: USER_ID,
+                    actor_delegation_id: 'actor',
+                    actor_certificate_json: JSON.stringify(certificate),
+                    revocation_json: JSON.stringify(revocation),
+                    revoked_count: 1,
+                    created_at: issuedAt,
+                  })
+                  .execute();
+                await trx
+                  .insertInto('delegation_revocation_outbox')
+                  .values({
+                    command_id: 'interrupted-revocation',
+                    revocation_nonce: revocation.nonce,
+                    daemon_id: DAEMON_ID,
+                    user_id: USER_ID,
+                    actor_certificate_json: JSON.stringify(certificate),
+                    revocation_json: JSON.stringify(revocation),
+                    created_at: issuedAt,
+                    acknowledged_at: null,
+                    rejected_reason: null,
+                  })
+                  .execute();
+              }),
+            );
+            yield* Deferred.succeed(committed, undefined);
+            yield* Effect.never;
+          }).pipe(Effect.forkChild);
+          yield* Deferred.await(committed);
+          yield* Fiber.interrupt(request);
+          const devices = createDeviceService(
+            db,
+            { tokenHmacSecret: 'secret', publicOrigin: 'https://merkur.example' },
+            Effect.void,
+          );
+          expect(yield* devices.getDaemonSessionIdentity(USER_ID, DAEMON_ID)).toBeNull();
+          yield* TestClock.adjust('1 second');
+          const command = yield* Effect.promise(() => waitForMessage(socket, 'delegation_revoke'));
+          expect(command.commandId).toBe('interrupted-revocation');
+          yield* control.receive(
+            'connection-1',
+            encodeDaemonControlMessage(
+              createDaemonControlCommandAckMessage(command.commandId, { status: 'accepted' }),
+            ),
+          );
+          // A successful flush returns only after the durable acknowledgement.
+          yield* control.flushUserDelegationRevocations(USER_ID);
+          expect(yield* devices.getDaemonSessionIdentity(USER_ID, DAEMON_ID)).toEqual({
+            daemonIdentityPublicKey: 'identity',
+            daemonIdentityP256PublicKey: 'p256',
+            daemonBindingJson: '{}',
+          });
+          expect(socket.closed).toEqual([]);
+          expect(state.presence?.state).toBe('online');
+        }).pipe(Effect.provide(controlLayer), Effect.provide(TestClock.layer())),
+      ),
+    );
+  });
+
   test('retires an active presence when a live revocation delivery is not acknowledged', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
@@ -1753,24 +1892,28 @@ describe('DaemonControlService', () => {
       signature: authorizationBytes(4_627, 45),
     } as const;
     const acknowledged: string[] = [];
-    const owner = createService(ownerCoordination, bus.redis);
-    const requester = createService(requesterCoordination, bus.redis, {
-      revocationOutbox: {
-        listPending: () =>
-          Effect.succeed([
-            {
-              commandId: 'revoke-cross-replica',
-              actorCertificateJson: JSON.stringify(actorCertificate),
-              revocationJson: JSON.stringify(revocation),
-            },
-          ]),
-        markAcknowledged: (commandId) =>
-          Effect.sync(() => {
-            acknowledged.push(commandId);
-          }),
-        markRejected: () => Effect.void,
-      },
-    });
+    let pending = false;
+    const revocationOutbox = {
+      listPending: () =>
+        Effect.succeed(
+          pending
+            ? [
+                {
+                  commandId: 'revoke-cross-replica',
+                  actorCertificateJson: JSON.stringify(actorCertificate),
+                  revocationJson: JSON.stringify(revocation),
+                },
+              ]
+            : [],
+        ),
+      markAcknowledged: (commandId: string) =>
+        Effect.sync(() => {
+          acknowledged.push(commandId);
+        }),
+      markRejected: () => Effect.void,
+    };
+    const owner = createService(ownerCoordination, bus.redis, { revocationOutbox });
+    const requester = createService(requesterCoordination, bus.redis, { revocationOutbox });
     bus.register('instance-owner', (frame) => Effect.runPromise(owner.processBrokerFrame(frame)));
     bus.register('instance-requester', (frame) =>
       Effect.runPromise(requester.processBrokerFrame(frame)),
@@ -1778,9 +1921,11 @@ describe('DaemonControlService', () => {
 
     await register(owner, socket);
     const presence = requirePresence(state);
+    pending = true;
     const delivery = Effect.runPromise(requester.flushUserDelegationRevocations(USER_ID));
     const command = await waitForMessage(socket, 'delegation_revoke');
     expect(command.commandId).toBe('revoke-cross-replica');
+    const background = Effect.runPromise(owner.deliverPendingRevocations([DAEMON_ID]));
     await Effect.runPromise(
       owner.receive(
         presence.connectionId,
@@ -1793,7 +1938,8 @@ describe('DaemonControlService', () => {
     );
 
     await expect(delivery).resolves.toBeUndefined();
-    expect(acknowledged).toEqual(['revoke-cross-replica']);
+    await background;
+    expect(acknowledged).toEqual(['revoke-cross-replica', 'revoke-cross-replica']);
     expect(socket.closed).toEqual([]);
     expect(state.presence).toEqual(presence);
   });

@@ -96,6 +96,11 @@ can repeat delivery. Browser changes carry exact delegation IDs. Device invalida
 the account cursor and request an authoritative snapshot, so replay cannot restore an obsolete
 name or resurrect a removed device. Pending intents survive account erasure until acknowledged.
 
+Each control replica also scans pending daemon revocations once a second after its first
+successful registration and delivers only to its own ready connections. The SQL outbox owns
+recovery independently of request cancellation; entries leave pending state only after daemon
+acknowledgement. Concurrent delivery of the same revocation shares its in-flight acknowledgement.
+
 Failed-login push notices use a separate scoped queue; request completion does not wait for
 push delivery. Box-host and push HTTP requests pass Effect's cancellation signal to fetch and
 apply their deadline through response consumption. Non-abortable SQL transaction coroutines

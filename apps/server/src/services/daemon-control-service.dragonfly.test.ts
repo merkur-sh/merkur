@@ -96,6 +96,30 @@ if (dragonflyUrl === undefined) {
             claimSeq,
           });
 
+          // The owner discovers committed work without a request-time flush or reconnect.
+          const ownerDb = Context.get(ownerContext, DatabaseService);
+          const revocationId = yield* Effect.promise(() =>
+            recordRevocation(ownerDb, userId, daemonId),
+          );
+          const revoke = yield* takeMessage(socketFrames, 'delegation_revoke');
+          expect(revoke.commandId).toBe(revocationId);
+          yield* owner.receive(
+            connectionId,
+            encodeDaemonControlMessage(
+              createDaemonControlCommandAckMessage(revoke.commandId, { status: 'accepted' }),
+            ),
+          );
+          yield* owner.flushUserDelegationRevocations(userId);
+          expect(
+            (yield* Effect.promise(() =>
+              ownerDb
+                .selectFrom('delegation_revocation_outbox')
+                .select('acknowledged_at')
+                .where('command_id', '=', revocationId)
+                .executeTakeFirstOrThrow(),
+            )).acknowledged_at,
+          ).not.toBeNull();
+
           let deliverySettled = false;
           const delivery = yield* requester
             .startSession({
@@ -461,4 +485,81 @@ async function insertUser(database: Kysely<DatabaseSchema>, id: string): Promise
       created_at: 0,
     })
     .execute();
+}
+
+async function recordRevocation(
+  db: Kysely<DatabaseSchema>,
+  userId: string,
+  daemonId: string,
+): Promise<string> {
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + 30 * 24 * 60 * 60 * 1_000;
+  const bytes = (length: number, fill: number) => Buffer.alloc(length, fill).toString('base64url');
+  const certificate = {
+    userId,
+    rootKeyCommitment: bytes(64, 21),
+    delegationId: 'actor',
+    delegatePublicKey: bytes(2_592, 22),
+    scopes: ['terminal-session', 'session-revoke'],
+    serverOrigin: 'https://localhost:3000',
+    rootEpoch: 1,
+    issuedAt,
+    expiresAt,
+    signature: bytes(4_627, 23),
+  };
+  const revocation = {
+    userId,
+    rootKeyCommitment: certificate.rootKeyCommitment,
+    actorDelegationId: 'actor',
+    targets: [{ delegationId: 'target', expiresAt }],
+    issuedAt,
+    nonce: bytes(32, 24),
+    signature: bytes(4_627, 25),
+  };
+  const commandId = randomUUID();
+  await db.transaction().execute(async (trx) => {
+    await trx
+      .insertInto('daemons')
+      .values({
+        id: daemonId,
+        user_id: userId,
+        name: 'Daemon',
+        platform: 'linux',
+        daemon_identity_public_key: 'identity',
+        daemon_identity_p256_public_key: 'p256',
+        identity_seal_backend: 'software',
+        daemon_identity_key_commitment: 'commitment',
+        daemon_binding_json: '{}',
+        last_seen: null,
+        version: null,
+      })
+      .execute();
+    await trx
+      .insertInto('delegation_revocations')
+      .values({
+        nonce: revocation.nonce,
+        user_id: userId,
+        actor_delegation_id: 'actor',
+        actor_certificate_json: JSON.stringify(certificate),
+        revocation_json: JSON.stringify(revocation),
+        revoked_count: 1,
+        created_at: issuedAt,
+      })
+      .execute();
+    await trx
+      .insertInto('delegation_revocation_outbox')
+      .values({
+        command_id: commandId,
+        revocation_nonce: revocation.nonce,
+        daemon_id: daemonId,
+        user_id: userId,
+        actor_certificate_json: JSON.stringify(certificate),
+        revocation_json: JSON.stringify(revocation),
+        created_at: issuedAt,
+        acknowledged_at: null,
+        rejected_reason: null,
+      })
+      .execute();
+  });
+  return commandId;
 }
