@@ -8,6 +8,10 @@ import { expect, test } from './fixtures/daemon-process';
 import { pixelCounts } from './fixtures/graphics-pixels';
 import { expectOutput, primeTerminal, shellQuote } from './terminal-e2e-helpers';
 
+// The animation shows each frame for 300 ms. A poll's default 1 s spacing plus a screenshot's
+// 200 ms lands on the same frame every time, so sampling continues without a gap.
+const EVERY_FRAME = { intervals: [0] };
+
 for (const [tool, redValue] of [
   ['chafa', 254],
   ['chafa-tmux', 254],
@@ -90,10 +94,16 @@ sys.exit(0 if failed is None else 1)
           existsSync(report) ? JSON.parse(await readFile(report, 'utf8')).phase : 'starting',
         )
         .toBe('capture-applied');
-      await expect.poll(async () => (await pixelCounts(page, redValue)).red).toBeGreaterThan(1000);
+      await expect
+        .poll(async () => (await pixelCounts(page, redValue)).red, EVERY_FRAME)
+        .toBeGreaterThan(1000);
       if (tool === 'icat-animation') {
-        await expect.poll(async () => (await pixelCounts(page)).green).toBeGreaterThan(1000);
-        await expect.poll(async () => (await pixelCounts(page)).red).toBeGreaterThan(1000);
+        await expect
+          .poll(async () => (await pixelCounts(page)).green, EVERY_FRAME)
+          .toBeGreaterThan(1000);
+        await expect
+          .poll(async () => (await pixelCounts(page)).red, EVERY_FRAME)
+          .toBeGreaterThan(1000);
       }
       await page.keyboard.type('d');
       await expect
