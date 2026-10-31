@@ -1174,8 +1174,9 @@ Capture reuse and final content-owner release return uniquely owned forms to the
 and admits. Preparation refills a free form before allocating; a full list drops returned forms.
 Direct shared-borrow captures use a separate scratch pool. Peer diffs compare immutable captures
 with their acknowledged baselines and share the cell storage for encoding and ACK provenance; a
-full snapshot uses the same one-pass capture primitive instead of separately encoding, copying
-the grid, and hashing rows.
+full snapshot serializes the completed visible captures, copies their cells into the flat
+baseline grid, and reuses their row hashes without retaining additional capture owners. Its
+reusable cell and digest scratch holds the final row's captured state.
 
 A peer's MZ item-pair index holds only live sources: each pair keeps at most four occurrences
 inline, newest last, and a retiring source removes exactly the pairs it admitted, so retirement
