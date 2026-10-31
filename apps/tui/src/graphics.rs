@@ -472,14 +472,17 @@ impl Graphics {
             .flat_map(|animation| &animation.bindings)
             .map(|(binding, key)| (binding, key))
             .collect();
+        let mut complete = true;
         for (order, quad) in scene.quads.iter().enumerate() {
+            let Some(rect) = clipped_rect(quad, width, height) else {
+                continue;
+            };
             let key = bindings.get(&quad.key).copied().unwrap_or(&quad.key);
             let Some(tile) = self.tiles.get(key).map(|tile| Arc::clone(&tile.source)) else {
+                complete = false;
                 continue;
             };
-            let Some(raster_key) = raster_key(key, quad, width, height) else {
-                continue;
-            };
+            let raster_key = raster_key(key, quad, rect);
             if !self.rasters.contains_key(&raster_key)
                 && !self.pending_rasters.contains_key(&raster_key)
             {
@@ -502,12 +505,7 @@ impl Graphics {
             });
         }
         // Missing tiles hold all existing placements until this scene is ready.
-        self.complete = self.desired.len()
-            == scene
-                .quads
-                .iter()
-                .filter(|quad| raster_key("", quad, width, height).is_some())
-                .count();
+        self.complete = complete;
         Ok(())
     }
     fn reserve_pixels(&self, additional: usize) -> io::Result<Lease> {
@@ -576,7 +574,9 @@ fn matches_ordered(remaining: &mut &[Placement], placement: &Placement) -> bool 
     false
 }
 
-fn raster_key(key: &str, quad: &Quad, width: u32, height: u32) -> Option<RasterKey> {
+fn clipped_rect(quad: &Quad, width: u32, height: u32) -> Option<[u32; 4]> {
+    #[cfg(all(test, debug_assertions))]
+    tests::CLASSIFICATIONS.update(|count| count + 1);
     let values = [
         quad.left,
         quad.top,
@@ -601,12 +601,26 @@ fn raster_key(key: &str, quad: &Quad, width: u32, height: u32) -> Option<RasterK
         edge(quad.right, width),
         edge(quad.bottom, height),
     ];
-    (rect[2] > rect[0] && rect[3] > rect[1]).then(|| RasterKey {
+    (rect[2] > rect[0] && rect[3] > rect[1]).then_some(rect)
+}
+
+fn raster_key(key: &str, quad: &Quad, rect: [u32; 4]) -> RasterKey {
+    RasterKey {
         tile: key.into(),
         rect,
-        mapping: values.map(f64::to_bits),
+        mapping: [
+            quad.left,
+            quad.top,
+            quad.right,
+            quad.bottom,
+            quad.u,
+            quad.v,
+            quad.uw,
+            quad.vh,
+        ]
+        .map(f64::to_bits),
         layer: quad.layer,
-    })
+    }
 }
 
 fn pixel_bytes(rect: [u32; 4]) -> io::Result<usize> {
