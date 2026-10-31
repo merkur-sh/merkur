@@ -1256,11 +1256,10 @@ export function createDaemonControlService(
           });
           return handle;
         }
-        const unlinksRemain = yield* dependencies.deliverUnlinks?.(input.daemonId) ??
-          Effect.succeed(false);
+        yield* dependencies.deliverUnlinks?.(input.daemonId) ?? Effect.succeed(false);
         if (connection.peerClosed) return handle;
         connection.sessionReady = true;
-        if (unlinksRemain) yield* wakeDaemonWork(input.daemonId);
+        yield* wakeDaemonWork(input.daemonId);
         yield* logWithLoggerEffect(logger, 'info', 'daemon_control_registered', {
           daemonId: input.daemonId,
           connectionId: input.connectionId,

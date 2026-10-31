@@ -1048,6 +1048,12 @@ describe('DaemonControlService', () => {
           });
           const reads = spyOn(db, 'selectFrom');
           try {
+            yield* Effect.promise(() =>
+              waitFor(() =>
+                reads.mock.calls.some(([table]) => table === 'delegation_revocation_outbox'),
+              ),
+            );
+            reads.mockClear();
             yield* TestClock.adjust('3 seconds');
             expect(
               reads.mock.calls.filter(
@@ -1242,15 +1248,15 @@ describe('DaemonControlService', () => {
     );
     try {
       await register(service, new TestSocket());
-      expect(reads).toBe(1);
+      await waitFor(() => reads === 2);
       await Effect.runPromise(
         service.processBrokerFrame(
           JSON.stringify({ type: 'daemon_work_resync', version: 1, ownerInstanceId: 'instance-a' }),
         ),
       );
-      await waitFor(() => reads === 2);
+      await waitFor(() => reads === 3);
       await Effect.runPromise(service.livenessTick);
-      expect(reads).toBe(2);
+      expect(reads).toBe(3);
     } finally {
       await Effect.runPromise(service.shutdown);
     }
@@ -1370,182 +1376,261 @@ describe('DaemonControlService', () => {
     }
   });
 
-  test('committed revocation survives request interruption', async () => {
-    const state = createCoordinationState();
-    const bus = createBrokerBus();
-    const redis = bus.redis;
-    const dependencies = Layer.mergeAll(
-      Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
-      Layer.succeed(RedisServiceTag, redis),
-      Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
-      testDatabaseLayer(),
-      Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
-      Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
-      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
-    );
-    const controlLayer = Layer.merge(DaemonControlServiceLive, NotificationOutboxServiceLive).pipe(
-      Layer.provideMerge(dependencies),
-    );
-    await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const notifications = yield* NotificationOutboxServiceTag;
-          const sleeps = spyOn(yield* Clock.Clock, 'sleep');
-          try {
-            yield* notifications.start;
-            // A completed empty scan arms the durable worker's next poll.
-            yield* Effect.promise(() =>
-              waitFor(() =>
-                sleeps.mock.calls.some(([duration]) => Duration.toMillis(duration) === 1_000),
+  for (const registrationPending of [false, true]) {
+    test(`committed revocation survives request interruption with registration pending: ${registrationPending}`, async () => {
+      const state = createCoordinationState();
+      const bus = createBrokerBus();
+      const redis = bus.redis;
+      const dependencies = Layer.mergeAll(
+        Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
+        Layer.succeed(RedisServiceTag, redis),
+        Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
+        testDatabaseLayer(),
+        Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
+        Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+        Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
+      );
+      const controlLayer = Layer.merge(
+        DaemonControlServiceLive,
+        NotificationOutboxServiceLive,
+      ).pipe(Layer.provideMerge(dependencies));
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const notifications = yield* NotificationOutboxServiceTag;
+            const sleeps = spyOn(yield* Clock.Clock, 'sleep');
+            try {
+              yield* notifications.start;
+              // A completed empty scan arms the durable worker's next poll.
+              yield* Effect.promise(() =>
+                waitFor(() =>
+                  sleeps.mock.calls.some(([duration]) => Duration.toMillis(duration) === 1_000),
+                ),
+              );
+            } finally {
+              sleeps.mockRestore();
+            }
+            const control = yield* DaemonControlServiceTag;
+            const db = yield* DatabaseService;
+            const socket = new TestSocket();
+            const issuedAt = Date.now();
+            const expiresAt = issuedAt + 30 * 24 * 60 * 60 * 1_000;
+            const certificate = {
+              userId: USER_ID,
+              rootKeyCommitment: authorizationBytes(64, 21),
+              delegationId: 'actor',
+              delegatePublicKey: authorizationBytes(2_592, 22),
+              scopes: ['terminal-session', 'session-revoke'],
+              serverOrigin: 'https://merkur.example',
+              rootEpoch: 1,
+              issuedAt,
+              expiresAt,
+              signature: authorizationBytes(4_627, 23),
+            };
+            const revocation = {
+              userId: USER_ID,
+              rootKeyCommitment: certificate.rootKeyCommitment,
+              actorDelegationId: 'actor',
+              targets: [{ delegationId: 'revoked-browser', expiresAt }],
+              issuedAt,
+              nonce: authorizationBytes(32, 24),
+              signature: authorizationBytes(4_627, 25),
+            };
+            if (registrationPending) {
+              const initial = { ...revocation, nonce: authorizationBytes(32, 27) };
+              yield* Effect.promise(() =>
+                db.transaction().execute(async (trx) => {
+                  await trx
+                    .insertInto('delegation_revocations')
+                    .values({
+                      nonce: initial.nonce,
+                      user_id: USER_ID,
+                      actor_delegation_id: 'actor',
+                      actor_certificate_json: JSON.stringify(certificate),
+                      revocation_json: JSON.stringify(initial),
+                      revoked_count: 1,
+                      created_at: issuedAt,
+                    })
+                    .execute();
+                  await trx
+                    .insertInto('delegation_revocation_outbox')
+                    .values({
+                      command_id: 'registration-snapshot',
+                      revocation_nonce: initial.nonce,
+                      daemon_id: DAEMON_ID,
+                      user_id: USER_ID,
+                      actor_certificate_json: JSON.stringify(certificate),
+                      revocation_json: JSON.stringify(initial),
+                      created_at: issuedAt,
+                      acknowledged_at: null,
+                      rejected_reason: null,
+                    })
+                    .execute();
+                }),
+              );
+            }
+            const registration = yield* control
+              .acceptConnection({
+                daemonBindingJson: '{}',
+                daemonId: DAEMON_ID,
+                userId: USER_ID,
+                boxId: null,
+                daemonVersion: '4.0.0',
+                connectionId: 'connection-1',
+                presenceId: 'presence-1',
+                socket,
+                zone: null,
+              })
+              .pipe(Effect.forkChild);
+            if (registrationPending) {
+              const snapshot = yield* Effect.promise(() =>
+                waitForMessage(socket, 'delegation_revoke'),
+              );
+              expect(snapshot.commandId).toBe('registration-snapshot');
+            } else {
+              yield* Fiber.join(registration);
+            }
+            const committed = yield* Deferred.make<void>();
+            const request = yield* Effect.gen(function* () {
+              yield* Effect.promise(() =>
+                db.transaction().execute(async (trx) => {
+                  await trx
+                    .insertInto('delegation_revocations')
+                    .values({
+                      nonce: revocation.nonce,
+                      user_id: USER_ID,
+                      actor_delegation_id: 'actor',
+                      actor_certificate_json: JSON.stringify(certificate),
+                      revocation_json: JSON.stringify(revocation),
+                      revoked_count: 1,
+                      created_at: issuedAt,
+                    })
+                    .execute();
+                  await trx
+                    .insertInto('delegation_revocation_outbox')
+                    .values({
+                      command_id: 'interrupted-revocation',
+                      revocation_nonce: revocation.nonce,
+                      daemon_id: DAEMON_ID,
+                      user_id: USER_ID,
+                      actor_certificate_json: JSON.stringify(certificate),
+                      revocation_json: JSON.stringify(revocation),
+                      created_at: issuedAt,
+                      acknowledged_at: null,
+                      rejected_reason: null,
+                    })
+                    .execute();
+                  const next = {
+                    ...revocation,
+                    nonce: authorizationBytes(32, 26),
+                    targets: [{ delegationId: 'second-target', expiresAt }],
+                  };
+                  await trx
+                    .insertInto('delegation_revocations')
+                    .values({
+                      nonce: next.nonce,
+                      user_id: USER_ID,
+                      actor_delegation_id: 'actor',
+                      actor_certificate_json: JSON.stringify(certificate),
+                      revocation_json: JSON.stringify(next),
+                      revoked_count: 1,
+                      created_at: issuedAt - 1,
+                    })
+                    .execute();
+                  await trx
+                    .insertInto('delegation_revocation_outbox')
+                    .values({
+                      command_id: 'second-in-commit-order',
+                      revocation_nonce: next.nonce,
+                      daemon_id: DAEMON_ID,
+                      user_id: USER_ID,
+                      actor_certificate_json: JSON.stringify(certificate),
+                      revocation_json: JSON.stringify(next),
+                      created_at: issuedAt - 1,
+                      acknowledged_at: null,
+                      rejected_reason: null,
+                    })
+                    .execute();
+                }),
+              );
+              yield* Deferred.succeed(committed, undefined);
+              yield* Effect.never;
+            }).pipe(Effect.forkChild);
+            yield* Deferred.await(committed);
+            yield* Fiber.interrupt(request);
+            const devices = createDeviceService(
+              db,
+              { tokenHmacSecret: 'secret', publicOrigin: 'https://merkur.example' },
+              Effect.void,
+            );
+            expect(yield* devices.getDaemonSessionIdentity(USER_ID, DAEMON_ID)).toBeNull();
+            yield* TestClock.adjust('1 second');
+            if (registrationPending) {
+              // The durable worker has published and retired every wake while registration
+              // is still awaiting the ACK for its original revocation snapshot.
+              yield* Effect.promise(() =>
+                waitFor(
+                  async () =>
+                    (await db.selectFrom('notification_outbox').selectAll().execute()).length === 0,
+                ),
+              );
+              yield* TestClock.adjust('1 second');
+              expect(socket.messagesOfType('delegation_revoke')).toHaveLength(1);
+              expect(
+                bus.published.some(({ message }) => JSON.parse(message).type === 'daemon_work'),
+              ).toBe(true);
+              yield* control.receive(
+                'connection-1',
+                encodeDaemonControlMessage(
+                  createDaemonControlCommandAckMessage('registration-snapshot', {
+                    status: 'accepted',
+                  }),
+                ),
+              );
+              yield* Fiber.join(registration);
+              yield* Effect.promise(() =>
+                waitFor(() => socket.messagesOfType('delegation_revoke').length === 2),
+              );
+            }
+            const command = yield* Effect.promise(() =>
+              waitForMessage(socket, 'delegation_revoke'),
+            );
+            expect(command.commandId).toBe('interrupted-revocation');
+            yield* control.receive(
+              'connection-1',
+              encodeDaemonControlMessage(
+                createDaemonControlCommandAckMessage(command.commandId, { status: 'accepted' }),
               ),
             );
-          } finally {
-            sleeps.mockRestore();
-          }
-          const control = yield* DaemonControlServiceTag;
-          const db = yield* DatabaseService;
-          const socket = new TestSocket();
-          yield* control.acceptConnection({
-            daemonBindingJson: '{}',
-            daemonId: DAEMON_ID,
-            userId: USER_ID,
-            boxId: null,
-            daemonVersion: '4.0.0',
-            connectionId: 'connection-1',
-            presenceId: 'presence-1',
-            socket,
-            zone: null,
-          });
-          const issuedAt = Date.now();
-          const expiresAt = issuedAt + 30 * 24 * 60 * 60 * 1_000;
-          const certificate = {
-            userId: USER_ID,
-            rootKeyCommitment: authorizationBytes(64, 21),
-            delegationId: 'actor',
-            delegatePublicKey: authorizationBytes(2_592, 22),
-            scopes: ['terminal-session', 'session-revoke'],
-            serverOrigin: 'https://merkur.example',
-            rootEpoch: 1,
-            issuedAt,
-            expiresAt,
-            signature: authorizationBytes(4_627, 23),
-          };
-          const revocation = {
-            userId: USER_ID,
-            rootKeyCommitment: certificate.rootKeyCommitment,
-            actorDelegationId: 'actor',
-            targets: [{ delegationId: 'revoked-browser', expiresAt }],
-            issuedAt,
-            nonce: authorizationBytes(32, 24),
-            signature: authorizationBytes(4_627, 25),
-          };
-          const committed = yield* Deferred.make<void>();
-          const request = yield* Effect.gen(function* () {
             yield* Effect.promise(() =>
-              db.transaction().execute(async (trx) => {
-                await trx
-                  .insertInto('delegation_revocations')
-                  .values({
-                    nonce: revocation.nonce,
-                    user_id: USER_ID,
-                    actor_delegation_id: 'actor',
-                    actor_certificate_json: JSON.stringify(certificate),
-                    revocation_json: JSON.stringify(revocation),
-                    revoked_count: 1,
-                    created_at: issuedAt,
-                  })
-                  .execute();
-                await trx
-                  .insertInto('delegation_revocation_outbox')
-                  .values({
-                    command_id: 'interrupted-revocation',
-                    revocation_nonce: revocation.nonce,
-                    daemon_id: DAEMON_ID,
-                    user_id: USER_ID,
-                    actor_certificate_json: JSON.stringify(certificate),
-                    revocation_json: JSON.stringify(revocation),
-                    created_at: issuedAt,
-                    acknowledged_at: null,
-                    rejected_reason: null,
-                  })
-                  .execute();
-                const next = {
-                  ...revocation,
-                  nonce: authorizationBytes(32, 26),
-                  targets: [{ delegationId: 'second-target', expiresAt }],
-                };
-                await trx
-                  .insertInto('delegation_revocations')
-                  .values({
-                    nonce: next.nonce,
-                    user_id: USER_ID,
-                    actor_delegation_id: 'actor',
-                    actor_certificate_json: JSON.stringify(certificate),
-                    revocation_json: JSON.stringify(next),
-                    revoked_count: 1,
-                    created_at: issuedAt - 1,
-                  })
-                  .execute();
-                await trx
-                  .insertInto('delegation_revocation_outbox')
-                  .values({
-                    command_id: 'second-in-commit-order',
-                    revocation_nonce: next.nonce,
-                    daemon_id: DAEMON_ID,
-                    user_id: USER_ID,
-                    actor_certificate_json: JSON.stringify(certificate),
-                    revocation_json: JSON.stringify(next),
-                    created_at: issuedAt - 1,
-                    acknowledged_at: null,
-                    rejected_reason: null,
-                  })
-                  .execute();
-              }),
+              waitFor(
+                () =>
+                  socket.messagesOfType('delegation_revoke').length ===
+                  (registrationPending ? 3 : 2),
+              ),
             );
-            yield* Deferred.succeed(committed, undefined);
-            yield* Effect.never;
-          }).pipe(Effect.forkChild);
-          yield* Deferred.await(committed);
-          yield* Fiber.interrupt(request);
-          const devices = createDeviceService(
-            db,
-            { tokenHmacSecret: 'secret', publicOrigin: 'https://merkur.example' },
-            Effect.void,
-          );
-          expect(yield* devices.getDaemonSessionIdentity(USER_ID, DAEMON_ID)).toBeNull();
-          yield* TestClock.adjust('1 second');
-          const command = yield* Effect.promise(() => waitForMessage(socket, 'delegation_revoke'));
-          expect(command.commandId).toBe('interrupted-revocation');
-          yield* control.receive(
-            'connection-1',
-            encodeDaemonControlMessage(
-              createDaemonControlCommandAckMessage(command.commandId, { status: 'accepted' }),
-            ),
-          );
-          yield* Effect.promise(() =>
-            waitFor(() => socket.messagesOfType('delegation_revoke').length === 2),
-          );
-          const second = required(socket.messagesOfType('delegation_revoke').at(-1));
-          expect(second.commandId).toBe('second-in-commit-order');
-          yield* control.receive(
-            'connection-1',
-            encodeDaemonControlMessage(
-              createDaemonControlCommandAckMessage(second.commandId, { status: 'accepted' }),
-            ),
-          );
-          // A successful flush returns only after the durable acknowledgement.
-          yield* control.flushUserDelegationRevocations(USER_ID);
-          expect(yield* devices.getDaemonSessionIdentity(USER_ID, DAEMON_ID)).toEqual({
-            daemonIdentityPublicKey: 'identity',
-            daemonIdentityP256PublicKey: 'p256',
-            daemonBindingJson: '{}',
-          });
-          expect(socket.closed).toEqual([]);
-          expect(state.presence?.state).toBe('online');
-        }).pipe(Effect.provide(controlLayer), Effect.provide(TestClock.layer())),
-      ),
-    );
-  });
+            const second = required(socket.messagesOfType('delegation_revoke').at(-1));
+            expect(second.commandId).toBe('second-in-commit-order');
+            yield* control.receive(
+              'connection-1',
+              encodeDaemonControlMessage(
+                createDaemonControlCommandAckMessage(second.commandId, { status: 'accepted' }),
+              ),
+            );
+            // A successful flush returns only after the durable acknowledgement.
+            yield* control.flushUserDelegationRevocations(USER_ID);
+            expect(yield* devices.getDaemonSessionIdentity(USER_ID, DAEMON_ID)).toEqual({
+              daemonIdentityPublicKey: 'identity',
+              daemonIdentityP256PublicKey: 'p256',
+              daemonBindingJson: '{}',
+            });
+            expect(socket.closed).toEqual([]);
+            expect(state.presence?.state).toBe('online');
+          }).pipe(Effect.provide(controlLayer), Effect.provide(TestClock.layer())),
+        ),
+      );
+    });
+  }
 
   test('retires an active presence when a live revocation delivery is not acknowledged', async () => {
     const state = createCoordinationState();
