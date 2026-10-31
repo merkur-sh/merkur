@@ -1924,9 +1924,12 @@ delivery, final settlement, the frame-free text deadline, and separate text/canv
 work. The worker-client tests cover subscriber ownership, the widest-strip horizon,
 old-session delivery, and the absence of keystroke/quality-triggered activity
 callbacks. `tests/e2e/client-idle-work.e2e.ts` is the browser gate: a connected
-idle terminal in the production build, telemetry off, must run zero main-thread
-animation frames, WebGL draws, waveform canvas fills and waveform publications
-across an eight-second window, after two control phases prove each counter moves.
+idle terminal in the production build must submit zero GPU batches in its terminal
+worker across an eight-second window with reporting off and on. The counter wraps
+`GPUQueue.submit` inside that worker through Playwright, counts empty completion-maintenance
+batches separately, and proves it moves on real terminal output. With reporting off,
+main-thread animation frames, waveform canvas fills and waveform publications must also
+stay at zero after their controls. Reporting on retains the diagnostic frame monitor.
 `tests/e2e/terminal.e2e.ts` gates the other side: live terminal output must paint
 bars off the strip's baseline. The worker's ticks and main's columns share
 `linkActivityNow`; `performance.now()` alone counts from each realm's own origin,
