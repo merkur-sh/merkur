@@ -87,6 +87,7 @@ test.skipIf(process.platform !== 'linux')(
       await writeFile(unitPath, buildSystemdUnit([executable, 'daemon']));
       // Verify against the existing executable without starting a service or contacting a manager.
       const verify = Bun.spawn(['systemd-analyze', '--user', 'verify', unitPath], {
+        env: { ...process.env, XDG_RUNTIME_DIR: root },
         stdout: 'pipe',
         stderr: 'pipe',
       });
