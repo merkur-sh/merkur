@@ -1599,14 +1599,18 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 .await;
         }
         let next_edge_owner = next_edge_preauth_deadline(&registry.edge_dials);
-        if next_edge_owner != edge_preauth_timer_owner {
+        if next_edge_owner
+            != edge_preauth_timer_owner
+                .as_ref()
+                .map(EdgePreauthDeadline::borrowed)
+        {
             if let Some(owner) = next_edge_owner.as_ref() {
                 let delay_ms = (owner.lease.expires_at_ms - edge_now_ms).max(0.0);
                 edge_preauth_sleep.as_mut().reset(
                     tokio::time::Instant::now() + Duration::from_secs_f64(delay_ms / 1_000.0),
                 );
             }
-            edge_preauth_timer_owner = next_edge_owner;
+            edge_preauth_timer_owner = next_edge_owner.map(EdgePreauthDeadline::into_owned);
         }
 
         synchronized_update_timer.update(
@@ -7162,10 +7166,30 @@ struct EdgeDialRequest {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct EdgePreauthDeadline {
-    peer_id: String,
-    session_id: String,
+struct EdgePreauthDeadline<Identity = String> {
+    peer_id: Identity,
+    session_id: Identity,
     lease: EdgePreauthLease,
+}
+
+impl EdgePreauthDeadline {
+    fn borrowed(&self) -> EdgePreauthDeadline<&str> {
+        EdgePreauthDeadline {
+            peer_id: &self.peer_id,
+            session_id: &self.session_id,
+            lease: self.lease,
+        }
+    }
+}
+
+impl EdgePreauthDeadline<&str> {
+    fn into_owned(self) -> EdgePreauthDeadline {
+        EdgePreauthDeadline {
+            peer_id: self.peer_id.to_owned(),
+            session_id: self.session_id.to_owned(),
+            lease: self.lease,
+        }
+    }
 }
 
 struct RetiredEdgeDial {
@@ -7225,7 +7249,7 @@ fn arm_new_edge_preauth_lease(
 
 fn next_edge_preauth_deadline(
     edge_dials: &HashMap<String, EdgeDialState>,
-) -> Option<EdgePreauthDeadline> {
+) -> Option<EdgePreauthDeadline<&str>> {
     edge_dials
         .iter()
         .filter_map(|(peer_id, state)| {
@@ -7233,8 +7257,8 @@ fn next_edge_preauth_deadline(
                 .lifecycle
                 .preauth_lease
                 .map(|lease| EdgePreauthDeadline {
-                    peer_id: peer_id.clone(),
-                    session_id: state.session_id.clone(),
+                    peer_id: peer_id.as_str(),
+                    session_id: state.session_id.as_str(),
                     lease,
                 })
         })
@@ -7260,11 +7284,8 @@ fn retire_edge_preauth_if_current(
         return None;
     }
     edge_dials
-        .remove(&owner.peer_id)
-        .map(|state| RetiredEdgeDial {
-            peer_id: owner.peer_id.clone(),
-            state,
-        })
+        .remove_entry(&owner.peer_id)
+        .map(|(peer_id, state)| RetiredEdgeDial { peer_id, state })
 }
 
 fn take_expired_edge_preauth(
@@ -7276,6 +7297,7 @@ fn take_expired_edge_preauth(
         if owner.lease.expires_at_ms > now_ms {
             break;
         }
+        let owner = owner.into_owned();
         let Some(expired) = retire_edge_preauth_if_current(edge_dials, &owner, now_ms) else {
             break;
         };
