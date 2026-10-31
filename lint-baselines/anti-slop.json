@@ -114,7 +114,7 @@
   },
   "apps/daemon/src/process-utils.ts": {
     "no-runtime-typeof": 1,
-    "no-unknown-parameters": 3
+    "no-unknown-parameters": 2
   },
   "apps/daemon/src/services/bell-report-scheduler.test.ts": {
     "no-weak-assertion": 1

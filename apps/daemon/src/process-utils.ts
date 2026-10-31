@@ -4,10 +4,6 @@ export function isMissingFileError(error: unknown): boolean {
   return hasErrorCode(error, 'ENOENT');
 }
 
-export function isFileExistsError(error: unknown): boolean {
-  return hasErrorCode(error, 'EEXIST');
-}
-
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
