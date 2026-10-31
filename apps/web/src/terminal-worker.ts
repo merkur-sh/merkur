@@ -1324,13 +1324,13 @@ function handleControlCommand(cmd: WorkerControlCommand): void | Promise<void> {
     if (cmd.watch && wasmTerminal !== null) viewportWatched = true;
     self.postMessage({ kind: 'viewport_rows_result', text, wrapBits } satisfies WorkerEvent);
   } else if (cmd.kind === 'get_link_viewport') {
-    // Authoritative grid, not presentation: link ids exist only there, and the
-    // text has to come from the grid the ids describe.
+    // Link text, cell identity and definitions share presentation ownership.
     const terminal = wasmTerminal;
     const event: Extract<WorkerEvent, { kind: 'link_viewport_result' }> =
       terminal === null
         ? {
             kind: 'link_viewport_result',
+            definitions: new Uint8Array(0),
             cols: 0,
             rows: 0,
             text: '',
@@ -1340,10 +1340,11 @@ function handleControlCommand(cmd: WorkerControlCommand): void | Promise<void> {
           }
         : {
             kind: 'link_viewport_result',
-            cols: terminal.cols(),
-            rows: terminal.rows(),
-            text: terminal.viewportRows(),
-            wrapBits: terminal.viewportWrapBits(),
+            definitions: terminal.viewer.presentation_link_definitions(),
+            cols: terminal.presentationCols(),
+            rows: terminal.presentationRows(),
+            text: terminal.presentationViewportRows(),
+            wrapBits: terminal.presentationViewportWrapBits(),
             columns: terminal.viewportTextColumns(),
             links: terminal.viewportLinks(),
           };
@@ -3789,6 +3790,7 @@ function publishViewerLinks(): void {
   const revision = terminal.viewer.refresh_links();
   if (revision === observedLinkRevision) return;
   observedLinkRevision = revision;
+  noteViewportChanged();
   const bytes = new Uint8Array(
     terminal.memory.buffer,
     terminal.viewer.links_bytes_ptr(),

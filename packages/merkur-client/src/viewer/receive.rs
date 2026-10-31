@@ -579,6 +579,8 @@ struct Owed {
 pub struct Viewer<G> {
     grid: G,
     links: super::links::Links,
+    presented_links: super::links::Links,
+    presented_lineage: u32,
     /// Geometry belongs to the controlling host until it yields ownership.
     owned_geometry: Option<(u16, u16)>,
     /// Local reflow has no authoritative row lineage until a complete matching frame.
@@ -662,6 +664,8 @@ impl<G: DisplayGrid> Viewer<G> {
         Self {
             grid,
             links: super::links::Links::default(),
+            presented_links: super::links::Links::default(),
+            presented_lineage: 0,
             owned_geometry: None,
             resize_pending: false,
             resize_guess_hashes: Vec::new(),
@@ -720,6 +724,16 @@ impl<G: DisplayGrid> Viewer<G> {
 
     pub fn links(&self) -> &super::links::Links {
         &self.links
+    }
+
+    /// Definitions owned by the committed grid. Late definitions may fill an
+    /// unresolved id only inside the same lineage, where ids are never reused.
+    pub fn presented_links(&self) -> impl Iterator<Item = (u32, &str)> {
+        self.presented_links
+            .entries()
+            .chain(self.links.entries().filter(|(id, _)| {
+                self.presented_lineage == self.lineage && self.presented_links.uri(*id).is_none()
+            }))
     }
 
     pub fn grid(&self) -> &G {
@@ -1221,6 +1235,12 @@ impl<G: DisplayGrid> Viewer<G> {
         let reason = self.presentation.last_release_reason();
         self.capture_presentation_trace(reason);
         self.grid.commit_presentation();
+        if self.presented_lineage != self.lineage
+            || self.presented_links.revision() != self.links.revision()
+        {
+            self.presented_links = self.links.clone();
+            self.presented_lineage = self.lineage;
+        }
         self.render_pending = false;
         if self.presentation.has_pending_transaction() {
             self.presentation.consume_committed();

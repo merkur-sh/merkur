@@ -1223,3 +1223,46 @@ fn presentation_benchmark_wide_chain_carries_single_cell_damage_to_row_end() {
         assert_eq!(incremental, terminal.cell_buf);
     }
 }
+
+#[test]
+fn link_viewport_keeps_held_identity_and_column_mapping_out_of_the_presentation() {
+    let mut terminal = prediction_terminal(4, 2);
+    let mut a = test_cell('a');
+    a.link = 1;
+    let before = test_frame_with_entries(
+        FrameKind::Snapshot,
+        4,
+        2,
+        1,
+        0,
+        &[RowRef {
+            graphics: &[],
+            row_index: 0,
+            left: 0,
+            cells: &[a],
+        }],
+    );
+    assert!(terminal.apply_presented_state_seq(&before, 1));
+    let columns = terminal.viewport_text_columns();
+    let mut b = test_cell('𐀀');
+    b.link = 2;
+    let held = test_frame_with_entries(
+        FrameKind::Delta,
+        4,
+        2,
+        1,
+        0,
+        &[RowRef {
+            graphics: &[],
+            row_index: 0,
+            left: 0,
+            cells: &[b],
+        }],
+    );
+    assert!(terminal.apply_delta_seq(&held, 2));
+    assert_eq!(terminal.viewport_links()[0], 1);
+    assert_eq!(terminal.viewport_text_columns(), columns);
+    terminal.commit_presentation_state();
+    assert_eq!(terminal.viewport_links()[0], 2);
+    assert_ne!(terminal.viewport_text_columns(), columns);
+}

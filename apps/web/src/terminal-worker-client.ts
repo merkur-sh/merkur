@@ -709,6 +709,29 @@ export function createTerminalWorkerClient(
     worker.postMessage({ kind: 'get_link_viewport' } satisfies WorkerCommand);
   }
 
+  const linkDefinitions = new Map<number, string>();
+  const resolvePresentedLink = (id: number): string | undefined => linkDefinitions.get(id);
+
+  function installLinkViewport(evt: Extract<WorkerEvent, { kind: 'link_viewport_result' }>): void {
+    linkViewportInFlight = false;
+    linkDefinitions.clear();
+    const definitions = new DataView(
+      evt.definitions.buffer,
+      evt.definitions.byteOffset,
+      evt.definitions.byteLength,
+    );
+    const decoder = new TextDecoder();
+    for (let at = 0; at < definitions.byteLength; ) {
+      const id = definitions.getUint32(at, true);
+      const length = definitions.getUint32(at + 4, true);
+      at += 8;
+      linkDefinitions.set(id, decoder.decode(evt.definitions.subarray(at, at + length)));
+      at += length;
+    }
+    linkViewport = evt.cols === 0 ? null : evt;
+    refreshLinkHover();
+  }
+
   function linkAtPoint(clientX: number, clientY: number): LinkHit | null {
     if (linkViewport === null) return null;
     const cell = pixelToCell(clientX, clientY);
@@ -721,9 +744,8 @@ export function createTerminalWorkerClient(
     ) {
       return linkResolvedHit;
     }
-    const hit = findLinkAt(linkViewport, cell.row, cell.col, callbacks.resolveLink, urlMatcher);
-    // An OSC 8 cell that resolved to nothing may only be waiting for its
-    // definition, which arrives without a new read; ask again next time.
+    const hit = findLinkAt(linkViewport, cell.row, cell.col, resolvePresentedLink, urlMatcher);
+    // A definition update invalidates this read and brings a new owned table.
     const awaitingDefinition = hit === null && (linkViewport.links[cellIndex] ?? 0) !== 0;
     linkResolvedViewport = awaitingDefinition ? null : linkViewport;
     linkResolvedCell = cellIndex;
@@ -1450,9 +1472,7 @@ export function createTerminalWorkerClient(
       const cb = viewportRowsCallbacks.shift();
       cb?.(evt.text, evt.wrapBits);
     } else if (evt.kind === 'link_viewport_result') {
-      linkViewportInFlight = false;
-      linkViewport = evt.cols === 0 ? null : evt;
-      refreshLinkHover();
+      installLinkViewport(evt);
     } else if (evt.kind === 'viewport_stale') {
       // The grid the reads kept on screen describe changed underneath them.
       // This is the honest edge for that: the cursor does not move for every

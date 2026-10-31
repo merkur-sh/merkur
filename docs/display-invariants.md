@@ -739,3 +739,8 @@ empty ring as a protocol violation. An empty reset is still sent, because it is 
 resolving one daemon's ids against another session's definitions. Order against datagrams
 does not matter: the browser resolves an id only when the user points at it, and an id whose
 definition has not arrived is simply not clickable yet.
+
+Link activation reads text, wrapping, UTF-16 column mapping, dimensions and OSC 8 ids from
+the committed presentation grid. The reply owns its definitions: a reliable table reset
+cannot retire the target of a link still displayed during a presentation hold. Definitions
+that arrive late can resolve an unknown id within the same authenticated lineage.

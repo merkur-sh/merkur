@@ -737,7 +737,6 @@ pub struct Terminal {
     /// allocation per linked cell for a URI the main thread already holds.
     display_cell_links: Vec<u32>,
     /// Link identity committed with the exact cells the host presents.
-    #[cfg(not(target_arch = "wasm32"))]
     presentation_cell_links: Vec<u32>,
     /// Presentation commits so far, and for each row the commit that last
     /// rewrote its cells or links. A native host that has shown a row at its
@@ -1378,7 +1377,6 @@ impl Terminal {
             display_row_versions: Vec::new(),
             display_cell_versions: Vec::new(),
             display_cell_links: Vec::new(),
-            #[cfg(not(target_arch = "wasm32"))]
             presentation_cell_links: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             presentation_commits: 0,
@@ -3986,9 +3984,9 @@ impl Terminal {
             self.presentation_row_versions.resize(rows, 0);
             self.presentation_full_pending = true;
         }
+        self.presentation_cell_links.resize(rows * cols, 0);
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.presentation_cell_links.resize(rows * cols, 0);
             // A row the grid gained is new at this commit, whatever commit a
             // row of that index showed before the grid lost it.
             self.presentation_commits += 1;
@@ -3996,7 +3994,6 @@ impl Terminal {
                 .resize(rows, self.presentation_commits);
         }
         if self.presentation_full_pending {
-            #[cfg(not(target_arch = "wasm32"))]
             {
                 if self.display_cell_links.len() == rows * cols {
                     self.presentation_cell_links
@@ -4004,6 +4001,7 @@ impl Terminal {
                 } else {
                     self.presentation_cell_links.fill(0);
                 }
+                #[cfg(not(target_arch = "wasm32"))]
                 self.presentation_row_commits
                     .fill(self.presentation_commits);
             }
@@ -4035,13 +4033,15 @@ impl Terminal {
                         last,
                     );
                 }
-                #[cfg(not(target_arch = "wasm32"))]
                 {
                     let range = index * cols..(index + 1) * cols;
                     if let Some(links) = self.display_cell_links.get(range.clone()) {
                         self.presentation_cell_links[range].copy_from_slice(links);
                     }
-                    self.presentation_row_commits[index] = self.presentation_commits;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.presentation_row_commits[index] = self.presentation_commits;
+                    }
                 }
                 self.presentation_row_versions[index] =
                     self.display_row_versions.get(index).copied().unwrap_or(0);
@@ -4514,27 +4514,27 @@ impl Terminal {
     /// Without it a wrapped command copies with a newline through its middle and
     /// will not run when pasted back. Alacritty's reflow keeps the wrap bit on
     /// the row's final cell, which is the only place it is authoritative.
-    /// Link id per authoritative viewport cell, row-major, 0 for none.
+    /// Link id per presentation viewport cell, row-major, 0 for none.
     ///
     /// Read only while the user holds the link modifier, together with
-    /// [`Self::viewport_rows`] and [`Self::viewport_text_columns`].
+    /// [`Self::presentation_viewport_rows`] and [`Self::viewport_text_columns`].
     pub fn viewport_links(&self) -> Vec<u32> {
-        let grid = self.term.grid();
+        let grid = &self.presentation_grid;
         let cells = grid.columns().saturating_mul(grid.screen_lines());
-        if self.display_cell_links.len() == cells {
-            self.display_cell_links.clone()
+        if self.presentation_cell_links.len() == cells {
+            self.presentation_cell_links.clone()
         } else {
             vec![0; cells]
         }
     }
 
-    /// The grid column of every UTF-16 code unit of [`Self::viewport_rows`],
+    /// The grid column of every UTF-16 code unit of [`Self::presentation_viewport_rows`],
     /// newlines excluded, so a match found in that text maps back to cells.
     ///
     /// Needed because the text skips wide-character spacers and a character
     /// outside the BMP is two code units: neither index is a column.
     pub fn viewport_text_columns(&self) -> Vec<u16> {
-        let grid = self.term.grid();
+        let grid = &self.presentation_grid;
         let cols = grid.columns();
         let rows = grid.screen_lines();
         let mut out = Vec::with_capacity(rows.saturating_mul(cols));

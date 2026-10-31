@@ -391,6 +391,15 @@ impl ClientViewer {
         }
         self.link_revision as u32
     }
+    /// Serialize definitions with their presentation ownership for a link read.
+    pub fn presentation_link_definitions(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for (id, uri) in self.viewer.presented_links() {
+            bytes.extend_from_slice(&id.to_le_bytes());
+            scene_string(&mut bytes, uri);
+        }
+        bytes
+    }
     pub fn links_bytes_ptr(&self) -> *const u8 {
         self.link_bytes.as_ptr()
     }

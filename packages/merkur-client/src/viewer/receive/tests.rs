@@ -2104,3 +2104,32 @@ fn a_rebind_does_not_resume_the_local_guess_or_keep_retired_geometry_ownership()
     assert_eq!((viewer.grid().cols(), viewer.grid().rows()), (100, 30));
     assert!(viewer.resize_pending);
 }
+
+#[test]
+fn link_viewport_retains_presented_definitions_until_the_next_commit() {
+    fn table(id: u32, uri: &str) -> Vec<u8> {
+        let mut bytes = vec![1];
+        bytes.extend_from_slice(&id.to_be_bytes());
+        bytes.extend_from_slice(&(uri.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(uri.as_bytes());
+        bytes
+    }
+    let mut viewer = viewer();
+    assert!(viewer.links.receive(&table(1, "https://a.example")));
+    viewer.render_pending = true;
+    viewer.commit_presentation();
+    assert!(viewer.links.receive(&table(2, "https://b.example")));
+    assert!(
+        viewer
+            .presented_links()
+            .any(|item| item == (1, "https://a.example"))
+    );
+    viewer.render_pending = true;
+    viewer.commit_presentation();
+    assert!(!viewer.presented_links().any(|item| item.0 == 1));
+    assert!(
+        viewer
+            .presented_links()
+            .any(|item| item == (2, "https://b.example"))
+    );
+}

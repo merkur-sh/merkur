@@ -2,7 +2,7 @@
 use merkur_wire::protocol::{DISPLAY_LINK_TABLE_FLAG_RESET, PROTO_MAX_BODY_BYTES};
 use std::{collections::BTreeMap, rc::Rc};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Links {
     definitions: BTreeMap<u32, Rc<str>>,
     revision: u64,

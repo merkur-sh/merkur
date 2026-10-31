@@ -200,11 +200,12 @@ export type WorkerEvent =
   // Whole viewport as untrimmed rows joined by `\n`, plus one wrap bit per row
   // (LSB-first). Both the selection layer and the accessibility mirror read it.
   | { kind: 'viewport_rows_result'; text: string; wrapBits: Uint8Array }
-  // The authoritative viewport as link resolution needs it: the text, its wrap
+  // The presented viewport as link resolution needs it: the text, its wrap
   // bits, the column of every text unit, and the OSC 8 link id of every cell,
   // all read from one grid in one turn.
   | {
       kind: 'link_viewport_result';
+      definitions: Uint8Array;
       cols: number;
       rows: number;
       text: string;

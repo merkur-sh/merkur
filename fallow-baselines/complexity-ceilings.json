@@ -64,8 +64,8 @@
     "cognitive": 36
   },
   "apps/web/src/terminal-worker-client.ts::<arrow>": {
-    "cyclomatic": 39,
-    "cognitive": 43
+    "cyclomatic": 38,
+    "cognitive": 41
   },
   "apps/web/src/terminal/input-controller.ts::onKeyDown": {
     "cyclomatic": 48,

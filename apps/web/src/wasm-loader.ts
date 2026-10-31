@@ -199,9 +199,9 @@ export interface WasmTerminalHandle {
   /** One bit per row, LSB-first: set means the row soft-wraps onto the next. */
   viewportWrapBits(): Uint8Array;
   presentationViewportWrapBits(): Uint8Array;
-  /** OSC 8 link id per authoritative viewport cell, row-major, 0 for none. */
+  /** OSC 8 link id per presentation viewport cell, row-major, 0 for none. */
   viewportLinks(): Uint32Array;
-  /** Grid column of every UTF-16 unit of `viewportRows()`, newlines excluded. */
+  /** Grid column of every UTF-16 unit of `presentationViewportRows()`, newlines excluded. */
   viewportTextColumns(): Uint16Array;
   /** Render IME composition at the cursor; caret is a DOM UTF-16 offset. */
   setPreedit(text: string, caret: number): void;

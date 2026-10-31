@@ -4154,6 +4154,11 @@ MODULES = {
             ":src/wasm-loader.ts.module",
             ":tsconfig.json.module",
         ],
+        "src/terminal-worker-link-presentation.test.ts": [
+            ":package.json.module",
+            ":src/terminal-worker.ts.module",
+            ":tsconfig.json.module",
+        ],
         "src/terminal-worker-prediction-visibility.test.ts": [
             "//packages/protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
@@ -5298,6 +5303,7 @@ MODULES = {
             ":src/terminal-worker-graphics-adapter.test.ts.module",
             ":src/terminal-worker-graphics-idle.test.ts.module",
             ":src/terminal-worker-input-routing.test.ts.module",
+            ":src/terminal-worker-link-presentation.test.ts.module",
             ":src/terminal-worker-prediction-visibility.test.ts.module",
             ":src/terminal-worker-presentation.test.ts.module",
             ":src/terminal-worker-protocol.ts.module",
@@ -9425,6 +9431,7 @@ TYPE_INPUTS = {
             "src/terminal-worker-graphics-adapter.test.ts",
             "src/terminal-worker-graphics-idle.test.ts",
             "src/terminal-worker-input-routing.test.ts",
+            "src/terminal-worker-link-presentation.test.ts",
             "src/terminal-worker-prediction-visibility.test.ts",
             "src/terminal-worker-presentation.test.ts",
             "src/terminal-worker-protocol.ts",
