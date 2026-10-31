@@ -110,6 +110,10 @@ publication invalidates the projection, and authentication resets its input name
 Detached memory views refresh after authorization grows the realm's memory; steady-state
 admission allocates nothing. Startup readiness requires both this owner and the terminal worker.
 
+Each prediction command publishes its admission model before requesting a render. A command
+drain publishes separately only when it handles overflow; successful render submissions also
+publish the model after geometry preparation.
+
 Geometry buffers, atlas and pipelines remain resident. Dirty ranges upload directly from WASM
 memory without per-frame typed-array wrappers or renderer-side full-atlas copies. A second retained
 viewport grid is an explicit memory/copy cost of separating received and eligible state. Warmed

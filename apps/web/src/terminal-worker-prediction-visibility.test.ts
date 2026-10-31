@@ -1,3 +1,4 @@
+import { fullGC, heapStats } from 'bun:jsc';
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -20,8 +21,12 @@ import {
   createPredictionFastPathConsumer,
   createPredictionFastPathWriter,
   createPredictionFastStateReader,
+  PREDICTION_COMMAND_FLUSH,
+  PREDICTION_COMMAND_SLOTS,
 } from './terminal/prediction-fast-path';
 import { createProvisionalPreviewState } from './terminal/provisional-preview';
+import { advanceInputSequence } from './transport/input-sequence-domain';
+import { createPredictionEffectReader } from './wasm-loader';
 
 const source = readFileSync(new URL('./terminal-worker.ts', import.meta.url), 'utf8');
 function production(...names: string[]) {
@@ -102,6 +107,201 @@ function prompt(granted = true) {
     },
   };
 }
+
+function predictionDrain(owner: ReturnType<typeof prompt>, synchronousRender = false) {
+  const sab = createPredictionFastPathBuffer();
+  const writer = createPredictionFastPathWriter(sab);
+  const consumer = createPredictionFastPathConsumer(sab);
+  writer.beginEpoch();
+  consumer.adoptRequiredEpoch();
+  const readModel = createPredictionEffectReader(
+    owner.memory,
+    () => owner.viewer.prediction_model_ptr(),
+    () => owner.viewer.prediction_model_len(),
+  );
+  let modelReads = 0;
+  let renders = 0;
+  const rejected: number[] = [];
+  const context = {
+    predictionFastPath: consumer,
+    predictionRingPumpActive: true,
+    predictionRingPumpToken: 1,
+    predictionRingWaitPending: true,
+    activeControlBlocksDataPlane: false,
+    controlPumpActive: false,
+    controlQueue: { hasDataPlaneBarrier: () => false },
+    controlQueueSize: () => 0,
+    scheduleControlPump: () => {},
+    schedulePredictionRingContinuation: () => {},
+    handleProvisionalPreviewSnapshot: () => {},
+    hasDisplayOwnerWork: () => false,
+    tuning: { predictionCommandsPerSlice: 4 },
+    wasmTerminal: {
+      viewer: owner.viewer,
+      predictionRenderDirty: () => owner.viewer.prediction_render_dirty(),
+      predictionModel: () => {
+        modelReads++;
+        return readModel();
+      },
+    },
+    provisionalPreview: createProvisionalPreviewState(),
+    observedPredictionAuthorityRevision: -1,
+    localPresentationPending: false,
+    displayEpoch: { renderPending: false },
+    predictionModelThroughInputSeq: 0,
+    latestPredictionInputSeq: 0,
+    predictionAdmissionResolver: {
+      reject: (sequence: number) => {
+        rejected.push(sequence);
+      },
+    },
+    perfEnabled: false,
+    timeOriginDriftMs: () => 0,
+    viewerNowMs: () => 1,
+    advanceInputSequence,
+    PREDICTION_COMMAND_FLUSH,
+    armViewerDeadline: () => {},
+    scheduleRenderFrame: () => {
+      renders++;
+      if (synchronousRender) {
+        owner.viewer.build_geometry();
+        owner.viewer.clear_prediction_render_dirty();
+        functions.publishPredictionModel();
+      }
+    },
+  };
+  // SAFETY: The evaluated return expression exports these three worker declarations.
+  const functions = runInNewContext(
+    `${production(
+      'pumpPredictionRing',
+      'runDataPlaneFairnessSlice',
+      'handlePredictionCommand',
+      'handlePredictionRingOverflow',
+      'handlePredictFlush',
+      'publishPredictionModel',
+      'predictionArmed',
+      'renderPredictionIfDirty',
+      'revokePaintedPredictions',
+    )}\n({ pumpPredictionRing, runDataPlaneFairnessSlice, publishPredictionModel });`,
+    context,
+  ) as {
+    pumpPredictionRing(token: number): void;
+    runDataPlaneFairnessSlice(): void;
+    publishPredictionModel(): void;
+  };
+  functions.publishPredictionModel();
+  modelReads = 0;
+  const state = createPredictionFastStateReader(sab);
+  return {
+    writer,
+    consumer,
+    context,
+    run(fairness: boolean) {
+      if (fairness) functions.runDataPlaneFairnessSlice();
+      else functions.pumpPredictionRing(1);
+    },
+    publish: functions.publishPredictionModel,
+    modelReads: () => modelReads,
+    snapshot() {
+      const words = new Uint32Array(7);
+      const revision = state.readModelWordsInto(words);
+      return {
+        words: Array.from(words),
+        revision,
+        visible: state.visible(),
+        renders,
+        rejected: [...rejected],
+        through: context.predictionModelThroughInputSeq,
+      };
+    },
+  };
+}
+
+test('prediction drains preserve the published model for every command and overflow slice', () => {
+  for (const fairness of [false, true]) {
+    for (const [scenario, count, expectedPublications] of [
+      ['empty', 0, 0],
+      ['accepted', 4, 4],
+      ['rejected', 4, 4],
+      ['overflow', PREDICTION_COMMAND_SLOTS, 1],
+      ['synchronous', 4, 8],
+    ] as const) {
+      const owner = prompt(scenario !== 'rejected');
+      try {
+        if (scenario === 'accepted' || scenario === 'synchronous') {
+          owner.key('a');
+          owner.echo();
+        }
+        const drain = predictionDrain(owner, scenario === 'synchronous');
+        for (let sequence = 2; sequence <= count + 1; sequence++)
+          drain.writer.writePrintable(sequence, 97, 1, true);
+        drain.run(fairness);
+        const snapshot = drain.snapshot();
+        const publications = drain.modelReads();
+        expect(publications).toBe(expectedPublications);
+        drain.publish();
+        expect(drain.snapshot()).toEqual(snapshot);
+        expect(drain.consumer.pendingCount()).toBe(0);
+        const { rejected, ...model } = snapshot;
+        if (process.env.PREDICTION_DRAIN_PROFILE === '1')
+          process.stdout.write(
+            `${JSON.stringify({
+              fairness,
+              scenario,
+              publications,
+              ...model,
+              rejectedCount: rejected.length,
+              rejectedHash: Bun.hash(JSON.stringify(rejected)).toString(),
+            })}\n`,
+          );
+      } finally {
+        owner.close();
+      }
+    }
+  }
+});
+
+test('prediction drain heap cells exclude the unchanged publication snapshot overhead', () => {
+  function cells() {
+    const counts = heapStats().objectTypeCounts;
+    let total = 0;
+    for (const kind in counts) total += counts[kind] ?? 0;
+    return total;
+  }
+  for (const fairness of [false, true]) {
+    const owner = prompt();
+    try {
+      const drain = predictionDrain(owner);
+      drain.context.predictionAdmissionResolver.reject = () => {};
+      let sequence = 0;
+      const run = () => {
+        drain.writer.writePrintable(++sequence, 97, 1, false);
+        drain.run(fairness);
+      };
+      for (let warmup = 0; warmup < 4_096; warmup++) run();
+      const samples: number[] = [];
+      let publications = 0;
+      for (let sample = 0; sample < 15; sample++) {
+        fullGC();
+        const controlStart = cells();
+        const overhead = cells() - controlStart;
+        fullGC();
+        const before = cells();
+        const reads = drain.modelReads();
+        for (let index = 0; index < 64; index++) run();
+        samples.push(cells() - before - overhead);
+        publications = drain.modelReads() - reads;
+      }
+      samples.sort((left, right) => left - right);
+      if (process.env.PREDICTION_DRAIN_PROFILE === '1')
+        process.stdout.write(
+          `${JSON.stringify({ fairness, slices: 64, publications, pathCells: samples[7] })}\n`,
+        );
+    } finally {
+      owner.close();
+    }
+  }
+});
 
 test('captured visible input remains visible while current worker trust is learning', () => {
   const owner = prompt();
