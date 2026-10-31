@@ -1457,7 +1457,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     let mut stats_tick: u32 = 0;
     let mut stats_window_started_at = Instant::now();
     // The observation `merkur profile` began, and the epoch the next one takes.
-    let mut cli_trace_token: Option<perf_trace::TraceToken> = None;
+    let mut cli_trace_token: Option<(String, perf_trace::TraceToken)> = None;
     let mut cli_trace_epoch: u32 = 0;
     let mut stats_events_dropped: u64 = 0;
     // Keepalive rides the same tick. The resolved vantage address is cached
@@ -2806,6 +2806,11 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             reject_command(&event_tx, &cmd.command_id, "invalid_command");
                             continue;
                         }
+                        let token = profile_capture_token(&cmd.owner, cli_trace_token.as_ref());
+                        let Some(token) = token else {
+                            reject_command(&event_tx, &cmd.command_id, "profiling_superseded");
+                            continue;
+                        };
                         // Draining the rings and writing megabytes are cold work: neither
                         // runs on the owner loop, which only hands the command over.
                         let writer_tx = event_tx.clone();
@@ -2813,12 +2818,12 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         let spawned = std::thread::Builder::new()
                             .name("perf-trace-capture".to_owned())
                             .spawn(move || {
-                                match perf_trace::write_capture(std::path::Path::new(&cmd.path)) {
+                                match perf_trace::write_owned_capture(std::path::Path::new(&cmd.path), token) {
                                     Ok(true) => accept_command(&writer_tx, &cmd.command_id),
                                     Ok(false) => reject_command(
                                         &writer_tx,
                                         &cmd.command_id,
-                                        "profiling_not_started",
+                                        "profiling_superseded",
                                     ),
                                     Err(error) => {
                                         warn!(%error, "native trace capture write failed");
@@ -2868,49 +2873,8 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                         );
                         accept_command(&event_tx, &cmd.command_id);
                     }
-                    CMD_PROFILE_START => {
-                        let cmd: ProfileStartCmd = match serde_json::from_slice(&payload) {
-                            Ok(command) => command,
-                            Err(_) => {
-                                reject_command_from_payload(&event_tx, &payload, "invalid_command");
-                                continue;
-                            }
-                        };
-                        if !is_valid_command_id(&cmd.command_id) {
-                            reject_command(&event_tx, &cmd.command_id, "invalid_command");
-                            continue;
-                        }
-                        let Some(peer) = registry.peers.values().find(|peer| {
-                            peer.authenticated && peer.signal_session_id == cmd.session_id
-                        }) else {
-                            reject_command(&event_tx, &cmd.command_id, "unknown_session");
-                            continue;
-                        };
-                        // One observation at a time: this one supersedes any other, a
-                        // browser profiler's included, whose token then fails closed.
-                        cli_trace_epoch = cli_trace_epoch.wrapping_add(1).max(1);
-                        cli_trace_token =
-                            perf_trace::begin(&peer.peer_id, &cmd.session_id, cli_trace_epoch);
-                        accept_command(&event_tx, &cmd.command_id);
-                    }
-                    CMD_PROFILE_END => {
-                        let cmd: ProfileEndCmd = match serde_json::from_slice(&payload) {
-                            Ok(command) => command,
-                            Err(_) => {
-                                reject_command_from_payload(&event_tx, &payload, "invalid_command");
-                                continue;
-                            }
-                        };
-                        if !is_valid_command_id(&cmd.command_id) {
-                            reject_command(&event_tx, &cmd.command_id, "invalid_command");
-                            continue;
-                        }
-                        let Some(token) = cli_trace_token.take() else {
-                            reject_command(&event_tx, &cmd.command_id, "profiling_not_started");
-                            continue;
-                        };
-                        perf_trace::end(token);
-                        accept_command(&event_tx, &cmd.command_id);
+                    CMD_PROFILE_START | CMD_PROFILE_END => {
+                        handle_profile_owner_command(kind, &payload, &registry, &event_tx, &mut cli_trace_token, &mut cli_trace_epoch);
                     }
                     CMD_CAPTURE_TRANSPORT_STATS => {
                         let cmd: CaptureTransportStatsCmd = match serde_json::from_slice(&payload) {
@@ -8783,3 +8747,84 @@ mod e2e_dispatch_tests;
 #[cfg(test)]
 #[path = "main_tests/signaling_ingress_tests.rs"]
 mod signaling_ingress_tests;
+
+fn handle_profile_owner_command(
+    kind: u8,
+    payload: &[u8],
+    registry: &PeerRegistry,
+    event_tx: &EventSink,
+    cli_trace_token: &mut Option<(String, perf_trace::TraceToken)>,
+    cli_trace_epoch: &mut u32,
+) {
+    match kind {
+        CMD_PROFILE_START => {
+            let cmd: ProfileStartCmd = match serde_json::from_slice(payload) {
+                Ok(command) => command,
+                Err(_) => {
+                    reject_command_from_payload(event_tx, payload, "invalid_command");
+                    return;
+                }
+            };
+            if !is_valid_command_id(&cmd.command_id) || !is_valid_command_id(&cmd.observation_id) {
+                reject_command(event_tx, &cmd.command_id, "invalid_command");
+                return;
+            }
+            let Some(peer) = registry
+                .peers
+                .values()
+                .find(|peer| peer.authenticated && peer.signal_session_id == cmd.session_id)
+            else {
+                reject_command(event_tx, &cmd.command_id, "unknown_session");
+                return;
+            };
+            // One observation at a time: this one supersedes any other, a
+            // browser profiler's included, whose token then fails closed.
+            *cli_trace_epoch = cli_trace_epoch.wrapping_add(1).max(1);
+            *cli_trace_token = perf_trace::begin(&peer.peer_id, &cmd.session_id, *cli_trace_epoch)
+                .map(|token| (cmd.observation_id, token));
+            accept_command(event_tx, &cmd.command_id);
+        }
+        CMD_PROFILE_END => {
+            let cmd: ProfileEndCmd = match serde_json::from_slice(payload) {
+                Ok(command) => command,
+                Err(_) => {
+                    reject_command_from_payload(event_tx, payload, "invalid_command");
+                    return;
+                }
+            };
+            if !is_valid_command_id(&cmd.command_id) || !is_valid_command_id(&cmd.observation_id) {
+                reject_command(event_tx, &cmd.command_id, "invalid_command");
+                return;
+            }
+            let Some((observation_id, token)) = cli_trace_token.as_ref() else {
+                reject_command(event_tx, &cmd.command_id, "profiling_not_started");
+                return;
+            };
+            if observation_id != &cmd.observation_id || perf_trace::active_token() != Some(*token) {
+                reject_command(event_tx, &cmd.command_id, "profiling_superseded");
+                return;
+            }
+            perf_trace::end(*token);
+            *cli_trace_token = None;
+            accept_command(event_tx, &cmd.command_id);
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+#[path = "main_tests/profile_ipc_owner_tests.rs"]
+mod profile_ipc_owner_tests;
+
+fn profile_capture_token(
+    owner: &TraceCaptureOwner,
+    cli: Option<&(String, perf_trace::TraceToken)>,
+) -> Option<perf_trace::TraceToken> {
+    match owner {
+        TraceCaptureOwner::Cli { observation_id } => cli
+            .filter(|(id, _)| id == observation_id)
+            .map(|(_, token)| *token),
+        TraceCaptureOwner::Browser => merkur_trace::current_token()
+            .filter(|token| !cli.is_some_and(|(_, cli_token)| cli_token == token)),
+    }
+}

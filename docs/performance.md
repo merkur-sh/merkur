@@ -2095,7 +2095,8 @@ calling thread's ring (1.4 ns), against 1.3 µs for the smallest display prepare
 taken with the recorder on is diagnostic only, never acceptance timing.
 
 `merkur profile record [--session <id>] [--seconds <n>] [--cpu]` captures a live session
-on the running daemon; `bun run profile:query <dir> <query>` answers from it in SQL
+on the running daemon. Each command owns an observation identifier; a later recording supersedes
+it, and an earlier command cannot capture or end its successor. `bun run profile:query <dir> <query>` answers from it in SQL
 (`packages/profile/README.md` lists the queries and the pinned tools). Span times and samply's
 samples are both on the anchor clock (`CLOCK_UPTIME_RAW` on macOS, `CLOCK_MONOTONIC` on Linux),
 mapped exactly: no alignment estimate joins them. A capture that spans a sleep is marked

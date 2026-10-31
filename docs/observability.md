@@ -764,7 +764,12 @@ reads them. A malformed capture rejects the capture, not the terminal session.
 
 The daemon serves the trace commands on an owner-only Unix socket, `~/.merkur/profile.sock`,
 one JSON request and one JSON reply per connection: `sessions` (with the dataplane's pid),
-`start` (`CMD_PROFILE_START`), `capture` and `end` (`CMD_PROFILE_END`). A capture logs
+`start` (`CMD_PROFILE_START`), `capture`, `capture-browser` and `end` (`CMD_PROFILE_END`).
+A CLI supplies its observation identifier on start, receives it in the start reply, and must
+name it on capture and end. Superseded identifiers cannot end or drain a successor. Browser
+captures explicitly request `capture-browser` and cannot drain a CLI observation. IPC capture
+commands carry an explicit owner; the recorder checks its token under the metadata lock
+before draining, including when a newer start overtakes the capture thread. A capture logs
 `daemon_perf_trace_capture_complete` with the file's path. `merkur profile record` starts an
 observation of the session typed into most recently, captures it after its window, ends it,
 and with `--cpu` samples the dataplane with samply for the same window; a CLI observation

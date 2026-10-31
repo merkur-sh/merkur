@@ -678,7 +678,7 @@ async function requestDaemonProfileCapture(daemonHome: string): Promise<boolean>
       unix: profileSocketPathForHome(daemonHome),
       socket: {
         open(socket) {
-          socket.write(`${JSON.stringify({ op: 'capture' })}\n`);
+          socket.write(`${JSON.stringify({ op: 'capture-browser' })}\n`);
         },
         data() {},
         close() {

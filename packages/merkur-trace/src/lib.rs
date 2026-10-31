@@ -27,7 +27,8 @@ mod recorder;
 #[cfg(not(target_arch = "wasm32"))]
 pub use recorder::{
     Evidence, MAX_SITES, Owner, Snapshot, SpanEvent, SpanGuard, Token, active_token, begin,
-    capture, claim_thread, elapsed_us, end, mark, record, span, span_arg,
+    capture, capture_owned, claim_thread, current_token, elapsed_us, end, mark, record, span,
+    span_arg,
 };
 
 /// A named trace point: a span name or an evidence kind. Ids are assigned on first use, so

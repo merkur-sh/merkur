@@ -91,10 +91,23 @@ pub fn record_at(token: TraceToken, at: Instant, event: TraceEvent) {
 
 /// Drains the current observation into a new file at `path`, readable only by this user.
 /// `Ok(false)` before any observation began. Cold work for a dedicated thread.
+#[cfg(any(test, merkur_sim))]
 pub fn write_capture(path: &Path) -> io::Result<bool> {
     let Some(snapshot) = merkur_trace::capture() else {
         return Ok(false);
     };
+    write_snapshot(path, snapshot)
+}
+
+/// Checks ownership under the recorder metadata lock before draining any ring.
+pub fn write_owned_capture(path: &Path, token: TraceToken) -> io::Result<bool> {
+    let Some(snapshot) = merkur_trace::capture_owned(token) else {
+        return Ok(false);
+    };
+    write_snapshot(path, snapshot)
+}
+
+fn write_snapshot(path: &Path, snapshot: merkur_trace::Snapshot) -> io::Result<bool> {
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -189,8 +202,14 @@ mod tests {
     #[test]
     fn a_datagram_channel_is_read_past_the_quarter_stream_varint() {
         use crate::network::protocol::{CHANNEL_CTRL, CHANNEL_DISPLAY_DATAGRAM, CHANNEL_PTY};
-        assert_eq!(datagram_channel(&[0x00, CHANNEL_PTY, 9, 9], false), Some(CHANNEL_PTY));
-        assert_eq!(datagram_channel(&[0x40, 0x41, CHANNEL_CTRL, 9], false), Some(CHANNEL_CTRL));
+        assert_eq!(
+            datagram_channel(&[0x00, CHANNEL_PTY, 9, 9], false),
+            Some(CHANNEL_PTY)
+        );
+        assert_eq!(
+            datagram_channel(&[0x40, 0x41, CHANNEL_CTRL, 9], false),
+            Some(CHANNEL_CTRL)
+        );
         assert_eq!(
             datagram_channel(&[0x80, 0, 0, 1, CHANNEL_PTY], false),
             Some(CHANNEL_PTY)

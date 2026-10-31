@@ -32,6 +32,10 @@ describe('merkur profile', () => {
 
   test('replies decode only in their exact shapes', () => {
     expect(decodeReply('{"ok":true}')).toEqual({ ok: true });
+    expect(decodeReply('{"ok":true,"observationId":"a"}')).toEqual({
+      ok: true,
+      observationId: 'a',
+    });
     expect(decodeReply('{"ok":true,"path":"/p/a.mtrace"}')).toEqual({
       ok: true,
       path: '/p/a.mtrace',
@@ -53,14 +57,24 @@ describe('merkur profile', () => {
     expect(decodeReply('not json')).toEqual({ ok: false, reason: 'malformed_reply' });
   });
 
-  test('the socket admits only its four requests, as exact JSON lines', () => {
+  test('the socket admits only its profile requests, as exact JSON lines', () => {
     expect(decodeProfileRequest('{"op":"sessions"}')).toEqual({ op: 'sessions' });
-    expect(decodeProfileRequest('{"op":"start","sessionId":"s"}')).toEqual({
+    expect(decodeProfileRequest('{"op":"start","sessionId":"s","observationId":"a"}')).toEqual({
       op: 'start',
       sessionId: 's',
+      observationId: 'a',
     });
-    expect(decodeProfileRequest('{"op":"capture"}')).toEqual({ op: 'capture' });
-    expect(decodeProfileRequest('{"op":"end"}')).toEqual({ op: 'end' });
+    expect(decodeProfileRequest('{"op":"capture","observationId":"a"}')).toEqual({
+      op: 'capture',
+      observationId: 'a',
+    });
+    expect(decodeProfileRequest('{"op":"capture-browser"}')).toEqual({ op: 'capture-browser' });
+    expect(decodeProfileRequest('{"op":"capture"}')).toBeNull();
+    expect(decodeProfileRequest('{"op":"end","observationId":"a"}')).toEqual({
+      op: 'end',
+      observationId: 'a',
+    });
+    expect(decodeProfileRequest('{"op":"end"}')).toBeNull();
     expect(decodeProfileRequest('{"op":"start"}')).toBeNull();
     expect(decodeProfileRequest('{"op":"start","sessionId":""}')).toBeNull();
     expect(decodeProfileRequest('{"op":"capture","path":"/etc/passwd"}')).toBeNull();

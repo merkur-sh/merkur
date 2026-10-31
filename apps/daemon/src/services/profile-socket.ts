@@ -15,9 +15,14 @@ const MAX_REQUEST_BYTES = 4 * 1024;
 
 const ProfileRequestSchema = Schema.Union([
   Schema.Struct({ op: Schema.Literal('sessions') }),
-  Schema.Struct({ op: Schema.Literal('start'), sessionId: Schema.NonEmptyString }),
-  Schema.Struct({ op: Schema.Literal('capture') }),
-  Schema.Struct({ op: Schema.Literal('end') }),
+  Schema.Struct({
+    op: Schema.Literal('start'),
+    sessionId: Schema.NonEmptyString,
+    observationId: Schema.NonEmptyString,
+  }),
+  Schema.Struct({ op: Schema.Literal('capture'), observationId: Schema.NonEmptyString }),
+  Schema.Struct({ op: Schema.Literal('capture-browser') }),
+  Schema.Struct({ op: Schema.Literal('end'), observationId: Schema.NonEmptyString }),
 ]);
 
 export type ProfileRequest = typeof ProfileRequestSchema.Type;
@@ -36,6 +41,7 @@ export const ProfileReplySchema = Schema.Union([
     dataplanePid: Schema.NullOr(Schema.Int),
   }),
   Schema.Struct({ ok: Schema.Literal(true), path: Schema.String }),
+  Schema.Struct({ ok: Schema.Literal(true), observationId: Schema.NonEmptyString }),
   Schema.Struct({ ok: Schema.Literal(true) }),
   Schema.Struct({ ok: Schema.Literal(false), reason: Schema.String }),
 ]);
@@ -77,16 +83,28 @@ export const handleProfileRequest = Effect.fn('daemon.profile_request')(function
   if (request.op === 'start' || request.op === 'end') {
     const result =
       request.op === 'start'
-        ? yield* dataplaneClient.profileStartEffect(commandId, request.sessionId)
-        : yield* dataplaneClient.profileEndEffect(commandId);
+        ? yield* dataplaneClient.profileStartEffect(
+            commandId,
+            request.sessionId,
+            request.observationId,
+          )
+        : yield* dataplaneClient.profileEndEffect(commandId, request.observationId);
     return result.status === 'accepted'
-      ? ({ ok: true } satisfies ProfileReply)
+      ? ((request.op === 'start'
+          ? { ok: true, observationId: request.observationId }
+          : { ok: true }) satisfies ProfileReply)
       : ({ ok: false, reason: result.reason } satisfies ProfileReply);
   }
   const directory = daemonProfilesPath();
   const capturePath = path.join(directory, `${commandId}.mtrace`);
   yield* Effect.tryPromise(() => mkdir(directory, { recursive: true, mode: 0o700 }));
-  const result = yield* dataplaneClient.capturePerfTraceEffect(commandId, capturePath);
+  const result = yield* dataplaneClient.capturePerfTraceEffect(
+    commandId,
+    capturePath,
+    request.op === 'capture'
+      ? { kind: 'cli', observation_id: request.observationId }
+      : { kind: 'browser' },
+  );
   const captureCompletedAtMs = yield* Clock.currentTimeMillis;
   if (result.status !== 'accepted') {
     yield* logEffect('error', 'daemon', 'daemon_perf_trace_capture_failed', {

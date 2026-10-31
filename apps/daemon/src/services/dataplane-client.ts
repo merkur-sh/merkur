@@ -370,6 +370,11 @@ export type DataplaneProfileSessionsResult =
   | { readonly status: 'accepted'; readonly sessions: readonly DataplaneProfileSession[] }
   | { readonly status: 'rejected'; readonly reason: string };
 
+/** Explicit capture ownership; browser captures cannot drain a CLI observation. */
+export type DataplaneProfileCaptureOwner =
+  | { readonly kind: 'cli'; readonly observation_id: string }
+  | { readonly kind: 'browser' };
+
 export interface DataplaneTraversalRegistration {
   readonly session_id: string;
   readonly browser_node_id: string;
@@ -387,9 +392,13 @@ export interface DataplaneClient {
   /** The authenticated sessions, for `merkur profile` to choose one. */
   profileSessionsEffect(commandId: string): Effect.Effect<DataplaneProfileSessionsResult>;
   /** Begin the one native trace observation, of `sessionId`, superseding any other. */
-  profileStartEffect(commandId: string, sessionId: string): Effect.Effect<DataplaneCommandResult>;
+  profileStartEffect(
+    commandId: string,
+    sessionId: string,
+    observationId: string,
+  ): Effect.Effect<DataplaneCommandResult>;
   /** End the observation `profileStartEffect` began. */
-  profileEndEffect(commandId: string): Effect.Effect<DataplaneCommandResult>;
+  profileEndEffect(commandId: string, observationId: string): Effect.Effect<DataplaneCommandResult>;
   signDaemonProofEffect(
     commandId: string,
     purpose: 'http' | 'control',
@@ -435,7 +444,11 @@ export interface DataplaneClient {
    * Cold capture into a new file at the absolute `path`, which must not exist. Accepted once
    * the dataplane has written it (`@merkur/profile` reads it).
    */
-  capturePerfTraceEffect(commandId: string, path: string): Effect.Effect<DataplaneCommandResult>;
+  capturePerfTraceEffect(
+    commandId: string,
+    path: string,
+    owner: DataplaneProfileCaptureOwner,
+  ): Effect.Effect<DataplaneCommandResult>;
   /**
    * Hand the terminal to the release whose dataplane is `executable` (`handoff.rs`). Accepted
    * once the handoff is written, just before the dataplane replaces itself: the owner then
@@ -839,10 +852,11 @@ function makeDataplaneClient(
       });
     },
 
-    capturePerfTraceEffect(commandId, path): Effect.Effect<DataplaneCommandResult> {
+    capturePerfTraceEffect(commandId, path, owner): Effect.Effect<DataplaneCommandResult> {
       return requestAcknowledgedCommandEffect(commandId, CMD_CAPTURE_PERF_TRACE, {
         command_id: commandId,
         path,
+        owner,
       });
     },
 
@@ -869,16 +883,18 @@ function makeDataplaneClient(
       });
     },
 
-    profileStartEffect(commandId, sessionId) {
+    profileStartEffect(commandId, sessionId, observationId) {
       return requestAcknowledgedCommandEffect(commandId, CMD_PROFILE_START, {
         command_id: commandId,
         session_id: sessionId,
+        observation_id: observationId,
       });
     },
 
-    profileEndEffect(commandId) {
+    profileEndEffect(commandId, observationId) {
       return requestAcknowledgedCommandEffect(commandId, CMD_PROFILE_END, {
         command_id: commandId,
+        observation_id: observationId,
       });
     },
 

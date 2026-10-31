@@ -158,6 +158,7 @@ describe('daemon dataplane IPC wire conformance', () => {
     // which both its Rust writer and `@merkur/profile`'s reader test against.
     expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'CapturePerfTraceCmd')).toEqual([
       'command_id',
+      'owner',
       'path',
     ]);
   });
@@ -177,9 +178,13 @@ describe('daemon dataplane IPC wire conformance', () => {
     ]);
     expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'ProfileStartCmd')).toEqual([
       'command_id',
+      'observation_id',
       'session_id',
     ]);
-    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'ProfileEndCmd')).toEqual(['command_id']);
+    expect(readRustStructFields(DAEMON_COMMAND_SOURCE, 'ProfileEndCmd')).toEqual([
+      'command_id',
+      'observation_id',
+    ]);
     // The client decodes the event against a schema of the same keys
     // (`ProfileSessionsEvent` in dataplane-client.ts), rejecting any surplus one.
     expect(readRustStructFields(DAEMON_EVENT_SOURCE, "ProfileSessionsEvt<'a>")).toEqual([

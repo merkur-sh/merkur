@@ -187,8 +187,18 @@ pub struct CaptureTransportStatsCmd {
 #[serde(deny_unknown_fields)]
 pub struct CapturePerfTraceCmd {
     pub command_id: String,
+    pub owner: TraceCaptureOwner,
     /// Absolute path of a file that must not exist yet; the capture never overwrites.
     pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum TraceCaptureOwner {
+    #[serde(rename = "cli")]
+    Cli { observation_id: String },
+    #[serde(rename = "browser")]
+    Browser,
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,6 +211,7 @@ pub struct ProfileSessionsCmd {
 #[serde(deny_unknown_fields)]
 pub struct ProfileStartCmd {
     pub command_id: String,
+    pub observation_id: String,
     /// A `signal_session_id` that `EVT_PROFILE_SESSIONS` listed.
     pub session_id: String,
 }
@@ -209,6 +220,7 @@ pub struct ProfileStartCmd {
 #[serde(deny_unknown_fields)]
 pub struct ProfileEndCmd {
     pub command_id: String,
+    pub observation_id: String,
 }
 
 #[cfg(test)]
@@ -329,15 +341,28 @@ mod tests {
     #[test]
     fn profile_command_shapes_are_exact() {
         let start = serde_json::from_str::<ProfileStartCmd>(
-            r#"{"command_id":"profile-1","session_id":"session-a"}"#,
+            r#"{"command_id":"profile-1","observation_id":"a","session_id":"session-a"}"#,
         )
         .expect("exact profile start command");
         assert_eq!(start.session_id, "session-a");
+        assert!(
+            serde_json::from_str::<ProfileStartCmd>(r#"{"command_id":"p","session_id":"s"}"#)
+                .is_err()
+        );
+        assert!(serde_json::from_str::<ProfileEndCmd>(r#"{"command_id":"p"}"#).is_err());
+        assert!(serde_json::from_str::<TraceCaptureOwner>(r#"{"kind":"cli"}"#).is_err());
+        assert!(
+            serde_json::from_str::<TraceCaptureOwner>(r#"{"kind":"browser","observation_id":"a"}"#)
+                .is_err()
+        );
         assert!(serde_json::from_str::<ProfileStartCmd>(r#"{"command_id":"profile-1"}"#).is_err());
         assert!(
             serde_json::from_str::<ProfileSessionsCmd>(r#"{"command_id":"p","all":true}"#).is_err()
         );
-        assert!(serde_json::from_str::<ProfileEndCmd>(r#"{"command_id":"p"}"#).is_ok());
+        assert!(
+            serde_json::from_str::<ProfileEndCmd>(r#"{"command_id":"p","observation_id":"a"}"#)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -362,7 +387,7 @@ mod tests {
     #[test]
     fn perf_trace_capture_command_shape_is_exact() {
         let command = serde_json::from_str::<CapturePerfTraceCmd>(
-            r#"{"command_id":"perf-final-1","path":"/tmp/capture.mtrace"}"#,
+            r#"{"command_id":"perf-final-1","owner":{"kind":"browser"},"path":"/tmp/capture.mtrace"}"#,
         )
         .expect("exact trace capture command");
         assert_eq!(command.command_id, "perf-final-1");

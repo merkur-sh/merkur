@@ -505,8 +505,15 @@ impl Recorder {
     }
 
     pub(crate) fn capture(&'static self) -> Option<Snapshot> {
+        self.capture_matching(None)
+    }
+
+    fn capture_matching(&'static self, expected: Option<Token>) -> Option<Snapshot> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let owner = state.owner.clone()?;
+        if expected.is_some_and(|token| token.owner != owner.owner) {
+            return None;
+        }
         let ended = Calibration::measure();
         let started = state.calibration.unwrap_or(ended);
         // One bounded drain, not an in-flight-producer barrier. A producer can
@@ -614,6 +621,23 @@ pub fn elapsed_us(at: Instant) -> u64 {
 /// Drains the current observation. `None` before the first `begin`.
 pub fn capture() -> Option<Snapshot> {
     GLOBAL.get()?.capture()
+}
+
+/// The most recently begun observation, including one that has ended.
+pub fn current_token() -> Option<Token> {
+    let state = GLOBAL
+        .get()?
+        .state
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    Some(Token {
+        owner: state.owner.as_ref()?.owner,
+    })
+}
+
+/// Drains only `token`'s observation; a superseded token cannot consume its successor.
+pub fn capture_owned(token: Token) -> Option<Snapshot> {
+    GLOBAL.get()?.capture_matching(Some(token))
 }
 
 /// Claims this thread's ring before its first record, so the claim and the exit hook's
@@ -1034,6 +1058,19 @@ mod tests {
                 .windows(2)
                 .all(|pair| pair[0].ordinal < pair[1].ordinal)
         );
+    }
+
+    #[test]
+    fn superseded_capture_does_not_drain_its_successor() {
+        let recorder = Recorder::leak(2, 1024, false);
+        let old = recorder.begin("a", "a", 1);
+        let current = recorder.begin("b", "b", 2);
+        recorder.record(current, Instant::now(), &DISPLAY_ATTEMPT, [42; 16]);
+        assert!(recorder.capture_matching(Some(old)).is_none());
+        let snapshot = recorder.capture_matching(Some(current)).unwrap();
+        assert_eq!(snapshot.evidence.len(), 1);
+        assert_eq!(snapshot.evidence[0].fields, [42; 16]);
+        recorder.end(current);
     }
 
     /// The production recorder is process-wide; tests that drive it take turns.

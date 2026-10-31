@@ -130,8 +130,9 @@ async function record(options: RecordOptions): Promise<number> {
     );
   }
 
-  const started = await request({ op: 'start', sessionId: session.sessionId });
-  if (!started.ok) {
+  const observationId = crypto.randomUUID();
+  const started = await request({ op: 'start', sessionId: session.sessionId, observationId });
+  if (!started.ok || !('observationId' in started) || started.observationId !== observationId) {
     samply?.kill('SIGINT');
     return fail(started);
   }
@@ -145,8 +146,8 @@ async function record(options: RecordOptions): Promise<number> {
   process.once('SIGINT', onInterrupt);
   await Promise.race([Bun.sleep(options.seconds * 1000), interrupted.promise]);
   process.off('SIGINT', onInterrupt);
-  const captured = await request({ op: 'capture' });
-  const ended = await request({ op: 'end' });
+  const captured = await request({ op: 'capture', observationId });
+  const ended = await request({ op: 'end', observationId });
   // samply saves its profile when interrupted while its target still runs.
   samply?.kill('SIGINT');
   const samplyExit = samply === null ? 0 : await samply.exited;

@@ -897,7 +897,10 @@ describe('DataplaneClient acknowledged commands', () => {
     client.start();
     const sidecar = required(sidecars[0]);
     const capture = Effect.runPromise(
-      client.capturePerfTraceEffect('trace-1', '/tmp/profiles/trace-1.mtrace'),
+      client.capturePerfTraceEffect('trace-1', '/tmp/profiles/trace-1.mtrace', {
+        kind: 'cli',
+        observation_id: 'observation-a',
+      }),
     );
     const frame = required(
       readFrames(sidecar.inputChunks).find((entry) => entry.kind === CMD_CAPTURE_PERF_TRACE),
@@ -905,6 +908,7 @@ describe('DataplaneClient acknowledged commands', () => {
     expect(JSON.parse(new TextDecoder().decode(frame.payload))).toEqual({
       command_id: 'trace-1',
       path: '/tmp/profiles/trace-1.mtrace',
+      owner: { kind: 'cli', observation_id: 'observation-a' },
     });
     sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'trace-1', status: 'accepted' });
     await expect(capture).resolves.toEqual({ status: 'accepted' });
@@ -946,13 +950,16 @@ describe('DataplaneClient acknowledged commands', () => {
       reason: 'incomplete_profile_sessions',
     });
 
-    const start = Effect.runPromise(client.profileStartEffect('start-1', 'session-a'));
+    const start = Effect.runPromise(
+      client.profileStartEffect('start-1', 'session-a', 'observation-a'),
+    );
     const startFrame = required(
       readFrames(sidecar.inputChunks).find((entry) => entry.kind === CMD_PROFILE_START),
     );
     expect(JSON.parse(new TextDecoder().decode(startFrame.payload))).toEqual({
       command_id: 'start-1',
       session_id: 'session-a',
+      observation_id: 'observation-a',
     });
     sidecar.emitFrame(EVT_COMMAND_ACK, {
       command_id: 'start-1',
@@ -960,6 +967,14 @@ describe('DataplaneClient acknowledged commands', () => {
       reason: 'unknown_session',
     });
     await expect(start).resolves.toEqual({ status: 'rejected', reason: 'unknown_session' });
+    const end = Effect.runPromise(client.profileEndEffect('end-1', 'observation-a'));
+    const endFrame = required(readFrames(sidecar.inputChunks).find((entry) => entry.kind === 0x14));
+    expect(JSON.parse(new TextDecoder().decode(endFrame.payload))).toEqual({
+      command_id: 'end-1',
+      observation_id: 'observation-a',
+    });
+    sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'end-1', status: 'accepted' });
+    await expect(end).resolves.toEqual({ status: 'accepted' });
     client.stop();
   });
 
@@ -974,7 +989,9 @@ describe('DataplaneClient acknowledged commands', () => {
       );
       client.start();
       const sidecar = required(sidecars[0]);
-      const capture = Effect.runPromise(client.capturePerfTraceEffect('trace-1', '/tmp/a.mtrace'));
+      const capture = Effect.runPromise(
+        client.capturePerfTraceEffect('trace-1', '/tmp/a.mtrace', { kind: 'browser' }),
+      );
       sidecar.emitFrame(EVT_COMMAND_ACK, { command_id: 'trace-1', status: 'rejected', reason });
       await expect(capture).resolves.toEqual({ status: 'rejected', reason });
       expect(exitReasons).toEqual([]);
@@ -995,7 +1012,9 @@ describe('DataplaneClient acknowledged commands', () => {
       scheduleTimer: (delayMs, callback) => scheduleCallback(timers, delayMs, callback),
     });
     client.start();
-    const capture = Effect.runPromise(client.capturePerfTraceEffect('trace-1', '/tmp/a.mtrace'));
+    const capture = Effect.runPromise(
+      client.capturePerfTraceEffect('trace-1', '/tmp/a.mtrace', { kind: 'browser' }),
+    );
     required(timers.find((timer) => timer.delayMs === 25)).run();
     await expect(capture).resolves.toEqual({ status: 'rejected', reason: 'dataplane_ack_timeout' });
     client.stop();
