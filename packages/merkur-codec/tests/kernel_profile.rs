@@ -28,6 +28,8 @@ struct CountingAllocator;
 
 static COUNTING: AtomicBool = AtomicBool::new(false);
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+static ALLOCATED_BYTES: AtomicUsize = AtomicUsize::new(0);
+static FREED_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
@@ -36,38 +38,47 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 // the system allocator; counting touches only atomics.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        record();
+        record(layout.size());
         // SAFETY: the caller's `layout` reaches `System` unchanged, so the
         // caller's obligations are exactly `System`'s.
         unsafe { System.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        record();
+        record(layout.size());
         // SAFETY: the caller's `layout` reaches `System` unchanged, so the
         // caller's obligations are exactly `System`'s.
         unsafe { System.alloc_zeroed(layout) }
     }
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        if COUNTING.load(Ordering::Relaxed) {
+            FREED_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        }
         // SAFETY: every block this allocator hands out is `System`'s, so
         // `pointer` and `layout` name a block `System` allocated.
         unsafe { System.dealloc(pointer, layout) }
     }
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        record();
+        record(size);
+        if COUNTING.load(Ordering::Relaxed) {
+            FREED_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        }
         // SAFETY: `pointer` and `layout` name a block `System` allocated, and
         // the caller's new size reaches it unchanged.
         unsafe { System.realloc(pointer, layout, size) }
     }
 }
 
-fn record() {
+fn record(bytes: usize) {
     if COUNTING.load(Ordering::Relaxed) {
         ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        ALLOCATED_BYTES.fetch_add(bytes, Ordering::Relaxed);
     }
 }
 
 fn count_allocations(run: impl FnOnce()) -> usize {
     ALLOCATIONS.store(0, Ordering::Relaxed);
+    ALLOCATED_BYTES.store(0, Ordering::Relaxed);
+    FREED_BYTES.store(0, Ordering::Relaxed);
     COUNTING.store(true, Ordering::SeqCst);
     run();
     COUNTING.store(false, Ordering::SeqCst);
@@ -297,6 +308,133 @@ mod prepared_rows {
                     }
                 }
             }
+        }
+    }
+
+    fn mz_frame(
+        encoder: &mut merkur_codec::mz::MzEncoder,
+        raw: &mut Vec<u8>,
+        coded: &mut Vec<u8>,
+        header: &FrameHeader,
+        cells: &[CellRepr],
+        graphics: &PreparedGraphics,
+    ) -> Option<merkur_codec::mz::MzEncoded> {
+        let encoding = plan_cell_encoding(cells).1;
+        let metadata = encoder.encode_prepared_frame_into(
+            raw,
+            header,
+            (0..header.row_count).map(|row_index| PreparedRowRef {
+                row_index,
+                left: 0,
+                cells,
+                encoding,
+                graphics,
+            }),
+        );
+        coded.clear();
+        encoder.encode_prepared(
+            raw.get(merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES..)?,
+            metadata,
+            &merkur_codec::mz::NoHistory,
+            None,
+            None,
+            coded,
+        )
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore = "release MZ storage and instruction profile; --ignored --nocapture --test-threads=1"]
+    fn mz_frame_items_profile() {
+        use std::hash::Hasher;
+        for (rows, width, pattern) in [
+            (1, 1, "text"),
+            (1, 8, "text"),
+            (1, 120, "blank"),
+            (39, 120, "text"),
+            (39, 120, "rgb"),
+            (39, 120, "unicode"),
+            (39, 120, "linked-all"),
+        ] {
+            let cells = cells(width, pattern);
+            let graphics = PreparedGraphics::default();
+            let mut header = header(width);
+            header.row_count = rows;
+            // Initialize the process-wide static prior before cold ownership accounting.
+            mz_frame(
+                &mut Default::default(),
+                &mut Vec::new(),
+                &mut Vec::new(),
+                &header,
+                &cells,
+                &graphics,
+            )
+            .unwrap();
+            ALLOCATIONS.store(0, Ordering::Relaxed);
+            ALLOCATED_BYTES.store(0, Ordering::Relaxed);
+            FREED_BYTES.store(0, Ordering::Relaxed);
+            COUNTING.store(true, Ordering::SeqCst);
+            let mut encoder = merkur_codec::mz::MzEncoder::default();
+            let mut raw = Vec::new();
+            let mut coded = Vec::new();
+            for _ in 0..8 {
+                mz_frame(
+                    &mut encoder,
+                    &mut raw,
+                    &mut coded,
+                    &header,
+                    &cells,
+                    &graphics,
+                )
+                .unwrap();
+            }
+            COUNTING.store(false, Ordering::SeqCst);
+            let allocated = ALLOCATED_BYTES.load(Ordering::Relaxed);
+            let freed = FREED_BYTES.load(Ordering::Relaxed);
+            assert!(allocated >= freed);
+            let retained = allocated - freed;
+            let cold_allocations = ALLOCATIONS.load(Ordering::Relaxed);
+            let mut fingerprint = std::collections::hash_map::DefaultHasher::new();
+            fingerprint.write(&raw);
+            fingerprint.write(&coded);
+            let rounds = if rows == 1 { 65_536 } else { 512 };
+            let before = instructions();
+            for _ in 0..rounds {
+                black_box(
+                    mz_frame(
+                        &mut encoder,
+                        &mut raw,
+                        &mut coded,
+                        &header,
+                        &cells,
+                        &graphics,
+                    )
+                    .unwrap(),
+                );
+            }
+            let retired = instructions() - before;
+            let warm_allocations = count_allocations(|| {
+                for _ in 0..rounds {
+                    black_box(
+                        mz_frame(
+                            &mut encoder,
+                            &mut raw,
+                            &mut coded,
+                            &header,
+                            &cells,
+                            &graphics,
+                        )
+                        .unwrap(),
+                    );
+                }
+            });
+            println!(
+                "MZ_STORAGE rows={rows} width={width} pattern={pattern} instructions={} cold_allocations={cold_allocations} retained={retained} warm_allocations={warm_allocations} raw={} coded={} fingerprint={:016x}",
+                retired as f64 / f64::from(rounds),
+                raw.len(),
+                coded.len(),
+                fingerprint.finish(),
+            );
         }
     }
 }

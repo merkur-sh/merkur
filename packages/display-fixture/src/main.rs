@@ -53,7 +53,14 @@ fn row_count(body: &[u8]) -> Result<u16, String> {
 fn compress(body: &[u8]) -> Result<Vec<u8>, String> {
     let mut payload = Vec::new();
     merkur_codec::mz::MzEncoder::default()
-        .encode(body, row_count(body)?, &merkur_codec::mz::NoHistory, None, None, &mut payload)
+        .encode_rows(
+            body,
+            row_count(body)?,
+            &merkur_codec::mz::NoHistory,
+            None,
+            None,
+            &mut payload,
+        )
         .ok_or("the rows do not code")?;
     Ok(payload)
 }
@@ -109,20 +116,37 @@ mod tests {
             echo_horizon: 0,
         };
         let mut frame = Vec::new();
-        merkur_codec::encode_frame_into(
+        let graphics = merkur_codec::PreparedGraphics::default();
+        let mut encoder = merkur_codec::mz::MzEncoder::default();
+        let metadata = encoder.encode_prepared_frame_into(
             &mut frame,
             &header,
             lines
                 .iter()
                 .enumerate()
-                .map(|(row, cells)| merkur_codec::RowRef {
-                    graphics: &[],
+                .map(|(row, cells)| merkur_codec::PreparedRowRef {
+                    graphics: &graphics,
                     row_index: u16::try_from(row).expect("a grid row"),
                     left: 0,
                     cells,
+                    encoding: merkur_codec::plan_cell_encoding(cells).1,
                 }),
         );
-        frame[merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES..].to_vec()
+        let body =
+            &frame[merkur_codec::STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES..];
+        let mut payload = Vec::new();
+        encoder
+            .encode_prepared(
+                body,
+                metadata,
+                &merkur_codec::mz::NoHistory,
+                None,
+                None,
+                &mut payload,
+            )
+            .expect("prepared fixture codes");
+        assert_eq!(payload, compress(body).expect("pre-encoded fixture codes"));
+        body.to_vec()
     }
 
     #[test]

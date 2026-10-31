@@ -16,9 +16,9 @@ mod session;
 pub mod train;
 
 pub use frame::{
-    MZ_TWO_STATE_MIN_ROW_BYTES, MzCandidate, MzDecoder, MzEncoded, MzEncoder, MzError, MzItem,
-    MzMatches, MzRow, MzRowCost, MzSources, NoHistory, encode_full_row_entry, entry_items,
-    full_row_entry_bytes, item_hash, pair_hash,
+    MZ_TWO_STATE_MIN_ROW_BYTES, MzCandidate, MzDecoder, MzEncoded, MzEncoder, MzError,
+    MzFrameMetadata, MzItem, MzMatches, MzRow, MzRowCost, MzSources, NoHistory,
+    encode_full_row_entry, entry_items, full_row_entry_bytes, item_hash, pair_hash,
 };
 pub use history::{
     MZ_HISTORY_BYTES, MZ_REFERENCE_DATAGRAMS, MzGenerations, MzLedger, MzStore, RowHistory,

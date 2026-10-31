@@ -1,3 +1,6 @@
+mod items;
+pub(crate) use items::{CellMetadata, FrameItems, FrameMetadata};
+
 use crate::cell::{CellRepr, HAS_BG, HAS_FG, RLE};
 use crate::varint::encode_varint_u32;
 use crate::{
@@ -275,7 +278,7 @@ pub fn encode_frame_into<'a>(
     header: &FrameHeader,
     rows: impl Iterator<Item = RowRef<'a>>,
 ) {
-    let _ = encode_frame_impl::<false, false, _>(
+    let _ = encode_frame_impl::<false, false, _, _>(
         out,
         header,
         rows.map(|row| EncodingRow {
@@ -285,6 +288,7 @@ pub fn encode_frame_into<'a>(
             encoding: None,
             graphics: row.graphics,
         }),
+        (),
     );
 }
 
@@ -295,7 +299,16 @@ pub fn encode_prepared_frame_into<'a>(
     header: &FrameHeader,
     rows: impl Iterator<Item = PreparedRowRef<'a>>,
 ) {
-    encode_frame_impl::<false, true, _>(
+    encode_prepared_frame_with_metadata(out, header, rows, ());
+}
+
+pub(crate) fn encode_prepared_frame_with_metadata<'a, M: FrameMetadata>(
+    out: &mut Vec<u8>,
+    header: &FrameHeader,
+    rows: impl Iterator<Item = PreparedRowRef<'a>>,
+    metadata: M,
+) {
+    encode_frame_impl::<false, true, _, _>(
         out,
         header,
         rows.map(|row| EncodingRow {
@@ -310,6 +323,7 @@ pub fn encode_prepared_frame_into<'a>(
             encoding: Some(row.encoding),
             graphics: row.graphics,
         }),
+        metadata,
     )
     .expect("prepared graphics match the authoritative grid");
 }
@@ -321,7 +335,7 @@ pub fn try_encode_frame_into<'a>(
     header: &FrameHeader,
     rows: impl Iterator<Item = RowRef<'a>>,
 ) -> Result<(), EncodeError> {
-    let result = encode_frame_impl::<true, false, _>(
+    let result = encode_frame_impl::<true, false, _, _>(
         out,
         header,
         rows.map(|row| EncodingRow {
@@ -331,6 +345,7 @@ pub fn try_encode_frame_into<'a>(
             encoding: None,
             graphics: row.graphics,
         }),
+        (),
     );
 
     if result.is_err() {
@@ -339,10 +354,17 @@ pub fn try_encode_frame_into<'a>(
     result
 }
 
-fn encode_frame_impl<'a, const VALIDATE: bool, const PREPARED: bool, G: GraphicsSource>(
+fn encode_frame_impl<
+    'a,
+    const VALIDATE: bool,
+    const PREPARED: bool,
+    G: GraphicsSource,
+    M: FrameMetadata,
+>(
     out: &mut Vec<u8>,
     header: &FrameHeader,
     rows: impl Iterator<Item = EncodingRow<'a, G>>,
+    mut metadata: M,
 ) -> Result<(), EncodeError> {
     out.clear();
     out.resize(STREAM_HEADER_BYTES, 0);
@@ -381,6 +403,7 @@ fn encode_frame_impl<'a, const VALIDATE: bool, const PREPARED: bool, G: Graphics
             }
         }
 
+        metadata.begin_row(out.len());
         write_u16(out, row.row_index);
         let graphics_flag = if row.graphics.is_empty() {
             0
@@ -401,7 +424,7 @@ fn encode_frame_impl<'a, const VALIDATE: bool, const PREPARED: bool, G: Graphics
         if VALIDATE {
             try_encode_cells(out, row.cells)?;
         } else if let Some(encoding) = row.encoding {
-            encoding.encode(out, row.cells);
+            encoding.encode_with_metadata(out, row.cells, metadata.cells());
         } else {
             encode_cells(out, row.cells);
         }
@@ -418,6 +441,7 @@ fn encode_frame_impl<'a, const VALIDATE: bool, const PREPARED: bool, G: Graphics
             row.graphics
                 .append(out, header.cols, &mut graphics_scratch)?;
         }
+        metadata.end_row();
         encoded_row_count += 1;
     }
     if VALIDATE && encoded_row_count != usize::from(header.row_count) {
@@ -498,7 +522,17 @@ pub struct CellEncoding {
 }
 
 impl CellEncoding {
+    #[cfg(test)]
     fn encode(self, out: &mut Vec<u8>, cells: &[CellRepr]) {
+        self.encode_with_metadata(out, cells, ());
+    }
+
+    fn encode_with_metadata<M: CellMetadata>(
+        self,
+        out: &mut Vec<u8>,
+        cells: &[CellRepr],
+        mut metadata: M,
+    ) {
         if self.links {
             encode_link_table(out, cells);
         }
@@ -507,10 +541,18 @@ impl CellEncoding {
         } else {
             COLOR_MODE_INDEXED
         });
+        metadata.first(
+            out.len(),
+            if self.literal {
+                COLOR_MODE_LITERAL
+            } else {
+                COLOR_MODE_INDEXED
+            },
+        );
         if self.literal {
-            encode_cells_body::<false, true>(out, cells).expect("trusted codepoints");
+            encode_cells_body::<false, true, _>(out, cells, metadata).expect("trusted codepoints");
         } else {
-            encode_cells_body::<false, false>(out, cells).expect("trusted codepoints");
+            encode_cells_body::<false, false, _>(out, cells, metadata).expect("trusted codepoints");
         }
     }
 }
@@ -802,20 +844,21 @@ fn encode_cells_impl<const VALIDATE_CODEPOINTS: bool>(
     }
     let start = out.len();
     out.push(COLOR_MODE_INDEXED);
-    let (colors, literals) = encode_cells_body::<VALIDATE_CODEPOINTS, false>(out, cells)?;
+    let (colors, literals) = encode_cells_body::<VALIDATE_CODEPOINTS, false, _>(out, cells, ())?;
     if literal_color_bytes(colors) < indexed_color_bytes(colors, literals) {
         out.truncate(start);
         out.push(COLOR_MODE_LITERAL);
-        encode_cells_body::<VALIDATE_CODEPOINTS, true>(out, cells)?;
+        encode_cells_body::<VALIDATE_CODEPOINTS, true, _>(out, cells, ())?;
     }
     Ok(())
 }
 
 /// Returns `(colors, literals)`: how many non-default colors the row carries,
 /// and how many of those the palette cannot express.
-fn encode_cells_body<const VALIDATE_CODEPOINTS: bool, const LITERAL: bool>(
+fn encode_cells_body<const VALIDATE_CODEPOINTS: bool, const LITERAL: bool, M: CellMetadata>(
     out: &mut Vec<u8>,
     cells: &[CellRepr],
+    mut metadata: M,
 ) -> Result<(usize, usize), EncodeError> {
     let mut colors = 0usize;
     let mut literals = 0usize;
@@ -851,6 +894,7 @@ fn encode_cells_body<const VALIDATE_CODEPOINTS: bool, const LITERAL: bool>(
             encode_varint_u32(out, run_len as u32);
         }
         index += run_len;
+        metadata.item(out.len(), index);
     }
     Ok((colors, literals))
 }

@@ -298,7 +298,7 @@ impl Worker {
             }
             self.payload.clear();
             self.mz
-                .encode(
+                .encode_rows(
                     &self.span,
                     u16::try_from(rows.len()).expect("a grid's rows"),
                     &merkur_codec::mz::NoHistory,

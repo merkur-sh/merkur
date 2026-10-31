@@ -638,7 +638,7 @@ mod tests {
         let rows_offset = STREAM_HEADER_BYTES + merkur_codec::FRAME_HEADER_BODY_BYTES;
         let mut compressed = Vec::new();
         merkur_codec::mz::MzEncoder::default()
-            .encode(
+            .encode_rows(
                 &snapshot[rows_offset..],
                 u16::try_from(ROWS).expect("a grid of rows"),
                 &merkur_codec::mz::NoHistory,
