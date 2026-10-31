@@ -1845,14 +1845,104 @@ impl TerminalState {
         self.encode_snapshot_rows_into(payload, None, None)
     }
 
-    /// Capture a complete snapshot in one terminal traversal.
-    ///
-    /// The encoded rows, row-major cells used to prime peer ACK baselines, and
-    /// per-row hashes all come from the same immutable row scratch before the
-    /// next terminal row is read. This keeps snapshot/resync preparation both
-    /// cheaper and internally consistent. `graphics` receives each encoded row's
-    /// graphics version, not its bytes: the baselines it primes hold no storage.
+    /// Serialize the completed hash refresh, copying its cells into the flat
+    /// snapshot baseline without retaining any additional row owners.
     pub fn encode_snapshot_state_into(
+        &mut self,
+        mut payload: Vec<u8>,
+        grid: &mut Vec<CellRepr>,
+        row_hashes: &mut Vec<u64>,
+        graphics: &mut Vec<Option<GraphicsVersion>>,
+    ) -> (Vec<u8>, u16) {
+        graphics.clear();
+        graphics.extend(
+            self.graphics
+                .projected
+                .iter()
+                .map(PreparedGraphics::version),
+        );
+        let cols = usize::from(self.cols);
+        let rows = usize::from(self.rows);
+        payload.clear();
+        payload.reserve(rows.saturating_mul(cols).saturating_mul(4));
+        grid.clear();
+        grid.reserve(rows.saturating_mul(cols));
+        row_hashes.clear();
+        row_hashes.reserve(rows);
+        let header = self.display_header(FrameKind::Snapshot, 0);
+        let row_count_offset = write_display_header(&mut payload, &header);
+        self.last_cursor_line = self.current_cursor_line();
+        let mut row_cells = std::mem::take(&mut self.row_cells_scratch);
+        let mut row_digest = std::mem::take(&mut self.row_digest_scratch);
+        let mut row_bytes = std::mem::take(&mut self.row_bytes_scratch);
+        if row_cells.len() != cols {
+            row_cells.resize(cols, CellRepr::BLANK);
+        }
+        let mut encoded_rows = 0usize;
+        for (row_index, cells, hash, row_graphics) in self.refreshed_rows() {
+            if row_index + 1 == rows {
+                // Leave the same final-row scratch for subsequent grid/hash walks.
+                row_cells.copy_from_slice(cells);
+                let digest_len = cols.saturating_mul(CELL_DIGEST_BYTES);
+                if row_digest.len() != digest_len {
+                    row_digest.resize(digest_len, 0);
+                }
+                let mut row_links = false;
+                for (cell, packed) in row_cells
+                    .iter()
+                    .zip(row_digest.as_chunks_mut::<CELL_DIGEST_BYTES>().0)
+                {
+                    pack_cell_digest(cell, packed);
+                    row_links |= cell.link != 0;
+                }
+                if row_links {
+                    append_link_digest(&mut row_digest, row_cells.iter().map(|cell| cell.link));
+                }
+                append_graphics_digest(&mut row_digest, row_graphics.digest());
+            }
+            grid.extend_from_slice(cells);
+            row_hashes.push(hash);
+            encode_display_row(
+                &mut payload,
+                clamp_usize_to_u16(row_index),
+                0,
+                cells,
+                &mut row_bytes,
+                row_graphics,
+            );
+            encoded_rows += 1;
+        }
+        self.row_cells_scratch = row_cells;
+        self.row_digest_scratch = row_digest;
+        self.row_bytes_scratch = row_bytes;
+        patch_display_row_count(&mut payload, row_count_offset, encoded_rows);
+        self.last_encoded_row_count = clamp_usize_to_u16(encoded_rows);
+        (payload, self.last_encoded_row_count)
+    }
+
+    fn refreshed_rows(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (usize, &RowCells, u64, &PreparedGraphics)> {
+        assert_eq!(
+            self.dirty_rows.census(),
+            DirtyCensus::Clean,
+            "snapshot requires a completed hash refresh"
+        );
+        assert_eq!(self.row_captures.visible.len(), usize::from(self.rows));
+        self.row_captures
+            .visible
+            .iter()
+            .enumerate()
+            .map(|(row, capture)| {
+                let capture = capture
+                    .as_ref()
+                    .expect("hash refresh captures every visible row");
+                (row, &capture.cells, capture.hash, self.graphics.row(row))
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn encode_snapshot_grid_state_for_test(
         &mut self,
         payload: Vec<u8>,
         grid: &mut Vec<CellRepr>,
@@ -1869,6 +1959,23 @@ impl TerminalState {
         self.encode_snapshot_rows_into(payload, Some(grid), Some(row_hashes))
     }
 
+    #[cfg(test)]
+    pub(crate) fn snapshot_scratch_state(&self) -> (Vec<CellRepr>, Vec<u8>, Vec<u8>) {
+        (
+            self.row_cells_scratch.clone(),
+            self.row_digest_scratch.clone(),
+            self.row_bytes_scratch.clone(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn snapshot_scratch_bytes(&self) -> usize {
+        self.row_cells_scratch.capacity() * size_of::<CellRepr>()
+            + self.row_digest_scratch.capacity()
+            + self.row_bytes_scratch.capacity()
+    }
+
+    #[cfg(test)]
     fn encode_snapshot_rows_into(
         &mut self,
         mut payload: Vec<u8>,
@@ -2247,6 +2354,16 @@ impl TerminalState {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static SNAPSHOT_CAPTURE_WORK: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+#[cfg(test)]
+pub(crate) fn take_snapshot_capture_work() -> (usize, usize) {
+    SNAPSHOT_CAPTURE_WORK.with(|work| work.replace((0, 0)))
+}
+
 /// Materialize one visible row as transport cells AND as the exact digest byte
 /// stream `row_hash` consumes, in a single traversal, returning the row hash.
 ///
@@ -2282,6 +2399,11 @@ fn fill_visible_cells(
     digest: &mut Vec<u8>,
 ) -> u64 {
     let cols = out.len();
+    #[cfg(test)]
+    SNAPSHOT_CAPTURE_WORK.with(|work| {
+        let (cells, hashes) = work.get();
+        work.set((cells + cols, hashes + 1));
+    });
     let digest_len = cols.saturating_mul(CELL_DIGEST_BYTES);
     // Exactly the cell stream: a linked row's previous capture may have left
     // its link suffix on the end, and the wrap patch below reads the last byte.
@@ -2620,6 +2742,7 @@ mod tests {
         let mut grid = Vec::new();
         let mut hashes = Vec::new();
         let mut graphics = Vec::new();
+        terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut Vec::new());
         let (mut frame, _) =
             terminal.encode_snapshot_state_into(Vec::new(), &mut grid, &mut hashes, &mut graphics);
         assert_eq!(hashes[0], captured.hash);
@@ -4634,6 +4757,7 @@ legacy-marker-with-a-long-suffix";
 
         let mut grid = Vec::new();
         let mut hashes = Vec::new();
+        terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut Vec::new());
         let (frame, rows) = terminal.encode_snapshot_state_into(
             Vec::new(),
             &mut grid,

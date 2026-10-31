@@ -4576,6 +4576,7 @@ fn prepared_snapshot_for_test(
     let mut snapshot_grid = Vec::new();
     let mut snapshot_graphics = Vec::new();
     let mut row_hashes = Vec::new();
+    terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut Vec::new());
     let (snapshot, _) = terminal.encode_snapshot_state_into(
         Vec::new(),
         &mut snapshot_grid,
@@ -9337,6 +9338,7 @@ fn production_display_pipeline_benchmark() {
         checksum ^= frame.len() ^ grid.len() ^ hashes.len();
         snapshot_legacy_samples.push(started.elapsed().as_secs_f64() * 1_000.0);
 
+        terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut Vec::new());
         let started = Instant::now();
         let mut grid = Vec::new();
         let mut hashes = Vec::new();
@@ -10517,6 +10519,7 @@ fn snapshot_request_for_worker_test(
     let mut snapshot_grid = Vec::new();
     let mut snapshot_graphics = Vec::new();
     let mut row_hashes = Vec::new();
+    terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut Vec::new());
     let (snapshot, _) = terminal.encode_snapshot_state_into(
         Vec::new(),
         &mut snapshot_grid,
@@ -11995,6 +11998,7 @@ fn maximum_prepare_job_comparison(arms: &[PackingExperiment]) {
                 let mut snapshot_allocated_bytes = Vec::with_capacity(samples);
                 let mut snapshot_grid = Vec::new();
                 let mut snapshot_hashes = Vec::new();
+                terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut Vec::new());
                 let (snapshot, _) = terminal.encode_snapshot_state_into(
                     Vec::new(),
                     &mut snapshot_grid,
@@ -14208,4 +14212,187 @@ fn inline_workspace_dominance_profile() {
             .map(|worker| worker.planner_workspace.retained_bytes()),
         worker_retained
     );
+}
+
+#[test]
+#[ignore = "exclusive refreshed snapshot conversion and allocation profile"]
+fn snapshot_capture_reuse_profile() {
+    use crate::edge_tunnel::test_allocations;
+    use crate::pty::terminal::take_snapshot_capture_work;
+    let selected = std::env::var("MERKUR_SNAPSHOT_CAPTURE_CASE").ok();
+    let control = std::env::var_os("MERKUR_SNAPSHOT_CAPTURE_CONTROL").is_some();
+    let measure = std::env::var_os("MERKUR_SNAPSHOT_CAPTURE_MEASURE").is_some();
+    let samples = std::env::var("BENCH_SAMPLES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(12);
+    for (cols, rows, entropy) in [
+        (1, 1, false),
+        (8, 2, false),
+        (120, 40, false),
+        (384, 256, true),
+    ] {
+        for mode in [
+            "idle", "typing", "scroll", "dense", "delta", "resize", "sync",
+        ] {
+            let name = format!("{cols}x{rows}-{mode}");
+            if selected.as_ref().is_some_and(|selected| selected != &name) {
+                continue;
+            }
+            let (event_tx, _event_rx) = crossbeam_channel::unbounded();
+            let mut terminal = TerminalState::new(cols, rows, event_tx);
+            terminal.apply_bytes(&maximum_prepare_fixture(cols, rows, entropy, 0));
+            if cols >= 8 {
+                terminal.apply_bytes(
+                    "\x1b[1;1H\x1b]8;;https://example.test/\x1b\\界e\u{301}\x1b]8;;\x1b\\"
+                        .as_bytes(),
+                );
+            }
+            let mut hashes = Vec::new();
+            let mut dirty = Vec::new();
+            let mut cache = HashMap::new();
+            let mut payload = Vec::new();
+            let mut grid = Vec::new();
+            let mut graphics = Vec::new();
+            let mut oracle_payload = Vec::new();
+            let mut oracle_grid = Vec::new();
+            let mut oracle_hashes = Vec::new();
+            let mut oracle_graphics = Vec::new();
+            let mut held_captures = Vec::new();
+            for round in 0..samples + 10 {
+                match mode {
+                    "typing" | "delta" => {
+                        terminal.apply_bytes(
+                            format!(
+                                "\x1b[1;1H{}",
+                                char::from(b'a' + u8::try_from(round % 26).unwrap())
+                            )
+                            .as_bytes(),
+                        );
+                    }
+                    "scroll" => {
+                        terminal.apply_bytes(
+                            format!(
+                                "\x1b[{};1H\r\n{}",
+                                terminal.rows,
+                                char::from(b'a' + u8::try_from(round % 26).unwrap())
+                            )
+                            .as_bytes(),
+                        );
+                    }
+                    "dense" => {
+                        terminal.apply_bytes(&maximum_prepare_fixture(
+                            terminal.cols,
+                            terminal.rows,
+                            entropy,
+                            u8::try_from(round % 2).unwrap(),
+                        ));
+                    }
+                    "sync" => {
+                        terminal.apply_bytes(b"\x1b[?2026h");
+                        terminal.apply_bytes(&maximum_prepare_fixture(
+                            terminal.cols,
+                            terminal.rows,
+                            entropy,
+                            u8::try_from(round % 2).unwrap(),
+                        ));
+                        terminal.apply_bytes(b"\x1b[?2026l");
+                    }
+                    "resize" => {
+                        let resized_cols = if cols == 1 {
+                            cols + u16::try_from(round % 2).unwrap()
+                        } else {
+                            cols - u16::try_from(round % 2).unwrap()
+                        };
+                        terminal.resize(resized_cols, rows);
+                    }
+                    _ => {}
+                }
+                take_snapshot_capture_work();
+                test_allocations::begin_thread();
+                let recaptured =
+                    refresh_flush_row_captures(&mut terminal, &mut hashes, &mut dirty, &mut cache);
+                let capture_tally = test_allocations::end_thread();
+                let capture_work = take_snapshot_capture_work();
+                test_allocations::begin_thread();
+                if mode != "delta" {
+                    let result = if control {
+                        terminal.encode_snapshot_grid_state_for_test(
+                            payload,
+                            &mut grid,
+                            &mut hashes,
+                            &mut graphics,
+                        )
+                    } else {
+                        terminal.encode_snapshot_state_into(
+                            payload,
+                            &mut grid,
+                            &mut hashes,
+                            &mut graphics,
+                        )
+                    };
+                    payload = result.0;
+                    assert_eq!(result.1, terminal.rows);
+                }
+                let snapshot_tally = test_allocations::end_thread();
+                let snapshot_work = take_snapshot_capture_work();
+                let tally = test_allocations::Tally {
+                    allocations: capture_tally.allocations + snapshot_tally.allocations,
+                    allocated_bytes: capture_tally.allocated_bytes + snapshot_tally.allocated_bytes,
+                };
+                let converted = capture_work.0 + snapshot_work.0;
+                let hash_calls = capture_work.1 + snapshot_work.1;
+                if round >= 10 {
+                    assert_eq!(snapshot_tally.allocations, 0, "warm snapshot {name}");
+                    assert_eq!(snapshot_tally.allocated_bytes, 0, "warm snapshot {name}");
+                }
+                if round == 0 {
+                    for _ in 0..8 {
+                        held_captures.push(cache.values().cloned().collect::<Vec<_>>());
+                    }
+                }
+                if mode != "delta" && (!measure || round == 0 || round + 1 == samples + 10) {
+                    let scratch_state = terminal.snapshot_scratch_state();
+                    let oracle = terminal.encode_snapshot_grid_state_for_test(
+                        oracle_payload,
+                        &mut oracle_grid,
+                        &mut oracle_hashes,
+                        &mut oracle_graphics,
+                    );
+                    oracle_payload = oracle.0;
+                    assert_eq!(terminal.snapshot_scratch_state(), scratch_state);
+                    assert_eq!(payload, oracle_payload, "raw frame {name} round={round}");
+                    assert_eq!(grid, oracle_grid);
+                    assert_eq!(hashes, oracle_hashes);
+                    assert_eq!(graphics, oracle_graphics);
+                    let mut frame = payload.clone();
+                    patch_stream_header(&mut frame, 1, 1, 0, 1, 1, false, true, 0, 1, 0, 0)
+                        .unwrap();
+                    let mut receiver =
+                        term_wasm::Terminal::new_headless(terminal.cols, terminal.rows);
+                    assert!(receiver.apply_delta_seq(&frame, 1));
+                    for (row, hash) in hashes.iter().enumerate() {
+                        assert_eq!(receiver.row_hash(u16::try_from(row).unwrap()), *hash);
+                    }
+                }
+                if round == 0 || (!measure && round >= 10) || round + 1 == samples + 10 {
+                    eprintln!(
+                        "SNAPSHOT_CAPTURE case={name} round={round} recaptured={recaptured} converted={converted} hash_calls={hash_calls} allocations={} requested={} scratch_retained={} payload_capacity={} grid_capacity={} hashes_capacity={} graphics_capacity={} wire_bytes={} capture_allocations={} snapshot_allocations={} snapshot_converted={} snapshot_hash_calls={}",
+                        tally.allocations,
+                        tally.allocated_bytes,
+                        terminal.snapshot_scratch_bytes(),
+                        payload.capacity(),
+                        grid.capacity(),
+                        hashes.capacity(),
+                        graphics.capacity(),
+                        payload.len(),
+                        capture_tally.allocations,
+                        snapshot_tally.allocations,
+                        snapshot_work.0,
+                        snapshot_work.1,
+                    );
+                }
+            }
+        }
+    }
 }

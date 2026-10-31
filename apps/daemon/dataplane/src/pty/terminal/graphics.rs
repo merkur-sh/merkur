@@ -3035,6 +3035,7 @@ mod tests {
                 assert!(terminal.graphics.row(row).is_empty());
             }
             let mut hashes = Vec::new();
+            terminal.update_hashes_for_dirty_rows(&mut Vec::new(), &mut Vec::new());
             let (mut snapshot, _) = terminal.encode_snapshot_state_into(
                 Vec::new(),
                 &mut Vec::new(),
