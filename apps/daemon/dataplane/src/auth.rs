@@ -1196,12 +1196,12 @@ mod tests {
         let now = vector.verify_at_ms + 3 * USER_DELEGATION_LIFETIME_MS;
         let actor_key =
             merkur_authorization::SigningKey::from_seed(&mut std::array::from_fn::<u8, 32, _>(
-                |index| 0x20 + index as u8,
+                |index| 0x20 + u8::try_from(index).unwrap(),
             ))
             .unwrap();
         let root_key =
             merkur_authorization::SigningKey::from_seed(&mut std::array::from_fn::<u8, 32, _>(
-                |index| index as u8,
+                |index| u8::try_from(index).unwrap(),
             ))
             .unwrap();
         let mut live_payload = vector.certificate.payload();
