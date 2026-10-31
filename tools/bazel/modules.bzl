@@ -6017,6 +6017,12 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "src/e2e-wasm-bun.test.ts": [
+            "//scripts:bench-bun-wasm-bootstrap.ts.module",
+            "//scripts:test-process.ts.module",
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
         "src/e2e-wasm-bun.ts": [
             "//packages/e2e-wasm:pkg_files",
             ":package.json.module",
@@ -6513,6 +6519,13 @@ MODULES = {
         ],
         "bazel-tool.ts": [
             "//:package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "bench-bun-wasm-bootstrap.ts": [
+            "//:package.json.module",
+            "//packages/shared:src/e2e-wasm-bun.ts.module",
+            "//packages/shared:src/e2e-wasm-runtime.ts.module",
+            ":perf/harness.ts.module",
             ":tsconfig.json.module",
         ],
         "bench-display-ack-drain.test.ts": [
@@ -8217,6 +8230,7 @@ TYPE_INPUTS = {
             "tsconfig.base.json",
         ],
         "packages/shared/tsconfig.json": [
+            "package.json",
             "tsconfig.base.json",
         ],
         "packages/user-agent/tsconfig.json": [
@@ -10199,6 +10213,7 @@ TYPE_INPUTS = {
             "src/display-wire.test.ts",
             "src/display-wire.ts",
             "src/domain.ts",
+            "src/e2e-wasm-bun.test.ts",
             "src/e2e-wasm-bun.ts",
             "src/e2e-wasm-runtime.ts",
             "src/edge-signaling.test.ts",
@@ -10397,6 +10412,9 @@ TYPE_INPUTS = {
             "perf/client-viewer-driver.ts",
             "term-wasm-ingress-fixture.ts",
         ],
+        "packages/shared/tsconfig.json": [
+            "test-process.ts",
+        ],
         "scripts/tsconfig.json": [
             "agent-hooks/guards/authored-prose.test.ts",
             "agent-hooks/guards/authored-prose.ts",
@@ -10436,6 +10454,7 @@ TYPE_INPUTS = {
             "bazel-tool.ts",
             "bench-browser-display-pipeline.ts",
             "bench-browser-session-construction.ts",
+            "bench-bun-wasm-bootstrap.ts",
             "bench-carrier-reader-browser.ts",
             "bench-carrier-reader.ts",
             "bench-client-viewer-boundary.ts",
@@ -10995,6 +11014,7 @@ TYPE_PROJECTS = {
         "//:type_inputs/packages/shared/tsconfig.json",
         "//packages/e2e-wasm:pkg_files",
         "//packages/shared:type_inputs/packages/shared/tsconfig.json",
+        "//scripts:type_inputs/packages/shared/tsconfig.json",
     ],
     "packages/user-agent/tsconfig.json": [
         "//:type_inputs/packages/user-agent/tsconfig.json",
