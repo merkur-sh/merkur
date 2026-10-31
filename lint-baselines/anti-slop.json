@@ -1381,7 +1381,7 @@
     "no-swallowed-error": 1
   },
   "apps/web/src/terminal/notifications.ts": {
-    "no-swallowed-error": 4,
+    "no-swallowed-error": 2,
     "require-safety-comment-for-type-assertion": 1
   },
   "apps/web/src/terminal/prediction-admission-model.test.ts": {

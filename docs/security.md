@@ -925,7 +925,9 @@ the focused, selected live session with no dialog, rechecked when composing the 
 The client emits only a fixed base64 OSC 52 write and wipes owned clipboard text and frame
 buffers. Headless output reports the byte count without printing clipboard contents. Browser
 clipboard writes require the active focused session and platform permission; browser notifications
-follow the account's existing notification preference.
+follow the account's existing notification preference. Disabling confirms server removal and
+browser unsubscription before clearing the browser preference; a failed removal leaves it enabled
+and reports the error in Settings.
 
 Clipboard reads initiated by terminal input belong to the originating session and input
 controller. Completion pastes only while that controller is alive and that session remains

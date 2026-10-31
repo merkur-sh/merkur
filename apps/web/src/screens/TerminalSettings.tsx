@@ -1,5 +1,6 @@
-import { type Component, createEffect, type Element, For } from 'solid-js';
+import { type Component, createEffect, createSignal, type Element, For } from 'solid-js';
 
+import MessageSlot from '../components/MessageSlot';
 import ToggleSwitch from '../components/ToggleSwitch';
 import {
   MAX_TERMINAL_FONT_SIZE,
@@ -21,6 +22,7 @@ import {
   type TerminalThemeId,
 } from '../terminal/themes';
 
+const NOTIFICATION_CHANGE_ERROR = 'Could not change notifications. Try again.';
 const previewLoadedFonts = new Set<string>();
 
 interface Props {
@@ -42,6 +44,26 @@ interface Props {
  * described beside it.
  */
 const TerminalSettings: Component<Props> = (props) => {
+  const [notificationError, setNotificationError] = createSignal('');
+  const [notificationBusy, setNotificationBusy] = createSignal(false);
+  let notificationChanging = false;
+
+  async function changeNotifications(enabled: boolean): Promise<void> {
+    if (notificationChanging) return;
+    notificationChanging = true;
+    setNotificationBusy(true);
+    setNotificationError('');
+    try {
+      if (enabled) await props.onTerminalNotificationsEnable();
+      else await props.onTerminalNotificationsDisable();
+    } catch {
+      setNotificationError(NOTIFICATION_CHANGE_ERROR);
+    } finally {
+      notificationChanging = false;
+      setNotificationBusy(false);
+    }
+  }
+
   createEffect(
     () => props.terminalAppearance.fontFamilyId,
     (fontFamilyId) => {
@@ -147,19 +169,22 @@ const TerminalSettings: Component<Props> = (props) => {
         <h2 class="eyebrow">Notifications</h2>
         <div class="pref-group">
           <div class="pref-row">
-            <span class="min-w-0 flex-1">
+            <div class="min-w-0 flex-1">
               <span class="pref-name">Terminal bell</span>
-              <span class="pref-sub">Notifies when this tab is in the background</span>
-            </span>
+              <MessageSlot
+                error={notificationError()}
+                reserve={[NOTIFICATION_CHANGE_ERROR]}
+                class="pref-sub"
+              >
+                Notifies when this tab is in the background
+              </MessageSlot>
+            </div>
             <ToggleSwitch
               label="Terminal bell notifications"
               checked={props.terminalNotificationState === 'enabled'}
               disabled={notificationSwitchDisabled(props.terminalNotificationState)}
-              onChange={() =>
-                props.terminalNotificationState === 'enabled'
-                  ? void props.onTerminalNotificationsDisable()
-                  : void props.onTerminalNotificationsEnable()
-              }
+              busy={notificationBusy()}
+              onChange={(enabled) => void changeNotifications(enabled)}
             />
           </div>
         </div>

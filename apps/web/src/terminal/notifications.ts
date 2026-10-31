@@ -76,8 +76,13 @@ export async function disableTerminalNotifications(
   const registration = await navigator.serviceWorker.ready;
   const subscription = await registration.pushManager.getSubscription();
   if (subscription !== null) {
-    await deletePushSubscription(accessToken, subscription.endpoint).catch(() => undefined);
-    await subscription.unsubscribe().catch(() => undefined);
+    const [, unsubscribed] = await Promise.all([
+      deletePushSubscription(accessToken, subscription.endpoint),
+      subscription.unsubscribe(),
+    ]);
+    if (!unsubscribed && (await registration.pushManager.getSubscription()) !== null) {
+      throw new Error('Push subscription is still active');
+    }
   }
 
   localStorage.removeItem(STORAGE_KEY);

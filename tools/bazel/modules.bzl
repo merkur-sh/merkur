@@ -3900,6 +3900,7 @@ MODULES = {
         "src/screens/TerminalSettings.tsx": [
             "//apps/web:node_modules/solid-js",
             ":package.json.module",
+            ":src/components/MessageSlot.tsx.module",
             ":src/components/ToggleSwitch.tsx.module",
             ":src/terminal/appearance.ts.module",
             ":src/terminal/fonts.ts.module",
@@ -4515,6 +4516,12 @@ MODULES = {
         ],
         "src/terminal/link-hover-layer.ts": [
             ":package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "src/terminal/notifications.test.ts": [
+            ":package.json.module",
+            ":src/screens/TerminalSettings.tsx.module",
+            ":src/terminal/notifications.ts.module",
             ":tsconfig.json.module",
         ],
         "src/terminal/notifications.ts": [
@@ -5380,6 +5387,7 @@ MODULES = {
             ":src/terminal/link-detection.test.ts.module",
             ":src/terminal/link-detection.ts.module",
             ":src/terminal/link-hover-layer.ts.module",
+            ":src/terminal/notifications.test.ts.module",
             ":src/terminal/notifications.ts.module",
             ":src/terminal/perf-grid-convergence.test.ts.module",
             ":src/terminal/perf-grid-convergence.ts.module",
@@ -9520,6 +9528,7 @@ TYPE_INPUTS = {
             "src/terminal/link-detection.test.ts",
             "src/terminal/link-detection.ts",
             "src/terminal/link-hover-layer.ts",
+            "src/terminal/notifications.test.ts",
             "src/terminal/notifications.ts",
             "src/terminal/perf-grid-convergence.test.ts",
             "src/terminal/perf-grid-convergence.ts",
