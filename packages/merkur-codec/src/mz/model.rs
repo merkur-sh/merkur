@@ -246,20 +246,16 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-#[expect(
-    clippy::indexing_slicing,
-    reason = "packed enumerates exactly the allocated context domain"
-)]
 fn ten_bit_contexts_are_injective() {
     let mut seen = vec![false; FIELDS * 1024];
-    for field in 0..FIELDS as u32 {
+    for field in 0..u32::try_from(FIELDS).expect("field count") {
         for aux in 0..1024 {
             let packed = field << 10 | aux;
             assert!(!seen[packed as usize]);
             seen[packed as usize] = true;
             let current = key(field, aux);
             assert_eq!(field_of(current), field as usize);
-            assert_eq!(current & (AUX as u32 - 1), aux);
+            assert_eq!(current & (u32::try_from(AUX).expect("context count") - 1), aux);
         }
     }
     assert!(seen.into_iter().all(|value| value));

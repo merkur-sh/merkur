@@ -1455,10 +1455,6 @@ fn append_copy(
     Ok(cells)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "one entry's fields in the order the encoder codes them"
-)]
 fn decode_entry<P: Prior>(
     io: &mut DecodeIo<'_, '_, '_, P>,
     walk: &mut Walk,
@@ -1660,10 +1656,6 @@ impl MzDecoder {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "the profile deliberately codes copy fields without finding a match"
-)]
 pub(super) fn copy_profile_payload(
     kind: u8,
     back: u32,
