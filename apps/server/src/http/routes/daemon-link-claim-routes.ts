@@ -9,8 +9,6 @@ import {
   DaemonLinkClaimError,
   DaemonLinkClaimServiceTag,
 } from '../../services/daemon-link-claim-service';
-import { DeviceEventsServiceTag } from '../../services/device-events-service';
-import { DeviceServiceTag } from '../../services/device-service';
 import {
   enforceRateLimit,
   RateLimitedError,
@@ -123,16 +121,7 @@ export function daemonLinkClaimRoutesPlugin({
           runServerProgram,
           Effect.gen(function* () {
             const service = yield* DaemonLinkClaimServiceTag;
-            const linked = yield* service.complete(params.linkClaimId, pollToken, body.approvalMac);
-            // The new row, announced to every open list as an absolute delta. It
-            // reads offline until the daemon's own connection publishes its
-            // online edge.
-            const devices = yield* DeviceServiceTag;
-            const device = yield* devices.getDevice(linked.userId, linked.daemonId);
-            if (device !== null) {
-              const events = yield* DeviceEventsServiceTag;
-              yield* events.publishDelta(linked.userId, { kind: 'added', device });
-            }
+            yield* service.complete(params.linkClaimId, pollToken, body.approvalMac);
           }),
           claimRouteOptions(logger, request),
         );

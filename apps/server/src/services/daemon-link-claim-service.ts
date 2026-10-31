@@ -24,6 +24,7 @@ import { tryDatabaseTransactionPromise, withDatabaseTransaction } from '../db/tr
 import type { DatabaseSchema } from '../db/types';
 import { type InfrastructureError, infrastructureError } from './errors';
 import { MAX_LINKED_MACHINES, machineCountSql, readMachineUsage } from './machine-usage';
+import { enqueueDeviceResync, NotificationOutboxServiceTag } from './notification-outbox-service';
 
 const CLAIM_TTL_MS = 10 * 60 * 1_000;
 const MAX_POLL_AUTH_ATTEMPTS = 32;
@@ -117,11 +118,15 @@ export const DaemonLinkClaimServiceLive = Layer.effect(
   Effect.gen(function* () {
     const db = yield* DatabaseService;
     const config = yield* ServerConfigService;
-    return createDaemonLinkClaimService(db, {
-      publicOrigin: config.publicOrigin,
-      tokenHmacSecret: Redacted.value(config.tokenHmacSecret),
-      sessionTokenVerifyKey: config.sessionTokenVerifyKeyB64,
-    });
+    return createDaemonLinkClaimService(
+      db,
+      {
+        publicOrigin: config.publicOrigin,
+        tokenHmacSecret: Redacted.value(config.tokenHmacSecret),
+        sessionTokenVerifyKey: config.sessionTokenVerifyKeyB64,
+      },
+      (yield* NotificationOutboxServiceTag).wake,
+    );
   }),
 );
 
@@ -134,6 +139,7 @@ interface DaemonLinkClaimConfig {
 export function createDaemonLinkClaimService(
   db: Kysely<DatabaseSchema>,
   config: DaemonLinkClaimConfig,
+  wakeNotifications: Effect.Effect<void>,
 ): DaemonLinkClaimService {
   return {
     create(input) {
@@ -336,7 +342,7 @@ export function createDaemonLinkClaimService(
     complete(linkClaimId, pollToken, approvalMac) {
       return Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
-        return yield* withDatabaseTransaction(db, (trx) =>
+        const completed = yield* withDatabaseTransaction(db, (trx) =>
           tryDatabaseTransactionPromise({
             try: async () => {
               const row = await authenticatePollToken(trx, linkClaimId, pollToken, config, now);
@@ -399,11 +405,14 @@ export function createDaemonLinkClaimService(
                 .where('link_claim_id', '=', linkClaimId)
                 .where('state', '=', 'approved')
                 .execute();
+              await enqueueDeviceResync(trx, row.user_id);
               return { userId: row.user_id, daemonId: claim.daemonId };
             },
             catch: normalizeClaimError('complete-daemon-link-claim'),
           }),
         );
+        yield* wakeNotifications;
+        return completed;
       });
     },
   };

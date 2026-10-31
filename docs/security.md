@@ -359,7 +359,9 @@ whose token it was never given.
 
 The server never receives the raw link secret. It can refuse or delay a link but cannot replace the
 identity the browser authenticated. Relinking the same lineage keeps the identity and tombstones.
-No daemon API key exists.
+No daemon API key exists. The first completion queues a device resync in the link transaction,
+so open lists load the device with its current presence. Completed-claim replay returns success
+without another device invalidation.
 
 An account links at most three machines of its own (`MAX_LINKED_MACHINES`). The server refuses the
 approval of a fourth with `machine_limit_reached`, in the same statement that moves the claim to

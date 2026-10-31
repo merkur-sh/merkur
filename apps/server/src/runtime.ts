@@ -77,7 +77,7 @@ const CoreServicesLive = Layer.mergeAll(
   AuthServiceResolvedLive,
   BrowserPresenceServiceLive.pipe(Layer.provideMerge(RedisServiceLive)),
   BoxHostServiceLive,
-  DaemonLinkClaimServiceLive,
+  DaemonLinkClaimServiceLive.pipe(Layer.provideMerge(NotificationOutboxResolvedLive)),
   DeviceServiceLive.pipe(Layer.provideMerge(NotificationOutboxResolvedLive)),
 );
 

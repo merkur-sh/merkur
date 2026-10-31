@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { createLinkToken, deriveSoftwareDaemonP256PublicKey, hashToken } from '@merkur/auth';
+import { type Device, reduceDeviceDelta } from '@merkur/shared';
 import { DaemonLinkClaimInspectResponse } from '@merkur/shared/api-schema';
 import {
   createDaemonBinding,
@@ -13,13 +14,21 @@ import {
   encodeUserAuthorizationBytes,
   USER_DELEGATION_LIFETIME_MS,
 } from '@merkur/shared/user-authorization';
-import { Effect } from 'effect';
-import type { Kysely } from 'kysely';
+import { Effect, Layer } from 'effect';
+import { type Kysely, sql } from 'kysely';
 import { Value } from 'typebox/value';
-
 import { createMigratedKyselyDatabase } from '../db/migrate';
 import type { DatabaseSchema } from '../db/types';
-import { createDaemonLinkClaimService, DaemonLinkClaimError } from './daemon-link-claim-service';
+import { daemonLinkClaimRoutesPlugin } from '../http/routes/daemon-link-claim-routes';
+import { createLogger } from '../logger';
+import type { runServerProgram } from '../runtime';
+import {
+  createDaemonLinkClaimService,
+  DaemonLinkClaimError,
+  DaemonLinkClaimServiceTag,
+} from './daemon-link-claim-service';
+import { DeviceEventsServiceTag } from './device-events-service';
+import { createDeviceService, DeviceServiceTag } from './device-service';
 import { MAX_LINKED_MACHINES, readMachineUsage } from './machine-usage';
 
 const ORIGIN = 'https://merkur.test';
@@ -55,12 +64,16 @@ beforeEach(async () => {
 });
 
 describe('DaemonLinkClaimService', () => {
-  test('inspects the committed identity and preserves another same-name daemon on completion', async () => {
-    const service = createDaemonLinkClaimService(db, {
-      publicOrigin: ORIGIN,
-      tokenHmacSecret: HMAC_SECRET,
-      sessionTokenVerifyKey: 'V'.repeat(3_456),
-    });
+  test('completion replay preserves presence and another same-name daemon', async () => {
+    const service = createDaemonLinkClaimService(
+      db,
+      {
+        publicOrigin: ORIGIN,
+        tokenHmacSecret: HMAC_SECRET,
+        sessionTokenVerifyKey: 'V'.repeat(3_456),
+      },
+      Effect.void,
+    );
     const admission = createLinkToken();
     await db
       .insertInto('link_tokens')
@@ -215,6 +228,18 @@ describe('DaemonLinkClaimService', () => {
         },
       ])
       .execute();
+    await sql`CREATE TRIGGER refuse_resync BEFORE INSERT ON notification_outbox BEGIN SELECT RAISE(FAIL, 'resync unavailable'); END`.execute(
+      db,
+    );
+    await expect(
+      Effect.runPromise(
+        service.complete(publicClaim.linkClaimId, created.pollToken, approval.approvalMac),
+      ),
+    ).rejects.toThrow('resync unavailable');
+    expect(
+      await db.selectFrom('daemons').select('id').where('id', '=', 'daemon-new').execute(),
+    ).toEqual([]);
+    await sql`DROP TRIGGER refuse_resync`.execute(db);
     await Effect.runPromise(
       service.complete(publicClaim.linkClaimId, created.pollToken, approval.approvalMac),
     );
@@ -245,6 +270,52 @@ describe('DaemonLinkClaimService', () => {
         revocation_json: JSON.stringify(newLive),
       },
     ]);
+    const devices = createDeviceService(
+      db,
+      { publicOrigin: ORIGIN, tokenHmacSecret: HMAC_SECRET },
+      Effect.void,
+    );
+    let list: readonly Device[] = await Effect.runPromise(
+      devices.listDevices('user-1', new Map([['daemon-new', 'online']])),
+    );
+    const layer = Layer.mergeAll(
+      Layer.succeed(DaemonLinkClaimServiceTag, service),
+      Layer.succeed(DeviceServiceTag, devices),
+      Layer.succeed(DeviceEventsServiceTag, {
+        publishDelta: (_userId, delta) =>
+          Effect.sync(() => {
+            list = reduceDeviceDelta(list, delta);
+          }),
+        readCursor: () => Effect.succeed({ epoch: 'feedfacefeedface', seq: 0 }),
+        subscribe: () => Effect.succeed(Effect.void),
+      }),
+    );
+    // SAFETY: completion uses only the claim, device and event services supplied above.
+    const run = ((program) =>
+      Effect.runPromise(
+        Effect.provide(program as Effect.Effect<unknown, unknown, never>, layer),
+      )) as typeof runServerProgram;
+    const routes = daemonLinkClaimRoutesPlugin({
+      runServerProgram: run,
+      authorizeRequest: async () => null,
+      logger: createLogger('link-replay-test'),
+      trustedProxyHops: 0,
+    });
+    const response = await routes.handle(
+      new Request(`${ORIGIN}/api/daemon-link/claims/${publicClaim.linkClaimId}/complete`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${created.pollToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ approvalMac: approval.approvalMac }),
+      }),
+    );
+    expect(response.status).toBe(204);
+    expect(list.find((device) => device.id === 'daemon-new')?.status).toBe('online');
+    expect(await db.selectFrom('notification_outbox').select('kind').execute()).toEqual([
+      { kind: 'devices' },
+    ]);
   });
 
   describe('machine limit', () => {
@@ -272,11 +343,15 @@ describe('DaemonLinkClaimService', () => {
       });
     });
     const service = () =>
-      createDaemonLinkClaimService(db, {
-        publicOrigin: ORIGIN,
-        tokenHmacSecret: HMAC_SECRET,
-        sessionTokenVerifyKey: 'V'.repeat(3_456),
-      });
+      createDaemonLinkClaimService(
+        db,
+        {
+          publicOrigin: ORIGIN,
+          tokenHmacSecret: HMAC_SECRET,
+          sessionTokenVerifyKey: 'V'.repeat(3_456),
+        },
+        Effect.void,
+      );
 
     async function insertMachine(id: string, boxId: string | null = null): Promise<void> {
       await db
