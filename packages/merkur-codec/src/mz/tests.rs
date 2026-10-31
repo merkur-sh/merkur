@@ -920,3 +920,367 @@ fn p3_row_price_attribution() {
         "P3_PRICES frames={frames} entries={entries} symbols={symbols} session_chosen={sessions}"
     );
 }
+
+/// Allocator requests on this thread, leaving parallel tests out of the tally.
+mod allocation_profile {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static TALLY: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
+    }
+
+    struct Allocator;
+
+    #[global_allocator]
+    static ALLOCATOR: Allocator = Allocator;
+
+    fn record(bytes: usize) {
+        TALLY.with(|tally| {
+            if let Some((calls, requested)) = tally.get() {
+                tally.set(Some((calls + 1, requested + bytes)));
+            }
+        });
+    }
+
+    // SAFETY: pointers and layouts are forwarded unchanged to System; the
+    // thread-local tally neither allocates nor accesses the allocated block.
+    unsafe impl GlobalAlloc for Allocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            record(layout.size());
+            // SAFETY: the caller's allocation layout is passed unchanged.
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            record(layout.size());
+            // SAFETY: the caller's allocation layout is passed unchanged.
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+            // SAFETY: System allocated this pointer with this layout.
+            unsafe { System.dealloc(pointer, layout) }
+        }
+
+        unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+            record(size);
+            // SAFETY: the caller's pointer, layout and new size are unchanged.
+            unsafe { System.realloc(pointer, layout, size) }
+        }
+    }
+
+    #[expect(
+        clippy::expect_used,
+        reason = "count enables the tally before running its closure"
+    )]
+    pub(super) fn count<T>(run: impl FnOnce() -> T) -> (T, (usize, usize)) {
+        TALLY.with(|tally| tally.set(Some((0, 0))));
+        let result = run();
+        let tally = TALLY
+            .with(|tally| tally.replace(None))
+            .expect("active tally");
+        (result, tally)
+    }
+}
+
+#[expect(
+    clippy::expect_used,
+    reason = "profile artifacts must be writable when explicitly requested"
+)]
+fn proof_bytes(name: &str, bytes: &[u8]) {
+    println!(
+        "{name}: bytes={} hash={:016x}",
+        bytes.len(),
+        xxhash_rust::xxh3::xxh3_64(bytes)
+    );
+    if let Some(directory) = std::env::var_os("MERKUR_MZ_PROOF_DIR") {
+        let directory = std::path::PathBuf::from(directory);
+        std::fs::create_dir_all(&directory).expect("proof directory");
+        std::fs::write(directory.join(name), bytes).expect("proof bytes");
+    }
+}
+
+#[expect(
+    clippy::expect_used,
+    reason = "the traced key comes from the bounded field and context domains"
+)]
+fn logical_trace(trace: &[u32]) -> Vec<u8> {
+    use super::model::{AUX, field_of};
+    trace
+        .iter()
+        .flat_map(|&entry| {
+            let key = entry >> 9;
+            let logical = (u32::try_from(field_of(key)).expect("field") << 10)
+                | (key & u32::try_from(AUX - 1).expect("context mask"));
+            (logical << 9 | (entry & 511)).to_le_bytes()
+        })
+        .collect()
+}
+
+/// Canonical keys let the same oracle run before and after a storage change.
+#[expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "the compiled model has checked field sets and sorted contextual keys"
+)]
+fn logical_model(data: &[u8]) -> Vec<u8> {
+    use super::model::{AUX, FIELDS, field_of};
+    let mut out = data.to_vec();
+    let count = u32::from_le_bytes(data[..4].try_into().expect("context count"));
+    let mut at = 4;
+    for index in 0..FIELDS + count as usize {
+        if index >= FIELDS {
+            let key = u32::from_le_bytes(data[at..at + 4].try_into().expect("key"));
+            let aux = key & u32::try_from(AUX - 1).expect("mask");
+            assert!(aux < 1024, "compiled context {key} exceeds ten bits");
+            let logical = u32::try_from(field_of(key)).expect("field") << 10 | aux;
+            out[at..at + 4].copy_from_slice(&logical.to_le_bytes());
+            at += 4;
+        }
+        let mask = u16::from_le_bytes(data[at + 33..at + 35].try_into().expect("low mask"));
+        at += 35 + 32 * mask.count_ones() as usize;
+    }
+    assert_eq!(at, data.len());
+    out
+}
+
+#[expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "fixed fixture columns and valid character values"
+)]
+fn context_corpus() -> Vec<(&'static str, Vec<u8>, u16)> {
+    let ascii = text_row(
+        "user@host:~/merkur$ cargo test --release",
+        crate::DEFAULT_FOREGROUND,
+    );
+    let unicode = text_row("日本語 한글 Привет مرحبا 🎉⠃╔══╗", [180, 190, 254]);
+    let colors: Vec<_> = (0..COLS)
+        .map(|i| {
+            let byte = u8::try_from(i).expect("column");
+            cell(char::from(b'!' + byte), [byte * 6, 200, 17], [3, byte, 9])
+        })
+        .collect();
+    let mut links = unicode.clone();
+    for cell in &mut links[2..23] {
+        cell.link = 9;
+    }
+    links[30].codepoint = u32::from('界');
+    links[30].attrs = CellAttrs::WIDE;
+    links[31].codepoint = 0;
+    let mut graphics = rows_of(&[(1, 0, &ascii)]);
+    graphics[2] |= (crate::ROW_FLAG_GRAPHICS >> 8) as u8;
+    graphics.extend_from_slice(&300u32.to_be_bytes());
+    graphics.extend((0..300u32).map(|i| (i * 7 + i / 13).to_le_bytes()[0]));
+    vec![
+        ("ascii", rows_of(&[(0, 0, &ascii)]), 1),
+        ("unicode", rows_of(&[(1, 0, &unicode)]), 1),
+        ("colors", rows_of(&[(2, 0, &colors)]), 1),
+        ("links", rows_of(&[(3, 0, &links)]), 1),
+        ("graphics", graphics, 1),
+        (
+            "frame-copy",
+            rows_of(&[(0, 0, &colors), (1, 0, &unicode), (2, 0, &colors)]),
+            3,
+        ),
+        ("rle", rows_of(&[(0, 0, &vec![CellRepr::BLANK; 512])]), 1),
+        ("tiny", rows_of(&[(0, 0, &ascii[..1])]), 1),
+    ]
+}
+
+/// Runs on either index layout. The exported bytes include rejected decodes'
+/// partial output and traces, not just the accepted corpus.
+#[test]
+#[ignore = "context storage, allocation and byte-equivalence profile"]
+#[expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    reason = "the profile checks complete valid fixtures and mutates only in-bounds bytes"
+)]
+fn context_stride_equivalence_profile() {
+    use super::model::{FIELDS, KEYS, Prior, StaticModel, key, static_model};
+    use super::session::Layered;
+    let (_, parse) =
+        allocation_profile::count(|| StaticModel::parse(super::model_data::MODEL).expect("prior"));
+    let (_, tables) = allocation_profile::count(super::nibble::Tables::default);
+    let (mut session, session_alloc) = allocation_profile::count(SessionModel::default);
+    assert_eq!(tables, (1, KEYS * size_of::<u32>()));
+    assert_eq!(session_alloc, tables);
+    println!(
+        "index_bytes={} tables={tables:?} session={session_alloc:?} parse={parse:?}",
+        KEYS * size_of::<u32>()
+    );
+    proof_bytes("prior.bin", &logical_model(super::model_data::MODEL));
+    let history = RowHistory::default();
+    let held = Held {
+        history: &history,
+        presentation_id: 1,
+        session: None,
+    };
+    let mut encoder = MzEncoder::default();
+    let mut decoder = MzDecoder::default();
+    let mut decoded = Vec::new();
+    let mut malformed = Vec::new();
+    let mut trainer = train::MzTrainer::default();
+    for (name, rows, count) in context_corpus() {
+        let (payload, rows_len) = coded(&mut encoder, &rows, count, &NoHistory, None, None);
+        decoder
+            .decode(&payload, count, rows_len, &held, &mut decoded)
+            .expect("decodes");
+        assert_eq!(decoded, rows);
+        assert_eq!(decoder.trace(), encoder.trace());
+        proof_bytes(&format!("{name}-static.bin"), &payload);
+        proof_bytes(
+            &format!("{name}-trace.bin"),
+            &logical_trace(encoder.trace()),
+        );
+        session.fold(encoder.trace());
+        if name == "tiny" {
+            trainer.add_trace(encoder.trace());
+        }
+        let mut reuse = Vec::new();
+        encoder
+            .encode(&rows, count, &NoHistory, None, None, &mut reuse)
+            .expect("warm");
+        let (_, warm) = allocation_profile::count(|| {
+            for _ in 0..128 {
+                reuse.clear();
+                std::hint::black_box(
+                    encoder.encode(&rows, count, &NoHistory, None, None, &mut reuse),
+                );
+                std::hint::black_box(
+                    decoder.decode(&reuse, count, rows_len, &held, &mut decoded),
+                )
+                .expect("warm decode");
+            }
+        });
+        assert_eq!(warm, (0, 0), "{name}");
+        println!("{name}: warm_128={warm:?}");
+        for at in 0..payload.len() {
+            for xor in [1, 127, 255] {
+                let mut corrupt = payload.clone();
+                corrupt[at] ^= xor;
+                let result = decoder.decode(&corrupt, count, rows_len, &held, &mut decoded);
+                malformed.push(match result {
+                    Ok(()) => 0,
+                    Err(MzError::Corrupt) => 1,
+                    Err(MzError::Unresolved) => 2,
+                });
+                malformed.extend_from_slice(&(decoded.len() as u64).to_le_bytes());
+                malformed.extend_from_slice(&decoded);
+                malformed.extend_from_slice(&logical_trace(decoder.trace()));
+            }
+            let result = decoder.decode(&payload[..at], count, rows_len, &held, &mut decoded);
+            assert!(result.is_err());
+        }
+    }
+    proof_bytes("malformed.bin", &malformed);
+    let (clone, cloned) = allocation_profile::count(|| session.clone());
+    println!("folded_table_bytes={} clone={cloned:?}", session.bytes());
+    let layered = Layered {
+        session: &clone,
+        base: static_model(),
+    };
+    let mut folded = Vec::new();
+    for field in 0..FIELDS as u32 {
+        for aux in 0..1024 {
+            let key = key(field, aux);
+            folded.push(layered.rate(key));
+            for freq in layered
+                .hi(key)
+                .freqs()
+                .into_iter()
+                .chain((0..16).flat_map(|h| layered.lo(key, h).freqs()))
+            {
+                folded.extend_from_slice(&freq.to_le_bytes());
+            }
+        }
+    }
+    proof_bytes("folded.bin", &folded);
+    let session_rows = rows_of(&[(0, 0, &session_row(99))]);
+    let (payload, rows_len) = coded(
+        &mut encoder,
+        &session_rows,
+        1,
+        &NoHistory,
+        Some((1, &session)),
+        None,
+    );
+    proof_bytes("session.bin", &payload);
+    println!("session_rows_len={rows_len}");
+    proof_bytes("trained.bin", &logical_model(&trainer.model_data(1024)));
+    // Wrapping the working-table generation clears every index slot.
+    let (_, wraps) = allocation_profile::count(|| {
+        let mut tables = super::nibble::Tables::default();
+        for _ in 0..65_537 {
+            tables.begin();
+        }
+        std::hint::black_box(tables);
+    });
+    println!("generation_wrap={wraps:?}");
+}
+
+#[test]
+#[ignore = "isolated instruction and allocation profile"]
+#[expect(
+    clippy::expect_used,
+    reason = "a selected valid fixture must encode and decode for every iteration"
+)]
+fn context_workload_profile() {
+    let name = std::env::var("MERKUR_MZ_WORKLOAD").expect("a corpus workload name");
+    let (_, rows, count) = context_corpus()
+        .into_iter()
+        .find(|(case, _, _)| *case == name)
+        .expect("workload");
+    let mut encoder = MzEncoder::default();
+    let mut decoder = MzDecoder::default();
+    let mut payload = Vec::new();
+    let mut decoded = Vec::new();
+    let history = RowHistory::default();
+    let mut session = MzSession::default();
+    for seq in 1..=20 {
+        encoder
+            .encode(&rows, count, &NoHistory, None, None, &mut payload)
+            .expect("training frame");
+        session.keep(seq, encoder.trace());
+        payload.clear();
+    }
+    session
+        .build(&MzEpochDeclaration {
+            id: 1,
+            base: 0,
+            first: 1,
+            datagrams: (1 << 20) - 1,
+        })
+        .expect("epoch");
+    let held = Held {
+        history: &history,
+        presentation_id: 21,
+        session: Some(&session),
+    };
+    let mut run = || {
+        for prior in [None, session.current()] {
+            payload.clear();
+            let encoded = encoder
+                .encode(&rows, count, &NoHistory, prior, None, &mut payload)
+                .expect("encode");
+            decoder
+                .decode(&payload, count, encoded.rows_len, &held, &mut decoded)
+                .expect("decode");
+            assert_eq!(decoded, rows);
+            std::hint::black_box(&payload);
+        }
+    };
+    for _ in 0..128 {
+        run();
+    }
+    let (_, tally) = allocation_profile::count(|| {
+        for _ in 0..10_000 {
+            run();
+        }
+    });
+    assert_eq!(tally, (0, 0));
+    println!("{name}: static_and_session_pairs=10000 warm={tally:?}");
+}

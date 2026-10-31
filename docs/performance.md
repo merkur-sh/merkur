@@ -507,7 +507,11 @@ capacity before a reused frame is filled. An attempt's time is its sender servic
 planner prices against the carrier. The MZ encoder runs the model forward once, recording each
 symbol's range, then codes the ranges into rANS in reverse; both ends copy a context's working
 tables from the frame's prior on first use and keep them in buffers reused across frames, so a
-warm frame allocates nothing on either end. `display::sim::mz_census` replays recorded PTY sessions (`MZPTY1` files in
+warm frame allocates nothing on either end. Each of the 22 fields has 1,024 context
+positions; the static prior, each coder's working tables and each session epoch own one
+90,112-byte index. Context keys and symbol traces use that same internal field stride;
+frequencies, adaptation rates and the coded stream do not depend on its storage layout.
+`display::sim::mz_census` replays recorded PTY sessions (`MZPTY1` files in
 `MERKUR_DISPLAY_RECORDINGS`) through `DisplaySim` and the real `term-wasm` viewer, with MZ on and
 off (raw frames): bytes on every lane, frames refused for an unresolved reference, grid
 convergence, and both ends' codec CPU. `MERKUR_MZ_LOSS` sets loss, and `MERKUR_MZ_ONLY` and

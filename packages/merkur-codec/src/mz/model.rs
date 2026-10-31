@@ -6,8 +6,8 @@
 use super::nibble::Cdf;
 use std::sync::OnceLock;
 
-/// Bits of context per field. Every context a field takes fits twelve bits.
-const AUX_BITS: u32 = 12;
+/// Bits of context per field. Every context a field takes fits ten bits.
+const AUX_BITS: u32 = 10;
 /// Context values per field.
 pub(super) const AUX: usize = 1 << AUX_BITS;
 
@@ -47,6 +47,8 @@ pub(super) const KEYS: usize = FIELDS * AUX;
 
 #[inline]
 pub(super) const fn key(field: u32, aux: u32) -> u32 {
+    #[cfg(test)]
+    assert!(aux < 1024, "a context exceeds ten bits before masking");
     field << AUX_BITS | (aux & ((1 << AUX_BITS) - 1))
 }
 
@@ -240,4 +242,25 @@ mod tests {
         assert!(model.sets.len() >= FIELDS);
         let _ = model.contexts();
     }
+}
+
+#[cfg(test)]
+#[test]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "packed enumerates exactly the allocated context domain"
+)]
+fn ten_bit_contexts_are_injective() {
+    let mut seen = vec![false; FIELDS * 1024];
+    for field in 0..FIELDS as u32 {
+        for aux in 0..1024 {
+            let packed = field << 10 | aux;
+            assert!(!seen[packed as usize]);
+            seen[packed as usize] = true;
+            let current = key(field, aux);
+            assert_eq!(field_of(current), field as usize);
+            assert_eq!(current & (AUX as u32 - 1), aux);
+        }
+    }
+    assert!(seen.into_iter().all(|value| value));
 }
