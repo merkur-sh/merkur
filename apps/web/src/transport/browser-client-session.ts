@@ -7,7 +7,7 @@ import {
   type TerminalUiEffect,
 } from '@merkur/protocol';
 import { ClientSession } from '../../../../packages/e2e-wasm/pkg/e2e_wasm.js';
-import { loadBrowserDelegation } from '../auth/delegation-vault';
+import { loadBrowserSessionDelegation } from '../auth/delegation-vault';
 import { loadE2eWasmModule } from '../lib/e2e-wasm-module';
 import { createOwnedTimeout, yieldToFairTask } from '../lib/owned-scheduled-callback';
 import type { GraphicsAssetPhase } from '../perf/terminal-latency';
@@ -1117,24 +1117,26 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
         session?.free();
         session = null;
         words = new Uint32Array(0);
-        const delegation = await loadBrowserDelegation(message.userId);
+        const delegation = await loadBrowserSessionDelegation(message.userId);
         if (delegation === null) throw new Error('browser session delegation is locked');
+        const delegateKey = delegation.delegateKey;
         try {
           if (!active || owner !== generation) return;
           if (delegation.certificate.delegationId !== message.delegationId)
             throw new Error('browser delegation changed');
+          const certificate = JSON.stringify(delegation.certificate);
           session = new ClientSession(
-            JSON.stringify(delegation.certificate),
+            certificate,
             delegation.rootPublicKey,
             self.location.origin,
             message.browserPeerId,
             import.meta.env.VITE_FORCE_EDGE === '1',
-            delegation.delegateSeed,
+            delegateKey,
           );
           identity = nextIdentity;
           newViewerSession = true;
         } finally {
-          delegation.delegateSeed.fill(0);
+          delegateKey.free();
           delegation.rootPublicKey.fill(0);
         }
       }

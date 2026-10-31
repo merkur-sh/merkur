@@ -6,7 +6,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { ClientSession, initSync } from '../../packages/e2e-wasm/pkg/e2e_wasm.js';
+import {
+  ClientSession,
+  initSync,
+  MlDsa87SigningKey,
+} from '../../packages/e2e-wasm/pkg/e2e_wasm.js';
 import { clientSessionOracleExecutable } from './client-session-oracle';
 
 const root =
@@ -91,15 +95,21 @@ export async function createClientSessionFixture() {
   const peer = await oracle();
   const init = await peer.request<Init>({ op: 'init' });
   const seed = new Uint8Array(32).fill(0x22);
-  const session = new ClientSession(
-    init.certificate,
-    new Uint8Array(init.root),
-    init.origin,
-    init.browser,
-    true,
-    seed,
-  );
+  const delegateKey = MlDsa87SigningKey.fromSeed(seed);
   seed.fill(0);
+  let session: ClientSession;
+  try {
+    session = new ClientSession(
+      init.certificate,
+      new Uint8Array(init.root),
+      init.origin,
+      init.browser,
+      true,
+      delegateKey,
+    );
+  } finally {
+    delegateKey.free();
+  }
   const memory = wasm.memory;
   let now = init.now;
   let signaling = 0n;

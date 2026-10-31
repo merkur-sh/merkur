@@ -1,16 +1,24 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { USER_DELEGATION_LIFETIME_MS } from '@merkur/shared/user-authorization';
+import {
+  decodeUserAuthorizationBytes,
+  USER_AUTHORIZATION_PUBLIC_KEY_BYTES,
+  USER_DELEGATION_LIFETIME_MS,
+} from '@merkur/shared/user-authorization';
 
+import { ClientSession } from '../../../../packages/e2e-wasm/pkg/e2e_wasm.js';
+import { loadE2eWasmModule } from '../lib/e2e-wasm-module';
 import { createBrowserDelegation } from './browser-delegation';
 import {
   clearBrowserDelegation,
   hasBrowserDelegation,
   loadBrowserDelegation,
+  loadBrowserSessionDelegation,
   saveBrowserDelegation,
 } from './delegation-vault';
 import { TEST_DELEGATION_CERTIFICATE } from './test-authorization-fixtures';
 import { deriveUserRootPublicKey, generateUserRootSeed } from './user-root';
 
+const originalDecrypt = crypto.subtle.decrypt;
 const WRAPPING_KEY_ID = 'wrapping-key';
 const ACTIVE_DELEGATION_ID = 'active-delegation';
 const originalIndexedDb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
@@ -18,6 +26,7 @@ const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location')
 const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 
 afterEach(() => {
+  crypto.subtle.decrypt = originalDecrypt;
   restoreGlobal('indexedDB', originalIndexedDb);
   restoreGlobal('location', originalLocation);
   restoreGlobal('navigator', originalNavigator);
@@ -92,6 +101,118 @@ describe('browser delegation vault presence', () => {
     expect(await hasBrowserDelegation()).toBe(false);
   });
 });
+
+describe('browser session signer ownership', () => {
+  test('wipes the decrypted seed before handing the checked signer to a session', async () => {
+    await installValidDelegation();
+    const plaintexts: Uint8Array[] = [];
+    crypto.subtle.decrypt = async (...args: Parameters<SubtleCrypto['decrypt']>) => {
+      const result = await originalDecrypt.apply(crypto.subtle, args);
+      plaintexts.push(new Uint8Array(result));
+      return result;
+    };
+    const delegation = await loadBrowserSessionDelegation('user-session');
+    if (delegation === null) throw new Error('missing session delegation');
+    try {
+      expect(plaintexts).toHaveLength(1);
+      expect(plaintexts[0]).toEqual(new Uint8Array(32));
+      const publicKey = delegation.delegateKey.publicKey;
+      const expected = decodeUserAuthorizationBytes(
+        delegation.certificate.delegatePublicKey,
+        USER_AUTHORIZATION_PUBLIC_KEY_BYTES,
+        'delegate public key',
+      );
+      expect(publicKey).toEqual(expected);
+      publicKey.fill(0);
+      expected.fill(0);
+      const { memory } = await loadE2eWasmModule();
+      // SAFETY: the generated wasm-bindgen class initializes __wbg_ptr to its
+      // allocation address; this signer has not been transferred or freed.
+      const signerPointer = (
+        delegation.delegateKey as typeof delegation.delegateKey & {
+          readonly __wbg_ptr: number;
+        }
+      ).__wbg_ptr;
+      const session = new ClientSession(
+        JSON.stringify(delegation.certificate),
+        delegation.rootPublicKey,
+        'https://merkur.test',
+        'browser',
+        true,
+        delegation.delegateKey,
+      );
+      session.free();
+      expect(
+        new Uint8Array(memory.buffer, signerPointer + 64, 256).every((byte) => byte === 0),
+      ).toBe(true);
+    } finally {
+      delegation.delegateKey.free();
+      delegation.rootPublicKey.fill(0);
+    }
+  });
+
+  test('rejects a mismatched seed and wipes it before rejecting', async () => {
+    const fake = await installValidDelegation();
+    const plaintexts: Uint8Array[] = [];
+    crypto.subtle.decrypt = async (...args: Parameters<SubtleCrypto['decrypt']>) => {
+      const result = await originalDecrypt.apply(crypto.subtle, args);
+      const plaintext = new Uint8Array(result);
+      plaintext.fill(4);
+      plaintexts.push(plaintext);
+      return result;
+    };
+    await expect(loadBrowserSessionDelegation('user-session')).rejects.toThrow(
+      'Browser delegate seed does not match its certificate',
+    );
+    expect(plaintexts).toHaveLength(1);
+    expect(plaintexts[0]).toEqual(new Uint8Array(32));
+    expect(fake.records.size).toBe(0);
+  });
+
+  test('a cancelled construction frees its signer without affecting metadata unlocks', async () => {
+    await installValidDelegation();
+    const prepared = await loadBrowserSessionDelegation('user-session');
+    if (prepared === null) throw new Error('missing session delegation');
+    prepared.delegateKey.free();
+    prepared.rootPublicKey.fill(0);
+    const metadata = await loadBrowserDelegation('user-session');
+    if (metadata === null) throw new Error('missing metadata delegation');
+    expect(metadata.delegateSeed.some((byte) => byte !== 0)).toBe(true);
+    metadata.delegateSeed.fill(0);
+    metadata.rootPublicKey.fill(0);
+  });
+});
+
+async function installValidDelegation() {
+  const fake = installFakeIndexedDb(new Map());
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: { origin: 'https://merkur.test' },
+  });
+  const rootSeed = generateUserRootSeed();
+  const rootPublicKey = deriveUserRootPublicKey(rootSeed);
+  const issuedAt = 1_800_000_000_000;
+  const created = createBrowserDelegation(rootSeed, {
+    userId: 'user-session',
+    serverOrigin: 'https://merkur.test',
+    rootEpoch: 1,
+    issuedAt,
+    expiresAt: issuedAt + USER_DELEGATION_LIFETIME_MS,
+  });
+  try {
+    await saveBrowserDelegation(
+      'session',
+      rootPublicKey,
+      created.certificate,
+      created.delegateSeed,
+    );
+    return fake;
+  } finally {
+    rootSeed.fill(0);
+    rootPublicKey.fill(0);
+    created.delegateSeed.fill(0);
+  }
+}
 
 describe('browser delegation vault durability hint', () => {
   /**
