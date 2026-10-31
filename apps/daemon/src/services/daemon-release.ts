@@ -13,6 +13,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { createGunzip } from 'node:zlib';
+import { FileLockBusyError, lockFileDescriptor } from '@merkur/config/file-lock';
 import {
   currentReleasePlatform,
   merkurReleasePublicKey,
@@ -956,7 +957,7 @@ const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E>(
   installRoot: string,
   operation: Effect.Effect<A, E>,
 ): Effect.fn.Return<A, E | DaemonUpdateTrustError> {
-  const lockDirectory = path.join(installRoot, 'release-trust.lock');
+  const lockPath = path.join(installRoot, 'release-trust.lock');
   yield* Effect.tryPromise({
     try: () => mkdir(installRoot, { recursive: true, mode: 0o700 }),
     catch: (cause) =>
@@ -967,24 +968,99 @@ const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E>(
   });
   return yield* Effect.acquireUseRelease(
     Effect.tryPromise({
-      try: () => mkdir(lockDirectory),
+      try: async () => {
+        const handle = await open(
+          lockPath,
+          constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW,
+          0o600,
+        );
+        try {
+          await lockFileDescriptor(handle.fd, 6);
+          return handle;
+        } catch (cause) {
+          await handle.close();
+          throw cause;
+        }
+      },
       catch: (cause) =>
         new DaemonUpdateTrustError({
           cause,
-          message: 'another update owns the release trust-state lock',
+          message:
+            cause instanceof FileLockBusyError
+              ? 'another update owns the release trust-state lock'
+              : 'failed to acquire the release trust-state lock',
         }),
     }),
-    () => Effect.uninterruptible(operation),
     () =>
-      Effect.tryPromise({
-        try: () => rm(lockDirectory, { recursive: true, force: true }),
-        catch: (cause) =>
-          new DaemonUpdateTrustError({
-            cause,
-            message: 'failed to release the release trust-state lock',
-          }),
-      }),
+      Effect.uninterruptible(
+        recoverReleaseTrustStateEffect(installRoot).pipe(Effect.andThen(operation)),
+      ),
+    (handle) => Effect.promise(() => handle.close()),
   );
+});
+
+const recoverReleaseTrustStateEffect = Effect.fnUntraced(function* (installRoot: string) {
+  const temporary = path.join(installRoot, RELEASE_TRUST_STATE_TEMP_FILE);
+  const bytes = yield* Effect.tryPromise({
+    try: async () => {
+      try {
+        return await Bun.file(temporary).bytes();
+      } catch (cause) {
+        if (isNoEntryError(cause)) return null;
+        throw cause;
+      }
+    },
+    catch: (cause) =>
+      new DaemonUpdateTrustError({
+        cause,
+        message: 'failed to read unpublished release trust state',
+      }),
+  });
+  if (bytes === null) return;
+  const current = yield* readReleaseTrustFloorEffect(installRoot, merkurReleaseSequence());
+  let pending: ReleaseTrustFloor | null = null;
+  try {
+    pending = parseCanonicalReleaseTrustState(bytes);
+  } catch (cause) {
+    if (!(cause instanceof ReleaseTrustStateFormatError)) throw cause;
+    // An interrupted write has no complete floor to publish. The durable floor remains binding.
+  }
+  if (
+    pending !== null &&
+    pending.sequence === current.sequence &&
+    current.manifestSha512 !== null &&
+    pending.manifestSha512 !== current.manifestSha512
+  ) {
+    return yield* new DaemonUpdateTrustError({
+      message: 'refusing a different manifest at the persisted release sequence',
+    });
+  }
+  const publish =
+    pending !== null &&
+    (pending.sequence > current.sequence ||
+      (pending.sequence === current.sequence && current.manifestSha512 === null));
+  yield* Effect.tryPromise({
+    try: async () => {
+      if (publish) {
+        // Recovery flushes even a complete write killed before its original fsync.
+        const handle = await open(temporary, 'r+');
+        try {
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        await rename(temporary, path.join(installRoot, RELEASE_TRUST_STATE_FILE));
+      } else {
+        await rm(temporary);
+      }
+    },
+    catch: (cause) =>
+      new DaemonUpdateTrustError({
+        cause,
+        message: 'failed to recover unpublished release trust state',
+      }),
+  });
+  yield* syncDirectoryEffect(installRoot);
 });
 
 export function persistReleaseTrustFloorEffect(
@@ -1105,17 +1181,23 @@ function encodeReleaseTrustState(state: ReleaseTrustFloor): Uint8Array {
   return TEXT_ENCODER.encode(`${JSON.stringify(state)}\n`);
 }
 
+class ReleaseTrustStateFormatError extends Error {}
+
 function parseCanonicalReleaseTrustState(bytes: Uint8Array): ReleaseTrustFloor {
   let parsed: unknown;
   try {
     parsed = JSON.parse(TEXT_DECODER.decode(bytes));
   } catch (cause) {
-    throw new Error('release trust state is not valid UTF-8 JSON', { cause });
+    if (!(cause instanceof SyntaxError || cause instanceof TypeError)) throw cause;
+    throw new ReleaseTrustStateFormatError('release trust state is not valid UTF-8 JSON', {
+      cause,
+    });
   }
-  if (!isRecord(parsed)) throw new Error('release trust state must be an object');
+  if (!isRecord(parsed))
+    throw new ReleaseTrustStateFormatError('release trust state must be an object');
   const keys = Object.keys(parsed);
   if (keys.length !== 2 || keys[0] !== 'manifestSha512' || keys[1] !== 'sequence') {
-    throw new Error('release trust state does not have canonical fields');
+    throw new ReleaseTrustStateFormatError('release trust state does not have canonical fields');
   }
   const state = {
     manifestSha512: parsed.manifestSha512,
@@ -1123,24 +1205,30 @@ function parseCanonicalReleaseTrustState(bytes: Uint8Array): ReleaseTrustFloor {
   };
   validateReleaseTrustFloor(state);
   const canonical = encodeReleaseTrustState(state);
-  if (!bytesEqual(bytes, canonical)) throw new Error('release trust state bytes are not canonical');
+  if (!bytesEqual(bytes, canonical))
+    throw new ReleaseTrustStateFormatError('release trust state bytes are not canonical');
   return state;
 }
 
 function validateReleaseTrustFloor(value: unknown): asserts value is ReleaseTrustFloor {
-  if (!isRecord(value)) throw new Error('release trust floor must be an object');
+  if (!isRecord(value))
+    throw new ReleaseTrustStateFormatError('release trust floor must be an object');
   if (
     typeof value.sequence !== 'number' ||
     !Number.isSafeInteger(value.sequence) ||
     value.sequence < RELEASE_BOOTSTRAP_MINIMUM_SEQUENCE
   ) {
-    throw new Error('release trust sequence must be a positive safe integer');
+    throw new ReleaseTrustStateFormatError(
+      'release trust sequence must be a positive safe integer',
+    );
   }
   if (
     value.manifestSha512 !== null &&
     (typeof value.manifestSha512 !== 'string' || !SHA512_HEX_PATTERN.test(value.manifestSha512))
   ) {
-    throw new Error('release trust manifest hash must be a lowercase SHA-512 digest');
+    throw new ReleaseTrustStateFormatError(
+      'release trust manifest hash must be a lowercase SHA-512 digest',
+    );
   }
 }
 

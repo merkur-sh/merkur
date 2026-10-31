@@ -330,8 +330,8 @@ function withDaemonFileLock<A>(
               CONFIG_FILE_MODE,
             );
             try {
-              const { lockDaemonConfigDescriptor } = await import('./daemon-config-lock');
-              await lockDaemonConfigDescriptor(file.fd, operation);
+              const { lockFileDescriptor } = await import('./daemon-config-lock');
+              await lockFileDescriptor(file.fd, operation);
               return file;
             } catch (error) {
               await file.close();

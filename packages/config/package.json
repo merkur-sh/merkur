@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./file-lock": "./src/daemon-config-lock.ts",
     "./reconnect-policy": "./src/reconnect-policy.ts",
     "./retry-schedules": "./src/retry-schedules.ts"
   },

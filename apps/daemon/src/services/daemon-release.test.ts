@@ -543,6 +543,134 @@ describe('daemon updater HTTP reliability', () => {
   });
 });
 
+describe('trust_lock_recovery', () => {
+  test.each(['locked', 'created', 'flushed', 'renamed'])(
+    'recovers after SIGKILL at %s without lowering an accepted floor',
+    async (barrier) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-trust-kill-'));
+      const before = { manifestSha512: 'ab'.repeat(64), sequence: 42 };
+      const next = { manifestSha512: 'cd'.repeat(64), sequence: 43 };
+      await Effect.runPromise(persistReleaseTrustFloorEffect(directory, before));
+      const child = Bun.spawn(
+        [
+          process.execPath,
+          new URL('./daemon-release-lock-fixture.ts', import.meta.url).pathname,
+          directory,
+          barrier,
+        ],
+        { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' },
+      );
+      try {
+        const marker = await child.stdout.getReader().read();
+        expect(new TextDecoder().decode(marker.value)).toBe('ready\n');
+        const busy = await Effect.runPromise(
+          persistReleaseTrustFloorEffect(directory, next).pipe(Effect.flip),
+        );
+        expect(busy.message).toContain('lock');
+        child.kill('SIGKILL');
+        await child.exited;
+        const lower = barrier === 'flushed' || barrier === 'renamed' ? before : null;
+        if (lower !== null) {
+          await expect(
+            Effect.runPromise(persistReleaseTrustFloorEffect(directory, lower)),
+          ).rejects.toThrow('refusing to lower');
+        }
+        await Effect.runPromise(persistReleaseTrustFloorEffect(directory, next));
+        expect(await readFile(path.join(directory, 'release-trust.json'), 'utf8')).toBe(
+          `${JSON.stringify(next)}\n`,
+        );
+        expect(await Bun.file(path.join(directory, '.release-trust.json.new')).exists()).toBe(
+          false,
+        );
+        process.stdout.write(
+          `${JSON.stringify({ barrier, recovered: 1, sequence: 43, simultaneousWriters: 1 })}\n`,
+        );
+      } finally {
+        child.kill('SIGKILL');
+        await child.exited;
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.each(['ENOSPC', 'EROFS'])(
+    'retries after %s without changing the published bytes on failure',
+    async (code) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-trust-io-'));
+      const before = { manifestSha512: 'ab'.repeat(64), sequence: 42 };
+      const next = { manifestSha512: 'cd'.repeat(64), sequence: 43 };
+      await Effect.runPromise(persistReleaseTrustFloorEffect(directory, before));
+      const open = filesystem.open;
+      const injected = spyOn(filesystem, 'open').mockImplementation(
+        async (filename, flags, mode) => {
+          const handle = await open(filename, flags, mode);
+          if (filename === path.join(directory, '.release-trust.json.new')) {
+            spyOn(handle, 'writeFile').mockRejectedValueOnce(
+              Object.assign(new Error(code), { code }),
+            );
+          }
+          return handle;
+        },
+      );
+      try {
+        await expect(
+          Effect.runPromise(persistReleaseTrustFloorEffect(directory, next)),
+        ).rejects.toThrow('failed to flush');
+        expect(await readFile(path.join(directory, 'release-trust.json'), 'utf8')).toBe(
+          `${JSON.stringify(before)}\n`,
+        );
+        injected.mockRestore();
+        await Effect.runPromise(persistReleaseTrustFloorEffect(directory, next));
+        expect(await Effect.runPromise(readReleaseTrustFloorEffect(directory, 1))).toEqual(next);
+      } finally {
+        injected.mockRestore();
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.each(['', '{', 'older'])(
+    'recovers incomplete or older scratch (%s) while keeping the durable floor',
+    async (scratch) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-trust-scratch-'));
+      const floor = { manifestSha512: 'ab'.repeat(64), sequence: 42 };
+      try {
+        await Effect.runPromise(persistReleaseTrustFloorEffect(directory, floor));
+        await filesystem.writeFile(
+          path.join(directory, '.release-trust.json.new'),
+          scratch === 'older' ? `${JSON.stringify({ ...floor, sequence: 41 })}\n` : scratch,
+        );
+        await Effect.runPromise(persistReleaseTrustFloorEffect(directory, floor));
+        expect(await readFile(path.join(directory, 'release-trust.json'), 'utf8')).toBe(
+          `${JSON.stringify(floor)}\n`,
+        );
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test('keeps same-sequence binding when a killed writer leaves conflicting scratch', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-trust-conflict-'));
+    const floor = { manifestSha512: 'ab'.repeat(64), sequence: 42 };
+    try {
+      await Effect.runPromise(persistReleaseTrustFloorEffect(directory, floor));
+      await filesystem.writeFile(
+        path.join(directory, '.release-trust.json.new'),
+        `${JSON.stringify({ ...floor, manifestSha512: 'cd'.repeat(64) })}\n`,
+      );
+      await expect(
+        Effect.runPromise(persistReleaseTrustFloorEffect(directory, floor)),
+      ).rejects.toThrow('different manifest');
+      expect(await readFile(path.join(directory, 'release-trust.json'), 'utf8')).toBe(
+        `${JSON.stringify(floor)}\n`,
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('post-quantum release trust', () => {
   test('verifies a canonical ML-DSA-87 manifest and enforces its consumer floor', async () => {
     const fixture = signedReleaseFixture(42, 40);

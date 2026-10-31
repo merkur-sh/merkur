@@ -1,5 +1,5 @@
 import { dlopen, FFIType, read } from 'bun:ffi';
-import { workerData } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 import { Schema } from 'effect';
 
 // flock belongs to the open file description in the parent. A blocking acquisition
@@ -27,7 +27,8 @@ try {
     if (location === null) throw new Error('Cannot read config lock error');
     const code = read.i32(location);
     if (operation === 6 && code === (process.platform === 'darwin' ? 35 : 11)) {
-      throw new Error('Another daemon link is already in progress');
+      parentPort?.postMessage('busy');
+      break;
     }
     if (code !== 4) throw new Error(`Cannot acquire config lock: errno ${code}`);
   }

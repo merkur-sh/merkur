@@ -223,7 +223,10 @@ public-key pin verifies the exact manifest bytes for the tag it asked for. The m
 
 The daemon persists the highest accepted sequence and the SHA-512 hash of its manifest in
 `~/.merkur/release-trust.json`. The write is flushed, atomically renamed, and directory-synced
-under an Effect-owned lock. A lower sequence or a different manifest reusing the same sequence is
+under a kernel file lock on a stable inode. Process death releases ownership. Under that lock,
+recovery publishes a complete unpublished floor only when it preserves or raises the durable
+floor and its manifest binding; it removes an incomplete scratch file without changing the
+durable floor. A lower sequence or a different manifest reusing the same sequence is
 rejected. The sequence embedded in the running binary remains a rollback floor even if no state
 file exists. Every activation reads the staged release's sequence and manifest hash and checks
 them against the current durable and embedded floors, including for cached releases. The same
