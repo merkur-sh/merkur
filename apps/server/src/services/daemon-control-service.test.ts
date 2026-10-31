@@ -7,7 +7,7 @@ import {
   parseDaemonControlServerMessage,
 } from '@merkur/daemon-control-protocol';
 import type { DeviceEventDelta } from '@merkur/shared';
-import { Deferred, Effect, Fiber, Layer, Queue } from 'effect';
+import { Clock, Deferred, Duration, Effect, Fiber, Layer, Queue } from 'effect';
 import { TestClock } from 'effect/testing';
 import { type Kysely, sql } from 'kysely';
 import { type ServerConfig, ServerConfigService } from '../config';
@@ -1068,7 +1068,21 @@ describe('DaemonControlService', () => {
   test('unlink retires daemon control', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
-    const redis = bus.redis;
+    const redis: RedisService = {
+      ...bus.redis,
+      useCommands: (fn) =>
+        Effect.tryPromise({
+          try: async () =>
+            await fn({
+              sendCommand: async <T>(args: string[]) => {
+                if (args[0] !== 'EVAL') throw new Error('unexpected notification command');
+                // SAFETY: the device resync script returns its integer publication acknowledgement.
+                return 1 as T;
+              },
+            }),
+          catch: (cause) => new RedisError({ cause, message: String(cause) }),
+        }),
+    };
     const dependencies = Layer.mergeAll(
       Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
       Layer.succeed(RedisServiceTag, redis),
@@ -1084,7 +1098,19 @@ describe('DaemonControlService', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          yield* (yield* NotificationOutboxServiceTag).start;
+          const notifications = yield* NotificationOutboxServiceTag;
+          const sleeps = spyOn(yield* Clock.Clock, 'sleep');
+          try {
+            yield* notifications.start;
+            // A completed empty scan arms the durable worker's next poll.
+            yield* Effect.promise(() =>
+              waitFor(() =>
+                sleeps.mock.calls.some(([duration]) => Duration.toMillis(duration) === 1_000),
+              ),
+            );
+          } finally {
+            sleeps.mockRestore();
+          }
           const control = yield* DaemonControlServiceTag;
           const db = yield* DatabaseService;
           const socket = new TestSocket();
@@ -1172,7 +1198,7 @@ describe('DaemonControlService', () => {
               .onConflict((conflict) => conflict.doNothing())
               .execute(),
           );
-          yield* TestClock.adjust('1 second');
+          yield* notifications.wake;
           yield* Effect.promise(() =>
             waitFor(
               async () =>
@@ -1363,7 +1389,19 @@ describe('DaemonControlService', () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          yield* (yield* NotificationOutboxServiceTag).start;
+          const notifications = yield* NotificationOutboxServiceTag;
+          const sleeps = spyOn(yield* Clock.Clock, 'sleep');
+          try {
+            yield* notifications.start;
+            // A completed empty scan arms the durable worker's next poll.
+            yield* Effect.promise(() =>
+              waitFor(() =>
+                sleeps.mock.calls.some(([duration]) => Duration.toMillis(duration) === 1_000),
+              ),
+            );
+          } finally {
+            sleeps.mockRestore();
+          }
           const control = yield* DaemonControlServiceTag;
           const db = yield* DatabaseService;
           const socket = new TestSocket();
