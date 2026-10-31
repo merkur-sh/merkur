@@ -1284,3 +1284,331 @@ fn context_workload_profile() {
     assert_eq!(tally, (0, 0));
     println!("{name}: static_and_session_pairs=10000 warm={tally:?}");
 }
+
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "fixed copy fixtures use valid cells and bounded spans"
+)]
+fn copy_corpus() -> Vec<(&'static str, Vec<u8>, u16, Sent, RowHistory)> {
+    let colors: Vec<_> = (0..512u32)
+        .map(|i| {
+            let [a, b, c, _] = i.wrapping_mul(0x79b9).to_le_bytes();
+            cell(char::from(b'!' + (i % 80) as u8), [a, b, c], [c, a, b])
+        })
+        .collect();
+    let mut linked = colors.clone();
+    for (i, cell) in linked.iter_mut().enumerate() {
+        cell.link = (i % 2 + 1) as u32;
+    }
+    let mut runs = vec![CellRepr::BLANK; 512];
+    for cell in &mut runs[..256] {
+        cell.codepoint = u32::from('x');
+    }
+    let mut cases = vec![
+        (
+            "literal",
+            rows_of(&[(0, 0, &colors)]),
+            1,
+            Sent::default(),
+            RowHistory::default(),
+        ),
+        (
+            "frame",
+            rows_of(&[(0, 0, &colors), (1, 0, &colors)]),
+            2,
+            Sent::default(),
+            RowHistory::default(),
+        ),
+        (
+            "chained",
+            rows_of(&[
+                (0, 0, &colors),
+                (1, 0, &colors[100..400]),
+                (2, 0, &colors[180..300]),
+            ]),
+            3,
+            Sent::default(),
+            RowHistory::default(),
+        ),
+        (
+            "rle",
+            rows_of(&[(0, 0, &runs), (1, 0, &runs)]),
+            2,
+            Sent::default(),
+            RowHistory::default(),
+        ),
+        (
+            "links-offset",
+            rows_of(&[(0, 0, &linked), (1, 0, &colors[100..400])]),
+            2,
+            Sent::default(),
+            RowHistory::default(),
+        ),
+    ];
+    for (name, previous, source, target) in [
+        ("history", false, &colors, &colors[..]),
+        ("previous", true, &colors, &colors[..]),
+        ("offset", false, &colors, &colors[100..400]),
+    ] {
+        let mut sent = Sent {
+            presentation_id: 45,
+            previous,
+            ..Sent::default()
+        };
+        sent.record(40, 7, source);
+        let mut history = RowHistory::default();
+        history.record(
+            if previous {
+                previous_generation(GENERATION)
+            } else {
+                GENERATION
+            },
+            40,
+            7,
+            source,
+            512,
+        );
+        cases.push((name, rows_of(&[(0, 0, target)]), 1, sent, history));
+    }
+    cases
+}
+
+fn copy_item_count(trace: &[u32]) -> usize {
+    use super::model::{F_ITEMS, field_of};
+    let mut value = 0usize;
+    let mut total = 0usize;
+    for &entry in trace {
+        let key = entry >> 9;
+        if field_of(key) != F_ITEMS as usize || entry & 256 == 0 {
+            continue;
+        }
+        let index = key & 7;
+        if index == 0 {
+            value = 0;
+        }
+        let byte = entry & 255;
+        value |= (byte as usize & 127) << (7 * index);
+        if byte & 128 == 0 {
+            total += value + 2;
+        }
+    }
+    total
+}
+
+#[test]
+#[ignore = "copy metadata traffic, allocation and byte-equivalence profile"]
+#[expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::too_many_lines,
+    reason = "the profile checks valid fixtures, then mutates their bounded payloads"
+)]
+fn copy_metadata_profile() {
+    let selected = std::env::var("MERKUR_MZ_COPY_WORKLOAD").ok();
+    let mut malformed = Vec::new();
+    for (name, rows, count, sent, history) in copy_corpus() {
+        if selected.as_ref().is_some_and(|selected| selected != name) {
+            continue;
+        }
+        let mut encoder = MzEncoder::default();
+        let (payload, rows_len) = coded(&mut encoder, &rows, count, &sent, None, None);
+        let items = copy_item_count(encoder.trace());
+        assert_eq!(items == 0, name == "literal");
+        let held = Held {
+            history: &history,
+            presentation_id: 45,
+            session: None,
+        };
+        let mut decoded = Vec::new();
+        let ((mut decoder, result), cold) = allocation_profile::count(|| {
+            let mut decoder = MzDecoder::default();
+            let result = decoder.decode(&payload, count, rows_len, &held, &mut decoded);
+            (decoder, result)
+        });
+        result.expect("cold decode");
+        assert_eq!(decoded, rows);
+        assert_eq!(encoder.trace(), decoder.trace());
+        let storage = decoder.copy_storage();
+        println!(
+            "{name}: copied_items={items} intermediate_bytes={} cold={cold:?} storage={storage:?} encoder_size={} decoder_size={}",
+            if storage.0 == 0 { 0 } else { items * 8 },
+            size_of::<MzEncoder>(),
+            size_of::<MzDecoder>()
+        );
+        let (_, warm) = allocation_profile::count(|| {
+            for _ in 0..10_000 {
+                decoder
+                    .decode(&payload, count, rows_len, &held, &mut decoded)
+                    .expect("warm decode");
+                std::hint::black_box(&decoded);
+            }
+        });
+        assert_eq!(warm, (0, 0));
+        println!("{name}: warm_10000={warm:?}");
+        proof_bytes(&format!("{name}-payload.bin"), &payload);
+        proof_bytes(&format!("{name}-decoded.bin"), &decoded);
+        proof_bytes(
+            &format!("{name}-trace.bin"),
+            &logical_trace(decoder.trace()),
+        );
+        if selected.is_some() {
+            continue;
+        }
+        for at in 0..payload.len() {
+            for xor in [1, 127, 255] {
+                let mut corrupt = payload.clone();
+                corrupt[at] ^= xor;
+                let result = decoder.decode(&corrupt, count, rows_len, &held, &mut decoded);
+                malformed.push(match result {
+                    Ok(()) => 0,
+                    Err(MzError::Corrupt) => 1,
+                    Err(MzError::Unresolved) => 2,
+                });
+                malformed.extend_from_slice(&(decoded.len() as u64).to_le_bytes());
+                malformed.extend_from_slice(&xxhash_rust::xxh3::xxh3_64(&decoded).to_le_bytes());
+                malformed.extend_from_slice(
+                    &xxhash_rust::xxh3::xxh3_64(&logical_trace(decoder.trace())).to_le_bytes(),
+                );
+            }
+        }
+        if matches!(name, "history" | "previous") {
+            let source = held
+                .row(
+                    name == "previous",
+                    if name == "previous" { 40 } else { 5 },
+                    7,
+                )
+                .expect("source");
+            for (source_item, copy_count, cells, mode) in [
+                (u16::MAX, 2, 512, source.mode),
+                (0, u16::MAX, 512, source.mode),
+                (0, 512, 2, source.mode),
+                (0, 512, 512, source.mode ^ 1),
+            ] {
+                let payload = super::frame::copy_profile_payload(
+                    if name == "previous" { 2 } else { 1 },
+                    if name == "previous" { 40 } else { 5 },
+                    source_item,
+                    copy_count,
+                    cells,
+                    mode,
+                );
+                let result = decoder.decode(&payload, 1, rows_len, &held, &mut decoded);
+                assert_eq!(result, Err(MzError::Corrupt));
+                malformed.extend_from_slice(&(decoded.len() as u64).to_le_bytes());
+                malformed.extend_from_slice(&xxhash_rust::xxh3::xxh3_64(&decoded).to_le_bytes());
+                malformed.extend_from_slice(
+                    &xxhash_rust::xxh3::xxh3_64(&logical_trace(decoder.trace())).to_le_bytes(),
+                );
+            }
+        }
+    }
+    if selected.is_none() {
+        proof_bytes("copy-malformed.bin", &malformed);
+    }
+}
+
+#[test]
+#[ignore = "encoder allocation and instruction control for copy metadata storage"]
+#[expect(
+    clippy::expect_used,
+    reason = "the control repeatedly encodes valid copy fixtures"
+)]
+fn copy_encoder_profile() {
+    let selected = std::env::var("MERKUR_MZ_COPY_WORKLOAD").ok();
+    for (name, rows, count, sent, _) in copy_corpus() {
+        if selected.as_ref().is_some_and(|selected| selected != name) {
+            continue;
+        }
+        let mut payload = Vec::new();
+        let ((mut encoder, result), cold) = allocation_profile::count(|| {
+            let mut encoder = MzEncoder::default();
+            let result = encoder.encode(&rows, count, &sent, None, None, &mut payload);
+            (encoder, result)
+        });
+        result.expect("cold encode");
+        let expected = payload.clone();
+        let (_, warm) = allocation_profile::count(|| {
+            for _ in 0..10_000 {
+                payload.clear();
+                encoder
+                    .encode(&rows, count, &sent, None, None, &mut payload)
+                    .expect("warm encode");
+                std::hint::black_box(&payload);
+            }
+        });
+        assert_eq!(warm, (0, 0));
+        assert_eq!(payload, expected);
+        println!("{name}: encoder_cold={cold:?} encoder_warm_10000={warm:?}");
+    }
+}
+
+#[test]
+#[ignore = "session encoder allocation and instruction control for copy metadata storage"]
+#[expect(
+    clippy::expect_used,
+    reason = "the control trains and encodes valid copy fixtures"
+)]
+fn copy_session_encoder_profile() {
+    let selected = std::env::var("MERKUR_MZ_COPY_WORKLOAD").ok();
+    for (name, rows, count, sent, history) in copy_corpus() {
+        if selected.as_ref().is_some_and(|selected| selected != name) {
+            continue;
+        }
+        let mut training = MzEncoder::default();
+        let mut session = MzSession::default();
+        let mut payload = Vec::new();
+        for seq in 1..=20 {
+            payload.clear();
+            training
+                .encode(&rows, count, &sent, None, None, &mut payload)
+                .expect("training encode");
+            session.keep(seq, training.trace());
+        }
+        session
+            .build(&MzEpochDeclaration {
+                id: 1,
+                base: 0,
+                first: 1,
+                datagrams: (1 << 20) - 1,
+            })
+            .expect("epoch");
+        let prior = session.current().expect("trained prior");
+        payload.clear();
+        let ((mut encoder, result), cold) = allocation_profile::count(|| {
+            let mut encoder = MzEncoder::default();
+            let result = encoder.encode(&rows, count, &sent, Some(prior), None, &mut payload);
+            (encoder, result)
+        });
+        let encoded = result.expect("cold encode");
+        let expected = payload.clone();
+        if selected.is_none() {
+            let held = Held {
+                history: &history,
+                presentation_id: 45,
+                session: Some(&session),
+            };
+            let mut decoder = MzDecoder::default();
+            let mut decoded = Vec::new();
+            decoder
+                .decode(&payload, count, encoded.rows_len, &held, &mut decoded)
+                .expect("session decode");
+            assert_eq!(decoded, rows);
+            assert_eq!(encoder.trace(), decoder.trace());
+        }
+        let (_, warm) = allocation_profile::count(|| {
+            for _ in 0..10_000 {
+                payload.clear();
+                encoder
+                    .encode(&rows, count, &sent, Some(prior), None, &mut payload)
+                    .expect("warm encode");
+                std::hint::black_box(&payload);
+            }
+        });
+        assert_eq!(warm, (0, 0));
+        assert_eq!(payload, expected);
+        proof_bytes(&format!("{name}-session-copy.bin"), &payload);
+        println!("{name}: session_encoder_cold={cold:?} session_encoder_warm_10000={warm:?}");
+    }
+}
