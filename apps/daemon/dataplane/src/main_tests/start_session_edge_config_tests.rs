@@ -659,7 +659,9 @@ async fn preauth_lease_expires_exactly_and_stale_completions_cannot_resurrect() 
     let plan = begin_leased_edge_dial(&mut dials, PEER_ID, SESSION_ID, 10.0, &mut next_generation);
     let interactive = plan.interactive.expect("interactive generation");
     let bulk = plan.bulk.expect("bulk generation");
-    let owner = next_edge_preauth_deadline(&dials).expect("lease owner");
+    let owner = next_edge_preauth_deadline(&dials)
+        .expect("lease owner")
+        .into_owned();
 
     assert!(take_expired_edge_preauth(&mut dials, owner.lease.expires_at_ms - 0.001).is_empty());
     let retired = take_expired_edge_preauth(&mut dials, owner.lease.expires_at_ms);
@@ -707,7 +709,9 @@ fn replacement_lease_generation_rejects_the_predecessor_deadline() {
     let mut dials = HashMap::new();
     let mut next_generation = 0;
     begin_leased_edge_dial(&mut dials, PEER_ID, "session-1", 0.0, &mut next_generation);
-    let stale_owner = next_edge_preauth_deadline(&dials).expect("old owner");
+    let stale_owner = next_edge_preauth_deadline(&dials)
+        .expect("old owner")
+        .into_owned();
 
     begin_leased_edge_dial(
         &mut dials,
@@ -716,7 +720,9 @@ fn replacement_lease_generation_rejects_the_predecessor_deadline() {
         EDGE_PREAUTH_LEASE_TTL_MS - 1.0,
         &mut next_generation,
     );
-    let replacement_owner = next_edge_preauth_deadline(&dials).expect("replacement owner");
+    let replacement_owner = next_edge_preauth_deadline(&dials)
+        .expect("replacement owner")
+        .into_owned();
     assert_ne!(
         stale_owner.lease.generation,
         replacement_owner.lease.generation
@@ -2424,4 +2430,195 @@ async fn teardown_and_shutdown_suppress_lane_resurrection() {
         .is_none()
     );
     assert!(!dials.contains_key("browser-1"));
+}
+
+fn preauth_profile_turn(
+    dials: &mut HashMap<String, EdgeDialState>,
+    timer_owner: &mut Option<EdgePreauthDeadline>,
+    now_ms: f64,
+) -> Vec<RetiredEdgeDial> {
+    let retired = take_expired_edge_preauth(dials, now_ms);
+    let next = next_edge_preauth_deadline(dials);
+    if next != timer_owner.as_ref().map(EdgePreauthDeadline::borrowed) {
+        *timer_owner = next.map(EdgePreauthDeadline::into_owned);
+    }
+    retired
+}
+
+fn preauth_profile_control_turn(
+    dials: &mut HashMap<String, EdgeDialState>,
+    timer_owner: &mut Option<EdgePreauthDeadline>,
+    now_ms: f64,
+) -> Vec<RetiredEdgeDial> {
+    fn next(dials: &HashMap<String, EdgeDialState>) -> Option<EdgePreauthDeadline> {
+        dials
+            .iter()
+            .filter_map(|(peer_id, state)| {
+                state
+                    .lifecycle
+                    .preauth_lease
+                    .map(|lease| EdgePreauthDeadline {
+                        peer_id: peer_id.clone(),
+                        session_id: state.session_id.clone(),
+                        lease,
+                    })
+            })
+            .min_by(|left, right| {
+                left.lease
+                    .expires_at_ms
+                    .total_cmp(&right.lease.expires_at_ms)
+                    .then_with(|| left.peer_id.cmp(&right.peer_id))
+                    .then_with(|| left.session_id.cmp(&right.session_id))
+            })
+    }
+    let mut retired = Vec::new();
+    while let Some(owner) = next(dials) {
+        if owner.lease.expires_at_ms > now_ms {
+            break;
+        }
+        let Some(current) = dials.get(&owner.peer_id) else {
+            break;
+        };
+        if current.session_id != owner.session_id
+            || current.lifecycle.preauth_lease != Some(owner.lease)
+            || now_ms < owner.lease.expires_at_ms
+        {
+            break;
+        }
+        let state = dials.remove(&owner.peer_id).unwrap();
+        retired.push(RetiredEdgeDial {
+            peer_id: owner.peer_id.clone(),
+            state,
+        });
+    }
+    let next = next(dials);
+    if next != *timer_owner {
+        *timer_owner = next;
+    }
+    retired
+}
+
+#[test]
+#[ignore = "exclusive pre-auth deadline allocation and instruction profile"]
+fn preauth_deadline_selection_profile() {
+    use crate::edge_tunnel::test_allocations;
+    use std::hint::black_box;
+
+    let selected = std::env::var("MERKUR_PREAUTH_PROFILE_CASE").ok();
+    let control = std::env::var_os("MERKUR_PREAUTH_PROFILE_CONTROL").is_some();
+    for (name, pending, authenticated, rounds) in [
+        ("empty", 0, 0, 100_000),
+        ("authenticated", 0, 8, 100_000),
+        ("one", 1, 0, 100_000),
+        ("eight", 8, 0, 100_000),
+        ("capacity", EDGE_PREAUTH_LEASE_CAP, 8, 10_000),
+        ("install", 8, 0, 10_000),
+        ("replace", 8, 0, 10_000),
+        ("authenticate", 8, 0, 10_000),
+        ("expire", 8, 0, 1_000),
+    ] {
+        if selected.as_ref().is_some_and(|selected| selected != name) {
+            continue;
+        }
+        let mut dials = HashMap::new();
+        for index in 0..pending + authenticated {
+            let mut state = succeeded_dial(&format!("session-{index:02}"));
+            if index < pending {
+                state.lifecycle.preauth_lease = Some(EdgePreauthLease {
+                    generation: index as u64 + 1,
+                    expires_at_ms: 60_000.0,
+                });
+            }
+            dials.insert(format!("browser-{index:02}"), state);
+        }
+        let mut timer_owner =
+            next_edge_preauth_deadline(&dials).map(EdgePreauthDeadline::into_owned);
+        let mut retirement_order = Vec::with_capacity(pending);
+        let mut tally = test_allocations::Tally {
+            allocations: 0,
+            allocated_bytes: 0,
+        };
+        for round in 0..rounds {
+            match name {
+                "expire" if round != 0 => {
+                    for index in 0..pending {
+                        let mut state = succeeded_dial(&format!("session-{index:02}"));
+                        state.lifecycle.preauth_lease = Some(EdgePreauthLease {
+                            generation: index as u64 + 1,
+                            expires_at_ms: 60_000.0,
+                        });
+                        dials.insert(format!("browser-{index:02}"), state);
+                    }
+                }
+                "install" => timer_owner = None,
+                "replace" => {
+                    dials.get_mut("browser-00").unwrap().session_id =
+                        format!("replacement-{round:05}");
+                }
+                "authenticate" => {
+                    dials.get_mut("browser-00").unwrap().lifecycle.preauth_lease = (round % 2 == 0)
+                        .then_some(EdgePreauthLease {
+                            generation: 1,
+                            expires_at_ms: 60_000.0,
+                        });
+                }
+                _ => {}
+            }
+            test_allocations::begin_thread();
+            let turn = if control {
+                preauth_profile_control_turn
+            } else {
+                preauth_profile_turn
+            };
+            let retired = turn(
+                black_box(&mut dials),
+                black_box(&mut timer_owner),
+                if name == "expire" { 60_000.0 } else { 1.0 },
+            );
+            let measured = test_allocations::end_thread();
+            tally.allocations += measured.allocations;
+            tally.allocated_bytes += measured.allocated_bytes;
+            for (index, retired) in retired.into_iter().enumerate() {
+                assert_eq!(retired.peer_id, format!("browser-{index:02}"));
+                retirement_order.push(retired.peer_id);
+            }
+            if name == "expire" {
+                assert_eq!(retirement_order.len(), pending);
+                retirement_order.clear();
+            }
+            if name != "empty" && name != "authenticated" && name != "expire" {
+                let expected = if name == "authenticate" && round % 2 == 1 {
+                    "browser-01"
+                } else {
+                    "browser-00"
+                };
+                assert_eq!(timer_owner.as_ref().unwrap().peer_id, expected);
+                let expected_session = &dials[expected].session_id;
+                assert_eq!(&timer_owner.as_ref().unwrap().session_id, expected_session);
+            } else {
+                assert!(timer_owner.is_none());
+            }
+        }
+        if name == "expire" {
+            assert!(dials.is_empty());
+        }
+        if !control
+            && matches!(
+                name,
+                "empty" | "authenticated" | "one" | "eight" | "capacity"
+            )
+        {
+            assert_eq!(tally.allocations, 0);
+            assert_eq!(tally.allocated_bytes, 0);
+        }
+        eprintln!(
+            "preauth {name}: rounds={rounds} allocations={} bytes={} owner_bytes={}",
+            tally.allocations,
+            tally.allocated_bytes,
+            timer_owner
+                .as_ref()
+                .map_or(0, |owner| owner.peer_id.capacity()
+                    + owner.session_id.capacity()),
+        );
+    }
 }
