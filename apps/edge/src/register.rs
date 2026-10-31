@@ -246,7 +246,7 @@ impl EdgePublisher {
             metrics::record_registration_publish("ok");
             return Ok(());
         }
-        let message = registration_rejection_message(status);
+        let message = format!("registration rejected with HTTP {status}");
         if registration_status_is_retryable(status) {
             tracing::Span::current().record("outcome", "retryable");
             metrics::record_registration_publish("retryable");
@@ -395,17 +395,6 @@ fn format_traceparent(span_context: &opentelemetry::trace::SpanContext) -> Strin
 
 fn registration_status_is_retryable(status: reqwest::StatusCode) -> bool {
     matches!(status.as_u16(), 404 | 429 | 500..=599)
-}
-
-fn registration_rejection_message(status: reqwest::StatusCode) -> String {
-    let reason = status.canonical_reason().unwrap_or("<unknown status code>");
-    let prefix = "registration rejected with HTTP ";
-    let mut message = String::with_capacity(prefix.len() + 4 + reason.len());
-    message.push_str(prefix);
-    message.push_str(status.as_str());
-    message.push(' ');
-    message.push_str(reason);
-    message
 }
 
 fn is_edge_label(value: &str) -> bool {
@@ -714,21 +703,6 @@ mod tests {
             reqwest::StatusCode::CONFLICT,
         ] {
             assert!(!registration_status_is_retryable(permanent));
-        }
-    }
-
-    #[test]
-    fn registration_rejections_keep_exact_text_and_classification() {
-        for code in 100..=999 {
-            let status = reqwest::StatusCode::from_u16(code).unwrap();
-            assert_eq!(
-                registration_rejection_message(status),
-                format!("registration rejected with HTTP {status}"),
-            );
-            assert_eq!(
-                registration_status_is_retryable(status),
-                matches!(code, 404 | 429 | 500..=599),
-            );
         }
     }
 
