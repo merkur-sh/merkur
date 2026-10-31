@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
+import * as filesystem from 'node:fs/promises';
 import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,7 +15,7 @@ import {
   encodeReleaseSignature,
   signReleaseManifest,
 } from '@merkur/shared/release-signature';
-import { Effect } from 'effect';
+import { Effect, Predicate } from 'effect';
 
 import { buildDaemonServiceProgramArguments } from '../cli/install';
 import { createLogger } from '../logger';
@@ -29,12 +30,60 @@ import {
   readReleaseTrustFloorEffect,
   releaseVersionDirectory,
   resolveVersionedDaemonExecutables,
+  stageReleaseEffect,
   stageVerifiedReleaseEffect,
   validateReleaseTarballEffect,
   verifyReleaseCandidateEffect,
 } from './daemon-release';
 
 const logger = createLogger('daemon-release-test');
+
+async function profileRelease<A>(workload: string, operation: Effect.Effect<A, Error>) {
+  const fetchSpy = spyOn(globalThis, 'fetch');
+  const operations = {
+    access: spyOn(filesystem, 'access'),
+    mkdir: spyOn(filesystem, 'mkdir'),
+    open: spyOn(filesystem, 'open'),
+    readdir: spyOn(filesystem, 'readdir'),
+    rename: spyOn(filesystem, 'rename'),
+    rm: spyOn(filesystem, 'rm'),
+    stat: spyOn(filesystem, 'stat'),
+    symlink: spyOn(filesystem, 'symlink'),
+  };
+  let metadataReads = 0;
+  let metadataBytes = 0;
+  const file = Bun.file.bind(Bun);
+  const fileSpy = spyOn(Bun, 'file').mockImplementation((filename, options) => {
+    if (!Predicate.isString(filename)) throw new Error('release profile expects file paths');
+    const result = file(filename, options);
+    const bytes = result.bytes.bind(result);
+    spyOn(result, 'bytes').mockImplementation(async () => {
+      const value = await bytes();
+      metadataReads += 1;
+      metadataBytes += value.byteLength;
+      return value;
+    });
+    return result;
+  });
+  try {
+    await Effect.runPromise(operation);
+    process.stdout.write(
+      `${JSON.stringify({
+        workload,
+        metadataReads,
+        metadataBytes,
+        fetchCalls: fetchSpy.mock.calls.length,
+        filesystemCalls: Object.fromEntries(
+          Object.entries(operations).map(([name, spy]) => [name, spy.mock.calls.length]),
+        ),
+      })}\n`,
+    );
+  } finally {
+    fileSpy.mockRestore();
+    fetchSpy.mockRestore();
+    for (const spy of Object.values(operations)) spy.mockRestore();
+  }
+}
 
 describe('the service unit', () => {
   test('runs current, which every update moves, beside its dataplane', () => {
@@ -47,6 +96,88 @@ describe('the service unit', () => {
 });
 
 describe('release convergence', () => {
+  test.each(['missing', 'malformed', 'null hash'])(
+    'downloads a directory with %s identity again and publishes identity with its executables',
+    async (scenario) => {
+      const installRoot = await mkdtemp(path.join(os.tmpdir(), 'merkur-stage-identity-'));
+      const versionDirectory = releaseVersionDirectory(installRoot, 'v9.8.7');
+      const names = ['merkur', 'merkur-dataplane', 'merkur-image-worker', 'merkur-tui'];
+      const archive = Uint8Array.from(
+        Bun.gzipSync(makeTarArchive(names.map((name) => ({ name, type: 0x30 })))),
+      );
+      const identity = { manifestSha512: 'ab'.repeat(64), sequence: 42 };
+      const identityBytes = `${JSON.stringify(identity)}\n`;
+      const rename = filesystem.rename;
+      let published = 0;
+      const fetchSpy = spyOn(globalThis, 'fetch');
+      const renameSpy = spyOn(filesystem, 'rename').mockImplementation(async (from, to) => {
+        if (to === versionDirectory) {
+          expect(await readFile(path.join(String(from), 'release-trust.json'), 'utf8')).toBe(
+            identityBytes,
+          );
+          for (const name of names) {
+            expect(await readFile(path.join(String(from), name))).toEqual(Buffer.from([0]));
+          }
+          published += 1;
+        }
+        return rename(from, to);
+      });
+      try {
+        await filesystem.mkdir(versionDirectory, { recursive: true });
+        for (const name of names) {
+          await filesystem.writeFile(path.join(versionDirectory, name), 'incomplete', {
+            mode: 0o755,
+          });
+        }
+        if (scenario !== 'missing') {
+          await filesystem.writeFile(
+            path.join(versionDirectory, 'release-trust.json'),
+            scenario === 'malformed'
+              ? '{}\n'
+              : `${JSON.stringify({ manifestSha512: null, sequence: 42 })}\n`,
+          );
+        }
+        const archivePath = path.join(installRoot, 'archive.tar.gz');
+        await Bun.write(archivePath, archive);
+        await Effect.runPromise(
+          stageVerifiedReleaseEffect({
+            installRoot,
+            artifactUrl: Bun.pathToFileURL(archivePath).href,
+            candidate: {
+              artifact: {
+                name: daemonArtifactName('linux-x64'),
+                size: archive.byteLength,
+                sha512: sha512ForTest(archive),
+              },
+              manifest: {
+                sequence: 42,
+                version: 'v9.8.7',
+                expiresAt: 1,
+                minimumSequence: 1,
+                artifacts: [],
+              },
+              manifestSha512: identity.manifestSha512,
+            },
+          }),
+        );
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(published).toBe(1);
+        expect(await readFile(path.join(versionDirectory, 'release-trust.json'), 'utf8')).toBe(
+          identityBytes,
+        );
+        expect((await stat(path.join(versionDirectory, 'release-trust.json'))).mode & 0o777).toBe(
+          0o600,
+        );
+        expect(await readdir(path.join(installRoot, 'versions'))).toEqual(['v9.8.7']);
+        expect(await readdir(path.join(installRoot, 'tmp'))).toEqual([]);
+      } finally {
+        renameSpy.mockRestore();
+        fetchSpy.mockRestore();
+        await rm(installRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
   test("reads the server's release, retrying a transient failure", async () => {
     const requested: string[] = [];
     const fetchImpl: DaemonUpdateFetch = (input) => {
@@ -121,7 +252,8 @@ describe('release convergence', () => {
         ['v1.1.0', 2],
         ['v1.2.0', 3],
       ] as const) {
-        await Effect.runPromise(
+        await profileRelease(
+          `fresh-stage-${sequence}`,
           stageVerifiedReleaseEffect({
             installRoot,
             candidate: candidate(version, sequence),
@@ -130,13 +262,24 @@ describe('release convergence', () => {
         );
       }
       // A second stager of a staged release finds it complete and changes nothing.
-      await Effect.runPromise(
+      await profileRelease(
+        'cached-verified-stage',
         stageVerifiedReleaseEffect({ installRoot, candidate: candidate('v1.2.0', 3), artifactUrl }),
+      );
+      await profileRelease(
+        'cached-stage',
+        stageReleaseEffect({
+          installRoot,
+          origin: 'https://merkur.test',
+          release: 'v1.2.0',
+          logger,
+        }),
       );
       // Another stager's directory, still being filled.
       await Bun.write(path.join(installRoot, 'versions', '.staging-other', 'merkur'), 'partial');
 
-      await Effect.runPromise(
+      await profileRelease(
+        'cached-activation',
         activateReleaseEffect({
           logger,
           installRoot,

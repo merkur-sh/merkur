@@ -351,6 +351,7 @@ MODULES = {
             ":package.json.module",
             ":src/logger.ts.module",
             ":src/services/daemon-convergence.ts.module",
+            ":src/services/daemon-release.ts.module",
             ":src/services/dataplane-adoption.ts.module",
             ":tsconfig.json.module",
         ],

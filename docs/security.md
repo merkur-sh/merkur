@@ -933,6 +933,12 @@ updater verifies manifest shape, signature, context, expiry, minimum consumer se
 name, size, and hash, and a durable rollback floor before activation. There is no unsigned checksum
 or "skip verification" mode.
 
+Staging publishes the verified sequence and manifest hash atomically with the executables.
+Directories without valid identity metadata are downloaded again. Every activation, including a
+cached release, checks that identity against the current durable and embedded rollback floors
+without a network request. The trust-state lock excludes floor advancement until `current` is
+swapped; a lower sequence or a different manifest at the durable floor is refused before handover.
+
 Daemons update themselves to the release their server names (`/api/release`), from the server's
 own store ([Convergence](releases.md#convergence)). The server chooses which release, never which
 bytes: a compromised server can move a daemon forward to a properly signed release no older than its

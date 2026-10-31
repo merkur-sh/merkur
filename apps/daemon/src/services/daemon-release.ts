@@ -173,8 +173,8 @@ export function releaseVersionDirectory(installRoot: string, version: string): s
 /**
  * Puts `release` from `origin`'s store into `versions/<release>`, verified, without running
  * it: what a daemon does when its server announces the next release, and again at the
- * cutover if it was not done before. A version directory exists only complete (it is
- * extracted beside and renamed into place), so finding one means it is staged.
+ * cutover if it was not done before. Staging publishes executables and their verified
+ * identity together through a sibling-directory rename; both must be present to reuse it.
  */
 export function stageReleaseEffect(input: {
   readonly logger: Logger;
@@ -268,17 +268,22 @@ export function stageVerifiedReleaseEffect(input: {
           yield* verifyVersionedDaemonExecutablesEffect(
             resolveVersionedDaemonExecutables(stagingDirectory),
           );
-          yield* Effect.tryPromise({
-            try: () => rename(stagingDirectory, versionDirectory),
-            catch: normalizeUnknownError,
-          }).pipe(
-            // Another stager (the daemon, or `merkur update`) finished the same release
-            // first when the rename finds its directory there, complete by construction.
-            Effect.catch((error) =>
-              isStagedEffect(versionDirectory).pipe(
-                Effect.flatMap((staged) => (staged ? Effect.void : Effect.fail(error))),
-              ),
-            ),
+          yield* writeReleaseTrustStateEffect(stagingDirectory, {
+            manifestSha512: candidate.manifestSha512,
+            sequence: candidate.manifest.sequence,
+          });
+          yield* withReleaseTrustLockEffect(
+            installRoot,
+            Effect.gen(function* () {
+              if (yield* isStagedEffect(versionDirectory)) return;
+              yield* Effect.tryPromise({
+                try: async () => {
+                  await rm(versionDirectory, { recursive: true, force: true });
+                  await rename(stagingDirectory, versionDirectory);
+                },
+                catch: normalizeUnknownError,
+              });
+            }),
           );
         }),
       () =>
@@ -305,10 +310,34 @@ export function activateReleaseEffect(input: {
   readonly running: string | null;
 }): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
-    yield* verifyVersionedDaemonExecutablesEffect(
-      resolveVersionedDaemonExecutables(input.versionDirectory),
+    yield* withReleaseTrustLockEffect(
+      input.installRoot,
+      Effect.gen(function* () {
+        yield* verifyVersionedDaemonExecutablesEffect(
+          resolveVersionedDaemonExecutables(input.versionDirectory),
+        );
+        const identity = yield* readStagedReleaseIdentityEffect(input.versionDirectory);
+        const floor = yield* readReleaseTrustFloorEffect(
+          input.installRoot,
+          merkurReleaseSequence(),
+        );
+        if (identity.sequence < floor.sequence) {
+          return yield* new DaemonUpdateTrustError({
+            message: `release sequence ${identity.sequence} is below rollback floor ${floor.sequence}`,
+          });
+        }
+        if (
+          identity.sequence === floor.sequence &&
+          floor.manifestSha512 !== null &&
+          identity.manifestSha512 !== floor.manifestSha512
+        ) {
+          return yield* new DaemonUpdateTrustError({
+            message: 'refusing a different manifest at the persisted release sequence',
+          });
+        }
+        yield* swapCurrentSymlinkTargetEffect(input.installRoot, input.versionDirectory);
+      }),
     );
-    yield* swapCurrentSymlinkTargetEffect(input.installRoot, input.versionDirectory);
     yield* pruneEffect(
       input.installRoot,
       path.basename(input.versionDirectory),
@@ -322,6 +351,7 @@ function isStagedEffect(versionDirectory: string): Effect.Effect<boolean, Error>
   return verifyVersionedDaemonExecutablesEffect(
     resolveVersionedDaemonExecutables(versionDirectory),
   ).pipe(
+    Effect.andThen(readStagedReleaseIdentityEffect(versionDirectory)),
     Effect.as(true),
     Effect.catch(() => Effect.succeed(false)),
   );
@@ -922,66 +952,84 @@ export function readReleaseTrustFloorEffect(
   });
 }
 
+const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E>(
+  installRoot: string,
+  operation: Effect.Effect<A, E>,
+): Effect.fn.Return<A, E | DaemonUpdateTrustError> {
+  const lockDirectory = path.join(installRoot, 'release-trust.lock');
+  yield* Effect.tryPromise({
+    try: () => mkdir(installRoot, { recursive: true, mode: 0o700 }),
+    catch: (cause) =>
+      new DaemonUpdateTrustError({
+        cause,
+        message: 'failed to create the release trust-state directory',
+      }),
+  });
+  return yield* Effect.acquireUseRelease(
+    Effect.tryPromise({
+      try: () => mkdir(lockDirectory),
+      catch: (cause) =>
+        new DaemonUpdateTrustError({
+          cause,
+          message: 'another update owns the release trust-state lock',
+        }),
+    }),
+    () => Effect.uninterruptible(operation),
+    () =>
+      Effect.tryPromise({
+        try: () => rm(lockDirectory, { recursive: true, force: true }),
+        catch: (cause) =>
+          new DaemonUpdateTrustError({
+            cause,
+            message: 'failed to release the release trust-state lock',
+          }),
+      }),
+  );
+});
+
 export function persistReleaseTrustFloorEffect(
   installRoot: string,
   next: ReleaseTrustFloor,
 ): Effect.Effect<void, DaemonUpdateTrustError> {
-  const lockDirectory = path.join(installRoot, 'release-trust.lock');
-  return Effect.gen(function* () {
-    yield* Effect.tryPromise({
-      try: () => mkdir(installRoot, { recursive: true, mode: 0o700 }),
-      catch: (cause) =>
-        new DaemonUpdateTrustError({
-          cause,
-          message: 'failed to create the release trust-state directory',
-        }),
-    });
-    yield* Effect.acquireUseRelease(
-      Effect.tryPromise({
-        try: () => mkdir(lockDirectory),
-        catch: (cause) =>
-          new DaemonUpdateTrustError({
-            cause,
-            message: 'another update owns the release trust-state lock',
-          }),
-      }),
-      () =>
-        Effect.uninterruptible(
-          Effect.gen(function* () {
-            validateReleaseTrustFloor(next);
-            const current = yield* readReleaseTrustFloorEffect(
-              installRoot,
-              Math.max(RELEASE_BOOTSTRAP_MINIMUM_SEQUENCE, merkurReleaseSequence()),
-            );
-            if (next.sequence < current.sequence) {
-              return yield* new DaemonUpdateTrustError({
-                message: `refusing to lower release rollback floor from ${current.sequence} to ${next.sequence}`,
-              });
-            }
-            if (
-              next.sequence === current.sequence &&
-              current.manifestSha512 !== null &&
-              current.manifestSha512 !== next.manifestSha512
-            ) {
-              return yield* new DaemonUpdateTrustError({
-                message: 'refusing a different manifest at the persisted release sequence',
-              });
-            }
-            yield* writeReleaseTrustStateEffect(installRoot, next);
-          }),
-        ),
-      () =>
-        Effect.tryPromise({
-          try: () => rm(lockDirectory, { recursive: true, force: true }),
-          catch: (cause) =>
-            new DaemonUpdateTrustError({
-              cause,
-              message: 'failed to release the release trust-state lock',
-            }),
-        }),
-    );
-  });
+  return withReleaseTrustLockEffect(
+    installRoot,
+    Effect.gen(function* () {
+      validateReleaseTrustFloor(next);
+      const current = yield* readReleaseTrustFloorEffect(
+        installRoot,
+        Math.max(RELEASE_BOOTSTRAP_MINIMUM_SEQUENCE, merkurReleaseSequence()),
+      );
+      if (next.sequence < current.sequence) {
+        return yield* new DaemonUpdateTrustError({
+          message: `refusing to lower release rollback floor from ${current.sequence} to ${next.sequence}`,
+        });
+      }
+      if (
+        next.sequence === current.sequence &&
+        current.manifestSha512 !== null &&
+        current.manifestSha512 !== next.manifestSha512
+      ) {
+        return yield* new DaemonUpdateTrustError({
+          message: 'refusing a different manifest at the persisted release sequence',
+        });
+      }
+      yield* writeReleaseTrustStateEffect(installRoot, next);
+    }),
+  );
 }
+
+const readStagedReleaseIdentityEffect = Effect.fnUntraced(function* (versionDirectory: string) {
+  return yield* Effect.tryPromise({
+    try: async () => {
+      const bytes = await Bun.file(path.join(versionDirectory, RELEASE_TRUST_STATE_FILE)).bytes();
+      const identity = parseCanonicalReleaseTrustState(bytes);
+      if (identity.manifestSha512 === null) throw new Error('staged release has no manifest hash');
+      return identity;
+    },
+    catch: (cause) =>
+      new DaemonUpdateTrustError({ cause, message: 'failed to read staged release identity' }),
+  });
+});
 
 function writeReleaseTrustStateEffect(
   installRoot: string,
