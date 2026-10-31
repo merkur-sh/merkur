@@ -1,6 +1,6 @@
 import { buildPushPayload, type VapidKeys } from '@block65/webcrypto-web-push';
 import { createEntityId } from '@merkur/auth';
-import { Cause, Clock, Context, Effect, Layer, Queue, Redacted } from 'effect';
+import { Cause, Clock, Context, Data, Effect, Layer, Queue, Redacted } from 'effect';
 import type { Kysely } from 'kysely';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
@@ -33,12 +33,34 @@ export interface PushSubscriptionInput {
   readonly auth: string;
 }
 
+export class UntrustedPushDestination extends Data.TaggedError('UntrustedPushDestination') {}
+
+function isTrustedPushDestination(endpoint: string): boolean {
+  const url = URL.parse(endpoint);
+  if (
+    url === null ||
+    url.protocol !== 'https:' ||
+    url.port !== '' ||
+    url.username !== '' ||
+    url.password !== ''
+  )
+    return false;
+  const host = url.hostname;
+  return (
+    host === 'fcm.googleapis.com' ||
+    host === 'updates.push.services.mozilla.com' ||
+    host.endsWith('.push.services.mozilla.com') ||
+    host.endsWith('.push.apple.com') ||
+    host.endsWith('.notify.windows.com')
+  );
+}
+
 export interface PushNotificationService {
   getVapidPublicKey(): string | null;
   upsertSubscription(
     userId: string,
     subscription: PushSubscriptionInput,
-  ): Effect.Effect<void, InfrastructureError>;
+  ): Effect.Effect<void, InfrastructureError | UntrustedPushDestination>;
   deleteSubscription(userId: string, endpoint: string): Effect.Effect<void, InfrastructureError>;
   notifyTerminalBell(input: {
     readonly userId: string;
@@ -100,7 +122,9 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
       return vapid === null ? null : vapidPublicKey;
     },
 
-    upsertSubscription(userId, subscription): Effect.Effect<void, InfrastructureError> {
+    upsertSubscription(userId, subscription) {
+      if (!isTrustedPushDestination(subscription.endpoint))
+        return Effect.fail(new UntrustedPushDestination());
       return Effect.tryPromise({
         try: async () => {
           await db
@@ -327,6 +351,7 @@ async function sendPushNotification(
   payload: string,
   signal: AbortSignal,
 ): Promise<void> {
+  if (!isTrustedPushDestination(subscription.endpoint)) throw new UntrustedPushDestination();
   const request = await buildPushPayload(
     { data: payload, options: { ttl: PUSH_TTL_SECONDS, urgency: 'high' } },
     {
@@ -337,6 +362,7 @@ async function sendPushNotification(
     vapid,
   );
   const response = await fetch(subscription.endpoint, {
+    redirect: 'error',
     method: request.method,
     headers: request.headers,
     body: request.body,

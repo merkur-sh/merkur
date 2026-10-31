@@ -313,6 +313,12 @@ suppress delivery: an already active direct terminal can continue until its daem
 statement. Once persisted, a tombstone rejects that delegation's proofs even if a hostile server
 later replays old session material. Merkur claims no revocation channel independent of the server.
 
+Web-push subscriptions accept HTTPS destinations only on `fcm.googleapis.com`,
+`updates.push.services.mozilla.com` and regional hosts under `push.services.mozilla.com`,
+subdomains of `push.apple.com`, and subdomains of `notify.windows.com`, on the default HTTPS
+port without URL credentials. Registration and every delivery check this restriction;
+delivery refuses redirects before any second destination receives the encrypted payload.
+
 ## Linking A Daemon
 
 Linking establishes the permanent trust between an account and a machine. The daemon proves it

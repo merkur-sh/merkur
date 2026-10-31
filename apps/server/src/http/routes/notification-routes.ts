@@ -3,7 +3,10 @@ import { Elysia, status } from 'elysia';
 import { errorLogContext, type Logger, logWithLoggerEffect } from '../../logger';
 import type { runServerProgram } from '../../runtime';
 import type { AuthenticatedBrowser } from '../../services/auth-service';
-import { PushNotificationServiceTag } from '../../services/push-notification-service';
+import {
+  PushNotificationServiceTag,
+  UntrustedPushDestination,
+} from '../../services/push-notification-service';
 import { ApiModels } from '../api-models';
 import { authenticatedApiPlugin } from '../authenticated-api';
 import { authorizeDaemonRequest, createDaemonRequestAuth } from '../daemon-request-auth';
@@ -69,6 +72,7 @@ export function notificationRoutesPlugin({
             body: ApiModels.PushSubscriptionBody,
             response: {
               204: ApiModels.EmptyResponse,
+              400: ApiModels.ErrorResponse,
               401: ApiModels.ErrorResponse,
             },
           },
@@ -88,6 +92,10 @@ export function notificationRoutesPlugin({
                 eventName: 'push_subscription_upsert_failed',
                 request,
                 signal: request.signal,
+                mapError: (error) =>
+                  error instanceof UntrustedPushDestination
+                    ? status(400, { error: 'untrusted_push_destination' })
+                    : null,
               },
             );
             return status(STATUS_NO_CONTENT, undefined);

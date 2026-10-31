@@ -34,6 +34,82 @@ describe('push notification error classification', () => {
 });
 
 describe('push operation ownership', () => {
+  test('rejects untrusted push destinations at registration and delivery', async () => {
+    const input = await pushMaterial();
+    input.subscription.endpoint = 'https://attacker.example/push';
+    const db = await pushDatabase(input);
+    const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(
+      fetchReplacement(async () => new Response('accepted')),
+    );
+    try {
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const service = yield* createPushNotificationService(
+              db,
+              {
+                webPush: {
+                  publicKey: input.vapid.publicKey,
+                  privateKey: Redacted.make(input.vapid.privateKey),
+                  contact: input.vapid.subject,
+                },
+              },
+              createLogger('push-test'),
+            );
+            const registered = yield* Effect.result(
+              service.upsertSubscription('push-owner', input.subscription),
+            );
+            expect(registered._tag).toBe('Failure');
+            yield* service.notifyTerminalBell({
+              userId: 'push-owner',
+              daemonId: 'bell-daemon',
+              occurredAt: 1,
+            });
+          }),
+        ),
+      );
+      await expect(
+        Effect.runPromise(sendPushNotificationEffect(input.vapid, input.subscription, '{}')),
+      ).rejects.toMatchObject({ operation: 'send-terminal-bell-push' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      fetchMock.mockRestore();
+      await db.destroy();
+    }
+  });
+
+  test('rejects untrusted push destinations reached through redirects', async () => {
+    const input = await pushMaterial();
+    input.subscription.endpoint = 'https://fcm.googleapis.com/push';
+    let internalRequests = 0;
+    const listener = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch(request) {
+        if (new URL(request.url).pathname === '/redirect') {
+          return new Response(null, { status: 307, headers: { location: '/internal' } });
+        }
+        internalRequests += 1;
+        return new Response('internal');
+      },
+    });
+    const nativeFetch = globalThis.fetch;
+    const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(
+      fetchReplacement((_url, init) => nativeFetch(new URL('/redirect', listener.url), init)),
+    );
+    try {
+      const delivered = await Effect.runPromise(
+        Effect.result(sendPushNotificationEffect(input.vapid, input.subscription, '{}')),
+      );
+      expect(internalRequests).toBe(0);
+      expect(delivered._tag).toBe('Failure');
+      expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe('error');
+    } finally {
+      fetchMock.mockRestore();
+      await listener.stop(true);
+    }
+  });
+
   test('interruption during queue admission cannot strand account coalescing', async () => {
     const input = await pushMaterial();
     const db = await pushDatabase(input);
@@ -145,23 +221,6 @@ describe('push operation ownership', () => {
   test('404 and 410 delivery rejections remove the expired subscription', async () => {
     const input = await pushMaterial();
     const db = await pushDatabase(input);
-    await db
-      .insertInto('daemons')
-      .values({
-        id: 'bell-daemon',
-        user_id: 'push-owner',
-        name: 'Bell',
-        platform: 'test',
-        daemon_identity_public_key: '',
-        daemon_identity_p256_public_key: '',
-        identity_seal_backend: 'software',
-        daemon_identity_key_commitment: '',
-        daemon_binding_json: '{}',
-        box_id: null,
-        last_seen: null,
-        version: null,
-      })
-      .execute();
     const payloads: unknown[] = [];
     const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
     const encryptMock = spyOn(crypto.subtle, 'encrypt').mockImplementation(
@@ -312,7 +371,7 @@ async function pushMaterial() {
   return {
     vapid: { publicKey, privateKey: secret.d, subject: 'mailto:push@merkur.test' },
     subscription: {
-      endpoint: 'https://push.merkur.test/message',
+      endpoint: 'https://fcm.googleapis.com/message',
       p256dh: publicKey,
       auth: Buffer.alloc(16, 1).toString('base64url'),
     },
@@ -338,6 +397,23 @@ async function pushDatabase(input: Awaited<ReturnType<typeof pushMaterial>>) {
   await db
     .insertInto('push_subscriptions')
     .values({ id: 'push-subscription', user_id: 'push-owner', ...input.subscription })
+    .execute();
+  await db
+    .insertInto('daemons')
+    .values({
+      id: 'bell-daemon',
+      user_id: 'push-owner',
+      name: 'Bell',
+      platform: 'test',
+      daemon_identity_public_key: '',
+      daemon_identity_p256_public_key: '',
+      identity_seal_backend: 'software',
+      daemon_identity_key_commitment: '',
+      daemon_binding_json: '{}',
+      box_id: null,
+      last_seen: null,
+      version: null,
+    })
     .execute();
   return db;
 }
