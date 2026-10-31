@@ -534,7 +534,7 @@ export function authRoutesPlugin({
           runServerProgram,
           Effect.gen(function* () {
             const service = yield* AuthServiceTag;
-            const clearCookieHeader = yield* service.logout(request.headers.get('cookie'), body);
+            const clearCookieHeader = yield* service.logout(body);
             const control = yield* DaemonControlServiceTag;
             yield* control.flushUserDelegationRevocations(body.actorCertificate.userId);
             return clearCookieHeader;

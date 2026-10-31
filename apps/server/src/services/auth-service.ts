@@ -7,7 +7,6 @@ import {
   createOpaqueRegistrationResponse,
   createRefreshToken,
   finishOpaqueServerLogin,
-  revokeRefreshTokenFamily,
   rotateRefreshToken,
   startOpaqueServerLogin,
   validateOpaqueRegistrationRecord,
@@ -331,10 +330,7 @@ export interface AuthService {
   refresh(
     cookieHeader: string | null,
   ): Effect.Effect<AuthSessionResult | null, InfrastructureError>;
-  logout(
-    cookieHeader: string | null,
-    proof: SignedRevocation,
-  ): Effect.Effect<string, InfrastructureError | AuthError>;
+  logout(proof: SignedRevocation): Effect.Effect<string, InfrastructureError | AuthError>;
   verifyBearerToken(
     accessToken: string,
   ): Effect.Effect<AuthenticatedBrowser | null, InfrastructureError>;
@@ -1011,18 +1007,11 @@ export function createAuthService(
       );
     }),
 
-    logout: Effect.fnUntraced(function* (cookieHeader: string | null, proof: SignedRevocation) {
+    logout: Effect.fnUntraced(function* (proof: SignedRevocation) {
       const now = yield* Clock.currentTimeMillis;
       const actor = parseUserDelegationActor(proof.actorCertificate);
       yield* revokeBrowserSessionsEffect(db, actor, proof, { kind: 'self' }, config, now);
       yield* wakeNotifications;
-      const parsedCookie = readRefreshCookie(cookieHeader);
-      if (parsedCookie !== null) {
-        yield* Effect.tryPromise({
-          try: () => revokeRefreshTokenFamily(refreshTokenStore, parsedCookie.refreshTokenId),
-          catch: infrastructureError('auth', 'revoke-refresh-token'),
-        });
-      }
       return buildClearRefreshCookieHeader();
     }),
 
