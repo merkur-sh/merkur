@@ -298,12 +298,27 @@ pub(crate) fn resize(
     if !peer.geometry_intent_is_new(seq) {
         return;
     }
+    if defer_to_fence(peer, MSG_TYPE_RESIZE, body) {
+        return;
+    }
     peer.geometry_intent_seq = seq;
     crate::handle_resize_request(peer_id, body, pty_master, terminal, peers);
 }
 
+/// A control copy cannot pass input already waiting at an in-band fence.
+/// A newer intent supersedes it at the same position, as another run would.
+fn defer_to_fence(peer: &mut PeerDisplayState, kind: u8, body: &[u8]) -> bool {
+    let Some(held) = peer.geometry_fence else {
+        return false;
+    };
+    if let Some(fence) = RunGeometry::new(held.position, kind, body) {
+        peer.note_geometry_fence(fence);
+    }
+    true
+}
+
 /// The geometry intent an input run's records wait for, once every record
-/// before them is admitted. A state it changes is told to the peer on its
+/// before them has completed. A state it changes is told to the peer on its
 /// primary path, as `publish` tells every peer.
 pub(crate) fn apply_fence(
     peer_id: &str,
@@ -358,6 +373,9 @@ fn claim(
     if let Some(seq) = geometry_intent_seq(MSG_TYPE_GEOMETRY_CLAIM, body) {
         // The other lane's copy of this intent, or an older one, applied.
         if !peer.geometry_intent_is_new(seq) {
+            return;
+        }
+        if defer_to_fence(peer, MSG_TYPE_GEOMETRY_CLAIM, body) {
             return;
         }
         peer.geometry_intent_seq = seq;

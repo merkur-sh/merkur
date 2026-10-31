@@ -186,7 +186,7 @@ fn settle(
 #[tokio::test]
 async fn input_typed_after_a_resize_waits_for_it_on_the_datagram_lane() {
     let (pair, mut terminal, mut peers) = fenced_owner();
-    let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
+    let (mut writer, mut completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
     let resize = resize_to(100, 30, 1);
     let fence = RunGeometry::new(2, MSG_TYPE_RESIZE, &resize).expect("a resize intent");
     let a = input_record::build::press('a');
@@ -203,6 +203,15 @@ async fn input_typed_after_a_resize_waits_for_it_on_the_datagram_lane() {
     );
     assert_eq!(peers["browser"].keystroke_next_queued_seq, 2);
     assert_eq!(pair.master.get_size().unwrap().cols, 80);
+    let first = completions.recv().await.unwrap();
+    writer.finish(&first);
+    assert_eq!(
+        peers
+            .get_mut("browser")
+            .unwrap()
+            .confirm_keystroke_delivery(1),
+        Some(1)
+    );
     settle(&pair, &mut writer, &mut terminal, &mut peers);
     let size = pair.master.get_size().unwrap();
     assert_eq!((size.cols, size.rows), (100, 30));
@@ -218,7 +227,7 @@ async fn input_typed_after_a_resize_waits_for_it_on_the_datagram_lane() {
 #[tokio::test]
 async fn the_reliable_lane_retains_input_behind_a_resize_without_copying_it() {
     let (pair, mut terminal, mut peers) = fenced_owner();
-    let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
+    let (mut writer, mut completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
     let fence = RunGeometry::new(2, MSG_TYPE_RESIZE, &resize_to(100, 30, 1)).unwrap();
     let a = input_record::build::press('a');
     let b = input_record::build::press('b');
@@ -241,6 +250,15 @@ async fn the_reliable_lane_retains_input_behind_a_resize_without_copying_it() {
     assert_eq!(peer.keystroke_next_queued_seq, 2);
     assert!(peer.reliable_inputs.has_pending());
     assert!(peer.keystroke_reorder_buf.is_empty(), "no reorder copy");
+    let first = completions.recv().await.unwrap();
+    writer.finish(&first);
+    assert_eq!(
+        peers
+            .get_mut("browser")
+            .unwrap()
+            .confirm_keystroke_delivery(1),
+        Some(1)
+    );
     settle(&pair, &mut writer, &mut terminal, &mut peers);
     assert_eq!(pair.master.get_size().unwrap().cols, 100);
     assert_eq!(peers["browser"].keystroke_next_queued_seq, 3);
@@ -254,7 +272,10 @@ async fn an_intent_whose_position_was_admitted_applies_before_the_next_record() 
     let (pair, mut terminal, mut peers) = fenced_owner();
     let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
     peers.get_mut("browser").unwrap().keystroke_next_queued_seq = 5;
-    peers.get_mut("browser").unwrap().keystroke_next_expected_seq = 5;
+    peers
+        .get_mut("browser")
+        .unwrap()
+        .keystroke_next_expected_seq = 5;
     let fence = RunGeometry::new(3, MSG_TYPE_RESIZE, &resize_to(120, 40, 4)).unwrap();
     let e = input_record::build::press('e');
     let run = encode_probed_input_run(5, false, None, Some(fence), &[(&e, false)]);
@@ -325,5 +346,101 @@ fn idle_retry_requests_an_ack_without_another_pty_admission() {
         assert_eq!(peer.keystroke_next_queued_seq, 2);
         assert_eq!(peer.keystroke_next_expected_seq, 2);
         assert!(!peer.reliable_inputs.has_pending());
+    }
+}
+
+#[tokio::test]
+async fn geometry_fence_waits_for_preceding_write_completion() {
+    struct HeldWriter {
+        entered: crossbeam_channel::Sender<()>,
+        release: Option<crossbeam_channel::Receiver<()>>,
+    }
+    impl io::Write for HeldWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if let Some(release) = self.release.take() {
+                self.entered.send(()).unwrap();
+                release.recv().map_err(io::Error::other)?;
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    for kind in [MSG_TYPE_RESIZE, MSG_TYPE_GEOMETRY_CLAIM] {
+        let (pair, mut terminal, mut peers) = fenced_owner();
+        let (entered_tx, entered_rx) = unbounded();
+        let (release_tx, release_rx) = unbounded();
+        let (mut writer, mut completions) = PtyWriter::new(Box::new(HeldWriter {
+            entered: entered_tx,
+            release: Some(release_rx),
+        }))
+        .unwrap();
+        let resize = resize_to(100, 30, 1);
+        let mut claim = [0; 25];
+        claim[0] = 1;
+        claim[1..9].copy_from_slice(&1_u64.to_be_bytes());
+        claim[9..].copy_from_slice(&resize[..16]);
+        let body: &[u8] = if kind == MSG_TYPE_RESIZE {
+            &resize
+        } else {
+            &claim
+        };
+        let fence = RunGeometry::new(2, kind, body).unwrap();
+        let a = input_record::build::press('a');
+        let b = input_record::build::press('b');
+        let run = encode_probed_input_run(1, false, None, Some(fence), &[(&a, false), (&b, false)]);
+        handle_pty_channel(
+            &pty_lane(DeliveryMode::Datagram),
+            &run,
+            &mut writer,
+            &mut terminal,
+            &mut peers,
+            Instant::now(),
+            &mut PerfTimingTracker::default(),
+        );
+        entered_rx.recv().unwrap();
+        settle(&pair, &mut writer, &mut terminal, &mut peers);
+        assert_eq!(
+            pair.master.get_size().unwrap().cols,
+            80,
+            "resize must wait for the preceding PTY write completion"
+        );
+        assert_eq!(peers["browser"].keystroke_next_queued_seq, 2);
+        // Even the matching control copy cannot bypass the in-band fence.
+        if kind == MSG_TYPE_RESIZE {
+            geometry::resize("browser", body, &*pair.master, &mut terminal, &mut peers);
+        } else {
+            let mut msg = pty_lane(DeliveryMode::Stream);
+            msg.channel_id = CHANNEL_CTRL;
+            geometry::handle(&msg, body, &*pair.master, &mut terminal, &mut peers, 0.0);
+        }
+        assert_eq!(pair.master.get_size().unwrap().cols, 80);
+        assert_eq!(peers["browser"].geometry_intent_seq, 0);
+        release_tx.send(()).unwrap();
+        let first = completions.recv().await.unwrap();
+        handle_pty_write_completions(
+            first,
+            &mut completions,
+            &mut writer,
+            &mut terminal,
+            &mut peers,
+            &mut ParkedPeers::new(),
+            &mut input::InputRefill::default(),
+            &mut PerfTimingTracker::default(),
+        )
+        .unwrap();
+        assert_eq!(pair.master.get_size().unwrap().cols, 80);
+        assert_eq!(peers["browser"].keystroke_next_queued_seq, 2);
+        settle(&pair, &mut writer, &mut terminal, &mut peers);
+        assert_eq!(pair.master.get_size().unwrap().cols, 100);
+        assert_eq!(peers["browser"].keystroke_next_queued_seq, 3);
+        assert!(peers["browser"].geometry_fence.is_none());
+        let second = completions.recv().await.unwrap();
+        assert!(matches!(
+            second.source(),
+            PtyWriteSource::UserInput { seq: 2, .. }
+        ));
+        writer.finish(&second);
     }
 }

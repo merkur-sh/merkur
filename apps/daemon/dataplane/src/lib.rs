@@ -6159,7 +6159,7 @@ fn refill_waiting_input(
 }
 
 /// Apply each geometry intent its peer's sequencer has reached, then admit the
-/// input it held back: records typed before the intent reached the PTY FIFO
+/// input it held back: records typed before the intent completed at the PTY
 /// before it, records typed after it reach it after, as one SSH channel orders
 /// a window change. `only` names the one peer a PTY frame could have moved.
 fn settle_geometry_fences(

@@ -4102,10 +4102,10 @@ impl PeerDisplayState {
             .is_some_and(|fence| !seq_lt(seq, fence.position))
     }
 
-    /// The fence, once every record before its position is admitted.
+    /// The fence, once every record before its position has completed at the PTY.
     pub(crate) fn geometry_fence_due(&self) -> Option<crate::network::protocol::RunGeometry> {
         self.geometry_fence
-            .filter(|fence| !seq_lt(self.keystroke_next_queued_seq, fence.position))
+            .filter(|fence| !seq_lt(self.keystroke_next_expected_seq, fence.position))
     }
 
     /// Accept one keystroke through the shared single-frame/input-run dedup
