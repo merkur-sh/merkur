@@ -1165,6 +1165,22 @@ export function createTerminalWorkerClient(
   );
 
   // ── Touch events ───────────────────────────────────────────────────────────
+  let reportedTouch: number | null = null;
+
+  function releaseReportedTouch(e: TouchEvent): void {
+    if (reportedTouch === null) return;
+    for (let index = 0; index < e.changedTouches.length; index++) {
+      const touch = e.changedTouches.item(index);
+      if (touch?.identifier !== reportedTouch) continue;
+      reportedTouch = null;
+      const cell = pixelToCell(touch.clientX, touch.clientY);
+      callbacks.onMouseInput(
+        encodeMouseRecord(MOUSE_ACTION_RELEASE, MOUSE_BUTTON_LEFT, 0, cell.col, cell.row),
+      );
+      return;
+    }
+  }
+
   container.addEventListener(
     'touchstart',
     (e: TouchEvent) => {
@@ -1199,8 +1215,9 @@ export function createTerminalWorkerClient(
             return;
           }
         }
-        if (!(mouseMode & MM_CLICKS)) return;
+        if (!(mouseMode & MM_CLICKS) || reportedTouch !== null) return;
         const cell = pixelToCell(touch.clientX, touch.clientY);
+        reportedTouch = touch.identifier;
         callbacks.onMouseInput(
           encodeMouseRecord(MOUSE_ACTION_PRESS, MOUSE_BUTTON_LEFT, 0, cell.col, cell.row),
         );
@@ -1237,6 +1254,7 @@ export function createTerminalWorkerClient(
   container.addEventListener(
     'touchend',
     (e: TouchEvent) => {
+      releaseReportedTouch(e);
       if (selectionLayer.isVisible()) return;
       e.preventDefault();
       if (touchScrolling && e.touches.length < 2) {
@@ -1261,7 +1279,8 @@ export function createTerminalWorkerClient(
 
   // The system took the touches (a call, a gesture of its own): the scroll
   // ends where the fingers left it, without a glide.
-  container.addEventListener('touchcancel', () => {
+  container.addEventListener('touchcancel', (e: TouchEvent) => {
+    releaseReportedTouch(e);
     touchScrolling = false;
     stopTouchGlide();
   });
