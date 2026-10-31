@@ -953,12 +953,12 @@ const TerminalPanel: Component<Props> = (props) => {
         <button
           type="button"
           aria-label="Back to machines"
-          onPointerDown={() => {
+          onClick={() => {
             terminalExitPending = true;
             geometryDirty = false;
             geometryFrame.cancel();
+            props.onBack();
           }}
-          onClick={() => void props.onBack()}
           class="btn-icon h-[30px] w-[30px]"
         >
           <svg

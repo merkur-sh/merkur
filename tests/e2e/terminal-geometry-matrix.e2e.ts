@@ -718,3 +718,33 @@ test('resize stability: a continuous drag costs one daemon round trip', async ({
   expect(samples.length).toBeGreaterThan(0);
   expect(samples.length, 'daemon round trips for a 40px continuous drag').toBeLessThanOrEqual(5);
 });
+
+test('cancelled Back keeps terminal resizing through the daemon', async ({
+  page,
+  linkedDaemon,
+}) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  const output = await primeTerminal(page, linkedDaemon.daemonName);
+  await page.keyboard.type(`printf '__size_%s_%s__\\n' before "$(stty size)"\n`);
+  await expectOutput(output, '__size_before_');
+  const before = /__size_before_(\d+) (\d+)__/.exec(await output.innerText());
+  if (before === null) throw new Error('initial PTY geometry missing');
+  const canvas = page.locator('#terminal-output canvas').first();
+  const initialWidth = await canvas.evaluate((element) => element.getBoundingClientRect().width);
+  const back = page.getByRole('button', { name: 'Back to machines', exact: true });
+  await back.hover();
+  await page.mouse.down();
+  await page.mouse.move(500, 350);
+  await page.mouse.up();
+  await expect(page.locator('#terminal-output')).toBeVisible();
+  await page.setViewportSize({ width: 800, height: 700 });
+  await expect
+    .poll(() => canvas.evaluate((element) => element.getBoundingClientRect().width))
+    .toBeLessThan(initialWidth);
+  await page.locator('#terminal-output').click();
+  await page.keyboard.type(`printf '__size_%s_%s__\\n' after "$(stty size)"\n`);
+  await expectOutput(output, '__size_after_');
+  const after = /__size_after_(\d+) (\d+)__/.exec(await output.innerText());
+  if (after === null) throw new Error('resized PTY geometry missing');
+  expect(Number(after[2])).toBeLessThan(Number(before[2]));
+});
