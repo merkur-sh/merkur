@@ -34,8 +34,8 @@ transport patches are deliberately not workspace members; read it before moving 
 - `wtransport-patch` awaits the QUIC handshake before H3 SETTINGS (the 0.5-RTT
   experiment was reverted), exposes exact batch datagram capacity, performs atomic
   non-dropping datagram admission, and receives by pulling datagrams from Quinn
-  (`receive_datagrams` fills a `DatagramBatch`; `receive_datagram` is the same pull with
-  room for one), with no worker channel. Together with `quinn-patch` it carries shared
+  (`receive_datagrams` fills the `DatagramBatch`'s existing slots; `receive_datagram`
+  supplies one slot), with no worker channel. Together with `quinn-patch` it carries shared
   ciphertext plus a carrier-local prefix to packetization without an envelope copy. Under
   `cfg(merkur_sim)`, which only the simulator's generated workspace sets (`tools/sim`),
   `Endpoint::client` and `::server` take their socket, runtime and packet-number seed from

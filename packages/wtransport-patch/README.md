@@ -17,6 +17,7 @@ delivery state without taking Quinn's connection lock. It relies on the matching
 | Where | Change |
 | --- | --- |
 | `Connection::send_datagram` (`src/driver/mod.rs`) | Polls Quinn's non-dropping send exactly once under the connection-state lock. A full queue returns `SendDatagramError::Backpressure` and keeps every older datagram; upstream evicted the oldest. |
+| `Connection::receive_datagrams`, `Connection::receive_datagram` | Pull from Quinn into the batch's existing slots or one single-read slot, serialize readers, compact matching session payloads in order, and release unread owners after malformed-frame closure. |
 | `Connection::send_datagram_owned` | Sends an immutable `Bytes` payload with the session's quarter-stream-ID prefix through `quinn::Connection::try_send_datagram_with_prefix`, so no envelope is copied. |
 | `SendDatagramError` (`src/error.rs`) | Adds `Disabled` and `Backpressure`. |
 | `Connection::datagram_send_buffer_space`, `datagram_additional_entry_overhead`, `datagram_batch_send_buffer_space` (`src/connection.rs`) | Report queue room in application-payload bytes, net of the HTTP/3 datagram header (`Datagram::header_size`) and Quinn's per-entry charge, for one datagram or a batch. |
