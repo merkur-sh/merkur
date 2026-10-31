@@ -596,6 +596,11 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "migrations/011_revocation_commit_order.ts": [
+            "//apps/server:node_modules/kysely",
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
         "package.json": [],
         "scripts/benchmark-effect-scope.test.ts": [
             "//apps/server:node_modules/effect",
@@ -675,6 +680,7 @@ MODULES = {
             ":migrations/008_data_retention.ts.module",
             ":migrations/009_account_telemetry.ts.module",
             ":migrations/010_daemon_control_ownership.ts.module",
+            ":migrations/011_revocation_commit_order.ts.module",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/libsql-dialect.ts.module",
@@ -8626,6 +8632,7 @@ TYPE_INPUTS = {
             "migrations/008_data_retention.ts",
             "migrations/009_account_telemetry.ts",
             "migrations/010_daemon_control_ownership.ts",
+            "migrations/011_revocation_commit_order.ts",
             "package.json",
             "scripts/benchmark-effect-scope.ts",
             "src/config.ts",

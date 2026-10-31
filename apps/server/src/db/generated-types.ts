@@ -92,6 +92,11 @@ export interface Daemons {
   version: string | null;
 }
 
+export interface DelegationRevocationOrder {
+  nonce: string;
+  sequence: Generated<number | null>;
+}
+
 export interface DelegationRevocationOutbox {
   acknowledged_at: number | null;
   actor_certificate_json: string;
@@ -181,6 +186,7 @@ export interface DB {
   daemon_link_claims: DaemonLinkClaims;
   daemon_unlinks: DaemonUnlinks;
   daemons: Daemons;
+  delegation_revocation_order: DelegationRevocationOrder;
   delegation_revocation_outbox: DelegationRevocationOutbox;
   delegation_revocations: DelegationRevocations;
   keyboard_settings: KeyboardSettings;

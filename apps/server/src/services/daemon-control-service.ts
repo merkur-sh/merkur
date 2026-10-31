@@ -3240,7 +3240,6 @@ function createDelegationRevocationOutbox(db: Kysely<DatabaseSchema>): Delegatio
             .select(['command_id', 'actor_certificate_json', 'revocation_json'])
             .where('daemon_id', '=', daemonId)
             .where('acknowledged_at', 'is', null)
-            .orderBy('created_at', 'asc')
             .orderBy('sequence', 'asc')
             .execute();
           return rows.flatMap((row): PendingDelegationRevocation[] =>

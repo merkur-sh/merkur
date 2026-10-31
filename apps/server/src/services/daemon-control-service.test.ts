@@ -1204,6 +1204,37 @@ describe('DaemonControlService', () => {
                     rejected_reason: null,
                   })
                   .execute();
+                const next = {
+                  ...revocation,
+                  nonce: authorizationBytes(32, 26),
+                  targets: [{ delegationId: 'second-target', expiresAt }],
+                };
+                await trx
+                  .insertInto('delegation_revocations')
+                  .values({
+                    nonce: next.nonce,
+                    user_id: USER_ID,
+                    actor_delegation_id: 'actor',
+                    actor_certificate_json: JSON.stringify(certificate),
+                    revocation_json: JSON.stringify(next),
+                    revoked_count: 1,
+                    created_at: issuedAt - 1,
+                  })
+                  .execute();
+                await trx
+                  .insertInto('delegation_revocation_outbox')
+                  .values({
+                    command_id: 'second-in-commit-order',
+                    revocation_nonce: next.nonce,
+                    daemon_id: DAEMON_ID,
+                    user_id: USER_ID,
+                    actor_certificate_json: JSON.stringify(certificate),
+                    revocation_json: JSON.stringify(next),
+                    created_at: issuedAt - 1,
+                    acknowledged_at: null,
+                    rejected_reason: null,
+                  })
+                  .execute();
               }),
             );
             yield* Deferred.succeed(committed, undefined);
@@ -1224,6 +1255,17 @@ describe('DaemonControlService', () => {
             'connection-1',
             encodeDaemonControlMessage(
               createDaemonControlCommandAckMessage(command.commandId, { status: 'accepted' }),
+            ),
+          );
+          yield* Effect.promise(() =>
+            waitFor(() => socket.messagesOfType('delegation_revoke').length === 2),
+          );
+          const second = required(socket.messagesOfType('delegation_revoke').at(-1));
+          expect(second.commandId).toBe('second-in-commit-order');
+          yield* control.receive(
+            'connection-1',
+            encodeDaemonControlMessage(
+              createDaemonControlCommandAckMessage(second.commandId, { status: 'accepted' }),
             ),
           );
           // A successful flush returns only after the durable acknowledgement.

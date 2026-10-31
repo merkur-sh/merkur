@@ -64,7 +64,7 @@ beforeEach(async () => {
 });
 
 describe('DaemonLinkClaimService', () => {
-  test('completion replay preserves presence and another same-name daemon', async () => {
+  test('revocation commit order survives tied timestamps and completion replay preserves presence', async () => {
     const service = createDaemonLinkClaimService(
       db,
       {
@@ -187,14 +187,32 @@ describe('DaemonLinkClaimService', () => {
       );
     const oldLive = makeRevocation(
       'delegation-old-live',
-      0x45,
+      0x55,
       revocationIssuedAt + USER_DELEGATION_LIFETIME_MS,
     );
     const expired = makeRevocation('delegation-expired', 0x46, revocationIssuedAt + 1);
-    const newLive = makeRevocation(
-      'delegation-new-live',
-      0x47,
-      revocationIssuedAt + USER_DELEGATION_LIFETIME_MS,
+    const secondActor = deriveUserAuthorizationSigningKey(new Uint8Array(32).fill(0x54));
+    const { signature: _signature, ...actorPayload } = actorCertificate;
+    const secondCertificate = createUserDelegationCertificate(
+      {
+        ...actorPayload,
+        delegationId: 'delegation-second-actor',
+        delegatePublicKey: encodeUserAuthorizationBytes(secondActor.publicKey),
+      },
+      ROOT,
+    );
+    const newLive = createDelegationRevocationStatement(
+      {
+        userId: 'user-1',
+        rootKeyCommitment: ROOT_KEY_COMMITMENT,
+        actorDelegationId: secondCertificate.delegationId,
+        targets: [
+          { delegationId: actorCertificate.delegationId, expiresAt: actorCertificate.expiresAt },
+        ],
+        issuedAt: revocationIssuedAt,
+        nonce: encodeUserAuthorizationBytes(new Uint8Array(32).fill(0x44)),
+      },
+      secondActor,
     );
     await db
       .insertInto('delegation_revocations')
@@ -220,11 +238,11 @@ describe('DaemonLinkClaimService', () => {
         {
           nonce: newLive.nonce,
           user_id: 'user-1',
-          actor_delegation_id: actorCertificate.delegationId,
-          actor_certificate_json: JSON.stringify(actorCertificate),
+          actor_delegation_id: secondCertificate.delegationId,
+          actor_certificate_json: JSON.stringify(secondCertificate),
           revocation_json: JSON.stringify(newLive),
           revoked_count: 1,
-          created_at: revocationIssuedAt + 2,
+          created_at: revocationIssuedAt,
         },
       ])
       .execute();
@@ -266,7 +284,7 @@ describe('DaemonLinkClaimService', () => {
       },
       {
         revocation_nonce: newLive.nonce,
-        actor_certificate_json: JSON.stringify(actorCertificate),
+        actor_certificate_json: JSON.stringify(secondCertificate),
         revocation_json: JSON.stringify(newLive),
       },
     ]);

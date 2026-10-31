@@ -303,7 +303,8 @@ verifies the actor certificate and statement, records the tombstone, and evicts 
 dialing, and parked peers; the Bun daemon persists the merged set in `~/.merkur/config.json` before
 acknowledging. The server replays pending outbox entries when a daemon reconnects, before it becomes
 session-ready, and backfills a newly linked daemon with every statement that still has a live
-target. Statements have no maximum delivery age: the actor certificate is verified at the signed
+target. Database-generated commit sequences order statements and their daemon outboxes; equal
+or decreasing timestamps and random nonce order cannot move a later revocation ahead of its signer. Statements have no maximum delivery age: the actor certificate is verified at the signed
 issuance time, and every target satisfies `issuedAt < expiresAt <= issuedAt + 30 days`.
 A tombstone denies only while `now < expiresAt`, so a statement backdated with a long-expired
 actor key can produce only inert tombstones and cannot deny a live delegation. Expired tombstones

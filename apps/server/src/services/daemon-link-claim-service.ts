@@ -426,10 +426,19 @@ async function backfillDelegationRevocations(
 ): Promise<void> {
   const revocations = await db
     .selectFrom('delegation_revocations')
-    .select(['nonce', 'actor_certificate_json', 'revocation_json', 'created_at'])
+    .innerJoin(
+      'delegation_revocation_order',
+      'delegation_revocation_order.nonce',
+      'delegation_revocations.nonce',
+    )
+    .select([
+      'delegation_revocations.nonce',
+      'actor_certificate_json',
+      'revocation_json',
+      'created_at',
+    ])
     .where('user_id', '=', userId)
-    .orderBy('created_at', 'asc')
-    .orderBy('nonce', 'asc')
+    .orderBy('delegation_revocation_order.sequence', 'asc')
     .execute();
   for (const stored of revocations) {
     if (stored.nonce === null) throw claimError('claim_invalid');
