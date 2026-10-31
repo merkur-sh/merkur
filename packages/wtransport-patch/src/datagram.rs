@@ -41,6 +41,7 @@ impl Datagram {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn write(session_id: SessionId, payload: &[u8]) -> Self {
         let h3dgram = H3Datagram::new(QStreamId::from_session_id(session_id), payload);
 
@@ -69,6 +70,7 @@ impl Datagram {
         self.session_id
     }
 
+    #[cfg(test)]
     #[inline(always)]
     pub(crate) fn into_quic_bytes(self) -> Bytes {
         self.quic_dgram

@@ -97,6 +97,221 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
     }
 }
 
+#[tokio::test]
+async fn borrowed_datagram_storage_excludes_the_carrier_prefix() {
+    use wtransport::error::SendDatagramError;
+
+    for workload in ["accepted", "full", "closed"] {
+        let (_server, _client, local, _remote) = pair().await;
+        let _hold = local.hold_egress();
+        local
+            .send_datagram_owned(Bytes::from_static(b"warm"))
+            .unwrap();
+        local.quic_connection().clear_queued_datagrams();
+        if workload == "full" {
+            for len in [57, 0] {
+                while local
+                    .send_datagram_owned(Bytes::from(vec![0x77; len]))
+                    .is_ok()
+                {}
+            }
+        } else if workload == "closed" {
+            local.close(VarInt::from_u32(0), b"done");
+        }
+        let expected = match workload {
+            "accepted" => Ok(()),
+            "full" => Err(SendDatagramError::Backpressure),
+            _ => Err(SendDatagramError::NotConnected),
+        };
+        for len in [0, 57, 1100] {
+            let payload = vec![0x5a; len];
+            let (result, tally) = measured(|| local.send_datagram(&payload));
+            assert_eq!(result, expected);
+            assert_eq!(
+                tally,
+                Tally {
+                    allocations: usize::from(len != 0),
+                    bytes: len
+                },
+                "workload={workload} len={len}"
+            );
+            if workload == "accepted" {
+                assert_eq!(local.quic_connection().clear_queued_datagrams(), 1);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "release borrowed datagram allocation and instruction profile"]
+async fn borrowed_datagram_prefix_profile() {
+    use std::hint::black_box;
+    use wtransport::error::SendDatagramError;
+
+    let workload =
+        std::env::var("BORROWED_DATAGRAM_WORKLOAD").unwrap_or_else(|_| "accepted".into());
+    let arm = std::env::var("BORROWED_DATAGRAM_ARM").unwrap_or_else(|_| "borrowed".into());
+    let control = arm == "owned";
+    let shared = arm == "shared";
+    let len: usize = std::env::var("BORROWED_DATAGRAM_LEN")
+        .unwrap_or_else(|_| "57".into())
+        .parse()
+        .unwrap();
+    let (_server, _client, local, remote) =
+        if matches!(workload.as_str(), "disabled" | "unsupported") {
+            pair_without_datagrams(workload == "unsupported").await
+        } else {
+            pair().await
+        };
+    let payload = vec![0x5a; if workload == "oversized" { 65536 } else { len }];
+    let owned_payload = Bytes::copy_from_slice(&payload);
+    // This path's output is checked before the egress hold isolates admission.
+    if matches!(workload.as_str(), "accepted" | "full" | "closed") {
+        local.send_datagram(&payload).unwrap();
+        assert_eq!(&remote.receive_datagram().await.unwrap()[..], payload);
+        local
+            .send_datagram_owned(Bytes::copy_from_slice(&payload))
+            .unwrap();
+        assert_eq!(&remote.receive_datagram().await.unwrap()[..], payload);
+        local.send_datagram(&payload).unwrap();
+        local.quic_connection().clear_queued_datagrams();
+    }
+    if workload == "delivered" {
+        let iterations: usize = std::env::var("BORROWED_DATAGRAM_ITERATIONS")
+            .unwrap_or_else(|_| "20000".into())
+            .parse()
+            .unwrap();
+        for _ in 0..32 {
+            if shared {
+                local.send_datagram_owned(owned_payload.clone()).unwrap();
+            } else if control {
+                local
+                    .send_datagram_owned(Bytes::copy_from_slice(&payload))
+                    .unwrap();
+            } else {
+                local.send_datagram(&payload).unwrap();
+            }
+            assert_eq!(&remote.receive_datagram().await.unwrap()[..], payload);
+        }
+        let mut tally = Tally::default();
+        let before = local.quic_connection().stats();
+        for _ in 0..iterations {
+            let (result, sent) = measured(|| {
+                if shared {
+                    local.send_datagram_owned(black_box(&owned_payload).clone())
+                } else if control {
+                    local.send_datagram_owned(Bytes::copy_from_slice(black_box(&payload)))
+                } else {
+                    local.send_datagram(black_box(&payload))
+                }
+            });
+            result.unwrap();
+            tally.allocations += sent.allocations;
+            tally.bytes += sent.bytes;
+            assert_eq!(&remote.receive_datagram().await.unwrap()[..], payload);
+        }
+        let after = local.quic_connection().stats();
+        assert_eq!(
+            after.frame_tx.datagram - before.frame_tx.datagram,
+            iterations as u64
+        );
+        println!(
+            "workload=delivered arm={arm} len={len} iterations={iterations} allocations={} requested_bytes={} datagram_frames={} udp_packets={}",
+            tally.allocations,
+            tally.bytes,
+            after.frame_tx.datagram - before.frame_tx.datagram,
+            after.udp_tx.datagrams - before.udp_tx.datagrams
+        );
+        return;
+    }
+    let _hold = local.hold_egress();
+    if workload == "full" {
+        for fill in [57, 0] {
+            while local
+                .send_datagram_owned(Bytes::from(vec![0x57; fill]))
+                .is_ok()
+            {}
+        }
+    } else if workload == "closed" {
+        local.close(VarInt::from_u32(0), b"profile");
+    }
+    let expected = match workload.as_str() {
+        "accepted" => Ok(()),
+        "full" => Err(SendDatagramError::Backpressure),
+        "closed" => Err(SendDatagramError::NotConnected),
+        "disabled" => Err(SendDatagramError::Disabled),
+        "unsupported" => Err(SendDatagramError::UnsupportedByPeer),
+        "oversized" => Err(SendDatagramError::TooLarge),
+        _ => panic!("unknown workload"),
+    };
+    let send = || {
+        let result = if shared {
+            local.send_datagram_owned(black_box(&owned_payload).clone())
+        } else if control {
+            local.send_datagram_owned(Bytes::copy_from_slice(black_box(&payload)))
+        } else {
+            local.send_datagram(black_box(&payload))
+        };
+        assert_eq!(black_box(result), expected);
+        if workload == "accepted" {
+            assert_eq!(local.quic_connection().clear_queued_datagrams(), 1);
+        }
+    };
+    for _ in 0..100 {
+        send();
+    }
+    let (_, tally) = measured(|| {
+        for _ in 0..2_000_000 {
+            send();
+        }
+    });
+    println!(
+        "workload={workload} arm={arm} len={} iterations=2000000 allocations={} requested_bytes={}",
+        payload.len(),
+        tally.allocations,
+        tally.bytes
+    );
+}
+
+async fn pair_without_datagrams(
+    reverse: bool,
+) -> (Endpoint<Server>, Endpoint<Client>, Connection, Connection) {
+    use wtransport::{Identity, ServerConfig};
+
+    let identity = Identity::self_signed(["localhost"]).unwrap();
+    let hash = identity.certificate_chain().as_slice()[0].hash();
+    let mut transport = wtransport::quinn::TransportConfig::default();
+    transport.datagram_receive_buffer_size(None);
+    let server = Endpoint::server(
+        ServerConfig::builder()
+            .with_bind_default(0)
+            .with_custom_transport(identity, transport)
+            .build(),
+    )
+    .unwrap();
+    let client = Endpoint::client(
+        ClientConfig::builder()
+            .with_bind_default()
+            .with_server_certificate_hashes([hash])
+            .build(),
+    )
+    .unwrap();
+    let accept = async { server.accept().await.await.unwrap().accept().await.unwrap() };
+    let (local, remote) = tokio::join!(
+        accept,
+        client.connect(format!(
+            "https://[::1]:{}",
+            server.local_addr().unwrap().port()
+        ))
+    );
+    let remote = remote.unwrap();
+    if reverse {
+        (server, client, remote, local)
+    } else {
+        (server, client, local, remote)
+    }
+}
+
 fn poll_receive<T>(future: impl Future<Output = T>) -> Poll<T> {
     let mut future = std::pin::pin!(future);
     future

@@ -678,6 +678,109 @@ mod admission_tests {
         println!("rejection_cases={cases} nonempty_inactive_slots=0");
     }
 
+    #[cfg(feature = "quinn")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn borrowed_datagrams_preserve_prefix_bytes_charges_and_refusals() {
+        use crate::{datagram::Datagram, error::SendDatagramError};
+        use bytes::Bytes;
+        use wtransport_proto::{ids::StreamId, varint::VarInt};
+
+        let (_server, _client, sender, receiver) =
+            connected_pair_with_server_datagram_buffer(8192).await;
+        let mut cases = 0;
+        for stream in [
+            0,
+            252,
+            256,
+            65532,
+            65536,
+            (1 << 32) - 4,
+            1 << 32,
+            (1 << 62) - 4,
+        ] {
+            let session = crate::SessionId::try_from_session_stream(StreamId::new(
+                VarInt::try_from_u64(stream).unwrap(),
+            ))
+            .unwrap();
+            let header = Datagram::header_size(session);
+            for len in [0, 1, 57, 1100] {
+                let payload = vec![0x5a; len];
+                let expected = Datagram::write(session, &payload).into_quic_bytes();
+                {
+                    let _hold = sender.hold_egress();
+                    let before = sender
+                        .quic_connection()
+                        .delivery_state()
+                        .datagram_send_buffer_space;
+                    sender.driver.send_datagram(session, &payload).unwrap();
+                    let after = sender
+                        .quic_connection()
+                        .delivery_state()
+                        .datagram_send_buffer_space;
+                    assert_eq!(
+                        before - after,
+                        len + header + quinn_proto::DATAGRAM_SEND_BUFFER_ENTRY_OVERHEAD
+                    );
+                    sender
+                        .driver
+                        .send_datagram_owned(session, Bytes::copy_from_slice(&payload))
+                        .unwrap();
+                }
+                for _ in 0..2 {
+                    assert_eq!(
+                        receiver.quic_connection().read_datagram().await.unwrap(),
+                        expected
+                    );
+                }
+                cases += 1;
+            }
+            let payload =
+                vec![0; sender.quic_connection().max_datagram_size().unwrap() - header + 1];
+            assert_eq!(
+                sender.driver.send_datagram(session, &payload),
+                Err(SendDatagramError::TooLarge)
+            );
+            assert_eq!(
+                sender.driver.send_datagram_owned(session, payload.into()),
+                Err(SendDatagramError::TooLarge)
+            );
+        }
+        let _hold = sender.hold_egress();
+        for len in [57, 0] {
+            while sender
+                .send_datagram_owned(Bytes::from(vec![0x77; len]))
+                .is_ok()
+            {}
+        }
+        let before = sender.quic_connection().delivery_state();
+        for len in [0, 57, 1100] {
+            let payload = vec![0; len];
+            assert_eq!(
+                sender.send_datagram(&payload),
+                Err(SendDatagramError::Backpressure)
+            );
+            assert_eq!(
+                sender.send_datagram_owned(payload.into()),
+                Err(SendDatagramError::Backpressure)
+            );
+            assert_eq!(sender.quic_connection().delivery_state(), before);
+        }
+        sender.close(VarInt::from_u32(0), b"done");
+        for len in [0, 57, 1100, 65536] {
+            let payload = vec![0; len];
+            assert_eq!(
+                sender.send_datagram(&payload),
+                Err(SendDatagramError::NotConnected)
+            );
+            assert_eq!(
+                sender.send_datagram_owned(payload.into()),
+                Err(SendDatagramError::NotConnected)
+            );
+        }
+        assert_eq!(cases, 32);
+        println!("prefix_payload_cases={cases} raw_datagrams=64 exact_charges=32 oversized=16 full=6 closed=8");
+    }
+
     #[test]
     fn batch_space_saturates_for_impossible_and_overflowing_counts() {
         assert_eq!(batch_payload_space(31, 32, 2), 0);
