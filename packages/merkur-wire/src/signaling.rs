@@ -181,7 +181,7 @@ pub struct NetworkChange {
 }
 
 /// One data connection's claim (`data_attach`), sent on signaling after Noise
-/// beside the HELLO on that connection, or its delivery proof
+/// beside the HELLO on that connection, or the bulk lane's delivery proof
 /// (`data_received`). `nonce` is 16 bytes in hex.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -449,8 +449,13 @@ impl ClientSignal {
             Self::WebtransportCandidates(snapshot) => snapshot.is_valid(),
             Self::NetworkChange(message) => is_session_id(&message.browser_node_id),
             Self::SignalingPong {} => true,
-            Self::DataAttach(claim) | Self::DataReceived(claim) => {
+            Self::DataAttach(claim) => {
                 claim.nonce.len() == DATA_ATTACH_NONCE_HEX_CHARS
+                    && claim.nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
+            }
+            Self::DataReceived(claim) => {
+                claim.lane == DataLane::Bulk
+                    && claim.nonce.len() == DATA_ATTACH_NONCE_HEX_CHARS
                     && claim.nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
             }
         }
@@ -1368,6 +1373,69 @@ mod tests {
         );
         for temp in ["wt-pending-03", "wt-pending-", "peer-3"] {
             assert_eq!(lost(temp), None, "{temp}");
+        }
+    }
+
+    #[test]
+    fn delivery_receipts_are_bulk_only_and_keep_their_wire_bytes() {
+        let json =
+            r#"{"type":"data_received","lane":"bulk","nonce":"abababababababababababababababab"}"#;
+        let parsed = ClientSignal::parse(json.as_bytes()).expect("bulk receipt");
+        assert_eq!(parsed.to_json(), json);
+        assert!(ClientSignal::parse(json.replace("bulk", "interactive").as_bytes()).is_none());
+        for nonce in ["", "ab", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"] {
+            assert!(
+                ClientSignal::parse(
+                    json.replace("abababababababababababababababab", nonce)
+                        .as_bytes()
+                )
+                .is_none()
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "profile; run explicitly with --ignored --nocapture"]
+    fn signaling_parse_profile() {
+        let cases = [
+            ("pong", r#"{"type":"signaling_pong"}"#),
+            (
+                "network",
+                r#"{"type":"network_change","browser_node_id":"browser"}"#,
+            ),
+            (
+                "interactive-claim",
+                r#"{"type":"data_attach","lane":"interactive","nonce":"abababababababababababababababab"}"#,
+            ),
+            (
+                "bulk-receipt",
+                r#"{"type":"data_received","lane":"bulk","nonce":"abababababababababababababababab"}"#,
+            ),
+            (
+                "invalid-nonce",
+                r#"{"type":"data_received","lane":"bulk","nonce":"ab"}"#,
+            ),
+            (
+                "invalid-shape",
+                r#"{"type":"data_received","lane":"bulk","nonce":1}"#,
+            ),
+        ];
+        let selected = std::env::var("PROFILE_SIGNAL_CASE").unwrap_or_else(|_| "pong".into());
+        let raw = std::env::var("PROFILE_SIGNAL_ARM").is_ok_and(|arm| arm == "raw");
+        let (_, json) = cases.iter().find(|(name, _)| *name == selected).unwrap();
+        println!(
+            "case={selected} raw={raw} enum_bytes={} accepted={}",
+            std::mem::size_of::<ClientSignal>(),
+            ClientSignal::parse(json.as_bytes()).is_some()
+        );
+        for _ in 0..100_000 {
+            if raw {
+                drop(std::hint::black_box(serde_json::from_slice::<ClientSignal>(
+                    std::hint::black_box(json.as_bytes()),
+                )));
+            } else {
+                std::hint::black_box(ClientSignal::parse(std::hint::black_box(json.as_bytes())));
+            }
         }
     }
 }

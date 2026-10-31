@@ -525,3 +525,114 @@ fn an_attachment_nothing_acknowledges_is_dead_at_its_deadline() {
     );
     assert!(matches!(data_dials(&actions)[..], [(_, EdgeLane::Bulk)]));
 }
+
+fn report_data_delivery(name: &str, actions: &[Action], ready: bool, daemon: &mut NoiseTransport) {
+    use std::hash::{Hash, Hasher};
+    let mut records = 0;
+    let mut bytes = 0;
+    let mut other = std::collections::hash_map::DefaultHasher::new();
+    for action in actions {
+        if let Action::SendReliable {
+            channel: CHANNEL_SIGNALING,
+            payload,
+            ..
+        } = action
+            && matches!(
+                ClientSignal::parse(payload),
+                Some(ClientSignal::DataReceived(_))
+            )
+        {
+            records += 1;
+            bytes += payload.len();
+        } else {
+            match action {
+                Action::SendReliable {
+                    conn,
+                    channel,
+                    payload,
+                } => {
+                    conn.hash(&mut other);
+                    channel.hash(&mut other);
+                    let lane = merkur_e2e::lane_for_channel(*channel).unwrap();
+                    daemon.open_stream(lane, payload).unwrap().hash(&mut other);
+                }
+                Action::SendDatagram { conn, payload } => {
+                    conn.hash(&mut other);
+                    let lane = merkur_e2e::lane_for_channel(payload[0]).unwrap();
+                    daemon
+                        .open_datagram(lane, &payload[1..])
+                        .unwrap()
+                        .hash(&mut other);
+                }
+                Action::RequestIssuance(_)
+                | Action::RequestRenewal(_)
+                | Action::Dial { .. }
+                | Action::DialDirect { .. }
+                | Action::SendProof { .. }
+                | Action::SendInputDatagram { .. }
+                | Action::Close { .. }
+                | Action::Terminal { .. }
+                | Action::TerminalUi(_)
+                | Action::Observation(_)
+                | Action::OpenUrl { .. }
+                | Action::DisplayFence(_)
+                | Action::GeometryState(_)
+                | Action::GraphicsClock { .. }
+                | Action::GraphicsAsset { .. }
+                | Action::GraphicsJob { .. }
+                | Action::Status(_)
+                | Action::Path(_)
+                | Action::ObservedPath(_) => format!("{action:?}").hash(&mut other),
+            }
+        }
+    }
+    println!(
+        "{name}: records={records} bytes={bytes} other={:016x} ready={ready}",
+        other.finish()
+    );
+}
+
+#[test]
+#[ignore = "profile; run explicitly with --ignored --nocapture"]
+fn data_delivery_receipt_profile() {
+    let mut harness = authenticating();
+    let (mut daemon, _, _) = deliver_ready(&mut harness, NOW + 20);
+    let interactive = harness.interactive;
+    let bulk = harness.bulk;
+    for (name, conn) in [("cold-interactive", interactive), ("cold-bulk", bulk)] {
+        let actions = pair(&mut harness, NOW + 30, conn);
+        report_data_delivery(name, &actions, harness.session.is_ready(), &mut daemon);
+    }
+    for (name, conn) in [
+        ("replacement-interactive", interactive),
+        ("replacement-bulk", bulk),
+    ] {
+        harness
+            .session
+            .handle(NOW + 50, closed(conn), &mut harness.entropy);
+        let actions = drain(&mut harness.session);
+        let [(replacement, _)] = data_dials(&actions)[..] else {
+            panic!("one replacement")
+        };
+        let actions = pair(&mut harness, NOW + 60, replacement);
+        report_data_delivery(name, &actions, harness.session.is_ready(), &mut daemon);
+    }
+    let conn = harness.session.lanes.as_ref().unwrap().interactive;
+    let ack = encode_data_handshake_frame(DataHandshakeKind::Ack, &[0xff; 16]);
+    harness.session.handle(
+        NOW + 80,
+        Event::Reliable {
+            conn,
+            source: DAEMON_ATTACHMENT,
+            channel: CHANNEL_DATA_HELLO,
+            payload: &ack,
+        },
+        &mut harness.entropy,
+    );
+    report_data_delivery(
+        "wrong-nonce",
+        &drain(&mut harness.session),
+        harness.session.is_ready(),
+        &mut daemon,
+    );
+}

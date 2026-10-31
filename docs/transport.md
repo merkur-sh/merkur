@@ -650,7 +650,9 @@ Signaling carries only channel `0x00`. Interactive carries datagrams, input, con
 reliable display until bulk is proven. Bulk isolates large reliable display commits from input.
 All three browser dials start in the same turn, signaling first; authentication never waits for
 data dials. After Noise, the browser sends each data connection's `data_attach` nonce claim on
-signaling and its HELLO on the data connection in the same flight.
+signaling and its HELLO on the data connection in the same flight. The nonce ACK establishes
+interactive readiness directly; only bulk reports downstream delivery with `data_received` on
+signaling, so the daemon can admit reliable display to that lane.
 
 A persistent reliable lane is **source-owned**, not pair-owned: its actor keeps the source stream
 while a destination watch rotates across counterpart attachments, so one browser `CONNECTION_CLOSE`

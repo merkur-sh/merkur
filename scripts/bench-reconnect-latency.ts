@@ -12,6 +12,7 @@ import { emitPerfMetric } from './perf/harness';
 export async function measureReconnect(rttMs: number, outageMs: number, allCarriers = false) {
   const fixture = await createClientSessionFixture();
   const initialLineage = fixture.lineage();
+  const initialSignaling = fixture.signalingCounts();
   const start = fixture.now();
   const phases: { first_dial: number | null; rebind_sent: number | null; usable: number | null } = {
     first_dial: null,
@@ -52,6 +53,7 @@ export async function measureReconnect(rttMs: number, outageMs: number, allCarri
     fixture.input(1, Uint8Array.of(0, 97));
     await fixture.settle();
     assert.equal(fixture.session.released_input(), 1);
+    const signaling = fixture.signalingCounts();
     return {
       scenario: allCarriers ? 'closed-carriers' : 'closed-carrier',
       rttMs,
@@ -59,6 +61,13 @@ export async function measureReconnect(rttMs: number, outageMs: number, allCarri
       phases,
       dials,
       lineage: fixture.lineage(),
+      initialSignaling,
+      recoverySignaling: {
+        records: signaling.records - initialSignaling.records,
+        bytes: signaling.bytes - initialSignaling.bytes,
+        interactiveReceipts: signaling.interactiveReceipts - initialSignaling.interactiveReceipts,
+        bulkReceipts: signaling.bulkReceipts - initialSignaling.bulkReceipts,
+      },
     };
   } finally {
     await fixture.close();

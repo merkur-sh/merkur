@@ -3203,17 +3203,19 @@ impl Session {
         lane.next_hello_ms = None;
         lane.confirmed_ms.get_or_insert(now_ms);
         lane.deadline_ms = None;
-        // A round trip of our fresh nonce proves this pairing delivers.
-        self.actions.push_back(Action::SendReliable {
-            conn: lanes.signaling,
-            channel: CHANNEL_SIGNALING,
-            payload: ClientSignal::DataReceived(DataClaim {
-                lane: data_lane(index),
-                nonce: hex(&lane.nonce),
-            })
-            .to_json()
-            .into_bytes(),
-        });
+        // Bulk display waits for proof that its downstream attachment delivers.
+        if index == 1 {
+            self.actions.push_back(Action::SendReliable {
+                conn: lanes.signaling,
+                channel: CHANNEL_SIGNALING,
+                payload: ClientSignal::DataReceived(DataClaim {
+                    lane: DataLane::Bulk,
+                    nonce: hex(&lane.nonce),
+                })
+                .to_json()
+                .into_bytes(),
+            });
+        }
         if genesis && index == 0 {
             self.paths.register(PathKind::Relay);
             self.refresh_primary();
