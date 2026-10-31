@@ -27,6 +27,13 @@ describe('terminal WASM font initialization benchmark', () => {
       'terminal-wasm-boot-once-init-p50',
       'terminal-wasm-boot-once-init-p95',
       'terminal-wasm-boot-once-init-p99',
+      ...['regular', 'boot'].flatMap((face) =>
+        ['unchanged', 'line-height', 'size-dpr', 'invalid'].flatMap((scenario) =>
+          ['p50', 'p95', 'p99'].map(
+            (percentile) => `terminal-wasm-${face}-metrics-${scenario}-${percentile}`,
+          ),
+        ),
+      ),
     ]);
     const cold = metrics.filter((metric) => metric.name.endsWith('-cold'));
     expect(cold.every((metric) => metric.sampleSize === 1)).toBe(true);
@@ -36,6 +43,8 @@ describe('terminal WASM font initialization benchmark', () => {
         .every((metric) => metric.sampleSize === 100),
     ).toBe(true);
     expect(metrics.every((metric) => metric.value > 0)).toBe(true);
+
+    expect(stdout.match(/checksum=\d+/g)).toHaveLength(8);
 
     // The reason the boot face exists: it is the blocking parse, and it must be
     // materially cheaper than the face it stands in for.

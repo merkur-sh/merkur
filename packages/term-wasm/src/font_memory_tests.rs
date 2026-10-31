@@ -135,7 +135,7 @@ fn atlas_replacement_reuses_only_initial_pixel_capacity() {
     let fonts = terminal.atlas.as_ref().expect("atlas").fonts.clone();
     let mut atlas = terminal.atlas.take().expect("atlas");
     let pointer = atlas.pixels.as_ptr();
-    let stats = geometry_allocations::measure(|| {
+    let (_, stats) = geometry_allocations::measure(|| {
         atlas.replace_fonts(fonts.clone());
     });
     println!("FONT_MEMORY replacement={stats:?}");
@@ -167,7 +167,7 @@ fn atlas_replacement_reuses_only_initial_pixel_capacity() {
     atlas.replace_fonts(fonts.clone());
     assert!(atlas.pixels.iter().all(|&pixel| pixel == 0));
     assert!(atlas.grow());
-    let stats = geometry_allocations::measure(|| {
+    let (_, stats) = geometry_allocations::measure(|| {
         atlas.replace_fonts(fonts);
     });
     assert_eq!(stats.allocations, 1);
@@ -217,7 +217,7 @@ fn atlas_replacement_profile() {
             terminal.replace_fonts(fonts.clone());
         }
     };
-    let stats = geometry_allocations::measure(|| {
+    let (_, stats) = geometry_allocations::measure(|| {
         if workload == "steady" {
             terminal.build_geometry();
         } else {
