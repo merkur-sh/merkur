@@ -13990,3 +13990,222 @@ proptest::proptest! {
         );
     }
 }
+
+#[test]
+#[ignore = "exclusive inline workspace allocation and byte-equivalence profile"]
+fn inline_workspace_dominance_profile() {
+    use crate::edge_tunnel::test_allocations;
+    let arm = std::env::var("MERKUR_INLINE_PROFILE_ARM").unwrap_or_else(|_| "both".into());
+    let rounds = std::env::var("BENCH_SAMPLES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(14);
+    test_allocations::begin_thread();
+    let mut owner = (arm != "worker").then(|| DisplayScratch::new(0));
+    let owner_cold = test_allocations::end_thread();
+    test_allocations::begin_thread();
+    let mut worker = (arm != "owner").then(PrepareScratch::default);
+    let worker_cold = test_allocations::end_thread();
+    if let Some(owner) = &mut owner {
+        owner.prepare.pin_sender_service(20.0);
+    }
+    if let Some(worker) = &mut worker {
+        worker.pin_sender_service(20.0);
+    }
+    eprintln!(
+        "INLINE_STORAGE owner_allocations={} owner_requested={} owner_retained={} owner_size={} worker_allocations={} worker_requested={} worker_retained={} worker_size={}",
+        owner_cold.allocations,
+        owner_cold.allocated_bytes,
+        owner
+            .as_ref()
+            .map_or(0, |owner| owner.prepare.planner_workspace.retained_bytes()),
+        owner.as_ref().map_or(0, size_of_val),
+        worker_cold.allocations,
+        worker_cold.allocated_bytes,
+        worker
+            .as_ref()
+            .map_or(0, |worker| worker.planner_workspace.retained_bytes()),
+        worker.as_ref().map_or(0, size_of_val)
+    );
+    let owner_retained = owner
+        .as_ref()
+        .map(|owner| owner.prepare.planner_workspace.retained_bytes());
+    let worker_retained = worker
+        .as_ref()
+        .map(|worker| worker.planner_workspace.retained_bytes());
+    use merkur_graphics::budget::{Budget, Usage};
+    use merkur_graphics::geometry::{CELL_UNIT, RowSlice};
+    use merkur_graphics::projection::{Content, ContentKind, Fragment, Stack};
+    let budget = Budget::new(Usage {
+        bytes: 4096,
+        objects: 8,
+    });
+    let fragment = Fragment {
+        content: Content {
+            kind: ContentKind::Image,
+            root: [1; 32],
+            width: 1,
+            height: 1,
+        },
+        stack: Stack {
+            z: 0,
+            image_id: 1,
+            placement: 1,
+        },
+        slice: RowSlice {
+            left: 0,
+            right: CELL_UNIT,
+            top: 0,
+            bottom: CELL_UNIT,
+            source_left: 0,
+            source_right: CELL_UNIT,
+            source_top: 0,
+            source_bottom: CELL_UNIT,
+        },
+    };
+    let (graphics, _charge) = PreparedGraphics::new(
+        &budget,
+        8,
+        &[fragment],
+        &mut merkur_codec::GraphicsEncodeScratch::default(),
+    )
+    .unwrap();
+    assert_eq!(DISPLAY_ASYNC_PREPARE_MIN_ROWS, 2);
+    for (cols, entropy, links) in [
+        (8, false, false),
+        (120, false, true),
+        (384, true, false),
+        (512, true, false),
+    ] {
+        let (event_tx, _event_rx) = crossbeam_channel::unbounded();
+        let mut terminal = TerminalState::new(cols, 1, event_tx);
+        terminal.apply_bytes(&maximum_prepare_fixture(cols, 1, entropy, 0));
+        if links {
+            terminal.apply_bytes(
+                "\x1b[1;1H\x1b]8;;https://example.test/\x1b\\界e\u{301}\x1b]8;;\x1b\\".as_bytes(),
+            );
+        }
+        let mut peer = benchmark_noise_peer();
+        peer.display_cache.resize(cols, 1);
+        for relayed in [false, true] {
+            let mut seed = interactive_request_for_test(
+                1,
+                &terminal,
+                &peer,
+                1,
+                &mut RowCaptureScratch::default(),
+                &mut HashMap::new(),
+            );
+            if cols == 8 {
+                let row = &mut seed.buffers.rows[0];
+                row.sent.graphics = graphics.clone();
+                let (size, encoding, content, span) = encoded_row_size(
+                    &row.request,
+                    &row.baseline,
+                    &row.sent.cells,
+                    None,
+                    &row.sent.graphics,
+                );
+                row.encoded_size = size;
+                row.encoding = encoding;
+                row.content = content;
+                row.span = span;
+            }
+            let mut policy =
+                display_compression_policy(&peer, 100.0, relayed, ExecutionLane::Interactive, 0);
+            policy.planning_context.carrier = CarrierDeliveryQuote {
+                one_way_us: if relayed { 60_000.0 } else { 25_000.0 },
+                pacing_rate_bps: 8_000_000,
+                loss_upper: 0.01,
+                ..CarrierDeliveryQuote::default()
+            };
+            policy.planning_context.alternate_carrier = Some(CarrierDeliveryQuote {
+                one_way_us: if relayed { 25_000.0 } else { 60_000.0 },
+                pacing_rate_bps: 4_000_000,
+                ..CarrierDeliveryQuote::default()
+            });
+            macro_rules! exercise {
+                ($scratch:expr) => {{
+                    let scratch = &mut $scratch;
+                    let mut compressor = Compressor::new();
+                    let mut frames = BufferPool::new(DISPLAY_FRAME_POOL_DEPTH);
+                    let shared = SharedPeerMz::default();
+                    let mut mz = shared.lock();
+                    let mut results = Vec::new();
+                    let mut warm_allocations = 0;
+                    for round in 0..rounds {
+                        test_allocations::begin_thread();
+                        pack_captured_rows(
+                            &seed.buffers.rows,
+                            seed.header,
+                            seed.input_seq,
+                            &policy,
+                            true,
+                            &mut compressor,
+                            scratch,
+                            &mut frames,
+                            Some(&mut MzContext {
+                                state: &mut mz,
+                                presentation_id: 1,
+                                snapshot: false,
+                            }),
+                        );
+                        let tally = test_allocations::end_thread();
+                        if round >= 10 {
+                            warm_allocations += tally.allocations;
+                        }
+                        results.push((
+                            scratch.partition.score_us(),
+                            scratch.partition.get(0),
+                            scratch
+                                .batches
+                                .iter()
+                                .map(|(payload, rows, count, utility)| {
+                                    (payload.frame.clone(), rows.len(), *count, *utility)
+                                })
+                                .collect::<Vec<_>>(),
+                        ));
+                        for (mut payload, _, _, _) in scratch.batches.drain(..) {
+                            mz.return_trace_buffer(std::mem::take(&mut payload.trace));
+                            frames.put(payload.frame);
+                        }
+                    }
+                    assert_eq!(warm_allocations, 0);
+                    results
+                }};
+            }
+            let inline = owner.as_mut().map(|owner| exercise!(owner.prepare));
+            let full = worker.as_mut().map(|worker| exercise!(*worker));
+            if let (Some(inline), Some(full)) = (&inline, &full) {
+                assert_eq!(
+                    inline, full,
+                    "cols={cols} entropy={entropy} links={links} relayed={relayed}"
+                );
+            }
+            let inline = inline.or(full).unwrap();
+            eprintln!(
+                "INLINE_PLAN cols={cols} entropy={entropy} links={links} relayed={relayed} warm_allocations=0 score={} bytes={}",
+                inline.last().unwrap().0,
+                inline
+                    .last()
+                    .unwrap()
+                    .2
+                    .iter()
+                    .map(|batch| batch.0.len())
+                    .sum::<usize>()
+            );
+        }
+    }
+    assert_eq!(
+        owner
+            .as_ref()
+            .map(|owner| owner.prepare.planner_workspace.retained_bytes()),
+        owner_retained
+    );
+    assert_eq!(
+        worker
+            .as_ref()
+            .map(|worker| worker.planner_workspace.retained_bytes()),
+        worker_retained
+    );
+}

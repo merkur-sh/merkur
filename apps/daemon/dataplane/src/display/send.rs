@@ -43,9 +43,11 @@ use crate::display::encoder::{
     StagedFrame, chunk_snapshot_frame, mark_presentation_continues, patch_stream_header,
     planned_wire_len, stamp_display_demand, wire_frame, wire_len,
 };
+#[cfg(test)]
+use crate::display::planner::PlannerWorkspace;
 use crate::display::planner::{
-    BatchPartitionPlan, CarrierDeliveryQuote, ContentClass, ContentEvidence, ExecutionLane,
-    GlobalDisplayPlanningModel, PeerPlanningSnapshot, PlannedRow, PlannerWorkspace,
+    BatchPartitionPlan, BoundedPlannerWorkspace, CarrierDeliveryQuote, ContentClass,
+    ContentEvidence, ExecutionLane, GlobalDisplayPlanningModel, PeerPlanningSnapshot, PlannedRow,
     PlanningContext, Representation, choose_after_compression, content_class_by_bytes,
     display_repair_wire_len, encoded_record_cost_us, fec_recovery_shard_count, group_close_cost_us,
     plan_batch_partitions, predicted_packet_bytes,
@@ -226,12 +228,14 @@ impl Default for PrepareBuffers {
 /// its `Compressor`, the owner loop one on `DisplayScratch` for the inline arm.
 /// `batches` is drained into datagrams by every caller, so it never carries
 /// state between flushes — only capacity.
+pub(crate) type PrepareScratch = BoundedPrepareScratch<{ merkur_codec::MAX_TERMINAL_ROWS + 1 }>;
+
 #[derive(Default)]
-pub(crate) struct PrepareScratch {
+pub(crate) struct BoundedPrepareScratch<const ROW_STORAGE: usize> {
     batches: Vec<PackedBatch>,
     planner: GlobalDisplayPlanningModel,
     partition: BatchPartitionPlan,
-    planner_workspace: PlannerWorkspace,
+    planner_workspace: BoundedPlannerWorkspace<ROW_STORAGE>,
     #[cfg(test)]
     partition_time: Duration,
     #[cfg(test)]
@@ -297,7 +301,7 @@ pub(crate) fn with_pinned_sender_service<T>(service_us: f64, run: impl FnOnce() 
 }
 
 #[cfg(test)]
-impl PrepareScratch {
+impl<const ROW_STORAGE: usize> BoundedPrepareScratch<ROW_STORAGE> {
     /// The inline arm's counterpart of [`with_pinned_sender_service`].
     pub(crate) fn pin_sender_service(&mut self, service_us: f64) {
         self.planner.sender_service_us_for_test = Some(service_us);
@@ -1838,20 +1842,20 @@ fn packed_header_reserve(header: &FrameHeader, input_seq: u32, rows: usize) -> u
 /// Rows are packed against their *compressed* size. A datagram carries
 /// compressed bytes, so the dynamic program sums the learned row prices
 /// and adds the exact per-packet overhead when it compares partitions.
-fn pack_captured_rows(
+fn pack_captured_rows<const ROW_STORAGE: usize>(
     rows: &[DisplayPrepareRow],
     header: FrameHeader,
     input_seq: u32,
     policy: &DisplayCompressionPolicy,
     header_changed: bool,
     compressor: &mut Compressor,
-    scratch: &mut PrepareScratch,
+    scratch: &mut BoundedPrepareScratch<ROW_STORAGE>,
     frames: &mut BufferPool,
     mut mz: Option<&mut MzContext<'_>>,
 ) {
     let header_reserve = packed_header_reserve(&header, input_seq, rows.len());
     let presentation_workload = captured_presentation_workload(rows, policy, header_reserve);
-    let PrepareScratch {
+    let BoundedPrepareScratch {
         batches,
         planner,
         partition,
@@ -2977,7 +2981,7 @@ pub(crate) struct DisplayScratch {
     pub(crate) rows: FlushRowScratch,
     /// Batching state for the inline prepare arm; drained within every flush
     /// that uses it. The prepare thread owns its own beside its compressor.
-    pub(crate) prepare: PrepareScratch,
+    pub(crate) prepare: BoundedPrepareScratch<DISPLAY_ASYNC_PREPARE_MIN_ROWS>,
 }
 
 impl DisplayScratch {
@@ -2988,7 +2992,7 @@ impl DisplayScratch {
             current_row_hashes: Vec::new(),
             flush_row_capture: HashMap::new(),
             rows: FlushRowScratch::default(),
-            prepare: PrepareScratch::default(),
+            prepare: BoundedPrepareScratch::default(),
         }
     }
 }
@@ -4005,7 +4009,7 @@ pub(crate) fn build_datagram_batches(
 /// waiting on, or an owed END — and it applies whether the selection was
 /// empty or every selected row encoded to zero bytes. Damage alone is not a
 /// reason; see the caller.
-fn build_captured_datagram_batches(
+fn build_captured_datagram_batches<const ROW_STORAGE: usize>(
     head: crate::pty::terminal::DisplayHeaderState,
     terminal: &mut TerminalState,
     peer: &mut PeerDisplayState,
@@ -4017,7 +4021,7 @@ fn build_captured_datagram_batches(
     input_seq: u32,
     now_ms: f64,
     compressor: &mut Compressor,
-    scratch: &mut PrepareScratch,
+    scratch: &mut BoundedPrepareScratch<ROW_STORAGE>,
     frames: &mut BufferPool,
     out: &mut Vec<PreparedDisplayDatagram>,
 ) {
@@ -5430,11 +5434,11 @@ fn finish_peer_display_flush(
     }
 }
 
-pub(crate) fn send_peer_datagram_delta_with_worker(
+pub(crate) fn send_peer_datagram_delta_with_worker<const ROW_STORAGE: usize>(
     terminal: &mut TerminalState,
     compressor: &mut Compressor,
     prepare_worker: &mut DisplayPrepareWorker,
-    prepare_scratch: &mut PrepareScratch,
+    prepare_scratch: &mut BoundedPrepareScratch<ROW_STORAGE>,
     peers: &mut PeerMap,
     peer_id: &str,
     now_ms: f64,

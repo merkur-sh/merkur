@@ -869,26 +869,29 @@ impl PlannerState {
 /// Cached candidates and scores for the raw and compressed forms of one span.
 type SpanPrices = [Option<(BatchCandidate, f64)>; 2];
 
-/// Capacity-stable state for the exact partition search. The outer vectors are
-/// fixed by the protocol row cap; their allocations are retained by the one
-/// prepare-thread scratch across flushes. Every frontier is finite because an
-/// open FEC group has at most four members and every shard is at most 1,084 B.
-pub struct PlannerWorkspace {
-    prefix: [usize; MAX_PLANNED_ROWS + 1],
+#[cfg(test)]
+pub type PlannerWorkspace = BoundedPlannerWorkspace<{ MAX_PLANNED_ROWS + 1 }>;
+
+/// Capacity-stable state for the exact partition search. Row storage includes
+/// the prefix sentinel: the owner needs one row, workers the protocol viewport
+/// bound. Every frontier is finite because an open FEC group has at most four
+/// members and every shard is at most 1,084 B.
+pub struct BoundedPlannerWorkspace<const ROW_STORAGE: usize> {
+    prefix: [usize; ROW_STORAGE],
     /// Continuation-row price prefix sums for constant-time span pricing.
-    row_price_prefix: [f64; MAX_PLANNED_ROWS + 1],
+    row_price_prefix: [f64; ROW_STORAGE],
     /// Continuation and first-row prices for each input row.
     row_prices: Box<[[f64; 2]]>,
     /// Per-class byte prefix sums, so a span's mix is one subtraction. u32 is
     /// exact for every legal frame and keeps the workspace under its bound.
-    class_prefix: [[u32; CONTENT_CLASSES]; MAX_PLANNED_ROWS + 1],
+    class_prefix: [[u32; CONTENT_CLASSES]; ROW_STORAGE],
     states: Vec<PlannerState>,
-    frontier_starts: [u32; MAX_PLANNED_ROWS + 1],
-    frontier_ends: [u32; MAX_PLANNED_ROWS + 1],
-    frontier_groups: [[u32; GROUP_LENGTHS + 1]; MAX_PLANNED_ROWS + 1],
-    suffix_lower_bound_us: [f64; MAX_PLANNED_ROWS + 1],
-    suffix_ends: [u16; MAX_PLANNED_ROWS + 1],
-    suffix_representations: [Representation; MAX_PLANNED_ROWS + 1],
+    frontier_starts: [u32; ROW_STORAGE],
+    frontier_ends: [u32; ROW_STORAGE],
+    frontier_groups: [[u32; GROUP_LENGTHS + 1]; ROW_STORAGE],
+    suffix_lower_bound_us: [f64; ROW_STORAGE],
+    suffix_ends: [u16; ROW_STORAGE],
+    suffix_representations: [Representation; ROW_STORAGE],
     candidates: Vec<PlannerState>,
     /// Dense `(open_group_len, open_group_max)` scratch. It is fixed-size but
     /// heap-backed so embedding a planner in `DisplayScratch` does not put a
@@ -911,27 +914,27 @@ pub struct PlannerWorkspace {
     #[cfg(test)]
     disable_group_lower_bound: bool,
     span_costs: Vec<Option<SpanCostEntry>>,
-    /// Every nonempty contiguous span of MAX_PLANNED_ROWS has one triangular
+    /// Every nonempty span within the row bound has one triangular
     /// slot. The suffix pass writes every feasible span before later passes
     /// read it. Reuse is confined to this carrier/profile invocation.
     span_prices: Box<[SpanPrices]>,
 }
 
-impl Default for PlannerWorkspace {
+impl<const ROW_STORAGE: usize> Default for BoundedPlannerWorkspace<ROW_STORAGE> {
     fn default() -> Self {
         Self {
-            prefix: [0; MAX_PLANNED_ROWS + 1],
-            row_price_prefix: [0.0; MAX_PLANNED_ROWS + 1],
-            row_prices: vec![[0.0; 2]; MAX_PLANNED_ROWS].into_boxed_slice(),
-            class_prefix: [[0; CONTENT_CLASSES]; MAX_PLANNED_ROWS + 1],
-            states: Vec::with_capacity(MAX_PLANNED_ROWS * 8),
-            frontier_starts: [0; MAX_PLANNED_ROWS + 1],
-            frontier_ends: [0; MAX_PLANNED_ROWS + 1],
-            frontier_groups: [[0; GROUP_LENGTHS + 1]; MAX_PLANNED_ROWS + 1],
-            suffix_lower_bound_us: [0.0; MAX_PLANNED_ROWS + 1],
-            suffix_ends: [0; MAX_PLANNED_ROWS + 1],
-            suffix_representations: [Representation::Raw; MAX_PLANNED_ROWS + 1],
-            candidates: Vec::with_capacity(MAX_PLANNED_ROWS * 4),
+            prefix: [0; ROW_STORAGE],
+            row_price_prefix: [0.0; ROW_STORAGE],
+            row_prices: vec![[0.0; 2]; ROW_STORAGE - 1].into_boxed_slice(),
+            class_prefix: [[0; CONTENT_CLASSES]; ROW_STORAGE],
+            states: Vec::with_capacity((ROW_STORAGE - 1) * 8),
+            frontier_starts: [0; ROW_STORAGE],
+            frontier_ends: [0; ROW_STORAGE],
+            frontier_groups: [[0; GROUP_LENGTHS + 1]; ROW_STORAGE],
+            suffix_lower_bound_us: [0.0; ROW_STORAGE],
+            suffix_ends: [0; ROW_STORAGE],
+            suffix_representations: [Representation::Raw; ROW_STORAGE],
+            candidates: Vec::with_capacity((ROW_STORAGE - 1) * 4),
             candidate_best: vec![PlannerState::INVALID; GROUP_LENGTHS * SHARD_SIZES]
                 .into_boxed_slice(),
             candidate_dirty: [0; CANDIDATE_DIRTY_WORDS],
@@ -943,10 +946,23 @@ impl Default for PlannerWorkspace {
             group_lower_widest: 0,
             #[cfg(test)]
             disable_group_lower_bound: false,
-            span_costs: vec![None; MAX_PLANNED_ROWS + 1],
-            span_prices: vec![[None; 2]; MAX_PLANNED_ROWS * (MAX_PLANNED_ROWS + 1) / 2]
-                .into_boxed_slice(),
+            span_costs: vec![None; ROW_STORAGE],
+            span_prices: vec![[None; 2]; (ROW_STORAGE - 1) * (ROW_STORAGE) / 2].into_boxed_slice(),
         }
+    }
+}
+
+#[cfg(test)]
+impl<const ROW_STORAGE: usize> BoundedPlannerWorkspace<ROW_STORAGE> {
+    pub(crate) fn retained_bytes(&self) -> usize {
+        size_of_val(self)
+            + size_of_val(&*self.row_prices)
+            + self.states.capacity() * size_of::<PlannerState>()
+            + self.candidates.capacity() * size_of::<PlannerState>()
+            + size_of_val(&*self.candidate_best)
+            + size_of_val(&*self.group_close_lower_bound_us)
+            + self.span_costs.capacity() * size_of::<Option<SpanCostEntry>>()
+            + size_of_val(&*self.span_prices)
     }
 }
 
@@ -1018,7 +1034,7 @@ impl BatchPartitionPlan {
     }
 
     #[cfg(test)]
-    fn score_us(&self) -> f64 {
+    pub(crate) fn score_us(&self) -> f64 {
         self.score_us
     }
 }
@@ -1581,7 +1597,7 @@ fn row_batch_candidates(
     [raw, compressed]
 }
 
-fn plan_for_carrier(
+fn plan_for_carrier<const ROW_STORAGE: usize>(
     global: &GlobalDisplayPlanningModel,
     profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
     lane: ExecutionLane,
@@ -1591,10 +1607,10 @@ fn plan_for_carrier(
     wire_cap: usize,
     carrier: CarrierDeliveryQuote,
     incumbent_score_us: f64,
-    workspace: &mut PlannerWorkspace,
+    workspace: &mut BoundedPlannerWorkspace<ROW_STORAGE>,
     out: &mut BatchPartitionPlan,
 ) {
-    let count = rows.len().min(MAX_PLANNED_ROWS);
+    let count = rows.len().min(ROW_STORAGE - 1);
     // A span's class is decided by its summed census, so the feasibility bound
     // must admit whichever class's ratios reach furthest.
     let mut minimum_ratio = f64::INFINITY;
@@ -2018,7 +2034,7 @@ fn plan_for_carrier(
 /// classified by its own summed cell census and priced with that class's
 /// profile, so rows of different classes join one record whenever that is the
 /// cheaper schedule: a class change between two rows is never a boundary.
-pub fn plan_batch_partitions(
+pub fn plan_batch_partitions<const ROW_STORAGE: usize>(
     global: &GlobalDisplayPlanningModel,
     profiles: &[PeerPlanningSnapshot; CONTENT_CLASSES],
     lane: ExecutionLane,
@@ -2026,11 +2042,11 @@ pub fn plan_batch_partitions(
     rows: &[PlannedRow],
     header_bytes: usize,
     wire_cap: usize,
-    workspace: &mut PlannerWorkspace,
+    workspace: &mut BoundedPlannerWorkspace<ROW_STORAGE>,
     out: &mut BatchPartitionPlan,
 ) {
     out.clear();
-    let count = rows.len().min(MAX_PLANNED_ROWS);
+    let count = rows.len().min(ROW_STORAGE - 1);
     if count == 0 {
         return;
     }
