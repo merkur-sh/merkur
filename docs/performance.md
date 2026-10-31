@@ -1876,8 +1876,9 @@ compilation. Importing the loader performs no compilation; subsequent cryptograp
 reuse the installed bindings. `scripts/bench-bun-wasm-bootstrap.ts` measures fresh source or
 compiled executables, checks hashes and valid/invalid signatures, and counts full-file copies
 separately from timing. Optional baseline and identical-control executables support alternating
-comparisons. macOS additionally reports child instructions retired and peak process memory;
-JavaScriptCore heap size describes retained JS storage only.
+comparisons. macOS additionally reports peak resident memory and, when every sample exposes
+them, child instructions retired and peak footprint. JavaScriptCore heap size describes retained
+JS storage only.
 
 Daemon binary file reads use `Bun.file().bytes()` without copying a Node buffer into a second
 typed array. Text reads retain Node's UTF-8 decoding, which preserves a leading BOM for strict
