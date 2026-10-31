@@ -89,6 +89,7 @@ import {
   disableTerminalNotifications,
   enableTerminalNotifications,
   loadTerminalNotificationState,
+  restoreTerminalNotifications,
   type TerminalNotificationState,
 } from '../terminal/notifications';
 import { createTerminalRingBundle, type TerminalRingBundle } from '../terminal/ring-bundle';
@@ -368,9 +369,11 @@ export function createAppController(): AppController {
   const [terminalStatusMode, setTerminalStatusMode] = createSignal<TerminalStatusMode>('hidden');
   const [terminalDiagnostics, setTerminalDiagnostics] =
     createSignal<TerminalWorkerDiagnostics | null>(null);
-  const [terminalNotificationState, setTerminalNotificationState] = createSignal(
-    loadTerminalNotificationState(),
-  );
+  const storedNotificationState = loadTerminalNotificationState();
+  const [terminalNotificationState, setTerminalNotificationState] =
+    createSignal<TerminalNotificationState>(
+      storedNotificationState === 'enabled' ? 'off' : storedNotificationState,
+    );
   const [telemetryStats, setTelemetryStats] = createSignal<TelemetryWorkerStats | null>(null);
   const [session, setSession] = createSignal<TerminalSession | null>(null);
   const [remoteTitle, setRemoteTitle] = createSignal('');
@@ -595,7 +598,17 @@ export function createAppController(): AppController {
       // Also an account fact: whether this account may create boxes, and
       // whether it runs the waitlist, which decides if Settings has that tab.
       void boxAccess.load(token).catch(() => undefined);
-      return loadDevices(token, userId);
+      setTerminalNotificationState('off');
+      const notifications = restoreTerminalNotifications(token).then(
+        (state) => {
+          if (accessToken() === token) setTerminalNotificationState(state);
+        },
+        (error: Error) => {
+          logger.warn('terminal_notification_registration_failed', { error: String(error) });
+          if (accessToken() === token) setTerminalNotificationState('off');
+        },
+      );
+      await Promise.all([loadDevices(token, userId), notifications]);
     },
   });
   const terminalSessionEpochHandoff = createTerminalSessionEpochHandoff({

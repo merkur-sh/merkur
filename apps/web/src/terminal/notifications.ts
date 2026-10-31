@@ -21,6 +21,20 @@ export function loadTerminalNotificationState(): TerminalNotificationState {
   return localStorage.getItem(STORAGE_KEY) === 'true' ? 'enabled' : 'off';
 }
 
+/** Rebind an existing browser subscription to the account's current delegation. */
+export async function restoreTerminalNotifications(
+  accessToken: string,
+): Promise<TerminalNotificationState> {
+  const preference = loadTerminalNotificationState();
+  if (preference !== 'enabled') return preference;
+  if (Notification.permission !== 'granted') return 'off';
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.getSubscription();
+  if (subscription === null) return 'off';
+  await savePushSubscription(accessToken, serializePushSubscription(subscription));
+  return 'enabled';
+}
+
 export async function enableTerminalNotifications(
   accessToken: string,
 ): Promise<TerminalNotificationState> {

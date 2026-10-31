@@ -343,7 +343,10 @@ port without URL credentials. Registration and every delivery check this restric
 delivery refuses redirects before any second destination receives the encrypted payload.
 Each subscription belongs to the authenticated delegation that registered it. Registration rechecks
 that delegation under the database write lock. Revocation deletes its subscriptions in the same
-transaction; deletion cascades from the delegation. Bell and failed-sign-in delivery require an
+transaction; deletion cascades from the delegation. Each browser account establishment registers
+its existing subscription under the current delegation when its local preference is enabled and
+permission is granted. The displayed state stays off until registration succeeds; a missing
+subscription or registration failure displays off. Bell and failed-sign-in delivery require an
 unrevoked, unexpired owner, and token cleanup removes expired subscriptions in bounded batches.
 
 ## Linking A Daemon
