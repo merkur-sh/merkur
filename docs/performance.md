@@ -2090,6 +2090,8 @@ replacement placements become visible. The composer reuses its known cursor posi
 text output; the workspace restores the remote cursor only after painting the status row.
 Kitty uploads use literal continuation headers. Variable graphics headers are formatted into
 a stack buffer sized for the longest command before one append to the host output buffer.
+Placement reconciliation walks the unique quad orders in the desired and shown vectors,
+deleting obsolete placements before inserting replacements.
 
 Native carrier and UI deliveries retain count and byte reservations through every forwarding
 queue; enqueueing to a second queue does not release their original credit. Control, display
