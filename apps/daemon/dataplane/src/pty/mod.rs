@@ -177,6 +177,12 @@ pub struct PtyHandle {
     pub reader: std::sync::Arc<ReaderStop>,
 }
 
+#[derive(Default)]
+struct ReaderControl {
+    thread: Option<libc::pthread_t>,
+    generation: u64,
+}
+
 /// Pauses the reader thread so an upgrade hands every byte it read to the terminal before
 /// the process is replaced; what it has not read stays in the kernel for the successor.
 ///
@@ -188,15 +194,28 @@ pub struct PtyHandle {
 #[derive(Default)]
 pub struct ReaderStop {
     stop: std::sync::atomic::AtomicBool,
-    thread: std::sync::Mutex<Option<libc::pthread_t>>,
+    thread: std::sync::Mutex<ReaderControl>,
     resumed: std::sync::Condvar,
+    #[cfg(test)]
+    before_park: std::sync::Mutex<
+        Option<(
+            crossbeam_channel::Sender<()>,
+            crossbeam_channel::Receiver<()>,
+        )>,
+    >,
 }
 
 impl ReaderStop {
     pub fn request(&self) {
-        self.stop.store(true, std::sync::atomic::Ordering::Release);
-        let thread = self.thread.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(thread) = *thread {
+        let mut control = self.thread.lock().unwrap_or_else(|e| e.into_inner());
+        if !self.stop.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            control.generation = control
+                .generation
+                .checked_add(1)
+                .expect("reader pause identity exhausted");
+        }
+        self.resumed.notify_one();
+        if let Some(thread) = control.thread {
             // SAFETY: registration and thread exit take this same lock, so the stored
             // pthread id remains live through this call; pthread_kill reads no pointer.
             unsafe { libc::pthread_kill(thread, libc::SIGURG) };
@@ -540,12 +559,16 @@ fn start_pty_reader(
         .name("merkur-pty-reader".to_string())
         .spawn(move || {
             // SAFETY: `pthread_self` takes no argument and names the calling thread.
-            *stop.thread.lock().unwrap_or_else(|e| e.into_inner()) =
+            stop.thread.lock().unwrap_or_else(|e| e.into_inner()).thread =
                 Some(unsafe { libc::pthread_self() });
             struct Registration<'a>(&'a ReaderStop);
             impl Drop for Registration<'_> {
                 fn drop(&mut self) {
-                    *self.0.thread.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    self.0
+                        .thread
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .thread = None;
                 }
             }
             let _registration = Registration(&stop);
@@ -553,15 +576,30 @@ fn start_pty_reader(
             let mut read_ordinal = 0u64;
             loop {
                 if stop.stopping() {
-                    if event_tx
-                        .blocking_send(TerminalEvent::PtyReaderStopped)
-                        .is_err()
-                    {
-                        break;
-                    }
                     let mut guard = stop.thread.lock().unwrap_or_else(|e| e.into_inner());
-                    while stop.stopping() {
-                        guard = stop.resumed.wait(guard).unwrap_or_else(|e| e.into_inner());
+                    loop {
+                        let generation = guard.generation;
+                        drop(guard);
+                        if event_tx
+                            .blocking_send(TerminalEvent::PtyReaderStopped)
+                            .is_err()
+                        {
+                            return;
+                        }
+                        #[cfg(test)]
+                        if let Some((entered, release)) = stop.before_park.lock().unwrap().take() {
+                            entered.send(()).unwrap();
+                            release.recv().unwrap();
+                        }
+                        guard = stop.thread.lock().unwrap_or_else(|e| e.into_inner());
+                        while stop.stopping() && guard.generation == generation {
+                            guard = stop.resumed.wait(guard).unwrap_or_else(|e| e.into_inner());
+                        }
+                        if !stop.stopping() {
+                            break;
+                        }
+                        // A new pause can overtake resume before this thread runs. It is
+                        // still quiescent, but that preparation needs its own acknowledgement.
                     }
                     continue;
                 }
@@ -2153,6 +2191,63 @@ mod tests {
         assert!(matches!(first, TerminalEvent::PtyBytes(ref bytes, _) if **bytes == *b"pty"));
         let second = event_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(second, TerminalEvent::PtyReadClosed));
+    }
+
+    #[test]
+    fn handoff_prepare_failure_preserves_session_repeated_pause() {
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args([
+            "-c",
+            "stty raw -echo; printf ready; IFS= read -r line; printf resumed",
+        ]);
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let (event_tx, event_rx) = pty_event_channel(8);
+        let (_return_tx, return_rx) = unbounded();
+        let stop = std::sync::Arc::new(ReaderStop::default());
+        let (entered_tx, entered_rx) = crossbeam_channel::bounded(1);
+        let (release_tx, release_rx) = crossbeam_channel::bounded(1);
+        *stop.before_park.lock().unwrap() = Some((entered_tx, release_rx));
+        start_pty_reader(
+            pair.master.try_clone_reader().unwrap(),
+            event_tx,
+            return_rx,
+            std::sync::Arc::clone(&stop),
+        )
+        .unwrap();
+        receive_until_pty_marker(&event_rx, b"ready", 1);
+        loop {
+            stop.request();
+            if matches!(
+                event_rx.recv_timeout(Duration::from_millis(5)),
+                Ok(TerminalEvent::PtyReaderStopped)
+            ) {
+                break;
+            }
+        }
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        // The reader cannot observe resume until a new preparation has requested its stop.
+        stop.resume();
+        stop.request();
+        release_tx.send(()).unwrap();
+        let second = event_rx.recv_timeout(Duration::from_secs(1));
+        stop.resume();
+        let mut writer = pair.master.take_writer().unwrap();
+        writer.write_all(b"end\n").unwrap();
+        receive_until_pty_marker(&event_rx, b"resumed", 1);
+        assert!(child.wait().unwrap().success());
+        assert!(
+            matches!(second, Ok(TerminalEvent::PtyReaderStopped)),
+            "new preparation lost its acknowledgement"
+        );
     }
 
     #[test]
