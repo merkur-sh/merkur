@@ -767,8 +767,6 @@ struct FrameRows {
     items: Vec<MzItem>,
     /// Each item's hash, beside `items`, where the encoder keeps them.
     hashes: Vec<u64>,
-    /// A copy's items, relative to where the copy starts.
-    scratch: Vec<MzItem>,
 }
 
 impl FrameRows {
@@ -793,16 +791,16 @@ impl FrameRows {
 
 /// Reusable MZ encoder state.
 #[derive(Default)]
+// Field order preserves vector-load alignment when the frame metadata shrinks.
+#[repr(C)]
 pub struct MzEncoder {
+    /// The epoch declaration the next payloads carry.
+    declaration: Option<MzEpochDeclaration>,
     tables: Tables,
     coded: Vec<u32>,
     scratch: Vec<u8>,
     frame: FrameRows,
-    entry_items: Vec<MzItem>,
     hashes: Vec<u64>,
-    /// The frame's item pairs by pair hash: the newest link of each hash's
-    /// chain in `links`, plus one.
-    pairs: std::collections::HashMap<u64, u32, BuildPair>,
     /// `(entry, item, previous link plus one)`, so the frame's pair index
     /// reuses its storage and allocates nothing once warm.
     links: Vec<(u32, u16, u32)>,
@@ -814,8 +812,10 @@ pub struct MzEncoder {
     row_costs: Vec<MzRowCost>,
     /// Per-entry prices retained while comparing a trial encoding.
     trial_row_costs: Vec<MzRowCost>,
-    /// The epoch declaration the next payloads carry.
-    declaration: Option<MzEpochDeclaration>,
+    /// The frame's item pairs by pair hash: the newest link of each hash's
+    /// chain in `links`, plus one.
+    pairs: std::collections::HashMap<u64, u32, BuildPair>,
+    entry_items: Vec<MzItem>,
 }
 
 /// One row entry's forward entropy price, excluding packet framing and states.
@@ -1322,17 +1322,21 @@ impl MzDecoder {
     }
 }
 
-/// Items `from..from + count` of `source` for a copy into a row of `mode`:
-/// their byte range in the source entry and the cells they cover, with each
-/// item, relative to the copy's start, appended to `items`.
+struct CopySpan<'a> {
+    bytes: std::ops::Range<usize>,
+    items: &'a [MzItem],
+    before: u16,
+    cells: u16,
+}
+
+/// Validate a copy's source span before appending its bytes or metadata.
 #[inline]
-fn copy_items(
-    source: &MzRow<'_>,
+fn copy_span<'a>(
+    source: &MzRow<'a>,
     mode: u8,
     from: usize,
     count: usize,
-    items: &mut Vec<MzItem>,
-) -> Result<(std::ops::Range<usize>, u16), MzError> {
+) -> Result<CopySpan<'a>, MzError> {
     if source.mode != mode {
         return Err(MzError::Corrupt);
     }
@@ -1342,11 +1346,113 @@ fn copy_items(
     if start > usize::from(last.end) {
         return Err(MzError::Corrupt);
     }
-    for it in source.items.get(from..from + count).ok_or(MzError::Corrupt)? {
-        let start = u16::try_from(start).ok().ok_or(MzError::Corrupt)?;
-        items.push(MzItem { end: it.end - start, cells: it.cells - before });
-    }
-    Ok((start..usize::from(last.end), last.cells - before))
+    let items = source
+        .items
+        .get(from..from + count)
+        .ok_or(MzError::Corrupt)?;
+    Ok(CopySpan {
+        bytes: start..usize::from(last.end),
+        items,
+        before,
+        cells: last.cells - before,
+    })
+}
+
+#[inline]
+fn rebase_item(item: MzItem, bytes: i32, cells: i32) -> Result<MzItem, MzError> {
+    Ok(MzItem {
+        end: u16::try_from(i32::from(item.end) + bytes)
+            .ok()
+            .ok_or(MzError::Corrupt)?,
+        cells: u16::try_from(i32::from(item.cells) + cells)
+            .ok()
+            .ok_or(MzError::Corrupt)?,
+    })
+}
+
+/// Copy expansion does not use the coding prior, so both priors share it.
+#[inline(never)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::indexing_slicing,
+    reason = "validated source spans precede vector growth; displacements are differences of bounded 16-bit positions"
+)]
+fn append_copy(
+    frame: &mut FrameRows,
+    sources: &impl MzSources,
+    out: &mut Vec<u8>,
+    row: u16,
+    start: usize,
+    items_from: usize,
+    covered: usize,
+    mode: u8,
+    displacement: Displacement,
+    count: usize,
+) -> Result<u16, MzError> {
+    let item_index = frame.items.len() - items_from;
+    let entry_index = frame.entries.len();
+    let source_item = item_index
+        .checked_add_signed(displacement.item_offset as isize)
+        .ok_or(MzError::Corrupt)?;
+    let at = out.len() - start;
+    let cells = if displacement.kind == SRC_FRAME {
+        let index = entry_index
+            .checked_sub(displacement.back as usize)
+            .ok_or(MzError::Corrupt)?;
+        let &(source_start, source_first, source_mode, source_items_from) =
+            frame.entries.get(index).ok_or(MzError::Corrupt)?;
+        let source_items_to = frame
+            .entries
+            .get(index + 1)
+            .map_or(items_from, |next| next.3);
+        let items = frame
+            .items
+            .get(source_items_from..source_items_to)
+            .ok_or(MzError::Corrupt)?;
+        let source = MzRow {
+            entry: out.get(source_start..).ok_or(MzError::Corrupt)?,
+            first: source_first,
+            items,
+            mode: source_mode,
+            hashes: &[],
+        };
+        let CopySpan {
+            bytes,
+            before,
+            cells,
+            ..
+        } = copy_span(&source, mode, source_item, count)?;
+        let byte_delta = at as i32 - bytes.start as i32;
+        let cell_delta = covered as i32 - i32::from(before);
+        out.extend_from_within(source_start + bytes.start..source_start + bytes.end);
+        // Indices name an earlier entry. Copy each item before a
+        // push can grow the vector and invalidate its storage.
+        let from = source_items_from + source_item;
+        for index in from..from + count {
+            let item = frame.items[index];
+            frame.items.push(rebase_item(item, byte_delta, cell_delta)?);
+        }
+        cells
+    } else {
+        let source_row = u16::try_from(i32::from(row) + displacement.row_offset)
+            .ok()
+            .ok_or(MzError::Corrupt)?;
+        let source = sources.row(
+            displacement.kind == SRC_PREVIOUS,
+            displacement.back,
+            source_row,
+        )?;
+        let span = copy_span(&source, mode, source_item, count)?;
+        let byte_delta = at as i32 - span.bytes.start as i32;
+        let cell_delta = covered as i32 - i32::from(span.before);
+        out.extend_from_slice(source.entry.get(span.bytes).ok_or(MzError::Corrupt)?);
+        for &item in span.items {
+            frame.items.push(rebase_item(item, byte_delta, cell_delta)?);
+        }
+        span.cells
+    };
+    Ok(cells)
 }
 
 #[expect(
@@ -1400,7 +1506,6 @@ fn decode_entry<P: Prior>(
     }
     out.push(mode);
     let first = u16::try_from(out.len() - start).ok().ok_or(MzError::Corrupt)?;
-    let entry_index = frame.entries.len();
     let items_from = frame.items.len();
     walk.prev_seg = SEG_START;
     let mut covered = 0usize;
@@ -1409,7 +1514,6 @@ fn decode_entry<P: Prior>(
             return Err(MzError::Corrupt);
         }
         let seg = io.nibble(key(F_SEG, walk.prev_seg | u32::from(walk.last_copy.is_some()) << 2), 0);
-        let item_index = frame.items.len() - items_from;
         match seg {
             SEG_ITEM => {
                 walk.prev_seg = u32::from(SEG_ITEM);
@@ -1421,35 +1525,9 @@ fn decode_entry<P: Prior>(
             }
             SEG_COPY | SEG_REPCOPY => {
                 let (displacement, count) = copy_after_seg(io, walk, seg, Displacement::NONE, 0)?;
-                let source_item = item_index
-                    .checked_add_signed(displacement.item_offset as isize)
-                    .ok_or(MzError::Corrupt)?;
-                let at = out.len() - start;
-                frame.scratch.clear();
-                let cells = if displacement.kind == SRC_FRAME {
-                    let index = entry_index.checked_sub(displacement.back as usize).ok_or(MzError::Corrupt)?;
-                    let &(source_start, source_first, source_mode, source_items_from) =
-                        frame.entries.get(index).ok_or(MzError::Corrupt)?;
-                    let source_items_to = frame.entries.get(index + 1).map_or(items_from, |next| next.3);
-                    let items = frame.items.get(source_items_from..source_items_to).ok_or(MzError::Corrupt)?;
-                    let source = MzRow { entry: out.get(source_start..).ok_or(MzError::Corrupt)?, first: source_first, items, mode: source_mode, hashes: &[] };
-                    let (range, cells) = copy_items(&source, mode, source_item, count, &mut frame.scratch)?;
-                    out.extend_from_within(source_start + range.start..source_start + range.end);
-                    cells
-                } else {
-                    let source_row = u16::try_from(i32::from(row) + displacement.row_offset).ok().ok_or(MzError::Corrupt)?;
-                    let source = sources.row(displacement.kind == SRC_PREVIOUS, displacement.back, source_row)?;
-                    let (range, cells) = copy_items(&source, mode, source_item, count, &mut frame.scratch)?;
-                    out.extend_from_slice(source.entry.get(range).ok_or(MzError::Corrupt)?);
-                    cells
-                };
-                for it in &frame.scratch {
-                    frame.items.push(MzItem {
-                        end: u16::try_from(at + usize::from(it.end)).ok().ok_or(MzError::Corrupt)?,
-                        cells: u16::try_from(covered + usize::from(it.cells)).ok().ok_or(MzError::Corrupt)?,
-                    });
-                }
-                covered += usize::from(cells);
+                covered += usize::from(append_copy(
+                    frame, sources, out, row, start, items_from, covered, mode, displacement, count,
+                )?);
             }
             _ => return Err(MzError::Corrupt),
         }
@@ -1568,4 +1646,62 @@ fn context_domains_fit_ten_bits() {
     for index in [0, 1, 2, 3, 4, MAX_GRAPHICS_SECTION_BYTES, usize::MAX] {
         check(F_GRAPHICS, graphics_aux(index));
     }
+}
+
+#[cfg(test)]
+impl MzDecoder {
+    pub(super) fn copy_storage(&self) -> (usize, usize, usize) {
+        (
+            0,
+            self.frame.items.capacity() * size_of::<MzItem>(),
+            size_of::<FrameRows>(),
+        )
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::expect_used,
+    reason = "the profile deliberately codes copy fields without finding a match"
+)]
+pub(super) fn copy_profile_payload(
+    kind: u8,
+    back: u32,
+    source_item: u16,
+    count: u16,
+    cells: u16,
+    mode: u8,
+) -> Vec<u8> {
+    let mut tables = Tables::default();
+    tables.begin();
+    let mut coded = Vec::new();
+    let mut coder = Coder {
+        prior: static_model(),
+        tables: &mut tables,
+        coded: &mut coded,
+        bits: 0,
+    };
+    let mut io = EncodeIo {
+        coder: &mut coder,
+        trace: None,
+    };
+    let mut walk = Walk::new();
+    varint(&mut io, F_ROW, 0, 0).expect("row");
+    io.byte(key(F_LEFT, 0), 0);
+    io.byte(key(F_LEFT, 1), 0);
+    let [high, low] = cells.to_be_bytes();
+    io.byte(key(F_COUNT, 0), high);
+    io.byte(key(F_COUNT, 1 | u32::from(high) << 1), low);
+    io.byte(key(F_MODE, walk.prev_mode), mode);
+    copy_fields(
+        &mut io,
+        &mut walk,
+        0,
+        0,
+        Some((kind, back, 7, source_item, count)),
+    )
+    .expect("copy");
+    let mut out = vec![0];
+    nibble::encode(&coded, 2, &mut Vec::new(), &mut out);
+    out
 }

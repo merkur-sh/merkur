@@ -511,6 +511,9 @@ warm frame allocates nothing on either end. Each of the 22 fields has 1,024 cont
 positions; the static prior, each coder's working tables and each session epoch own one
 90,112-byte index. Context keys and symbol traces use that same internal field stride;
 frequencies, adaptation rates and the coded stream do not depend on its storage layout.
+Copy expansion validates its source span and appends item metadata at its final byte and
+cell offsets without an intermediate metadata buffer. Intra-frame copies keep source
+indices across destination growth; historical copies borrow their immutable source items.
 `display::sim::mz_census` replays recorded PTY sessions (`MZPTY1` files in
 `MERKUR_DISPLAY_RECORDINGS`) through `DisplaySim` and the real `term-wasm` viewer, with MZ on and
 off (raw frames): bytes on every lane, frames refused for an unresolved reference, grid
