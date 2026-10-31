@@ -102,7 +102,9 @@ in the same transaction. The existing notification worker publishes each wake on
 control channel and retires unlink intents whose exact owner is gone. Restoring pending rows
 recreates those wakes. Each daemon drains independently, so one failed or unacknowledged
 delivery cannot hold another daemon. Registration drains that daemon's pending rows before
-readiness; a live connection with pending work retries from its existing lease tick. Idle
+readiness; a live connection with pending work retries from its existing lease tick. A reset
+generation broadcast also wakes pending work so an unlink waiting for the reset marker proceeds
+immediately. A wake received during delivery remains pending for the next pass. Idle
 control replicas perform no security-table scans. Subscriber reconnection drains connected
 daemons once to recover wakes lost during the Redis subscription gap. SQL entries leave pending state only after
 daemon acknowledgement or exact unlink retirement. Concurrent delivery of the same revocation

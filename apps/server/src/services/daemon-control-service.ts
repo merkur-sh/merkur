@@ -2000,6 +2000,10 @@ export function createDaemonControlService(
               ...errorLogContext(error),
             }),
           ),
+          // A reset generation makes its marker visible to a waiting unlink.
+          Effect.andThen(() =>
+            daemonWork.has(connection.daemonId) ? wakeDaemonWork(connection.daemonId) : Effect.void,
+          ),
         );
       },
       { discard: true },
@@ -2291,7 +2295,7 @@ export function createDaemonControlService(
             });
             break;
           }
-          if (outcome.success) {
+          if (outcome.success && !owned.pending) {
             owned.pending = true;
             break;
           }

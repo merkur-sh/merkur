@@ -82,8 +82,10 @@ in `daemon_control_owners`. Unlinking cascades that record into
 worker wakes the recorded replica, whose scoped delivery retires its matching
 socket, lease and presence before acknowledging the intent; a later relink has a different
 connection identity and is left alone. A password reset waits for its allocated revocation
-generation and sends it on the old socket before closing that socket. An intent whose exact
-owner is already gone retires without Redis reset state, including after a database restore. Existing admission tickets
+generation and sends it on the old socket before closing that socket. The generation broadcast
+wakes pending unlink work as soon as the reset marker exists, including during an active delivery.
+An intent whose exact owner is already gone retires without Redis reset state, including after a
+database restore. Existing admission tickets
 remain valid only until their signed expiry; no new tickets are issued by a retired connection.
 
 The server also serves the browser application. A compromised database or signer alone cannot forge

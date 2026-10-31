@@ -1314,6 +1314,68 @@ describe('DaemonControlService', () => {
     }
   });
 
+  test.each([false, true])(
+    'reset generation retries pending daemon work while delivery is running: %s',
+    async (running) => {
+      let reads = 0;
+      let pending = false;
+      let resetApplied = false;
+      const attempted = Deferred.makeUnsafe<void>();
+      const release = Deferred.makeUnsafe<void>();
+      const retried = Deferred.makeUnsafe<void>();
+      const service = createService(
+        createFakeCoordination('instance-a', createCoordinationState()),
+        createBrokerBus().redis,
+        {
+          deliverUnlinks: () =>
+            Effect.gen(function* () {
+              reads++;
+              if (!pending) return false;
+              if (resetApplied) {
+                yield* Deferred.succeed(retried, undefined);
+                return false;
+              }
+              yield* Deferred.succeed(attempted, undefined);
+              if (running) yield* Deferred.await(release);
+              return true;
+            }),
+        },
+      );
+      try {
+        await register(service, new TestSocket());
+        await waitFor(() => reads === 2);
+        pending = true;
+        await Effect.runPromise(
+          service.processBrokerFrame(
+            JSON.stringify({
+              type: 'daemon_work',
+              version: 1,
+              daemonId: DAEMON_ID,
+              ownerInstanceId: 'instance-a',
+            }),
+          ),
+        );
+        await Effect.runPromise(Deferred.await(attempted));
+        resetApplied = true;
+        await Effect.runPromise(
+          service.processBrokerFrame(
+            JSON.stringify({
+              type: 'revocation_generation',
+              version: 1,
+              userId: USER_ID,
+              generation: 1,
+            }),
+          ),
+        );
+        await Effect.runPromise(Deferred.succeed(release, undefined));
+        await Effect.runPromise(Deferred.await(retried));
+        expect(reads).toBe(4);
+      } finally {
+        await Effect.runPromise(service.shutdown);
+      }
+    },
+  );
+
   test('a failing daemon cannot starve another pending revocation', async () => {
     const bus = createBrokerBus();
     const first = createFakeCoordination('instance-a', createCoordinationState());

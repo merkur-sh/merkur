@@ -25,7 +25,11 @@ import {
 import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { createDeviceService, type DeviceService, DeviceServiceTag } from './device-service';
 import { EdgeRegistryServiceLive } from './edge-registry-service';
-import { deliverPendingNotifications } from './notification-outbox-service';
+import {
+  deliverPendingNotifications,
+  NotificationOutboxServiceLive,
+  NotificationOutboxServiceTag,
+} from './notification-outbox-service';
 import {
   RealtimeCoordinationServiceLive,
   RealtimeCoordinationServiceTag,
@@ -130,6 +134,7 @@ if (dragonflyUrl === undefined) {
           Effect.scoped(
             Effect.gen(function* () {
               const context = yield* Layer.build(layer);
+              const notifications = yield* startNotificationWorker(context);
               const control = Context.get(context, DaemonControlServiceTag);
               const db = Context.get(context, DatabaseService);
               const coordination = Context.get(context, RealtimeCoordinationServiceTag);
@@ -150,7 +155,7 @@ if (dragonflyUrl === undefined) {
               const devices = createDeviceService(
                 db,
                 { tokenHmacSecret: 'test', publicOrigin: 'https://localhost:3000' },
-                Effect.void,
+                notifications.wake,
               );
               if (reset)
                 yield* Effect.promise(() =>
@@ -166,11 +171,6 @@ if (dragonflyUrl === undefined) {
               yield* devices.deleteDevice(userId, daemonId);
               handle.observePing();
               if (reset) {
-                yield* deliverPendingNotifications(
-                  db,
-                  Context.get(context, RedisServiceTag),
-                  coordination,
-                );
                 expect((yield* takeMessage(frames, 'revocation')).revocationGeneration).toBe(1);
               }
               yield* Deferred.await(socket.closed).pipe(Effect.timeout(UNLINK_TEST_DEADLINE));
@@ -244,29 +244,35 @@ if (dragonflyUrl === undefined) {
             claimSeq,
           });
 
-          // The owner discovers committed work without a request-time flush or reconnect.
           const ownerDb = Context.get(ownerContext, DatabaseService);
-          const revocationId = yield* Effect.promise(() =>
-            recordRevocation(ownerDb, userId, daemonId),
+          // The notification worker discovers committed work without a request-time wake.
+          // Its scope ends before the explicit Redis failure/retry below.
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              yield* startNotificationWorker(ownerContext);
+              const revocationId = yield* Effect.promise(() =>
+                recordRevocation(ownerDb, userId, daemonId),
+              );
+              const revoke = yield* takeMessage(socketFrames, 'delegation_revoke');
+              expect(revoke.commandId).toBe(revocationId);
+              yield* owner.receive(
+                connectionId,
+                encodeDaemonControlMessage(
+                  createDaemonControlCommandAckMessage(revoke.commandId, { status: 'accepted' }),
+                ),
+              );
+              yield* owner.flushUserDelegationRevocations(userId);
+              expect(
+                (yield* Effect.promise(() =>
+                  ownerDb
+                    .selectFrom('delegation_revocation_outbox')
+                    .select('acknowledged_at')
+                    .where('command_id', '=', revocationId)
+                    .executeTakeFirstOrThrow(),
+                )).acknowledged_at,
+              ).not.toBeNull();
+            }),
           );
-          const revoke = yield* takeMessage(socketFrames, 'delegation_revoke');
-          expect(revoke.commandId).toBe(revocationId);
-          yield* owner.receive(
-            connectionId,
-            encodeDaemonControlMessage(
-              createDaemonControlCommandAckMessage(revoke.commandId, { status: 'accepted' }),
-            ),
-          );
-          yield* owner.flushUserDelegationRevocations(userId);
-          expect(
-            (yield* Effect.promise(() =>
-              ownerDb
-                .selectFrom('delegation_revocation_outbox')
-                .select('acknowledged_at')
-                .where('command_id', '=', revocationId)
-                .executeTakeFirstOrThrow(),
-            )).acknowledged_at,
-          ).not.toBeNull();
 
           let deliverySettled = false;
           const delivery = yield* requester
@@ -483,6 +489,17 @@ if (dragonflyUrl === undefined) {
     }, 15_000);
   });
 }
+
+const startNotificationWorker = Effect.fnUntraced(function* (
+  context: Context.Context<DatabaseService | RedisServiceTag | RealtimeCoordinationServiceTag>,
+) {
+  const workerContext = yield* Layer.build(
+    NotificationOutboxServiceLive.pipe(Layer.provide(Layer.succeedContext(context))),
+  );
+  const notifications = Context.get(workerContext, NotificationOutboxServiceTag);
+  yield* notifications.start;
+  return notifications;
+});
 
 function createReplicaLayer(redisUrl: string) {
   const configLayer = Layer.succeed(ServerConfigService, testConfig(redisUrl));
