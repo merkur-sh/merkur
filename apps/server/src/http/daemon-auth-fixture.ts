@@ -13,7 +13,11 @@ import {
   type DaemonControlService,
   DaemonControlServiceTag,
 } from '../services/daemon-control-service';
-import { type DeviceService, DeviceServiceTag } from '../services/device-service';
+import {
+  type DeviceService,
+  DeviceServiceTag,
+  type VerifyDaemonResult,
+} from '../services/device-service';
 import { type RateLimitService, RateLimitServiceTag } from '../services/rate-limit-service';
 import { RedisError, type RedisService, RedisServiceTag } from '../services/redis-service';
 
@@ -72,6 +76,38 @@ export function daemonAuthFixture(
     stunServers: ['stun.test:3478', 'stun.test:3479'],
     boxHostStunObservers: [],
   };
+  function authenticateDaemonProof(
+    id: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'http',
+    p256Signature: string,
+  ): Effect.Effect<VerifyDaemonResult | null>;
+  function authenticateDaemonProof(
+    id: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'control',
+    p256Signature: string,
+  ): Effect.Effect<(VerifyDaemonResult & { readonly daemonBindingJson: string }) | null>;
+  function authenticateDaemonProof(
+    id: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'http' | 'control',
+    p256Signature: string,
+  ) {
+    return Effect.gen(function* () {
+      if (options.beforeVerify !== undefined) yield* Effect.promise(options.beforeVerify);
+      if (
+        id !== 'daemon-1' ||
+        !verifyDaemonProof(publicKey, p256PublicKey, purpose, transcript, signature, p256Signature)
+      )
+        return null;
+      const identity = { daemonId: id, userId: 'user-1', boxId: null };
+      return purpose === 'control' ? { ...identity, daemonBindingJson: '{}' } : identity;
+    });
+  }
   const devices: DeviceService = {
     listDevices: unused,
     getDevice: unused,
@@ -83,14 +119,7 @@ export function daemonAuthFixture(
     deleteDevice: unused,
     touchDaemon: unused,
     touchDaemonsSeen: unused,
-    authenticateDaemonProof: (id, transcript, signature, purpose, p256Signature) =>
-      Effect.gen(function* () {
-        if (options.beforeVerify !== undefined) yield* Effect.promise(options.beforeVerify);
-        return id === 'daemon-1' &&
-          verifyDaemonProof(publicKey, p256PublicKey, purpose, transcript, signature, p256Signature)
-          ? { daemonId: id, userId: 'user-1', boxId: null }
-          : null;
-      }),
+    authenticateDaemonProof,
   };
   const redis: RedisService = {
     useCommands: (fn) =>

@@ -107,6 +107,7 @@ const program = Effect.gen(function* () {
     (service) => service.shutdown,
   );
   const handle = yield* control.acceptConnection({
+    daemonBindingJson: '{}',
     daemonId,
     userId,
     daemonVersion: 'benchmark',

@@ -97,6 +97,7 @@ if (dragonflyUrl === undefined) {
               yield* Queue.unbounded<DaemonControlServerMessage>(),
             );
             const handle = yield* control.acceptConnection({
+              daemonBindingJson: '{}',
               daemonId,
               userId,
               boxId: null,
@@ -136,6 +137,7 @@ if (dragonflyUrl === undefined) {
               const frames = yield* Queue.unbounded<DaemonControlServerMessage>();
               const socket = new ExactControlSocket(frames);
               const handle = yield* control.acceptConnection({
+                daemonBindingJson: '{}',
                 daemonId,
                 userId,
                 boxId: null,
@@ -209,6 +211,7 @@ if (dragonflyUrl === undefined) {
             insertUser(Context.get(ownerContext, DatabaseService), userId, daemonId),
           );
           yield* owner.acceptConnection({
+            daemonBindingJson: '{}',
             daemonId,
             userId,
             boxId: null,

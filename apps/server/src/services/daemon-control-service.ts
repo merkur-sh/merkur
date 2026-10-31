@@ -166,6 +166,7 @@ export interface DaemonControlSocket {
 }
 
 export interface DaemonControlConnectionInput {
+  readonly daemonBindingJson: string;
   readonly daemonId: string;
   readonly userId: string;
   /** The box this daemon runs in, or `null`; selects its STUN observers. */

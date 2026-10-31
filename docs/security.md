@@ -75,8 +75,9 @@ without the server; it admits nothing without a live daemon ticket for the same 
 is admission, not authority: it grants no session and replaces none of the checks above. A
 leaked deployment key would let its holder relay through the edge, and nothing more.
 
-Control registration holds the database write lock while claiming its Redis lease and recording
-its exact ownership in `daemon_control_owners`. Unlinking cascades that record into
+Control registration holds the database write lock while checking that the authenticated daemon
+binding still matches the linked row, claiming its Redis lease and recording its exact ownership
+in `daemon_control_owners`. Unlinking cascades that record into
 `daemon_unlinks` in the deletion transaction. Each replica's scoped consumer retires its matching
 socket, lease and presence before acknowledging the intent; a later relink has a different
 connection identity and is left alone. A password reset waits for its allocated revocation

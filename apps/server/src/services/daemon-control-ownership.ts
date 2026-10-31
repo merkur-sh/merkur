@@ -14,7 +14,12 @@ import type { RedisError, RedisService } from './redis-service';
 export const fenceDaemonRegistration = Effect.fnUntraced(function* (
   db: Kysely<DatabaseSchema>,
   coordination: RealtimeCoordinationService,
-  input: { readonly daemonId: string; readonly userId: string; readonly connectionId: string },
+  input: {
+    readonly daemonId: string;
+    readonly userId: string;
+    readonly connectionId: string;
+    readonly daemonBindingJson: string;
+  },
   acquire: Effect.Effect<ClaimDaemonOnlineResult, RedisError>,
 ) {
   return yield* withDatabaseTransaction(db, (trx) =>
@@ -27,6 +32,7 @@ export const fenceDaemonRegistration = Effect.fnUntraced(function* (
             .select('users.root_epoch')
             .where('daemons.id', '=', input.daemonId)
             .where('daemons.user_id', '=', input.userId)
+            .where('daemons.daemon_binding_json', '=', input.daemonBindingJson)
             .executeTakeFirst(),
         catch: infrastructureError('daemon-control', 'fence-registration'),
       });

@@ -184,6 +184,7 @@ async function createFleet(stun: StunTicketIssuer, keepFrames: boolean): Promise
     handles.push(
       await Effect.runPromise(
         service.acceptConnection({
+          daemonBindingJson: '{}',
           daemonId: `daemon-${index}`,
           userId: `user-${index % 64}`,
           boxId: null,

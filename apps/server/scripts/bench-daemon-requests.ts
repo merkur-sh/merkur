@@ -36,7 +36,11 @@ import { ApiModels } from '../src/http/api-models';
 import { telemetryRoutesPlugin } from '../src/http/routes/telemetry-routes';
 import { createLogger } from '../src/logger';
 import type { runServerProgram } from '../src/runtime';
-import { type DeviceService, DeviceServiceTag } from '../src/services/device-service';
+import {
+  type DeviceService,
+  DeviceServiceTag,
+  type VerifyDaemonResult,
+} from '../src/services/device-service';
 import { RateLimitServiceTag } from '../src/services/rate-limit-service';
 import { type RedisService, RedisServiceTag } from '../src/services/redis-service';
 
@@ -62,6 +66,39 @@ const counters = { redisCommands: 0, rateLimitConsumes: 0, verifications: 0 };
 
 const unused = () => Effect.die(new Error('bench: unexpected service call'));
 
+function authenticateDaemonProof(
+  id: string,
+  transcript: Uint8Array,
+  signature: string,
+  purpose: 'http',
+  p256Signature: string,
+): Effect.Effect<VerifyDaemonResult | null>;
+function authenticateDaemonProof(
+  id: string,
+  transcript: Uint8Array,
+  signature: string,
+  purpose: 'control',
+  p256Signature: string,
+): Effect.Effect<(VerifyDaemonResult & { readonly daemonBindingJson: string }) | null>;
+function authenticateDaemonProof(
+  id: string,
+  transcript: Uint8Array,
+  signature: string,
+  purpose: 'http' | 'control',
+  p256Signature: string,
+) {
+  return Effect.sync(() => {
+    counters.verifications += 1;
+    if (
+      id !== DAEMON_ID ||
+      !verifyDaemonProof(PUBLIC_KEY, P256_PUBLIC_KEY, purpose, transcript, signature, p256Signature)
+    )
+      return null;
+    const identity = { daemonId: id, userId: 'user-1', boxId: null };
+    return purpose === 'control' ? { ...identity, daemonBindingJson: '{}' } : identity;
+  });
+}
+
 const devices: DeviceService = {
   listDevices: unused,
   getDevice: unused,
@@ -73,21 +110,7 @@ const devices: DeviceService = {
   deleteDevice: unused,
   touchDaemon: unused,
   touchDaemonsSeen: unused,
-  authenticateDaemonProof: (id, transcript, signature, purpose, p256Signature) =>
-    Effect.sync(() => {
-      counters.verifications += 1;
-      return id === DAEMON_ID &&
-        verifyDaemonProof(
-          PUBLIC_KEY,
-          P256_PUBLIC_KEY,
-          purpose,
-          transcript,
-          signature,
-          p256Signature,
-        )
-        ? { daemonId: id, userId: 'user-1', boxId: null }
-        : null;
-    }),
+  authenticateDaemonProof,
 };
 
 const redis: RedisService = {

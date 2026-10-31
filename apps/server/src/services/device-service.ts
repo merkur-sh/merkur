@@ -32,6 +32,10 @@ export interface VerifyDaemonResult {
   readonly boxId: string | null;
 }
 
+interface VerifyDaemonControlResult extends VerifyDaemonResult {
+  readonly daemonBindingJson: string;
+}
+
 /**
  * The box behind a device, or why none can be acted on. `ambiguousBoxId` is set
  * when more than one of the account's devices carries that box: a stale row from
@@ -144,9 +148,16 @@ export interface DeviceService {
     daemonId: string,
     transcript: Uint8Array,
     signature: string,
-    purpose: 'http' | 'control',
+    purpose: 'http',
     p256Signature: string,
   ): Effect.Effect<VerifyDaemonResult | null, InfrastructureError>;
+  authenticateDaemonProof(
+    daemonId: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'control',
+    p256Signature: string,
+  ): Effect.Effect<VerifyDaemonControlResult | null, InfrastructureError>;
   touchDaemon(daemonId: string, version: string | null): Effect.Effect<void, InfrastructureError>;
   /**
    * Records that these daemons were proven alive just now, in one statement.
@@ -230,6 +241,9 @@ export function createDeviceService(
     ])
     .where('id', '=', '');
   const daemonProofLookup = daemonProofQuery.compile();
+  const daemonControlProofQuery = daemonProofQuery.select('daemon_binding_json');
+  const daemonControlProofLookup = daemonControlProofQuery.compile();
+  type DaemonControlProofRow = InferResult<typeof daemonControlProofQuery>[number];
   type DaemonProofRow = InferResult<typeof daemonProofQuery>[number];
   const daemonSessionIdentityQuery = db
     .selectFrom('daemons as daemon')
@@ -248,6 +262,68 @@ export function createDeviceService(
     .where('daemon.user_id', '=', '');
   const daemonSessionIdentityLookup = daemonSessionIdentityQuery.compile();
   type DaemonSessionIdentityRow = InferResult<typeof daemonSessionIdentityQuery>[number];
+
+  function authenticateDaemonProof(
+    daemonId: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'http',
+    p256Signature: string,
+  ): Effect.Effect<VerifyDaemonResult | null, InfrastructureError>;
+  function authenticateDaemonProof(
+    daemonId: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'control',
+    p256Signature: string,
+  ): Effect.Effect<VerifyDaemonControlResult | null, InfrastructureError>;
+  function authenticateDaemonProof(
+    daemonId: string,
+    transcript: Uint8Array,
+    signature: string,
+    purpose: 'http' | 'control',
+    p256Signature: string,
+  ): Effect.Effect<VerifyDaemonResult | VerifyDaemonControlResult | null, InfrastructureError> {
+    return Effect.tryPromise({
+      try: async () => {
+        const { rows } = await db.executeQuery<DaemonProofRow | DaemonControlProofRow>({
+          ...(purpose === 'control' ? daemonControlProofLookup : daemonProofLookup),
+          parameters: [daemonId],
+        });
+        const row = rows[0];
+
+        if (row === undefined) {
+          return null;
+        }
+
+        if (
+          !verifyDaemonProof(
+            row.daemon_identity_public_key,
+            row.daemon_identity_p256_public_key,
+            purpose,
+            transcript,
+            signature,
+            p256Signature,
+          )
+        ) {
+          return null;
+        }
+
+        // id is the primary key — null would indicate schema corruption
+        if (row.id === null) {
+          return null;
+        }
+
+        const identity = { daemonId: row.id, userId: row.user_id, boxId: row.box_id };
+        if (purpose === 'control') {
+          if (!('daemon_binding_json' in row)) return null;
+          return { ...identity, daemonBindingJson: row.daemon_binding_json };
+        }
+        return identity;
+      },
+      catch: infrastructureError('device', 'authenticate-daemon-proof'),
+    });
+  }
 
   return {
     listDevices(
@@ -462,52 +538,7 @@ export function createDeviceService(
       if (renamed) yield* wakeNotifications;
     }),
 
-    authenticateDaemonProof(
-      daemonId: string,
-      transcript: Uint8Array,
-      signature: string,
-      purpose: 'http' | 'control',
-      p256Signature: string,
-    ): Effect.Effect<VerifyDaemonResult | null, InfrastructureError> {
-      return Effect.tryPromise({
-        try: async () => {
-          const { rows } = await db.executeQuery<DaemonProofRow>({
-            ...daemonProofLookup,
-            parameters: [daemonId],
-          });
-          const row = rows[0];
-
-          if (row === undefined) {
-            return null;
-          }
-
-          if (
-            !verifyDaemonProof(
-              row.daemon_identity_public_key,
-              row.daemon_identity_p256_public_key,
-              purpose,
-              transcript,
-              signature,
-              p256Signature,
-            )
-          ) {
-            return null;
-          }
-
-          // id is the primary key — null would indicate schema corruption
-          if (row.id === null) {
-            return null;
-          }
-
-          return {
-            daemonId: row.id,
-            userId: row.user_id,
-            boxId: row.box_id,
-          };
-        },
-        catch: infrastructureError('device', 'authenticate-daemon-proof'),
-      });
-    },
+    authenticateDaemonProof,
 
     touchDaemonsSeen(daemonIds: readonly string[]): Effect.Effect<void, InfrastructureError> {
       return Effect.gen(function* () {

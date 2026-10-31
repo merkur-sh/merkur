@@ -162,6 +162,7 @@ describe('DaemonControlService', () => {
           const telemetry = createAccountTelemetryService(db, control, redis);
           expect(yield* telemetry.read(USER_ID)).toBeNull();
           yield* control.acceptConnection({
+            daemonBindingJson: '{}',
             daemonId: DAEMON_ID,
             userId: USER_ID,
             boxId: null,
@@ -368,6 +369,7 @@ describe('DaemonControlService', () => {
             return status;
           };
           yield* service.acceptConnection({
+            daemonBindingJson: '{}',
             daemonId: DAEMON_ID,
             userId: USER_ID,
             boxId: null,
@@ -715,6 +717,7 @@ describe('DaemonControlService', () => {
     let registrationSettled = false;
     const registration = Effect.runPromise(
       service.acceptConnection({
+        daemonBindingJson: '{}',
         daemonId: DAEMON_ID,
         userId: USER_ID,
         boxId: null,
@@ -917,6 +920,7 @@ describe('DaemonControlService', () => {
               const firstSocket = new TestSocket();
               const firstRegistration = yield* Effect.forkChild(
                 control.acceptConnection({
+                  daemonBindingJson: '{}',
                   daemonId: DAEMON_ID,
                   userId: USER_ID,
                   boxId: null,
@@ -962,6 +966,7 @@ describe('DaemonControlService', () => {
               const secondSocket = new TestSocket();
               const secondRegistration = yield* Effect.forkChild(
                 control.acceptConnection({
+                  daemonBindingJson: '{}',
                   daemonId: DAEMON_ID,
                   userId: USER_ID,
                   boxId: null,
@@ -1030,6 +1035,7 @@ describe('DaemonControlService', () => {
           const db = yield* DatabaseService;
           const socket = new TestSocket();
           const handle = yield* control.acceptConnection({
+            daemonBindingJson: '{}',
             daemonId: DAEMON_ID,
             userId: USER_ID,
             boxId: null,
@@ -1073,6 +1079,7 @@ describe('DaemonControlService', () => {
           expect(
             (yield* Effect.result(
               control.acceptConnection({
+                daemonBindingJson: '{}',
                 daemonId: DAEMON_ID,
                 userId: USER_ID,
                 boxId: null,
@@ -1085,12 +1092,20 @@ describe('DaemonControlService', () => {
             ))._tag,
           ).toBe('Failure');
           yield* Effect.promise(() => insertControlDaemon(db));
+          yield* Effect.promise(() =>
+            db
+              .updateTable('daemons')
+              .set({ daemon_binding_json: '{"replacement":true}' })
+              .where('id', '=', DAEMON_ID)
+              .execute(),
+          );
           const replacement = new TestSocket();
           yield* control.acceptConnection({
             daemonId: DAEMON_ID,
             userId: USER_ID,
             boxId: null,
             daemonVersion: '4.0.0',
+            daemonBindingJson: '{"replacement":true}',
             connectionId: 'replacement',
             presenceId: 'replacement-presence',
             socket: replacement,
@@ -1111,6 +1126,21 @@ describe('DaemonControlService', () => {
             ),
           );
           expect(replacement.closed).toEqual([]);
+          expect(state.presence?.connectionId).toBe('replacement');
+          const cachedProof = yield* Effect.result(
+            control.acceptConnection({
+              daemonId: DAEMON_ID,
+              userId: USER_ID,
+              daemonBindingJson: '{}',
+              boxId: null,
+              daemonVersion: 'test',
+              connectionId: 'cached-proof',
+              presenceId: 'cached-proof-presence',
+              socket: new TestSocket(),
+              zone: null,
+            }),
+          );
+          expect(cachedProof._tag).toBe('Failure');
           expect(state.presence?.connectionId).toBe('replacement');
         }).pipe(Effect.provide(controlLayer), Effect.provide(TestClock.layer())),
       ),
@@ -1142,6 +1172,7 @@ describe('DaemonControlService', () => {
           const db = yield* DatabaseService;
           const socket = new TestSocket();
           yield* control.acceptConnection({
+            daemonBindingJson: '{}',
             daemonId: DAEMON_ID,
             userId: USER_ID,
             boxId: null,
@@ -1369,6 +1400,7 @@ describe('DaemonControlService', () => {
 
     const registration = Effect.runFork(
       service.acceptConnection({
+        daemonBindingJson: '{}',
         daemonId: DAEMON_ID,
         userId: USER_ID,
         boxId: null,
@@ -1411,6 +1443,7 @@ describe('DaemonControlService', () => {
     });
     const registration = Effect.runFork(
       service.acceptConnection({
+        daemonBindingJson: '{}',
         daemonId: DAEMON_ID,
         userId: USER_ID,
         boxId: null,
@@ -1586,6 +1619,7 @@ describe('DaemonControlService', () => {
     const accepted = Effect.runPromise(
       Effect.exit(
         service.acceptConnection({
+          daemonBindingJson: '{}',
           daemonId: DAEMON_ID,
           userId: USER_ID,
           boxId: null,
@@ -1696,6 +1730,7 @@ describe('DaemonControlService', () => {
         Effect.gen(function* () {
           const control = yield* DaemonControlServiceTag;
           yield* control.acceptConnection({
+            daemonBindingJson: '{}',
             daemonId: DAEMON_ID,
             userId: USER_ID,
             boxId: null,
@@ -2562,6 +2597,7 @@ describe('DaemonControlService', () => {
     const second = new TestSocket();
     await Effect.runPromise(
       service.acceptConnection({
+        daemonBindingJson: '{}',
         daemonId: DAEMON_ID,
         userId: USER_ID,
         boxId: null,
@@ -2624,6 +2660,7 @@ describe('DaemonControlService', () => {
     const second = new TestSocket();
     await Effect.runPromise(
       taker.acceptConnection({
+        daemonBindingJson: '{}',
         daemonId: DAEMON_ID,
         userId: USER_ID,
         boxId: null,
@@ -2667,6 +2704,7 @@ describe('DaemonControlService', () => {
     const second = new TestSocket();
     await Effect.runPromise(
       service.acceptConnection({
+        daemonBindingJson: '{}',
         daemonId: DAEMON_ID,
         userId: USER_ID,
         boxId: null,
@@ -3217,6 +3255,7 @@ function registerHandle(
 ): Promise<ControlConnectionHandle> {
   return Effect.runPromise(
     service.acceptConnection({
+      daemonBindingJson: '{}',
       daemonId: DAEMON_ID,
       userId: USER_ID,
       boxId: null,

@@ -341,6 +341,23 @@ describe('DeviceService', () => {
         ),
       ),
     ).resolves.toBeNull();
+    const controlSignature = signDaemonProof(SEED.toString('base64url'), 'control', transcript);
+    await expect(
+      Effect.runPromise(
+        service.authenticateDaemonProof(
+          'daemon-1',
+          transcript,
+          controlSignature.mldsa,
+          'control',
+          controlSignature.p256,
+        ),
+      ),
+    ).resolves.toEqual({
+      daemonId: 'daemon-1',
+      userId: 'user-1',
+      boxId: null,
+      daemonBindingJson: '{"binding":true}',
+    });
   });
 
   test('account boxes come from recorded box ids, once each, never from another account', async () => {
