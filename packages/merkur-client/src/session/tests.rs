@@ -2010,3 +2010,43 @@ fn a_graphics_job_is_told_to_a_recording_host_as_io_and_to_no_other() {
         .graphics_demand(lineage, vec![tile("a"), tile("b"), tile("c")]);
     assert!(!drain(&mut h.session).iter().any(job));
 }
+
+#[test]
+fn reliable_backlog_is_split_into_valid_runs() {
+    let (mut h, mut daemon) = ready();
+    drain(&mut h.session);
+    h.session
+        .set_reliable_blocked(NOW + 30, h.interactive, CHANNEL_PTY, true);
+    for seq in 1..=256 {
+        h.session
+            .send_input(NOW + 31, seq, build::text(&seq.to_string()), false);
+        // Datagram loss while the reliable writer is blocked.
+        drain(&mut h.session);
+    }
+    let mut received = Vec::new();
+    while h.session.outbox.reliable_sent < h.session.outbox.len() {
+        h.session
+            .set_reliable_blocked(NOW + 32, h.interactive, CHANNEL_PTY, false);
+        let sent: Vec<_> = std::iter::from_fn(|| h.session.poll_available_io_action()).collect();
+        let runs = received_input(&mut daemon, &sent);
+        let mut progressed = false;
+        for (datagram, base, records) in runs {
+            if !datagram {
+                assert_eq!(base as usize, received.len() + 1);
+                assert!(records.len() <= u8::MAX as usize);
+                received.extend(records);
+                progressed = true;
+            }
+        }
+        assert!(
+            progressed,
+            "writer completion must advance the reliable suffix"
+        );
+    }
+    assert_eq!(
+        received,
+        (1..=256)
+            .map(|seq| build::text(&seq.to_string()))
+            .collect::<Vec<_>>()
+    );
+}

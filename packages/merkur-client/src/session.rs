@@ -3312,10 +3312,11 @@ impl Session {
         // The reliable backstop, from its own cursor.
         let from = self.outbox.reliable_sent;
         if from < self.outbox.len() && self.has_reliable_capacity(CHANNEL_PTY) {
-            self.send_input_run(from, self.outbox.len() - from, geometry, |session, frame| {
+            let count = (self.outbox.len() - from).min(u8::MAX as usize);
+            self.send_input_run(from, count, geometry, |session, frame| {
                 session.send_sealed_reliable(CHANNEL_PTY, frame);
             });
-            self.outbox.reliable_sent = self.outbox.len();
+            self.outbox.reliable_sent += count;
         }
         // Detection is clocked by what we send, not by the next steady ping.
         let (heartbeat, mut link) = self.liveness();
