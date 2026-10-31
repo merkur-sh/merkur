@@ -633,7 +633,8 @@ The planner scores a complete utility run using the carrier quote, serialization
 preparation service, receiver service and debt, and each FEC or reliable group's recovery tail.
 Within a solve, row prices are computed once for each position. The suffix pass prices every
 feasible contiguous span before the frontier pass reads it; both passes use the same choices
-from a preallocated triangular table covering every span of the maximum legal row count. The
+from a preallocated triangular table covering every span its workspace can receive. Inline
+preparation holds one row; the preparation worker holds the maximum legal row count. The
 table is overwritten for each carrier/profile invocation, so observations and successor facts
 cannot reuse a price from another solve. Arithmetic order and equal-score selection are unchanged.
 The planner carries an already emitted open FEC group into suffix replans and compares complete
