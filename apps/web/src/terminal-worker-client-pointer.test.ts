@@ -132,3 +132,20 @@ for (const ending of ['touchend', 'touchcancel']) {
     ).toBe(true);
   });
 }
+
+test('a physical right click reports one press and one release', () => {
+  const host = pointerHost();
+  const event = { pointerType: 'mouse', pointerId: 1, button: 2, clientX: 24, clientY: 64 };
+  host.dispatch('pointerdown', event);
+  host.dispatch('contextmenu', event);
+  host.dispatch('pointerup', event);
+  expect(host.records.map((record) => (record.kind === 'mouse' ? record.action : -1))).toEqual([
+    protocol.MOUSE_ACTION_PRESS,
+    protocol.MOUSE_ACTION_RELEASE,
+  ]);
+  expect(
+    host.records.every(
+      (record) => record.kind === 'mouse' && record.button === protocol.MOUSE_BUTTON_RIGHT,
+    ),
+  ).toBe(true);
+});

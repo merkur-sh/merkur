@@ -1134,19 +1134,9 @@ export function createTerminalWorkerClient(
     // exists to provide, so forwarding the button to the application would
     // take the menu away exactly when it is useful.
     if (selectionOwnsMouse(e)) return;
-    if (mouseMode & MM_CLICKS) {
-      e.preventDefault();
-      const cell = pixelToCell(e.clientX, e.clientY);
-      callbacks.onMouseInput(
-        encodeMouseRecord(
-          MOUSE_ACTION_PRESS,
-          MOUSE_BUTTON_RIGHT,
-          pointerMods(e),
-          cell.col,
-          cell.row,
-        ),
-      );
-    }
+    // Pointer events own physical button reports; contextmenu only suppresses
+    // the browser menu while the application owns the gesture.
+    if (mouseMode & MM_CLICKS) e.preventDefault();
   });
 
   // ── Wheel event ────────────────────────────────────────────────────────────
