@@ -7,6 +7,7 @@ import {
   SESSION_AUTHORIZATION_SEED_BYTES,
   validateOpaqueServerSetup,
 } from '@merkur/auth';
+import { MAX_STUN_SERVER_CHARS, MAX_STUN_SERVERS } from '@merkur/daemon-control-protocol';
 import { Context, Data, Effect, Layer, type LogLevel, Option, Redacted } from 'effect';
 
 import { serverEnvironment } from './server-environment';
@@ -1064,7 +1065,7 @@ function parseStunServers(value: string): Effect.Effect<readonly string[], Serve
         .split(',')
         .map((entry) => entry.trim())
         .filter((entry) => entry.length > 0);
-      if (servers.length < 2) {
+      if (servers.length < 2 || servers.length > MAX_STUN_SERVERS) {
         throw new Error('too few');
       }
       if (new Set(servers).size !== servers.length) {
@@ -1072,7 +1073,7 @@ function parseStunServers(value: string): Effect.Effect<readonly string[], Serve
       }
       for (const server of servers) {
         // `host:port`, where host may be a bracketed IPv6 literal.
-        if (!validStunEndpoint(server)) {
+        if (server.length > MAX_STUN_SERVER_CHARS || !validStunEndpoint(server)) {
           throw new Error('shape');
         }
       }
@@ -1081,8 +1082,7 @@ function parseStunServers(value: string): Effect.Effect<readonly string[], Serve
     catch: () =>
       new ServerConfigError({
         field: 'STUN_SERVERS',
-        message:
-          'STUN_SERVERS must be at least two distinct comma-separated host:port vantage points; a single one leaves NAT behaviour unknowable',
+        message: `STUN_SERVERS must contain 2-${MAX_STUN_SERVERS} distinct host:port vantage points, each at most ${MAX_STUN_SERVER_CHARS} characters; a single one leaves NAT behaviour unknowable`,
       }),
   });
 }
@@ -1105,13 +1105,14 @@ function parseBoxHostStunObservers(
   const known = new Set(stunServers);
   if (
     new Set(observers).size !== observers.length ||
-    observers.some((entry) => !known.has(entry))
+    observers.some((entry) => !known.has(entry)) ||
+    observers.length === stunServers.length
   ) {
     return Effect.fail(
       new ServerConfigError({
         field: 'BOX_HOST_STUN_OBSERVERS',
         message:
-          'BOX_HOST_STUN_OBSERVERS must list distinct entries of STUN_SERVERS, spelled exactly as there',
+          'BOX_HOST_STUN_OBSERVERS must list distinct entries of STUN_SERVERS, spelled exactly as there, and leave at least one observer for boxes',
       }),
     );
   }

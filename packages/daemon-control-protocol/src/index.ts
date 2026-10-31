@@ -338,7 +338,7 @@ const REVOCATION_KEYS = ['type', 'version', 'revocationGeneration'] as const;
  */
 export const MAX_STUN_SERVERS = 8;
 /** `host:port`, long enough for a bracketed IPv6 literal. */
-const MAX_STUN_SERVER_CHARS = 64;
+export const MAX_STUN_SERVER_CHARS = 64;
 /** base64url of a 41-byte ticket is 55 characters; allow a little slack. */
 const MAX_STUN_TICKET_CHARS = 128;
 /** base64url of the 26-byte edge attach ticket (`apps/edge/src/attach_ticket.rs`). */

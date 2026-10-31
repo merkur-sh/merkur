@@ -5582,6 +5582,7 @@ MODULES = {
         "src/server-config.ts": [
             "//packages/auth:src/index.ts.module",
             "//packages/config:node_modules/effect",
+            "//packages/daemon-control-protocol:src/index.ts.module",
             ":package.json.module",
             ":src/server-environment.ts.module",
             ":tsconfig.json.module",
@@ -9828,6 +9829,10 @@ TYPE_INPUTS = {
             "package.json",
             "src/index.ts",
         ],
+        "packages/config/tsconfig.json": [
+            "package.json",
+            "src/index.ts",
+        ],
         "packages/daemon-control-protocol/tsconfig.json": [
             "package.json",
             "src/index.test.ts",
@@ -11077,6 +11082,7 @@ TYPE_PROJECTS = {
         "//:type_inputs/packages/config/tsconfig.json",
         "//packages/auth:type_inputs/packages/config/tsconfig.json",
         "//packages/config:type_inputs/packages/config/tsconfig.json",
+        "//packages/daemon-control-protocol:type_inputs/packages/config/tsconfig.json",
         "//packages/e2e-wasm:pkg_files",
         "//packages/shared:type_inputs/packages/config/tsconfig.json",
     ],

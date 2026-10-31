@@ -2,13 +2,39 @@ import { describe, expect, test } from 'bun:test';
 import { createECDH } from 'node:crypto';
 import { ConfigProvider, Effect, Redacted } from 'effect';
 
-import { loadServerConfig, MIN_SESSION_TOKEN_TTL_MS, OpaqueWebBuildPin } from './server-config';
+import {
+  loadServerConfig,
+  MIN_SESSION_TOKEN_TTL_MS,
+  OpaqueWebBuildPin,
+  ServerConfigError,
+} from './server-config';
 
 const OPAQUE_SERVER_SETUP =
   'vyR7ewWtDdnfxU9MRNWEe8h5iNJ34K03Ebhh8kCjtN7gBCOX9zs6n9SHAFRwXcd4juUL6EWRm0IRF40gSSEc8Y6PwsHNbCpj5V94McaEgFt_ptz-wy2cZCUgVpJrSusGml8FeZBo9aSfBUDVW8bW5I5XwafKzgMQ4lMiFeZ8BCs';
 const OPAQUE_SERVER_PUBLIC_KEY = '_lV018BV4Yes2R8Lq3TmVchsl3XYbxFxC3aHCOGyy1E';
 
 describe('server config', () => {
+  test.each([
+    {
+      STUN_SERVERS: Array.from({ length: 9 }, (_, index) => `stun${index}.example:3478`).join(','),
+    },
+    { STUN_SERVERS: `${'a'.repeat(55)}.example:3478,other.example:3478` },
+    { BOX_HOST_STUN_OBSERVERS: 'stun.test:3478,stun.test:3479' },
+  ])('STUN configuration fits control wire: %j', async (entries) => {
+    await expect(loadConfig(entries)).rejects.toBeInstanceOf(ServerConfigError);
+  });
+  test('STUN configuration fits control wire at both accepted bounds', async () => {
+    const servers = Array.from({ length: 8 }, (_, index) => `stun${index}.example:3478`);
+    expect((await loadConfig({ STUN_SERVERS: servers.join(',') })).stunServers).toEqual(servers);
+    const longest = `${'a'.repeat(51)}.example:3478`;
+    expect(longest.length).toBe(64);
+    expect(
+      (await loadConfig({ STUN_SERVERS: `${longest},other.example:3478` })).stunServers,
+    ).toEqual([longest, 'other.example:3478']);
+    expect(
+      (await loadConfig({ BOX_HOST_STUN_OBSERVERS: 'stun.test:3478' })).boxHostStunObservers,
+    ).toEqual(['stun.test:3478']);
+  });
   test('validates Redis and database endpoints without revealing credentials', async () => {
     for (const url of [
       'https://redis.test',

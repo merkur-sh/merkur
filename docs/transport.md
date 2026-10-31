@@ -1092,6 +1092,8 @@ observer sits inside the daemon's own NAT realm, and the daemon discards it. A b
 standing case: a responder on the box host is reached over the host's bridge, so the server
 leaves the entries named in `BOX_HOST_STUN_OBSERVERS` out of a box daemon's list. Which daemon is
 a box is recorded when its link token is minted for that box, not inferred from its name.
+Startup accepts two to eight distinct STUN endpoints, each at most 64 characters, and requires
+the box-host exclusions to leave at least one endpoint. These bounds match control registration.
 
 Filtering is tested against the first observer, before any other observer address is contacted.
 A response from a different IP and port proves `endpoint_independent` filtering; a same-IP

@@ -213,6 +213,7 @@ WORKSPACE_DEPENDENCIES = {
     ],
     "packages/config": [
         "@merkur/auth",
+        "@merkur/daemon-control-protocol",
         "@merkur/shared",
     ],
 }

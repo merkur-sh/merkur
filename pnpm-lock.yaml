@@ -275,6 +275,9 @@ importers:
       '@merkur/auth':
         specifier: workspace:*
         version: link:../auth
+      '@merkur/daemon-control-protocol':
+        specifier: workspace:*
+        version: link:../daemon-control-protocol
       '@merkur/shared':
         specifier: workspace:*
         version: link:../shared
