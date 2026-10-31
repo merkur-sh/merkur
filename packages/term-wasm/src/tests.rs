@@ -1,5 +1,8 @@
 use merkur_codec::CellAttrs;
 include!("presentation_tests.rs");
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "font_memory_tests.rs"]
+mod font_memory;
 #[path = "render_model_tests.rs"]
 mod render_model;
 #[cfg(not(target_arch = "wasm32"))]
@@ -10,15 +13,22 @@ mod geometry_allocations {
     thread_local! {
         static ENABLED: Cell<bool> = const { Cell::new(false) };
         static COUNT: Cell<usize> = const { Cell::new(0) };
+        static BYTES: Cell<usize> = const { Cell::new(0) };
+        static LIVE: Cell<isize> = const { Cell::new(0) };
+        static PEAK: Cell<isize> = const { Cell::new(0) };
     }
     struct CountingAllocator;
     #[global_allocator]
     static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-    fn record() {
+    fn record(allocated: usize, freed: usize, allocation: bool) {
         let _ = ENABLED.try_with(|enabled| {
             if enabled.get() {
-                let _ = COUNT.try_with(|count| count.set(count.get() + 1));
+                COUNT.set(COUNT.get() + usize::from(allocation));
+                BYTES.set(BYTES.get() + allocated);
+                let live = LIVE.get() + allocated.cast_signed() - freed.cast_signed();
+                LIVE.set(live);
+                PEAK.set(PEAK.get().max(live));
             }
         });
     }
@@ -29,24 +39,25 @@ mod geometry_allocations {
     // so it never allocates.
     unsafe impl GlobalAlloc for CountingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            record();
+            record(layout.size(), 0, true);
             // SAFETY: the caller's `layout` reaches `System` unchanged, so the
             // caller's obligations are exactly `System`'s.
             unsafe { System.alloc(layout) }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-            record();
+            record(layout.size(), 0, true);
             // SAFETY: the caller's `layout` reaches `System` unchanged, so the
             // caller's obligations are exactly `System`'s.
             unsafe { System.alloc_zeroed(layout) }
         }
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            record(0, layout.size(), false);
             // SAFETY: every block this allocator hands out is `System`'s, so
             // `ptr` and `layout` name a block `System` allocated.
             unsafe { System.dealloc(ptr, layout) }
         }
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-            record();
+            record(size, layout.size(), true);
             // SAFETY: `ptr` and `layout` name a block `System` allocated, and
             // the caller's new size reaches it unchanged.
             unsafe { System.realloc(ptr, layout, size) }
@@ -54,6 +65,17 @@ mod geometry_allocations {
     }
 
     pub fn count(run: impl FnOnce()) -> usize {
+        measure(run).allocations
+    }
+
+    #[derive(Debug)]
+    pub struct AllocationStats {
+        pub allocations: usize,
+        pub allocated_bytes: usize,
+        pub peak_bytes: usize,
+    }
+
+    pub fn measure(run: impl FnOnce()) -> AllocationStats {
         struct Reset;
         impl Drop for Reset {
             fn drop(&mut self) {
@@ -61,11 +83,18 @@ mod geometry_allocations {
             }
         }
         COUNT.set(0);
+        BYTES.set(0);
+        LIVE.set(0);
+        PEAK.set(0);
         ENABLED.set(true);
         let reset = Reset;
         run();
         drop(reset);
-        COUNT.get()
+        AllocationStats {
+            allocations: COUNT.get(),
+            allocated_bytes: BYTES.get(),
+            peak_bytes: PEAK.get().cast_unsigned(),
+        }
     }
 }
 

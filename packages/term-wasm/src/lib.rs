@@ -3757,7 +3757,19 @@ impl Terminal {
     }
 
     fn replace_fonts(&mut self, fonts: [Rc<fontdue::Font>; 4]) {
-        self.atlas = Some(atlas::GlyphAtlas::new(fonts));
+        // Native zeroed allocations can use demand-zero pages. WASM instead
+        // retains every grown page, so replacement reuses its existing pixels.
+        #[cfg(target_arch = "wasm32")]
+        {
+            match self.atlas.as_mut() {
+                Some(atlas) => atlas.replace_fonts(fonts),
+                None => self.atlas = Some(atlas::GlyphAtlas::new(fonts)),
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.atlas = Some(atlas::GlyphAtlas::new(fonts));
+        }
         self.full_damage = true;
     }
 
