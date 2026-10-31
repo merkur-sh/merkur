@@ -209,7 +209,7 @@ def _run_reporting(bun, args):
     run. A build action running the launcher as a tool names no report.
     """
     command = '"$runfiles/_main/%s" %s ${selected[@]+"${selected[@]}"} "$@"' % (bun, " ".join(args))
-    if args[0] == "test":
+    if args[:1] == ["test"]:
         return """if [ -n "${XML_OUTPUT_FILE:-}" ]; then
   exec %s --reporter=junit --reporter-outfile="$XML_OUTPUT_FILE"
 fi
