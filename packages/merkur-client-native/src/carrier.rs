@@ -26,7 +26,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use merkur_client::session::ConnId;
 use merkur_edge_protocol::{
-    EGRESS_BUDGET_CLOSE_CODE, EGRESS_BUDGET_CLOSE_REASON, MAX_PREFACE_LEN, SpliceControlEvent,
+    EGRESS_BUDGET_CLOSE_CODE, EGRESS_BUDGET_CLOSE_REASON, MAX_PREFACE_LEN,
+    RETIRED_SOURCE_STREAM_QUIC_CODE, SpliceControlEvent,
 };
 use merkur_wire::protocol::{CHANNEL_CTRL, CHANNEL_DISPLAY_COMMIT, CHANNEL_PTY};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -292,6 +293,7 @@ impl Carrier {
                         channel,
                         recv,
                         inbound.clone(),
+                        self.connection.clone(),
                     )));
                 }
                 self.tasks.push(tokio::spawn(accept_direct_streams(
@@ -477,10 +479,23 @@ async fn read_splice_events(
 }
 
 async fn accept_streams(conn: ConnId, connection: Connection, inbound: InboundSender) {
-    let mut readers = tokio::task::JoinSet::new();
+    let mut readers = tokio::task::JoinSet::<std::io::Result<()>>::new();
     loop {
         tokio::select! {
-            Some(_) = readers.join_next(), if !readers.is_empty() => {},
+            Some(result) = readers.join_next(), if !readers.is_empty() => {
+                match result {
+                    Ok(Ok(())) => (),
+                    Ok(Err(error)) if matches!(
+                        error.get_ref().and_then(|error| error.downcast_ref::<wtransport::quinn::ReadError>()),
+                        Some(wtransport::quinn::ReadError::Reset(code))
+                            if code.into_inner() == RETIRED_SOURCE_STREAM_QUIC_CODE
+                    ) => (),
+                    _ => {
+                        connection.close(VarInt::from_u32(0), b"reliable-lane-ended");
+                        return;
+                    }
+                }
+            },
             stream = connection.accept_uni(), if readers.len() < MAX_READER_TASKS => {
                 let Ok(stream) = stream else { return; };
                 readers.spawn(read_stream(conn, stream, inbound.clone()));
@@ -489,19 +504,25 @@ async fn accept_streams(conn: ConnId, connection: Connection, inbound: InboundSe
     }
 }
 
-async fn read_stream(conn: ConnId, mut stream: wtransport::RecvStream, inbound: InboundSender) {
+async fn read_stream(
+    conn: ConnId,
+    mut stream: wtransport::RecvStream,
+    inbound: InboundSender,
+) -> std::io::Result<()> {
     let mut head = [0u8; 9];
+    // No channel has been claimed. A cancelled finite open may reset here.
     if stream.read_exact(&mut head).await.is_err() {
-        return;
+        return Ok(());
     }
     let source = u64::from_be_bytes(head[..8].try_into().expect("eight bytes"));
     let channel = head[8];
     let inbound = inbound.channel_lane(channel);
     if channel & FINITE_STREAM_BIT != 0 {
-        return read_finite(conn, channel, stream, inbound).await;
+        read_finite(conn, channel, stream, inbound).await;
+        return Ok(());
     }
-    while let Ok(Some((payload, lease))) =
-        read_record_credited(&mut stream, MAX_RECORD_BYTES, &inbound).await
+    while let Some((payload, lease)) =
+        read_record_credited(&mut stream, MAX_RECORD_BYTES, &inbound).await?
     {
         let event = Inbound::Reliable {
             conn,
@@ -510,9 +531,13 @@ async fn read_stream(conn: ConnId, mut stream: wtransport::RecvStream, inbound: 
             payload,
         };
         if !inbound.publish(event, lease) {
-            return;
+            return Ok(());
         }
     }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "persistent carrier stream ended",
+    ))
 }
 
 /// The daemon's records on a direct channel stream: `[u32 BE len][record]`,
@@ -522,6 +547,7 @@ async fn read_direct_records(
     channel: u8,
     mut stream: wtransport::RecvStream,
     inbound: InboundSender,
+    connection: Connection,
 ) {
     let inbound = inbound.channel_lane(channel);
     while let Ok(Some((payload, lease))) =
@@ -537,6 +563,7 @@ async fn read_direct_records(
             return;
         }
     }
+    connection.close(VarInt::from_u32(0), b"reliable-lane-ended");
 }
 
 /// A finite stream after its channel byte: `[u32 BE total]`, then its body
@@ -853,3 +880,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "carrier/retirement_tests.rs"]
+mod retirement_tests;

@@ -77,6 +77,9 @@ export const TRANSPORT_CHANNEL_ID = {
 
 export const EDGE_ROUTING_PREFACE_VERSION = 8;
 
+/** WebTransport stream retirement, mirrored from merkur-edge-protocol. */
+export const RETIRED_SOURCE_STREAM_CODE = 1;
+
 export const DATA_HANDSHAKE_VERSION = 1;
 export const DATA_HANDSHAKE_NONCE_BYTES = 16;
 export const DATA_HANDSHAKE_KIND = {

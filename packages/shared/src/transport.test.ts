@@ -10,6 +10,7 @@ import {
   EDGE_ROUTING_PREFACE_VERSION,
   LOGICAL_CHANNEL_TO_ID,
   LOGICAL_CHANNELS,
+  RETIRED_SOURCE_STREAM_CODE,
   TRANSPORT_CHANNEL_ID,
   type TransportKind,
 } from './transport';
@@ -88,6 +89,12 @@ describe('wire conformance: edge handshakes', () => {
   test('routing-preface version matches the edge contract the Rust peers share', () => {
     expect(EDGE_ROUTING_PREFACE_VERSION).toBe(
       readRustNumericConst(RUST_EDGE_PROTOCOL_SOURCE, 'PREFACE_VERSION'),
+    );
+  });
+
+  test('source retirement code matches the edge and native adapters', () => {
+    expect(RETIRED_SOURCE_STREAM_CODE).toBe(
+      readRustNumericConst(RUST_EDGE_PROTOCOL_SOURCE, 'RETIRED_SOURCE_STREAM_CODE'),
     );
   });
 

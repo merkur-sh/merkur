@@ -1,4 +1,4 @@
-import { DISPLAY_DATAGRAM_RECEIVE_QUEUE_DEPTH } from '@merkur/shared';
+import { DISPLAY_DATAGRAM_RECEIVE_QUEUE_DEPTH, RETIRED_SOURCE_STREAM_CODE } from '@merkur/shared';
 
 // Browser I/O for Session actions. This module frames opaque records; Rust
 // alone authenticates, assigns input sequences and decides carrier ownership.
@@ -470,14 +470,27 @@ export async function dialClientCarrier(
             const reader = borrow(next.value);
             run(
               (async () => {
-                const head = await reader.exact(direct ? 1 : 9);
-                if (head === null) throw new Error('missing terminal channel');
-                const view = new DataView(head.buffer);
-                const source = direct ? 0n : view.getBigUint64(0);
-                const channel = head[direct ? 0 : 8] ?? 0;
                 try {
+                  const head = await reader.exact(direct ? 1 : 9);
+                  if (head === null) throw new Error('missing terminal channel');
+                  const view = new DataView(head.buffer);
+                  const source = direct ? 0n : view.getBigUint64(0);
+                  const channel = head[direct ? 0 : 8] ?? 0;
                   await reliableReader(reader, source, channel);
+                } catch (error) {
+                  if (
+                    !direct &&
+                    error instanceof DOMException &&
+                    error.name === 'WebTransportError' &&
+                    'source' in error &&
+                    error.source === 'stream' &&
+                    'streamErrorCode' in error &&
+                    error.streamErrorCode === RETIRED_SOURCE_STREAM_CODE
+                  )
+                    return;
+                  throw error;
                 } finally {
+                  if (readers.delete(reader)) reader.dispose();
                   incomingActive -= 1;
                   const wake: (() => void) | null = incomingWake as (() => void) | null;
                   incomingWake = null;
