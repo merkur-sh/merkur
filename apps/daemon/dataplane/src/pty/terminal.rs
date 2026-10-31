@@ -1,5 +1,9 @@
 mod graphics;
 
+#[cfg(test)]
+#[path = "terminal/title_storage_tests.rs"]
+mod title_storage_tests;
+
 pub(crate) use graphics::NativeHandover;
 
 use alacritty_terminal::event::{Event, EventListener};
@@ -626,6 +630,10 @@ impl EventListener for EventForwarder {
             self.editor_anchor = Some(anchor);
             self.editor_anchor_generation = self.editor_anchor_generation.wrapping_add(1).max(1);
         }
+    }
+
+    fn title_is_valid(&self, title: &str) -> bool {
+        merkur_wire::terminal_ui::safe_text(title)
     }
 
     fn send_event(&self, event: Event) {

@@ -106,6 +106,12 @@ pub trait OnResize {
 pub trait EventListener {
     fn send_event(&self, _event: Event) {}
 
+    /// Admit a title before the terminal owns it or snapshots it onto the stack.
+    #[inline]
+    fn title_is_valid(&self, _title: &str) -> bool {
+        true
+    }
+
     /// Cheap provenance accounting below synchronized application buffering.
     #[inline]
     fn observe_terminal_bytes(&mut self, _bytes: &[u8]) {}
