@@ -248,8 +248,8 @@ fn one_changed_cell_is_one_move_and_one_glyph() {
     screen.put(0, 3, "x", pen(None, None, 0));
     let frame = compose(&mut composer, &screen, &mut host);
     host.shows(&screen, 0);
-    // Move, reset pen, glyph, then the cursor's move back.
-    assert_eq!(body(&frame), b"\x1b[1;4H\x1b[0mx\x1b[1;5H");
+    // The glyph already advanced to the cursor.
+    assert_eq!(body(&frame), b"\x1b[1;4H\x1b[0mx");
 }
 
 #[test]
@@ -571,4 +571,80 @@ fn a_new_link_table_reads_every_row_and_repaints_what_it_resolved() {
             .uri(),
         "https://merkur.sh/a"
     );
+}
+
+#[test]
+#[ignore = "host byte and allocation census; run with --ignored --nocapture"]
+fn cursor_cost_profile() {
+    for (name, text, col, hidden) in [
+        ("echo", "x", 1, false),
+        ("wide", "界", 2, false),
+        ("wrap", "abcdefghijkl", 11, false),
+        ("hidden", "x", 1, true),
+        ("moved", "x", 5, false),
+        ("erase", "", 0, false),
+    ] {
+        let mut screen = Screen::new(12, 2);
+        screen.put(0, 0, "old", DisplayedCell::BLANK);
+        let mut composer = Composer::new(0);
+        let mut host = Host::new(12, 2);
+        compose(&mut composer, &screen, &mut host);
+        screen.rows[0].fill(DisplayedCell::BLANK);
+        screen.put(0, 0, text, DisplayedCell::BLANK);
+        screen.cursor = (!hidden).then_some(DisplayedCursor {
+            row: 0,
+            col,
+            shape: DisplayedCursorShape::Beam,
+        });
+        let mut out = Vec::with_capacity(1024);
+        let tally = crate::test_allocations::measure(|| {
+            composer.compose(&screen, &mut out);
+        });
+        host.feed(&out);
+        host.shows(&screen, 0);
+        println!(
+            "cursor {name}: bytes={} capacity={} {tally:?}",
+            out.len(),
+            out.capacity()
+        );
+        out.clear();
+        let tally = crate::test_allocations::measure(|| {
+            assert!(!composer.compose(&screen, &mut out));
+        });
+        assert!(out.is_empty());
+        println!("cursor {name} unchanged: bytes=0 {tally:?}");
+    }
+}
+
+#[test]
+#[ignore = "retired-instruction population; select MERKUR_TUI_CURSOR_CASE"]
+fn cursor_instruction_profile() {
+    let case = std::env::var("MERKUR_TUI_CURSOR_CASE").unwrap_or_else(|_| "echo".into());
+    let mut screen = Screen::new(12, 2);
+    let mut composer = Composer::new(0);
+    let mut out = Vec::with_capacity(1024);
+    composer.compose(&screen, &mut out);
+    for index in 0..1_000_000 {
+        out.clear();
+        let col = 1 + (index % 2) as u16;
+        match case.as_str() {
+            "echo" => {
+                screen.rows[0][0].c = if index % 2 == 0 { 'x' } else { 'y' };
+                screen.cursor.as_mut().unwrap().col = 1;
+            }
+            "cursor" => screen.cursor.as_mut().unwrap().col = col,
+            "wrap" => {
+                screen.rows[0][11].c = if index % 2 == 0 { 'x' } else { 'y' };
+                screen.cursor.as_mut().unwrap().col = 11;
+            }
+            "hidden" => {
+                screen.rows[0][0].c = if index % 2 == 0 { 'x' } else { 'y' };
+                screen.cursor = None;
+            }
+            "unchanged" => {}
+            _ => panic!("unknown cursor workload"),
+        }
+        std::hint::black_box(composer.compose(std::hint::black_box(&screen), &mut out));
+        std::hint::black_box(&out);
+    }
 }

@@ -15,6 +15,8 @@ pub mod workspace;
 
 mod orb;
 mod sensitive;
+#[cfg(test)]
+mod test_allocations;
 mod ui;
 
 pub mod password_line;
