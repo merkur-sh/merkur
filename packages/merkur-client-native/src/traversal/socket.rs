@@ -656,7 +656,15 @@ enum Wake {
 }
 
 impl Worker {
-    async fn run(mut self, mut input: watch::Receiver<MaintenanceInput>) -> Option<Quarantine> {
+    async fn run(self, input: watch::Receiver<MaintenanceInput>) -> Option<Quarantine> {
+        self.run_with_resolver(input, router_path).await
+    }
+
+    async fn run_with_resolver(
+        mut self,
+        mut input: watch::Receiver<MaintenanceInput>,
+        resolve_path: impl Fn(IpAddr) -> Option<RouterPath>,
+    ) -> Option<Quarantine> {
         let mut acquire_paths = true;
         let mut keepalive = None;
         let mut keepalive_targets = Vec::new();
@@ -684,11 +692,27 @@ impl Worker {
                 // path's preservation deadline while slower observers finish.
                 keepalive = (!keepalive_targets.is_empty())
                     .then(|| keepalive.unwrap_or_else(|| Instant::now() + Duration::from_secs(14)));
-                self.add_paths(&round, &input).await;
+                self.add_paths(&round, &input, &resolve_path).await;
             }
             match next_wake(&mut self.mappings, &mut input, keepalive).await {
                 Wake::Closed => break,
                 Wake::Credentials => {
+                    // Fresh evidence permits cleanup; ownership stays reserved
+                    // until the selected router acknowledges deletion.
+                    let mut cleanup = FuturesUnordered::new();
+                    for mapping in &mut self.mappings {
+                        if mapping.rejected.is_some() {
+                            cleanup.push(async move {
+                                if let Some(rejected) = mapping.rejected.as_ref()
+                                    && rejected.release().await
+                                {
+                                    mapping.rejected = None;
+                                }
+                            });
+                        }
+                    }
+                    while cleanup.next().await.is_some() {}
+                    drop(cleanup);
                     // Retry unsupported control contexts only after new evidence.
                     self.mappings.retain(|mapping| {
                         mapping.lease.is_some()
@@ -757,13 +781,20 @@ impl Worker {
             .any(|mapping| mapping.path.local.to_canonical() == local.to_canonical())
     }
 
-    async fn add_paths(&mut self, round: &Round, input: &watch::Receiver<MaintenanceInput>) {
+    async fn add_paths(
+        &mut self,
+        round: &Round,
+        input: &watch::Receiver<MaintenanceInput>,
+        resolve_path: &impl Fn(IpAddr) -> Option<RouterPath>,
+    ) {
         let paths = round
             .gathered
             .paths
             .iter()
             .filter(|observed| !self.owns(observed.local))
-            .filter_map(|observed| router_path(observed.local).map(|path| (path, observed.clone())))
+            .filter_map(|observed| {
+                resolve_path(observed.local).map(|path| (path, observed.clone()))
+            })
             .collect();
         self.admit_paths(paths, round, input).await;
     }
@@ -1224,6 +1255,80 @@ mod tests {
             mapping.release().await.is_ok(),
             "acknowledged cleanup releases the grant"
         );
+        gateway.abort();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn worker_retries_rejected_cleanup_before_reacquiring()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (mapping, allow, gateway) = rejected_mapping().await?;
+        let binding = test_binding(1, 4)?;
+        let (updates, mut snapshots) = mpsc::channel(8);
+        let current = MaintenanceInput {
+            credential: Arc::new(Credential::without_observers()),
+            updates,
+            observation_generation: 0,
+        };
+        let (owner, lifetime) = watch::channel(current.clone());
+        let (retirements, _retired) = mpsc::channel(1);
+        let observed = ObservedPath {
+            local: "127.0.0.1".parse()?,
+            mapped: "100.64.0.9".parse()?,
+            observer: "127.0.0.1:3478".parse()?,
+        };
+        // The resolver supplies a fresh control context only after cleanup;
+        // acquisition without an egress is an immediate, non-mutating refusal.
+        let resolutions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let resolved = resolutions.clone();
+        let worker = Worker {
+            id: 1,
+            family: 4,
+            port: binding.local.port(),
+            socket: binding.socket.clone(),
+            observations: Arc::new(Mutex::new(Observations {
+                generation: 1,
+                gathered: Gathered {
+                    paths: vec![observed],
+                    ..Gathered::default()
+                },
+            })),
+            mappings: vec![mapping],
+            retired: Arc::new(AtomicBool::new(false)),
+            retirements,
+        };
+        let task = tokio::spawn(worker.run_with_resolver(lifetime, move |local| {
+            resolved.fetch_add(1, Ordering::AcqRel);
+            Some(RouterPath {
+                local,
+                egress: None,
+                egress6: None,
+            })
+        }));
+        snapshots.recv().await.ok_or("missing initial snapshot")?;
+        owner.send_replace(current.clone());
+        snapshots
+            .recv()
+            .await
+            .ok_or("missing refused cleanup snapshot")?;
+        assert_eq!(
+            resolutions.load(Ordering::Acquire),
+            0,
+            "failed deletion retains tuple ownership"
+        );
+        allow.store(true, Ordering::Release);
+        owner.send_replace(current);
+        snapshots
+            .recv()
+            .await
+            .ok_or("missing reacquisition snapshot")?;
+        assert_eq!(
+            resolutions.load(Ordering::Acquire),
+            1,
+            "acknowledged cleanup permits reacquisition on the live worker"
+        );
+        drop(owner);
+        assert!(task.await?.is_none());
         gateway.abort();
         Ok(())
     }

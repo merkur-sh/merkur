@@ -1014,6 +1014,8 @@ acquisition returns its cleanup identity and stops before another mapping can be
 The daemon transfers that grant and its tuple reservation to its cleanup owner; the native
 client retains it with the owning socket through cleanup and quarantine. Rejected grants are
 neither advertised nor renewed, and their tuple remains reserved through unacknowledged cleanup.
+Fresh native maintenance evidence retries rejected-grant deletion; acknowledged cleanup permits
+acquisition on that same live binding.
 With no reflexive address, no cycle runs. UPnP errors 725 and 402 retry as a permanent lease;
 718 retries through
 `AddAnyPortMapping` on IGDv2 and at another unprivileged port on IGDv1, and the DSL Forum service
