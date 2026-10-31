@@ -1,32 +1,17 @@
-import type { Page } from '@playwright/test';
+import type { Page, Worker } from '@playwright/test';
 import { expectShellPhase } from './app-state';
 import { expect, test } from './fixtures/daemon-process';
 import { setPerformanceReporting } from './fixtures/telemetry-consent';
 import { connectTerminal } from './terminal-e2e-helpers';
 
 /**
- * A connected terminal that nobody is typing at, and that prints nothing, costs
- * the main thread nothing per frame. Four counters, all of which must read zero
- * across an idle window in the real production build against the real daemon
- * and edge:
- *
- * - animation frames on main: the terminal's own rendering lives in a worker,
- *   and the shell has nothing to animate once it has arrived;
- * - WebGL draws: the machine-list mark is still mounted behind the terminal at
- *   opacity zero, and used to keep drawing there for the whole session; it now
- *   rests on its still frame on the list itself, which the spec also holds;
- * - 2D canvas fills: the link-status waveform repaints only when its pixels
- *   change, and nothing changes them while the terminal is quiet;
- * - waveform publications from the transport worker: the heartbeat is link
- *   traffic, not terminal traffic, and must not keep the strip scrolling.
- *
- * Reporting is turned off on the shared account, matching the behaviour of
- * an account that has not chosen, so profiling installs no frame monitor. The control
- * phases prove each counter can move before the idle windows assert that none
- * of them does, so a broken counter cannot pass as a quiet page. The window
- * opens on an exact signal rather than a settle guess: the worker's latest
- * publication shows no traffic in the strip's visible columns, which is the
- * publication after which it parks.
+ * Count the terminal worker's real GPU queue separately from page work. A page
+ * init script cannot reach workers. Empty submits count too: Gecko may need
+ * them to deliver an awaited completion, but a settled idle session owes none.
+ * Reporting off also parks main's frame monitor. Reporting on keeps that
+ * diagnostic monitor, while the terminal and waveform must still park.
+ * Controls exercise actual terminal output before the eight-second idle window.
+ * The strip's final empty publication and cleared recovery state open the window.
  */
 
 const CONTROL_WINDOW_MS = 600;
@@ -34,7 +19,6 @@ const IDLE_WINDOW_MS = 8_000;
 
 interface IdleCounts {
   readonly animationFrames: number;
-  readonly webglDraws: number;
   readonly canvasFills: number;
   readonly linkTicks: number;
 }
@@ -58,10 +42,10 @@ interface IdleAudit {
   reset(): void;
 }
 
-/** Installed before the app boots; wraps the four primitives the counters watch. */
+/** Installed before the app boots; watches main-thread work and worker publications. */
 function installIdleAudit(): void {
   const RING_COLUMNS = 64;
-  const counts = { animationFrames: 0, webglDraws: 0, canvasFills: 0, linkTicks: 0 };
+  const counts = { animationFrames: 0, canvasFills: 0, linkTicks: 0 };
   const events: string[] = [];
   let epoch = performance.now();
   let stripColumns = 0;
@@ -77,17 +61,6 @@ function installIdleAudit(): void {
       counts.animationFrames += 1;
       callback(time);
     });
-
-  const drawArrays = WebGL2RenderingContext.prototype.drawArrays;
-  WebGL2RenderingContext.prototype.drawArrays = function (
-    this: WebGL2RenderingContext,
-    mode: number,
-    first: number,
-    count: number,
-  ): void {
-    counts.webglDraws += 1;
-    drawArrays.call(this, mode, first, count);
-  };
 
   // The link strip draws through an OffscreenCanvas transferred from its element.
   const fillRect = OffscreenCanvasRenderingContext2D.prototype.fillRect;
@@ -179,7 +152,6 @@ function installIdleAudit(): void {
     evidence: () => ({ stripEmpty, recoveryClear, events: [...events] }),
     reset: () => {
       counts.animationFrames = 0;
-      counts.webglDraws = 0;
       counts.canvasFills = 0;
       counts.linkTicks = 0;
       events.length = 0;
@@ -220,98 +192,162 @@ function audit(page: Page): {
   };
 }
 
-test('a connected idle terminal runs no frames, draws, or waveform publications', async ({
-  page,
-  linkedDaemon,
-}) => {
-  try {
-    // The fixture opted this account in; measure with reporting explicitly off.
-    await setPerformanceReporting(page, false);
-    await page.addInitScript(installIdleAudit);
-    await page.reload();
-    await expectShellPhase(page);
-    await expect(page.getByTitle(`Connect to ${linkedDaemon.daemonName}`)).toBeVisible({
-      timeout: 30_000,
-    });
-    const counters = audit(page);
+function installTerminalGpuAudit(worker: Worker) {
+  return worker.evaluateHandle(() => {
+    const counts = { submits: 0, emptySubmits: 0 };
+    const submit = GPUQueue.prototype.submit;
+    GPUQueue.prototype.submit = function (commands): void {
+      counts.submits += 1;
+      if (Array.isArray(commands) && commands.length === 0) counts.emptySubmits += 1;
+      submit.call(this, commands);
+    };
+    return {
+      counts: () => ({ ...counts }),
+      reset: () => {
+        counts.submits = 0;
+        counts.emptySubmits = 0;
+      },
+    };
+  });
+}
 
-    // Control: both counters move. Nothing on the machine list draws any more
-    // (its mark rests on its still frame), so the control makes one frame and
-    // one WebGL draw of its own.
-    await counters.reset();
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) => {
-          const gl = document.createElement('canvas').getContext('webgl2');
-          gl?.drawArrays(gl.POINTS, 0, 0);
-          requestAnimationFrame(() => resolve());
-        }),
-    );
-    const control = await counters.counts();
-    expect(control.animationFrames).toBeGreaterThan(0);
-    expect(control.webglDraws).toBeGreaterThan(0);
+for (const reporting of [false, true]) {
+  test(`a connected idle terminal submits no GPU work [reporting=${reporting}]`, async ({
+    page,
+    linkedDaemon,
+  }, testInfo) => {
+    try {
+      // Consent must be set before this session creates its workers.
+      await setPerformanceReporting(page, reporting);
+      await page.addInitScript(installIdleAudit);
+      await page.reload();
+      await expectShellPhase(page);
+      await expect(page.getByTitle(`Connect to ${linkedDaemon.daemonName}`)).toBeVisible({
+        timeout: 30_000,
+      });
+      const counters = audit(page);
 
-    // The machine list itself is idle: the screen that stays open draws nothing.
-    // Its entrance is still finishing when its rows first show, so the window
-    // opens once two frames pass with nothing but this probe's own two callbacks
-    // in them; a loop that never stops never gets there.
-    await expect
-      .poll(async () => {
+      // Control: main's animation-frame counter observes a delivered callback.
+      await counters.reset();
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
+      const control = await counters.counts();
+      expect(control.animationFrames).toBeGreaterThan(0);
+
+      if (!reporting) {
+        // The machine list itself is idle: the screen that stays open draws nothing.
+        // Its entrance is still finishing when its rows first show, so the window
+        // opens once two frames pass with nothing but this probe's own two callbacks
+        // in them; a loop that never stops never gets there.
+        await expect
+          .poll(async () => {
+            await counters.reset();
+            await page.evaluate(
+              () =>
+                new Promise<void>((resolve) => {
+                  requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+                }),
+            );
+            return (await counters.counts()).animationFrames;
+          })
+          .toBe(2);
         await counters.reset();
-        await page.evaluate(
-          () =>
-            new Promise<void>((resolve) => {
-              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-            }),
-        );
-        return (await counters.counts()).animationFrames;
-      })
-      .toBe(2);
-    await counters.reset();
-    await page.waitForTimeout(CONTROL_WINDOW_MS);
-    const listing = await counters.counts();
-    expect(listing.animationFrames).toBe(0);
-    expect(listing.webglDraws).toBe(0);
+        await page.waitForTimeout(CONTROL_WINDOW_MS);
+        const listing = await counters.counts();
+        expect(listing.animationFrames).toBe(0);
+      }
 
-    await connectTerminal(page, linkedDaemon.daemonName);
+      await connectTerminal(page, linkedDaemon.daemonName);
 
-    // Control: terminal output publishes snapshots and paints the strip.
-    await counters.reset();
-    await page.keyboard.type("printf 'idle-audit-control\\n'\n");
-    await expect.poll(async () => (await counters.counts()).linkTicks).toBeGreaterThan(0);
-    await expect.poll(async () => (await counters.counts()).canvasFills).toBeGreaterThan(0);
+      const worker = page
+        .workers()
+        .find((candidate) => new URL(candidate.url()).pathname.includes('/terminal-worker-'));
+      if (worker === undefined) throw new Error('terminal worker not found');
+      const gpu = await installTerminalGpuAudit(worker);
 
-    // The burst scrolls off the strip. The publication that shows the empty strip
-    // is the one the worker parks after; its paint lands on the next frame. The
-    // session start's display recovery has to have aged out too: the strip
-    // recolours once when that window closes, on the heartbeat that reports it.
-    await expect
-      .poll(
-        async () => {
-          const evidence = await counters.evidence();
-          return evidence.stripEmpty && evidence.recoveryClear;
-        },
-        { timeout: 15_000 },
-      )
-      .toBe(true);
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }),
-    );
+      // Control: real terminal output must reach the worker's GPU queue.
+      await counters.reset();
+      await gpu.evaluate((installed) => installed.reset());
+      await page.keyboard.type("printf 'idle-audit-%s\\n' control\n");
+      await expect(page.getByRole('log', { name: 'Terminal output' })).toContainText(
+        'idle-audit-control',
+      );
+      await expect.poll(async () => (await counters.counts()).linkTicks).toBeGreaterThan(0);
+      await expect.poll(async () => (await counters.counts()).canvasFills).toBeGreaterThan(0);
 
-    await counters.reset();
-    await page.waitForTimeout(IDLE_WINDOW_MS);
-    const idle = await counters.counts();
-    const evidence = await counters.evidence();
-    expect(idle, evidence.events.join('\n')).toEqual({
-      animationFrames: 0,
-      webglDraws: 0,
-      canvasFills: 0,
-      linkTicks: 0,
-    } satisfies IdleCounts);
-  } finally {
-    await setPerformanceReporting(page, true);
-  }
-});
+      await expect
+        .poll(async () => {
+          const counts = await gpu.evaluate((installed) => installed.counts());
+          return counts.submits - counts.emptySubmits;
+        })
+        .toBeGreaterThan(0);
+      const outputControl = {
+        page: await counters.counts(),
+        gpu: await gpu.evaluate((installed) => installed.counts()),
+      };
+
+      // The burst scrolls off the strip. The publication that shows the empty strip
+      // is the one the worker parks after; its paint lands on the next frame. The
+      // session start's display recovery has to have aged out too: the strip
+      // recolours once when that window closes, on the heartbeat that reports it.
+      await expect
+        .poll(
+          async () => {
+            const evidence = await counters.evidence();
+            return evidence.stripEmpty && evidence.recoveryClear;
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+
+      await counters.reset();
+      await gpu.evaluate((installed) => installed.reset());
+      const startedAtMs = Date.now();
+      await page.waitForTimeout(IDLE_WINDOW_MS);
+      const endedAtMs = Date.now();
+      const idle = await counters.counts();
+      const evidence = await counters.evidence();
+      const gpuIdle = await gpu.evaluate((installed) => installed.counts());
+      await testInfo.attach('idle-terminal.png', {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+      // The session stays live while parked: input and authoritative output still draw.
+      await gpu.evaluate((installed) => installed.reset());
+      await page.keyboard.type("printf 'idle-audit-%s\\n' resumed\n");
+      await expect(page.getByRole('log', { name: 'Terminal output' })).toContainText(
+        'idle-audit-resumed',
+      );
+      const resumed = await gpu.evaluate((installed) => installed.counts());
+      expect(resumed.submits - resumed.emptySubmits).toBeGreaterThan(0);
+      await gpu.dispose();
+      const measurement = {
+        reporting,
+        startedAtMs,
+        endedAtMs,
+        outputControl,
+        idle,
+        gpuIdle,
+        resumed,
+      };
+      process.stdout.write(`[idle-work] ${JSON.stringify(measurement)}\n`);
+      await testInfo.attach('idle-work.json', {
+        body: JSON.stringify(measurement, null, 2),
+        contentType: 'application/json',
+      });
+      expect(gpuIdle).toEqual({ submits: 0, emptySubmits: 0 });
+      expect(idle.canvasFills, evidence.events.join('\n')).toBe(0);
+      expect(idle.linkTicks, evidence.events.join('\n')).toBe(0);
+      if (!reporting) expect(idle.animationFrames, evidence.events.join('\n')).toBe(0);
+    } finally {
+      await setPerformanceReporting(page, true);
+    }
+  });
+}
