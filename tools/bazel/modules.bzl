@@ -10469,6 +10469,7 @@ TYPE_INPUTS = {
             "bench-user-agent.ts",
             "bench-wasm-font-init.test.ts",
             "bench-wasm-font-init.ts",
+            "bench-wasm-font-memory.ts",
             "bench-wasm-font-style-upgrade.test.ts",
             "bench-wasm-font-style-upgrade.ts",
             "bench-web-display-link-hover.ts",

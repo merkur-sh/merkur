@@ -116,6 +116,38 @@ impl GlyphAtlas {
         }
     }
 
+    /// WASM linear memory cannot shrink: reuse the initial tier rather than
+    /// raising its high-water mark with simultaneous old and new pixel buffers.
+    #[cfg(any(target_arch = "wasm32", test))]
+    #[inline(never)]
+    pub fn replace_fonts(&mut self, fonts: [Rc<fontdue::Font>; 4]) {
+        if self.atlas_w != ATLAS_INITIAL_SIZE || self.atlas_h != ATLAS_INITIAL_SIZE {
+            drop(std::mem::take(&mut self.pixels));
+            *self = Self::new(fonts);
+            return;
+        }
+        // Packing only writes through the last occupied shelf. Failed packs
+        // can advance the shelf past the bottom; the remaining pixels are zero.
+        let rows = (self.shelf_y + self.shelf_h).min(self.atlas_h);
+        self.pixels[..(rows * self.atlas_w) as usize].fill(0);
+        self.fonts = fonts;
+        self.glyphs = HashMap::new();
+        self.ascii.fill(None);
+        self.shelf_x = 0;
+        self.shelf_y = 0;
+        self.shelf_h = 0;
+        self.dirty = false;
+        self.dirty_rect = [u32::MAX, u32::MAX, 0, 0];
+        self.pending = HashSet::new();
+        self.px_per_em = 14.0;
+        self.cell_w = 8.0;
+        self.cell_h = 16.0;
+        self.baseline = 13.0;
+        self.generation = 1;
+        self.table = Vec::new();
+        self.table_epoch = next_table_epoch();
+    }
+
     pub fn generation(&self) -> u32 {
         self.generation
     }

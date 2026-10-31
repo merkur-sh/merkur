@@ -669,6 +669,12 @@ of milliseconds. Reference metrics and bitmap tests cover all bundled faces, mul
 non-Latin text, box drawing and icons. The patch and terminal WASM must build together; source
 provenance follows the Cargo dependency closure, including the local fontdue patch.
 
+WASM font replacement reuses an initial-tier CPU atlas's pixel storage, clearing its
+occupied shelves and resetting all glyph metadata and the glyph-table epoch. A grown
+atlas releases its storage before replacement with the initial tier. This avoids retaining
+linear-memory capacity for two initial atlases during font promotion. Native replacement
+keeps fresh zeroed allocations, which can use the operating system's demand-zero pages.
+
 A matched authenticated repair verdict also confirms an unchanged retained grid. The terminal
 worker nominates that grid for the current session's first GPU fence and schedules a render,
 including when the repair has zero rows. It reports `display_resume` readiness without inventing
