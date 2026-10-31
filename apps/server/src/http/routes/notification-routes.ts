@@ -6,7 +6,7 @@ import type { AuthenticatedBrowser } from '../../services/auth-service';
 import { PushNotificationServiceTag } from '../../services/push-notification-service';
 import { ApiModels } from '../api-models';
 import { authenticatedApiPlugin } from '../authenticated-api';
-import { authorizeDaemonRequest, parseDaemonJsonBody } from '../daemon-request-auth';
+import { authorizeDaemonRequest, createDaemonRequestAuth } from '../daemon-request-auth';
 import { runLoggedEffect, runRouteEffect } from '../effect-route';
 
 type RunServerProgram = typeof runServerProgram;
@@ -26,6 +26,7 @@ export function notificationRoutesPlugin({
   authorizeRequest,
   logger,
 }: NotificationRoutesOptions) {
+  const daemonAuth = createDaemonRequestAuth(runServerProgram, logger);
   return new Elysia({ name: 'notification-routes' })
     .group('/api/push', (api) =>
       api
@@ -122,7 +123,8 @@ export function notificationRoutesPlugin({
     .post(
       '/api/daemon/terminal-bell',
       {
-        parse: parseDaemonJsonBody,
+        parse: 'none',
+        transform: daemonAuth.json,
         body: ApiModels.DaemonTerminalBellBody,
         response: {
           204: ApiModels.EmptyResponse,
@@ -130,7 +132,7 @@ export function notificationRoutesPlugin({
         },
       },
       async ({ body, request }) => {
-        const daemonIdentity = await authorizeDaemonRequest(runServerProgram, request, logger);
+        const daemonIdentity = authorizeDaemonRequest(request);
         if (daemonIdentity === null) {
           return status(STATUS_UNAUTHORIZED, { error: 'unauthorized' as const });
         }

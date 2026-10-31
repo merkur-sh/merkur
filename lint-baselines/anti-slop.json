@@ -286,9 +286,6 @@
   "apps/server/src/http/daemon-request-auth.dragonfly.test.ts": {
     "no-skipped-tests": 1
   },
-  "apps/server/src/http/daemon-request-auth.ts": {
-    "no-unknown-returns": 1
-  },
   "apps/server/src/http/effect-route.test.ts": {
     "require-safety-comment-for-type-assertion": 1
   },
