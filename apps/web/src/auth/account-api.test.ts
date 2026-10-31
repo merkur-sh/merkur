@@ -4,17 +4,23 @@ import {
   deriveDaemonLinkClaimCommitment,
   USER_DELEGATION_LIFETIME_MS,
 } from '@merkur/shared/user-authorization';
-
+import { installBrowserLocks } from '../../../../tests/helpers/browser-locks';
 import {
   type AuthenticationStartResponse,
   fetchAuthPolicy,
+  finishLoginRequest,
+  finishPasswordResetRequest,
+  finishRegistrationRequest,
   inspectDaemonLinkClaim,
+  logoutAccountSession,
   requestEmailCode,
   requestPasswordResetCode,
   startAuthenticationRequest,
   startPasswordResetRequest,
   verifyPasswordResetCode,
+  withAccountCookieLock,
 } from './account-api';
+import { TEST_DELEGATION_CERTIFICATE } from './test-authorization-fixtures';
 
 const ORIGIN = 'https://merkur.test';
 const ISSUED_AT = 10_000;
@@ -395,4 +401,132 @@ test('inspects a composite daemon claim in its canonical commitment order', asyn
   await expect(inspectDaemonLinkClaim('access-token', claim.linkClaimId)).rejects.toThrow(
     'daemon identity key commitment does not match its public key',
   );
+});
+
+for (const finish of ['login', 'registration', 'reset'] as const) {
+  test(`a delayed logout response cannot erase the fresh ${finish} cookie`, async () => {
+    let releaseFirst: () => void = () => {},
+      firstStarted: () => void = () => {},
+      queued: () => void = () => {};
+    const firstResponse = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      queued = resolve;
+    });
+    const restoreLocks = installBrowserLocks(() => queued());
+    let cookie = 'old',
+      logouts = 0;
+    const certificate = TEST_DELEGATION_CERTIFICATE;
+    const authorization = {
+      actorCertificate: certificate,
+      revocation: {
+        userId: certificate.userId,
+        rootKeyCommitment: certificate.rootKeyCommitment,
+        actorDelegationId: certificate.delegationId,
+        targets: [{ delegationId: certificate.delegationId, expiresAt: certificate.expiresAt }],
+        issuedAt: 10,
+        nonce: encoded(32, 11),
+        signature: encoded(4627, 12),
+      },
+    };
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: async (input: string | URL | Request) => {
+        const path = new URL(String(input)).pathname;
+        if (path === '/api/auth/logout') {
+          logouts++;
+          if (logouts === 1) {
+            firstStarted();
+            await firstResponse;
+          }
+          cookie = '';
+          return jsonResponse({ ok: true });
+        }
+        const ceremony = finish === 'registration' ? 'register' : finish;
+        if (path !== `/api/auth/${ceremony}/finish`) throw new Error(`unexpected ${path}`);
+        cookie = 'fresh';
+        return jsonResponse({
+          accessToken: 'fresh-token',
+          userId: 'user-1',
+          delegationId: 'new-delegation',
+          delegationExpiresAt: ISSUED_AT + USER_DELEGATION_LIFETIME_MS,
+          serverTimeMs: ISSUED_AT,
+          deletionCancelled: false,
+        });
+      },
+    });
+    try {
+      const first = logoutAccountSession(authorization);
+      await started;
+      const body = {
+        flowId: ONE_USE_FLOW,
+        registrationRecord: 'registration-record',
+        rootPublicKey: authenticationStartResponse().login.rootPublicKey,
+        rootEnvelope: authenticationStartResponse().login.rootEnvelope,
+        delegationCertificate: certificate,
+      };
+      const login = logoutAccountSession(authorization).then(() => {
+        if (finish === 'registration')
+          return finishRegistrationRequest({ ...body, emailCode: null });
+        if (finish === 'reset') return finishPasswordResetRequest(body);
+        return finishLoginRequest(ONE_USE_FLOW, 'finish', certificate);
+      });
+      // Both branches are real progress signals: unprotected login completes,
+      // while protected delivery instead queues behind the first response.
+      await Promise.race([login, waiting]);
+      releaseFirst();
+      await Promise.all([first, login]);
+      expect(logouts).toBe(2);
+      expect(cookie).toBe('fresh');
+    } finally {
+      releaseFirst();
+      restoreLocks();
+    }
+  });
+}
+
+test('a cancelled authentication finish never delivers after waiting for the cookie lock', async () => {
+  const restoreLocks = installBrowserLocks();
+  let release: () => void = () => {},
+    entered: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let fetches = 0;
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async () => {
+      fetches++;
+      throw new Error('cancelled finish reached delivery');
+    },
+  });
+  const holder = withAccountCookieLock(() => {
+    entered();
+    return gate;
+  });
+  try {
+    await started;
+    const controller = new AbortController();
+    const finish = finishLoginRequest(
+      ONE_USE_FLOW,
+      'finish',
+      TEST_DELEGATION_CERTIFICATE,
+      controller.signal,
+    );
+    controller.abort(new Error('cancelled finish'));
+    await expect(finish).rejects.toThrow('cancelled finish');
+    release();
+    await holder;
+    expect(fetches).toBe(0);
+  } finally {
+    release();
+    restoreLocks();
+  }
 });

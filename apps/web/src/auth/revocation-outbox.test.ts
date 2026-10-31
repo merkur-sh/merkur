@@ -1,10 +1,17 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { DelegationRevocationStatement } from '@merkur/shared/user-authorization';
+import { installBrowserLocks } from '../../../../tests/helpers/browser-locks';
 import { retryPendingLogout, storeLogoutTombstone } from './revocation-outbox';
 import { TEST_DELEGATION_CERTIFICATE } from './test-authorization-fixtures';
 
 const LOGOUT_TOMBSTONE_KEY = 'merkur:pending-browser-logout';
 const storageEntries = new Map<string, string>();
+
+let restoreBrowserLocks: () => void = () => {};
+beforeAll(() => {
+  restoreBrowserLocks = installBrowserLocks();
+});
+afterAll(() => restoreBrowserLocks());
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'location', {

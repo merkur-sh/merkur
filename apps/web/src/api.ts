@@ -23,6 +23,7 @@ import {
   type AccountSessionResponse,
   changeAccountPasswordRequest,
   refreshAccountSession,
+  withAccountCookieLock,
 } from './auth/account-api';
 import { ApiError } from './lib/api-error';
 import type { BrowserLinkReportBody } from './perf/telemetry-reporter';
@@ -87,22 +88,6 @@ let refreshPromise: Promise<LoginResponse | null> | null = null;
 const REFRESH_TIMEOUT = '4 seconds';
 
 /**
- * Cross-tab mutex for the rotating refresh credential.
- *
- * The refresh cookie is one-use and shared by every tab on this origin, so two
- * tabs posting it at the same instant present the same spent token and the
- * server cannot tell the second one from a replay. `refreshPromise` only dedupes
- * within a single JS realm; this lock extends that guarantee across tabs and
- * windows.
- *
- * The waiter does not reuse the winner's response. It runs its own refresh once
- * the lock is free, and by then the browser's cookie jar already holds the
- * rotated successor — so it presents a live token and performs an ordinary
- * rotation rather than a replay.
- */
-const REFRESH_LOCK_NAME = 'merkur-auth-refresh';
-
-/**
  * Set once a refresh stops proving that the origin still holds a live
  * credential.
  *
@@ -121,9 +106,9 @@ const REFRESH_LOCK_NAME = 'merkur-auth-refresh';
  * Sign-in increments {@link REFRESH_GENERATION_KEY}, so a refresh that captured
  * an older generation and only fails afterwards writes a value that no longer
  * matches, and is inert. That is what keeps a tab whose refresh timed out from
- * retiring the brand-new chain another tab just signed in for — without taking
- * this lock around sign-in, which would stall every tab's refresh for the length
- * of a password verify.
+ * retiring the brand-new chain another tab just signed in for. Authentication
+ * finish holds the same lock only during cookie delivery; password stretching
+ * stays outside the lock.
  *
  * Both the read and the write happen inside the lock callback. Web Locks
  * releases the lock when that callback's promise settles, so retiring from the
@@ -189,27 +174,20 @@ export async function changePasswordSession(
   body: Parameters<typeof changeAccountPasswordRequest>[1],
   signal?: AbortSignal,
 ): Promise<AccountSessionResponse> {
-  return navigator.locks.request(
-    REFRESH_LOCK_NAME,
-    {
-      mode: 'exclusive',
-      ...(signal === undefined ? {} : { signal }),
-    },
-    async () => {
-      try {
-        const session = await changeAccountPasswordRequest(accessToken, body, signal);
-        markAccountSessionEstablished();
-        return session;
-      } catch (error) {
-        // An ambiguous response may have replaced the cookie server-side. Do not
-        // let another tab retry the previous refresh family after releasing the lock.
-        if (!(error instanceof ApiError && error.status >= 400 && error.status < 500)) {
-          retireAccountRefreshCredential();
-        }
-        throw error;
+  return withAccountCookieLock(async () => {
+    try {
+      const session = await changeAccountPasswordRequest(accessToken, body, signal);
+      markAccountSessionEstablished();
+      return session;
+    } catch (error) {
+      // An ambiguous response may have replaced the cookie server-side. Do not
+      // let another tab retry the previous refresh family after releasing the lock.
+      if (!(error instanceof ApiError && error.status >= 400 && error.status < 500)) {
+        retireAccountRefreshCredential();
       }
-    },
-  );
+      throw error;
+    }
+  }, signal);
 }
 
 /** A successful OPAQUE finish installed a fresh refresh-token family. */
@@ -645,33 +623,29 @@ export function deletePushSubscriptionEffect(
 function withRefreshCredentialLock(
   run: (retire: () => void) => Promise<LoginResponse | null>,
 ): Promise<LoginResponse | null> {
-  return navigator.locks.request(
-    REFRESH_LOCK_NAME,
-    { mode: 'exclusive' },
-    (): Promise<LoginResponse | null> => {
-      // This tab was clear when it called, but it may have queued behind a
-      // holder that retired the credential before releasing.
-      if (isRefreshCredentialRetired()) {
-        return Promise.resolve(null);
+  return withAccountCookieLock((): Promise<LoginResponse | null> => {
+    // This tab was clear when it called, but it may have queued behind a
+    // holder that retired the credential before releasing.
+    if (isRefreshCredentialRetired()) {
+      return Promise.resolve(null);
+    }
+    const generation = currentRefreshGeneration();
+    let released = false;
+    return run(() => {
+      // A `retire` captured and called after the locked region has finished
+      // carries no ordering guarantee, so it must not take effect.
+      if (released) return;
+      retiredAtGeneration = generation;
+      try {
+        localStorage.setItem(REFRESH_RETIREMENT_KEY, String(generation));
+      } catch {
+        // Storage blocked by the browser. This tab's own latch still holds;
+        // only the origin-wide reach is lost.
       }
-      const generation = currentRefreshGeneration();
-      let released = false;
-      return run(() => {
-        // A `retire` captured and called after the locked region has finished
-        // carries no ordering guarantee, so it must not take effect.
-        if (released) return;
-        retiredAtGeneration = generation;
-        try {
-          localStorage.setItem(REFRESH_RETIREMENT_KEY, String(generation));
-        } catch {
-          // Storage blocked by the browser. This tab's own latch still holds;
-          // only the origin-wide reach is lost.
-        }
-      }).finally(() => {
-        released = true;
-      });
-    },
-  );
+    }).finally(() => {
+      released = true;
+    });
+  });
 }
 
 function isRefreshCredentialRetired(): boolean {

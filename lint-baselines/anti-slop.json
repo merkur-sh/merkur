@@ -828,7 +828,7 @@
     "require-safety-comment-for-type-assertion": 6
   },
   "apps/web/src/api.ts": {
-    "no-conditional-empty-object-spread": 3,
+    "no-conditional-empty-object-spread": 2,
     "no-known-value-widening": 2,
     "no-runtime-typeof": 6,
     "no-swallowed-error": 4,

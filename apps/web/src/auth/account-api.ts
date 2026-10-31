@@ -172,11 +172,15 @@ export async function finishPasswordResetRequest(
   signal?: AbortSignal,
 ): Promise<AccountSessionResponse> {
   return asAccountSession(
-    await requestJson('/api/auth/reset/finish', {
-      method: 'POST',
-      body: { ...body, installed: isInstalledApp() },
+    await withAccountCookieLock(
+      () =>
+        requestJson('/api/auth/reset/finish', {
+          method: 'POST',
+          body: { ...body, installed: isInstalledApp() },
+          signal,
+        }),
       signal,
-    }),
+    ),
   );
 }
 
@@ -214,11 +218,15 @@ export async function finishRegistrationRequest(
   signal?: AbortSignal,
 ): Promise<AccountSessionResponse> {
   return asAccountSession(
-    await requestJson('/api/auth/register/finish', {
-      method: 'POST',
-      body: { ...body, installed: isInstalledApp() },
+    await withAccountCookieLock(
+      () =>
+        requestJson('/api/auth/register/finish', {
+          method: 'POST',
+          body: { ...body, installed: isInstalledApp() },
+          signal,
+        }),
       signal,
-    }),
+    ),
   );
 }
 
@@ -229,16 +237,20 @@ export async function finishLoginRequest(
   signal?: AbortSignal,
 ): Promise<AccountSessionResponse> {
   return asAccountSession(
-    await requestJson('/api/auth/login/finish', {
-      method: 'POST',
-      body: {
-        flowId,
-        finishLoginRequest: finishLoginRequestValue,
-        delegationCertificate,
-        installed: isInstalledApp(),
-      },
+    await withAccountCookieLock(
+      () =>
+        requestJson('/api/auth/login/finish', {
+          method: 'POST',
+          body: {
+            flowId,
+            finishLoginRequest: finishLoginRequestValue,
+            delegationCertificate,
+            installed: isInstalledApp(),
+          },
+          signal,
+        }),
       signal,
-    }),
+    ),
   );
 }
 
@@ -266,11 +278,15 @@ export async function logoutAccountSession(
   signal?: AbortSignal,
 ): Promise<void> {
   asOk(
-    await requestJson('/api/auth/logout', {
-      method: 'POST',
-      body: authorization,
+    await withAccountCookieLock(
+      () =>
+        requestJson('/api/auth/logout', {
+          method: 'POST',
+          body: authorization,
+          signal,
+        }),
       signal,
-    }),
+    ),
   );
 }
 
@@ -407,6 +423,19 @@ export async function changeAccountPasswordRequest(
       signal,
     }),
   );
+}
+
+/**
+ * Every tab shares one rotating refresh cookie. Cookie-mutating responses must
+ * finish under the same origin-wide lock, so a delayed logout cannot clear a
+ * newer login and simultaneous refreshes cannot spend the same credential.
+ * Each waiter issues its own request against the cookie then in the jar;
+ * responses are never shared. Password stretching stays outside this lock.
+ */
+export function withAccountCookieLock<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const options: LockOptions = { mode: 'exclusive' };
+  if (signal !== undefined) options.signal = signal;
+  return navigator.locks.request('merkur-auth-refresh', options, run);
 }
 
 async function requestJson(path: string, options: RequestJsonOptions): Promise<unknown> {

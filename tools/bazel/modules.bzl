@@ -2723,8 +2723,10 @@ MODULES = {
         ],
         "src/auth/account-api.test.ts": [
             "//packages/shared:src/user-authorization.ts.module",
+            "//tests:helpers/browser-locks.ts.module",
             ":package.json.module",
             ":src/auth/account-api.ts.module",
+            ":src/auth/test-authorization-fixtures.ts.module",
             ":tsconfig.json.module",
         ],
         "src/auth/account-api.ts": [
@@ -2778,6 +2780,7 @@ MODULES = {
             "//apps/web:node_modules/@serenity-kit/opaque",
             "//packages/shared:src/opaque-password-policy.ts.module",
             "//packages/shared:src/user-authorization.ts.module",
+            "//tests:helpers/browser-locks.ts.module",
             ":package.json.module",
             ":src/auth/account-opaque.ts.module",
             ":src/auth/account-workflow.ts.module",
@@ -2876,6 +2879,7 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/auth/revocation-outbox.test.ts": [
+            "//tests:helpers/browser-locks.ts.module",
             ":package.json.module",
             ":src/auth/revocation-outbox.ts.module",
             ":src/auth/test-authorization-fixtures.ts.module",
@@ -8305,6 +8309,10 @@ MODULES = {
             ":e2e/fixtures/webgpu-identity.ts.module",
             ":tsconfig.json.module",
         ],
+        "helpers/browser-locks.ts": [
+            "//:package.json.module",
+            ":tsconfig.json.module",
+        ],
         "helpers/lifecycle-clock.test.ts": [
             "//:node_modules/effect",
             "//:package.json.module",
@@ -10937,6 +10945,7 @@ TYPE_INPUTS = {
     },
     "tests": {
         "apps/web/tsconfig.json": [
+            "helpers/browser-locks.ts",
             "helpers/lifecycle-clock.ts",
         ],
         "scripts/tsconfig.json": [
@@ -11086,6 +11095,7 @@ TYPE_INPUTS = {
             "e2e/tui-nat.e2e.ts",
             "e2e/tui-rebind.e2e.ts",
             "e2e/wait-edge-registration.ts",
+            "helpers/browser-locks.ts",
             "helpers/lifecycle-clock.test.ts",
             "helpers/lifecycle-clock.ts",
             "tsconfig.json",

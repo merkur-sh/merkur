@@ -10,6 +10,7 @@ import {
   verifyUserDelegationCertificate,
 } from '@merkur/shared/user-authorization';
 import * as opaque from '@serenity-kit/opaque';
+import { installBrowserLocks } from '../../../../tests/helpers/browser-locks';
 
 import { createBrowserDelegation } from './browser-delegation';
 import { loadBrowserDelegation, saveBrowserDelegation } from './delegation-vault';
@@ -25,6 +26,12 @@ const originalLocation = Object.getOwnPropertyDescriptor(globalThis, 'location')
 const previousPin = process.env.VITE_MERKUR_OPAQUE_SERVER_PUBLIC_KEY;
 let serverSetup = '';
 let authenticateBrowserAccount: typeof import('./account-workflow').authenticateBrowserAccount;
+
+let restoreBrowserLocks: () => void = () => {};
+beforeAll(() => {
+  restoreBrowserLocks = installBrowserLocks();
+});
+afterAll(() => restoreBrowserLocks());
 
 beforeAll(async () => {
   await opaque.ready;

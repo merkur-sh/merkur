@@ -300,7 +300,11 @@ tombstone, deletes the usable delegate before network delivery, and retries the 
 later refresh or login. First delivery after expiry verifies the certificate at the signed issuance
 time and accepts only the signer's single self-target with its exact stored expiry. It persists
 the revocation and daemon delivery intent even though the target is expired. This aged path
-cannot revoke another delegation or extend a target's lifetime.
+cannot revoke another delegation or extend a target's lifetime. Refresh, password rotation, logout
+delivery and authentication-finish responses share the origin-wide exclusive Web Lock
+`merkur-auth-refresh`. The lock covers each cookie-mutating request through response delivery,
+including logout retries, so an older logout response cannot clear a newer login cookie. Password
+stretching runs outside that lock.
 
 The daemon receives each statement as a `delegation_revoke` control command. The Rust dataplane
 verifies the actor certificate and statement, records the tombstone, and evicts affected live,
