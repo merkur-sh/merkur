@@ -212,14 +212,20 @@ async function navigationResponse(event: SwFetchEvent): Promise<Response> {
     return cached;
   }
 
+  let response: Response;
   try {
     const preload = await preloadPromise;
-    const response = preload ?? (await fetch(event.request));
-    if (response.ok) await cache.put('/index.html', response.clone());
-    return response;
+    response = preload ?? (await fetch(event.request));
   } catch {
     return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
   }
+  try {
+    if (response.ok) await cache.put('/index.html', response.clone());
+  } catch {
+    // Persistence failure must not discard a usable network response.
+    return response;
+  }
+  return response;
 }
 
 async function shellCacheFirst(event: SwFetchEvent): Promise<Response> {
@@ -227,13 +233,19 @@ async function shellCacheFirst(event: SwFetchEvent): Promise<Response> {
   const cached = await cache.match(event.request);
   if (cached) return cached;
 
+  let response: Response;
   try {
-    const response = await fetch(event.request);
-    if (response.ok) await cache.put(event.request, response.clone());
-    return response;
+    response = await fetch(event.request);
   } catch {
     return new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
   }
+  try {
+    if (response.ok) await cache.put(event.request, response.clone());
+  } catch {
+    // Persistence failure must not discard a usable network response.
+    return response;
+  }
+  return response;
 }
 
 // ── Type guards ───────────────────────────────────────────────────────────────

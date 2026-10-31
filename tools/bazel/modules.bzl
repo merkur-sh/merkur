@@ -3884,6 +3884,11 @@ MODULES = {
             ":src/sw.ts.module",
             ":tsconfig.json.module",
         ],
+        "src/sw.test.ts": [
+            ":package.json.module",
+            ":src/sw.ts.module",
+            ":tsconfig.json.module",
+        ],
         "src/sw.ts": [
             ":package.json.module",
             ":src/notification-route.ts.module",
@@ -5146,6 +5151,7 @@ MODULES = {
             ":src/session/wake-detector.test.ts.module",
             ":src/session/wake-detector.ts.module",
             ":src/sw-notification.test.ts.module",
+            ":src/sw.test.ts.module",
             ":src/sw.ts.module",
             ":src/telemetry-worker-client.test.ts.module",
             ":src/telemetry-worker-client.ts.module",
@@ -9201,6 +9207,7 @@ TYPE_INPUTS = {
             "src/session/wake-detector.test.ts",
             "src/session/wake-detector.ts",
             "src/sw-notification.test.ts",
+            "src/sw.test.ts",
             "src/sw.ts",
             "src/telemetry-worker-client.test.ts",
             "src/telemetry-worker-client.ts",
