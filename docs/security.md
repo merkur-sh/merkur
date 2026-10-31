@@ -284,7 +284,12 @@ verifies the actor certificate and statement, records the tombstone, and evicts 
 dialing, and parked peers; the Bun daemon persists the merged set in `~/.merkur/config.json` before
 acknowledging. The server replays pending outbox entries when a daemon reconnects, before it becomes
 session-ready, and backfills a newly linked daemon with every statement that still has a live
-target.
+target. Statements have no maximum delivery age: the actor certificate is verified at the signed
+issuance time, and every target satisfies `issuedAt < expiresAt <= issuedAt + 30 days`.
+A tombstone denies only while `now < expiresAt`, so a statement backdated with a long-expired
+actor key can produce only inert tombstones and cannot deny a live delegation. Expired tombstones
+remain persisted so replayed delivery still protects against clock rollback. Signature, root,
+origin, target and actor-revocation checks also apply to aged delivery.
 
 Revocation is not instantaneous when the daemon is offline, and a malicious server can delay or
 suppress delivery: an already active direct terminal can continue until its daemon receives the

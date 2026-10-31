@@ -468,3 +468,19 @@ fn an_account_deletion_needs_the_root_and_covers_every_field() {
     let without_nonce = json.replace(&format!(",\"nonce\":\"{}\"", statement.nonce), "");
     assert!(AccountDeletionStatement::parse(&without_nonce).is_err());
 }
+
+#[test]
+fn revocation_targets_are_bounded_by_statement_issuance() {
+    let v = vector("user-authorization-mldsa87.json");
+    let mut statement: RevocationStatement =
+        serde_json::from_value(v["revocation"].clone()).unwrap();
+    for expiry in [
+        statement.issued_at - 1,
+        statement.issued_at,
+        statement.issued_at + DELEGATION_LIFETIME_MS + 1,
+    ] {
+        statement.targets[0].expires_at = expiry;
+        assert!(statement.validate().is_err());
+        assert!(RevocationStatement::parse(&statement.to_json()).is_err());
+    }
+}

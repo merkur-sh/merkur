@@ -1017,7 +1017,9 @@ function parseDelegationRevocationStatement(value: unknown): DelegationRevocatio
   if (
     targets.some(
       (target, index) =>
-        index > 0 && (targets[index - 1]?.delegationId ?? '') >= target.delegationId,
+        target.expiresAt <= issuedAt ||
+        target.expiresAt - issuedAt > USER_DELEGATION_LIFETIME_MS ||
+        (index > 0 && (targets[index - 1]?.delegationId ?? '') >= target.delegationId),
     )
   ) {
     throw new Error('invalid delegation revocation');
