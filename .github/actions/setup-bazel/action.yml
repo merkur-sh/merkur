@@ -38,3 +38,8 @@ runs:
         BUILDBUDDY_API_KEY: ${{ inputs.buildbuddy-api-key }}
       run: |
         printf 'common --config=ci\ncommon --remote_header=x-buildbuddy-api-key=%s\n' "$BUILDBUDDY_API_KEY" > .bazelrc.local
+    # A fork's pull request has no key: the commands that name `--config=remote-cache` read no
+    # remote cache there, rather than one that refuses them.
+    - if: inputs.buildbuddy-api-key == ''
+      shell: bash
+      run: printf 'common:remote-cache --remote_cache=\n' > .bazelrc.local

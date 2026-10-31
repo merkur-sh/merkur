@@ -163,9 +163,9 @@ if [ -n "${{TEST_TOTAL_SHARDS:-}}" ]; then
 else
   for file in ${{files[@]+"${{files[@]}}"}}; do selected+=("./$file"); done
 fi
-exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}} "$@"
+{run}
 """.format(
-            args = " ".join(ctx.attr.args_),
+            run = _run_reporting(bun.short_path, ctx.attr.args_),
             browsers = browsers,
             bun = bun.short_path,
             checkout = checkout,
@@ -200,6 +200,29 @@ exec "$runfiles/_main/{bun}" {args} ${{selected[@]+"${{selected[@]}}"}} "$@"
     for target in list(ctx.attr.browsers) + list(ctx.attr.mounts):
         runfiles = runfiles.merge(ctx.runfiles(transitive_files = target.files))
     return [DefaultInfo(executable = launcher, runfiles = runfiles)]
+
+def _run_reporting(bun, args):
+    """The launcher's last step: Bun with `args`, writing the test's report where Bazel reads it.
+
+    A test that leaves `XML_OUTPUT_FILE` unwritten costs a second action that writes it, with its
+    own cache lookups. `bun test` reports each case in JUnit's format; a gate, one case for the
+    run. A build action running the launcher as a tool names no report.
+    """
+    command = '"$runfiles/_main/%s" %s ${selected[@]+"${selected[@]}"} "$@"' % (bun, " ".join(args))
+    if args[0] == "test":
+        return """if [ -n "${XML_OUTPUT_FILE:-}" ]; then
+  exec %s --reporter=junit --reporter-outfile="$XML_OUTPUT_FILE"
+fi
+exec %s""" % (command, command)
+    return """if [ -z "${XML_OUTPUT_FILE:-}" ]; then exec %s; fi
+started=$SECONDS
+status=0
+%s || status=$?
+failure=""
+if [ "$status" -ne 0 ]; then failure="<failure message=\\"exited $status\\"/>"; fi
+printf '<?xml version="1.0" encoding="UTF-8"?>\\n<testsuites><testsuite name="%%s" tests="1" failures="%%d"><testcase name="%%s" time="%%d">%%s</testcase></testsuite></testsuites>\\n' \\
+  "$TEST_TARGET" "$((status != 0))" "$TEST_TARGET" "$((SECONDS - started))" "$failure" > "$XML_OUTPUT_FILE"
+exit "$status\"""" % (command, command)
 
 _CHECKOUT_ATTRS = {
     "args_": attr.string_list(doc = "Bun's arguments, before the test files."),

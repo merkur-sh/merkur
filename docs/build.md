@@ -43,10 +43,16 @@ builds leave the flag out, as Cargo's release profile does. Rust compilation is 
 unsandboxed, a pipelined crate's full compile collides with the metadata file its metadata action
 declares, and CI's keys must match a checkout's for the remote cache to answer.
 
-BuildBuddy's remote cache holds what CI built. A workstation reads it and uploads nothing:
-`.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
-`--remote_header=x-buildbuddy-api-key=...` line, the key coming from the Keychain. CI writes
-the same file from the `BUILDBUDDY_API_KEY` secret with `--config=ci`, the only writer. A fork's
+BuildBuddy's remote cache holds what CI built. A workstation uploads nothing, and reads it only
+on the commands that build the whole tree or install its programs: `test:unit`, `check`,
+`build:native`, `build:wasm` and `bun run setup`'s builds name `--config=remote-cache`, so a
+pull CI already built is fetched rather than rebuilt. Every other command, a single test or the
+edit loop's `test:quick`, uses only the disk cache: an edit is built here before CI sees it, and
+each command's first remote lookup opens a new connection to the cache, which cost a single Bun
+test run 1.7 s of its 2.3 s from Europe. Switching between the two keeps the analysis cache.
+`.bazelrc.local` (ignored) holds the `--remote_header=x-buildbuddy-api-key=...` line, the key
+coming from the Keychain. CI writes the same file from the `BUILDBUDDY_API_KEY` secret with
+`--config=ci`, the only writer. A fork's
 pull request has no key and builds everything itself. Blobs travel zstd-compressed both ways
 (`--remote_cache_compression`); a digest names the uncompressed bytes. A runner restores no repository cache: it
 downloads the archives its build needs from their sources, each held to its pinned checksum.

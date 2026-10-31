@@ -184,8 +184,8 @@ Cold, or after a broad Rust change, the builds grow by an order of magnitude.
 | `check:docs` | prose paths, links, pinned facts, config/e2e/workspace parity, harness shape | <1 s |
 | `check:bazel-sources` | `tools/bazel/sources.bzl` matches the packages, and each declares `package_files()` | <1 s |
 | `check:protocol` | `bazel test //:protocol`: every suite holding a side of a wire, IPC, crypto or config contract | seconds when nothing changed |
-| `check` | `bazel test //:static_gates //:protocol` | seconds when nothing changed |
-| `test:unit` | `bazel test //...` | seconds when nothing changed |
+| `check` | `bazel test //:static_gates //:protocol`, reading CI's remote cache | seconds when nothing changed |
+| `test:unit` | `bazel test //...`, reading CI's remote cache; a bare `bazel test` reads only the disk cache (`docs/build.md`) | seconds when nothing changed |
 | `check:audit` | pnpm and Cargo dependency advisories and yanked Rust releases; install cargo-audit with `setup:audit`; needs network | network |
 | `check:js-dependency-policy` | `pnpm-lock.yaml` sources, specs, licenses and install-script trust, read from a script-free install for every platform any locked package names, in `target/js-dependency-policy`; runs beside `check:audit` | seconds on a warm pnpm store |
 | `rust:lint` | `bazel test //:rust_lint`: Clippy over every first-party target as a Bazel aspect, cached per crate, sorted by `scripts/rust-lint.ts`. No warning is allowed outside the ratcheted lints, which are held per file and lint to `lint-baselines/clippy.json`. A suppression is `#[expect(lint, reason = "…")]`, and one the lint no longer meets fails | seconds when no crate changed; minutes cold |
@@ -193,7 +193,7 @@ Cold, or after a broad Rust change, the builds grow by an order of magnitude.
 | `bazel test //apps/daemon/dataplane:unit --test_arg=<filter>` | one filtered dataplane run, the `real_helper` modules included when the filter selects them: the test target builds the sandboxed image helper and hands its path over | seconds warm |
 | `rust:test` | `bazel test` over every Rust target: each crate's unit, integration and doc tests, the dataplane's `real_helper` modules, and `term-wasm` again in the release profile | seconds when nothing changed |
 | `test:graphics:long` | 64-seed convergence, both drivers, seeds across cores | ~20 s (2026-09-29) |
-| `build:native` | `bazel run //tools/bazel/native:sync`, in the release profile whatever the command line's configuration: the dataplane, image worker and terminal client into apps/daemon/dist, the edge, delay proxy and bulk competitor into apps/edge/dist | seconds when nothing changed |
+| `build:native` | `bazel run //tools/bazel/native:sync`, reading CI's remote cache, in the release profile whatever the command line's configuration: the dataplane, image worker and terminal client into apps/daemon/dist, the edge, delay proxy and bulk competitor into apps/edge/dist | seconds when nothing changed |
 | `build:web` `build:server` `build:daemon` `build:wasm` | artifacts | — |
 | `bench:reconnect` | carrier-recovery latency per failure scenario, in process | ~3.5 min |
 | `--cwd apps/server telemetry:smoke` | server telemetry wire contract | — |

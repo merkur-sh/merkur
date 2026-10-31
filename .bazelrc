@@ -79,12 +79,17 @@ build:macos_aarch64 --platforms=//tools/bazel/platforms:macos_aarch64
 build --macos_minimum_os=13.0
 build --host_macos_minimum_os=13.0
 
-# BuildBuddy's remote cache. A workstation reads what CI wrote and uploads nothing; CI is the
-# only writer. `.bazelrc.local` (ignored) enables it with `common --config=remote-cache` and the
-# `--remote_header=x-buildbuddy-api-key=...` line; CI writes the same from its secret.
+# BuildBuddy's remote cache, which CI alone writes. A workstation reads it on the commands that
+# build the whole tree or install its programs (`test:unit`, `check`, `build:native`,
+# `build:wasm`), which name `--config=remote-cache`: what CI built and the workstation never did
+# is fetched there. Every other command, the edit loop's, uses only the disk cache, since an edit
+# is built here before CI sees it and a remote lookup from a workstation costs a new connection
+# and a round trip to the cache (1.7 s of a 2.3 s single Bun test run). `.bazelrc.local` (ignored)
+# holds the `--remote_header=x-buildbuddy-api-key=...` line; CI writes it from its secret with
+# `common --config=ci`.
+common --noremote_upload_local_results
 common:remote-cache --remote_cache=grpcs://remote.buildbuddy.io
 common:remote-cache --remote_timeout=600
-common:remote-cache --noremote_upload_local_results
 # A workstation edits main-repository sources mid-build; `lite` guards exactly those, where
 # full guarding also skips uploads of external and generated inputs whose ctime Linux reports late.
 common:remote-cache --guard_against_concurrent_changes=lite

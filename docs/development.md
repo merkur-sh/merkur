@@ -118,7 +118,7 @@ resolves against that package alone and can silently upgrade its dependencies.
 | Command | What it does |
 | --- | --- |
 | `bun run check` | The static gates (types, lint, latency boundaries, span lifetimes and attributes, dead code, the ratchet, the anti-slop baseline, docs, the Bazel package list) and the protocol suites, as cached Bazel tests. |
-| `bun run test:unit` | `bazel test //...`: every unit test and static gate, each run only when its inputs changed. |
+| `bun run test:unit` | `bazel test //...`: every unit test and static gate, each run only when its inputs changed, reading what CI built from the remote cache. |
 | `bun run test:e2e` | The hermetic Playwright suite (below). |
 | `bun run rust:lint`, `bun run rust:test` | Clippy over every first-party Rust target with no warning allowed outside the ratcheted lints of `lint-baselines/clippy.json`, and `bazel test` over every Rust test target. |
 | `bun run rust:deps` | Unused and misplaced crate dependencies (`cargo shear`; install it once with `bun run setup:shear`). |
