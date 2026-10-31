@@ -13,6 +13,7 @@ import {
 } from './daemon-control-client';
 import {
   activateReleaseEffect,
+  clearReleaseHandoffEffect,
   resolveVersionedDaemonExecutables,
   stageReleaseEffect,
 } from './daemon-release';
@@ -155,6 +156,7 @@ export function convergeEffect(
       logger: context.logger,
       installRoot: context.installRoot,
       versionDirectory,
+      handoff: true,
     });
     const executables = resolveVersionedDaemonExecutables(versionDirectory);
     const pid = context.dataplane.dataplanePid();
@@ -188,5 +190,16 @@ export function convergeEffect(
       ...process.env,
       [DATAPLANE_ADOPT_ENV]: encodeDataplaneAdoption({ pid, socketPath }),
     });
-  });
+  }).pipe(
+    Effect.ensuring(
+      clearReleaseHandoffEffect(context.installRoot, release).pipe(
+        Effect.catch((error) =>
+          logEffect('warn', 'daemon', 'daemon_handoff_cleanup_failed', {
+            release,
+            error: String(error),
+          }),
+        ),
+      ),
+    ),
+  );
 }

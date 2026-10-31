@@ -9,6 +9,7 @@ import type { DaemonConfig } from '../config';
 import { createLogger } from '../logger';
 import { convergeEffect, type ReleaseStager } from './daemon-convergence';
 import {
+  acquireReleaseOwnershipEffect,
   activateReleaseEffect,
   DaemonUpdatePersistenceError,
   DaemonUpdateTrustError,
@@ -302,6 +303,66 @@ describe('convergence', () => {
     }
   });
 
+  test('pruning preserves the successor between dataplane acceptance and owner exec', async () => {
+    const { installRoot, versionDirectory } = await stagedInstall('v2.0.0');
+    try {
+      const harness = context(installRoot, () => ({ status: 'accepted' }));
+      harness.value.dataplane.upgradeEffect = () =>
+        Effect.promise(async () => {
+          const later = path.join(installRoot, 'versions', 'v3.0.0');
+          await filesystem.cp(versionDirectory, later, { recursive: true });
+          await Effect.runPromise(
+            activateReleaseEffect({ logger, installRoot, versionDirectory: later }),
+          );
+          return { status: 'accepted' as const };
+        });
+      await Effect.runPromise(
+        convergeEffect(harness.value, stagerFor(versionDirectory), 'v2.0.0').pipe(
+          Effect.catchDefect(() => Effect.void),
+        ),
+      );
+      expect(await Bun.file(path.join(versionDirectory, 'merkur')).exists()).toBe(true);
+    } finally {
+      await rm(installRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('the successor clears its handoff record only after taking shared ownership', async () => {
+    const { installRoot, versionDirectory } = await stagedInstall('v2.0.0');
+    try {
+      await Effect.runPromise(
+        activateReleaseEffect({ logger, installRoot, versionDirectory, handoff: true }),
+      );
+      expect(await Bun.file(path.join(installRoot, 'release-handoff')).text()).toBe('v2.0.0');
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* acquireReleaseOwnershipEffect(
+              installRoot,
+              path.join(versionDirectory, 'merkur'),
+            );
+            expect(
+              yield* Effect.promise(() =>
+                Bun.file(path.join(installRoot, 'release-handoff')).exists(),
+              ),
+            ).toBe(false);
+            const later = path.join(installRoot, 'versions', 'v3.0.0');
+            yield* Effect.promise(() =>
+              filesystem.cp(versionDirectory, later, { recursive: true }),
+            );
+            yield* activateReleaseEffect({ logger, installRoot, versionDirectory: later });
+            expect(
+              yield* Effect.promise(() => Bun.file(path.join(versionDirectory, 'merkur')).exists()),
+            ).toBe(true);
+          }),
+        ),
+      );
+      expect(await Bun.file(path.join(installRoot, 'release-handoff')).exists()).toBe(false);
+    } finally {
+      await rm(installRoot, { recursive: true, force: true });
+    }
+  });
+
   test('a refused upgrade fails and leaves this process running', async () => {
     const { installRoot, versionDirectory } = await stagedInstall('v2.0.0');
     try {
@@ -313,6 +374,7 @@ describe('convergence', () => {
         Effect.flip(convergeEffect(harness.value, stagerFor(versionDirectory), 'v2.0.0')),
       );
       expect(failure.message).toContain('upgrade_unavailable');
+      expect(await Bun.file(path.join(installRoot, 'release-handoff')).exists()).toBe(false);
     } finally {
       await rm(installRoot, { recursive: true, force: true });
     }

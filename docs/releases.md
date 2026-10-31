@@ -264,7 +264,11 @@ other ends the control client, and the daemon converges:
    lock, point `current` at the release, and prune inactive releases only after taking their
    `.owner.lock` exclusively without blocking. Each running daemon holds its actual executable's
    release under a shared ownership lock until its scope ends or it execs; acquisition also
-   takes the trust-state lock, so it cannot race pruning. The
+   takes the trust-state lock, so it cannot race pruning. Before requesting a dataplane
+   handoff, activation durably records the successor in `release-handoff` under that lock.
+   Pruning preserves the recorded release until the successor takes its shared ownership
+   lock and clears the record. A failed handoff clears it too; a stale record retains only
+   disk space until the next handoff. The
    service unit, `bin/merkur` and the shell integration all run `current`, so no update rewrites or
    restarts the unit.
 3. **Hand over.** The dataplane closes its peers and transports, takes every byte its PTY reader

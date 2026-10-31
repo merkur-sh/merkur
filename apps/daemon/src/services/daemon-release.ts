@@ -6,6 +6,7 @@ import {
   mkdir,
   open,
   readdir,
+  readFile,
   realpath,
   rename,
   rm,
@@ -40,7 +41,7 @@ import {
   verifyReleaseManifestSignature,
 } from '@merkur/shared/release-signature';
 import { compileRequire } from '@merkur/shared/schema-check';
-import { Clock, Data, Effect, Schedule, type Scope } from 'effect';
+import { Clock, Data, Effect, Predicate, Schedule, type Scope } from 'effect';
 
 import { tryAcquireFileLock } from '../file-lock';
 import type { Logger } from '../logger';
@@ -66,6 +67,7 @@ const UPDATE_ARTIFACT_ATTEMPT_FLOOR_MS = 30_000;
 const UPDATE_ARTIFACT_MINIMUM_BYTES_PER_SECOND = 128 * 1024;
 const UPDATE_ARTIFACT_RETRY_OVERHEAD_MS = 2_000;
 const RELEASE_TRUST_STATE_FILE = 'release-trust.json';
+const RELEASE_HANDOFF_FILE = 'release-handoff';
 const RELEASE_TRUST_STATE_TEMP_PREFIX = '.release-trust.json.new-';
 const SHA512_HEX_PATTERN = /^[0-9a-f]{128}$/;
 const TAR_BLOCK_BYTES = 512;
@@ -321,7 +323,13 @@ export const acquireReleaseOwnershipEffect = Effect.fnUntraced(function* (
         try: async () => {
           const owner = await tryAcquireFileLock(path.join(directory, '.owner.lock'), 'shared');
           if (owner === null) throw new Error('release is being pruned');
-          return owner;
+          try {
+            await clearReleaseHandoff(installRoot, path.basename(directory));
+            return owner;
+          } catch (error) {
+            await owner.close();
+            throw error;
+          }
         },
         catch: normalizeUnknownError,
       }),
@@ -339,6 +347,7 @@ export function activateReleaseEffect(input: {
   readonly logger: Logger;
   readonly installRoot: string;
   readonly versionDirectory: string;
+  readonly handoff?: true;
 }): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
     yield* withReleaseTrustLockEffect(
@@ -366,11 +375,54 @@ export function activateReleaseEffect(input: {
             message: 'refusing a different manifest at the persisted release sequence',
           });
         }
+        if (input.handoff) {
+          yield* Effect.tryPromise({
+            try: async () => {
+              const handle = await open(
+                path.join(input.installRoot, RELEASE_HANDOFF_FILE),
+                'w',
+                0o600,
+              );
+              try {
+                await handle.writeFile(path.basename(input.versionDirectory));
+                await handle.sync();
+              } finally {
+                await handle.close();
+              }
+            },
+            catch: normalizeUnknownError,
+          });
+          yield* syncDirectoryEffect(input.installRoot);
+        }
         yield* swapCurrentSymlinkTargetEffect(input.installRoot, input.versionDirectory);
         yield* pruneEffect(input.installRoot, path.basename(input.versionDirectory), input.logger);
       }),
     );
   });
+}
+
+async function readReleaseHandoff(installRoot: string): Promise<string | null> {
+  try {
+    return await readFile(path.join(installRoot, RELEASE_HANDOFF_FILE), 'utf8');
+  } catch (error) {
+    if (Predicate.isObject(error) && 'code' in error && error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function clearReleaseHandoff(installRoot: string, release: string): Promise<void> {
+  if ((await readReleaseHandoff(installRoot)) === release)
+    await rm(path.join(installRoot, RELEASE_HANDOFF_FILE), { force: true });
+}
+
+export function clearReleaseHandoffEffect(installRoot: string, release: string) {
+  return withReleaseTrustLockEffect(
+    installRoot,
+    Effect.tryPromise({
+      try: () => clearReleaseHandoff(installRoot, release),
+      catch: normalizeUnknownError,
+    }),
+  );
 }
 
 function isStagedEffect(versionDirectory: string): Effect.Effect<boolean, Error> {
@@ -1482,10 +1534,11 @@ function pruneEffect(
       if (!existsSync(versionsDirectory)) {
         return;
       }
+      const handoff = await readReleaseHandoff(installRoot);
       const entries = await readdir(versionsDirectory);
       for (const entry of entries) {
         // A dot entry is a stager's directory still being filled.
-        if (entry === activeVersion || entry.startsWith('.')) continue;
+        if (entry === activeVersion || entry === handoff || entry.startsWith('.')) continue;
         const directory = path.join(versionsDirectory, entry);
         const owner = await tryAcquireFileLock(path.join(directory, '.owner.lock'), 'exclusive');
         if (owner === null) continue;
