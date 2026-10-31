@@ -560,3 +560,190 @@ fn graphics_placement_cost_profile() {
         );
     }
 }
+
+fn reconcile_fixture(count: u32, change: &str) -> (Graphics, Scene) {
+    let scene = Scene {
+        tiles: vec![],
+        quads: vec![].into(),
+        animations: vec![],
+    };
+    let mut graphics = Graphics::default();
+    graphics.scene = Some(scene.clone());
+    graphics.size = Some(size());
+    graphics.complete = change != "incomplete";
+    graphics.dirty = true;
+    let key = raster_key("shared", &quad("shared"), 16, 12).unwrap();
+    for index in 0..count {
+        let placement = Placement {
+            key: key.clone(),
+            layer: 2,
+            order: index * 3,
+        };
+        graphics.shown.push(placement.clone());
+        let mut desired = placement;
+        if change == "replacement" || (change == "sparse" && index % 3 == 0) {
+            desired.order += 1;
+        }
+        if change == "key" && index % 3 == 0 {
+            desired.key.mapping[4] = 0.5_f64.to_bits();
+        }
+        graphics.desired.push(desired);
+    }
+    if change == "key" && count != 0 {
+        graphics.rasters.insert(
+            graphics.desired[0].key.clone(),
+            Raster {
+                id: 2_147_483_645,
+                pixels: Zeroizing::new(vec![]),
+                sent: true,
+                confirmed: true,
+                _storage: graphics.reserve_pixels(0).unwrap(),
+            },
+        );
+    }
+    if change == "restore" {
+        graphics.shown.clear();
+        graphics.erased = true;
+    }
+    if count != 0 {
+        graphics.rasters.insert(
+            key,
+            Raster {
+                id: 2_147_483_646,
+                pixels: Zeroizing::new(vec![]),
+                sent: true,
+                confirmed: true,
+                _storage: graphics.reserve_pixels(0).unwrap(),
+            },
+        );
+    }
+    (graphics, scene)
+}
+
+fn reference_reconciliation(graphics: &Graphics) -> Vec<u8> {
+    let mut out = Vec::new();
+    if graphics.complete && (graphics.erased || graphics.shown != graphics.desired) {
+        let desired: BTreeSet<_> = graphics.desired.iter().collect();
+        let shown: BTreeSet<_> = graphics.shown.iter().collect();
+        out.extend_from_slice(b"\x1b7");
+        for placement in &graphics.shown {
+            if !desired.contains(placement) {
+                let id = graphics.rasters[&placement.key].id;
+                out.extend_from_slice(
+                    format!("\x1b_Ga=d,d=i,i={id},p={},q=2\x1b\\", placement.order + 1).as_bytes(),
+                );
+            }
+        }
+        for placement in &graphics.desired {
+            if !graphics.erased && shown.contains(placement) {
+                continue;
+            }
+            let id = graphics.rasters[&placement.key].id;
+            out.extend_from_slice(
+                format!(
+                    "\x1b[2;2H\x1b_Ga=p,i={id},p={},X=0,Y=0,C=1,z={}\x1b\\",
+                    placement.order + 1,
+                    placement.order
+                )
+                .as_bytes(),
+            );
+        }
+        out.extend_from_slice(b"\x1b8");
+    }
+    let shown = if graphics.complete {
+        &graphics.desired
+    } else {
+        &graphics.shown
+    };
+    for (key, raster) in &graphics.rasters {
+        if !graphics
+            .desired
+            .iter()
+            .chain(shown)
+            .any(|placement| &placement.key == key)
+        {
+            out.extend_from_slice(format!("\x1b_Ga=d,d=I,i={},q=2\x1b\\", raster.id).as_bytes());
+        }
+    }
+    out
+}
+
+#[test]
+fn ordered_placements_keep_the_deletion_then_insertion_command_stream() {
+    for count in [0, 1, 2, 8, 64, 256] {
+        for change in [
+            "unchanged",
+            "replacement",
+            "sparse",
+            "restore",
+            "incomplete",
+            "key",
+        ] {
+            let (mut graphics, scene) = reconcile_fixture(count, change);
+            let expected = reference_reconciliation(&graphics);
+            let mut out = Vec::new();
+            graphics.compose(&scene, size(), &mut out).unwrap();
+            assert_eq!(out, expected, "{count} {change}");
+            for placements in [&graphics.shown, &graphics.desired] {
+                assert!(
+                    placements
+                        .windows(2)
+                        .all(|pair| pair[0].order < pair[1].order)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "placement reconciliation allocation census; run with --ignored --nocapture"]
+fn placement_reconcile_cost_profile() {
+    for count in [0, 1, 8, 64, 256] {
+        for change in [
+            "unchanged",
+            "replacement",
+            "sparse",
+            "restore",
+            "incomplete",
+            "key",
+        ] {
+            let (mut graphics, scene) = reconcile_fixture(count, change);
+            let expected = reference_reconciliation(&graphics);
+            let mut out = Vec::with_capacity(65536);
+            let tally = crate::test_allocations::measure(|| {
+                graphics.compose(&scene, size(), &mut out).unwrap()
+            });
+            assert_eq!(out, expected);
+            println!(
+                "reconcile {count} {change}: bytes={} capacity={} desired_capacity={} shown_capacity={} {tally:?}",
+                out.len(),
+                out.capacity(),
+                graphics.desired.capacity(),
+                graphics.shown.capacity()
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "retired-instruction population; select MERKUR_TUI_PLACEMENTS and MERKUR_TUI_RECONCILE"]
+fn placement_reconcile_instruction_profile() {
+    let count = std::env::var("MERKUR_TUI_PLACEMENTS")
+        .unwrap_or_else(|_| "64".into())
+        .parse()
+        .unwrap();
+    let change = std::env::var("MERKUR_TUI_RECONCILE").unwrap_or_else(|_| "replacement".into());
+    let rounds: u32 = std::env::var("MERKUR_TUI_PROFILE_ROUNDS")
+        .unwrap_or_else(|_| "10000".into())
+        .parse()
+        .unwrap();
+    let mut out = Vec::with_capacity(65536);
+    for _ in 0..rounds {
+        let (mut graphics, scene) = reconcile_fixture(count, &change);
+        out.clear();
+        graphics
+            .compose(std::hint::black_box(&scene), size(), &mut out)
+            .unwrap();
+        std::hint::black_box(&out);
+    }
+}

@@ -412,19 +412,19 @@ impl Graphics {
                     .is_some_and(|raster| raster.confirmed)
             });
         if ready && (self.erased || self.shown != self.desired) {
-            let desired: BTreeSet<_> = self.desired.iter().collect();
-            let shown: BTreeSet<_> = self.shown.iter().collect();
+            let mut desired = self.desired.as_slice();
             out.extend_from_slice(b"\x1b7");
             for placement in &self.shown {
-                if !desired.contains(placement)
+                if !matches_ordered(&mut desired, placement)
                     && let Some(raster) = self.rasters.get(&placement.key)
                 {
                     delete_placement(out, raster.id, placement.order + 1);
                 }
             }
             let (cell_width, cell_height) = size.cell.unwrap_or((1.0, 1.0));
+            let mut shown = self.shown.as_slice();
             for placement in &self.desired {
-                if !self.erased && shown.contains(placement) {
+                if !self.erased && matches_ordered(&mut shown, placement) {
                     continue;
                 }
                 let raster = &self.rasters[&placement.key];
@@ -559,6 +559,21 @@ impl Graphics {
             false
         });
     }
+}
+
+// Each walk consumes strictly increasing, unique quad orders.
+fn matches_ordered(remaining: &mut &[Placement], placement: &Placement) -> bool {
+    while let Some((next, rest)) = remaining.split_first() {
+        match next.order.cmp(&placement.order) {
+            std::cmp::Ordering::Less => *remaining = rest,
+            std::cmp::Ordering::Equal => {
+                *remaining = rest;
+                return next == placement;
+            }
+            std::cmp::Ordering::Greater => return false,
+        }
+    }
+    false
 }
 
 fn raster_key(key: &str, quad: &Quad, width: u32, height: u32) -> Option<RasterKey> {
