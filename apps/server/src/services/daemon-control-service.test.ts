@@ -9,7 +9,7 @@ import {
 import type { DeviceEventDelta } from '@merkur/shared';
 import { Deferred, Effect, Fiber, Layer, Queue } from 'effect';
 import { TestClock } from 'effect/testing';
-import type { Kysely } from 'kysely';
+import { type Kysely, sql } from 'kysely';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
 import { createMigratedKyselyDatabase } from '../db/migrate';
@@ -98,6 +98,7 @@ const _leaseInvalidatedReasonsAreExact: ExactlyEqual<
   | 'worker_defect'
   | 'superseded'
   | 'revocation_retry'
+  | 'daemon_unlinked'
   | 'registration_failed'
 > = true;
 
@@ -963,6 +964,118 @@ describe('DaemonControlService', () => {
     },
   );
 
+  test('unlink retires daemon control', async () => {
+    const state = createCoordinationState();
+    const bus = createBrokerBus();
+    const redis: RedisService = {
+      ...bus.redis,
+      subscribe: () => Effect.void,
+      unsubscribe: () => Effect.void,
+    };
+    const dependencies = Layer.mergeAll(
+      Layer.succeed(RealtimeCoordinationServiceTag, createFakeCoordination('instance-a', state)),
+      Layer.succeed(RedisServiceTag, redis),
+      Layer.succeed(DeviceServiceTag, TEST_DEVICE_SERVICE),
+      testDatabaseLayer(),
+      Layer.succeed(ServerConfigService, TEST_SERVER_CONFIG),
+      Layer.succeed(EdgeRegistryServiceTag, TEST_EDGE_REGISTRY),
+      Layer.succeed(DaemonReleaseStoreTag, TEST_RELEASE_STORE),
+    );
+    const controlLayer = DaemonControlServiceLive.pipe(Layer.provideMerge(dependencies));
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const control = yield* DaemonControlServiceTag;
+          const db = yield* DatabaseService;
+          const socket = new TestSocket();
+          const handle = yield* control.acceptConnection({
+            daemonId: DAEMON_ID,
+            userId: USER_ID,
+            boxId: null,
+            daemonVersion: '4.0.0',
+            connectionId: 'connection-1',
+            presenceId: 'presence-1',
+            socket,
+            zone: null,
+          });
+          const devices = createDeviceService(
+            db,
+            { tokenHmacSecret: 'secret', publicOrigin: 'https://merkur.example' },
+            Effect.void,
+          );
+          yield* Effect.promise(() =>
+            sql`CREATE TRIGGER refuse_unlink BEFORE INSERT ON daemon_unlinks BEGIN SELECT RAISE(FAIL, 'unlink unavailable'); END`.execute(
+              db,
+            ),
+          );
+          expect((yield* Effect.result(devices.deleteDevice(USER_ID, DAEMON_ID)))._tag).toBe(
+            'Failure',
+          );
+          expect(
+            yield* Effect.promise(() =>
+              db.selectFrom('daemon_control_owners').select('connection_id').execute(),
+            ),
+          ).toEqual([{ connection_id: 'connection-1' }]);
+          yield* Effect.promise(() => sql`DROP TRIGGER refuse_unlink`.execute(db));
+          yield* devices.deleteDevice(USER_ID, DAEMON_ID);
+          const intent = yield* Effect.promise(() =>
+            db.selectFrom('daemon_unlinks').selectAll().executeTakeFirstOrThrow(),
+          );
+          handle.observePing();
+          yield* TestClock.adjust('1 second');
+          yield* Effect.promise(() => waitFor(() => socket.closed.length > 0));
+          expect(state.presence).toBeNull();
+          const tickets = socket.messagesOfType('lease').length;
+          handle.observePing();
+          yield* TestClock.adjust('20 seconds');
+          expect(socket.messagesOfType('lease')).toHaveLength(tickets);
+          expect(
+            (yield* Effect.result(
+              control.acceptConnection({
+                daemonId: DAEMON_ID,
+                userId: USER_ID,
+                boxId: null,
+                daemonVersion: '4.0.0',
+                connectionId: 'stale-registration',
+                presenceId: 'stale-presence',
+                socket: new TestSocket(),
+                zone: null,
+              }),
+            ))._tag,
+          ).toBe('Failure');
+          yield* Effect.promise(() => insertControlDaemon(db));
+          const replacement = new TestSocket();
+          yield* control.acceptConnection({
+            daemonId: DAEMON_ID,
+            userId: USER_ID,
+            boxId: null,
+            daemonVersion: '4.0.0',
+            connectionId: 'replacement',
+            presenceId: 'replacement-presence',
+            socket: replacement,
+            zone: null,
+          });
+          yield* Effect.promise(() =>
+            db
+              .insertInto('daemon_unlinks')
+              .values(intent)
+              .onConflict((conflict) => conflict.doNothing())
+              .execute(),
+          );
+          yield* TestClock.adjust('1 second');
+          yield* Effect.promise(() =>
+            waitFor(
+              async () =>
+                (await db.selectFrom('daemon_unlinks').selectAll().execute()).length === 0,
+            ),
+          );
+          expect(replacement.closed).toEqual([]);
+          expect(state.presence?.connectionId).toBe('replacement');
+        }).pipe(Effect.provide(controlLayer), Effect.provide(TestClock.layer())),
+      ),
+    );
+  });
+
   test('committed revocation survives request interruption', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
@@ -1024,22 +1137,6 @@ describe('DaemonControlService', () => {
           const request = yield* Effect.gen(function* () {
             yield* Effect.promise(() =>
               db.transaction().execute(async (trx) => {
-                await trx
-                  .insertInto('daemons')
-                  .values({
-                    id: DAEMON_ID,
-                    user_id: USER_ID,
-                    name: 'Daemon',
-                    platform: 'linux',
-                    daemon_identity_public_key: 'identity',
-                    daemon_identity_p256_public_key: 'p256',
-                    identity_seal_backend: 'software',
-                    daemon_identity_key_commitment: 'commitment',
-                    daemon_binding_json: '{}',
-                    last_seen: null,
-                    version: null,
-                  })
-                  .execute();
                 await trx
                   .insertInto('delegation_revocations')
                   .values({
@@ -2996,6 +3093,7 @@ function createService(
   return createDaemonControlService({
     coordination,
     redis,
+    registrationFence: (_input, acquire) => acquire,
     touchDaemon: () => Effect.void,
     touchDaemonsSeen: () => Effect.void,
     telemetryEnabled: () => Effect.succeed(true),
@@ -3115,9 +3213,9 @@ async function waitForMessage<T extends DaemonControlServerMessage['type']>(
   throw new Error(`timed out waiting for ${type}`);
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 1_000; attempt++) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
   throw new Error('timed out waiting for condition');
@@ -3197,6 +3295,7 @@ function testDatabaseLayer() {
       Effect.promise(async () => {
         const database = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
         await insertUser(database, USER_ID);
+        await insertControlDaemon(database);
         return database;
       }),
       (database) => Effect.promise(() => database.destroy()),
@@ -3231,6 +3330,25 @@ async function insertUser(database: Kysely<DatabaseSchema>, id: string): Promise
       root_envelope_nonce: 'nonce',
       root_envelope_ciphertext: 'ciphertext',
       created_at: 0,
+    })
+    .execute();
+}
+
+async function insertControlDaemon(database: Kysely<DatabaseSchema>): Promise<void> {
+  await database
+    .insertInto('daemons')
+    .values({
+      id: DAEMON_ID,
+      user_id: USER_ID,
+      name: 'Daemon',
+      platform: 'linux',
+      daemon_identity_public_key: 'identity',
+      daemon_identity_p256_public_key: 'p256',
+      identity_seal_backend: 'software',
+      daemon_identity_key_commitment: 'commitment',
+      daemon_binding_json: '{}',
+      last_seen: null,
+      version: null,
     })
     .execute();
 }

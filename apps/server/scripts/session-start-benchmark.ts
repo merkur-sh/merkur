@@ -99,6 +99,7 @@ const program = Effect.gen(function* () {
       createDaemonControlService({
         coordination,
         redis,
+        registrationFence: (_input, acquire) => acquire,
         touchDaemon: () => Effect.void,
         logger: NOOP_LOGGER,
       }),

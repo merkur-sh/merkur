@@ -100,6 +100,9 @@ Each control replica also scans pending daemon revocations once a second after i
 successful registration and delivers only to its own ready connections. The SQL outbox owns
 recovery independently of request cancellation; entries leave pending state only after daemon
 acknowledgement. Concurrent delivery of the same revocation shares its in-flight acknowledgement.
+The same worker drains `daemon_unlinks`, which retains the exact deleted control ownership until
+its socket and lease are retired. Registration records ownership under the unlink transaction's
+write lock; relinking cannot make an old unlink retire the new connection.
 
 Failed-login push notices use a separate scoped queue; request completion does not wait for
 push delivery. Box-host and push HTTP requests pass Effect's cancellation signal to fetch and

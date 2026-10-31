@@ -9,7 +9,7 @@ import {
   parseDaemonControlServerMessage,
 } from '@merkur/daemon-control-protocol';
 import { RedisClient } from 'bun';
-import { Context, Effect, Fiber, Layer, Queue, Redacted } from 'effect';
+import { Context, Deferred, Effect, Fiber, Layer, Queue, Redacted } from 'effect';
 import type { Kysely } from 'kysely';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
@@ -21,7 +21,7 @@ import {
   type DaemonControlSocket,
 } from './daemon-control-service';
 import { DaemonReleaseStoreTag } from './daemon-release-store';
-import { type DeviceService, DeviceServiceTag } from './device-service';
+import { createDeviceService, type DeviceService, DeviceServiceTag } from './device-service';
 import { EdgeRegistryServiceLive } from './edge-registry-service';
 import { deliverPendingNotifications } from './notification-outbox-service';
 import {
@@ -32,12 +32,72 @@ import { RedisError, RedisServiceLive, RedisServiceTag } from './redis-service';
 import { enqueueResetRevocation } from './session-revocation-outbox';
 
 const dragonflyUrl = process.env.DRAGONFLY_TEST_URL;
+const UNLINK_TEST_DEADLINE = '5 seconds';
 const CERT_HASH = Buffer.alloc(32, 7).toString('base64');
 
 if (dragonflyUrl === undefined) {
   test.skip('routes a fenced session_start across live Redis Pub/Sub and completes only after command_ack', () => {});
 } else {
   describe('DaemonControlService Redis broker integration', () => {
+    test.each([false, true])(
+      'unlink retires daemon control while pings continue after reset: %s',
+      async (reset) => {
+        const id = randomUUID();
+        const daemonId = `unlink-daemon-${id}`;
+        const userId = `unlink-user-${id}`;
+        const layer = createReplicaLayer(dragonflyUrl);
+        await Effect.runPromise(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const context = yield* Layer.build(layer);
+              const control = Context.get(context, DaemonControlServiceTag);
+              const db = Context.get(context, DatabaseService);
+              const coordination = Context.get(context, RealtimeCoordinationServiceTag);
+              yield* Effect.promise(() => insertUser(db, userId, daemonId));
+              const frames = yield* Queue.unbounded<DaemonControlServerMessage>();
+              const socket = new ExactControlSocket(frames);
+              const handle = yield* control.acceptConnection({
+                daemonId,
+                userId,
+                boxId: null,
+                daemonVersion: 'test',
+                connectionId: `connection-${id}`,
+                presenceId: `presence-${id}`,
+                socket,
+                zone: null,
+              });
+              const devices = createDeviceService(
+                db,
+                { tokenHmacSecret: 'test', publicOrigin: 'https://localhost:3000' },
+                Effect.void,
+              );
+              if (reset)
+                yield* Effect.promise(() =>
+                  db.transaction().execute(async (trx) => {
+                    await trx
+                      .updateTable('users')
+                      .set({ root_epoch: 2 })
+                      .where('id', '=', userId)
+                      .execute();
+                    await enqueueResetRevocation(trx, userId, 2);
+                  }),
+                );
+              yield* devices.deleteDevice(userId, daemonId);
+              handle.observePing();
+              if (reset) {
+                yield* deliverPendingNotifications(db, Context.get(context, RedisServiceTag));
+                expect((yield* takeMessage(frames, 'revocation')).revocationGeneration).toBe(1);
+              }
+              yield* Deferred.await(socket.closed).pipe(Effect.timeout(UNLINK_TEST_DEADLINE));
+              expect(yield* coordination.getDaemonPresence(daemonId)).toBeNull();
+              handle.observePing();
+              expect((yield* control.healthSnapshot()).controlConnections).toBe(0);
+            }),
+          ),
+        );
+      },
+    );
+
     test('routes a fenced session_start across live Redis Pub/Sub and completes only after command_ack', async () => {
       const suffix = randomUUID();
       const daemonId = `redis-control-daemon-${suffix}`;
@@ -67,7 +127,7 @@ if (dragonflyUrl === undefined) {
 
           expect(ownerCoordination.instanceId).not.toBe(requesterCoordination.instanceId);
           yield* Effect.promise(() =>
-            insertUser(Context.get(ownerContext, DatabaseService), userId),
+            insertUser(Context.get(ownerContext, DatabaseService), userId, daemonId),
           );
           yield* owner.acceptConnection({
             daemonId,
@@ -366,6 +426,7 @@ function createReplicaLayer(redisUrl: string) {
 }
 
 class ExactControlSocket implements DaemonControlSocket {
+  readonly closed = Deferred.makeUnsafe<void>();
   constructor(private readonly frames: Queue.Queue<DaemonControlServerMessage>) {}
 
   sendText(payload: string): number {
@@ -382,7 +443,7 @@ class ExactControlSocket implements DaemonControlSocket {
   }
 
   close(): void {
-    // The scoped DaemonControlService owns this synthetic socket.
+    Deferred.doneUnsafe(this.closed, Effect.void);
   }
 }
 
@@ -492,7 +553,11 @@ const TEST_DEVICE_SERVICE: DeviceService = {
   touchDaemonsSeen: () => Effect.void,
 };
 
-async function insertUser(database: Kysely<DatabaseSchema>, id: string): Promise<void> {
+async function insertUser(
+  database: Kysely<DatabaseSchema>,
+  id: string,
+  daemonId: string,
+): Promise<void> {
   await database
     .insertInto('users')
     .values({
@@ -505,6 +570,22 @@ async function insertUser(database: Kysely<DatabaseSchema>, id: string): Promise
       root_envelope_nonce: 'nonce',
       root_envelope_ciphertext: 'ciphertext',
       created_at: 0,
+    })
+    .execute();
+  await database
+    .insertInto('daemons')
+    .values({
+      id: daemonId,
+      user_id: id,
+      name: 'Daemon',
+      platform: 'linux',
+      daemon_identity_public_key: 'identity',
+      daemon_identity_p256_public_key: 'p256',
+      identity_seal_backend: 'software',
+      daemon_identity_key_commitment: 'commitment',
+      daemon_binding_json: '{}',
+      last_seen: null,
+      version: null,
     })
     .execute();
 }
@@ -540,22 +621,6 @@ async function recordRevocation(
   };
   const commandId = randomUUID();
   await db.transaction().execute(async (trx) => {
-    await trx
-      .insertInto('daemons')
-      .values({
-        id: daemonId,
-        user_id: userId,
-        name: 'Daemon',
-        platform: 'linux',
-        daemon_identity_public_key: 'identity',
-        daemon_identity_p256_public_key: 'p256',
-        identity_seal_backend: 'software',
-        daemon_identity_key_commitment: 'commitment',
-        daemon_binding_json: '{}',
-        last_seen: null,
-        version: null,
-      })
-      .execute();
     await trx
       .insertInto('delegation_revocations')
       .values({

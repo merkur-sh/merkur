@@ -157,6 +157,7 @@ async function createFleet(stun: StunTicketIssuer, keepFrames: boolean): Promise
   const service = createDaemonControlService({
     coordination: coordinationFor(),
     redis: {} as RedisService,
+    registrationFence: (_input, acquire) => acquire,
     touchDaemon: () => Effect.void,
     touchDaemonsSeen: () => Effect.void,
     telemetryEnabled: () => Effect.succeed(true),

@@ -12,10 +12,12 @@ export const runDaemonRevocationDelivery = Effect.fnUntraced(function* (
   db: Kysely<DatabaseSchema>,
   deliver: (daemonIds: readonly string[]) => Effect.Effect<void, InfrastructureError | RedisError>,
   logger: Logger,
+  unlinks: Effect.Effect<void, InfrastructureError | RedisError>,
 ) {
   yield* Effect.forever(
     Effect.gen(function* () {
       yield* Effect.gen(function* () {
+        yield* unlinks;
         const pending = yield* Effect.tryPromise({
           try: () =>
             db

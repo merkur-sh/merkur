@@ -59,6 +59,7 @@ import {
 import { currentTraceparent } from '../observability/traceparent';
 import { readAccountTelemetryConsent } from './account-telemetry-service';
 import { BROKER_BROADCAST_CHANNEL, BROKER_PROTOCOL_VERSION } from './daemon-control-broadcast';
+import { deliverDaemonUnlinks, fenceDaemonRegistration } from './daemon-control-ownership';
 import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { runDaemonRevocationDelivery } from './daemon-revocation-delivery';
 import { DeviceServiceTag } from './device-service';
@@ -357,6 +358,7 @@ export type ControlTeardown =
         | 'worker_defect'
         | 'superseded'
         | 'revocation_retry'
+        | 'daemon_unlinked'
         | 'registration_failed';
     };
 
@@ -401,6 +403,11 @@ const CONTROL_TEARDOWN_POLICY: Readonly<Record<ControlTeardownReason, ControlTea
     forceRegistrationCleanup: true,
   },
   superseded: { closeCode: 4001, closeReason: 'superseded', forceRegistrationCleanup: true },
+  daemon_unlinked: {
+    closeCode: 4003,
+    closeReason: 'daemon_unlinked',
+    forceRegistrationCleanup: true,
+  },
   revocation_retry: {
     closeCode: 4003,
     closeReason: 'delegation_revocation_retry',
@@ -612,6 +619,10 @@ type BrokerEnvelope =
 
 interface DaemonControlRuntime extends DaemonControlService {
   readonly awaitFirstConnection: Effect.Effect<void>;
+  readonly retireUnlinkedPresence: (
+    presence: DaemonPresence,
+    generation: number | null,
+  ) => Effect.Effect<boolean, RedisError | InfrastructureError>;
   readonly deliverPendingRevocations: (
     daemonIds: readonly string[],
   ) => Effect.Effect<void, InfrastructureError | RedisError>;
@@ -649,6 +660,10 @@ export interface DaemonControlServiceDependencies {
   ) => Effect.Effect<void, InfrastructureError>;
   /** States consent === true; not-chosen and off both state false. */
   readonly telemetryEnabled: (userId: string) => Effect.Effect<boolean, InfrastructureError>;
+  readonly registrationFence: (
+    input: DaemonControlConnectionInput,
+    acquire: Effect.Effect<ClaimDaemonOnlineResult, RedisError>,
+  ) => Effect.Effect<ClaimDaemonOnlineResult, RedisError | InfrastructureError>;
   readonly revocationOutbox?: DelegationRevocationOutbox;
   readonly logger: Logger;
   /**
@@ -720,6 +735,8 @@ export const DaemonControlServiceLive = Layer.effect(
     const service = createDaemonControlService({
       coordination,
       redis,
+      registrationFence: (input, acquire) =>
+        fenceDaemonRegistration(db, coordination, input, acquire),
       touchDaemon: (daemonId, version) => devices.touchDaemon(daemonId, version),
       touchDaemonsSeen: (daemonIds) => devices.touchDaemonsSeen(daemonIds),
       telemetryEnabled: (userId) =>
@@ -785,7 +802,14 @@ export const DaemonControlServiceLive = Layer.effect(
     // HTTP admits connections only after migrations; registration also replays
     // pending entries before readiness. Waiting avoids querying an unmigrated DB.
     yield* service.awaitFirstConnection.pipe(
-      Effect.andThen(runDaemonRevocationDelivery(db, service.deliverPendingRevocations, logger)),
+      Effect.andThen(
+        runDaemonRevocationDelivery(
+          db,
+          service.deliverPendingRevocations,
+          logger,
+          deliverDaemonUnlinks(db, redis, service.retireUnlinkedPresence),
+        ),
+      ),
       Effect.forkScoped,
     );
     return service;
@@ -884,6 +908,42 @@ export function createDaemonControlService(
 
   const service: DaemonControlRuntime = {
     awaitFirstConnection: Deferred.await(firstConnection),
+    retireUnlinkedPresence: (presence, generation) =>
+      Effect.gen(function* () {
+        if (presence.ownerInstanceId === coordination.instanceId) {
+          const connection = connections.get(presence.connectionId);
+          if (
+            connection !== undefined &&
+            connection.daemonId === presence.daemonId &&
+            connection.userId === presence.userId &&
+            connection.presenceId === presence.presenceId &&
+            connection.claimSeq === presence.claimSeq
+          ) {
+            if (generation !== null)
+              yield* sendFrame(connection, createDaemonControlRevocationMessage(generation)).pipe(
+                Effect.mapError(infrastructureError('daemon-control', 'unlink-reset-revocation')),
+              );
+            yield* releaseConnection(connection.connectionId, {
+              kind: 'lease_invalidated',
+              reason: 'daemon_unlinked',
+            });
+          }
+          yield* coordination.unmarkDaemonOnline(presence);
+          yield* coordination.removeDaemonSessions({
+            daemonId: presence.daemonId,
+            userId: presence.userId,
+            presenceId: presence.presenceId,
+            claimSeq: presence.claimSeq,
+          });
+        }
+        const current = yield* coordination.getDaemonPresence(presence.daemonId);
+        return (
+          current === null ||
+          current.ownerInstanceId !== presence.ownerInstanceId ||
+          current.connectionId !== presence.connectionId ||
+          !isSamePresenceLease(current, presence)
+        );
+      }),
     deliverPendingRevocations: (daemonIds) =>
       Effect.forEach(
         daemonIds,
@@ -1021,19 +1081,22 @@ export function createDaemonControlService(
         // scope. If Redis stores the claim and this registration fiber is
         // interrupted immediately afterward, onExit closes the scope and the
         // fenced lease is still relinquished.
-        const claim = yield* Scope.provide(
-          Effect.acquireRelease(
-            acquireLease.pipe(
-              Effect.tap((claimed) =>
-                Effect.sync(() => {
-                  connection.claimSeq = claimed.claimSeq;
-                  connection.presenceLeaseAcquired = true;
-                }),
+        const claim = yield* dependencies.registrationFence(
+          input,
+          Scope.provide(
+            Effect.acquireRelease(
+              acquireLease.pipe(
+                Effect.tap((claimed) =>
+                  Effect.sync(() => {
+                    connection.claimSeq = claimed.claimSeq;
+                    connection.presenceLeaseAcquired = true;
+                  }),
+                ),
               ),
+              (claimed) => finalizePresenceLease(connection, claimed),
             ),
-            (claimed) => finalizePresenceLease(connection, claimed),
+            connection.scope,
           ),
-          connection.scope,
         );
         if (claim._tag === 'Superseded') {
           return yield* new StaleDaemonPresence({

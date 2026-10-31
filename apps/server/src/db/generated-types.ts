@@ -41,6 +41,16 @@ export interface BrowserDelegations {
   user_id: string;
 }
 
+export interface DaemonControlOwners {
+  claim_seq: number;
+  connection_id: string;
+  daemon_id: string;
+  owner_instance_id: string;
+  presence_id: string;
+  root_epoch: number;
+  user_id: string;
+}
+
 export interface DaemonLinkClaims {
   approval_json: string | null;
   approved_at: number | null;
@@ -54,6 +64,16 @@ export interface DaemonLinkClaims {
   public_claim_json: string;
   server_nonce: string;
   state: string;
+  user_id: string;
+}
+
+export interface DaemonUnlinks {
+  claim_seq: number;
+  connection_id: string;
+  daemon_id: string;
+  owner_instance_id: string;
+  presence_id: string;
+  root_epoch: number;
   user_id: string;
 }
 
@@ -157,7 +177,9 @@ export interface DB {
   box_removals: BoxRemovals;
   box_waitlist: BoxWaitlist;
   browser_delegations: BrowserDelegations;
+  daemon_control_owners: DaemonControlOwners;
   daemon_link_claims: DaemonLinkClaims;
+  daemon_unlinks: DaemonUnlinks;
   daemons: Daemons;
   delegation_revocation_outbox: DelegationRevocationOutbox;
   delegation_revocations: DelegationRevocations;
