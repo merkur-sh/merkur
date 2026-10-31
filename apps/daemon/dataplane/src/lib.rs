@@ -7266,8 +7266,8 @@ fn next_edge_preauth_deadline(
             left.lease
                 .expires_at_ms
                 .total_cmp(&right.lease.expires_at_ms)
-                .then_with(|| left.peer_id.cmp(&right.peer_id))
-                .then_with(|| left.session_id.cmp(&right.session_id))
+                .then_with(|| left.peer_id.cmp(right.peer_id))
+                .then_with(|| left.session_id.cmp(right.session_id))
         })
 }
 
