@@ -23,6 +23,7 @@ import {
   activateReleaseEffect,
   type DaemonUpdateFetch,
   DaemonUpdateHttpError,
+  DaemonUpdatePersistenceError,
   downloadEffect,
   downloadReleaseArtifactToFileEffect,
   fetchServerReleaseEffect,
@@ -865,3 +866,55 @@ async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<voi
   }
   throw new Error('condition was not reached');
 }
+
+test('a trust writer killed while holding its lock does not strand the next writer', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-killed-writer-'));
+  const modulePath = new URL('./daemon-release.ts', import.meta.url).href;
+  const script = `
+    import { mock } from 'bun:test';
+    import * as fs from 'node:fs/promises';
+    import { Effect } from 'effect';
+    const original = { ...fs };
+    mock.module('node:fs/promises', () => ({ ...original, open: async (...args) => {
+      const handle = await original.open(...args);
+      if (String(args[0]).includes('.release-trust.json.new')) {
+        process.stdout.write('locked\\n');
+        process.stdin.resume();
+        await new Promise(resolve => process.stdin.once('end', resolve));
+      }
+      return handle;
+    }}));
+    const { persistReleaseTrustFloorEffect } = await import(${JSON.stringify(modulePath)});
+    await Effect.runPromise(persistReleaseTrustFloorEffect(process.argv[1], { manifestSha512: 'ab'.repeat(64), sequence: 41 }));
+  `;
+  const writer = Bun.spawn([process.execPath, '-e', script, directory], {
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  try {
+    const reader = writer.stdout.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe('locked\n');
+    const busy = await Effect.runPromise(
+      persistReleaseTrustFloorEffect(directory, {
+        manifestSha512: 'cd'.repeat(64),
+        sequence: 42,
+      }).pipe(Effect.flip),
+    );
+    expect(busy).toBeInstanceOf(DaemonUpdatePersistenceError);
+    writer.kill('SIGKILL');
+    await writer.exited;
+    const next = { manifestSha512: 'cd'.repeat(64), sequence: 42 };
+    await expect(
+      Effect.runPromise(persistReleaseTrustFloorEffect(directory, next)),
+    ).resolves.toBeUndefined();
+    expect(await Effect.runPromise(readReleaseTrustFloorEffect(directory, 0))).toEqual(next);
+    expect(
+      (await readdir(directory)).filter((entry) => entry.startsWith('.release-trust.json.new')),
+    ).toEqual([]);
+  } finally {
+    writer.kill('SIGKILL');
+    await writer.exited;
+    await rm(directory, { recursive: true, force: true });
+  }
+});

@@ -41,6 +41,7 @@ import {
 import { compileRequire } from '@merkur/shared/schema-check';
 import { Clock, Data, Effect, Schedule } from 'effect';
 
+import { tryAcquireFileLock } from '../file-lock';
 import type { Logger } from '../logger';
 
 const DAEMON_EXECUTABLE_NAME = 'merkur';
@@ -64,7 +65,7 @@ const UPDATE_ARTIFACT_ATTEMPT_FLOOR_MS = 30_000;
 const UPDATE_ARTIFACT_MINIMUM_BYTES_PER_SECOND = 128 * 1024;
 const UPDATE_ARTIFACT_RETRY_OVERHEAD_MS = 2_000;
 const RELEASE_TRUST_STATE_FILE = 'release-trust.json';
-const RELEASE_TRUST_STATE_TEMP_FILE = '.release-trust.json.new';
+const RELEASE_TRUST_STATE_TEMP_PREFIX = '.release-trust.json.new-';
 const SHA512_HEX_PATTERN = /^[0-9a-f]{128}$/;
 const TAR_BLOCK_BYTES = 512;
 const TAR_MAX_EXPANDED_BYTES = 1024 * 1024 * 1024;
@@ -955,8 +956,8 @@ export function readReleaseTrustFloorEffect(
 const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E>(
   installRoot: string,
   operation: Effect.Effect<A, E>,
-): Effect.fn.Return<A, E | DaemonUpdateTrustError> {
-  const lockDirectory = path.join(installRoot, 'release-trust.lock');
+): Effect.fn.Return<A, E | DaemonUpdateTrustError | DaemonUpdatePersistenceError> {
+  const lockPath = path.join(installRoot, 'release-trust.lock');
   yield* Effect.tryPromise({
     try: () => mkdir(installRoot, { recursive: true, mode: 0o700 }),
     catch: (cause) =>
@@ -967,17 +968,28 @@ const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E>(
   });
   return yield* Effect.acquireUseRelease(
     Effect.tryPromise({
-      try: () => mkdir(lockDirectory),
+      try: async () => {
+        const handle = await tryAcquireFileLock(lockPath, 'exclusive');
+        if (handle === null) throw new Error('another update owns the release trust-state lock');
+        try {
+          for (const entry of await readdir(installRoot)) {
+            if (entry.startsWith(RELEASE_TRUST_STATE_TEMP_PREFIX)) {
+              await rm(path.join(installRoot, entry), { force: true });
+            }
+          }
+          return handle;
+        } catch (cause) {
+          await handle.close();
+          throw cause;
+        }
+      },
       catch: (cause) =>
-        new DaemonUpdateTrustError({
-          cause,
-          message: 'another update owns the release trust-state lock',
-        }),
+        new DaemonUpdatePersistenceError({ cause, operation: 'acquire release trust-state lock' }),
     }),
     () => Effect.uninterruptible(operation),
-    () =>
+    (handle) =>
       Effect.tryPromise({
-        try: () => rm(lockDirectory, { recursive: true, force: true }),
+        try: () => handle.close(),
         catch: (cause) =>
           new DaemonUpdateTrustError({
             cause,
@@ -990,7 +1002,7 @@ const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E>(
 export function persistReleaseTrustFloorEffect(
   installRoot: string,
   next: ReleaseTrustFloor,
-): Effect.Effect<void, DaemonUpdateTrustError> {
+): Effect.Effect<void, DaemonUpdateTrustError | DaemonUpdatePersistenceError> {
   return withReleaseTrustLockEffect(
     installRoot,
     Effect.gen(function* () {
@@ -1036,7 +1048,10 @@ function writeReleaseTrustStateEffect(
   state: ReleaseTrustFloor,
 ): Effect.Effect<void, DaemonUpdateTrustError> {
   const target = path.join(installRoot, RELEASE_TRUST_STATE_FILE);
-  const temporary = path.join(installRoot, RELEASE_TRUST_STATE_TEMP_FILE);
+  const temporary = path.join(
+    installRoot,
+    `${RELEASE_TRUST_STATE_TEMP_PREFIX}${process.pid}-${randomUUID()}`,
+  );
   const bytes = encodeReleaseTrustState(state);
   const write = Effect.gen(function* () {
     yield* Effect.acquireUseRelease(
