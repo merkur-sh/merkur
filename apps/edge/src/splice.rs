@@ -757,6 +757,134 @@ impl Drop for SessionSlot {
     }
 }
 
+/// Incarnation records exist only while at least one slot names the daemon.
+struct DaemonIncarnation {
+    incarnation: Box<str>,
+    slots: usize,
+}
+
+struct RegistrySessions {
+    slots: HashMap<String, SessionSlot>,
+    daemon_incarnations: HashMap<Box<str>, DaemonIncarnation>,
+}
+
+// Read access cannot bypass membership accounting on insertion or removal.
+impl std::ops::Deref for RegistrySessions {
+    type Target = HashMap<String, SessionSlot>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.slots
+    }
+}
+
+impl RegistrySessions {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            slots: HashMap::with_capacity(capacity),
+            daemon_incarnations: HashMap::new(),
+        }
+    }
+
+    fn get_mut(&mut self, session_id: &str) -> Option<&mut SessionSlot> {
+        self.slots.get_mut(session_id)
+    }
+
+    fn insert(&mut self, session_id: String, slot: SessionSlot) {
+        if let Some(known) = self.daemon_incarnations.get_mut(slot.daemon_id.as_ref()) {
+            known.slots += 1;
+        }
+        let replaced = self.slots.insert(session_id, slot);
+        debug_assert!(replaced.is_none(), "only vacant labels create slots");
+    }
+
+    fn remove_membership(incarnations: &mut HashMap<Box<str>, DaemonIncarnation>, daemon_id: &str) {
+        if let Some(known) = incarnations.get_mut(daemon_id) {
+            known.slots -= 1;
+            if known.slots == 0 {
+                incarnations.remove(daemon_id);
+            }
+        }
+    }
+
+    fn remove(&mut self, session_id: &str) -> Option<SessionSlot> {
+        let slot = self.slots.remove(session_id)?;
+        Self::remove_membership(&mut self.daemon_incarnations, &slot.daemon_id);
+        Some(slot)
+    }
+
+    fn retain(&mut self, mut keep: impl FnMut(&str, &mut SessionSlot) -> bool) {
+        let incarnations = &mut self.daemon_incarnations;
+        self.slots.retain(|label, slot| {
+            if keep(label, slot) {
+                return true;
+            }
+            Self::remove_membership(incarnations, &slot.daemon_id);
+            false
+        });
+    }
+
+    // A tunnel records here only after admission. If supersession left any
+    // slots, their record already exists; otherwise this is the sole new slot.
+    fn record_incarnation(&mut self, daemon_id: &str, incarnation: &str) {
+        if let Some(known) = self.daemon_incarnations.get(daemon_id) {
+            debug_assert_eq!(&*known.incarnation, incarnation);
+            return;
+        }
+        self.daemon_incarnations.insert(
+            daemon_id.into(),
+            DaemonIncarnation {
+                incarnation: incarnation.into(),
+                slots: 1,
+            },
+        );
+    }
+
+    /// Under the registry write guard, retire every slot a different known
+    /// incarnation held. Unknown browser-first slots survive and keep the new
+    /// incarnation until their final retirement, even without a daemon tunnel.
+    fn supersede_incarnations(&mut self, daemon_id: &str, incarnation: &str) -> usize {
+        if self
+            .daemon_incarnations
+            .get(daemon_id)
+            .is_some_and(|known| *known.incarnation == *incarnation)
+        {
+            return 0;
+        }
+        let before = self.slots.len();
+        let mut remaining = 0;
+        self.retain(|_, slot| {
+            if *slot.daemon_id != *daemon_id {
+                return true;
+            }
+            if slot
+                .incarnation
+                .as_deref()
+                .is_some_and(|held| held != incarnation)
+            {
+                slot.retire(RetireReason::IncarnationSuperseded);
+                return false;
+            }
+            remaining += 1;
+            true
+        });
+        if remaining > 0 {
+            if let Some(known) = self.daemon_incarnations.get_mut(daemon_id) {
+                debug_assert_eq!(known.slots, remaining);
+                known.incarnation = incarnation.into();
+            } else {
+                self.daemon_incarnations.insert(
+                    daemon_id.into(),
+                    DaemonIncarnation {
+                        incarnation: incarnation.into(),
+                        slots: remaining,
+                    },
+                );
+            }
+        }
+        before - self.slots.len()
+    }
+}
+
 /// Session registry keyed by session id. Matches a browser peer to a daemon
 /// peer and routes opaque frames between them. Cloneable handle over shared
 /// state.
@@ -765,7 +893,7 @@ pub struct SpliceRegistry {
     // Cold membership, reliable binding and quote operations only. Lock order is
     // registry then session peers; routing takes only the session read lock.
     // No critical section crosses an await.
-    sessions: Arc<RwLock<HashMap<String, SessionSlot>>>,
+    sessions: Arc<RwLock<RegistrySessions>>,
     expiration_changes: watch::Sender<u64>,
     next_attachment_id: Arc<AtomicU64>,
     egress_state: Arc<AtomicU64>,
@@ -777,10 +905,6 @@ pub struct SpliceRegistry {
     global_finite_bytes: Arc<Semaphore>,
     global_session_tasks: Arc<Semaphore>,
     candidate_tasks: Arc<Semaphore>,
-    /// Each daemon's newest dataplane incarnation, taken under the registry
-    /// write guard (registry, then this). One entry per daemon id that ever
-    /// attached: a daemon ticket names its id, so the server bounds it.
-    daemon_incarnations: Arc<parking_lot::Mutex<HashMap<Box<str>, Box<str>>>>,
 }
 
 pub(crate) struct CandidateTarget {
@@ -794,7 +918,9 @@ impl SpliceRegistry {
     pub fn new() -> Self {
         let (expiration_changes, _) = watch::channel(0);
         SpliceRegistry {
-            sessions: Arc::new(RwLock::new(HashMap::with_capacity(MAX_SPLICE_SESSIONS))),
+            sessions: Arc::new(RwLock::new(RegistrySessions::with_capacity(
+                MAX_SPLICE_SESSIONS,
+            ))),
             expiration_changes,
             next_attachment_id: Arc::new(AtomicU64::new(1)),
             egress_state: Arc::new(AtomicU64::new(0)),
@@ -807,7 +933,6 @@ impl SpliceRegistry {
             global_session_tasks: Arc::new(Semaphore::new(MAX_SPLICE_SESSION_TASKS)),
             // At most 64 proof bridges, each holding two bounded 64 KiB records.
             candidate_tasks: Arc::new(Semaphore::new(64)),
-            daemon_incarnations: Arc::default(),
         }
     }
 
@@ -816,47 +941,11 @@ impl SpliceRegistry {
     /// retired: that process is gone, and its sessions with it.
     pub fn announce_incarnation(&self, daemon_id: &str, incarnation: &str) -> usize {
         let mut sessions = self.write_sessions();
-        let retired = self.supersede_incarnations(&mut sessions, daemon_id, incarnation);
+        let retired = sessions.supersede_incarnations(daemon_id, incarnation);
         publish_session_gauges(&sessions);
         drop(sessions);
         self.signal_expiration_change();
         retired
-    }
-
-    /// Record `incarnation` as `daemon_id`'s newest and, when it is new, retire
-    /// every slot another incarnation of that daemon holds, half-paired ones
-    /// included: their browsers learn at once that no tunnel will return, where
-    /// a dead process's connection would hold them until the idle timeout.
-    /// Called under the registry write guard.
-    fn supersede_incarnations(
-        &self,
-        sessions: &mut HashMap<String, SessionSlot>,
-        daemon_id: &str,
-        incarnation: &str,
-    ) -> usize {
-        {
-            let mut newest = self.daemon_incarnations.lock();
-            if newest
-                .get(daemon_id)
-                .is_some_and(|known| **known == *incarnation)
-            {
-                return 0;
-            }
-            newest.insert(daemon_id.into(), incarnation.into());
-        }
-        let before = sessions.len();
-        sessions.retain(|_, slot| {
-            let superseded = *slot.daemon_id == *daemon_id
-                && slot
-                    .incarnation
-                    .as_deref()
-                    .is_some_and(|held| held != incarnation);
-            if superseded {
-                slot.retire(RetireReason::IncarnationSuperseded);
-            }
-            !superseded
-        });
-        before - sessions.len()
     }
 
     /// Serialize budget admission with membership, including attach/bind races.
@@ -890,11 +979,11 @@ impl SpliceRegistry {
         self.egress_changes.subscribe()
     }
 
-    fn read_sessions(&self) -> RwLockReadGuard<'_, HashMap<String, SessionSlot>> {
+    fn read_sessions(&self) -> RwLockReadGuard<'_, RegistrySessions> {
         self.sessions.read()
     }
 
-    fn write_sessions(&self) -> RwLockWriteGuard<'_, HashMap<String, SessionSlot>> {
+    fn write_sessions(&self) -> RwLockWriteGuard<'_, RegistrySessions> {
         self.sessions.write()
     }
 
@@ -963,7 +1052,7 @@ impl SpliceRegistry {
             return Err(AttachError::EgressBudget);
         }
         if let Some(incarnation) = incarnation {
-            self.supersede_incarnations(&mut sessions, daemon_id, incarnation);
+            sessions.supersede_incarnations(daemon_id, incarnation);
         }
         let now = Instant::now();
         // Do not let a just-arriving counterpart revive an expired half-pair
@@ -1007,6 +1096,9 @@ impl SpliceRegistry {
                 session_id.to_string(),
                 SessionSlot::new(self.reliable_bytes_per_direction, probe_groups, daemon_id),
             );
+        }
+        if let Some(incarnation) = incarnation {
+            sessions.record_incarnation(daemon_id, incarnation);
         }
         let slot = sessions
             .get_mut(session_id)
@@ -1438,7 +1530,7 @@ impl SpliceRegistry {
     ) -> Self {
         let (expiration_changes, _) = watch::channel(0);
         Self {
-            sessions: Arc::new(RwLock::new(HashMap::with_capacity(max_sessions))),
+            sessions: Arc::new(RwLock::new(RegistrySessions::with_capacity(max_sessions))),
             expiration_changes,
             next_attachment_id: Arc::new(AtomicU64::new(1)),
             egress_state: Arc::new(AtomicU64::new(0)),
@@ -1450,7 +1542,6 @@ impl SpliceRegistry {
             global_finite_bytes: Arc::new(Semaphore::new(SPLICE_FINITE_BYTES_GLOBAL)),
             global_session_tasks: Arc::new(Semaphore::new(MAX_SPLICE_SESSION_TASKS)),
             candidate_tasks: Arc::new(Semaphore::new(64)),
-            daemon_incarnations: Arc::default(),
         }
     }
 }
@@ -1487,11 +1578,7 @@ fn sibling_probe_groups(
 /// redialling — resurrecting a tunnel for a browser that is never coming back
 /// and re-arming the half-paired slot for another full window. Naming the
 /// expiry is what lets the far side park instead of loop.
-fn prune_expired_slots(
-    sessions: &mut HashMap<String, SessionSlot>,
-    now: Instant,
-    ttl: Duration,
-) -> usize {
+fn prune_expired_slots(sessions: &mut RegistrySessions, now: Instant, ttl: Duration) -> usize {
     let before = sessions.len();
     sessions.retain(|_, slot| {
         if !slot.is_expired_unpaired(now, ttl) {
@@ -1866,6 +1953,10 @@ pub struct AttachHandle {
 #[cfg(test)]
 #[path = "splice_routing_tests.rs"]
 mod routing_tests;
+
+#[cfg(test)]
+#[path = "splice_incarnation_tests.rs"]
+mod incarnation_tests;
 
 #[cfg(test)]
 mod tests {

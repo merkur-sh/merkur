@@ -735,17 +735,19 @@ newest pair within one 20 s lease.
 ### Daemon incarnations
 
 Every dataplane process draws a random 16-byte incarnation at start and names it in each
-daemon preface. The edge remembers the newest incarnation per daemon id. A preface naming a
-different one retires every slot the earlier incarnation held, and each browser counterpart
+daemon preface. The edge remembers the newest incarnation per daemon id while that daemon has
+registry slots, including browser-only half-pairs, and removes the record with its final slot.
+An announcement without slots retains no record. A preface naming a different incarnation
+retires every slot the earlier incarnation held, and each browser counterpart
 gets `counterpart_detached` at once. A clean shutdown closes its connections, but a crashed
 dataplane cannot, and without this the edge would hold its slots until the dead connections'
 30 s idle timeout before any browser re-issued. The dataplane does not wait for a session to
 announce itself: whenever the daemon hands it an edge admission (the attach ticket and the
 registered edges, on `registered`, every `lease` and every dataplane restart), it opens one
 connection with an `announce` preface (`"attachment": { "kind": "announce", "incarnation": … }`
-and an empty `session_id`) to each edge it has not yet announced itself to. The edge records the
-incarnation, retires the earlier one's slots and closes that connection with application close
-code `0x4d04` and reason `incarnation-announced`. A failed announcement is retried with the next
+and an empty `session_id`) to each edge it has not yet announced itself to. The edge retires the
+earlier incarnation's slots and closes that connection with application close code `0x4d04`
+and reason `incarnation-announced`. A failed announcement is retried with the next
 admission.
 
 ## Direct-Path Candidates
