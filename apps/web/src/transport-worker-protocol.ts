@@ -11,7 +11,7 @@
 // Native/task wake edges and frame-space credit also stay between the workers.
 // This channel carries initialization, server RPCs and cold host intents.
 
-import type { DisplayLinkDefinition, TerminalUiEffect } from '@merkur/protocol';
+import type { TerminalUiEffect } from '@merkur/protocol';
 import type { BrowserUpgradeReport, RecoveryOutcome, SignalingStatus } from '@merkur/shared';
 import type { DaemonBinding } from '@merkur/shared/user-authorization';
 import type { DirectDialOutcome } from './session/direct-dial-admission';
@@ -324,14 +324,6 @@ export type TransportToMain =
   // One direct-upgrade attempt. The worker measures it but holds no access
   // token, so main posts it on the authenticated telemetry route.
   | { kind: 'upgrade_outcome'; startId: number; report: BrowserUpgradeReport }
-  // OSC 8 link definitions from the daemon's control lane. Main owns them
-  // because a click opens the link synchronously inside its own handler.
-  | {
-      kind: 'display_link_table';
-      startId: number;
-      reset: boolean;
-      links: readonly DisplayLinkDefinition[];
-    }
   // A program in the terminal asked to open this URL; main opens or offers it.
   // `(epoch, seq)` names the request, which the daemon may deliver again.
   | { kind: 'terminal_ui'; startId: number; effect: TerminalUiEffect }

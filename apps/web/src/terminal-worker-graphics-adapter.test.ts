@@ -61,7 +61,7 @@ function harness() {
     observedPresentationRevision: 0,
     observedViewerPresentations: 0,
     perfEnabled: false,
-    publishViewerLinks() {},
+    noteViewerLinkDefinitions() {},
     graphicsEpoch: 1,
     waitingGraphicsAsset: null,
     ringWakePort: { postMessage: (message: (typeof messages)[number]) => messages.push(message) },

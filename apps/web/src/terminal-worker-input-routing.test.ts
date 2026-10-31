@@ -139,7 +139,7 @@ async function createRoutingHarness(committedMode: number) {
     graphicsOfferSpaceReleased: false,
     graphicsPresentationDirty: false,
     graphicsResidents: new Set(),
-    publishViewerLinks() {},
+    noteViewerLinkDefinitions() {},
     displayEpoch: { generation: GENERATION },
     abandonInFlightLatencyFrame() {},
     firstDisplayGpuFence: { resetEpoch() {}, awaitingFirstApplied: () => false },

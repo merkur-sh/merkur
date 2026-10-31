@@ -197,8 +197,6 @@ interface Props {
   onWorkerFatal: (message: string) => void;
   onRegisterTerminalPanel: (handle: TerminalPanelHandle | null) => void;
   onTerminalResize: (size: TerminalSize) => void;
-  /** The URI the connected daemon defined for an OSC 8 link id. */
-  resolveLink: (id: number) => string | undefined;
 }
 
 const TerminalPanel: Component<Props> = (props) => {
@@ -432,9 +430,6 @@ const TerminalPanel: Component<Props> = (props) => {
           // and pulling focus out of whatever they just clicked is the same
           // theft this rule exists to stop.
           if (panelEl.contains(document.activeElement)) focus();
-        },
-        resolveLink(id) {
-          return props.resolveLink(id);
         },
         onLinkActivated() {
           clearVirtualModifiers();

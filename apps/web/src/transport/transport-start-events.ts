@@ -1,4 +1,4 @@
-import type { DisplayLinkDefinition, TerminalUiEffect } from '@merkur/protocol';
+import type { TerminalUiEffect } from '@merkur/protocol';
 import type { BrowserUpgradeReport, RecoveryOutcome, SignalingStatus } from '@merkur/shared';
 import type { TransportToMain } from '../transport-worker-protocol';
 
@@ -33,7 +33,6 @@ export interface TransportStartEvents {
   /** The committed signaling carrier proved `address`: main's network visit follows it. */
   observedPath(address: string): void;
   /** OSC 8 link definitions: main resolves link ids when the user points at one. */
-  displayLinkTable(reset: boolean, links: readonly DisplayLinkDefinition[]): void;
   /** `merkur open`: main opens or offers the URL; `(epoch, seq)` names the request. */
   openUrl(epoch: number, seq: number, url: string): void;
   terminalUi(effect: TerminalUiEffect): void;
@@ -79,9 +78,6 @@ export function createTransportStartEvents(
     },
     observedPath(address): void {
       post({ kind: 'observed_path', startId, address });
-    },
-    displayLinkTable(reset, links): void {
-      post({ kind: 'display_link_table', startId, reset, links });
     },
     terminalUi(effect): void {
       post({ kind: 'terminal_ui', startId, effect });

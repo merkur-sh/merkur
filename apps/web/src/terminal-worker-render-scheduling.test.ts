@@ -407,7 +407,7 @@ test('graphics clock samples render changed scenes without repainting unchanged 
       firstDisplayGpuFence: { awaitingFirstApplied: () => false },
       syncDimensionsFromWasm: () => false,
       updatePhysDimensions() {},
-      publishViewerLinks() {},
+      noteViewerLinkDefinitions() {},
       drainViewerOutputs: () => drains++,
       armViewerDeadline: () => deadlines++,
       graphicsVisible: workload.visible,

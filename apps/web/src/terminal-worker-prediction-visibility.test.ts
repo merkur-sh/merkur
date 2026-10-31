@@ -528,7 +528,7 @@ test('fresh identical editor authority invalidates already queued pointer model 
       renderer: null,
       graphicsResidents: new Set(),
       lastMouseMode: viewer.mouse_mode(),
-      publishViewerLinks() {},
+      noteViewerLinkDefinitions() {},
       perfEnabled: false,
       observedViewerFrames: viewer.applied_frames(),
       observedViewerSnapshots: viewer.applied_snapshots(),

@@ -251,8 +251,6 @@ export function createTerminalWorkerClient(
      * into its `EditContext` and wipes whatever the user selected.
      */
     onSelectionActive(active: boolean): void;
-    /** The URI the daemon defined for an OSC 8 link id, if it has arrived. */
-    resolveLink(id: number): string | undefined;
     /** A touch tap opened a link, spending the keyboard's modifier latch. */
     onLinkActivated(): void;
     /**

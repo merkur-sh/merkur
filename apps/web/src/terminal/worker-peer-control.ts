@@ -1,5 +1,3 @@
-import type { DisplayLinkDefinition } from '@merkur/protocol';
-
 /**
  * The transport and terminal workers' private port. Numbers on it are the
  * allocation-free hot-path wake edges; everything else is one of the messages
@@ -60,12 +58,6 @@ export interface ClientGraphicsConsumed extends PeerPublication {
   readonly taken: boolean;
 }
 
-export interface ClientLinkDefinitions extends PeerPublication {
-  readonly kind: 'client_link_definitions';
-  readonly entries: readonly DisplayLinkDefinition[];
-  readonly reset: boolean;
-}
-
 export type TransportToTerminalPeer =
   | ClientGeometry
   | ClientGraphicsClock
@@ -76,7 +68,4 @@ export type TransportToTerminalPeer =
  * What the terminal worker posts on the peer port. What its viewer asks the
  * session to send is not here: those cross on the viewer-output ring.
  */
-export type TerminalToTransportPeer =
-  | ClientGraphicsConsumed
-  | ClientLinkDefinitions
-  | PerfGridConvergenceRequestEdge;
+export type TerminalToTransportPeer = ClientGraphicsConsumed | PerfGridConvergenceRequestEdge;

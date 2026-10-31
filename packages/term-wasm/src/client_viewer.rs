@@ -46,8 +46,6 @@ pub struct ClientViewer {
     /// What is left of a graphics demand list too long for one output; its
     /// parts go out before anything the viewer queued after it.
     demand_parts: Option<DemandParts>,
-    link_revision: u64,
-    link_bytes: Vec<u8>,
     trace_words: [u32; 18],
     trace_times: [f64; 5],
     presentation_release: u8,
@@ -66,8 +64,6 @@ impl ClientViewer {
             output_words: [0; 7],
             output_bytes: Vec::new(),
             demand_parts: None,
-            link_revision: u64::MAX,
-            link_bytes: Vec::new(),
             trace_words: [0; 18],
             trace_times: [0.0; 5],
             presentation_release: 0,
@@ -120,9 +116,6 @@ impl ClientViewer {
         self.output_bytes.zeroize();
         self.output_bytes.clear();
         self.demand_parts = None;
-        self.link_revision = u64::MAX;
-        self.link_bytes.zeroize();
-        self.link_bytes.clear();
         self.trace_words.fill(0);
         self.trace_times.fill(0.0);
         self.presentation_release = 0;
@@ -376,20 +369,9 @@ impl ClientViewer {
         self.viewer.request_row_repair(generation, rows)
     }
 
-    /// The link table's revision, its low 32 bits: the host compares it with
-    /// the one it last published and nothing else, and a `u64` would cross to
-    /// JavaScript as a fresh `BigInt` on every frame.
-    pub fn refresh_links(&mut self) -> u32 {
-        let links = self.viewer.links();
-        if self.link_revision != links.revision() {
-            self.link_revision = links.revision();
-            self.link_bytes.clear();
-            for (id, uri) in links.entries() {
-                self.link_bytes.extend_from_slice(&id.to_le_bytes());
-                scene_string(&mut self.link_bytes, uri);
-            }
-        }
-        self.link_revision as u32
+    /// The link revision's low word, for invalidating held viewport reads.
+    pub fn links_revision(&self) -> u32 {
+        self.viewer.links().revision() as u32
     }
     /// Serialize definitions with their presentation ownership for a link read.
     pub fn presentation_link_definitions(&self) -> Vec<u8> {
@@ -400,13 +382,6 @@ impl ClientViewer {
         }
         bytes
     }
-    pub fn links_bytes_ptr(&self) -> *const u8 {
-        self.link_bytes.as_ptr()
-    }
-    pub fn links_bytes_len(&self) -> usize {
-        self.link_bytes.len()
-    }
-
     /// Called synchronously while the core owns its mutable grid. The callback
     /// consumes only these bytes and must never reenter the WASM viewer.
     pub fn set_scene_admitter(&mut self, admit: SceneAdmitter) {

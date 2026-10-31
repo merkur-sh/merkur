@@ -128,7 +128,7 @@ async function harness() {
     graphicsOfferSpaceReleased: false,
     graphicsPresentationDirty: false,
     graphicsResidents: new Set(),
-    publishViewerLinks() {},
+    noteViewerLinkDefinitions() {},
     lastMouseMode: terminal.mouseMode(),
     firstDisplayGpuFence: { awaitingFirstApplied: () => false, resetEpoch() {} },
     perfEnabled: false,

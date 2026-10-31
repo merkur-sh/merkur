@@ -1183,9 +1183,6 @@ export function createBrowserClientSession(host: BrowserSessionHost) {
           settleAsset(message.taken ? 'taken' : 'dropped');
           return;
         }
-        case 'client_link_definitions':
-          events?.displayLinkTable(message.reset, message.entries);
-          return;
       }
     },
     space: signalSpace,

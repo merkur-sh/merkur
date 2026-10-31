@@ -197,7 +197,6 @@ const App: Component = () => {
               onWorkerFatal={controller.onWorkerFatal}
               onRegisterTerminalPanel={controller.onRegisterTerminalPanel}
               onTerminalResize={controller.onTerminalResize}
-              resolveLink={controller.resolveLink}
             />
           </main>
         );

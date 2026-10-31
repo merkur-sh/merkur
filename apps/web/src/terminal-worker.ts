@@ -3521,7 +3521,7 @@ function observeViewerPresentation(): void {
     }
   }
 
-  publishViewerLinks();
+  noteViewerLinkDefinitions();
   const mode = terminal.mouseMode();
   if (mode !== lastMouseMode) {
     lastMouseMode = mode;
@@ -3662,7 +3662,7 @@ function applyLineageFence(fence: FrameRingFence): void {
   heldGraphicsClock = null;
   if (clock?.frameFenceToken === fence.token && clock.lineage === fence.lineage)
     applyGraphicsClock(clock);
-  publishViewerLinks();
+  noteViewerLinkDefinitions();
   drainViewerOutputs();
   frameRingReader?.installFence(fence.token);
   publishPredictionModel();
@@ -3782,37 +3782,13 @@ function retireWaitingGraphicsAsset(): void {
 
 let observedLinkRevision = -1;
 
-const linkDecoder = new TextDecoder();
-
-function publishViewerLinks(): void {
+function noteViewerLinkDefinitions(): void {
   const terminal = wasmTerminal;
-  if (terminal === null || ringWakePort === null) return;
-  const revision = terminal.viewer.refresh_links();
+  if (terminal === null) return;
+  const revision = terminal.viewer.links_revision();
   if (revision === observedLinkRevision) return;
   observedLinkRevision = revision;
   noteViewportChanged();
-  const bytes = new Uint8Array(
-    terminal.memory.buffer,
-    terminal.viewer.links_bytes_ptr(),
-    terminal.viewer.links_bytes_len(),
-  );
-  const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const entries: { id: number; uri: string }[] = [];
-  for (let at = 0; at < bytes.length; ) {
-    const id = data.getUint32(at, true);
-    const size = data.getUint32(at + 4, true);
-    at += 8;
-    const uri = linkDecoder.decode(bytes.subarray(at, at + size));
-    at += size;
-    entries.push({ id, uri });
-  }
-  ringWakePort.postMessage({
-    kind: 'client_link_definitions',
-    lineage: activeSessionEpoch,
-    frameFenceToken: activeFrameFenceToken,
-    entries,
-    reset: true,
-  } satisfies TerminalToTransportPeer);
 }
 
 const graphicsResidents = new Set<string>();

@@ -108,7 +108,6 @@ interface Props {
   onWorkerFatal(message: string): void;
   onRegisterTerminalPanel(handle: TerminalPanelHandle | null): void;
   onTerminalResize(size: TerminalSize): void;
-  resolveLink(id: number): string | undefined;
 }
 
 const TerminalHost: Component<Props> = (props) => {
@@ -251,7 +250,6 @@ const TerminalHost: Component<Props> = (props) => {
               }}
               // A retired panel is animating out over a session that is gone;
               // its links resolve to nothing rather than to the next session's.
-              resolveLink={(id) => (entry.retiredNow ? undefined : props.resolveLink(id))}
             />
           );
         }}

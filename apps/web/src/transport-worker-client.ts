@@ -21,7 +21,6 @@ import type { RecoveryOutcome } from '@merkur/shared';
 
 import { SESSION_ISSUANCE_REQUEST_TIMEOUT_MS } from '@merkur/config/reconnect-policy';
 import { createLogger } from '@merkur/logger';
-import type { DisplayLinkDefinition } from '@merkur/protocol';
 import type { BrowserUpgradeReport, SignalingStatus } from '@merkur/shared';
 import { Effect } from 'effect';
 import { isApiError } from './lib/api-error';
@@ -127,8 +126,6 @@ export interface TerminalSessionCallbacks {
    * start cannot release a buffer that belongs to its replacement.
    */
   onInputReady?(): void;
-  /** OSC 8 link definitions for the active start. */
-  onDisplayLinkTable?(reset: boolean, links: readonly DisplayLinkDefinition[]): void;
   /** A program in the active start's terminal asked to open a URL. */
   onTerminalUi?(effect: TerminalUiEffect): void;
   onOpenUrl?(epoch: number, seq: number, url: string): void;
@@ -786,10 +783,6 @@ export function createTransportSession(
         callbacks.onDisconnected(message.reason);
         return;
       }
-      case 'display_link_table':
-        if (message.startId === activeStartId)
-          callbacks.onDisplayLinkTable?.(message.reset, message.links);
-        return;
       case 'terminal_ui':
       case 'open_url':
         deliverTerminalMetadata(message);

@@ -84,7 +84,6 @@ import {
   startKeyboardSettingsSync,
   stopKeyboardSettingsSync,
 } from '../terminal/keyboard-settings-sync';
-import { createLinkDefinitions } from '../terminal/link-definitions';
 import { openableUrl } from '../terminal/link-detection';
 import {
   disableTerminalNotifications,
@@ -277,8 +276,6 @@ export interface AppController {
   onTerminalRetry(): Promise<void>;
   onRegisterTerminalPanel(handle: TerminalPanelHandle | null): void;
   onTerminalResize(size: TerminalSize): void;
-  /** The URI the connected daemon defined for an OSC 8 link id, if it has arrived. */
-  resolveLink(id: number): string | undefined;
   onTerminalFontFamilyChange(fontFamilyId: TerminalFontFamilyId): void;
   onTerminalFontSizeChange(fontSize: number): void;
   onTerminalNotificationsDisable(): Promise<void>;
@@ -415,7 +412,6 @@ export function createAppController(): AppController {
   let pendingDaemonLinkCode = takeDaemonLinkCode(window.location, window.history);
   let startupTrace: StartupTrace | null = null;
   let terminalPanelHandle: TerminalPanelHandle | null = null;
-  const linkDefinitions = createLinkDefinitions();
   // Ids of the `merkur open` requests this session has handled, newest last.
   const handledOpenUrlRequests: string[] = [];
   let latestTerminalSize: TerminalSize | null = null;
@@ -959,9 +955,6 @@ export function createAppController(): AppController {
       setTerminalFocusMode((current) => !current);
     },
     onRefreshLink,
-    resolveLink(id) {
-      return linkDefinitions.uri(id);
-    },
     onRegisterTerminalPanel(handle) {
       terminalPanelHandle = handle;
       if (handle === null) {
@@ -1319,16 +1312,10 @@ export function createAppController(): AppController {
     sessionStorage.setItem(LAST_DEVICE_ID_KEY, device.id);
 
     let next: TerminalSession;
-    // Link ids belong to one daemon session; the new one sends its own table.
-    linkDefinitions.clear();
     handledOpenUrlRequests.length = 0;
     try {
       next = createTransportSession(
         {
-          onDisplayLinkTable(reset, links) {
-            if (session() !== next) return;
-            linkDefinitions.apply(reset, links);
-          },
           onTerminalUi(effect) {
             if (session() !== next) return;
             switch (effect.kind) {

@@ -729,7 +729,7 @@ test('an idle matching resume earns first readiness only after its eligible GPU 
       self: { postMessage() {} },
       ringWakePort: { postMessage() {} },
       viewerOutputPublisher: viewerOutputRing().viewerOutputPublisher,
-      publishViewerLinks() {},
+      noteViewerLinkDefinitions() {},
       syncDimensionsFromWasm() {},
       updatePhysDimensions() {},
       offscreenCanvas: null,
@@ -845,7 +845,7 @@ test('account replacement discards the old Viewer and admits a fresh lineage one
       applyGraphicsClock() {},
       heldGeometry: null,
       heldGraphicsClock: null,
-      publishViewerLinks() {},
+      noteViewerLinkDefinitions() {},
       installPublishedFence() {},
       VIEWER_OUTPUT_SPACE_EDGE: 2,
     };
