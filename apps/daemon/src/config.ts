@@ -12,16 +12,18 @@ import {
   launchAgentPathForHome,
   loadDaemonConfigFromPath,
   MERKUR_WEBTRANSPORT_PORT,
+  persistDaemonRevocationsToPath,
   profileSocketPathForHome,
-  removeDaemonConfigFromPath,
   requireDaemonConfigFromPath,
+  restoreDaemonConfigAtPath,
   saveDaemonConfigToPath,
   shellTokenPathForHome,
   systemdUserUnitPathForHome,
   validateDaemonConfig,
+  withDaemonEnrollmentLockAtPath,
 } from '@merkur/config';
 import { normalizeUnknownError } from '@merkur/shared';
-import type { DaemonBinding } from '@merkur/shared/user-authorization';
+import type { DaemonBinding, DelegationRevocationTarget } from '@merkur/shared/user-authorization';
 import { Effect } from 'effect';
 
 const daemonEnvironment: DaemonEnvironment = Effect.runSync(
@@ -76,12 +78,31 @@ export function createLinkedConfig(input: LinkConfigInput): DaemonConfig {
   });
 }
 
-export function saveDaemonConfigEffect(config: DaemonConfig): Effect.Effect<void, Error> {
-  return saveDaemonConfigToPath(daemonConfigPath(), config);
+export function withDaemonEnrollmentLockEffect<A>(
+  body: Effect.Effect<A, Error>,
+): Effect.Effect<A, Error> {
+  return withDaemonEnrollmentLockAtPath(daemonConfigPath(), body);
 }
 
-export function removeDaemonConfigEffect(): Effect.Effect<void, Error> {
-  return removeDaemonConfigFromPath(daemonConfigPath());
+export function saveDaemonConfigEffect(
+  config: DaemonConfig,
+  expected: DaemonConfig | null,
+): Effect.Effect<void, Error> {
+  return saveDaemonConfigToPath(daemonConfigPath(), config, expected).pipe(Effect.asVoid);
+}
+
+export function restoreDaemonConfigEffect(
+  previous: DaemonConfig | null,
+  installed: DaemonConfig,
+): Effect.Effect<void, Error> {
+  return restoreDaemonConfigAtPath(daemonConfigPath(), previous, installed);
+}
+
+export function persistDaemonRevocationsEffect(
+  expected: DaemonConfig,
+  targets: readonly DelegationRevocationTarget[],
+): Effect.Effect<DaemonConfig, Error> {
+  return persistDaemonRevocationsToPath(daemonConfigPath(), expected, targets);
 }
 
 export function daemonConfigPath(): string {

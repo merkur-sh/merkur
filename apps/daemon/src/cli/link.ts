@@ -24,7 +24,7 @@ import {
   verifyDaemonBinding,
   verifyDaemonLinkApproval,
 } from '@merkur/shared/user-authorization';
-import { Clock, Effect } from 'effect';
+import { Clock, Effect, Predicate } from 'effect';
 import { renderUnicodeCompact } from 'uqr';
 import {
   createLinkedConfig,
@@ -34,8 +34,9 @@ import {
   daemonConfigPath,
   loadDaemonConfigEffect,
   readLoginShellEffect,
-  removeDaemonConfigEffect,
+  restoreDaemonConfigEffect,
   saveDaemonConfigEffect,
+  withDaemonEnrollmentLockEffect,
 } from '../config';
 import type { Logger } from '../logger';
 import {
@@ -47,6 +48,7 @@ import {
 import {
   type LegacyDaemonLinkMigration,
   loadLegacyDaemonConfigForLinkMigration,
+  replaceApprovedDaemonConfig,
 } from './legacy-daemon-config-migration';
 import { repairTpmAccessEffect } from './linux-tpm-access';
 
@@ -69,6 +71,7 @@ export interface DaemonLinkPostResult {
 }
 
 export interface DaemonLinkCommandDependencies {
+  readonly withEnrollmentLock: <A>(body: Effect.Effect<A, Error>) => Effect.Effect<A, Error>;
   readonly generateDaemonId: () => string;
   readonly createIdentitySeal: typeof createIdentitySealEffect;
   readonly inspectIdentitySeal: typeof inspectIdentitySealEffect;
@@ -95,8 +98,18 @@ export interface DaemonLinkCommandDependencies {
     pollToken: string,
     approvalMac: string,
   ) => Promise<DaemonLinkPostResult>;
-  readonly saveConfig: (config: DaemonConfig) => Effect.Effect<void, Error>;
-  readonly restoreConfig: (config: DaemonConfig | null) => Effect.Effect<void, Error>;
+  readonly saveConfig: (
+    config: DaemonConfig,
+    expected: DaemonConfig | null,
+  ) => Effect.Effect<void, Error>;
+  readonly saveMigratedConfig: (
+    config: DaemonConfig,
+    daemonId: string,
+  ) => Effect.Effect<void, Error>;
+  readonly restoreConfig: (
+    config: DaemonConfig | null,
+    installed: DaemonConfig,
+  ) => Effect.Effect<void, Error>;
   readonly readLinkToken: () => Effect.Effect<string, Error>;
   /** Draws the approval link as a QR code for a phone to scan. */
   readonly showApprovalQrCode: (approvalUrl: string) => void;
@@ -135,6 +148,7 @@ export function daemonLinkApprovalUrl(serverOrigin: string, code: string): strin
 }
 
 const LIVE_DAEMON_LINK_DEPENDENCIES: DaemonLinkCommandDependencies = {
+  withEnrollmentLock: withDaemonEnrollmentLockEffect,
   generateDaemonId: randomUUID,
   createIdentitySeal: createIdentitySealEffect,
   inspectIdentitySeal: inspectIdentitySealEffect,
@@ -150,8 +164,9 @@ const LIVE_DAEMON_LINK_DEPENDENCIES: DaemonLinkCommandDependencies = {
   pollClaim: pollDaemonLinkClaim,
   completeClaim: completeDaemonLinkClaim,
   saveConfig: saveDaemonConfigEffect,
-  restoreConfig: (config) =>
-    config === null ? removeDaemonConfigEffect() : saveDaemonConfigEffect(config),
+  saveMigratedConfig: (config, daemonId) =>
+    replaceApprovedDaemonConfig(daemonConfigPath(), config, daemonId),
+  restoreConfig: restoreDaemonConfigEffect,
   readLinkToken: readLinkTokenFromEnvironment,
   showApprovalQrCode: writeApprovalQrCode,
 };
@@ -200,73 +215,80 @@ export function runLinkCommandEffect(
     );
     if (shell === null) return 1;
 
-    const existingIdentity = yield* loadLinkIdentity(dependencies);
-    if (existingIdentity._tag === 'failed') {
-      logger.error('daemon_link_existing_config_unreadable', {
-        error: 'existing_config_matches_neither_current_nor_supported_migration_schema',
-      });
-      return 1;
-    }
-    const existingConfig = existingIdentity._tag === 'current' ? existingIdentity.config : null;
-    const daemonId = parsedArgs.replaceIdentity
-      ? dependencies.generateDaemonId()
-      : existingIdentity._tag === 'current'
-        ? existingIdentity.config.daemon_id
-        : existingIdentity._tag === 'legacy'
-          ? existingIdentity.migration.daemonId
-          : dependencies.generateDaemonId();
+    return yield* dependencies.withEnrollmentLock(
+      Effect.gen(function* () {
+        const existingIdentity = yield* loadLinkIdentity(dependencies);
+        if (existingIdentity._tag === 'failed') {
+          logger.error('daemon_link_existing_config_unreadable', {
+            error: 'existing_config_matches_neither_current_nor_supported_migration_schema',
+          });
+          return 1;
+        }
+        const existingConfig = existingIdentity._tag === 'current' ? existingIdentity.config : null;
+        const daemonId = parsedArgs.replaceIdentity
+          ? dependencies.generateDaemonId()
+          : existingIdentity._tag === 'current'
+            ? existingIdentity.config.daemon_id
+            : existingIdentity._tag === 'legacy'
+              ? existingIdentity.migration.daemonId
+              : dependencies.generateDaemonId();
 
-    if (
-      parsedArgs.forceSoftware &&
-      existingConfig !== null &&
-      existingConfig.daemon_identity_seal.backend !== 'software' &&
-      !parsedArgs.replaceIdentity
-    ) {
-      logger.error('daemon_link_identity_choice_conflict', {
-        hint: 'Use --replace-identity to change this linked identity',
-      });
-      return 1;
-    }
-    const identity = yield* resolveLinkIdentitySeal(
-      existingConfig,
-      parsedArgs,
-      logger,
-      dependencies,
-    ).pipe(
-      Effect.catch((error) => {
-        logger.error('daemon_link_identity_failed', {
-          reason: error.code,
-          hint:
-            error.code === 'hardware_unavailable' || error.code === 'tpm_access_denied'
-              ? 'Use --identity-backend software only if you choose to store the identity on disk'
-              : error.code === 'binary_not_found'
-                ? 'Build or install merkur-dataplane first'
-                : 'Use --replace-identity to link a new identity on this machine',
-        });
-        return Effect.succeed(null);
-      }),
-    );
-    if (identity === null) return 1;
-    logger.info('daemon_link_identity_backend', { backend: identity.seal.backend });
-    return yield* Effect.scoped(
-      Effect.acquireRelease(
-        Effect.try({ try: dependencies.generateLinkSecret, catch: normalizeUnknownError }),
-        (linkSecret) => Effect.sync(() => linkSecret.fill(0)),
-      ).pipe(
-        Effect.flatMap((linkSecret) =>
-          runLinkClaim({
-            daemonId,
-            existingConfig,
-            identity,
-            shell,
-            linkSecret,
-            serverOrigin,
-            linkToken: token,
-            logger,
-            dependencies,
+        if (
+          parsedArgs.forceSoftware &&
+          existingConfig !== null &&
+          existingConfig.daemon_identity_seal.backend !== 'software' &&
+          !parsedArgs.replaceIdentity
+        ) {
+          logger.error('daemon_link_identity_choice_conflict', {
+            hint: 'Use --replace-identity to change this linked identity',
+          });
+          return 1;
+        }
+        const identity = yield* resolveLinkIdentitySeal(
+          existingConfig,
+          parsedArgs,
+          logger,
+          dependencies,
+        ).pipe(
+          Effect.catch((error) => {
+            logger.error('daemon_link_identity_failed', {
+              reason: error.code,
+              hint:
+                error.code === 'hardware_unavailable' || error.code === 'tpm_access_denied'
+                  ? 'Use --identity-backend software only if you choose to store the identity on disk'
+                  : error.code === 'binary_not_found'
+                    ? 'Build or install merkur-dataplane first'
+                    : 'Use --replace-identity to link a new identity on this machine',
+            });
+            return Effect.succeed(null);
           }),
-        ),
-      ),
+        );
+        if (identity === null) return 1;
+        logger.info('daemon_link_identity_backend', { backend: identity.seal.backend });
+        return yield* Effect.scoped(
+          Effect.acquireRelease(
+            Effect.try({ try: dependencies.generateLinkSecret, catch: normalizeUnknownError }),
+            (linkSecret) => Effect.sync(() => linkSecret.fill(0)),
+          ).pipe(
+            Effect.flatMap((linkSecret) =>
+              runLinkClaim({
+                daemonId,
+                existingConfig,
+                migration: Predicate.isTagged(existingIdentity, 'legacy')
+                  ? existingIdentity.migration
+                  : null,
+                identity,
+                shell,
+                linkSecret,
+                serverOrigin,
+                linkToken: token,
+                logger,
+                dependencies,
+              }),
+            ),
+          ),
+        );
+      }),
     );
   });
 }
@@ -274,6 +296,7 @@ export function runLinkCommandEffect(
 interface RunLinkClaimInput {
   readonly daemonId: string;
   readonly existingConfig: DaemonConfig | null;
+  readonly migration: { readonly daemonId: string } | null;
   readonly identity: SealedDaemonIdentity;
   readonly shell: string;
   readonly linkSecret: Uint8Array;
@@ -386,7 +409,11 @@ function runLinkClaim(input: RunLinkClaimInput): Effect.Effect<number, Error> {
           keyMaterial.commitment,
         ),
       });
-      yield* input.dependencies.saveConfig(config);
+      if (input.migration === null) {
+        yield* input.dependencies.saveConfig(config, input.existingConfig);
+      } else {
+        yield* input.dependencies.saveMigratedConfig(config, input.migration.daemonId);
+      }
       const completeResult = yield* Effect.tryPromise({
         try: () =>
           input.dependencies.completeClaim(
@@ -400,7 +427,7 @@ function runLinkClaim(input: RunLinkClaimInput): Effect.Effect<number, Error> {
       if (completeResult.error !== null) {
         logLinkError(input.logger, completeResult.error);
         if (isDefinitiveCompletionRejection(completeResult.error)) {
-          yield* input.dependencies.restoreConfig(input.existingConfig);
+          yield* input.dependencies.restoreConfig(input.existingConfig, config);
         }
         return 1;
       }

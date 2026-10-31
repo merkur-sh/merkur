@@ -16,6 +16,7 @@ import { outputArgument } from './output-argument';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ENTRY = path.join(ROOT, 'apps/daemon/src/index.ts');
+const LOCK_WORKER = path.join(ROOT, 'packages/config/src/daemon-config-lock-worker.ts');
 
 interface ReleaseIdentity {
   readonly version: string;
@@ -75,9 +76,12 @@ export function compileArguments(identity: ReleaseIdentity, outfile: string): st
   return [
     'build',
     ENTRY,
+    LOCK_WORKER,
     '--compile',
     '--outfile',
     outfile,
+    '--entry-naming',
+    '[name].[ext]',
     ...Object.entries(defines).flatMap(([name, value]) => [
       '--define',
       `process.env.${name}=${JSON.stringify(value)}`,

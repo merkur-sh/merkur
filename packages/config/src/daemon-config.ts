@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { constants } from 'node:fs';
 import { chmod, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { type DaemonIdentitySealBackend, isDaemonIdentitySealBackend } from '@merkur/shared';
@@ -303,7 +304,246 @@ export function requireDaemonConfigFromPath(
   );
 }
 
+/** The lock inode stays in place across config replacement and removal. */
+function withDaemonFileLock<A>(
+  configPath: string,
+  lockPath: string,
+  operation: 2 | 6,
+  body: Effect.Effect<A, Error>,
+): Effect.Effect<A, Error> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const directory = path.dirname(configPath);
+      yield* Effect.tryPromise({
+        try: async () => {
+          await mkdir(directory, { recursive: true, mode: CONFIG_DIRECTORY_MODE });
+          await chmod(directory, CONFIG_DIRECTORY_MODE);
+        },
+        catch: (error) => normalizeConfigError(error, configPath),
+      });
+      yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async () => {
+            const file = await open(
+              lockPath,
+              constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW,
+              CONFIG_FILE_MODE,
+            );
+            try {
+              const { lockDaemonConfigDescriptor } = await import('./daemon-config-lock');
+              await lockDaemonConfigDescriptor(file.fd, operation);
+              return file;
+            } catch (error) {
+              await file.close();
+              throw error;
+            }
+          },
+          catch: (error) => normalizeConfigError(error, configPath),
+        }),
+        (file) => Effect.promise(() => file.close()),
+      );
+      return yield* body;
+    }),
+  );
+}
+
+export function withDaemonEnrollmentLockAtPath<A>(
+  configPath: string,
+  body: Effect.Effect<A, Error>,
+): Effect.Effect<A, Error> {
+  return withDaemonFileLock(configPath, `${configPath}.enrollment.lock`, 6, body);
+}
+
+export function transactDaemonConfigAtPath<T extends DaemonConfig | null>(
+  configPath: string,
+  mutate: (current: DaemonConfig | null) => T,
+): Effect.Effect<T, Error> {
+  return Effect.uninterruptible(
+    withDaemonFileLock(
+      configPath,
+      `${configPath}.lock`,
+      2,
+      Effect.gen(function* () {
+        const current = yield* loadDaemonConfigFromPath(configPath);
+        const next = yield* Effect.try({
+          try: () => mutate(current),
+          catch: (error) => normalizeConfigError(error, configPath),
+        });
+        if (next === current) return next;
+        if (next === null) {
+          yield* Effect.tryPromise({
+            try: async () => {
+              await rm(configPath, { force: true });
+              await syncDirectory(path.dirname(configPath));
+            },
+            catch: (error) => normalizeConfigError(error, configPath),
+          });
+        } else {
+          yield* writeDaemonConfigToPath(configPath, next);
+        }
+        return next;
+      }),
+    ),
+  );
+}
+
+export function replaceDaemonConfigForApprovedLinkAtPath(
+  configPath: string,
+  config: DaemonConfig,
+  validateCurrent: (contents: string) => void,
+): Effect.Effect<void, Error> {
+  return Effect.uninterruptible(
+    withDaemonFileLock(
+      configPath,
+      `${configPath}.lock`,
+      2,
+      Effect.gen(function* () {
+        yield* Effect.tryPromise({
+          try: async () => {
+            const raw = await readFile(configPath);
+            try {
+              validateCurrent(raw.toString('utf8'));
+            } finally {
+              raw.fill(0);
+            }
+          },
+          catch: (error) => normalizeConfigError(error, configPath),
+        });
+        yield* writeDaemonConfigToPath(configPath, config);
+      }),
+    ),
+  );
+}
+
 export function saveDaemonConfigToPath(
+  configPath: string,
+  config: DaemonConfig,
+  expected: DaemonConfig | null,
+): Effect.Effect<DaemonConfig, Error> {
+  return transactDaemonConfigAtPath(configPath, (current) => {
+    requireExpectedEnrollment(configPath, current, expected);
+    const next = validateDaemonConfig(config);
+    return sameDaemonLineage(current, next)
+      ? {
+          ...next,
+          revoked_delegations: mergeRevocations(
+            current.revoked_delegations,
+            next.revoked_delegations,
+          ),
+        }
+      : next;
+  });
+}
+
+export function persistDaemonRevocationsToPath(
+  configPath: string,
+  expected: DaemonConfig,
+  targets: readonly DelegationRevocationTarget[],
+): Effect.Effect<DaemonConfig, Error> {
+  return transactDaemonConfigAtPath(configPath, (current) => {
+    if (current === null || !sameDaemonLineage(current, expected)) {
+      throw new Error('Daemon authorization lineage changed during revocation persistence');
+    }
+    return {
+      ...current,
+      revoked_delegations: mergeRevocations(current.revoked_delegations, targets),
+    };
+  });
+}
+
+export function restoreDaemonConfigAtPath(
+  configPath: string,
+  previous: DaemonConfig | null,
+  installed: DaemonConfig,
+): Effect.Effect<void, Error> {
+  return transactDaemonConfigAtPath(configPath, (current) => {
+    if (!sameEnrollment(current, installed)) return current;
+    if (previous === null) return null;
+    return sameDaemonLineage(current, previous)
+      ? {
+          ...previous,
+          revoked_delegations: mergeRevocations(
+            current.revoked_delegations,
+            previous.revoked_delegations,
+          ),
+        }
+      : previous;
+  }).pipe(Effect.asVoid);
+}
+
+export function removeDaemonConfigFromPath(
+  configPath: string,
+  expected: DaemonConfig,
+): Effect.Effect<void, Error> {
+  return transactDaemonConfigAtPath(configPath, (current) => {
+    requireExpectedEnrollment(configPath, current, expected);
+    return null;
+  }).pipe(Effect.asVoid);
+}
+
+function requireExpectedEnrollment(
+  configPath: string,
+  current: DaemonConfig | null,
+  expected: DaemonConfig | null,
+): void {
+  if (!sameEnrollment(current, expected)) {
+    throw new DaemonConfigError({
+      configPath,
+      message: 'Daemon enrollment changed during config transaction',
+    });
+  }
+}
+
+function sameEnrollment(left: DaemonConfig | null, right: DaemonConfig | null): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    sameDaemonLineage(left, right) &&
+    left.daemon_identity_seal.backend === right.daemon_identity_seal.backend &&
+    left.daemon_identity_seal.material === right.daemon_identity_seal.material &&
+    left.shell === right.shell &&
+    left.webtransport_port === right.webtransport_port &&
+    left.session_token_verify_key === right.session_token_verify_key &&
+    left.daemon_binding.linkClaimId === right.daemon_binding.linkClaimId &&
+    left.daemon_binding.issuedAt === right.daemon_binding.issuedAt &&
+    left.daemon_binding.signature === right.daemon_binding.signature
+  );
+}
+
+function sameDaemonLineage(left: DaemonConfig | null, right: DaemonConfig): left is DaemonConfig {
+  if (left === null) return false;
+  return (
+    left.daemon_id === right.daemon_id &&
+    left.server_origin === right.server_origin &&
+    left.user_root_public_key === right.user_root_public_key &&
+    left.root_epoch === right.root_epoch &&
+    left.daemon_binding.userId === right.daemon_binding.userId &&
+    left.daemon_binding.rootKeyCommitment === right.daemon_binding.rootKeyCommitment &&
+    left.daemon_binding.daemonId === right.daemon_binding.daemonId &&
+    left.daemon_binding.daemonIdentityKeyCommitment ===
+      right.daemon_binding.daemonIdentityKeyCommitment &&
+    left.daemon_binding.serverOrigin === right.daemon_binding.serverOrigin
+  );
+}
+
+function mergeRevocations(
+  current: readonly DelegationRevocationTarget[],
+  targets: readonly DelegationRevocationTarget[],
+): readonly DelegationRevocationTarget[] {
+  const merged = new Map(current.map((target) => [target.delegationId, target.expiresAt]));
+  for (const target of targets) {
+    merged.set(
+      target.delegationId,
+      Math.max(merged.get(target.delegationId) ?? 0, target.expiresAt),
+    );
+  }
+  return [...merged]
+    .map(([delegationId, expiresAt]) => ({ delegationId, expiresAt }))
+    .sort((left, right) =>
+      left.delegationId < right.delegationId ? -1 : left.delegationId > right.delegationId ? 1 : 0,
+    );
+}
+
+function writeDaemonConfigToPath(
   configPath: string,
   config: DaemonConfig,
 ): Effect.Effect<void, Error> {
@@ -311,8 +551,6 @@ export function saveDaemonConfigToPath(
     try: async () => {
       const validatedConfig = validateDaemonConfig(config);
       const configDirectory = path.dirname(configPath);
-      await mkdir(configDirectory, { recursive: true, mode: CONFIG_DIRECTORY_MODE });
-      await chmod(configDirectory, CONFIG_DIRECTORY_MODE);
       const tempPath = path.join(
         configDirectory,
         `.${path.basename(configPath)}.tmp-${process.pid}-${crypto.randomUUID()}`,
@@ -337,16 +575,6 @@ export function saveDaemonConfigToPath(
           await rm(tempPath, { force: true }).catch(() => undefined);
         }
       }
-    },
-    catch: (error) => normalizeConfigError(error, configPath),
-  });
-}
-
-export function removeDaemonConfigFromPath(configPath: string): Effect.Effect<void, Error> {
-  return Effect.tryPromise({
-    try: async () => {
-      await rm(configPath, { force: true });
-      await syncDirectory(path.dirname(configPath));
     },
     catch: (error) => normalizeConfigError(error, configPath),
   });
