@@ -188,6 +188,9 @@ loss as data. Records carry numbers only: every enum is a closed union encoded a
 integer, and the three free-form strings (`deviceId`, `merkurSessionId`, `reason`) are
 interned in a 64-slot shared string table.
 
+Each emitter initializes every field its decoder reads. Unused slots retain arbitrary
+values and are outside the event's payload; beginning a record writes only its kind.
+
 A dedicated telemetry worker (`apps/web/src/telemetry-worker.ts`) drains the three rings,
 decodes, sorts, and POSTs gzip-compressed NDJSON. Shipping is backlog-driven: a full
 request's worth of rows is posted the moment a drain finds it, and a timer carries only the

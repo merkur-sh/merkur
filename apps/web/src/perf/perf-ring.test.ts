@@ -98,7 +98,7 @@ describe('perf ring', () => {
     expect(observed).toEqual([-1]);
   });
 
-  test('begin clears slots the previous record left behind', () => {
+  test('begin preserves unused slots for the next emitter to initialize', () => {
     const sab = createPerfRingBuffer(1);
     const writer = createPerfRingWriter(sab);
     const reader = createPerfRingReader(sab);
@@ -109,13 +109,13 @@ describe('perf ring', () => {
     writer.commit();
     drainAll(reader);
 
-    // Same slot in the ring, an event kind that sets neither field.
+    // Unwritten fields belong to the prior record and are outside this kind's payload.
     writer.begin(2);
     writer.commit();
 
     const { records } = drainAll(reader);
-    expect(records[0]?.f64[3]).toBe(0);
-    expect(records[0]?.u32[5]).toBe(0);
+    expect(records[0]?.f64[3]).toBe(99);
+    expect(records[0]?.u32[5]).toBe(99);
   });
 
   test('drains in write order across a wrap', () => {

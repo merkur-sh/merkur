@@ -79,7 +79,7 @@ export function createPerfRingBuffer(
  * against the cursor after copying and discards anything the writer has lapped.
  */
 export interface PerfRingWriter {
-  /** Begin a record. Zeroes the slots this record will not set. */
+  /** Begin a record. The emitter must set every slot its decoder reads. */
   begin(kind: number): void;
   f64(slot: number, value: number): void;
   u32(slot: number, value: number): void;
@@ -110,10 +110,6 @@ export function createPerfRingWriter(sab: SharedArrayBuffer): PerfRingWriter {
       const index = writeSeq % capacity;
       f64Base = index * (PERF_RECORD_BYTES / 8);
       u32Base = index * (PERF_RECORD_BYTES / 4) + F64_BLOCK_BYTES / 4;
-      // Clearing is what lets every decoder read a fixed slot set without the
-      // encoder having to write slots its event kind does not use. One fill
-      // clears both blocks: all-zero bits represent f64 +0 and u32 0.
-      u32.fill(0, u32Base - F64_BLOCK_BYTES / 4, u32Base + PERF_RECORD_U32_SLOTS);
       u32[u32Base] = kind >>> 0;
     },
     f64(slot: number, value: number): void {
@@ -137,7 +133,7 @@ export function createPerfRingWriter(sab: SharedArrayBuffer): PerfRingWriter {
   };
 }
 
-/** One record, copied out of the ring into caller-owned scratch. */
+/** One record in reader-owned scratch. Only slots initialized by its kind may be read. */
 export interface PerfRecordView {
   readonly kind: number;
   f64(slot: number): number;
