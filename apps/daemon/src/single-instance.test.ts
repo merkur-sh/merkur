@@ -42,16 +42,20 @@ test('acquires a fresh lock and releases it when the scope closes', async () => 
   expect(await fileExists(lockPath)).toBe(true);
 });
 
-test('release preserves a replacement lock with a different byte representation', async () => {
+test('PID metadata changes cannot replace a held kernel lock', async () => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         yield* acquireDaemonInstanceLockEffect(lockPath, logger);
         yield* Effect.promise(() => writeFile(lockPath, `\uFEFF${process.pid}\n`, 'utf8'));
+        yield* Effect.promise(async () => {
+          await expect(acquireScoped()).rejects.toBeInstanceOf(DaemonAlreadyRunningError);
+        });
       }),
     ),
   );
   expect(await fileExists(lockPath)).toBe(true);
+  await expect(acquireScoped()).resolves.toBeUndefined();
 });
 
 test('reclaims a lock left behind by a previous re-exec (same pid)', async () => {

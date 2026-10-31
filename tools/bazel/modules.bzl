@@ -165,8 +165,10 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "src/cli/setup.test.ts": [
+            "//apps/daemon:node_modules/effect",
             ":package.json.module",
             ":src/cli/setup.ts.module",
+            ":src/services/daemon-release.ts.module",
             ":tsconfig.json.module",
         ],
         "src/cli/setup.ts": [
@@ -258,6 +260,10 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "src/file-lock.ts": [
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
         "src/index.ts": [
             "//apps/daemon:node_modules/effect",
             "//packages/shared:src/e2e-wasm-bun.ts.module",
@@ -283,6 +289,7 @@ MODULES = {
             ":src/observability/telemetry.ts.module",
             ":src/services/daemon-metrics.ts.module",
             ":src/services/daemon-proof-signer.ts.module",
+            ":src/services/daemon-release.ts.module",
             ":src/services/daemon-runtime.ts.module",
             ":src/services/dataplane-adoption.ts.module",
             ":src/single-instance.ts.module",
@@ -332,9 +339,11 @@ MODULES = {
             "//packages/config:src/index.ts.module",
             "//packages/daemon-control-protocol:src/index.ts.module",
             "//packages/shared:src/index.ts.module",
+            "//packages/shared:src/node-sidecar.ts.module",
             ":package.json.module",
             ":src/cli/config-transaction-fixture.ts.module",
             ":src/services/daemon-control-client.ts.module",
+            ":src/services/dataplane-client.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-control-client.ts": [
@@ -434,6 +443,7 @@ MODULES = {
             "//packages/shared:src/release-signature.ts.module",
             "//packages/shared:src/schema-check.ts.module",
             ":package.json.module",
+            ":src/file-lock.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/daemon-runtime.test.ts": [
@@ -511,6 +521,8 @@ MODULES = {
         ],
         "src/single-instance.test.ts": [
             "//apps/daemon:node_modules/effect",
+            "//packages/shared:test-vectors/user-authorization-mldsa87.json.module",
+            "//scripts:compile-daemon-cli.ts.module",
             ":package.json.module",
             ":src/logger.ts.module",
             ":src/single-instance.ts.module",
@@ -520,6 +532,7 @@ MODULES = {
             "//apps/daemon:node_modules/effect",
             "//packages/shared:src/index.ts.module",
             ":package.json.module",
+            ":src/file-lock.ts.module",
             ":src/process-utils.ts.module",
             ":tsconfig.json.module",
         ],
@@ -8293,6 +8306,7 @@ TYPE_INPUTS = {
             "src/cli/update.ts",
             "src/config.test.ts",
             "src/config.ts",
+            "src/file-lock.ts",
             "src/index.ts",
             "src/logger.ts",
             "src/observability/telemetry.test.ts",
@@ -8330,6 +8344,7 @@ TYPE_INPUTS = {
         ],
         "scripts/tsconfig.json": [
             "package.json",
+            "src/file-lock.ts",
             "src/logger.ts",
             "src/observability/telemetry.ts",
             "src/services/daemon-fetch.ts",
@@ -10019,6 +10034,7 @@ TYPE_INPUTS = {
             "src/transport.ts",
             "src/user-authorization.ts",
             "src/version.ts",
+            "test-vectors/user-authorization-mldsa87.json",
         ],
         "apps/server/scripts/tsconfig.json": [
             "package.json",
@@ -10405,6 +10421,8 @@ TYPE_INPUTS = {
     },
     "scripts": {
         "apps/daemon/tsconfig.json": [
+            "compile-daemon-cli.ts",
+            "output-argument.ts",
             "test-executables.ts",
             "test-process.ts",
         ],
