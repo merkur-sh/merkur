@@ -2112,7 +2112,9 @@ text output; the workspace restores the remote cursor only after painting the st
 Kitty uploads use literal continuation headers. Variable graphics headers are formatted into
 a stack buffer sized for the longest command before one append to the host output buffer.
 Placement reconciliation walks the unique quad orders in the desired and shown vectors,
-deleting obsolete placements before inserting replacements.
+deleting obsolete placements before inserting replacements. Preparation classifies each quad's
+clipped extent once, resolves tiles only for visible extents, and holds the scene if any
+visible extent lacks its tile.
 
 Native carrier and UI deliveries retain count and byte reservations through every forwarding
 queue; enqueueing to a second queue does not release their original credit. Control, display

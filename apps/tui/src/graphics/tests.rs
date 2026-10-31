@@ -248,12 +248,12 @@ fn rasterization_crops_gutters_and_blends_alpha_without_transparent_color_fringe
     );
     quad.left = -0.2;
     quad.right = 2.6;
-    let key = raster_key("tile", &quad, 8, 4).unwrap();
+    let key = raster_key("tile", &quad, clipped_rect(&quad, 8, 4).unwrap());
     assert_eq!(key.rect, [0, 3, 3, 4]);
     quad.left = 2.6;
     quad.right = 7.8;
     assert_eq!(
-        raster_key("tile", &quad, 8, 4).unwrap().rect[0],
+        raster_key("tile", &quad, clipped_rect(&quad, 8, 4).unwrap()).rect[0],
         key.rect[2]
     );
 }
@@ -572,7 +572,11 @@ fn reconcile_fixture(count: u32, change: &str) -> (Graphics, Scene) {
     graphics.size = Some(size());
     graphics.complete = change != "incomplete";
     graphics.dirty = true;
-    let key = raster_key("shared", &quad("shared"), 16, 12).unwrap();
+    let key = raster_key(
+        "shared",
+        &quad("shared"),
+        clipped_rect(&quad("shared"), 16, 12).unwrap(),
+    );
     for index in 0..count {
         let placement = Placement {
             key: key.clone(),
@@ -745,5 +749,271 @@ fn placement_reconcile_instruction_profile() {
             .compose(std::hint::black_box(&scene), size(), &mut out)
             .unwrap();
         std::hint::black_box(&out);
+    }
+}
+
+#[cfg(debug_assertions)]
+thread_local! {
+    pub(super) static CLASSIFICATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "The oracle preserves the saturating pixel conversion."
+)]
+fn reference_raster_key(key: &str, quad: &Quad, width: u32, height: u32) -> Option<RasterKey> {
+    let values = [
+        quad.left,
+        quad.top,
+        quad.right,
+        quad.bottom,
+        quad.u,
+        quad.v,
+        quad.uw,
+        quad.vh,
+    ];
+    if values.iter().any(|value| !value.is_finite())
+        || quad.right <= quad.left
+        || quad.bottom <= quad.top
+    {
+        return None;
+    }
+    let edge = |value: f64, bound: u32| (value - 0.5).ceil().clamp(0.0, f64::from(bound)) as u32;
+    let rect = [
+        edge(quad.left, width),
+        edge(quad.top, height),
+        edge(quad.right, width),
+        edge(quad.bottom, height),
+    ];
+    (rect[2] > rect[0] && rect[3] > rect[1]).then(|| RasterKey {
+        tile: key.into(),
+        rect,
+        mapping: values.map(f64::to_bits),
+        layer: quad.layer,
+    })
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "The oracle preserves the saturating viewport conversion."
+)]
+fn reference_prepared(
+    graphics: &Graphics,
+    scene: &Scene,
+    size: HostSize,
+) -> (Vec<Placement>, bool) {
+    let Some((cw, ch)) = size.cell else {
+        return (vec![], true);
+    };
+    let width = (f64::from(size.cols) * cw).floor() as u32;
+    let height = (f64::from(size.rows.saturating_sub(1)) * ch).floor() as u32;
+    let bindings: BTreeMap<_, _> = scene
+        .animations
+        .iter()
+        .flat_map(|animation| &animation.bindings)
+        .map(|(binding, key)| (binding, key))
+        .collect();
+    let mut desired = Vec::new();
+    let mut visible = 0;
+    for (order, quad) in scene.quads.iter().enumerate() {
+        let key = bindings.get(&quad.key).copied().unwrap_or(&quad.key);
+        if let Some(key) = reference_raster_key(key, quad, width, height) {
+            visible += 1;
+            if graphics.tiles.contains_key(&key.tile) {
+                desired.push(Placement {
+                    key,
+                    layer: quad.layer,
+                    order: u32::try_from(order).unwrap(),
+                });
+            }
+        }
+    }
+    let complete = desired.len() == visible;
+    (desired, complete)
+}
+
+fn prepare_fixture(case: &str, count: usize, warm: bool) -> (Graphics, Scene, HostSize) {
+    let mut graphics = Graphics::default();
+    let mut quad = quad("tile");
+    match case {
+        "clipped" | "missing-clipped" => {
+            quad.left = 100.0;
+            quad.right = 102.0;
+        }
+        "fractional" => {
+            quad.left = 0.6;
+            quad.top = -0.4;
+            quad.right = 2.4;
+            quad.bottom = 1.6;
+        }
+        "nonfinite" | "missing-nonfinite" => quad.u = f64::NAN,
+        "invalid" => quad.right = quad.left,
+        _ => {}
+    }
+    let mut scene = Scene {
+        tiles: vec![],
+        quads: vec![quad; count].into(),
+        animations: vec![],
+    };
+    let mut size = size();
+    if case == "no-metrics" {
+        size.cell = None;
+    }
+    if !case.starts_with("missing") {
+        graphics.tiles.insert(
+            "tile".into(),
+            Tile {
+                id: 2_147_483_644,
+                source: Arc::new(Source {
+                    png: Zeroizing::new(vec![]),
+                    pixels: Zeroizing::new(vec![255; 36]),
+                    width: 3,
+                    height: 3,
+                    _storage: graphics.reserve_pixels(36).unwrap(),
+                }),
+                sent: true,
+                confirmed: true,
+            },
+        );
+    }
+    if case == "animated" {
+        scene
+            .animations
+            .push(merkur_client::viewer::graphics::SceneAnimation {
+                key: "animation".into(),
+                reserve: false,
+                bindings: vec![("binding".into(), "tile".into())],
+            });
+        scene.quads = scene
+            .quads
+            .iter()
+            .cloned()
+            .map(|mut quad| {
+                quad.key = "binding".into();
+                quad
+            })
+            .collect();
+    }
+    if warm {
+        let (desired, _) = reference_prepared(&graphics, &scene, size);
+        for placement in desired {
+            if !graphics.rasters.contains_key(&placement.key) {
+                let storage = graphics
+                    .reserve_pixels(pixel_bytes(placement.key.rect).unwrap())
+                    .unwrap();
+                graphics.rasters.insert(
+                    placement.key,
+                    Raster {
+                        id: 2_147_483_643,
+                        pixels: Zeroizing::new(vec![]),
+                        sent: true,
+                        confirmed: true,
+                        _storage: storage,
+                    },
+                );
+            }
+        }
+    }
+    (graphics, scene, size)
+}
+
+const PREPARE_CASES: &[&str] = &[
+    "available",
+    "missing",
+    "clipped",
+    "missing-clipped",
+    "fractional",
+    "nonfinite",
+    "missing-nonfinite",
+    "invalid",
+    "no-metrics",
+    "animated",
+];
+
+#[test]
+fn preparation_preserves_extents_completeness_jobs_and_reservations() {
+    for &case in PREPARE_CASES {
+        for count in [0, 1, 64] {
+            for warm in [false, true] {
+                let (mut graphics, scene, size) = prepare_fixture(case, count, warm);
+                let (desired, complete) = reference_prepared(&graphics, &scene, size);
+                let jobs: BTreeSet<_> = desired
+                    .iter()
+                    .filter(|placement| !graphics.rasters.contains_key(&placement.key))
+                    .map(|placement| placement.key.clone())
+                    .collect();
+                let before = graphics.budget.used().unwrap();
+                graphics.prepare(&scene, size).unwrap();
+                assert_eq!(graphics.desired, desired, "{case} {count} {warm}");
+                assert_eq!(graphics.complete, complete);
+                assert_eq!(
+                    graphics
+                        .pending_rasters
+                        .keys()
+                        .cloned()
+                        .collect::<BTreeSet<_>>(),
+                    jobs
+                );
+                let expected_bytes: usize =
+                    jobs.iter().map(|key| pixel_bytes(key.rect).unwrap()).sum();
+                assert_eq!(
+                    graphics.budget.used().unwrap(),
+                    Usage {
+                        bytes: before.bytes + expected_bytes,
+                        objects: before.objects + jobs.len()
+                    }
+                );
+                settled(&mut graphics);
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "quad preparation allocation and geometry census; run with --ignored --nocapture"]
+fn quad_prepare_cost_profile() {
+    for &case in PREPARE_CASES {
+        for count in [0, 1, 64] {
+            let (mut graphics, scene, size) = prepare_fixture(case, count, true);
+            graphics.prepare(&scene, size).unwrap();
+            #[cfg(debug_assertions)]
+            CLASSIFICATIONS.set(0);
+            let tally =
+                crate::test_allocations::measure(|| graphics.prepare(&scene, size).unwrap());
+            #[cfg(debug_assertions)]
+            println!("classify {case} {count}: {}", CLASSIFICATIONS.get());
+            println!(
+                "prepare {case} {count}: desired={} complete={} capacity={} jobs={} usage={:?} {tally:?}",
+                graphics.desired.len(),
+                graphics.complete,
+                graphics.desired.capacity(),
+                graphics.pending_rasters.len(),
+                graphics.budget.used().unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "retired-instruction population; select MERKUR_TUI_PREPARE and MERKUR_TUI_QUADS"]
+fn quad_prepare_instruction_profile() {
+    let case = std::env::var("MERKUR_TUI_PREPARE").unwrap_or_else(|_| "available".into());
+    let count = std::env::var("MERKUR_TUI_QUADS")
+        .unwrap_or_else(|_| "64".into())
+        .parse()
+        .unwrap();
+    let rounds: u32 = std::env::var("MERKUR_TUI_PROFILE_ROUNDS")
+        .unwrap_or_else(|_| "10000".into())
+        .parse()
+        .unwrap();
+    let (mut graphics, scene, size) = prepare_fixture(&case, count, true);
+    graphics.prepare(&scene, size).unwrap();
+    for _ in 0..rounds {
+        graphics
+            .prepare(std::hint::black_box(&scene), std::hint::black_box(size))
+            .unwrap();
+        std::hint::black_box(&graphics.desired);
     }
 }
