@@ -1915,6 +1915,11 @@ the encrypted packet at packetization. That packet assembly remains a copy;
 "zero copy" here means removing the intermediate display-to-transport envelope.
 Retransmission row/frame storage and selective ACK semantics are unchanged.
 
+Borrowed WebTransport sends copy the payload before acquiring Quinn's connection lock,
+then use the same prefix-separated admission. The HTTP/3 prefix stays inline in the
+queue entry. A full queue returns backpressure without registering an asynchronous waiter;
+accepted entries keep their exact prefix-inclusive charge and FIFO order.
+
 The per-peer pool retains at most 128 KiB of ciphertext payload and 256 owners
 (plus bounded owner metadata), lazily populated in 64-byte size classes. It
 reclaims only uniquely owned storage. A rolling scan avoids repeatedly walking

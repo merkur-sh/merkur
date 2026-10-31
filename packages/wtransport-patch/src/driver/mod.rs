@@ -17,7 +17,6 @@ use crate::stream::OpeningBiStream;
 use crate::stream::OpeningUniStream;
 use crate::SessionId;
 use std::future::Future;
-use std::task::{Context, Poll, Waker};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tracing::debug;
@@ -30,13 +29,6 @@ use wtransport_proto::error::ErrorCode;
 use wtransport_proto::frame::Frame;
 use wtransport_proto::session::SessionRequest;
 use wtransport_proto::settings::Settings;
-
-#[inline(always)]
-fn poll_once<F: Future>(future: F) -> Poll<F::Output> {
-    let mut future = std::pin::pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    future.as_mut().poll(&mut context)
-}
 
 struct SingleDatagram<'a> {
     raw: &'a mut [bytes::Bytes; 1],
@@ -356,29 +348,8 @@ impl Driver {
         session_id: SessionId,
         payload: &[u8],
     ) -> Result<(), SendDatagramError> {
-        let quic_datagram = Datagram::write(session_id, payload).into_quic_bytes();
-        // Poll Quinn's non-dropping send exactly once. Its poll holds Quinn's
-        // connection-state mutex across both the capacity check and enqueue,
-        // so every cloned WebTransport producer has one linearization point.
-        // Pending means the bounded queue is full; dropping the future removes
-        // its Notify waiter and preserves every older independent datagram.
-        let send = self.quic_connection.send_datagram_wait(quic_datagram);
-        match poll_once(send) {
-            Poll::Pending => Err(SendDatagramError::Backpressure),
-            Poll::Ready(Ok(())) => Ok(()),
-            Poll::Ready(Err(quinn::SendDatagramError::UnsupportedByPeer)) => {
-                Err(SendDatagramError::UnsupportedByPeer)
-            }
-            Poll::Ready(Err(quinn::SendDatagramError::Disabled)) => {
-                Err(SendDatagramError::Disabled)
-            }
-            Poll::Ready(Err(quinn::SendDatagramError::TooLarge)) => {
-                Err(SendDatagramError::TooLarge)
-            }
-            Poll::Ready(Err(quinn::SendDatagramError::ConnectionLost(_))) => {
-                Err(SendDatagramError::NotConnected)
-            }
-        }
+        // Copy before Quinn's connection lock; admission keeps the carrier prefix inline.
+        self.send_datagram_owned(session_id, bytes::Bytes::copy_from_slice(payload))
     }
 
     async fn result(&self) -> DriverError {
@@ -834,13 +805,7 @@ pub(crate) mod utils;
 
 #[cfg(test)]
 mod admission_tests {
-    use super::poll_once;
-    use std::future::{pending, ready};
     use std::hint::black_box;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-    use std::task::Poll;
-    use std::time::Instant;
 
     #[inline(never)]
     fn fill_receive_storage(input: &[bytes::Bytes], out: &mut [bytes::Bytes]) -> usize {
@@ -1036,74 +1001,5 @@ mod admission_tests {
         drop(result);
         assert!(input.iter().all(Bytes::is_unique));
         println!("stream={stream} len={len} kind={kind} iterations=2000000 final_extra_owners=0");
-    }
-
-    struct CountedPending {
-        polls: Arc<AtomicUsize>,
-        drops: Arc<AtomicUsize>,
-    }
-
-    impl std::future::Future for CountedPending {
-        type Output = ();
-
-        fn poll(
-            self: std::pin::Pin<&mut Self>,
-            _context: &mut std::task::Context<'_>,
-        ) -> Poll<Self::Output> {
-            self.polls.fetch_add(1, Ordering::Relaxed);
-            Poll::Pending
-        }
-    }
-
-    impl Drop for CountedPending {
-        fn drop(&mut self) {
-            self.drops.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    #[test]
-    fn atomic_admission_scaffold_polls_exactly_once() {
-        assert_eq!(poll_once(ready(73)), Poll::Ready(73));
-        assert_eq!(poll_once(pending::<usize>()), Poll::Pending);
-
-        let polls = Arc::new(AtomicUsize::new(0));
-        let drops = Arc::new(AtomicUsize::new(0));
-        assert_eq!(
-            poll_once(CountedPending {
-                polls: Arc::clone(&polls),
-                drops: Arc::clone(&drops),
-            }),
-            Poll::Pending,
-        );
-        assert_eq!(polls.load(Ordering::Relaxed), 1);
-        assert_eq!(drops.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    #[ignore = "manual release-mode microbenchmark"]
-    fn benchmark_single_poll_scaffold_distribution() {
-        const SAMPLES: usize = 200;
-        const ITERATIONS: usize = 100_000;
-        let mut nanos_per_poll = Vec::with_capacity(SAMPLES);
-        let mut checksum = 0usize;
-
-        for sample in 0..SAMPLES {
-            let started = Instant::now();
-            for iteration in 0..ITERATIONS {
-                if let Poll::Ready(value) = poll_once(ready(black_box(sample ^ iteration))) {
-                    checksum ^= black_box(value);
-                }
-            }
-            nanos_per_poll.push(started.elapsed().as_nanos() as f64 / ITERATIONS as f64);
-        }
-        nanos_per_poll.sort_by(f64::total_cmp);
-        let percentile = |numerator: usize| nanos_per_poll[(SAMPLES - 1) * numerator / 100];
-        eprintln!(
-            "single-poll scaffold ns/op: median={:.3} p95={:.3} p99={:.3} worst={:.3} checksum={checksum}",
-            percentile(50),
-            percentile(95),
-            percentile(99),
-            nanos_per_poll[SAMPLES - 1],
-        );
     }
 }

@@ -574,65 +574,165 @@ mod tests {
         }
     }
 
+    struct PacketAllocator;
+    #[global_allocator]
+    static PACKET_ALLOCATOR: PacketAllocator = PacketAllocator;
+    static PACKET_COUNTING: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    static PACKET_ALLOCATIONS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+    static PACKET_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn count_packet_allocation(size: usize, ptr: *mut u8) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if !ptr.is_null() && PACKET_COUNTING.load(Relaxed) {
+            PACKET_ALLOCATIONS.fetch_add(1, Relaxed);
+            PACKET_BYTES.fetch_add(size, Relaxed);
+        }
+    }
+
+    // SAFETY: all allocation arguments and results pass unchanged through System;
+    // the counters neither allocate nor access the returned storage.
+    unsafe impl std::alloc::GlobalAlloc for PacketAllocator {
+        unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+            // SAFETY: forward the unchanged allocator contract to System.
+            let ptr = unsafe { std::alloc::System.alloc(layout) };
+            count_packet_allocation(layout.size(), ptr);
+            ptr
+        }
+        unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+            // SAFETY: forward the unchanged allocator contract to System.
+            let ptr = unsafe { std::alloc::System.alloc_zeroed(layout) };
+            count_packet_allocation(layout.size(), ptr);
+            ptr
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+            // SAFETY: preserve the allocation and requested new size.
+            let ptr = unsafe { std::alloc::System.realloc(ptr, layout, size) };
+            count_packet_allocation(size, ptr);
+            ptr
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+            // SAFETY: return the original pointer/layout to its allocator.
+            unsafe { std::alloc::System.dealloc(ptr, layout) };
+        }
+    }
+
+    #[test]
+    #[ignore = "release borrowed datagram packetization instruction profile"]
+    fn borrowed_datagram_packetization_profile() {
+        use crate::coding::BufMutExt;
+        use std::hint::black_box;
+
+        let prefixed = std::env::var("BORROWED_PACKET_PREFIXED").is_ok_and(|value| value == "true");
+        let len: usize = std::env::var("BORROWED_PACKET_LEN")
+            .unwrap_or_else(|_| "57".into())
+            .parse()
+            .unwrap();
+        let prefix = crate::VarInt::from_u32(0);
+        let payload = Bytes::from(vec![0x5a; len]);
+        let mut envelope = Vec::new();
+        envelope.write(prefix);
+        envelope.extend_from_slice(&payload);
+        let data = if prefixed {
+            payload
+        } else {
+            Bytes::from(envelope)
+        };
+        let mut state = DatagramState::default();
+        let mut packet = Vec::with_capacity(1500);
+        for _ in 0..100 {
+            state.outgoing.push_back(Datagram {
+                data: data.clone(),
+                prefix: prefixed.then_some(prefix),
+            });
+            assert!(state.write(black_box(&mut packet), black_box(1500), black_box(0)));
+            black_box(&packet);
+            packet.clear();
+        }
+        use std::sync::atomic::Ordering::Relaxed;
+        PACKET_ALLOCATIONS.store(0, Relaxed);
+        PACKET_BYTES.store(0, Relaxed);
+        // The ignored profile runs alone with --test-threads=1.
+        PACKET_COUNTING.store(true, Relaxed);
+        for _ in 0..2_000_000 {
+            state.outgoing.push_back(Datagram {
+                data: data.clone(),
+                prefix: prefixed.then_some(prefix),
+            });
+            assert!(state.write(black_box(&mut packet), black_box(1500), black_box(0)));
+            black_box(&packet);
+            packet.clear();
+        }
+        PACKET_COUNTING.store(false, Relaxed);
+        let allocations = PACKET_ALLOCATIONS.load(Relaxed);
+        let requested_bytes = PACKET_BYTES.load(Relaxed);
+        assert_eq!((allocations, requested_bytes), (0, 0));
+        assert!(state.outgoing.is_empty());
+        println!("prefixed={prefixed} len={len} iterations=2000000 allocations={allocations} requested_bytes={requested_bytes}");
+    }
+
     #[test]
     fn shared_payloads_with_distinct_prefixes_encode_identically_and_charge_exactly() {
         use crate::{coding::BufMutExt, VarInt};
 
-        let payload = Bytes::from(vec![0x5a; 97]);
-        for value in [
-            0,
-            63,
-            64,
-            16383,
-            16384,
-            (1 << 30) - 1,
-            1 << 30,
-            (1 << 62) - 1,
-        ] {
-            let prefix = VarInt::from_u64(value).unwrap();
-            let segmented = Datagram {
-                data: payload.clone(),
-                prefix: Some(prefix),
-            };
-            assert_eq!(segmented.data.as_ptr(), payload.as_ptr());
-            let mut contiguous = Vec::new();
-            contiguous.write(prefix);
-            contiguous.extend_from_slice(&payload);
-            let original = Datagram {
-                data: contiguous.into(),
-                prefix: None,
-            };
-            for explicit_len in [false, true] {
-                let mut actual = Vec::new();
-                let mut expected = Vec::new();
-                segmented.encode(explicit_len, &mut actual);
-                original.encode(explicit_len, &mut expected);
-                assert_eq!(actual, expected);
-                assert_eq!(segmented.size(explicit_len), actual.len());
+        for len in [0, 1, 57, 1100] {
+            let payload = Bytes::from(vec![0x5a; len]);
+            for value in [
+                0,
+                63,
+                64,
+                16383,
+                16384,
+                (1 << 30) - 1,
+                1 << 30,
+                (1 << 62) - 1,
+            ] {
+                let prefix = VarInt::from_u64(value).unwrap();
+                let segmented = Datagram {
+                    data: payload.clone(),
+                    prefix: Some(prefix),
+                };
+                assert_eq!(segmented.data.as_ptr(), payload.as_ptr());
+                let mut contiguous = Vec::new();
+                contiguous.write(prefix);
+                contiguous.extend_from_slice(&payload);
+                let original = Datagram {
+                    data: contiguous.into(),
+                    prefix: None,
+                };
+                for explicit_len in [false, true] {
+                    let mut actual = Vec::new();
+                    let mut expected = Vec::new();
+                    segmented.encode(explicit_len, &mut actual);
+                    original.encode(explicit_len, &mut expected);
+                    assert_eq!(actual, expected);
+                    assert_eq!(segmented.size(explicit_len), actual.len());
+                }
+                let mut state = DatagramState::default();
+                let len = segmented.payload_len();
+                let frame_len = segmented.size(true);
+                state.outgoing.push_back(segmented);
+                let cost = len + DATAGRAM_SEND_BUFFER_ENTRY_OVERHEAD;
+                assert_eq!(state.outgoing.memory_used(), cost);
+                assert!(!state.outgoing.has_space_for(0, cost));
+                let mut packet = Vec::new();
+                assert!(!state.write(&mut packet, frame_len - 1, 1));
+                assert!(packet.is_empty());
+                assert_eq!(state.outgoing.memory_used(), cost);
+                state.drop_oversized(len);
+                assert_eq!(state.outgoing.memory_used(), cost);
+                assert!(state.write(&mut packet, frame_len, 2));
+                assert_eq!(state.outgoing.memory_used(), 0);
+                state.outgoing.push_back(Datagram {
+                    data: payload.clone(),
+                    prefix: Some(prefix),
+                });
+                state.drop_oversized(len - 1);
+                assert_eq!(state.outgoing.memory_used(), 0);
             }
-            let mut state = DatagramState::default();
-            let len = segmented.payload_len();
-            let frame_len = segmented.size(true);
-            state.outgoing.push_back(segmented);
-            let cost = len + DATAGRAM_SEND_BUFFER_ENTRY_OVERHEAD;
-            assert_eq!(state.outgoing.memory_used(), cost);
-            assert!(!state.outgoing.has_space_for(0, cost));
-            let mut packet = Vec::new();
-            assert!(!state.write(&mut packet, frame_len - 1, 1));
-            assert!(packet.is_empty());
-            assert_eq!(state.outgoing.memory_used(), cost);
-            state.drop_oversized(len);
-            assert_eq!(state.outgoing.memory_used(), cost);
-            assert!(state.write(&mut packet, frame_len, 2));
-            assert_eq!(state.outgoing.memory_used(), 0);
-            state.outgoing.push_back(Datagram {
-                data: payload.clone(),
-                prefix: Some(prefix),
-            });
-            state.drop_oversized(len - 1);
-            assert_eq!(state.outgoing.memory_used(), 0);
+            assert!(payload.is_empty() || payload.is_unique());
         }
-        assert!(payload.is_unique());
     }
 
     #[test]
