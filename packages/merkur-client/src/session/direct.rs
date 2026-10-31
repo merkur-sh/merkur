@@ -986,7 +986,7 @@ impl Session {
         }
         self.report_direct("lost", Some(path.kind), path.nat_type, Vec::new(), None);
         self.graphics_interrupt();
-        self.flush_input(now_ms);
+        self.flush_input(now_ms, true);
         self.refresh_direct(now_ms);
     }
 

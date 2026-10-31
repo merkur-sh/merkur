@@ -2171,3 +2171,71 @@ fn carrier_retirement_resumes_graphics_without_finite_end() {
         "retirement must resume the authenticated partial asset"
     );
 }
+
+#[test]
+fn idle_retry_marks_duplicates_for_ack_replacement() {
+    let (mut h, mut daemon) = ready();
+    drain(&mut h.session);
+    h.session.send_input(NOW + 31, 1, build::press('a'), false);
+    let original = drain(&mut h.session);
+    // The daemon applies the first copy; both acknowledgements are lost.
+    assert_eq!(received_input(&mut daemon, &original).len(), 2);
+    h.session.handle(
+        NOW + 32,
+        Event::InputDatagramSent {
+            conn: h.interactive,
+            top_seq: 1,
+        },
+        &mut h.entropy,
+    );
+    let deadline = h
+        .session
+        .input_retry
+        .deadline()
+        .expect("retry armed by admission");
+    h.session.handle_timeout(deadline, &mut h.entropy);
+    let lane = merkur_e2e::lane_for_channel(CHANNEL_PTY).unwrap();
+    let mut retries = 0;
+    for action in drain(&mut h.session) {
+        let plain = match action {
+            Action::SendInputDatagram { payload, .. } => {
+                daemon.open_datagram(lane, &payload[1..]).unwrap()
+            }
+            Action::SendReliable {
+                channel: CHANNEL_PTY,
+                payload,
+                ..
+            } => daemon.open_stream(lane, &payload).unwrap(),
+            _ => continue,
+        };
+        let (_, body) = decode_proto_frame(&plain).unwrap();
+        let (header, entries) = parse_input_run(body).unwrap();
+        assert!(
+            header.retransmit,
+            "idle retry must request a replacement acknowledgement"
+        );
+        assert_eq!(header.base_seq, 1);
+        assert_eq!(
+            entries
+                .map(|entry| entry.payload.to_vec())
+                .collect::<Vec<_>>(),
+            [build::press('a')]
+        );
+        retries += 1;
+    }
+    assert!(retries > 0);
+    let lane = merkur_e2e::lane_for_channel(CHANNEL_CTRL).unwrap();
+    let ack = encode_proto_frame(MSG_TYPE_INPUT_ACK, &1u32.to_be_bytes());
+    let mut packet = vec![CHANNEL_CTRL];
+    packet.extend(daemon.seal_datagram(lane, &ack).unwrap());
+    h.session.handle(
+        deadline + 1,
+        Event::Datagram {
+            conn: h.interactive,
+            payload: &packet,
+        },
+        &mut h.entropy,
+    );
+    assert!(h.session.outbox.is_empty());
+    assert_eq!(h.session.input_retry.deadline(), None);
+}

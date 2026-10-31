@@ -1130,7 +1130,8 @@ the input path is loss recovery for the last run before a pause (`merkur-client:
 while typing continues, each run re-sends every unacknowledged entry, so the timer fires only
 after the keys stop. It waits 1.5 × the input-ACK round trip (at least 40 ms) and backs off from
 there. The round trip is sampled by Karn's algorithm: a sample is voided once its input is sent
-again, and the backoff holds until an unambiguous sample lands.
+again, and the backoff holds until an unambiguous sample lands. Idle retries and carrier-loss
+replays set the retransmit mark so an already applied duplicate requests a replacement ACK.
 
 Resize (`MSG_TYPE_RESIZE`) carries
 `cols:u16 | rows:u16 | seq:u32 | cell_width:u32 | cell_height:u32 | geometry_generation:u64`.

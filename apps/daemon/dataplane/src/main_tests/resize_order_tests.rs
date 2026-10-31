@@ -296,3 +296,34 @@ async fn a_resize_applied_from_control_holds_no_input() {
     assert_eq!(peers["browser"].keystroke_next_queued_seq, 3);
     assert!(peers["browser"].geometry_fence.is_none());
 }
+
+#[tokio::test]
+async fn idle_retry_requests_an_ack_without_another_pty_admission() {
+    let (_pair, mut terminal, mut peers) = fenced_owner();
+    let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
+    let peer = peers.get_mut("browser").unwrap();
+    // The original key has completed; both ACK copies were lost.
+    peer.keystroke_next_queued_seq = 2;
+    peer.keystroke_next_expected_seq = 2;
+    let key = input_record::build::press('a');
+    for retransmit in [false, true] {
+        let mut run = encode_probed_input_run(1, retransmit, None, None, &[(&key, false)]);
+        let len = run.len();
+        let outcome = handle_reliable_input(
+            &mut pty_lane(DeliveryMode::Stream),
+            &mut run,
+            len,
+            &mut writer,
+            &mut terminal,
+            &mut peers,
+            &mut input::InputRefill::default(),
+            Instant::now(),
+            &mut PerfTimingTracker::default(),
+        );
+        assert_eq!(outcome.ack_pending, retransmit);
+        let peer = &peers["browser"];
+        assert_eq!(peer.keystroke_next_queued_seq, 2);
+        assert_eq!(peer.keystroke_next_expected_seq, 2);
+        assert!(!peer.reliable_inputs.has_pending());
+    }
+}

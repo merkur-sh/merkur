@@ -900,7 +900,7 @@ impl Session {
 
     fn flush_reliable_owed(&mut self, now_ms: u64, channel: u8) {
         if channel == CHANNEL_PTY && self.outbox.reliable_sent < self.outbox.len() {
-            self.flush_input(now_ms);
+            self.flush_input(now_ms, true);
         }
         if channel == CHANNEL_CTRL && self.has_reliable_capacity(CHANNEL_CTRL) {
             self.announce_carrier();
@@ -1416,7 +1416,7 @@ impl Session {
             self.attempt_failed(now_ms, entropy);
         }
         if self.input_retry.fire(now_ms) {
-            self.flush_input(now_ms);
+            self.flush_input(now_ms, true);
         }
         if self.retry_at_ms.is_some_and(|at| at <= now_ms) {
             self.retry_at_ms = None;
@@ -1529,7 +1529,7 @@ impl Session {
             return;
         }
         if self.outbox.admit(local_seq, record, modelled) {
-            self.flush_input(now_ms);
+            self.flush_input(now_ms, false);
         } else {
             self.fail(CloseReason::InputOverflow);
         }
@@ -3235,7 +3235,7 @@ impl Session {
             self.graphics_admit();
             let (heartbeat, mut link) = self.liveness();
             heartbeat.start(now_ms, &mut link);
-            self.flush_input(now_ms);
+            self.flush_input(now_ms, true);
             for frame in std::mem::take(&mut self.display_owed) {
                 if frame.first() == Some(&MSG_TYPE_DISPLAY_RESUME) {
                     self.resume_watchdog_ms = Some(now_ms + DISPLAY_RESUME_WATCHDOG_MS);
@@ -3292,7 +3292,7 @@ impl Session {
         }
     }
 
-    fn flush_input(&mut self, now_ms: u64) {
+    fn flush_input(&mut self, now_ms: u64, retransmit: bool) {
         if !self.is_ready() || self.outbox.is_empty() {
             return;
         }
@@ -3314,7 +3314,7 @@ impl Session {
             .count();
         if count > 0 {
             let top_seq = self.outbox.wire(count - 1);
-            self.send_input_run(0, count, geometry, |session, frame| {
+            self.send_input_run(0, count, retransmit, geometry, |session, frame| {
                 session.send_sealed_datagram_inner(CHANNEL_PTY, frame, Some(top_seq));
             });
         }
@@ -3322,7 +3322,7 @@ impl Session {
         let from = self.outbox.reliable_sent;
         if from < self.outbox.len() && self.has_reliable_capacity(CHANNEL_PTY) {
             let count = (self.outbox.len() - from).min(u8::MAX as usize);
-            self.send_input_run(from, count, geometry, |session, frame| {
+            self.send_input_run(from, count, retransmit, geometry, |session, frame| {
                 session.send_sealed_reliable(CHANNEL_PTY, frame);
             });
             self.outbox.reliable_sent += count;
@@ -3338,6 +3338,7 @@ impl Session {
         &mut self,
         from: usize,
         count: usize,
+        retransmit: bool,
         geometry: Option<RunGeometry>,
         send: impl FnOnce(&mut Self, &[u8]),
     ) {
@@ -3345,7 +3346,7 @@ impl Session {
         encode_probed_input_run_into(
             &mut frame,
             self.outbox.wire(from),
-            false,
+            retransmit,
             None,
             geometry,
             self.outbox.run(from, count),
