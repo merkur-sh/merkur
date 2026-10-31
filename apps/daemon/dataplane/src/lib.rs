@@ -8824,7 +8824,7 @@ fn profile_capture_token(
         TraceCaptureOwner::Cli { observation_id } => cli
             .filter(|(id, _)| id == observation_id)
             .map(|(_, token)| *token),
-        TraceCaptureOwner::Browser => merkur_trace::current_token()
+        TraceCaptureOwner::Browser {} => merkur_trace::current_token()
             .filter(|token| !cli.is_some_and(|(_, cli_token)| cli_token == token)),
     }
 }

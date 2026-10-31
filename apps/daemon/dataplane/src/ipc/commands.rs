@@ -198,7 +198,7 @@ pub enum TraceCaptureOwner {
     #[serde(rename = "cli")]
     Cli { observation_id: String },
     #[serde(rename = "browser")]
-    Browser,
+    Browser {},
 }
 
 #[derive(Debug, Deserialize)]
