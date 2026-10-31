@@ -17,8 +17,9 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use merkur_edge_protocol::{
-    COUNTERPART_DETACHED_CLOSE_CODE, COUNTERPART_DETACHED_CLOSE_REASON, INCARNATION_ANNOUNCED_CLOSE_CODE,
-    INCARNATION_ANNOUNCED_CLOSE_REASON, INCARNATION_CHARS,
+    COUNTERPART_DETACHED_CLOSE_CODE, COUNTERPART_DETACHED_CLOSE_REASON,
+    INCARNATION_ANNOUNCED_CLOSE_CODE, INCARNATION_ANNOUNCED_CLOSE_REASON, INCARNATION_CHARS,
+    RETIRED_SOURCE_STREAM_QUIC_CODE,
 };
 pub(crate) use merkur_edge_protocol::{EGRESS_BUDGET_CLOSE_CODE, EGRESS_BUDGET_CLOSE_REASON};
 #[cfg(test)]
@@ -709,7 +710,7 @@ impl<T> Drop for ContainedStream<T> {
         if released.is_err() {
             metrics::record_contained_stream_drop_panic();
             warn!(
-                "edge: contained a panic closing a splice control stream — quinn's \
+                "edge: contained a panic closing a splice stream — quinn's \
                  connection mutex is poisoned, so some earlier panic went unreported"
             );
         }
@@ -1830,6 +1831,32 @@ impl ReliableLaneError {
     }
 }
 
+/// A source's connection end retires its destination stream even when the
+/// lane task is cancelled during teardown. A malformed live lane still drops
+/// with FIN, which the destination treats as a carrier fault.
+struct ReliableSourceStream<'a> {
+    stream: ContainedStream<wtransport::SendStream>,
+    source: &'a wtransport::Connection,
+}
+
+impl Drop for ReliableSourceStream<'_> {
+    fn drop(&mut self) {
+        let retired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if self.source.quic_connection().close_reason().is_some()
+                && let Some(stream) = self.stream.get_mut()
+            {
+                let _ = stream.reset(
+                    VarInt::try_from_u64(RETIRED_SOURCE_STREAM_QUIC_CODE)
+                        .expect("stream retirement code"),
+                );
+            }
+        }));
+        if retired.is_err() {
+            warn!("edge: contained a panic retiring a reliable source stream");
+        }
+    }
+}
+
 async fn forward_reliable_lane(
     lane: RoutedReliableLane,
     channel: [u8; RELIABLE_CHANNEL_PREFIX_BYTES],
@@ -1864,9 +1891,14 @@ async fn forward_reliable_lane(
         let (destination_id, opened) =
             wait_for_reliable_destination(source_closed.as_mut(), &mut destinations).await?;
         let ReliableOpenedStream {
-            mut send,
+            send,
             connection: destination_connection,
         } = opened;
+        let mut output = ReliableSourceStream {
+            stream: ContainedStream::new(send),
+            source: &source_connection,
+        };
+        let send = output.stream.get_mut().expect("new reliable output");
         let stopped = send.quic_stream().stopped();
         tokio::pin!(stopped);
 
@@ -2320,6 +2352,10 @@ where
         .map_err(|_| ReliableLaneError::Timeout)??;
     }
 }
+
+#[cfg(test)]
+#[path = "relay_retirement_tests.rs"]
+mod retirement_tests;
 
 #[cfg(test)]
 mod tests {

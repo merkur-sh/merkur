@@ -2,6 +2,280 @@ import { describe, expect, test } from 'bun:test';
 import { DISPLAY_DATAGRAM_RECEIVE_QUEUE_DEPTH } from '@merkur/shared';
 import { CarrierReader, carrierRecord, dialClientCarrier } from './client-carrier';
 
+function incomingLane() {
+  let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const disposed = Promise.withResolvers<void>();
+  const readable = new ReadableStream<Uint8Array>({
+    start(value) {
+      controller = value;
+    },
+  });
+  const getReader = readable.getReader.bind(readable);
+  Object.defineProperty(readable, 'getReader', {
+    value() {
+      const reader = getReader();
+      const cancel = reader.cancel.bind(reader);
+      reader.cancel = () => {
+        disposed.resolve();
+        return cancel();
+      };
+      return reader;
+    },
+  });
+  if (controller === undefined) throw new Error('missing lane controller');
+  return { readable, controller, disposed: disposed.promise };
+}
+
+function transportError(source: 'stream' | 'session', streamErrorCode: number): DOMException {
+  return Object.assign(new DOMException('stream reset', 'WebTransportError'), {
+    source,
+    streamErrorCode,
+  });
+}
+
+function sourceRecord(source: bigint, channel: number, value: number): Uint8Array {
+  const result = new Uint8Array(14);
+  new DataView(result.buffer).setBigUint64(0, source);
+  result[8] = channel;
+  result.set(carrierRecord(Uint8Array.of(value)), 9);
+  return result;
+}
+
+async function incomingCarrier(direct = false) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'WebTransport');
+  let incoming: ReadableStreamDefaultController<ReadableStream<Uint8Array>> | undefined;
+  let closes = 0;
+  let datagramInput: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const datagramReceived = Promise.withResolvers<Uint8Array>();
+  const finiteEnded = Promise.withResolvers<void>();
+  const finiteParts: { kind: number; bytes: Uint8Array }[] = [];
+  const deliveries: { source: bigint; channel: number; bytes: Uint8Array }[] = [];
+  const delivered = new Map<number, ReturnType<typeof Promise.withResolvers<void>>>();
+  const closed = Promise.withResolvers<void>();
+  class Transport {
+    readonly ready = Promise.resolve();
+    readonly closed = new Promise<{ closeCode: number; reason: string }>(() => {});
+    readonly incomingUnidirectionalStreams = new ReadableStream<ReadableStream<Uint8Array>>({
+      start(controller) {
+        incoming = controller;
+      },
+    });
+    readonly datagrams = {
+      writable: new WritableStream<Uint8Array>(),
+      readable: new ReadableStream<Uint8Array>({
+        start(controller) {
+          datagramInput = controller;
+        },
+      }),
+    };
+    createBidirectionalStream() {
+      return Promise.resolve({
+        writable: new WritableStream<Uint8Array>(),
+        readable: new ReadableStream<Uint8Array>(),
+      });
+    }
+    close(): void {
+      closes += 1;
+    }
+  }
+  Object.defineProperty(globalThis, 'WebTransport', { configurable: true, value: Transport });
+  const carrier = await dialClientCarrier(
+    'https://edge.example',
+    [],
+    Uint8Array.of(7),
+    false,
+    direct,
+    {
+      handshake: () => {},
+      splice: async () => {},
+      datagram: async (bytes) => {
+        datagramReceived.resolve(bytes);
+      },
+      proof: async () => {},
+      finite: async (_stream, kind, _channel, _total, bytes) => {
+        finiteParts.push({ kind, bytes });
+        if (kind === 5 || kind === 6) finiteEnded.resolve();
+      },
+      reliable: async (source, channel, bytes) => {
+        deliveries.push({ source, channel, bytes });
+        delivered.get(deliveries.length)?.resolve();
+      },
+      closed: () => closed.resolve(),
+    },
+    new AbortController().signal,
+  );
+  if (incoming === undefined) throw new Error('missing incoming stream controller');
+  return {
+    incoming,
+    deliveries,
+    datagramInput,
+    datagramReceived: datagramReceived.promise,
+    finiteEnded: finiteEnded.promise,
+    finiteParts,
+    closed: closed.promise,
+    closes: () => closes,
+    delivery(count: number): Promise<void> {
+      if (deliveries.length >= count) return Promise.resolve();
+      const pending = Promise.withResolvers<void>();
+      delivered.set(count, pending);
+      return pending.promise;
+    },
+    dispose(): void {
+      carrier.close();
+      incoming?.close();
+      datagramInput?.close();
+      if (original === undefined) Reflect.deleteProperty(globalThis, 'WebTransport');
+      else Object.defineProperty(globalThis, 'WebTransport', original);
+    },
+  };
+}
+
+test('retired_source_does_not_close_successor_carrier', async () => {
+  let returned = 0;
+  let continued = 0;
+  for (const successorFirst of [false, true]) {
+    const fixture = await incomingCarrier();
+    try {
+      const successor = incomingLane();
+      if (successorFirst) {
+        fixture.incoming.enqueue(successor.readable);
+        successor.controller.enqueue(sourceRecord(2n, 2, 41));
+        await fixture.delivery(1);
+      }
+      // Every framing position, repeated beyond the eight incoming reader slots.
+      for (let index = 0; index < 18; index += 1) {
+        const predecessor = incomingLane();
+        fixture.incoming.enqueue(predecessor.readable);
+        const wire = sourceRecord(1n, 2, index);
+        const position = [0, 4, 9, 11, 13, 14][index % 6] ?? 0;
+        if (position > 0) predecessor.controller.enqueue(wire.subarray(0, position));
+        const before = fixture.deliveries.length;
+        if (position === wire.length) await fixture.delivery(before + 1);
+        predecessor.controller.error(transportError('stream', 1));
+        await predecessor.disposed;
+        returned += 1;
+        expect(fixture.closes()).toBe(0);
+        if (!successorFirst && index === 0) {
+          fixture.incoming.enqueue(successor.readable);
+          successor.controller.enqueue(sourceRecord(2n, 2, 41));
+        } else {
+          successor.controller.enqueue(carrierRecord(Uint8Array.of(index + 42)));
+        }
+        await fixture.delivery(fixture.deliveries.length + 1);
+        continued += 1;
+      }
+      expect(fixture.closes()).toBe(0);
+    } finally {
+      fixture.dispose();
+    }
+  }
+  process.stdout.write(
+    `retired_source readers_returned=${returned} successor_continuations=${continued} carrier_closes=0\n`,
+  );
+});
+
+test('retired_source_keeps_unexpected_lane_failures_terminal', async () => {
+  for (const failure of [
+    'fin',
+    'truncated-header',
+    'truncated-body',
+    'unknown-reset',
+    'session-reset',
+    'unbranded-reset',
+    'oversize',
+  ] as const) {
+    const fixture = await incomingCarrier();
+    try {
+      const lane = incomingLane();
+      fixture.incoming.enqueue(lane.readable);
+      lane.controller.enqueue(sourceRecord(1n, 2, 1));
+      await fixture.delivery(1);
+      if (failure === 'unknown-reset') {
+        lane.controller.error(transportError('stream', 2));
+      } else if (failure === 'session-reset') {
+        lane.controller.error(transportError('session', 1));
+      } else if (failure === 'unbranded-reset') {
+        lane.controller.error({ source: 'stream', streamErrorCode: 1 });
+      } else if (failure === 'oversize') {
+        lane.controller.enqueue(Uint8Array.of(0x7f, 0xff, 0xff, 0xff));
+      } else {
+        if (failure === 'truncated-header') lane.controller.enqueue(Uint8Array.of(0));
+        if (failure === 'truncated-body') lane.controller.enqueue(Uint8Array.of(0, 0, 0, 2, 9));
+        lane.controller.close();
+      }
+      await fixture.closed;
+      expect(fixture.closes()).toBe(1);
+    } finally {
+      fixture.dispose();
+    }
+  }
+  process.stdout.write('active_lane faults=7 carrier_closes=7\n');
+});
+
+test('retired_source_code_is_terminal_on_direct_carriers', async () => {
+  const fixture = await incomingCarrier(true);
+  try {
+    const lane = incomingLane();
+    fixture.incoming.enqueue(lane.readable);
+    lane.controller.enqueue(Uint8Array.of(2, ...carrierRecord(Uint8Array.of(42))));
+    await fixture.delivery(1);
+    lane.controller.error(transportError('stream', 1));
+    await fixture.closed;
+    expect(fixture.closes()).toBe(1);
+  } finally {
+    fixture.dispose();
+  }
+});
+
+test('retired_source_steady_paths_keep_identical_payloads', async () => {
+  let records = 0;
+  let payloadBytes = 0;
+  for (const direct of [false, true]) {
+    const fixture = await incomingCarrier(direct);
+    try {
+      for (const channel of [1, 2, 4]) {
+        const lane = incomingLane();
+        fixture.incoming.enqueue(lane.readable);
+        lane.controller.enqueue(
+          direct ? Uint8Array.of(channel) : sourceRecord(1n, channel, 7).subarray(0, 9),
+        );
+        for (const size of [0, 1, 64, 16384, 65536]) {
+          const body = Uint8Array.from({ length: size }, (_, index) => index & 0xff);
+          lane.controller.enqueue(carrierRecord(body));
+          await fixture.delivery(fixture.deliveries.length + 1);
+          expect(fixture.deliveries.at(-1)).toEqual({
+            source: direct ? 0n : 1n,
+            channel,
+            bytes: body,
+          });
+          records += 1;
+          payloadBytes += size;
+        }
+      }
+      const finite = incomingLane();
+      fixture.incoming.enqueue(finite.readable);
+      const prefix = direct ? Uint8Array.of(0x87) : sourceRecord(1n, 0x87, 7).subarray(0, 9);
+      finite.controller.enqueue(prefix);
+      finite.controller.enqueue(Uint8Array.of(0, 0, 0, 3, 7, 8, 9));
+      finite.controller.close();
+      await fixture.finiteEnded;
+      expect(fixture.finiteParts).toEqual([
+        { kind: 3, bytes: new Uint8Array() },
+        { kind: 4, bytes: Uint8Array.of(7, 8, 9) },
+        { kind: 5, bytes: new Uint8Array() },
+      ]);
+      fixture.datagramInput?.enqueue(Uint8Array.of(2, 9, 8, 7));
+      expect(await fixture.datagramReceived).toEqual(Uint8Array.of(2, 9, 8, 7));
+      expect(fixture.closes()).toBe(0);
+    } finally {
+      fixture.dispose();
+    }
+  }
+  process.stdout.write(
+    `steady records=${records} payload_bytes=${payloadBytes} finite_payload_bytes=6 datagrams=2 datagram_bytes=8 carrier_closes=0\n`,
+  );
+});
+
 function reader(chunks: Uint8Array[]): CarrierReader {
   return new CarrierReader(
     new ReadableStream<Uint8Array>({

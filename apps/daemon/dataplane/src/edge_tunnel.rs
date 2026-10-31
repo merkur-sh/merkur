@@ -27,8 +27,8 @@ use std::time::Duration;
 use merkur_edge_protocol::{
     COUNTERPART_DETACHED_CLOSE_CODE, COUNTERPART_DETACHED_CLOSE_REASON, EGRESS_BUDGET_CLOSE_CODE,
     EGRESS_BUDGET_CLOSE_REASON, INCARNATION_ANNOUNCED_CLOSE_CODE,
-    INCARNATION_ANNOUNCED_CLOSE_REASON, MAX_PREFACE_LEN, PREFACE_VERSION, Role, RoutingAttachment,
-    RoutingPreface, SpliceControlEvent,
+    INCARNATION_ANNOUNCED_CLOSE_REASON, MAX_PREFACE_LEN, PREFACE_VERSION,
+    RETIRED_SOURCE_STREAM_QUIC_CODE, Role, RoutingAttachment, RoutingPreface, SpliceControlEvent,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -1372,6 +1372,7 @@ struct BlockedControls {
 struct ReliableLaneTaskError {
     failure: EdgeReliableLaneFailure,
     detail: String,
+    retired_source: bool,
 }
 
 impl ReliableLaneTaskError {
@@ -1390,6 +1391,7 @@ impl ReliableLaneTaskError {
                 kind,
             },
             detail,
+            retired_source: false,
         }
     }
 
@@ -1812,12 +1814,19 @@ fn reader_io_error(
     operation: EdgeReliableLaneOperation,
     error: std::io::Error,
 ) -> ReliableLaneTaskError {
-    ReliableLaneTaskError::reader(
+    let retired_source = matches!(
+        error.get_ref().and_then(|error| error.downcast_ref::<wtransport::quinn::ReadError>()),
+        Some(wtransport::quinn::ReadError::Reset(code))
+            if code.into_inner() == RETIRED_SOURCE_STREAM_QUIC_CODE
+    );
+    let mut failure = ReliableLaneTaskError::reader(
         channel_id,
         operation,
         reader_error_kind(&error),
         error.to_string(),
-    )
+    );
+    failure.retired_source = retired_source;
+    failure
 }
 
 fn stream_read_exact_error(
@@ -2010,6 +2019,11 @@ async fn read_reliable_channel_preface(
     if matches!(result, Err(StreamReadExactError::FinishedEarly(0))) {
         return Ok(None);
     }
+    if matches!(result, Err(StreamReadExactError::Read(StreamReadError::Reset(code)))
+        if code.into_inner() == RETIRED_SOURCE_STREAM_QUIC_CODE)
+    {
+        return Ok(None);
+    }
     result.map_err(|error| {
         stream_read_exact_error(None, EdgeReliableLaneOperation::ReadChannel, error)
     })?;
@@ -2048,12 +2062,9 @@ fn register_reliable_channel(
     Ok(())
 }
 
-/// Accept and pump this generation's inbound reliable channels.
-///
-/// A lane that ends cleanly releases its channel instead of failing the
-/// generation, so a returning browser can bind the same channel again. The
-/// generation is owned by the QUIC connection; only a connection failure, or a
-/// lane fault that indicts the peer's framing, ends it.
+/// Accept and pump this generation's inbound reliable channels. An explicit
+/// source retirement releases its channel. Other lane ends and framing faults
+/// end the carrier; a source generation's successor displaces its old readers.
 async fn run_reliable_acceptor(
     conn: Arc<Connection>,
     ingress: EdgeIngress,
@@ -2071,31 +2082,12 @@ async fn run_reliable_acceptor(
                 biased;
                 completion = readers.join_next(), if !readers.is_empty() => {
                     match completion {
-                        // A reader returning `Ok` rather than a typed
-                        // `Finished` reaches the same conclusion: that channel
-                        // is free for a replacement stream.
                         Some(Ok((channel_id, Ok(())))) => {
                             release_reliable_channel(&mut seen_channels, channel_id);
                             continue;
                         }
                         Some(Ok((channel_id, Err(error)))) => {
-                            // A lane ending cleanly is the edge retiring that
-                            // lane, not this connection failing. It happens on
-                            // every carrier loss: the browser's source streams
-                            // die, the edge's forwarder drops its destination
-                            // handle, and this side sees a FIN. Failing the
-                            // generation there would close the tunnel being
-                            // held open for the browser's return — taking the
-                            // rebind's own signaling channel with it, and
-                            // forcing a redial at exactly the moment a rebind
-                            // is in flight.
-                            //
-                            // The generation is owned by the QUIC connection,
-                            // so a connection failure is still fatal. Anything
-                            // that indicts the peer's framing stays fatal too;
-                            // only a clean end releases the channel for a
-                            // replacement stream to claim.
-                            if error.failure.kind == EdgeReliableLaneFailureKind::Finished {
+                            if error.retired_source {
                                 release_reliable_channel(&mut seen_channels, channel_id);
                                 continue;
                             }
@@ -2907,7 +2899,8 @@ impl EdgeTunnel {
     /// Spawn the datagram reader and one generation-owned reliable acceptor,
     /// each delivering to `ingress` itself. The acceptor owns exactly one
     /// persistent reader per logical channel and closes the generation on FIN,
-    /// RESET, malformed, duplicate, or unknown lanes.
+    /// unknown RESET, malformed, duplicate, or unknown lanes. Explicit source
+    /// retirement releases only the affected reader.
     pub fn spawn_receivers(&self, ingress: EdgeIngress) {
         let Some(ref conn) = self.conn else {
             return;
@@ -3445,14 +3438,14 @@ mod tests {
     use std::task::{Context, Poll};
     use tokio::io::{AsyncWriteExt, ReadBuf};
 
-    struct MockReliableReader<'a> {
+    pub(super) struct MockReliableReader<'a> {
         bytes: &'a [u8],
         cursor: usize,
         fragment_bytes: usize,
     }
 
     impl<'a> MockReliableReader<'a> {
-        fn new(bytes: &'a [u8], fragment_bytes: usize) -> Self {
+        pub(super) fn new(bytes: &'a [u8], fragment_bytes: usize) -> Self {
             Self {
                 bytes,
                 cursor: 0,
@@ -4539,7 +4532,7 @@ mod tests {
 
     /// An owner ingress queue of `depth` and the identity a tunnel stamps on
     /// what it delivers there.
-    fn test_ingress(depth: usize) -> (EdgeIngress, mpsc::Receiver<PeerMessage>) {
+    pub(super) fn test_ingress(depth: usize) -> (EdgeIngress, mpsc::Receiver<PeerMessage>) {
         let (tx, rx) = mpsc::channel(depth);
         let ingress = EdgeIngress {
             tx,
@@ -5438,12 +5431,7 @@ mod tests {
 mod lane_lifetime_tests {
     use super::*;
 
-    /// A clean lane end frees its channel; a fault does not.
-    ///
-    /// This is what lets a tunnel outlive the carrier on the other side of the
-    /// splice. Every browser carrier loss ends these readers, and failing the
-    /// generation there would close the tunnel being held for that browser's
-    /// return — taking the rebind's own signaling channel with it.
+    /// An explicit source retirement frees its channel; a fault does not.
     #[test]
     fn a_released_channel_can_be_claimed_again() {
         let mut seen = 0_u8;
@@ -5525,3 +5513,7 @@ mod browser_path_tests {
         assert_eq!(tunnel.browser_address(), Some(address));
     }
 }
+
+#[cfg(test)]
+#[path = "edge_tunnel_retirement_tests.rs"]
+mod retirement_tests;

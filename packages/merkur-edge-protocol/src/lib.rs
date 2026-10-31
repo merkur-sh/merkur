@@ -63,6 +63,13 @@ pub const EGRESS_BUDGET_CLOSE_REASON: &[u8] = b"egress-budget";
 pub const INCARNATION_ANNOUNCED_CLOSE_CODE: u32 = 0x4d04;
 pub const INCARNATION_ANNOUNCED_CLOSE_REASON: &[u8] = b"incarnation-announced";
 
+/// WebTransport application stream code for a retired reliable source. Its
+/// HTTP/3 mapping is `0x52e4_a40f_a8dc`; FIN and other resets remain lane faults.
+pub const RETIRED_SOURCE_STREAM_CODE: u32 = 1;
+/// The QUIC/HTTP/3 code exposed by wtransport, which does not remap stream errors.
+pub const RETIRED_SOURCE_STREAM_QUIC_CODE: u64 =
+    0x52e4_a40f_a8db + RETIRED_SOURCE_STREAM_CODE as u64;
+
 /// Which end of a spliced session a connecting peer represents.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -652,14 +652,20 @@ All three browser dials start in the same turn, signaling first; authentication 
 data dials. After Noise, the browser sends each data connection's `data_attach` nonce claim on
 signaling and its HELLO on the data connection in the same flight.
 
-A persistent reliable lane is **source-owned**, not pair-owned: its actor keeps the source
-stream while a destination watch rotates across counterpart attachments, so one browser
-`CONNECTION_CLOSE` cannot kill the daemon's long-lived lane and no partial record crosses an
-attachment boundary. The daemon's three connections are durable; an ordinary browser rebind
-attaches fresh browser connections and pays no daemon dial. Each fresh browser connection
-resumes the capacity its predecessor on the same lane demonstrated (RFC 9959 Careful Resume,
-see [performance](performance.md)) when the browser and edge addresses match, so the first
-full-screen update after a same-network rebind does not slow-start from the initial window.
+A persistent reliable lane is **source-owned**, not pair-owned: its actor keeps the source stream
+while a destination watch rotates across counterpart attachments, so one browser `CONNECTION_CLOSE`
+cannot kill the daemon's long-lived lane and no partial record crosses an attachment boundary. When
+the source connection ends, the edge resets its destination streams with WebTransport application
+code `1` (HTTP/3 code `0x52e4a40fa8dc`). Browser, native client, and daemon relay readers release
+those streams and retain the carrier, even if a successor prefix has already arrived or the retired
+prefix or record is incomplete. Retirement grants no authentication or key-cut authority. An
+unexpected durable FIN, malformed record or other stream reset remains a carrier fault; direct
+carriers do not accept the relay's retirement code. The daemon's three connections are durable; an
+ordinary browser rebind attaches fresh browser connections and pays no daemon dial. Each fresh
+browser connection resumes the capacity its predecessor on the same lane demonstrated (RFC 9959
+Careful Resume, see [performance](performance.md)) when the browser and edge addresses match, so the
+first full-screen update after a same-network rebind does not slow-start from the initial window.
+
 A daemon-side network path change
 migrates the QUIC connection (connection id, not 4-tuple), costing one path-validation round trip
 rather than a redial; Chromium performs no WebTransport migration, so a browser-side change runs
