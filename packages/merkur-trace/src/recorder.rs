@@ -238,7 +238,8 @@ fn nanos(duration: Duration) -> u64 {
 }
 
 fn site_id(site: &'static Site) -> Option<u32> {
-    let id = site.id.load(Ordering::Relaxed);
+    // Acquire the registry publication before this producer publishes its record.
+    let id = site.id.load(Ordering::Acquire);
     if id != 0 {
         return Some(id);
     }
@@ -250,16 +251,23 @@ fn register_site(site: &'static Site) -> Option<u32> {
     let slot = NEXT_SITE.fetch_add(1, Ordering::Relaxed);
     let entry = SITES.get(slot)?;
     let id = u32::try_from(slot + 1).ok()?;
+    // The usable ID carries this pointer through record admission to the
+    // capture's acquire drain; no captured record can precede its name.
+    entry.store(std::ptr::from_ref(site).cast_mut(), Ordering::Release);
     match site
         .id
         .compare_exchange(0, id, Ordering::AcqRel, Ordering::Acquire)
     {
         Ok(_) => {
-            entry.store(std::ptr::from_ref(site).cast_mut(), Ordering::Release);
+            #[cfg(test)]
+            tests::pause_site_publication();
             Some(id)
         }
         // Another thread named this site first; its id stands and this slot stays empty.
-        Err(existing) => Some(existing),
+        Err(existing) => {
+            entry.store(std::ptr::null_mut(), Ordering::Relaxed);
+            Some(existing)
+        }
     }
 }
 
@@ -706,6 +714,48 @@ pub fn mark(site: &'static Site, arg: u64) {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    thread_local! {
+        static PUBLICATION_PAUSE: Cell<Option<(Arc<std::sync::Barrier>, Arc<std::sync::Barrier>)>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn pause_site_publication() {
+        if let Some((entered, release)) = PUBLICATION_PAUSE.with(Cell::take) {
+            entered.wait();
+            release.wait();
+        }
+    }
+
+    #[test]
+    fn capture_cannot_observe_an_unpublished_site() {
+        static FIRST_USE: Site = Site::new("first_use_publication");
+        let recorder = small();
+        let token = recorder.begin("peer", "session", 1);
+        let entered = Arc::new(std::sync::Barrier::new(2));
+        let release = Arc::new(std::sync::Barrier::new(2));
+        let registering = {
+            let entered = Arc::clone(&entered);
+            let release = Arc::clone(&release);
+            std::thread::spawn(move || {
+                PUBLICATION_PAUSE.with(|pause| pause.set(Some((entered, release))));
+                site_id(&FIRST_USE).expect("a site slot")
+            })
+        };
+        entered.wait();
+        // A second producer sees the usable ID while its first registrant is paused.
+        recorder.record(token, Instant::now(), &FIRST_USE, [0; 16]);
+        let snapshot = recorder.capture().unwrap();
+        release.wait();
+        registering.join().unwrap();
+        assert_eq!(snapshot.evidence.len(), 1);
+        for event in &snapshot.evidence {
+            assert_eq!(
+                snapshot.site_name(event.site),
+                Some("first_use_publication"),
+                "captured event must resolve to its published site name"
+            );
+        }
+    }
 
     static DISPLAY_ATTEMPT: Site = Site::new("display_attempt");
     static DISPLAY_MEMBER: Site = Site::new("display_member");
