@@ -27,6 +27,11 @@ server's registration secret. The edge publishes its exact URL and
 current certificate pins through the authenticated registration endpoint. If any owned child
 exits, the supervisor terminates the others. Ctrl-C follows the same path.
 
+The edge starts admission only after initial registration succeeds. A registration-route
+404 uses the existing startup retry schedule, and a maintenance-time 404 leaves the process,
+endpoint and live splices serving until the next heartbeat retries publication. Authentication
+rejection (401/403) and local configuration errors stop the edge.
+
 Use `bun run dev:server` when Vite is not needed. It still starts the edge because a server
 without a healthy registered edge cannot issue usable terminal sessions.
 

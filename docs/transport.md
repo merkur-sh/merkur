@@ -700,6 +700,10 @@ Each edge registers its replica id, region label, replica-specific URL and two c
 hashes, the one it serves and then the one it will serve next, at `POST /api/edge/register`
 (`apps/edge/src/register.rs`), signed with a distinct 64-byte key per edge over method, path,
 timestamp, nonce, and body digest using HMAC-SHA-512. It publishes again every 30 s heartbeat.
+Initial publication must succeed before relay admission begins. Network failures and HTTP
+404, 429 and 5xx responses retry on the startup backoff; during maintenance they leave the
+endpoint and live splices intact and publication retries at the next heartbeat. HTTP 401/403,
+other rejected statuses and local configuration errors remain terminal.
 Redis rejects two live replica ids claiming one URL. Because the splice registry is per process
 and in memory, each replica must own its address: scale by adding replicas with distinct
 addresses, never by putting two behind one.

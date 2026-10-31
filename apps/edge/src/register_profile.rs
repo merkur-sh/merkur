@@ -130,3 +130,80 @@ fn edge_registration_heartbeat_profile() {
         );
     }
 }
+
+#[test]
+#[ignore = "publication rejection profile; run explicitly with --ignored --nocapture"]
+fn registration_rejection_profile() {
+    crate::install_crypto_provider();
+    let status = std::env::var("EDGE_PROFILE_STATUS")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let (sink, received) = crate::profile_support::http_status_sink(false, REGISTER_PATH, status);
+    let publisher = publisher(sink);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let accepted = pinned();
+    for _ in 0..8 {
+        let _ = runtime.block_on(publisher.publish(&accepted));
+    }
+    let operations = 10_000;
+    let mut total = Tally::default();
+    for _ in 0..operations {
+        let (result, tally) = measured(|| runtime.block_on(publisher.publish(&accepted)));
+        if status >= 300 {
+            let message = result.unwrap_err().to_string();
+            assert_eq!(
+                message,
+                format!(
+                    "registration rejected with HTTP {}",
+                    reqwest::StatusCode::from_u16(status).unwrap()
+                )
+            );
+        } else {
+            result.unwrap();
+        }
+        total.allocations += tally.allocations;
+        total.bytes += tally.bytes;
+    }
+    assert_eq!(
+        received.load(std::sync::atomic::Ordering::Acquire),
+        operations + 8
+    );
+    println!(
+        "status={status} publications={operations} allocations={} bytes={}",
+        total.allocations, total.bytes
+    );
+}
+
+#[inline(never)]
+fn rejection(status: reqwest::StatusCode) -> (String, bool) {
+    (
+        super::registration_rejection_message(status),
+        super::registration_status_is_retryable(status),
+    )
+}
+
+#[test]
+#[ignore = "rejection construction profile; run explicitly with --ignored --nocapture"]
+fn registration_rejection_construction_profile() {
+    let status = reqwest::StatusCode::from_u16(
+        std::env::var("EDGE_PROFILE_STATUS")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .unwrap();
+    let iterations = 1_000_000;
+    let ((), tally) = measured(|| {
+        for _ in 0..iterations {
+            black_box(rejection(black_box(status)));
+        }
+    });
+    println!(
+        "status={status} iterations={iterations} allocations={} bytes={}",
+        tally.allocations, tally.bytes
+    );
+}
