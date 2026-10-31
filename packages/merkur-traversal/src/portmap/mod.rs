@@ -40,7 +40,8 @@
 //! in the MAP answer. A mismatch means this host sits behind a second NAT the
 //! gateway is not; a mapping there would publish a port the outer NAT does not
 //! forward, and the browser's race would spend its settle deadline on it. That is
-//! reported as `gateway:inner_nat`, and a PCP mapping it already made is deleted.
+//! reported as `gateway:inner_nat`. A PCP mapping already made is deleted; an
+//! unacknowledged deletion returns the grant for cleanup ownership.
 //! With no reflexive address there is nothing to compare against, so nothing is
 //! attempted (`skipped:no_reflexive`).
 //!
@@ -330,6 +331,9 @@ impl Lease {
 #[derive(Debug)]
 pub enum Outcome {
     Mapped(Box<Lease>),
+    /// Rejected public realm, with an unacknowledged deletion. Cleanup only:
+    /// retain the internal tuple reservation and never publish or renew it.
+    Unreleased(Box<Lease>),
     /// A gateway was addressed and no protocol gave a usable mapping.
     Unsupported,
     /// A protocol answered, and the gateway's external address is not the
@@ -345,7 +349,7 @@ impl Outcome {
         match self {
             Self::Mapped(lease) => lease.protocol.mapped_key(),
             Self::Unsupported => "gateway:unsupported",
-            Self::InnerNat => "gateway:inner_nat",
+            Self::InnerNat | Self::Unreleased(_) => "gateway:inner_nat",
             Self::NotAttempted(reason) => reason.metric_key(),
         }
     }
@@ -383,6 +387,7 @@ enum DatagramProof {
 /// What one mapping attempt with a proven protocol produced.
 enum Attempt {
     Mapped(Box<Lease>),
+    Unreleased(Box<Lease>),
     /// The gateway is not the edge NAT; nothing of ours is left on it.
     InnerNat,
     /// The protocol refused or went silent; it created nothing.
@@ -485,6 +490,7 @@ pub async fn acquire_with(
                 );
                 return Outcome::Mapped(lease);
             }
+            Attempt::Unreleased(lease) => return Outcome::Unreleased(lease),
             Attempt::InnerNat => inner_nat = true,
             Attempt::Refused => {}
         }
@@ -702,25 +708,8 @@ async fn map_pcp(
             return Attempt::Refused;
         }
     };
-    if pcp::unmapped(mapping.assigned_external) != IpAddr::V4(reflexive) {
-        info!(
-            assigned = %mapping.assigned_external,
-            %reflexive,
-            "pcp: gateway is not the edge NAT; deleting the mapping it made"
-        );
-        let _ = pcp::map(
-            client,
-            server,
-            internal_port,
-            0,
-            nonce,
-            IpAddr::V4(reflexive),
-            RetransmitSchedule::DELETE,
-        )
-        .await;
-        return Attempt::InnerNat;
-    }
-    Attempt::Mapped(lease(
+    let external = pcp::unmapped(mapping.assigned_external);
+    let mut grant = lease(
         egress,
         reflexive,
         mapping.assigned_external_port,
@@ -732,7 +721,17 @@ async fn map_pcp(
             nonce,
             internal_port,
         },
-    ))
+    );
+    grant.external.set_ip(external);
+    if external != IpAddr::V4(reflexive) {
+        info!(%external, %reflexive, "pcp: gateway is not the edge NAT; deleting the mapping it made");
+        return if release((*grant).clone()).await {
+            Attempt::InnerNat
+        } else {
+            Attempt::Unreleased(grant)
+        };
+    }
+    Attempt::Mapped(grant)
 }
 
 async fn map_natpmp(
@@ -1099,6 +1098,8 @@ pub enum PinholeSkip {
 #[derive(Debug)]
 pub enum PinholeOutcome {
     Pinholed(Box<Pinhole>),
+    /// Rejected translation whose deletion was not acknowledged. Cleanup only.
+    Unreleased(Box<Pinhole>),
     /// A gateway was addressed and neither protocol opened a hole.
     Unsupported,
     NotAttempted(PinholeSkip),
@@ -1108,7 +1109,7 @@ impl PinholeOutcome {
     pub fn metric_key(&self) -> &'static str {
         match self {
             Self::Pinholed(pinhole) => pinhole.protocol.pinholed_key(),
-            Self::Unsupported => "gateway6:unsupported",
+            Self::Unsupported | Self::Unreleased(_) => "gateway6:unsupported",
             Self::NotAttempted(PinholeSkip::NoV6Path) => "skipped:no_v6_path",
             Self::NotAttempted(PinholeSkip::NoV6Gateway) => "skipped:no_v6_gateway",
         }
@@ -1166,24 +1167,26 @@ pub async fn acquire_pinhole_with(
                     Some(server) => open_pcp_pinhole(egress, gateway, server, port, schedule).await,
                     None => {
                         proofs_closed = true;
-                        None
+                        Ok(None)
                     }
                 }
             }
             () = &mut pcp_present, if !pcp_done => {
                 pcp_done = true;
-                None
+                Ok(None)
             }
             control = &mut igd, if !igd_done => {
                 igd_done = true;
-                match control {
+                Ok(match control {
                     Some(control) => open_upnp_pinhole(egress, gateway, control, port).await,
                     None => None,
-                }
+                })
             }
         };
-        if let Some(pinhole) = opened {
-            return PinholeOutcome::Pinholed(pinhole);
+        match opened {
+            Ok(Some(pinhole)) => return PinholeOutcome::Pinholed(pinhole),
+            Err(pinhole) => return PinholeOutcome::Unreleased(pinhole),
+            Ok(None) => {}
         }
     }
     PinholeOutcome::Unsupported
@@ -1266,13 +1269,13 @@ async fn open_pcp_pinhole(
     server: pcp::Server,
     port: u16,
     schedule: RetransmitSchedule,
-) -> Option<Box<Pinhole>> {
+) -> Result<Option<Box<Pinhole>>, Box<Pinhole>> {
     let Some(nonce) = random_nonce() else {
         warn!("pcp6: no entropy for a pinhole nonce; no pinhole requested");
-        return None;
+        return Ok(None);
     };
     let client = IpAddr::V6(egress.local);
-    match pcp::map(
+    let mapping = match pcp::map(
         client,
         server,
         port,
@@ -1283,48 +1286,39 @@ async fn open_pcp_pinhole(
     )
     .await
     {
-        Ok(mapping)
-            if mapping.lifetime_secs > 0
-                && mapping.assigned_external_port == port
-                && pcp::unmapped(mapping.assigned_external) == client =>
-        {
-            let lifetime = Duration::from_secs(u64::from(mapping.lifetime_secs));
-            info!(protocol = "pcp6", address = %egress.local, lifetime_s = lifetime.as_secs(), "IPv6 pinhole opened");
-            Some(Box::new(Pinhole {
-                address: egress.local,
-                port,
-                protocol: PinholeProtocol::Pcp6,
-                lifetime,
-                expires_at: Instant::now() + lifetime,
-                epoch: mapping.epoch,
-                gateway,
-                interface_index: egress.interface_index,
-                inner: PinholeHandle::Pcp { server, nonce },
-            }))
-        }
-        Ok(mapping) => {
-            if mapping.lifetime_secs > 0
-                && let Err(error) = pcp::map(
-                    client,
-                    server,
-                    port,
-                    0,
-                    nonce,
-                    client,
-                    RetransmitSchedule::DELETE,
-                )
-                .await
-            {
-                debug!(?error, "pcp6: unused translation deletion failed");
-            }
-            warn!("pcp6: gateway granted a zero-lifetime or moved pinhole; not usable");
-            None
+        Ok(mapping) if mapping.lifetime_secs > 0 => mapping,
+        Ok(_) => {
+            warn!("pcp6: gateway granted a zero-lifetime pinhole; not usable");
+            return Ok(None);
         }
         Err(error) => {
             debug!(gateway = %gateway, "no pcp6 pinhole: {error:?}");
-            None
+            return Ok(None);
         }
+    };
+    let lifetime = Duration::from_secs(u64::from(mapping.lifetime_secs));
+    let pinhole = Box::new(Pinhole {
+        address: egress.local,
+        port,
+        protocol: PinholeProtocol::Pcp6,
+        lifetime,
+        expires_at: Instant::now() + lifetime,
+        epoch: mapping.epoch,
+        gateway,
+        interface_index: egress.interface_index,
+        inner: PinholeHandle::Pcp { server, nonce },
+    });
+    if mapping.assigned_external_port != port || pcp::unmapped(mapping.assigned_external) != client
+    {
+        warn!("pcp6: gateway granted a moved pinhole; deleting the translation");
+        return if release_pinhole((*pinhole).clone()).await {
+            Ok(None)
+        } else {
+            Err(pinhole)
+        };
     }
+    info!(protocol = "pcp6", address = %egress.local, lifetime_s = lifetime.as_secs(), "IPv6 pinhole opened");
+    Ok(Some(pinhole))
 }
 
 /// Open an IPv6 UDP pinhole through an already discovered firewall control

@@ -484,7 +484,11 @@ async fn a_pcp_gateway_behind_another_nat_is_inner_and_its_mapping_is_deleted() 
     assert_eq!(outcome.metric_key(), "gateway:inner_nat");
     let maps = map_requests(&seen);
     assert_eq!(maps.len(), 2, "one MAP, one delete");
-    assert_eq!(&maps[0][24..36], &maps[1][24..36], "the delete names the same nonce");
+    assert_eq!(
+        &maps[0][24..36],
+        &maps[1][24..36],
+        "the delete names the same nonce"
+    );
     assert_eq!(&maps[1][4..8], &[0, 0, 0, 0], "lifetime zero deletes");
 }
 
@@ -564,8 +568,16 @@ async fn only_the_first_proven_protocol_maps_when_all_three_are_present() {
         )
         .await,
     );
-    assert_ne!(lease.protocol, Protocol::Upnp, "a datagram answer lands first");
-    assert_eq!(map_requests(&first_hop).len(), 1, "one datagram MAP, no second protocol");
+    assert_ne!(
+        lease.protocol,
+        Protocol::Upnp,
+        "a datagram answer lands first"
+    );
+    assert_eq!(
+        map_requests(&first_hop).len(),
+        1,
+        "one datagram MAP, no second protocol"
+    );
     assert!(!soap_actions(&igd).contains(&"AddPortMapping".to_string()));
 }
 
@@ -792,4 +804,131 @@ fn every_outcome_key_is_in_the_closed_set_the_reader_accepts() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted.len(), METRIC_KEYS.len(), "duplicate metric key");
+}
+
+async fn refusing_pcp_cleanup(
+    local: IpAddr,
+    external: IpAddr,
+) -> Result<(u16, Recorded, Arc<std::sync::atomic::AtomicBool>), Box<dyn std::error::Error>> {
+    let socket = UdpSocket::bind(SocketAddr::new(local, 0)).await?;
+    let port = socket.local_addr()?.port();
+    let recorded: Recorded = Arc::new(Mutex::new(Vec::new()));
+    let seen = recorded.clone();
+    let allow = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let allow_delete = allow.clone();
+    tokio::spawn(async move {
+        let mut buffer = [0; 1500];
+        while let Ok((length, from)) = socket.recv_from(&mut buffer).await {
+            let request = &buffer[..length];
+            seen.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(request.to_vec());
+            let reply = match request.get(..2) {
+                Some([2, 0]) => pcp::tests::announce_response(0, 9).to_vec(),
+                Some([2, 1]) => {
+                    let Some(nonce) = request.get(24..36).and_then(|value| value.try_into().ok())
+                    else {
+                        continue;
+                    };
+                    let Some(lifetime) = request
+                        .get(4..8)
+                        .and_then(|value| value.try_into().ok())
+                        .map(u32::from_be_bytes)
+                    else {
+                        continue;
+                    };
+                    let mut reply =
+                        pcp::tests::map_response(&nonce, PORT, 0, lifetime, external).to_vec();
+                    if lifetime == 0 && !allow_delete.load(std::sync::atomic::Ordering::Acquire) {
+                        reply[3] = 2; // NOT_AUTHORIZED: a real refusal, with no timeout.
+                    }
+                    reply
+                }
+                Some(_) | None => continue,
+            };
+            if socket.send_to(&reply, from).await.is_err() {
+                return;
+            }
+        }
+    });
+    Ok((port, recorded, allow))
+}
+
+#[tokio::test]
+async fn rejected_pcp_grant_retains_failed_cleanup() -> Result<(), Box<dyn std::error::Error>> {
+    let (pxp, seen, allow) =
+        refusing_pcp_cleanup(IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V4(INNER)).await?;
+    let outcome = acquire_with(
+        PORT,
+        Some(&loopback_egress()),
+        Some(IpAddr::V4(REFLEXIVE)),
+        fast(),
+        ports(pxp, 1),
+    )
+    .await;
+    assert_eq!(outcome.metric_key(), "gateway:inner_nat");
+    assert!(
+        matches!(outcome, Outcome::Unreleased(_)),
+        "rejected PCP grant discarded cleanup identity"
+    );
+    let Outcome::Unreleased(lease) = outcome else {
+        return Err("missing cleanup lease".into());
+    };
+    assert_eq!(lease.external.ip(), IpAddr::V4(INNER));
+    allow.store(true, std::sync::atomic::Ordering::Release);
+    assert!(release(*lease).await);
+    let requests = map_requests(&seen);
+    assert_eq!(
+        requests.len(),
+        3,
+        "grant, refused deletion, acknowledged cleanup"
+    );
+    for request in &requests {
+        assert_eq!(
+            request.get(24..36),
+            requests.first().and_then(|first| first.get(24..36)),
+            "cleanup must retain the original nonce"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejected_pcp_grant_retains_failed_cleanup_ipv6() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (pxp, seen, allow) =
+        refusing_pcp_cleanup(IpAddr::V6(Ipv6Addr::LOCALHOST), "2001:db8::2".parse()?).await?;
+    let egress = EgressPath6 {
+        local: Ipv6Addr::LOCALHOST,
+        interface_index: 0,
+        interface_name: "test".into(),
+        gateway: None,
+    };
+    let mut targets = ports(pxp, 1);
+    targets.pcp_anycast_v6 = Some(Ipv6Addr::LOCALHOST);
+    let outcome = acquire_pinhole_with(PORT, Some(&egress), fast(), targets).await;
+    assert_eq!(outcome.metric_key(), "gateway6:unsupported");
+    assert!(
+        matches!(outcome, PinholeOutcome::Unreleased(_)),
+        "rejected PCPv6 grant discarded cleanup identity"
+    );
+    let PinholeOutcome::Unreleased(pinhole) = outcome else {
+        return Err("missing cleanup pinhole".into());
+    };
+    allow.store(true, std::sync::atomic::Ordering::Release);
+    assert!(release_pinhole(*pinhole).await);
+    let requests = map_requests(&seen);
+    assert_eq!(
+        requests.len(),
+        3,
+        "grant, refused deletion, acknowledged cleanup"
+    );
+    for request in &requests {
+        assert_eq!(
+            request.get(24..36),
+            requests.first().and_then(|first| first.get(24..36)),
+            "cleanup must retain the original nonce"
+        );
+    }
+    Ok(())
 }

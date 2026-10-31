@@ -1009,8 +1009,13 @@ one SSDP and one HTTP exchange instead of after the datagram protocols' retransm
 Only the edge NAT's lease is published. The gateway's own external address (NAT-PMP's answer,
 UPnP `GetExternalIPAddress` asked before `AddPortMapping`, PCP's assigned address) must equal the
 STUN-observed reflexive address; otherwise the host is behind a second NAT, nothing is published
-(`gateway:inner_nat`), and a PCP mapping already made is deleted. With no reflexive address, no
-cycle runs. UPnP errors 725 and 402 retry as a permanent lease, 718 retries through
+(`gateway:inner_nat`). A PCP mapping already made is deleted. If deletion is not acknowledged,
+acquisition returns its cleanup identity and stops before another mapping can be requested.
+The daemon transfers that grant and its tuple reservation to its cleanup owner; the native
+client retains it with the owning socket through cleanup and quarantine. Rejected grants are
+neither advertised nor renewed, and their tuple remains reserved through unacknowledged cleanup.
+With no reflexive address, no cycle runs. UPnP errors 725 and 402 retry as a permanent lease;
+718 retries through
 `AddAnyPortMapping` on IGDv2 and at another unprivileged port on IGDv1, and the DSL Forum service
 names are accepted. Nothing blocks on the lease: the candidate set publishes immediately and a
 won lease arrives in the next manifest. One socket on `224.0.0.1:5350` receives NAT-PMP address
@@ -1034,7 +1039,8 @@ exercise acquisition, renewal, deletion and expiry separately from native sessio
 IPv6 PCP discovery includes the RFC 7723 address `2001:1::1`, with the request bound to the
 interface owning the global address. A PCP pinhole must retain that exact address and port.
 A granted translation to another address or port is deleted rather than advertised as a
-firewall pinhole.
+firewall pinhole. An unacknowledged deletion returns the same cleanup ownership as a rejected
+IPv4 grant.
 
 ## STUN Responder
 

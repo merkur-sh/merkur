@@ -464,8 +464,23 @@ fn router_path(local: IpAddr) -> Option<RouterPath> {
     }
 }
 
+enum RejectedGrant {
+    Lease(Box<portmap::Lease>),
+    Pinhole(Box<portmap::Pinhole>),
+}
+
+impl RejectedGrant {
+    async fn release(&self) -> bool {
+        match self {
+            Self::Lease(lease) => portmap::release((**lease).clone()).await,
+            Self::Pinhole(pinhole) => portmap::release_pinhole((**pinhole).clone()).await,
+        }
+    }
+}
+
 struct Mapping {
     path: RouterPath,
+    rejected: Option<RejectedGrant>,
     lease: Option<Box<portmap::Lease>>,
     pinhole: Option<Box<portmap::Pinhole>>,
     announcements: Option<Arc<tokio::net::UdpSocket>>,
@@ -494,7 +509,12 @@ impl Mapping {
         {
             self.pinhole = None;
         }
-        if self.lease.is_none() && self.pinhole.is_none() {
+        if let Some(rejected) = self.rejected.as_ref()
+            && rejected.release().await
+        {
+            self.rejected = None;
+        }
+        if self.lease.is_none() && self.pinhole.is_none() && self.rejected.is_none() {
             Ok(())
         } else {
             Err(Box::new(self))
@@ -505,29 +525,39 @@ impl Mapping {
 async fn acquire(path: RouterPath, observed: ObservedPath, port: u16) -> Mapping {
     let mut mapping = Mapping {
         path,
+        rejected: None,
         lease: None,
         pinhole: None,
         announcements: None,
         renewal: None,
     };
-    if observed.local.is_ipv4()
-        && let portmap::Outcome::Mapped(lease) =
-            portmap::acquire(port, mapping.path.egress.as_ref(), Some(observed.mapped)).await
-    {
-        mapping.announcements = mapping
-            .path
-            .egress
-            .as_ref()
-            .and_then(|path| portmap::announce::bind(path.local_ipv4).ok())
-            .map(Arc::new);
-        mapping.lease = Some(lease);
+    if observed.local.is_ipv4() {
+        match portmap::acquire(port, mapping.path.egress.as_ref(), Some(observed.mapped)).await {
+            portmap::Outcome::Mapped(lease) => {
+                mapping.announcements = mapping
+                    .path
+                    .egress
+                    .as_ref()
+                    .and_then(|path| portmap::announce::bind(path.local_ipv4).ok())
+                    .map(Arc::new);
+                mapping.lease = Some(lease);
+            }
+            portmap::Outcome::Unreleased(lease) => {
+                mapping.rejected = Some(RejectedGrant::Lease(lease))
+            }
+            portmap::Outcome::Unsupported
+            | portmap::Outcome::InnerNat
+            | portmap::Outcome::NotAttempted(_) => {}
+        }
     }
-    if observed.local.is_ipv6()
-        && observed.local == observed.mapped
-        && let portmap::PinholeOutcome::Pinholed(pinhole) =
-            portmap::acquire_pinhole(port, mapping.path.egress6.as_ref()).await
-    {
-        mapping.pinhole = Some(pinhole);
+    if observed.local.is_ipv6() && observed.local == observed.mapped {
+        match portmap::acquire_pinhole(port, mapping.path.egress6.as_ref()).await {
+            portmap::PinholeOutcome::Pinholed(pinhole) => mapping.pinhole = Some(pinhole),
+            portmap::PinholeOutcome::Unreleased(pinhole) => {
+                mapping.rejected = Some(RejectedGrant::Pinhole(pinhole))
+            }
+            portmap::PinholeOutcome::Unsupported | portmap::PinholeOutcome::NotAttempted(_) => {}
+        }
     }
     mapping.schedule();
     mapping
@@ -660,8 +690,11 @@ impl Worker {
                 Wake::Closed => break,
                 Wake::Credentials => {
                     // Retry unsupported control contexts only after new evidence.
-                    self.mappings
-                        .retain(|mapping| mapping.lease.is_some() || mapping.pinhole.is_some());
+                    self.mappings.retain(|mapping| {
+                        mapping.lease.is_some()
+                            || mapping.pinhole.is_some()
+                            || mapping.rejected.is_some()
+                    });
                     acquire_paths = true;
                 }
                 Wake::Announce(index) => {
@@ -1059,6 +1092,140 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), publishing)
             .await
             .unwrap();
+    }
+
+    async fn rejected_mapping()
+    -> Result<(Mapping, Arc<AtomicBool>, tokio::task::JoinHandle<()>), Box<dyn std::error::Error>>
+    {
+        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+        let gateway_port = udp.local_addr()?.port();
+        let allow = Arc::new(AtomicBool::new(false));
+        let allow_delete = allow.clone();
+        let gateway = tokio::spawn(async move {
+            let mut buffer = [0; 1500];
+            while let Ok((len, from)) = udp.recv_from(&mut buffer).await {
+                let request = &buffer[..len];
+                let Some([2, opcode @ (0 | 1)]) = request.get(..2) else {
+                    continue;
+                };
+                let mut response = request.to_vec();
+                if let Some(kind) = response.get_mut(1) {
+                    *kind |= 0x80;
+                }
+                if *opcode == 1 && response.len() == 60 {
+                    let delete = request.get(4..8) == Some(&[0, 0, 0, 0]);
+                    response[3] = if delete && !allow_delete.load(Ordering::Acquire) {
+                        2
+                    } else {
+                        0
+                    };
+                    response[44..60].copy_from_slice(
+                        &std::net::Ipv4Addr::new(100, 64, 0, 9)
+                            .to_ipv6_mapped()
+                            .octets(),
+                    );
+                }
+                if udp.send_to(&response, from).await.is_err() {
+                    return;
+                }
+            }
+        });
+        let local = std::net::Ipv4Addr::LOCALHOST;
+        let path = EgressPath {
+            local_ipv4: local,
+            interface_index: 0,
+            interface_name: "test".into(),
+            gateway: Some(local),
+        };
+        let ports = portmap::GatewayPorts {
+            pxp: gateway_port,
+            ssdp: 1,
+            ssdp_window: Duration::from_millis(10),
+            pcp_anycast_v4: None,
+            pcp_anycast_v6: None,
+        };
+        let schedule = portmap::RetransmitSchedule {
+            initial: Duration::from_millis(40),
+            max_interval: Duration::from_millis(80),
+            attempts: 2,
+        };
+        let outcome = portmap::acquire_with(
+            44_433,
+            Some(&path),
+            Some("203.0.113.7".parse()?),
+            schedule,
+            ports,
+        )
+        .await;
+        let portmap::Outcome::Unreleased(lease) = outcome else {
+            return Err("missing rejected grant".into());
+        };
+        Ok((
+            Mapping {
+                path: RouterPath {
+                    local: IpAddr::V4(local),
+                    egress: Some(path),
+                    egress6: None,
+                },
+                rejected: Some(RejectedGrant::Lease(lease)),
+                lease: None,
+                pinhole: None,
+                announcements: None,
+                renewal: None,
+            },
+            allow,
+            gateway,
+        ))
+    }
+
+    #[tokio::test]
+    async fn rejected_pcp_grant_is_cleanup_only() -> Result<(), Box<dyn std::error::Error>> {
+        let (mut mapping, allow, gateway) = rejected_mapping().await?;
+        mapping.schedule();
+        assert!(mapping.renewal.is_none(), "rejected grants must not renew");
+        let (updates, mut candidates) = mpsc::channel(1);
+        let current = MaintenanceInput {
+            credential: Arc::new(Credential::without_observers()),
+            updates,
+            observation_generation: 0,
+        };
+        let (_owner, lifetime) = watch::channel(current.clone());
+        let address: SocketAddr = "100.64.0.9:44434".parse()?;
+        let base = [Candidate {
+            address,
+            kind: CandidateKind::Srflx,
+            observation: Observation {
+                ticket: String::new(),
+                transaction: String::new(),
+                mapped: address,
+                observer: "127.0.0.1:3478".parse()?,
+                receipt: String::new(),
+            },
+        }];
+        publish(
+            1,
+            &current,
+            &base,
+            std::slice::from_ref(&mapping),
+            &lifetime,
+        )
+        .await;
+        let (_binding, published) = candidates
+            .recv()
+            .await
+            .ok_or("missing candidate snapshot")?;
+        assert_eq!(published, base, "rejected grants must not be published");
+        let Err(mapping) = mapping.release().await else {
+            return Err("refused cleanup lost the grant".into());
+        };
+        assert!(mapping.rejected.is_some());
+        allow.store(true, Ordering::Release);
+        assert!(
+            mapping.release().await.is_ok(),
+            "acknowledged cleanup releases the grant"
+        );
+        gateway.abort();
+        Ok(())
     }
 
     struct Peer {

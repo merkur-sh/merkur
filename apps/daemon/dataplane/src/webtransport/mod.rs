@@ -1058,6 +1058,10 @@ async fn mapping_lease(
         portmap::Outcome::Mapped(lease) => {
             LeaseOutcome::Acquired(inputs.grants.lease(*lease, reservation))
         }
+        portmap::Outcome::Unreleased(lease) => {
+            drop(inputs.grants.lease(*lease, reservation));
+            LeaseOutcome::None(portmap::Outcome::InnerNat)
+        }
         other => LeaseOutcome::None(other),
     }
 }
@@ -1093,6 +1097,10 @@ async fn mapping_pinhole(inputs: &MappingInputs) -> PinholeOutcome {
     match portmap::acquire_pinhole(inputs.port, egress.as_ref()).await {
         portmap::PinholeOutcome::Pinholed(pinhole) => {
             PinholeOutcome::Opened(inputs.grants.pinhole(*pinhole, reservation))
+        }
+        portmap::PinholeOutcome::Unreleased(pinhole) => {
+            drop(inputs.grants.pinhole(*pinhole, reservation));
+            PinholeOutcome::None(portmap::PinholeOutcome::Unsupported)
         }
         other => PinholeOutcome::None(other),
     }

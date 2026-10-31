@@ -130,6 +130,7 @@ pub(crate) async fn owned_pinhole(actions: &'static [(&'static str, bool)]) -> O
             egress: None,
             egress6: Some(egress),
         },
+        rejected: None,
         lease: None,
         pinhole: Some(pinhole),
         announcements: None,
@@ -495,6 +496,7 @@ async fn a_changed_outer_address_cannot_reserve_a_second_grant_on_the_owned_inte
         retirements,
         mappings: vec![Mapping {
             path: path.clone(),
+            rejected: None,
             lease: None,
             pinhole: Some(pinhole),
             announcements: None,
