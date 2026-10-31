@@ -14,6 +14,8 @@ import {
   RedisServiceTag,
 } from './redis-service';
 
+import { deliverResetRevocation } from './session-revocation-outbox';
+
 const BATCH_SIZE = 64;
 const RECONCILE_INTERVAL = '1 second';
 
@@ -115,6 +117,8 @@ const publishNotification = Effect.fnUntraced(function* (
 ) {
   if (row.kind === 'browser-sessions') {
     yield* redis.publish(`browser:presence:events:${row.user_id}`, row.payload);
+  } else if (row.kind === 'reset-revocation') {
+    yield* deliverResetRevocation(redis, row.user_id, row.payload);
   } else if (row.kind === 'devices') {
     yield* redis.useCommands((commands) =>
       evalRedisScript(

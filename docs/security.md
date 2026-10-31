@@ -202,7 +202,10 @@ change or another reset in between leaves the flow with no authority. It then re
 root public key, commitment and envelope and increments `root_epoch`; deletes every browser
 delegation, refresh token, revocation record, linked daemon, pending link claim, link token and
 push subscription; and records the account's boxes in `box_removals`, from which the server
-destroys them. A box another account's device also names is left alone. The account row,
+destroys them. The same transaction queues live-session revocation in `notification_outbox`.
+The scoped worker atomically advances the Redis revocation generation once per reset root epoch
+and broadcasts it to connected daemons; an interrupted request or lost Redis reply retains the
+intent and cannot increment that epoch twice. A box another account's device also names is left alone. The account row,
 `box_access`, `keyboard_settings` and `users.privileged_at` are kept. The session issued for the new
 delegation refuses a suspended account, which rolls the whole reset back, and calls off a scheduled
 erasure.

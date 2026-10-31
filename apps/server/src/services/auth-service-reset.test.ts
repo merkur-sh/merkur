@@ -52,6 +52,21 @@ const admitAll = () => Effect.succeed('admitted' as const);
 describe('password reset', () => {
   let sent: SentMail[];
 
+  test('reset revocation survives Redis failure', async () => {
+    sent = [];
+    await useEmailIdentity(sent, {}, Effect.void);
+    const before = await registerAccount();
+    await linkMachine(before.userId, 'old-daemon', null);
+    const reset = await finishReset(await provenReset());
+    expect(reset.session.userId).toBe(before.userId);
+    const pending = await db
+      .selectFrom('notification_outbox')
+      .select(['user_id', 'payload'])
+      .where('kind', '=', 'reset-revocation')
+      .execute();
+    expect(pending).toEqual([{ user_id: before.userId, payload: '2' }]);
+  });
+
   async function emailService() {
     sent = [];
     await useEmailIdentity(sent);

@@ -65,6 +65,7 @@ import {
 } from './notification-outbox-service';
 import { type RedisError, type RedisService, RedisServiceTag } from './redis-service';
 import { createRefreshTokenStore } from './refresh-token-store';
+import { enqueueResetRevocation } from './session-revocation-outbox';
 
 const ROOT_ENVELOPE_NONCE_BYTES = 12;
 const ROOT_ENVELOPE_CIPHERTEXT_BYTES = 48;
@@ -1300,6 +1301,7 @@ async function finishPasswordResetTransaction(
   // Queued before the rows that name the boxes are gone: after this
   // transaction the queue is the only record that the containers exist.
   await queueBoxRemovals(db, boxes.owned, now);
+  await enqueueResetRevocation(db, flow.userId, flow.rootEpoch + 1);
 
   // Everything the discarded root authorized. Dependents first, though each of
   // these also cascades from the row it hangs off.

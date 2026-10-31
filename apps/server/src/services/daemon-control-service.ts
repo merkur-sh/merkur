@@ -58,6 +58,7 @@ import {
 } from '../observability/metrics';
 import { currentTraceparent } from '../observability/traceparent';
 import { readAccountTelemetryConsent } from './account-telemetry-service';
+import { BROKER_BROADCAST_CHANNEL, BROKER_PROTOCOL_VERSION } from './daemon-control-broadcast';
 import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { runDaemonRevocationDelivery } from './daemon-revocation-delivery';
 import { DeviceServiceTag } from './device-service';
@@ -121,10 +122,7 @@ const LEASE_RENEWAL_CHUNK = 128;
 const LEASE_RENEWAL_RETRY_MS = 2_000;
 /** Shortest sleep between liveness walks, so a stuck deadline cannot spin. */
 const LIVENESS_TICK_FLOOR_MS = 250;
-const BROKER_PROTOCOL_VERSION = 1;
 const BROKER_CHANNEL_PREFIX = 'merkur:daemon-control:instance:';
-/** Every instance subscribes; carries fan-out that has no single owner. */
-const BROKER_BROADCAST_CHANNEL = 'merkur:daemon-control:broadcast';
 const UTF8_ENCODER = new TextEncoder();
 
 export class DaemonUnavailable extends Data.TaggedError('DaemonUnavailable')<{

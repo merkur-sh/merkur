@@ -21,7 +21,6 @@ import {
   refundRateLimit,
 } from '../../services/rate-limit-service';
 import { RedisError } from '../../services/redis-service';
-import { SessionServiceTag } from '../../services/session-service';
 import { ApiModels } from '../api-models';
 import { authenticatedApiPlugin } from '../authenticated-api';
 import { parseBrowserClient } from '../browser-client';
@@ -332,19 +331,6 @@ export function authRoutesPlugin({
             ...body,
             client: parseBrowserClient(request.headers, body.installed),
           });
-          // The delegations are gone from the database, so no new session can be
-          // issued for them; this is what makes the daemons drop the live ones
-          // now. The reset has committed either way, so a failure here is
-          // reported, not returned.
-          const sessions = yield* SessionServiceTag;
-          yield* sessions.revokeAll(session.userId).pipe(
-            Effect.catch((error) =>
-              logWithLoggerEffect(logger, 'error', 'password_reset_session_revocation_failed', {
-                userId: session.userId,
-                ...errorLogContext(error),
-              }),
-            ),
-          );
           return session;
         });
         const result = await runRouteEffect(

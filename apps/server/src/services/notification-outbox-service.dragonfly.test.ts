@@ -8,11 +8,70 @@ import type { DatabaseSchema } from '../db/types';
 import { infrastructureError } from './errors';
 import { deliverPendingNotifications, enqueueDeviceResync } from './notification-outbox-service';
 import { createRedisCommandClient, RedisError, type RedisService } from './redis-service';
+import { enqueueResetRevocation } from './session-revocation-outbox';
 
 const url = process.env.DRAGONFLY_TEST_URL;
 if (url === undefined) {
   test.skip('durable device invalidation advances the shared Dragonfly cursor', () => {});
 } else {
+  test('reset revocation survives Redis failure without incrementing twice', async () => {
+    const db = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
+    const probe = new RedisClient(url);
+    await probe.connect();
+    const userId = randomUUID();
+    const generationKey = `merkur:auth:revocation:${userId}`;
+    const marker = `merkur:auth:reset-revocation:${userId}`;
+    const commands = createRedisCommandClient(probe);
+    const broadcasts: string[] = [];
+    let mode: 'before' | 'after' | 'healthy' = 'before';
+    const redis: RedisService = {
+      useCommands: (fn) =>
+        Effect.tryPromise({
+          try: async () => {
+            if (mode === 'before') throw new Error('Redis unavailable');
+            const result = await fn(commands);
+            if (mode === 'after') throw new Error('Redis reply lost');
+            return result;
+          },
+          catch: (cause) => new RedisError({ cause, message: String(cause) }),
+        }),
+      publish: (_channel, message) => Effect.sync(() => void broadcasts.push(message)),
+      subscribe: () => Effect.void,
+      unsubscribe: () => Effect.void,
+      healthSnapshot: () =>
+        Effect.succeed({ commandsReady: true, publisherReady: true, subscriberReady: true }),
+    };
+    try {
+      await db.transaction().execute((trx) => enqueueResetRevocation(trx, userId, 2));
+      await expect(Effect.runPromise(deliverPendingNotifications(db, redis))).rejects.toThrow(
+        'Redis unavailable',
+      );
+      expect(await db.selectFrom('notification_outbox').selectAll().execute()).toHaveLength(1);
+      mode = 'after';
+      await expect(Effect.runPromise(deliverPendingNotifications(db, redis))).rejects.toThrow(
+        'Redis reply lost',
+      );
+      expect(await probe.get(generationKey)).toBe('1');
+      mode = 'healthy';
+      await Effect.runPromise(deliverPendingNotifications(db, redis));
+      expect(await probe.get(generationKey)).toBe('1');
+      expect(broadcasts.map((message) => JSON.parse(message))).toEqual([
+        { type: 'revocation_generation', version: 1, userId, generation: 1 },
+      ]);
+      expect(await db.selectFrom('notification_outbox').selectAll().execute()).toEqual([]);
+      await db.transaction().execute(async (trx) => {
+        await enqueueResetRevocation(trx, userId, 3);
+        await enqueueResetRevocation(trx, userId, 2);
+      });
+      await Effect.runPromise(deliverPendingNotifications(db, redis));
+      expect(await probe.get(generationKey)).toBe('2');
+    } finally {
+      await probe.del(generationKey, marker);
+      probe.close();
+      await db.destroy();
+    }
+  });
+
   test('durable invalidation preserves the epoch, advances the cursor, and replays safely', async () => {
     const db = await createMigratedKyselyDatabase<DatabaseSchema>(':memory:');
     const probe = new RedisClient(url);

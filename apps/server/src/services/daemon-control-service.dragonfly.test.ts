@@ -23,11 +23,13 @@ import {
 import { DaemonReleaseStoreTag } from './daemon-release-store';
 import { type DeviceService, DeviceServiceTag } from './device-service';
 import { EdgeRegistryServiceLive } from './edge-registry-service';
+import { deliverPendingNotifications } from './notification-outbox-service';
 import {
   RealtimeCoordinationServiceLive,
   RealtimeCoordinationServiceTag,
 } from './realtime-coordination-service';
-import { RedisServiceLive } from './redis-service';
+import { RedisError, RedisServiceLive, RedisServiceTag } from './redis-service';
+import { enqueueResetRevocation } from './session-revocation-outbox';
 
 const dragonflyUrl = process.env.DRAGONFLY_TEST_URL;
 const CERT_HASH = Buffer.alloc(32, 7).toString('base64');
@@ -168,6 +170,26 @@ if (dragonflyUrl === undefined) {
           );
           yield* Fiber.join(delivery);
           expect(deliverySettled).toBe(true);
+
+          const ownerRedis = Context.get(ownerContext, RedisServiceTag);
+          yield* Effect.promise(() =>
+            ownerDb.transaction().execute((trx) => enqueueResetRevocation(trx, userId, 2)),
+          );
+          const unavailable = {
+            ...ownerRedis,
+            useCommands: () =>
+              Effect.fail(new RedisError({ cause: null, message: 'reset Redis unavailable' })),
+          };
+          const failedReset = yield* Effect.result(
+            deliverPendingNotifications(ownerDb, unavailable),
+          );
+          expect(failedReset._tag).toBe('Failure');
+          yield* deliverPendingNotifications(ownerDb, ownerRedis);
+          const resetRevocation = yield* takeMessage(socketFrames, 'revocation');
+          expect(resetRevocation.revocationGeneration).toBe(1);
+          expect((yield* ownerCoordination.getDaemonPresence(daemonId))?.connectionId).toBe(
+            connectionId,
+          );
 
           // Exercise the suspend compare-and-swap against real Redis, not just
           // the in-memory interpreter: it matches on the exact stored bytes, so

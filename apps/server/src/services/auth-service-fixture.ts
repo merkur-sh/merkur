@@ -115,6 +115,7 @@ export function recordingMail(sent: SentMail[]): MailSender {
 export async function useEmailIdentity(
   sent: SentMail[],
   overrides: Partial<AuthServiceConfig> = {},
+  wakeNotifications = deliverPendingNotifications(db, createFakeRedis()).pipe(Effect.orDie),
 ): Promise<void> {
   service = createAuthService(
     db,
@@ -132,7 +133,7 @@ export async function useEmailIdentity(
       publicOrigin: ORIGIN,
       ...overrides,
     },
-    deliverPendingNotifications(db, createFakeRedis()).pipe(Effect.orDie),
+    wakeNotifications,
   );
 }
 
@@ -386,7 +387,8 @@ export function createFakeRedis(): RedisService {
     // publishes on its second key; the cursor it advances is not modelled.
     [
       'EVAL',
-      ([, , , channel]) => {
+      ([script, , , channel, epoch]) => {
+        if (script?.includes('local epoch = tonumber(ARGV[1])')) return Number(epoch);
         if (channel === undefined) return undefined;
         published.push({ channel, message: 'resync' });
         return 1;

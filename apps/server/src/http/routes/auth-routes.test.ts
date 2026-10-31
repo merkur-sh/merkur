@@ -963,7 +963,7 @@ describe('password reset routes', () => {
     expect(await response.json()).toEqual(start);
   });
 
-  test('a finished reset sets the new cookie and revokes the account’s live sessions', async () => {
+  test('a finished reset sets the new cookie after the service commits', async () => {
     const observed: unknown[] = [];
     const service: AuthService = {
       ...unexpectedAuthService(),
@@ -993,7 +993,6 @@ describe('password reset routes', () => {
         ...resetFinishBody(),
         client: { browser: null, platform: null, installed: false },
       },
-      { revokedAll: 'user-1' },
     ]);
   });
 
