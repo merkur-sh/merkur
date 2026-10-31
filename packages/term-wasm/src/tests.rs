@@ -1518,7 +1518,7 @@ fn compressed_test_frame(frame: &[u8]) -> Vec<u8> {
     wire[DISPLAY_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
     wire.extend_from_slice(&(rows.len() as u32).to_be_bytes());
     let encoded = merkur_codec::mz::MzEncoder::default()
-        .encode(
+        .encode_rows(
             rows,
             parse_frame_header(frame).unwrap().row_count,
             &merkur_codec::mz::NoHistory,

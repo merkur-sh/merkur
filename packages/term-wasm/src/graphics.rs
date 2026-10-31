@@ -600,7 +600,7 @@ pub(super) mod tests {
             wire[DISPLAY_HEADER_FLAGS_OFFSET] = DISPLAY_HEADER_FLAG_COMPRESSED_MZ;
             wire.extend_from_slice(&((raw.len() - rows_offset) as u32).to_be_bytes());
             merkur_codec::mz::MzEncoder::default()
-                .encode(
+                .encode_rows(
                     &raw[rows_offset..],
                     parse_frame_header(raw).unwrap().row_count,
                     &merkur_codec::mz::NoHistory,

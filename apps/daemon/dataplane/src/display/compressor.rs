@@ -1,10 +1,55 @@
 use crate::display::mz_peer::MzPeerState;
-use merkur_codec::mz::{MzEncoder, NoHistory};
+use merkur_codec::mz::{MzEncoder, MzFrameMetadata, NoHistory};
 use merkur_codec::{
     DISPLAY_HEADER_FLAG_COMPRESSED_MZ, DISPLAY_HEADER_FLAGS_OFFSET, FRAME_HEADER_BODY_BYTES,
     MSG_TYPE_DISPLAY_PATCH, STREAM_HEADER_BYTES,
 };
 use std::time::{Duration, Instant};
+
+trait FrameMetadataInput: Copy {
+    fn encode(
+        self,
+        encoder: &mut MzEncoder,
+        rows: &[u8],
+        row_count: u16,
+        history: &impl merkur_codec::mz::MzMatches,
+        session: Option<(u8, &merkur_codec::mz::SessionModel)>,
+        declaration: Option<&merkur_codec::mz::MzEpochDeclaration>,
+        out: &mut Vec<u8>,
+    ) -> Option<merkur_codec::mz::MzEncoded>;
+}
+
+impl FrameMetadataInput for () {
+    #[inline]
+    fn encode(
+        self,
+        encoder: &mut MzEncoder,
+        rows: &[u8],
+        row_count: u16,
+        history: &impl merkur_codec::mz::MzMatches,
+        session: Option<(u8, &merkur_codec::mz::SessionModel)>,
+        declaration: Option<&merkur_codec::mz::MzEpochDeclaration>,
+        out: &mut Vec<u8>,
+    ) -> Option<merkur_codec::mz::MzEncoded> {
+        encoder.encode_rows(rows, row_count, history, session, declaration, out)
+    }
+}
+
+impl FrameMetadataInput for Option<MzFrameMetadata> {
+    #[inline]
+    fn encode(
+        self,
+        encoder: &mut MzEncoder,
+        rows: &[u8],
+        _row_count: u16,
+        history: &impl merkur_codec::mz::MzMatches,
+        session: Option<(u8, &merkur_codec::mz::SessionModel)>,
+        declaration: Option<&merkur_codec::mz::MzEpochDeclaration>,
+        out: &mut Vec<u8>,
+    ) -> Option<merkur_codec::mz::MzEncoded> {
+        encoder.encode_prepared(rows, self?, history, session, declaration, out)
+    }
+}
 
 pub struct Compressor {
     mz: MzEncoder,
@@ -105,10 +150,34 @@ impl Compressor {
         peer: Option<&mut MzContext<'_>>,
         out: &mut Vec<u8>,
     ) -> Option<CompressedFrame> {
+        self.compress_display_rows_impl(frame, (), peer, out)
+    }
+
+    pub(crate) fn mz_encoder(&mut self) -> &mut MzEncoder {
+        &mut self.mz
+    }
+
+    pub(crate) fn compress_prepared_display_rows_into(
+        &mut self,
+        frame: &[u8],
+        metadata: Option<MzFrameMetadata>,
+        peer: Option<&mut MzContext<'_>>,
+        out: &mut Vec<u8>,
+    ) -> Option<CompressedFrame> {
+        self.compress_display_rows_impl(frame, metadata, peer, out)
+    }
+
+    fn compress_display_rows_impl<M: FrameMetadataInput>(
+        &mut self,
+        frame: &[u8],
+        metadata: M,
+        peer: Option<&mut MzContext<'_>>,
+        out: &mut Vec<u8>,
+    ) -> Option<CompressedFrame> {
         let started_at = self.timing_enabled.then(Instant::now);
         #[cfg(test)]
         let census_started = Instant::now();
-        let result = self.compress_mz(frame, peer, out);
+        let result = self.compress_mz(frame, metadata, peer, out);
         if result.is_none() {
             out.clear();
         }
@@ -138,9 +207,10 @@ impl Compressor {
         }
     }
 
-    fn compress_mz(
+    fn compress_mz<M: FrameMetadataInput>(
         &mut self,
         frame: &[u8],
+        metadata: M,
         peer: Option<&mut MzContext<'_>>,
         out: &mut Vec<u8>,
     ) -> Option<CompressedFrame> {
@@ -178,16 +248,23 @@ impl Compressor {
             Some(peer) if peer.snapshot => {
                 let history = peer.state.snapshot_history();
                 let session = peer.state.session();
-                self.mz.encode(rows, row_count, &history, session, None, out)?
+                metadata.encode(&mut self.mz, rows, row_count, &history, session, None, out)?
             }
             Some(peer) => {
                 let declaration = peer.state.declaration(peer.presentation_id);
                 let history = peer.state.history(peer.presentation_id);
                 let session = peer.state.session();
-                self.mz
-                    .encode(rows, row_count, &history, session, declaration.as_ref(), out)?
+                metadata.encode(
+                    &mut self.mz,
+                    rows,
+                    row_count,
+                    &history,
+                    session,
+                    declaration.as_ref(),
+                    out,
+                )?
             }
-            None => self.mz.encode(rows, row_count, &NoHistory, None, None, out)?,
+            None => metadata.encode(&mut self.mz, rows, row_count, &NoHistory, None, None, out)?,
         };
         self.row_costs_valid = true;
         let frame_len = out.len();
@@ -423,7 +500,7 @@ mod tests {
             let mut expected = frame[..rows_offset].to_vec();
             expected.extend_from_slice(&(rows.len() as u32).to_be_bytes());
             let encoded = MzEncoder::default()
-                .encode(rows, row_count, &NoHistory, None, None, &mut expected)
+                .encode_rows(rows, row_count, &NoHistory, None, None, &mut expected)
                 .expect("rows code");
             assert_eq!(encoded.rows_len, rows.len());
             expected[DISPLAY_HEADER_FLAGS_OFFSET] |= DISPLAY_HEADER_FLAG_COMPRESSED_MZ;

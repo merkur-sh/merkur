@@ -14467,3 +14467,6 @@ fn snapshot_capture_reuse_profile() {
         }
     }
 }
+
+#[cfg(target_os = "macos")]
+mod row_metadata_profile;

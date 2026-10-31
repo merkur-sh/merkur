@@ -1202,7 +1202,20 @@ fn encoded_row_size(
 /// Encode `rows` into `frame` — a pooled buffer, cleared and grown to the
 /// frame's exact size — and return the rows it carries as ACK provenance,
 /// inline when they fit a datagram batch.
+#[cfg(test)]
 fn encode_captured_rows<'a, I>(header: FrameHeader, rows: I, frame: &mut Vec<u8>) -> SentRows
+where
+    I: Iterator<Item = &'a DisplayPrepareRow> + Clone,
+{
+    encode_captured_rows_with_metadata(header, rows, frame, |_, _| None).0
+}
+
+fn encode_captured_rows_with_metadata<'a, 'mz, I>(
+    header: FrameHeader,
+    rows: I,
+    frame: &mut Vec<u8>,
+    choose_mz: impl FnOnce(usize, u16) -> Option<&'mz mut merkur_codec::mz::MzEncoder>,
+) -> (SentRows, Option<merkur_codec::mz::MzFrameMetadata>)
 where
     I: Iterator<Item = &'a DisplayPrepareRow> + Clone,
 {
@@ -1216,11 +1229,10 @@ where
             }
         });
     frame.clear();
-    frame.reserve(
-        STREAM_HEADER_BYTES
-            .saturating_add(FRAME_HEADER_BODY_BYTES)
-            .saturating_add(encoded_row_bytes),
-    );
+    let encoded_bytes = STREAM_HEADER_BYTES
+        .saturating_add(FRAME_HEADER_BODY_BYTES)
+        .saturating_add(encoded_row_bytes);
+    frame.reserve(encoded_bytes);
     let entries = rows.clone().filter_map(|row| {
         let (left, cells) = captured_row_span(row)?;
         Some(PreparedRowRef {
@@ -1233,7 +1245,13 @@ where
     });
     let mut header = header;
     header.row_count = encoded_rows.min(u16::MAX as usize) as u16;
-    encode_prepared_frame_into(frame, &header, entries);
+    let metadata = match choose_mz(encoded_bytes, header.row_count) {
+        Some(encoder) => Some(encoder.encode_prepared_frame_into(frame, &header, entries)),
+        None => {
+            encode_prepared_frame_into(frame, &header, entries);
+            None
+        }
+    };
     let mut sent_rows = SentRows::with_capacity(encoded_rows);
     for row in rows.filter(|row| captured_row_encoded_size(row) > 0) {
         sent_rows.push(SentRow {
@@ -1241,7 +1259,7 @@ where
             ..SentRow::from(&row.sent)
         });
     }
-    sent_rows
+    (sent_rows, metadata)
 }
 
 /// Replace `frame` with the compressed form in `compressed` when `used`,
@@ -1416,22 +1434,17 @@ impl BatchCompression {
 /// An unattempted candidate leaves the frame for preparation's workload and
 /// relay-critical admission rules. Attempted outputs contribute row prices
 /// even when admission rejects the compressed representation.
-fn compress_batch_candidate(
-    planner: &mut GlobalDisplayPlanningModel,
-    compressor: &mut Compressor,
-    frame: &[u8],
+fn batch_attempts_compression(
+    raw_bytes: usize,
     encoded_rows: u16,
     interactive_compression_allowed: bool,
     policy: &DisplayCompressionPolicy,
     presentation_workload: DisplayWorkload,
-    mz: Option<&mut MzContext<'_>>,
     planned_representation: Representation,
-    content_class: ContentClass,
-    profile: PeerPlanningSnapshot,
-    header_reserve: usize,
-    out: &mut Vec<u8>,
-) -> DisplayCompressionOutcome {
-    let raw_bytes = planned_wire_len(frame.len(), header_reserve);
+) -> bool {
+    if planned_representation == Representation::Raw {
+        return false;
+    }
     let batch_workload = compute_display_workload(
         raw_bytes,
         policy.terminal_rows,
@@ -1456,13 +1469,30 @@ fn compress_batch_candidate(
         batch_workload
     };
     if workload == DisplayWorkload::Interactive && !interactive_compression_allowed {
-        return DisplayCompressionOutcome::NOTHING;
+        return false;
     }
-    if planned_representation == Representation::Raw {
+    true
+}
+
+fn compress_batch_candidate(
+    planner: &mut GlobalDisplayPlanningModel,
+    compressor: &mut Compressor,
+    frame: &[u8],
+    metadata: Option<merkur_codec::mz::MzFrameMetadata>,
+    attempted: bool,
+    policy: &DisplayCompressionPolicy,
+    mz: Option<&mut MzContext<'_>>,
+    content_class: ContentClass,
+    profile: PeerPlanningSnapshot,
+    header_reserve: usize,
+    out: &mut Vec<u8>,
+) -> DisplayCompressionOutcome {
+    let raw_bytes = planned_wire_len(frame.len(), header_reserve);
+    if !attempted {
         return DisplayCompressionOutcome::NOTHING;
     }
     let started = Instant::now();
-    let Some(compressed) = compressor.compress_display_rows_into(frame, mz, out)
+    let Some(compressed) = compressor.compress_prepared_display_rows_into(frame, metadata, mz, out)
     else {
         let service_us = started.elapsed().as_secs_f64() * 1_000_000.0;
         planner.observe_sender_service(
@@ -1510,6 +1540,10 @@ fn compress_batch_candidate(
 /// blind halving, so a mispredicted budget normally costs exactly one
 /// correction. In the steady state the estimate is right and this emits one
 /// batch per call with no re-encode at all.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fitting attempt keeps metadata emission, admission and split feedback together"
+)]
 fn emit_fitted_batches(
     header: FrameHeader,
     rows: &[DisplayPrepareRow],
@@ -1535,7 +1569,20 @@ fn emit_fitted_batches(
     let content_class = classify_captured_content(rows);
     let profile = profiles[content_class.index()];
     let mut frame = frames.take(0);
-    let sent_rows = encode_captured_rows(header, rows.iter(), &mut frame);
+    let mut attempted = false;
+    let (sent_rows, metadata) =
+        encode_captured_rows_with_metadata(header, rows.iter(), &mut frame, |bytes, count| {
+            attempted = batch_attempts_compression(
+                planned_wire_len(bytes, header_reserve),
+                count,
+                policy.fit_relay_critical_datagram && utility == DisplayUtility::Critical,
+                policy,
+                presentation_workload,
+                planned_representation,
+            );
+            (attempted && bytes <= merkur_codec::MAX_DISPLAY_FRAME_BYTES)
+                .then(|| compressor.mz_encoder())
+        });
     if frame.is_empty() {
         frames.put(frame);
         return false;
@@ -1552,12 +1599,10 @@ fn emit_fitted_batches(
         planner,
         compressor,
         &frame,
-        encoded_rows,
-        policy.fit_relay_critical_datagram && utility == DisplayUtility::Critical,
+        metadata,
+        attempted,
         policy,
-        presentation_workload,
         mz.as_deref_mut(),
-        planned_representation,
         content_class,
         profile,
         header_reserve,
@@ -2104,13 +2149,18 @@ fn pack_whole_span_candidate(
         }
         assert!(end > start, "a legitimate single row fits a display body");
         let mut raw = frames.take(STREAM_HEADER_BYTES + body_bytes);
-        let sent = encode_captured_rows(header, rows[start..end].iter(), &mut raw);
+        let (sent, metadata) = encode_captured_rows_with_metadata(
+            header,
+            rows[start..end].iter(),
+            &mut raw,
+            |_, _| Some(compressor.mz_encoder()),
+        );
         assert_eq!(raw.len(), STREAM_HEADER_BYTES + body_bytes);
         raw[merkur_codec::DISPLAY_MSG_TYPE_OFFSET] = merkur_codec::MSG_TYPE_DISPLAY_PATCH;
         let raw_bytes = planned_wire_len(raw.len(), header_reserve);
         let mut compressed = frames.take(0);
         let used = compressor
-            .compress_display_frame_into(&raw, &mut compressed)
+            .compress_prepared_display_rows_into(&raw, metadata, None, &mut compressed)
             .is_some();
         let frame = choose_compressed_frame(raw, compressed, used, frames);
         out.push((

@@ -781,7 +781,11 @@ impl FrameRows {
     fn row<'a>(&'a self, bytes: &'a [u8], back: u32) -> Option<MzRow<'a>> {
         let index = self.entries.len().checked_sub(back as usize)?;
         let &(start, first, mode, items_from) = self.entries.get(index)?;
-        let items_to = self.entries.get(index + 1).map_or(self.items.len(), |next| next.3);
+        // Hashes cover exactly the entries already available as copy sources.
+        let items_to = self
+            .entries
+            .get(index + 1)
+            .map_or(self.hashes.len(), |next| next.3);
         let items = self.items.get(items_from..items_to)?;
         let hashes = self.hashes.get(items_from..items_to).unwrap_or(&[]);
         let end = start + usize::from(items.last().map_or(first, |it| it.end));
@@ -840,14 +844,67 @@ pub struct MzEncoded {
     pub history_copies: bool,
 }
 
+/// Metadata emitted while writing a trusted prepared frame, in this encoder's
+/// existing scratch and source storage. Use it with those same row bytes.
+#[derive(Clone, Copy, Debug)]
+pub struct MzFrameMetadata {
+    rows: u16,
+}
+
 impl MzEncoder {
-    /// Code `rows`, `row_count` row-layout entries, into `out` (appended):
+    /// Write a prepared frame and retain its item boundaries for an MZ attempt.
+    /// The row count must match the header; consume the token before writing
+    /// another frame with this encoder.
+    pub fn encode_prepared_frame_into<'a>(
+        &mut self,
+        out: &mut Vec<u8>,
+        header: &crate::FrameHeader,
+        rows: impl Iterator<Item = crate::PreparedRowRef<'a>>,
+    ) -> MzFrameMetadata {
+        let mut metadata = crate::encode::FrameItems::new(
+            &mut self.frame.items,
+            &mut self.entry_items,
+            header.row_count,
+        );
+        crate::encode::encode_prepared_frame_with_metadata(out, header, rows, &mut metadata);
+        MzFrameMetadata {
+            rows: header.row_count,
+        }
+    }
+
+    /// Code the row bytes just written by `encode_prepared_frame_into`, using
+    /// their emitted boundaries rather than parsing trusted tags again.
+    pub fn encode_prepared(
+        &mut self,
+        rows: &[u8],
+        metadata: MzFrameMetadata,
+        history: &impl MzMatches,
+        session: Option<(u8, &SessionModel)>,
+        declaration: Option<&MzEpochDeclaration>,
+        out: &mut Vec<u8>,
+    ) -> Option<MzEncoded> {
+        self.encode_impl::<true>(rows, metadata.rows, history, session, declaration, out)
+    }
+
+    /// Parse pre-encoded `rows`, `row_count` row-layout entries, into `out` (appended):
     /// the prior byte, any declaration, then the stream. With `session`, the
     /// frame is coded against the session epoch, and against the static model
     /// too when its trace prices smaller there, the smaller kept. Copies come
     /// from the frame itself and from `history`. `None` when the rows do not
     /// parse.
-    pub fn encode(
+    pub fn encode_rows(
+        &mut self,
+        rows: &[u8],
+        row_count: u16,
+        history: &impl MzMatches,
+        session: Option<(u8, &SessionModel)>,
+        declaration: Option<&MzEpochDeclaration>,
+        out: &mut Vec<u8>,
+    ) -> Option<MzEncoded> {
+        self.encode_impl::<false>(rows, row_count, history, session, declaration, out)
+    }
+
+    fn encode_impl<const PREPARED: bool>(
         &mut self,
         rows: &[u8],
         row_count: u16,
@@ -859,8 +916,13 @@ impl MzEncoder {
         self.declaration = declaration.copied();
         let model = static_model();
         let Some((epoch, session)) = session else {
-            let (rows_len, history_copies, _) = self.encode_with(rows, row_count, history, model, 0, out)?;
-            return Some(MzEncoded { rows_len, prior: 0, history_copies });
+            let (rows_len, history_copies, _) =
+                self.encode_with::<PREPARED, _>(rows, row_count, history, model, 0, out)?;
+            return Some(MzEncoded {
+                rows_len,
+                prior: 0,
+                history_copies,
+            });
         };
         // Coded against the session epoch, then priced from the static model
         // by its trace alone; recoded against the static model only when that
@@ -868,8 +930,12 @@ impl MzEncoder {
         let base = out.len();
         let layered = Layered { session, base: model };
         let (rows_len, history_copies, session_bits) =
-            self.encode_with(rows, row_count, history, &layered, epoch, out)?;
-        let encoded = MzEncoded { rows_len, prior: epoch, history_copies };
+            self.encode_with::<PREPARED, _>(rows, row_count, history, &layered, epoch, out)?;
+        let encoded = MzEncoded {
+            rows_len,
+            prior: epoch,
+            history_copies,
+        };
         if nibble::price(model, &mut self.tables, &self.trace) >= session_bits {
             return Some(encoded);
         }
@@ -877,9 +943,12 @@ impl MzEncoder {
         trial.clear();
         let session_trace =
             std::mem::replace(&mut self.trace, std::mem::take(&mut self.trial_trace));
-        let session_rows =
-            std::mem::replace(&mut self.row_costs, std::mem::take(&mut self.trial_row_costs));
-        let result = self.encode_with(rows, row_count, history, model, 0, &mut trial);
+        let session_rows = std::mem::replace(
+            &mut self.row_costs,
+            std::mem::take(&mut self.trial_row_costs),
+        );
+        let result =
+            self.encode_with::<PREPARED, _>(rows, row_count, history, model, 0, &mut trial);
         let chosen = match result {
             Some((_, copies, _)) if trial.len() < out.len() - base => {
                 out.truncate(base);
@@ -909,7 +978,11 @@ impl MzEncoder {
         &self.row_costs
     }
 
-    fn encode_with<P: Prior>(
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one frame walk keeps the coder, source index and emitted item storage in step"
+    )]
+    fn encode_with<const PREPARED: bool, P: Prior>(
         &mut self,
         rows: &[u8],
         row_count: u16,
@@ -922,7 +995,12 @@ impl MzEncoder {
         self.coded.clear();
         self.row_costs.clear();
         self.trace.clear();
-        self.frame.clear();
+        if PREPARED {
+            self.frame.entries.clear();
+            self.frame.hashes.clear();
+        } else {
+            self.frame.clear();
+        }
         self.pairs.clear();
         self.links.clear();
         let mut coder = Coder {
@@ -939,9 +1017,41 @@ impl MzEncoder {
             let before_ranges = coder.coded.len();
             let start = at;
             let entry_rest = rows.get(start..)?;
-            let (first, mode) = entry_items(entry_rest, &mut self.entry_items)?;
-            let mut len = usize::from(self.entry_items.last().map_or(first, |it| it.end));
-            let &[_, _, left_high, left_low, ..] = rows.get(start..start + ROW_PREFIX_BYTES)? else {
+            let (first, mode, items) = if PREPARED {
+                let &[_, _, left_high, left_low, cells_high, cells_low, _, _] =
+                    entry_rest.get(..ROW_PREFIX_BYTES)?
+                else {
+                    return None;
+                };
+                let left = u16::from_be_bytes([left_high, left_low]);
+                let cells = u16::from_be_bytes([cells_high, cells_low]) & ROW_CELL_COUNT_MASK;
+                let mut first = ROW_PREFIX_BYTES;
+                if left & ROW_FLAG_LINKS != 0 {
+                    let &[count_high, count_low] = entry_rest.get(first..first + 2)? else {
+                        return None;
+                    };
+                    first += LINK_TABLE_COUNT_BYTES
+                        + usize::from(u16::from_be_bytes([count_high, count_low]))
+                            * LINK_SPAN_BYTES;
+                }
+                let mode = *entry_rest.get(first)?;
+                let first = u16::try_from(first + 1).ok()?;
+                let items = if row_index + 1 == row_count {
+                    self.entry_items.as_slice()
+                } else {
+                    let from = self.frame.hashes.len();
+                    let rest = self.frame.items.get(from..)?;
+                    let count = rest.iter().position(|item| item.cells == cells)? + 1;
+                    rest.get(..count)?
+                };
+                (first, mode, items)
+            } else {
+                let (first, mode) = entry_items(entry_rest, &mut self.entry_items)?;
+                (first, mode, self.entry_items.as_slice())
+            };
+            let mut len = usize::from(items.last().map_or(first, |it| it.end));
+            let &[_, _, left_high, left_low, ..] = rows.get(start..start + ROW_PREFIX_BYTES)?
+            else {
                 return None;
             };
             let left_field = u16::from_be_bytes([left_high, left_low]);
@@ -956,11 +1066,23 @@ impl MzEncoder {
             let entry = rows.get(start..start + len)?;
             // Hashes of this entry's items, and the plan of its segments.
             self.hashes.clear();
-            let unhashed = MzRow { entry, first, items: &self.entry_items, mode, hashes: &[] };
-            for index in 0..self.entry_items.len() {
+            let unhashed = MzRow {
+                entry,
+                first,
+                items,
+                mode,
+                hashes: &[],
+            };
+            for index in 0..items.len() {
                 self.hashes.push(item_hash(unhashed.item_bytes(index)?));
             }
-            let entry_row = MzRow { entry, first, items: &self.entry_items, mode, hashes: &self.hashes };
+            let entry_row = MzRow {
+                entry,
+                first,
+                items,
+                mode,
+                hashes: &self.hashes,
+            };
             let &[row_high, row_low, ..] = entry else {
                 return None;
             };
@@ -994,8 +1116,12 @@ impl MzEncoder {
             }
             // This entry becomes a source for the rest of the frame.
             let index = u32::try_from(self.frame.entries.len()).ok()?;
-            self.frame.entries.push((start, first, mode, self.frame.items.len()));
-            self.frame.items.extend_from_slice(&self.entry_items);
+            self.frame
+                .entries
+                .push((start, first, mode, self.frame.hashes.len()));
+            if !PREPARED {
+                self.frame.items.extend_from_slice(&self.entry_items);
+            }
             self.frame.hashes.extend_from_slice(&self.hashes);
             for (pair, window) in (0u16..).zip(self.hashes.windows(2)) {
                 let &[first_hash, second_hash] = window else {
@@ -1697,3 +1823,7 @@ pub(super) fn copy_profile_payload(
     nibble::encode(&coded, 2, &mut Vec::new(), &mut out);
     out
 }
+
+#[cfg(test)]
+#[path = "prepared_tests.rs"]
+mod prepared_tests;

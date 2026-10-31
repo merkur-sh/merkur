@@ -157,7 +157,7 @@ fn round_trip(rows: &[u8], row_count: u16) -> usize {
     let mut encoder = MzEncoder::default();
     let mut payload = Vec::new();
     let encoded = encoder
-        .encode(rows, row_count, &NoHistory, None, None, &mut payload)
+        .encode_rows(rows, row_count, &NoHistory, None, None, &mut payload)
         .expect("encodes");
     assert_eq!(encoded.rows_len, rows.len());
     assert_eq!(encoded.prior, 0);
@@ -276,7 +276,7 @@ fn graphics_rows_round_trip_with_their_sections() {
     section_only.push(9);
     for rows in [flag_only, empty_section, section_only] {
         assert_eq!(
-            MzEncoder::default().encode(&rows, 1, &NoHistory, None, None, &mut Vec::new()),
+            MzEncoder::default().encode_rows(&rows, 1, &NoHistory, None, None, &mut Vec::new()),
             None
         );
     }
@@ -305,7 +305,7 @@ fn history_copies_read_rows_the_receiver_holds() {
     let rows = rows_of(&[(0, 0, &lines[1]), (1, 0, &lines[2])]);
     let mut encoder = MzEncoder::default();
     let mut payload = Vec::new();
-    let encoded = encoder.encode(&rows, 2, &sent, None, None, &mut payload).expect("encodes");
+    let encoded = encoder.encode_rows(&rows, 2, &sent, None, None, &mut payload).expect("encodes");
     assert!(encoded.history_copies);
     let plain = round_trip(&rows, 2);
     assert!(payload.len() * 2 < plain, "copies: {} of {plain}", payload.len());
@@ -340,7 +340,7 @@ fn session_epochs_learn_the_sessions_screens() {
         let row = text(seq as usize);
         let rows = rows_of(&[(0, 0, &row)]);
         payload.clear();
-        let encoded = encoder.encode(&rows, 1, &NoHistory, None, None, &mut payload).expect("encodes");
+        let encoded = encoder.encode_rows(&rows, 1, &NoHistory, None, None, &mut payload).expect("encodes");
         sender.keep(seq, encoder.trace());
         let held = Held { history: &history, presentation_id: seq, session: Some(&receiver) };
         decoder.decode(&payload, 1, encoded.rows_len, &held, &mut decoded).expect("decodes");
@@ -351,10 +351,10 @@ fn session_epochs_learn_the_sessions_screens() {
     receiver.build(&declaration).expect("receiver builds");
     let rows = rows_of(&[(0, 0, &text(99))]);
     let mut without = Vec::new();
-    let plain = encoder.encode(&rows, 1, &NoHistory, None, None, &mut without).expect("encodes");
+    let plain = encoder.encode_rows(&rows, 1, &NoHistory, None, None, &mut without).expect("encodes");
     let (id, model) = sender.current().expect("an epoch");
     payload.clear();
-    let encoded = encoder.encode(&rows, 1, &NoHistory, Some((id, model)), None, &mut payload).expect("encodes");
+    let encoded = encoder.encode_rows(&rows, 1, &NoHistory, Some((id, model)), None, &mut payload).expect("encodes");
     assert_eq!(encoded.prior, 1);
     assert!(payload.len() < without.len(), "session {} vs static {}", payload.len(), without.len());
     let held = Held { history: &history, presentation_id: 30, session: Some(&receiver) };
@@ -395,7 +395,7 @@ fn an_unbuildable_declaration_refuses_its_frame() {
     let declaration = MzEpochDeclaration { id: 1, base: 0, first: 900, datagrams: 0b11 };
     let mut payload = Vec::new();
     let encoded = MzEncoder::default()
-        .encode(&rows, 1, &NoHistory, None, Some(&declaration), &mut payload)
+        .encode_rows(&rows, 1, &NoHistory, None, Some(&declaration), &mut payload)
         .expect("encodes");
     let mut receiver = MzReceiver::default();
     let mut out = Vec::new();
@@ -408,7 +408,7 @@ fn an_unbuildable_declaration_refuses_its_frame() {
     let mut sender = MzEncoder::default();
     for seq in [900u32, 901] {
         let mut frame = Vec::new();
-        let plain = sender.encode(&rows, 1, &NoHistory, None, None, &mut frame).expect("encodes");
+        let plain = sender.encode_rows(&rows, 1, &NoHistory, None, None, &mut frame).expect("encodes");
         receiver.decode(GENERATION, seq, seq, &frame, 1, plain.rows_len, &mut out).expect("decodes");
     }
     receiver.decode(GENERATION, 1000, 1000, &payload, 1, encoded.rows_len, &mut out).expect("decodes");
@@ -435,7 +435,7 @@ fn coded(
 ) -> (Vec<u8>, usize) {
     let mut payload = Vec::new();
     let encoded = encoder
-        .encode(rows, row_count, history, session, declaration, &mut payload)
+        .encode_rows(rows, row_count, history, session, declaration, &mut payload)
         .expect("encodes");
     (payload, encoded.rows_len)
 }
@@ -675,7 +675,7 @@ fn decoded_frames_pass_the_row_validator() {
     let rows = rows_of(&[(0, 0, &row), (1, 4, &row[4..9])]);
     let mut payload = Vec::new();
     let encoded = MzEncoder::default()
-        .encode(&rows, 2, &NoHistory, None, None, &mut payload)
+        .encode_rows(&rows, 2, &NoHistory, None, None, &mut payload)
         .expect("encodes");
     let history = RowHistory::default();
     let held = Held { history: &history, presentation_id: 1, session: None };
@@ -726,7 +726,7 @@ proptest! {
         let row = text_row("corruption must not decode quietly", [9, 9, 9]);
         let rows = rows_of(&[(2, 0, &row), (3, 5, &row[5..20]), (4, 0, &row)]);
         let mut payload = Vec::new();
-        let encoded = MzEncoder::default().encode(&rows, 3, &NoHistory, None, None, &mut payload).expect("encodes");
+        let encoded = MzEncoder::default().encode_rows(&rows, 3, &NoHistory, None, None, &mut payload).expect("encodes");
         let history = RowHistory::default();
         let held = Held { history: &history, presentation_id: 1, session: None };
         let mut decoder = MzDecoder::default();
@@ -817,7 +817,7 @@ fn v2_checkpoint() {
         for (index, &(row_count, rows)) in frames.iter().enumerate() {
             let seq = u32::try_from(index).expect("a frame index") + 1;
             payload.clear();
-            let Some(_) = encoder.encode(rows, row_count, &NoHistory, None, None, &mut payload) else {
+            let Some(_) = encoder.encode_rows(rows, row_count, &NoHistory, None, None, &mut payload) else {
                 continue;
             };
             raw += rows.len();
@@ -846,7 +846,7 @@ fn v2_checkpoint() {
             }
             payload.clear();
             let session = held.and_then(|id| sender.epoch(id).map(|model| (id, model)));
-            let encoded = encoder.encode(rows, row_count, &NoHistory, session, None, &mut payload).expect("encodes");
+            let encoded = encoder.encode_rows(rows, row_count, &NoHistory, session, None, &mut payload).expect("encodes");
             with_session += payload.len().min(rows.len());
             sender.keep(seq, encoder.trace());
             let sources = Held { history: &history, presentation_id: seq, session: Some(&receiver) };
@@ -892,7 +892,7 @@ fn p3_row_price_attribution() {
                 output.clear();
                 let prior = with_session.then_some((1, &session));
                 let encoded =
-                    encoder.encode(rows, count, &NoHistory, prior, None, &mut output).unwrap();
+                    encoder.encode_rows(rows, count, &NoHistory, prior, None, &mut output).unwrap();
                 assert_eq!(encoder.row_costs().len(), usize::from(count));
                 assert_eq!(
                     encoder.row_costs().iter().map(|r| r.raw_bytes).sum::<usize>(),
@@ -1118,13 +1118,13 @@ fn context_stride_equivalence_profile() {
         }
         let mut reuse = Vec::new();
         encoder
-            .encode(&rows, count, &NoHistory, None, None, &mut reuse)
+            .encode_rows(&rows, count, &NoHistory, None, None, &mut reuse)
             .expect("warm");
         let (_, warm) = allocation_profile::count(|| {
             for _ in 0..128 {
                 reuse.clear();
                 std::hint::black_box(
-                    encoder.encode(&rows, count, &NoHistory, None, None, &mut reuse),
+                    encoder.encode_rows(&rows, count, &NoHistory, None, None, &mut reuse),
                 );
                 std::hint::black_box(
                     decoder.decode(&reuse, count, rows_len, &held, &mut decoded),
@@ -1214,7 +1214,7 @@ fn context_workload_profile() {
     let mut session = MzSession::default();
     for seq in 1..=20 {
         encoder
-            .encode(&rows, count, &NoHistory, None, None, &mut payload)
+            .encode_rows(&rows, count, &NoHistory, None, None, &mut payload)
             .expect("training frame");
         session.keep(seq, encoder.trace());
         payload.clear();
@@ -1236,7 +1236,7 @@ fn context_workload_profile() {
         for prior in [None, session.current()] {
             payload.clear();
             let encoded = encoder
-                .encode(&rows, count, &NoHistory, prior, None, &mut payload)
+                .encode_rows(&rows, count, &NoHistory, prior, None, &mut payload)
                 .expect("encode");
             decoder
                 .decode(&payload, count, encoded.rows_len, &held, &mut decoded)
@@ -1485,7 +1485,7 @@ fn copy_encoder_profile() {
         let mut payload = Vec::new();
         let ((mut encoder, result), cold) = allocation_profile::count(|| {
             let mut encoder = MzEncoder::default();
-            let result = encoder.encode(&rows, count, &sent, None, None, &mut payload);
+            let result = encoder.encode_rows(&rows, count, &sent, None, None, &mut payload);
             (encoder, result)
         });
         result.expect("cold encode");
@@ -1494,7 +1494,7 @@ fn copy_encoder_profile() {
             for _ in 0..10_000 {
                 payload.clear();
                 encoder
-                    .encode(&rows, count, &sent, None, None, &mut payload)
+                    .encode_rows(&rows, count, &sent, None, None, &mut payload)
                     .expect("warm encode");
                 std::hint::black_box(&payload);
             }
@@ -1519,7 +1519,7 @@ fn copy_session_encoder_profile() {
         for seq in 1..=20 {
             payload.clear();
             training
-                .encode(&rows, count, &sent, None, None, &mut payload)
+                .encode_rows(&rows, count, &sent, None, None, &mut payload)
                 .expect("training encode");
             session.keep(seq, training.trace());
         }
@@ -1535,7 +1535,7 @@ fn copy_session_encoder_profile() {
         payload.clear();
         let ((mut encoder, result), cold) = allocation_profile::count(|| {
             let mut encoder = MzEncoder::default();
-            let result = encoder.encode(&rows, count, &sent, Some(prior), None, &mut payload);
+            let result = encoder.encode_rows(&rows, count, &sent, Some(prior), None, &mut payload);
             (encoder, result)
         });
         let encoded = result.expect("cold encode");
@@ -1558,7 +1558,7 @@ fn copy_session_encoder_profile() {
             for _ in 0..10_000 {
                 payload.clear();
                 encoder
-                    .encode(&rows, count, &sent, Some(prior), None, &mut payload)
+                    .encode_rows(&rows, count, &sent, Some(prior), None, &mut payload)
                     .expect("warm encode");
                 std::hint::black_box(&payload);
             }

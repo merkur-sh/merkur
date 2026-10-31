@@ -487,6 +487,11 @@ behind its header. A payload whose states do not end where the encoder began, or
 consume exactly its bytes, is corrupt (prevents a malformed payload decoding to a plausible
 frame). Nothing is allocated per frame once warm.
 
+Trusted prepared frames emit item boundaries while writing their row bytes, into MZ's existing
+scratch and frame-source storage. The compression-attempt decision uses the exact planned row
+size before encoding; frames that skip an MZ attempt emit no item metadata. Pre-encoded row
+bodies still pass through the item parser, and received frames retain their row validation.
+
 The fields carry their structure, not their bytes:
 
 - **A character** is coded as whether it stays in its predecessor's 128-character block, which
