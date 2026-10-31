@@ -139,7 +139,10 @@ describe('daemon config', () => {
     await Effect.runPromise(saveDaemonConfigToPath(configPath, replacement, initial));
 
     expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual(replacement);
-    expect(await readdir(path.dirname(configPath))).toEqual(['config.json', 'config.json.lock']);
+    expect((await readdir(path.dirname(configPath))).sort()).toEqual([
+      'config.json',
+      'config.json.lock',
+    ]);
   });
 
   test('removeDaemonConfigFromPath restores the pre-link absence', async () => {
