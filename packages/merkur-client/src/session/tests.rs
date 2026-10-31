@@ -410,21 +410,17 @@ fn a_session_reaches_ready_and_delivers_input_the_daemon_opens() {
     assert!(!harness.session.is_ready());
 
     let actions = ack_hello(&mut harness, &nonce);
-    assert!(matches!(
-        signal(&actions[0]),
-        ClientSignal::DataReceived(DataClaim { lane: DataLane::Interactive, nonce: ref proved }) if *proved == hex(&nonce)
-    ));
-    assert_eq!(actions[1], Action::Path(PathKind::Relay));
+    assert_eq!(actions[0], Action::Path(PathKind::Relay));
     assert_eq!(
-        announced(&mut daemon, &actions[2], harness.interactive),
+        announced(&mut daemon, &actions[1], harness.interactive),
         RELAY_UNMEASURED
     );
-    assert_eq!(actions[3], Action::Status(Status::Ready));
+    assert_eq!(actions[2], Action::Status(Status::Ready));
     assert!(harness.session.is_ready());
     // The held keystroke leaves once on each lane, numbered from the daemon's
     // next expected sequence.
     assert_eq!(
-        received_input(&mut daemon, &actions[4..]),
+        received_input(&mut daemon, &actions[3..]),
         vec![
             (true, 1, vec![build::press('a')]),
             (false, 1, vec![build::press('a')])
@@ -931,15 +927,15 @@ fn the_heartbeat_pings_from_ready_and_a_pong_ends_its_deadline() {
     );
     let (mut daemon, nonce, _) = deliver_ready(&mut harness, NOW + 20);
     let actions = ack_hello(&mut harness, &nonce);
-    // data_received, the relay chosen and announced, Ready, the geometry's
+    // The relay chosen and announced, Ready, the geometry's
     // acquire, then the first ping on the interactive lane.
     assert_eq!(
-        announced(&mut daemon, &actions[2], harness.interactive),
+        announced(&mut daemon, &actions[1], harness.interactive),
         RELAY_UNMEASURED
     );
-    let acquire = ctrl_frame(&mut daemon, &actions[4..5], harness.interactive);
+    let acquire = ctrl_frame(&mut daemon, &actions[3..4], harness.interactive);
     assert_eq!(acquire[0], MSG_TYPE_GEOMETRY_CLAIM);
-    let ping = ctrl_frame(&mut daemon, &actions[5..], harness.interactive);
+    let ping = ctrl_frame(&mut daemon, &actions[4..], harness.interactive);
     let token = (NOW + 30) * 1_000;
     assert_eq!(
         decode_proto_frame(&ping),

@@ -146,8 +146,16 @@ export async function createClientSessionFixture() {
       metadata: session.action_metadata(),
     };
   }
+  const signalingCounts = { records: 0, bytes: 0, interactiveReceipts: 0, bulkReceipts: 0 };
   async function transmit(value: SessionFixtureAction): Promise<void> {
     if ((value.kind === 5 && value.channel === 0) || value.kind === 6) {
+      signalingCounts.records += 1;
+      signalingCounts.bytes += value.payload.byteLength;
+      const message = JSON.parse(new TextDecoder().decode(value.payload));
+      if (message.type === 'data_received') {
+        if (message.lane === 'interactive') signalingCounts.interactiveReceipts += 1;
+        else signalingCounts.bulkReceipts += 1;
+      }
       const reply = await peer.request<{ signal: string | null }>({
         op: 'signal',
         bytes: Array.from(value.payload),
@@ -186,6 +194,7 @@ export async function createClientSessionFixture() {
   const fixture = {
     session,
     memory,
+    signalingCounts: () => ({ ...signalingCounts }),
     lineage: (): number => lineage,
     incomingWire(value: typeof incomingWire): void {
       incomingWire = value;
