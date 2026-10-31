@@ -92,8 +92,10 @@ unknown field is rejected. A browser attaches as `primary`, or as a `candidate` 
 `#signaling` id. A daemon attaches as a `tunnel` naming its dataplane process's incarnation,
 16 random base64url bytes drawn at start. An `announce` names the incarnation without a
 session: its `session_id` is empty, and the edge closes it with `0x4d04`
-(`incarnation-announced`) once recorded. The edge keeps the newest incarnation per daemon id,
-and a tunnel or announcement naming another retires every slot the earlier process held, each
+(`incarnation-announced`) once processed. The edge keeps the newest incarnation per daemon id
+only while that daemon has registry slots, including browser-only half-pairs. Removing its
+final slot also removes the incarnation record; an announcement without slots retains nothing.
+A tunnel or announcement naming another retires every slot the earlier process held, each
 counterpart told `CounterpartDetached`. A crashed dataplane cannot close its connections, so
 this is what spares its browsers the connections' 30 s idle timeout.
 
