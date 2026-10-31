@@ -208,7 +208,9 @@ export function createFrameRingWriter(
     const slotSize = alignUp(FRAME_ENTRY_HEADER_BYTES + payloadLen, FRAME_ENTRY_ALIGN);
     // Reserve at least one alignment unit so writeOffset can never equal
     // readOffset after a write — that state is reserved for "empty".
-    if (slotSize + FRAME_ENTRY_ALIGN > capacity) return false;
+    if (slotSize + FRAME_ENTRY_ALIGN > capacity) {
+      throw new Error('terminal ingress frame exceeds shared ring capacity');
+    }
 
     const writeOff = Atomics.load(meta, 0);
     const readOff = Atomics.load(meta, 1);
@@ -222,6 +224,9 @@ export function createFrameRingWriter(
         dataView.setUint32(writeOff, FRAME_SKIP_MARKER, true);
         pos = 0;
       } else {
+        if (writeOff === readOff) {
+          throw new Error('terminal ingress frame cannot fit an empty shared ring');
+        }
         Atomics.add(meta, 2, 1);
         return false;
       }

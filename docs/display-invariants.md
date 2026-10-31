@@ -726,7 +726,11 @@ retiring it there would re-issue it under a new id. Retirement advances the tabl
 generation. `MSG_TYPE_DISPLAY_LINK_TABLE` (CTRL, reliable) carries
 `id → URI` records; a peer is sent the whole live table as a reset when its generation
 differs, when a display snapshot is scheduled for it, and after every new Noise session, and
-only newer ids otherwise. An empty reset is still sent, because it is what stops a browser
+only newer ids otherwise. Definitions span frames bounded by the browser ring's
+maximum contiguous entry, the Noise plaintext limit and the protocol-body limit, with RESET
+on the first frame only. URL admission refuses a target whose complete definition cannot
+fit one such frame; it receives no link id. The browser treats an entry that cannot fit an
+empty ring as a protocol violation. An empty reset is still sent, because it is what stops a browser
 resolving one daemon's ids against another session's definitions. Order against datagrams
 does not matter: the browser resolves an id only when the user points at it, and an id whose
 definition has not arrived is simply not clickable yet.

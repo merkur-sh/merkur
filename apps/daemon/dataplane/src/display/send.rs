@@ -6528,22 +6528,18 @@ pub(crate) async fn send_open_url_requests(
     }
 }
 
-/// Encode link definitions into as few CTRL frames as the 24-bit body length
-/// allows, flagging only the first frame of a reset. A URI too long for any
-/// frame body cannot be defined and its link stays inert in the browser.
+/// Encode definitions within the smallest receiver's frame limit. Admission
+/// guarantees each individual record fits; only the first frame carries RESET.
 fn encode_link_table_frames(reset: bool, links: &[crate::pty::links::LiveLink]) -> Vec<Vec<u8>> {
+    use crate::pty::links::MAX_LINK_TABLE_FRAME_BYTES;
     const RECORD_HEADER_BYTES: usize = 4 + 4;
     let mut frames = Vec::new();
     let mut frame: Vec<u8> = Vec::new();
     for live in links {
         let uri = live.uri.as_bytes();
         let record_bytes = RECORD_HEADER_BYTES + uri.len();
-        if 1 + record_bytes > PROTO_MAX_BODY_BYTES {
-            continue;
-        }
-        if !frame.is_empty()
-            && frame.len() - PROTO_HEADER_BYTES + record_bytes > PROTO_MAX_BODY_BYTES
-        {
+        debug_assert!(PROTO_HEADER_BYTES + 1 + record_bytes <= MAX_LINK_TABLE_FRAME_BYTES);
+        if !frame.is_empty() && frame.len() + record_bytes > MAX_LINK_TABLE_FRAME_BYTES {
             frames.push(finish_link_table_frame(std::mem::take(&mut frame)));
         }
         if frame.is_empty() {

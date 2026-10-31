@@ -1,11 +1,14 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { MAX_DISPLAY_FRAME_BYTES } from '@merkur/shared';
 import {
   createFrameRingReader,
   createFrameRingWriter,
+  FRAME_KIND_CLIENT_INGRESS_BASE,
   FRAME_KIND_DISPLAY,
   FRAME_KIND_LINEAGE_FENCE,
+  FRAME_RING_SIZE,
   readFrameRingFence,
 } from '../terminal/shared-ring';
 import type { TransportToTerminalPeer } from '../terminal/worker-peer-control';
@@ -30,6 +33,7 @@ const program = new Bun.Transpiler({ loader: 'ts' }).transformSync(
     extract('function deliverDatagram('),
     extract('function signalSpace('),
     extract('function waitSpace('),
+    extract('async function deliverFrame('),
   ].join('\n'),
 );
 
@@ -37,6 +41,7 @@ function host(ringBytes: number) {
   const ring = new SharedArrayBuffer(ringBytes);
   const posted: TransportToTerminalPeer[] = [];
   const received: number[] = [];
+  let currentFrame: Uint8Array = new Uint8Array(0);
   const context = {
     active: true,
     generation: 1,
@@ -46,6 +51,9 @@ function host(ringBytes: number) {
     resumeSpace: null,
     spacePromise: null,
     rxBytes: 0,
+    frameMapping: { epoch: 0, localMinusWire: 0, wireMin: 0, wireMax: 0 },
+    actionBytes: () => currentFrame,
+    FRAME_KIND_CLIENT_INGRESS_BASE,
     carriers: new Map([[7n, {}]]),
     host: {
       frames: createFrameRingWriter(ring),
@@ -73,7 +81,16 @@ function host(ringBytes: number) {
     // SAFETY: each caller names the type of the one extracted function call it
     // evaluates, whose source is the production code this file read above.
     runInNewContext(code, context) as T;
-  return { ring, posted, received, context, run };
+  return {
+    ring,
+    posted,
+    received,
+    context,
+    run,
+    setFrame: (frame: Uint8Array) => {
+      currentFrame = frame;
+    },
+  };
 }
 
 test('a new lineage is fenced in the frame ring without waiting for the terminal', async () => {
@@ -122,4 +139,69 @@ test('a full ring parks the display lane, never the carrier reader', async () =>
   await Promise.resolve();
   await Promise.resolve();
   expect(fenced).toBe(true);
+});
+
+function linkFrame(first: number, count: number): Uint8Array {
+  const urlBytes = 8192;
+  const frame = new Uint8Array(5 + count * (8 + urlBytes));
+  const view = new DataView(frame.buffer);
+  view.setUint32(0, frame.byteLength - 4);
+  frame[0] = 0x35; // MSG_TYPE_DISPLAY_LINK_TABLE
+  frame[4] = first === 1 ? 1 : 0;
+  for (let index = 0, offset = 5; index < count; index += 1, offset += 8 + urlBytes) {
+    const id = first + index;
+    const prefix = `https://example.com/${id}/`;
+    const url = new TextEncoder().encode(prefix + 'x'.repeat(urlBytes - prefix.length));
+    view.setUint32(offset, id);
+    view.setUint32(offset + 4, urlBytes);
+    frame.set(url, offset + 8);
+  }
+  return frame;
+}
+
+test('an unfittable link table rejects instead of parking terminal delivery', async () => {
+  for (const count of [640, 384]) {
+    const session = host(FRAME_RING_SIZE);
+    const meta = new Int32Array(session.ring, 0, 6);
+    const offset = (session.ring.byteLength - meta.byteLength) / 2;
+    Atomics.store(meta, 0, offset);
+    Atomics.store(meta, 1, offset);
+    session.setFrame(linkFrame(1, count));
+    let outcome = 'pending';
+    void session.run<Promise<void>>('deliverFrame(1, new Uint32Array([2, 0]))').then(
+      () => {
+        outcome = 'delivered';
+      },
+      () => {
+        outcome = 'rejected';
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(outcome).toBe('rejected');
+    expect(session.context.spacePromise).toBeNull();
+  }
+});
+
+test('a split 640-link reset and subsequent display reach the terminal consumer', async () => {
+  const session = host(FRAME_RING_SIZE);
+  const reader = createFrameRingReader(session.ring);
+  const perFrame = Math.floor((MAX_DISPLAY_FRAME_BYTES - 5) / (8 + 8192));
+  let definitions = 0;
+  for (let first = 1; first <= 640; first += perFrame) {
+    const count = Math.min(perFrame, 641 - first);
+    const frame = linkFrame(first, count);
+    session.setFrame(frame);
+    await session.run<Promise<void>>('deliverFrame(1, new Uint32Array([2, 0]))');
+    const entry = reader.tryRead();
+    expect(entry?.kind).toBe(FRAME_KIND_CLIENT_INGRESS_BASE + 2);
+    expect(entry?.payload).toEqual(frame);
+    definitions += count;
+  }
+  expect(definitions).toBe(640);
+  const display = Uint8Array.of(0x20, 0, 0, 0);
+  session.setFrame(display);
+  await session.run<Promise<void>>('deliverFrame(1, new Uint32Array([4, 0]))');
+  expect(reader.tryRead()?.payload).toEqual(display);
+  expect(reader.hasPending()).toBe(false);
 });

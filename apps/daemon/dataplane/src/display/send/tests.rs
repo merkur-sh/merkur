@@ -4866,7 +4866,7 @@ async fn synchronized_update_snapshot_epoch_requires_every_reliable_chunk() {
     }
 }
 
-fn established_noise_pair() -> (crate::e2e::NoiseTransport, crate::e2e::NoiseTransport) {
+pub(super) fn established_noise_pair() -> (crate::e2e::NoiseTransport, crate::e2e::NoiseTransport) {
     let psk = [7u8; 32];
     let prologue = crate::e2e::derive_prologue("session", "daemon", &[0x42; 64]);
     let (browser_static, _) = crate::e2e::generate_static_keypair().unwrap();

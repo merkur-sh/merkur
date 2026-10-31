@@ -35,6 +35,23 @@ use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
+/// Resource bound shared by URL admission and link-table batching. The browser
+/// ring reserves two aligned MAX_DISPLAY_FRAME_BYTES slots plus sentinel/wrap
+/// headroom, so one such payload fits at every empty cursor. Other receivers
+/// also require the Noise plaintext and 24-bit protocol-body limits.
+pub(crate) const MAX_LINK_TABLE_FRAME_BYTES: usize = {
+    let ring = merkur_codec::MAX_DISPLAY_FRAME_BYTES;
+    let noise = crate::e2e::MAX_TRANSPORT_FRAME_BYTES - crate::e2e::FRAME_OVERHEAD;
+    let protocol =
+        merkur_wire::protocol::PROTO_HEADER_BYTES + merkur_wire::protocol::PROTO_MAX_BODY_BYTES;
+    let receiver = if ring < noise { ring } else { noise };
+    if receiver < protocol {
+        receiver
+    } else {
+        protocol
+    }
+};
+
 /// Hashes a URI with the XXH3 the display codec already carries; like the
 /// allocation map, a table of the process's own terminal output has no
 /// flooding adversary SipHash would be defending against.
@@ -136,7 +153,10 @@ impl LinkTable {
         // A refused region is never indexed, so every capture of one would hash
         // and scan its URI again. Vetting requires a web scheme, so a URI
         // without one is refused on its prefix alone.
-        if !has_web_scheme(link.uri().as_bytes()) {
+        if link.uri().len()
+            > MAX_LINK_TABLE_FRAME_BYTES - merkur_wire::protocol::PROTO_HEADER_BYTES - 1 - 8
+            || !has_web_scheme(link.uri().as_bytes())
+        {
             return 0;
         }
         // A known URI was vetted when it was issued, so a redraw skips the scan.
