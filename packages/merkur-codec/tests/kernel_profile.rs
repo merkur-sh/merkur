@@ -118,6 +118,7 @@ fn lcg(seed: u64) -> impl FnMut() -> u32 {
 }
 
 mod prepared_rows {
+    #[cfg(target_os = "macos")]
     use super::*;
     use merkur_codec::{
         CellRepr, FrameHeader, FrameKind, PreparedGraphics, PreparedRowRef, RowRef,
@@ -311,6 +312,7 @@ mod prepared_rows {
         }
     }
 
+    #[cfg(target_os = "macos")]
     fn mz_frame(
         encoder: &mut merkur_codec::mz::MzEncoder,
         raw: &mut Vec<u8>,
