@@ -88,6 +88,7 @@ if (process.argv.includes('--child')) {
     })}\n`,
   );
 } else {
+  const { runTestProcess } = await import('./test-process');
   const samples = perfEnvInteger('BENCH_SAMPLES', 30);
   const executable = process.env.BENCH_EXECUTABLE;
   const childCommand =
@@ -109,15 +110,7 @@ if (process.argv.includes('--child')) {
         observationsByArm.set(arm, observations);
         const timedCommand = [...command, '--child', workload];
         if (process.platform === 'darwin') timedCommand.unshift('/usr/bin/time', '-l');
-        const child = Bun.spawn(timedCommand, {
-          stdout: 'pipe',
-          stderr: 'pipe',
-        });
-        const [stdout, stderr, exitCode] = await Promise.all([
-          new Response(child.stdout).text(),
-          new Response(child.stderr).text(),
-          child.exited,
-        ]);
+        const { stdout, stderr, exitCode } = await runTestProcess(timedCommand);
         assert.equal(exitCode, 0, stderr);
         // SAFETY: The measured child emits the numeric/string record exercised by the parser test.
         const observation = JSON.parse(stdout) as Record<string, number | string>;
@@ -129,8 +122,8 @@ if (process.argv.includes('--child')) {
           ]) {
             assert(key !== undefined && label !== undefined);
             const match = stderr.match(new RegExp(`(\\d+)\\s+${label}`));
-            assert(match?.[1] !== undefined, stderr);
-            observation[key] = Number(match[1]);
+            if (key === 'peakRssBytes') assert(match?.[1] !== undefined, stderr);
+            if (match?.[1] !== undefined) observation[key] = Number(match[1]);
           }
         observations.push(observation);
       }
@@ -151,7 +144,7 @@ if (process.argv.includes('--child')) {
         'verificationMs',
         'retainedHeapBytes',
       ]) {
-        if (first[key] === undefined) continue;
+        if (observations.some((row) => row[key] === undefined)) continue;
         summaries[key] = summarizeSamples(observations.map((row) => Number(row[key])));
       }
       if (workload === 'probe') {
