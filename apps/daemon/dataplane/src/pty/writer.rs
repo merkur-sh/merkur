@@ -463,16 +463,20 @@ impl PtyWriter {
                 ordinal: self.next_write_ordinal,
             }),
         })
+        .map_err(|(error, _)| error)
     }
 
-    pub fn try_enqueue_terminal_reply(&mut self, bytes: Vec<u8>) -> Result<(), PtyWriteQueueError> {
+    pub fn try_enqueue_terminal_reply(
+        &mut self,
+        bytes: Vec<u8>,
+    ) -> Result<(), (PtyWriteQueueError, Vec<u8>)> {
         if self.closed {
-            return Err(PtyWriteQueueError::Closed);
+            return Err((PtyWriteQueueError::Closed, bytes));
         }
         if self.queued_writes >= MAX_QUEUED_PTY_WRITES
             || bytes.len() > MAX_QUEUED_PTY_BYTES.saturating_sub(self.queued_bytes)
         {
-            return Err(PtyWriteQueueError::Full);
+            return Err((PtyWriteQueueError::Full, bytes));
         }
 
         self.try_enqueue(QueuedPtyWrite {
@@ -483,9 +487,18 @@ impl PtyWriter {
                 ordinal: self.next_write_ordinal,
             }),
         })
+        .map_err(|(error, write)| {
+            let PtyWritePayload::Heap(bytes) = write.payload else {
+                unreachable!("terminal replies own their bytes");
+            };
+            (error, bytes)
+        })
     }
 
-    fn try_enqueue(&mut self, write: QueuedPtyWrite) -> Result<(), PtyWriteQueueError> {
+    fn try_enqueue(
+        &mut self,
+        write: QueuedPtyWrite,
+    ) -> Result<(), (PtyWriteQueueError, QueuedPtyWrite)> {
         let byte_len = write.payload.len();
         let is_user_input = write.source.is_user_input();
         let trace = write.trace;
@@ -518,10 +531,10 @@ impl PtyWriter {
                 }
                 Ok(())
             }
-            Err(TrySendError::Full(_)) => Err(PtyWriteQueueError::Full),
-            Err(TrySendError::Disconnected(_)) => {
+            Err(TrySendError::Full(write)) => Err((PtyWriteQueueError::Full, write)),
+            Err(TrySendError::Disconnected(write)) => {
                 self.closed = true;
-                Err(PtyWriteQueueError::Closed)
+                Err((PtyWriteQueueError::Closed, write))
             }
         }
     }
@@ -1434,7 +1447,7 @@ mod tests {
 
         assert_eq!(
             queue.try_enqueue_terminal_reply(Vec::new()),
-            Err(PtyWriteQueueError::Full),
+            Err((PtyWriteQueueError::Full, Vec::new())),
             "worker completions must not release admission before the owner observes them",
         );
     }

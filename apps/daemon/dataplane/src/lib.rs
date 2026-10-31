@@ -91,8 +91,8 @@ use network::peer::{
 use network::protocol::*;
 use perf_timing::PerfTimingTracker;
 use pty::{
-    CapturedRow, PtyWriteCompletion, PtyWritePayload, PtyWriteSource, PtyWriter, TerminalEvent,
-    TerminalState, input_encoder,
+    CapturedRow, PtyWriteCompletion, PtyWritePayload, PtyWriteQueueError, PtyWriteSource,
+    PtyWriter, TerminalEvent, TerminalState, input_encoder,
 };
 use session::auth_flow::{handle_session_auth, is_authenticated_peer};
 use session::liveness::{handle_heartbeat_ping, handle_heartbeat_pong, heartbeat_tick};
@@ -1538,6 +1538,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
     // One owned reader buffer survives a semantic pause. The bounded reader
     // channel is not drained until its suffix has been accepted; no copy or
     // growing side queue can bypass PTY backpressure.
+    let mut pending_terminal_reply = None;
     let mut pending_pty_read: Option<(pty::PtyRead, usize, Option<pty::PtyTraceStamp>)> = None;
 
     while running {
@@ -1621,7 +1622,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
         // turn that finds it gone reports it, once, for the terminal.
         if let Some(report) =
             terminal.release_departed_focus(|peer| registry.peers.contains_key(peer))
-            && let Err(error) = pty_writer.try_enqueue_terminal_reply(report.to_vec())
+            && let Err((error, _)) = pty_writer.try_enqueue_terminal_reply(report.to_vec())
         {
             error!("failed to queue focus report: {error:?}");
             running = false;
@@ -1733,9 +1734,9 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            _ = &mut synchronized_update_sleep, if synchronized_update_timer.deadline.is_some() => {
+            _ = &mut synchronized_update_sleep, if synchronized_update_timer.deadline.is_some() && pending_terminal_reply.is_none() => {
                 if terminal.stop_synchronized_update() {
-                    if !enqueue_terminal_events(&terminal_event_rx, &mut pty_writer) {
+                    if !enqueue_terminal_events(&terminal_event_rx, &mut pty_writer, &mut pending_terminal_reply) {
                         running = false;
                     }
                     // Forced release revokes editor evidence in TerminalState.
@@ -1841,6 +1842,11 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 ) {
                     Ok(turn) => input_ack_pending |= turn.input_ack_queued,
                     Err(()) => running = false,
+                }
+                if pending_terminal_reply.is_some()
+                    && !enqueue_terminal_events(&terminal_event_rx, &mut pty_writer, &mut pending_terminal_reply)
+                {
+                    running = false;
                 }
                 // Completions drain held input up to a geometry fence; one
                 // they reached settles here.
@@ -2245,7 +2251,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     Some(pty_async_rx.recv().await)
                 }
-            } => {
+            }, if pending_terminal_reply.is_none() => {
                 macro_rules! advance_pty_read {
                     () => {
                         // Draining only once at arm entry misses completions
@@ -2305,7 +2311,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                             now_ms_since(start_instant),
                         );
                         prediction_safety_sample_pending = true;
-                        if !enqueue_terminal_events(&terminal_event_rx, &mut pty_writer) {
+                        if !enqueue_terminal_events(&terminal_event_rx, &mut pty_writer, &mut pending_terminal_reply) {
                             running = false;
                         }
                         if terminal.take_bell() {
@@ -2348,7 +2354,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                                 advance_pty_read!();
                             }
                             Some(TerminalEvent::PtyWrite(bytes)) => {
-                                if let Err(error) = pty_writer.try_enqueue_terminal_reply(bytes) {
+                                if let Err((error, _)) = pty_writer.try_enqueue_terminal_reply(bytes) {
                                     error!("failed to queue PTY response: {error:?}");
                                     running = false;
                                 }
@@ -2381,7 +2387,7 @@ async fn run(host: Host) -> Result<(), Box<dyn std::error::Error>> {
                 // arm again.
                 let queued_behind = pty_async_rx.len();
                 for _ in 0..queued_behind {
-                    if !running || terminal.graphics_pending() {
+                    if !running || terminal.graphics_pending() || pending_terminal_reply.is_some() {
                         break;
                     }
                     match pty_async_rx.try_recv() {
@@ -5790,25 +5796,33 @@ pub(crate) fn within_warning_budget(seen: &WarningCount) -> bool {
 fn enqueue_terminal_events(
     terminal_event_rx: &crossbeam_channel::Receiver<TerminalEvent>,
     pty_writer: &mut PtyWriter,
+    pending: &mut Option<Vec<u8>>,
 ) -> bool {
-    while let Ok(event) = terminal_event_rx.try_recv() {
-        match event {
-            TerminalEvent::PtyWrite(bytes) => {
-                if let Err(error) = pty_writer.try_enqueue_terminal_reply(bytes) {
-                    error!("failed to queue PTY response: {error:?}");
+    loop {
+        let bytes = if let Some(bytes) = pending.take() {
+            bytes
+        } else {
+            match terminal_event_rx.try_recv() {
+                Ok(TerminalEvent::PtyWrite(bytes)) => bytes,
+                Err(_) => return true,
+                Ok(_) => {
+                    error!("unexpected PTY reader event from terminal emulator");
                     return false;
                 }
             }
-            TerminalEvent::PtyBytes(_, _)
-            | TerminalEvent::PtyReadClosed
-            | TerminalEvent::PtyReadError(_)
-            | TerminalEvent::PtyReaderStopped => {
-                error!("unexpected PTY reader event from terminal emulator");
+        };
+        match pty_writer.try_enqueue_terminal_reply(bytes) {
+            Ok(()) => {}
+            Err((PtyWriteQueueError::Full, bytes)) => {
+                *pending = Some(bytes);
+                return true;
+            }
+            Err((PtyWriteQueueError::Closed, _)) => {
+                error!("PTY response writer closed");
                 return false;
             }
         }
     }
-    true
 }
 
 fn confirm_and_refill_pty_input(

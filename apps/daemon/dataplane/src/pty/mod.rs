@@ -33,8 +33,8 @@ pub use terminal::{
 };
 #[cfg(test)]
 pub(crate) use writer::MAX_QUEUED_USER_PTY_BYTES;
-pub(crate) use writer::PtyWritePayload;
 pub use writer::{PtyTraceEvent, PtyTraceStamp, PtyWriteCompletion, PtyWriteSource, PtyWriter};
+pub(crate) use writer::{PtyWritePayload, PtyWriteQueueError};
 
 /// The most one PTY read delivers; every reader buffer is this long.
 const PTY_READ_BYTES: usize = 32 * 1024;

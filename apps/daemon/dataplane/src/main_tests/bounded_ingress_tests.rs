@@ -452,3 +452,42 @@ fn cleanup_observes_a_failure_that_arrives_after_the_run_loop() {
 
     assert_eq!(fatal, Some(EventSinkFailure::QueueFull));
 }
+
+#[tokio::test]
+async fn terminal_query_burst_waits_for_reply_credit() {
+    struct Replies(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl io::Write for Replies {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let output = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (tx, rx) = unbounded();
+    let mut terminal = TerminalState::new(80, 24, tx);
+    let (mut writer, mut completions) =
+        PtyWriter::new(Box::new(Replies(Arc::clone(&output)))).unwrap();
+    let mut pending = None;
+    let queries = b"\x1b[5n".repeat(4097);
+    assert_eq!(terminal.apply_bytes(&queries), queries.len());
+    assert!(
+        enqueue_terminal_events(&rx, &mut writer, &mut pending),
+        "a valid query burst must leave the owner running",
+    );
+    assert_eq!(pending.as_deref(), Some(b"\x1b[0n".as_slice()));
+    let mut delivered = 0;
+    while delivered < 4097 {
+        let completion = completions.recv().await.unwrap();
+        assert_eq!(completion.byte_len(), 4);
+        writer.finish(&completion);
+        delivered += 1;
+        assert!(enqueue_terminal_events(&rx, &mut writer, &mut pending));
+    }
+    assert_eq!(*output.lock().unwrap(), b"\x1b[0n".repeat(4097));
+    assert!(writer.is_idle());
+    assert!(pending.is_none());
+    assert!(rx.is_empty());
+}
