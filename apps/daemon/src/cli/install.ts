@@ -275,10 +275,11 @@ WantedBy=default.target
 }
 
 function quoteSystemdArgument(argument: string): string {
-  if (/^[A-Za-z0-9_\-./:=]+$/.test(argument)) {
-    return argument;
+  const literal = argument.replaceAll('%', '%%');
+  if (/^[A-Za-z0-9_\-./:=]+$/.test(literal)) {
+    return literal;
   }
-  return `"${argument.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  return `"${literal.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
 
 function escapeXml(value: string): string {

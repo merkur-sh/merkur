@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   buildDaemonServiceProgramArguments,
@@ -63,3 +66,34 @@ describe('CLI and daemon service dispatch', () => {
     );
   });
 });
+
+test('encodes literal systemd specifiers in every executable argument', () => {
+  const unit = buildSystemdUnit(['/srv/tenant%u/.merkur/current/merkur', '--label=%h', 'a%"b\\c']);
+  expect(unit).toContain(
+    'ExecStart="/srv/tenant%%u/.merkur/current/merkur" "--label=%%h" "a%%\\"b\\\\c"',
+  );
+});
+
+test.skipIf(process.platform !== 'linux')(
+  'systemd resolves a percent-bearing executable literally',
+  async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'merkur-systemd-'));
+    try {
+      const directory = path.join(root, 'tenant%u');
+      await mkdir(directory);
+      const executable = path.join(directory, 'merkur');
+      await writeFile(executable, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+      const unitPath = path.join(root, 'merkur-test.service');
+      await writeFile(unitPath, buildSystemdUnit([executable, 'daemon']));
+      // Verify against the existing executable without starting a service or contacting a manager.
+      const verify = Bun.spawn(['systemd-analyze', '--user', 'verify', unitPath], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const diagnostics = new Response(verify.stderr).text();
+      expect(await verify.exited, await diagnostics).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
