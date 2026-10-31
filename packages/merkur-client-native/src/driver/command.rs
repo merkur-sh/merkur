@@ -147,8 +147,8 @@ mod tests {
                 .is_err()
         );
     }
-    #[tokio::test]
-    async fn viewport_precedes_later_input() {
+    #[test]
+    fn viewport_precedes_later_input() {
         let (commands, mut incoming) = Commands::channel();
         // The driver cannot poll this lane while its CTRL writer is blocked.
         commands.send(Command::SnapshotRequest).unwrap();
