@@ -227,9 +227,12 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "src/cli/tui.test.ts": [
+            ":package.json.module",
+            ":src/cli/tui.ts.module",
+            ":tsconfig.json.module",
+        ],
         "src/cli/tui.ts": [
-            "//apps/daemon:node_modules/effect",
-            "//packages/shared:src/index.ts.module",
             ":package.json.module",
             ":tsconfig.json.module",
         ],
@@ -8279,6 +8282,7 @@ TYPE_INPUTS = {
             "src/cli/stop.test.ts",
             "src/cli/stop.ts",
             "src/cli/systemctl.ts",
+            "src/cli/tui.test.ts",
             "src/cli/tui.ts",
             "src/cli/update.ts",
             "src/config.test.ts",

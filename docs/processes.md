@@ -130,6 +130,14 @@ resync, and terminal encryption never pass through this process tree.
 
 ## Native Terminal Client
 
+The default `merkur` command and `login`, `logout`, `machines` and `connect` resolve
+`merkur-tui` beside the installed CLI, or in the daemon's distribution directory when run
+from source. The CLI replaces its process image with that executable through `process.execve`,
+passing the arguments, environment and terminal descriptors. The native client owns the PID,
+exit status, signals and terminal restoration; no Bun wrapper remains during the session.
+Ignored signal dispositions survive exec unless the runtime or native client installs a handler.
+A resolution or exec failure reaches the CLI's error boundary and exits with status 1.
+
 `apps/tui` builds `merkur-tui`. Its account workspace owns one UI reactor and a transport
 reactor per open tab on separate threads. The UI owns host terminal input, the shared viewer's
 presentation grid and ANSI composition; each tab's transport thread owns client session state

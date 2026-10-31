@@ -26,6 +26,7 @@ bun_test_files(
     files = {
         "src/cli/help.test.ts": {"data": [":src/index.ts.module"]},
         "src/cli/open.test.ts": {"data": [":src/index.ts.module"]},
+        "src/cli/tui.test.ts": {"data": [":src/index.ts"]},
     },
     tests = glob(
         ["**/*.test.ts"],
