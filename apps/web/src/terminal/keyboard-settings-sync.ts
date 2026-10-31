@@ -147,7 +147,7 @@ const runKeyboardSettingsSync = Effect.fnUntraced(function* (
 
   const stopObserving = observeVirtualKeyboardPreferences((preferences) => {
     const settings = accountKeyboardSettings(preferences);
-    if (known !== null && sameAccountKeyboardSettings(known, settings)) return;
+    if (pending === null && known !== null && sameAccountKeyboardSettings(known, settings)) return;
     pending = settings;
     Latch.openUnsafe(wake);
   });

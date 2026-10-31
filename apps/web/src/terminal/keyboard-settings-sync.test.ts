@@ -62,6 +62,8 @@ afterAll(() => {
 let remote: AccountKeyboardSettings | null = null;
 let fetchFailure: Error | null = null;
 let saveFailure: Error | null = null;
+let saveDelay: Promise<void> | null = null;
+let saveCount = 0;
 const saved: AccountKeyboardSettings[] = [];
 let fetchCount = 0;
 
@@ -74,9 +76,13 @@ mock.module('../api', () => ({
   saveAccountKeyboardSettingsEffect: (_token: string, settings: AccountKeyboardSettings) =>
     Effect.suspend(() => {
       if (saveFailure !== null) return Effect.fail(saveFailure);
-      saved.push(settings);
-      remote = settings;
-      return Effect.void;
+      saveCount += 1;
+      const wait = saveDelay;
+      return Effect.promise(async () => {
+        if (wait !== null) await wait;
+        saved.push(settings);
+        remote = settings;
+      });
     }),
 }));
 
@@ -113,6 +119,8 @@ beforeEach(async () => {
   remote = null;
   fetchFailure = null;
   saveFailure = null;
+  saveDelay = null;
+  saveCount = 0;
   fetchCount = 0;
   documentStub.hidden = false;
 });
@@ -621,3 +629,38 @@ describe('account keyboard settings sync', () => {
     expect(saved).toHaveLength(0);
   });
 });
+
+for (const phase of ['coalescing', 'in flight'] as const) {
+  test(`reverted edit wins during ${phase}`, async () => {
+    const a: AccountKeyboardSettings = {
+      macros: [],
+      toolbarKeys: [...DEFAULT_TOOLBAR_KEYS],
+      layerKeyOrder: DEFAULT_TERMINAL_KEYBOARD_LAYER_KEY_ORDER,
+    };
+    remote = a;
+    startKeyboardSettingsSync(() => 'token', clock.runtime);
+    await until(() => fetchCount === 1, 'the initial read');
+    let release: () => void = () => {};
+    if (phase === 'in flight')
+      saveDelay = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    saveVirtualKeyboardPreferences({
+      ...loadVirtualKeyboardPreferences(),
+      toolbarKeys: ['escape'],
+    });
+    if (phase === 'in flight') {
+      await clock.advance(750);
+      expect(saveCount).toBe(1);
+    }
+    saveVirtualKeyboardPreferences({
+      ...loadVirtualKeyboardPreferences(),
+      toolbarKeys: a.toolbarKeys,
+    });
+    saveDelay = null;
+    release();
+    await clock.flush();
+    await clock.advance(1500);
+    expect(remote).toEqual(a);
+  });
+}
