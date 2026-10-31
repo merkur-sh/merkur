@@ -970,10 +970,6 @@ mod allocation_profile {
         }
     }
 
-    #[expect(
-        clippy::expect_used,
-        reason = "count enables the tally before running its closure"
-    )]
     pub(super) fn count<T>(run: impl FnOnce() -> T) -> (T, (usize, usize)) {
         TALLY.with(|tally| tally.set(Some((0, 0))));
         let result = run();
@@ -984,10 +980,6 @@ mod allocation_profile {
     }
 }
 
-#[expect(
-    clippy::expect_used,
-    reason = "profile artifacts must be writable when explicitly requested"
-)]
 fn proof_bytes(name: &str, bytes: &[u8]) {
     println!(
         "{name}: bytes={} hash={:016x}",
@@ -1001,10 +993,6 @@ fn proof_bytes(name: &str, bytes: &[u8]) {
     }
 }
 
-#[expect(
-    clippy::expect_used,
-    reason = "the traced key comes from the bounded field and context domains"
-)]
 fn logical_trace(trace: &[u32]) -> Vec<u8> {
     use super::model::{AUX, field_of};
     trace
@@ -1019,11 +1007,6 @@ fn logical_trace(trace: &[u32]) -> Vec<u8> {
 }
 
 /// Canonical keys let the same oracle run before and after a storage change.
-#[expect(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    reason = "the compiled model has checked field sets and sorted contextual keys"
-)]
 fn logical_model(data: &[u8]) -> Vec<u8> {
     use super::model::{AUX, FIELDS, field_of};
     let mut out = data.to_vec();
@@ -1045,11 +1028,6 @@ fn logical_model(data: &[u8]) -> Vec<u8> {
     out
 }
 
-#[expect(
-    clippy::expect_used,
-    clippy::indexing_slicing,
-    reason = "fixed fixture columns and valid character values"
-)]
 fn context_corpus() -> Vec<(&'static str, Vec<u8>, u16)> {
     let ascii = text_row(
         "user@host:~/merkur$ cargo test --release",
@@ -1094,8 +1072,6 @@ fn context_corpus() -> Vec<(&'static str, Vec<u8>, u16)> {
 #[test]
 #[ignore = "context storage, allocation and byte-equivalence profile"]
 #[expect(
-    clippy::expect_used,
-    clippy::indexing_slicing,
     clippy::too_many_lines,
     reason = "the profile checks complete valid fixtures and mutates only in-bounds bytes"
 )]
@@ -1184,7 +1160,7 @@ fn context_stride_equivalence_profile() {
         base: static_model(),
     };
     let mut folded = Vec::new();
-    for field in 0..FIELDS as u32 {
+    for field in 0..u32::try_from(FIELDS).expect("field count") {
         for aux in 0..1024 {
             let key = key(field, aux);
             folded.push(layered.rate(key));
@@ -1224,10 +1200,6 @@ fn context_stride_equivalence_profile() {
 
 #[test]
 #[ignore = "isolated instruction and allocation profile"]
-#[expect(
-    clippy::expect_used,
-    reason = "a selected valid fixture must encode and decode for every iteration"
-)]
 fn context_workload_profile() {
     let name = std::env::var("MERKUR_MZ_WORKLOAD").expect("a corpus workload name");
     let (_, rows, count) = context_corpus()
@@ -1285,11 +1257,6 @@ fn context_workload_profile() {
     println!("{name}: static_and_session_pairs=10000 warm={tally:?}");
 }
 
-#[expect(
-    clippy::indexing_slicing,
-    clippy::expect_used,
-    reason = "fixed copy fixtures use valid cells and bounded spans"
-)]
 fn copy_corpus() -> Vec<(&'static str, Vec<u8>, u16, Sent, RowHistory)> {
     let colors: Vec<_> = (0..512u32)
         .map(|i| {
@@ -1299,7 +1266,7 @@ fn copy_corpus() -> Vec<(&'static str, Vec<u8>, u16, Sent, RowHistory)> {
         .collect();
     let mut linked = colors.clone();
     for (i, cell) in linked.iter_mut().enumerate() {
-        cell.link = (i % 2 + 1) as u32;
+        cell.link = u32::try_from(i % 2 + 1).expect("link id");
     }
     let mut runs = vec![CellRepr::BLANK; 512];
     for cell in &mut runs[..256] {
@@ -1399,8 +1366,6 @@ fn copy_item_count(trace: &[u32]) -> usize {
 #[test]
 #[ignore = "copy metadata traffic, allocation and byte-equivalence profile"]
 #[expect(
-    clippy::expect_used,
-    clippy::indexing_slicing,
     clippy::too_many_lines,
     reason = "the profile checks valid fixtures, then mutates their bounded payloads"
 )]
@@ -1511,10 +1476,6 @@ fn copy_metadata_profile() {
 
 #[test]
 #[ignore = "encoder allocation and instruction control for copy metadata storage"]
-#[expect(
-    clippy::expect_used,
-    reason = "the control repeatedly encodes valid copy fixtures"
-)]
 fn copy_encoder_profile() {
     let selected = std::env::var("MERKUR_MZ_COPY_WORKLOAD").ok();
     for (name, rows, count, sent, _) in copy_corpus() {
@@ -1546,10 +1507,6 @@ fn copy_encoder_profile() {
 
 #[test]
 #[ignore = "session encoder allocation and instruction control for copy metadata storage"]
-#[expect(
-    clippy::expect_used,
-    reason = "the control trains and encodes valid copy fixtures"
-)]
 fn copy_session_encoder_profile() {
     let selected = std::env::var("MERKUR_MZ_COPY_WORKLOAD").ok();
     for (name, rows, count, sent, history) in copy_corpus() {
