@@ -321,3 +321,120 @@ test('held Rust presentation requests exactly one real animation opportunity wit
     driver.close();
   }
 });
+
+test('graphics clock samples render changed scenes without repainting unchanged content', () => {
+  const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+    [
+      'applyGraphicsClock',
+      'observeViewerPresentation',
+      'wakeGraphics',
+      'scheduleRenderFrame',
+      'noteRenderWanted',
+    ]
+      .map(workerFunction)
+      .join('\n'),
+  );
+  const measurements = [];
+  for (const workload of [
+    { name: 'text', sceneChanged: false, outputChanged: false, visible: true, expected: 0 },
+    { name: 'static-image', sceneChanged: false, outputChanged: false, visible: true, expected: 0 },
+    {
+      name: 'same-animation-frame',
+      sceneChanged: false,
+      outputChanged: false,
+      visible: true,
+      expected: 0,
+    },
+    {
+      name: 'changed-animation-frame',
+      sceneChanged: true,
+      outputChanged: false,
+      visible: true,
+      expected: 4,
+    },
+    {
+      name: 'terminal-output',
+      sceneChanged: false,
+      outputChanged: true,
+      visible: true,
+      expected: 4,
+    },
+    {
+      name: 'hidden-animation',
+      sceneChanged: true,
+      outputChanged: false,
+      visible: false,
+      expected: 0,
+    },
+  ]) {
+    let submits = 0;
+    let drains = 0;
+    let deadlines = 0;
+    let presentations = 0;
+    const clocks: [number, bigint, number][] = [];
+    const mailbox = createRenderMailbox();
+    const context = {
+      wasmTerminal: {
+        viewer: {
+          graphics_clock: (now: number, monotonicUs: bigint, rttMs: number) => {
+            clocks.push([now, monotonicUs, rttMs]);
+            context.graphicsPresentationDirty ||= workload.sceneChanged;
+            if (workload.outputChanged) presentations++;
+          },
+          generation: () => 1,
+          applied_frames: () => 0,
+          applied_presentations: () => presentations,
+        },
+        mouseMode: () => 0,
+        presentationRevision: () => 1,
+      },
+      viewerNowMs: () => 100,
+      graphicsOfferSpaceReleased: false,
+      graphicsPresentationDirty: false,
+      graphicsResidents: new Set<string>(),
+      localPresentationPending: false,
+      displayEpoch: { generation: 1, renderPending: false, outputPresentedPending: false },
+      observedViewerFrames: 0,
+      observedViewerPresentations: 0,
+      observedPresentationRevision: 1,
+      lastMouseMode: 0,
+      perfEnabled: false,
+      renderer: {},
+      rendererContextLost: false,
+      offscreenCanvas: { width: 800, height: 600 },
+      physW: 800,
+      physH: 600,
+      firstDisplayGpuFence: { awaitingFirstApplied: () => false },
+      syncDimensionsFromWasm: () => false,
+      updatePhysDimensions() {},
+      publishViewerLinks() {},
+      drainViewerOutputs: () => drains++,
+      armViewerDeadline: () => deadlines++,
+      graphicsVisible: workload.visible,
+      displayRenderExecuting: false,
+      presentationRenderIsBlocked: () => false,
+      authoritativePresentationUrgent: false,
+      renderMailbox: mailbox,
+      dispatchMailboxAction: (action: MailboxAction) => {
+        if (action.kind !== 'render-now') return;
+        submits++;
+        mailbox.noteSubmitted(100, submits);
+        mailbox.noteFrameComplete(submits);
+        context.displayEpoch.renderPending = false;
+        context.localPresentationPending = false;
+      },
+    };
+    runInNewContext(code, context);
+    for (let sample = 0; sample < 4; sample++) {
+      runInNewContext('applyGraphicsClock({ monotonicUs: 123n, rttMs: 4 });', context);
+    }
+    expect(clocks).toEqual(Array.from({ length: 4 }, () => [100, 123n, 4]));
+    expect(drains).toBe(4);
+    expect(deadlines).toBe(4);
+    if (!workload.visible) expect(context.displayEpoch.renderPending).toBe(true);
+    measurements.push({ workload: workload.name, submits, expected: workload.expected });
+  }
+  process.stdout.write(`[graphics-clock] ${JSON.stringify(measurements)}\n`);
+  for (const measured of measurements)
+    expect(measured.submits, measured.workload).toBe(measured.expected);
+});

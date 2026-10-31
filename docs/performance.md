@@ -15,6 +15,8 @@ intervals of changed cells in bounded per-row storage; an eligible grid and matc
 advance at a presentation commit, copying those intervals. Predictions, provisional touch feedback,
 cursor and decorations render against that eligible base in one text pass, with no per-frame
 main-thread handoff or bitmap copy.
+Heartbeat clock samples update graphics playback and its next deadline. Only an accepted scene
+change marks graphics presentation dirty; a clock sample alone never requests a render.
 
 Eligible work submits in the current task when no prior GPU work remains unconfirmed. While a
 prior submission is unconfirmed, continuous changes replace one pending scene until a worker
