@@ -297,8 +297,8 @@ async fn a_resize_applied_from_control_holds_no_input() {
     assert!(peers["browser"].geometry_fence.is_none());
 }
 
-#[tokio::test]
-async fn idle_retry_requests_an_ack_without_another_pty_admission() {
+#[test]
+fn idle_retry_requests_an_ack_without_another_pty_admission() {
     let (_pair, mut terminal, mut peers) = fenced_owner();
     let (mut writer, _completions) = PtyWriter::new(Box::new(Vec::<u8>::new())).unwrap();
     let peer = peers.get_mut("browser").unwrap();
