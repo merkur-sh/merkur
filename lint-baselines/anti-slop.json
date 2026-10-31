@@ -196,9 +196,6 @@
     "no-manual-tag-comparison": 1,
     "no-manual-tagged-construction": 3
   },
-  "apps/daemon/src/single-instance.test.ts": {
-    "require-safety-comment-for-type-assertion": 1
-  },
   "apps/edge/src/relay.rs": {
     "comment-defensive": 1
   },

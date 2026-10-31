@@ -281,7 +281,8 @@ merkur daemon (Bun)
     └── merkur-image-worker (one isolated inline or descriptor image decode job)
 ```
 
-The Bun process loads linked config, acquires the single-instance lock, starts the dataplane, and
+The Bun process loads linked config, holds an exclusive kernel lock on a stable instance-lock
+file descriptor, starts the dataplane, and
 owns the persistent daemon-to-server WSS control connection, ping liveness, reconnect,
 and command dispatch. It also supervises terminal-bell reporting and a 30-second structured
 health/metric reporter, and serves `merkur profile` on the owner-only socket
@@ -395,8 +396,9 @@ separate operation.
 
 `merkur stop` arms the dataplane binary's cold `process-stop` helper before asking the service
 manager to stop. Linux uses a pidfd; macOS couples a kernel exit watch to the process audit token.
-The helper signals that captured process and waits for its actual exit before the CLI removes
-the instance lock. Service definitions preserve the owner's child cleanup: systemd terminates
+The helper signals that captured process and waits for its actual exit. The instance-lock
+file stays in place; closing the owner descriptor or process death releases the kernel lock.
+Its PID is metadata, and child processes do not inherit its descriptor. Service definitions preserve the owner's child cleanup: systemd terminates
 the main process first, and both systemd and launchd allow the cleanup to finish.
 
 An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). On `upgrade`,
@@ -406,7 +408,8 @@ new release's dataplane with the PTY master, the owner listener and the image br
 inherited. The new dataplane rebuilds the screen from the replay, adopts the master and reaps
 the shell as its own child, serves the inherited broker socket, and accepts one owner
 connection whose peer pid is its parent's. The Bun owner `execve`s the new release's owner after
-the acknowledgement; it reclaims the single-instance lock that holds its own pid, connects to
+the acknowledgement; exec closes its lock descriptor, and the replacement acquires the
+single-instance kernel lock, writes its PID metadata, connects to
 the socket, states the arguments a spawn would pass (`CMD_ADOPT`), and supervises the adopted
 dataplane over the socket. A later crash restarts it with a fresh spawn.
 
