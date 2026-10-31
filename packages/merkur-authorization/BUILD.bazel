@@ -69,3 +69,16 @@ rust_doc_test(
     ],
     deps = all_crate_deps(normal_dev = True),
 )
+
+rust_test(
+    name = "verification_profile",
+    srcs = ["tests/verification_profile.rs"],
+    lint_config = ":lints",
+    deps = [
+        ":merkur_authorization",
+        "//packages/merkur-e2e:merkur_e2e",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

@@ -247,44 +247,45 @@ impl UserAuthorization {
     ) -> Result<([u8; ML_DSA_87_PUBLIC_KEY_BYTES], Vec<u8>), AuthError> {
         // Fields, lengths, scopes and the fixed lifetime are the record's own
         // rules; everything after is what this daemon knows.
-        certificate
-            .validate()
-            .map_err(|_| AuthError::InvalidDelegation)?;
-        if !valid_protocol_id(expected_user_id)
-            || !valid_protocol_id(expected_delegation_id)
-            || certificate.issued_at > now_ms.saturating_add(SESSION_TOKEN_CLOCK_SKEW_MS)
-            || now_ms >= certificate.expires_at
-        {
-            return Err(AuthError::InvalidDelegation);
-        }
-        if certificate.user_id != self.user_id || certificate.user_id != expected_user_id {
-            return Err(AuthError::WrongUser);
-        }
-        if certificate.delegation_id != expected_delegation_id {
-            return Err(AuthError::WrongDelegation);
-        }
-        if certificate.server_origin != self.server_origin
-            || certificate.root_epoch != self.root_epoch
-        {
-            return Err(AuthError::InvalidDelegation);
-        }
-        let certificate_root =
-            decode_canonical_array::<COMMITMENT_BYTES>(&certificate.root_key_commitment)
-                .map_err(|_| AuthError::InvalidDelegation)?;
-        if !bool::from(certificate_root.ct_eq(&self.root_key_commitment)) {
-            return Err(AuthError::InvalidDelegation);
-        }
-        if enforce_revocation
-            && self
-                .revoked_delegations
-                .get(&certificate.delegation_id)
-                .is_some_and(|expires_at| now_ms < *expires_at)
-        {
-            return Err(AuthError::RevokedDelegation);
-        }
-        certificate
-            .verify_signature(&self.root_public_key)
-            .map_err(|_| AuthError::InvalidDelegation)?;
+        certificate.verify_signature_with(
+            &self.root_public_key,
+            || {
+                if !valid_protocol_id(expected_user_id)
+                    || !valid_protocol_id(expected_delegation_id)
+                    || certificate.issued_at > now_ms.saturating_add(SESSION_TOKEN_CLOCK_SKEW_MS)
+                    || now_ms >= certificate.expires_at
+                {
+                    return Err(AuthError::InvalidDelegation);
+                }
+                if certificate.user_id != self.user_id || certificate.user_id != expected_user_id {
+                    return Err(AuthError::WrongUser);
+                }
+                if certificate.delegation_id != expected_delegation_id {
+                    return Err(AuthError::WrongDelegation);
+                }
+                if certificate.server_origin != self.server_origin
+                    || certificate.root_epoch != self.root_epoch
+                {
+                    return Err(AuthError::InvalidDelegation);
+                }
+                let certificate_root =
+                    decode_canonical_array::<COMMITMENT_BYTES>(&certificate.root_key_commitment)
+                        .map_err(|_| AuthError::InvalidDelegation)?;
+                if !bool::from(certificate_root.ct_eq(&self.root_key_commitment)) {
+                    return Err(AuthError::InvalidDelegation);
+                }
+                if enforce_revocation
+                    && self
+                        .revoked_delegations
+                        .get(&certificate.delegation_id)
+                        .is_some_and(|expires_at| now_ms < *expires_at)
+                {
+                    return Err(AuthError::RevokedDelegation);
+                }
+                Ok(())
+            },
+            |_| AuthError::InvalidDelegation,
+        )?;
         let delegate_public_key = certificate
             .delegate_public_key_bytes()
             .map_err(|_| AuthError::InvalidDelegation)?;
@@ -1053,6 +1054,48 @@ mod tests {
             vector.root_key_commitment
         );
 
+        let mut bad_signature = vector.certificate.clone();
+        bad_signature.signature =
+            URL_SAFE_NO_PAD.encode([0; merkur_authorization::SIGNATURE_BYTES]);
+        let mut malformed = bad_signature.clone();
+        malformed.user_id.clear();
+        let mut wrong_user = bad_signature.clone();
+        wrong_user.user_id = "other-user".to_string();
+        let mut wrong_delegation = bad_signature.clone();
+        wrong_delegation.delegation_id = "other-delegation".to_string();
+        let mut wrong_origin = bad_signature.clone();
+        wrong_origin.server_origin = "https://other.example".to_string();
+        let mut wrong_epoch = bad_signature.clone();
+        wrong_epoch.root_epoch += 1;
+        let mut wrong_root = bad_signature.clone();
+        wrong_root.root_key_commitment = URL_SAFE_NO_PAD.encode([0; COMMITMENT_BYTES]);
+        let mut expired = wrong_user.clone();
+        expired.expires_at = vector.verify_at_ms;
+        expired.issued_at = expired.expires_at - USER_DELEGATION_LIFETIME_MS;
+        for (certificate, error) in [
+            (malformed, AuthError::InvalidDelegation),
+            (wrong_user, AuthError::WrongUser),
+            (wrong_delegation, AuthError::WrongDelegation),
+            (wrong_origin, AuthError::InvalidDelegation),
+            (wrong_epoch, AuthError::InvalidDelegation),
+            (wrong_root, AuthError::InvalidDelegation),
+            (expired, AuthError::InvalidDelegation),
+            (bad_signature.clone(), AuthError::InvalidDelegation),
+        ] {
+            assert_eq!(
+                authorization
+                    .validate_certificate_at(
+                        &certificate,
+                        &vector.user_id,
+                        &vector.delegation_id,
+                        vector.verify_at_ms,
+                        true,
+                    )
+                    .map(|_| ()),
+                Err(error),
+            );
+        }
+
         let request_transcript = decode_canonical(&vector.request_transcript_base64_url)
             .expect("canonical request transcript");
         let canonical_certificate =
@@ -1093,6 +1136,18 @@ mod tests {
                 .apply_revocation_at(&vector.certificate, &vector.revocation, vector.verify_at_ms,)
                 .expect("exact repeated revocation is idempotent"),
             expected_targets
+        );
+        assert_eq!(
+            authorization
+                .validate_certificate_at(
+                    &bad_signature,
+                    &vector.user_id,
+                    &vector.delegation_id,
+                    vector.verify_at_ms,
+                    true,
+                )
+                .map(|_| ()),
+            Err(AuthError::RevokedDelegation),
         );
         let mut delegate_seed: [u8; 32] = std::array::from_fn(|index| 0x20 + index as u8);
         let delegate_key =
