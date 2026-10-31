@@ -65,7 +65,7 @@ mod geometry_allocations {
     }
 
     pub fn count(run: impl FnOnce()) -> usize {
-        measure(run).allocations
+        measure(run).1.allocations
     }
 
     #[derive(Debug)]
@@ -75,7 +75,7 @@ mod geometry_allocations {
         pub peak_bytes: usize,
     }
 
-    pub fn measure(run: impl FnOnce()) -> AllocationStats {
+    pub fn measure<T>(run: impl FnOnce() -> T) -> (T, AllocationStats) {
         struct Reset;
         impl Drop for Reset {
             fn drop(&mut self) {
@@ -88,13 +88,16 @@ mod geometry_allocations {
         PEAK.set(0);
         ENABLED.set(true);
         let reset = Reset;
-        run();
+        let result = run();
         drop(reset);
-        AllocationStats {
-            allocations: COUNT.get(),
-            allocated_bytes: BYTES.get(),
-            peak_bytes: PEAK.get().cast_unsigned(),
-        }
+        (
+            result,
+            AllocationStats {
+                allocations: COUNT.get(),
+                allocated_bytes: BYTES.get(),
+                peak_bytes: PEAK.get().cast_unsigned(),
+            },
+        )
     }
 }
 
@@ -7074,4 +7077,119 @@ fn measure_damage_benchmark(
         times[times.len() / 2],
         raw
     );
+}
+
+#[test]
+fn sizing_metrics_preserve_geometry_and_first_raster() {
+    let faces: [&[u8]; 5] = [
+        include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Boot.ttf"),
+        include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf"),
+        include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Bold.ttf"),
+        include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Italic.ttf"),
+        include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-BoldItalic.ttf"),
+    ];
+    for bytes in faces {
+        for missing_m in [false, true] {
+            let mut bytes = bytes.to_vec();
+            if missing_m {
+                let count = usize::from(u16::from_be_bytes(
+                    bytes[4..6].try_into().expect("table count"),
+                ));
+                for offset in (12..12 + count * 16).step_by(16) {
+                    if &bytes[offset..offset + 4] == b"cmap" {
+                        bytes[offset..offset + 4].copy_from_slice(b"none");
+                    }
+                }
+            }
+            for size in [f32::NEG_INFINITY, -14.0, -0.0, 0.0, 0.25, 10.0, 14.0, 24.0] {
+                for dpr in [0.8, 1.0, 1.25, 1.5, 2.0, 3.0] {
+                    let px = size * dpr;
+                    let oracle = load_font(&bytes);
+                    let (expected, bitmap) = oracle.rasterize('M', px);
+                    let mut atlas = atlas::GlyphAtlas::new(regular_font_aliases(load_font(&bytes)));
+                    apply_cell_metrics_to_atlas(&mut atlas, px, 1.2);
+                    assert_eq!(
+                        atlas.cell_w.to_bits(),
+                        expected.advance_width.round().max(1.0).to_bits()
+                    );
+                    let line = oracle.horizontal_line_metrics(px).expect("line metrics");
+                    assert_eq!(
+                        atlas.cell_h.to_bits(),
+                        ((line.ascent - line.descent) * 1.2)
+                            .round()
+                            .max(1.0)
+                            .to_bits()
+                    );
+                    assert_eq!(atlas.baseline.to_bits(), line.ascent.round().to_bits());
+                    let (actual, _) =
+                        geometry_allocations::measure(|| atlas.fonts[0].rasterize('M', px));
+                    assert_eq!(actual, (expected, bitmap));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "sizing allocation and instruction profile; run with --ignored --exact --nocapture"]
+fn sizing_metrics_allocation_profile() {
+    let bytes = include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf");
+    let mut atlas = atlas::GlyphAtlas::new(regular_font_aliases(load_font(bytes)));
+    let (_, cold) =
+        geometry_allocations::measure(|| apply_cell_metrics_to_atlas(&mut atlas, 28.0, 1.2));
+    let (_, next) =
+        geometry_allocations::measure(|| atlas.fonts[0].rasterize('M', 28.0));
+    println!(
+        "cold-sizing requests={} bytes={}; next-raster requests={} bytes={}",
+        cold.allocations, cold.allocated_bytes, next.allocations, next.allocated_bytes
+    );
+    for px in [-14.0, 0.0, 0.25, 14.0, 28.0, 42.0] {
+        let (_, warm) =
+            geometry_allocations::measure(|| apply_cell_metrics_to_atlas(&mut atlas, px, 1.2));
+        println!(
+            "warm-sizing px={px} requests={} bytes={}",
+            warm.allocations, warm.allocated_bytes
+        );
+    }
+    let iterations: usize = std::env::var("FONT_METRICS_ITERATIONS")
+        .map(|v| v.parse().expect("iterations"))
+        .unwrap_or(1);
+    let raster_control = std::env::var_os("FONT_METRICS_RASTER_CONTROL").is_some();
+    let invalid_control = std::env::var_os("FONT_METRICS_INVALID_CONTROL").is_some();
+    if invalid_control {
+        let mut terminal = Terminal::new_with_atlas(80, 24, atlas, 1.0);
+        let (_, invalid) = geometry_allocations::measure(|| {
+            for _ in 0..iterations {
+                terminal.set_cell_metrics(std::hint::black_box(0.0), 1.2, 1.0);
+            }
+        });
+        println!(
+            "invalid-update requests={} bytes={}",
+            invalid.allocations, invalid.allocated_bytes
+        );
+        return;
+    }
+    for index in 0..iterations {
+        let px = [14.0, 28.0, 42.0][index % 3];
+        if raster_control {
+            std::hint::black_box(atlas.fonts[0].rasterize('M', px));
+        } else {
+            apply_cell_metrics_to_atlas(&mut atlas, px, 1.2);
+            std::hint::black_box((atlas.cell_w, atlas.cell_h, atlas.baseline));
+        }
+    }
+}
+
+#[test]
+fn sizing_metrics_do_not_allocate_after_outline_preparation() {
+    let bytes = include_bytes!("../../../apps/web/public/fonts/JetBrainsMonoNF-Regular.ttf");
+    let mut atlas = atlas::GlyphAtlas::new(regular_font_aliases(load_font(bytes)));
+    let _ = atlas.fonts[0].metrics('M', 28.0);
+    for px in [-14.0, 0.0, 14.0, 28.0, 42.0] {
+        assert_eq!(
+            geometry_allocations::count(|| apply_cell_metrics_to_atlas(&mut atlas, px, 1.2)),
+            0,
+            "px={px}"
+        );
+    }
 }

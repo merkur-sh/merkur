@@ -904,8 +904,12 @@ fn apply_cell_metrics_to_atlas(atlas: &mut atlas::GlyphAtlas, px_per_em: f32, li
     atlas.px_per_em = px_per_em;
 
     let font = &atlas.fonts[0];
-    let (m_metrics, _) = font.rasterize('M', px_per_em);
-    atlas.cell_w = m_metrics.advance_width.round().max(1.0);
+    let advance_width = if px_per_em <= 0.0 {
+        0.0
+    } else {
+        font.metrics('M', px_per_em).advance_width
+    };
+    atlas.cell_w = advance_width.round().max(1.0);
 
     if let Some(lm) = font.horizontal_line_metrics(px_per_em) {
         atlas.cell_h = ((lm.ascent - lm.descent) * line_height).round().max(1.0);

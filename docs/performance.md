@@ -670,6 +670,15 @@ promotion can therefore run after first paint without blocking the display worke
 of milliseconds. Reference metrics and bitmap tests cover all bundled faces, multiple sizes,
 non-Latin text, box drawing and icons. The patch and terminal WASM must build together; source
 provenance follows the Cargo dependency closure, including the local fontdue patch.
+Cell sizing measures the `M` advance without drawing a discarded bitmap. The metrics request
+prepares the same cached outline as rasterization; nonpositive sizes retain the default
+advance without preparing an outline. `bun run scripts/bench-wasm-font-init.ts` measures
+initialization and repeated unchanged, line-height, size/DPR and invalid metric updates.
+The ignored `tests::sizing_metrics_allocation_profile` test in
+`//packages/term-wasm:release_unit` counts sizing and subsequent raster allocations;
+`FONT_METRICS_ITERATIONS` repeats sizing, and `FONT_METRICS_RASTER_CONTROL=1` selects
+subsequent rasterization as the control. `FONT_METRICS_INVALID_CONTROL=1` instead
+repeats the public setter's invalid-size rejection.
 
 WASM font replacement reuses an initial-tier CPU atlas's pixel storage, clearing its
 occupied shelves and resetting all glyph metadata and the glyph-table epoch. A grown
