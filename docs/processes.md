@@ -102,8 +102,14 @@ apply their deadline through response consumption. Non-abortable SQL transaction
 settle before interruption can roll back and release their connection.
 
 The Redis service uses Bun's native client with separate command, publisher, and subscriber
-connections. Its Effect scope owns reconnect attempts without an attempt limit and closes all
-three clients on shutdown. Offline commands are rejected; in-flight mutations are never replayed.
+connections. Its Effect scope owns reconnect attempts without an attempt limit and closes every
+owned client on shutdown. Command and publish operations lease a transport generation through
+completion, interruption, or their five-second deadline. A deadline or interruption retires that
+generation from new admission and starts its successor. Already-admitted callers retain their own
+completion and deadline rights; the last caller to finish closes the retired socket and releases
+its pending native commands. Ended leases reject further commands from abandoned callbacks, and
+retired generations cannot change successor health. Offline commands are rejected; in-flight
+mutations are never replayed.
 After a subscriber reconnects, the service restores channel subscriptions without duplicating
 local listeners and waits for their acknowledgements before notifying consumers to resync.
 Cancelled or failed subscription attempts disable delivery immediately and retire their exact

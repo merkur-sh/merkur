@@ -2000,6 +2000,7 @@ MODULES = {
         "src/services/redis-service.test.ts": [
             "//apps/server:node_modules/effect",
             ":package.json.module",
+            ":src/services/redis-script.ts.module",
             ":src/services/redis-service.ts.module",
             ":tsconfig.json.module",
         ],
