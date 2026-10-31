@@ -136,6 +136,11 @@ impl DatagramBatch {
         self.payloads[..len].iter_mut().map(std::mem::take)
     }
 
+    #[inline(always)]
+    pub(crate) fn receive_slots(&mut self) -> &mut [Bytes; DATAGRAM_BATCH_CAPACITY] {
+        &mut self.payloads
+    }
+
     pub(crate) fn clear(&mut self) {
         for payload in &mut self.payloads[..self.len] {
             *payload = Bytes::new();

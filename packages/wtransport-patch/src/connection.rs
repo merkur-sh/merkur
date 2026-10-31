@@ -620,6 +620,64 @@ mod admission_tests {
         assert_eq!(batch_payload_space(1_000, 37, 8), 741);
     }
 
+    #[cfg(feature = "quinn")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn receive_storage_rejection_lifetimes() {
+        use crate::datagram::DatagramBatch;
+        use bytes::Bytes;
+
+        let mut cases = 0;
+        for count in 1..=8 {
+            for rejected in 0..count {
+                for malformed in [false, true] {
+                    let (_server, _client, sender, receiver) =
+                        connected_pair_with_server_datagram_buffer(65536).await;
+                    let mut expected = Vec::new();
+                    {
+                        let _hold = sender.hold_egress();
+                        for index in 0..count {
+                            let payload = Bytes::from(vec![index as u8; 40]);
+                            if malformed && index == rejected {
+                                sender
+                                    .quic_connection
+                                    .send_datagram(Bytes::from_static(b"\x40"))
+                                    .unwrap();
+                            } else {
+                                let foreign = !malformed && index == rejected;
+                                assert!(sender
+                                    .quic_connection
+                                    .try_send_datagram_with_prefix(
+                                        quinn::VarInt::from_u32(u32::from(foreign)),
+                                        payload.clone(),
+                                    )
+                                    .unwrap());
+                                if !foreign && (!malformed || index < rejected) {
+                                    expected.push(payload);
+                                }
+                            }
+                        }
+                        if !malformed && expected.is_empty() {
+                            let payload = Bytes::from_static(b"after foreign");
+                            sender.send_datagram_owned(payload.clone()).unwrap();
+                            expected.push(payload);
+                        }
+                    }
+                    let mut batch = DatagramBatch::single(Bytes::from_static(b"previous"));
+                    let result = receiver.receive_datagrams(&mut batch).await;
+                    assert_eq!(result.is_err(), malformed);
+                    assert_eq!(batch.payloads(), expected);
+                    let accepted = batch.len();
+                    assert!(batch.receive_slots()[accepted..]
+                        .iter()
+                        .all(Bytes::is_empty));
+                    cases += 1;
+                }
+            }
+        }
+        assert_eq!(cases, 72);
+        println!("rejection_cases={cases} nonempty_inactive_slots=0");
+    }
+
     #[test]
     fn batch_space_saturates_for_impossible_and_overflowing_counts() {
         assert_eq!(batch_payload_space(31, 32, 2), 0);

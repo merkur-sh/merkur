@@ -1,6 +1,5 @@
 use crate::datagram::Datagram;
 use crate::datagram::DatagramBatch;
-use crate::datagram::DATAGRAM_BATCH_CAPACITY;
 use crate::datagram::DATAGRAM_BATCH_MAX_BYTES;
 use crate::driver::streams::biremote::StreamBiRemoteH3;
 use crate::driver::streams::biremote::StreamBiRemoteWT;
@@ -37,6 +36,67 @@ fn poll_once<F: Future>(future: F) -> Poll<F::Output> {
     let mut future = std::pin::pin!(future);
     let mut context = Context::from_waker(Waker::noop());
     future.as_mut().poll(&mut context)
+}
+
+struct SingleDatagram<'a> {
+    raw: &'a mut [bytes::Bytes; 1],
+    datagram: &'a mut Option<Datagram>,
+}
+
+trait DatagramStorage {
+    fn slots(&mut self) -> &mut [bytes::Bytes];
+    fn accept(&mut self, datagram: Datagram);
+
+    fn discard_unread(&mut self, first: usize, end: usize) {
+        for slot in &mut self.slots()[first..end] {
+            drop(std::mem::take(slot));
+        }
+    }
+}
+
+impl DatagramStorage for SingleDatagram<'_> {
+    fn slots(&mut self) -> &mut [bytes::Bytes] {
+        self.raw
+    }
+
+    fn accept(&mut self, datagram: Datagram) {
+        *self.datagram = Some(datagram);
+    }
+}
+
+impl DatagramStorage for &mut DatagramBatch {
+    fn slots(&mut self) -> &mut [bytes::Bytes] {
+        self.receive_slots()
+    }
+
+    fn accept(&mut self, datagram: Datagram) {
+        self.push(datagram.into_payload());
+    }
+}
+
+#[inline(always)]
+fn accept_received_datagrams(
+    session_id: SessionId,
+    received: &mut impl DatagramStorage,
+    read: usize,
+) -> Result<bool, (ErrorCode, usize)> {
+    let read = received.slots()[..read].len();
+    let mut accepted = false;
+    for index in 0..read {
+        let datagram = Datagram::read(std::mem::take(&mut received.slots()[index]))
+            .map_err(|code| (code, index + 1))?;
+        if datagram.session_id() == session_id {
+            trace!("New incoming datagram (session_id: {})", session_id);
+            received.accept(datagram);
+            accepted = true;
+        } else {
+            debug!(
+                "Incoming datagram discarded (session_id: {})",
+                datagram.session_id()
+            );
+        }
+    }
+    Ok(accepted)
 }
 
 #[derive(Clone, Debug)]
@@ -182,8 +242,20 @@ impl Driver {
 
     pub async fn receive_datagram(&self, session_id: SessionId) -> Result<Datagram, DriverError> {
         let mut received = None;
-        self.read_session_datagrams(session_id, 1, |datagram| received = Some(datagram))
-            .await?;
+        let reader = self.datagram_reader.lock().await;
+        let mut raw = [bytes::Bytes::new()];
+        let result = self
+            .read_session_datagrams(
+                session_id,
+                SingleDatagram {
+                    raw: &mut raw,
+                    datagram: &mut received,
+                },
+            )
+            .await;
+        drop(raw);
+        drop(reader);
+        result?;
         Ok(received.expect("a completed read accepted one datagram"))
     }
 
@@ -225,57 +297,40 @@ impl Driver {
         batch: &mut DatagramBatch,
     ) -> Result<(), DriverError> {
         batch.clear();
-        self.read_session_datagrams(session_id, DATAGRAM_BATCH_CAPACITY, |datagram| {
-            batch.push(datagram.into_payload())
-        })
-        .await
+        let reader = self.datagram_reader.lock().await;
+        let result = self.read_session_datagrams(session_id, batch).await;
+        drop(reader);
+        result
     }
 
-    /// Pull up to `capacity` received datagrams straight from QUIC, waiting for the first, and
-    /// hand `accept` each that belongs to `session_id`; repeat until one did. Reading here
-    /// rather than through the worker keeps a packet's datagrams together: QUIC buffers them
-    /// under one hold of its state lock, and one read takes what is buffered.
+    /// Pull into the receiver's storage, waiting for the first datagram, and retain each
+    /// that belongs to `session_id`; repeat until one did. Reading here rather than through
+    /// the worker keeps a packet's datagrams together: QUIC buffers them under one hold of
+    /// its state lock, and one read takes what is buffered.
     async fn read_session_datagrams(
         &self,
         session_id: SessionId,
-        capacity: usize,
-        mut accept: impl FnMut(Datagram),
+        mut received: impl DatagramStorage,
     ) -> Result<(), DriverError> {
-        let _reader = self.datagram_reader.lock().await;
-        let mut raw: [bytes::Bytes; DATAGRAM_BATCH_CAPACITY] = Default::default();
         loop {
             let read = match self
                 .quic_connection
-                .read_datagrams(&mut raw[..capacity], DATAGRAM_BATCH_MAX_BYTES)
+                .read_datagrams(received.slots(), DATAGRAM_BATCH_MAX_BYTES)
                 .await
             {
                 Ok(read) => read,
                 Err(_) => return Err(self.result().await),
             };
-            let mut accepted = false;
-            for slot in &mut raw[..read] {
-                let datagram = match Datagram::read(std::mem::take(slot)) {
-                    Ok(datagram) => datagram,
-                    Err(error_code) => {
-                        // As the worker ends on any HTTP/3 violation: close with its code.
-                        self.quic_connection
-                            .close(utils::varint_w2q(error_code.to_code()), b"");
-                        return Err(DriverError::Proto(error_code));
-                    }
-                };
-                if datagram.session_id() == session_id {
-                    trace!("New incoming datagram (session_id: {})", session_id);
-                    accept(datagram);
-                    accepted = true;
-                } else {
-                    debug!(
-                        "Incoming datagram discarded (session_id: {})",
-                        datagram.session_id()
-                    );
+            match accept_received_datagrams(session_id, &mut received, read) {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err((code, first_unread)) => {
+                    // As the worker ends on any HTTP/3 violation: close with its code.
+                    self.quic_connection
+                        .close(utils::varint_w2q(code.to_code()), b"");
+                    received.discard_unread(first_unread, read);
+                    return Err(DriverError::Proto(code));
                 }
-            }
-            if accepted {
-                return Ok(());
             }
         }
     }
@@ -786,6 +841,202 @@ mod admission_tests {
     use std::sync::Arc;
     use std::task::Poll;
     use std::time::Instant;
+
+    #[inline(never)]
+    fn fill_receive_storage(input: &[bytes::Bytes], out: &mut [bytes::Bytes]) -> usize {
+        for (slot, payload) in out.iter_mut().zip(input) {
+            *slot = payload.clone();
+        }
+        input.len()
+    }
+
+    fn process_receive_storage(
+        input: &[bytes::Bytes],
+        session_id: crate::SessionId,
+        batch: &mut crate::datagram::DatagramBatch,
+    ) -> Result<bool, wtransport_proto::error::ErrorCode> {
+        use super::DatagramStorage;
+
+        let mut received = batch;
+        for chunk in input.chunks(crate::datagram::DATAGRAM_BATCH_CAPACITY) {
+            let read = fill_receive_storage(black_box(chunk), black_box(received.slots()));
+            match super::accept_received_datagrams(session_id, &mut received, read) {
+                Ok(true) => return Ok(true),
+                Ok(false) => {}
+                Err((code, first_unread)) => {
+                    received.discard_unread(first_unread, read);
+                    return Err(code);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    #[test]
+    #[ignore = "release receive storage parsing and owner instruction profile"]
+    fn datagram_receive_ready_profile() {
+        use crate::datagram::DatagramBatch;
+        use bytes::Bytes;
+        use wtransport_proto::{
+            ids::{SessionId, StreamId},
+            varint::VarInt,
+        };
+
+        let count: usize = std::env::var("RECEIVE_STORAGE_COUNT")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let rejected: usize = std::env::var("RECEIVE_STORAGE_REJECTED")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let kind = std::env::var("RECEIVE_STORAGE_KIND").unwrap();
+        let session = |stream| {
+            SessionId::try_from_session_stream(StreamId::new(VarInt::try_from_u64(stream).unwrap()))
+                .unwrap()
+        };
+        let session_id = session(0);
+        let mut input = Vec::new();
+        let mut retained = Vec::new();
+        let mut expected = Vec::new();
+        for index in 0..count {
+            let malformed = kind == "malformed" && index == rejected;
+            let foreign = kind == "foreign_only" || (kind == "foreign" && index == rejected);
+            let accepted = !foreign && !(kind == "malformed" && index >= rejected);
+            let payload = vec![index as u8; 40];
+            input.push(if malformed {
+                Bytes::from(vec![0x40].into_boxed_slice())
+            } else {
+                super::Datagram::write(if foreign { session(4) } else { session_id }, &payload)
+                    .into_quic_bytes()
+            });
+            retained.push(accepted);
+            if accepted {
+                expected.push(payload);
+            }
+        }
+        if expected.is_empty() && kind != "malformed" {
+            input.push(super::Datagram::write(session_id, &[0xf0; 40]).into_quic_bytes());
+            retained.push(true);
+            expected.push(vec![0xf0; 40]);
+        }
+        let mut batch = DatagramBatch::default();
+        let mut result = Ok(false);
+        for _ in 0..100 {
+            batch.clear();
+            result = process_receive_storage(&input, session_id, &mut batch);
+        }
+        for _ in 0..2_000_000 {
+            batch.clear();
+            result = black_box(process_receive_storage(
+                black_box(&input),
+                black_box(session_id),
+                black_box(&mut batch),
+            ));
+        }
+        assert_eq!(result.is_err(), kind == "malformed");
+        assert_eq!(batch.len(), expected.len());
+        for (actual, expected) in batch.payloads().iter().zip(&expected) {
+            assert_eq!(actual.as_ref(), expected);
+        }
+        let mut owners = 0u16;
+        for (index, (owner, retained)) in input.iter().zip(retained).enumerate() {
+            assert_eq!(!owner.is_unique(), retained);
+            owners |= u16::from(!owner.is_unique()) << index;
+        }
+        batch.clear();
+        assert!(input.iter().all(Bytes::is_unique));
+        println!("count={count} rejected={rejected} kind={kind} iterations=2000000 retained_owner_mask={owners:03x} final_extra_owners=0");
+    }
+
+    fn process_single_receive_storage(
+        input: &[bytes::Bytes],
+        session_id: crate::SessionId,
+    ) -> Result<Option<super::Datagram>, wtransport_proto::error::ErrorCode> {
+        use super::DatagramStorage;
+
+        let mut received = None;
+        let mut raw = [bytes::Bytes::new()];
+        let mut storage = super::SingleDatagram {
+            raw: &mut raw,
+            datagram: &mut received,
+        };
+        for chunk in input.chunks(1) {
+            let read = fill_receive_storage(black_box(chunk), black_box(storage.slots()));
+            match super::accept_received_datagrams(session_id, &mut storage, read) {
+                Ok(true) => return Ok(received),
+                Ok(false) => {}
+                Err((code, first_unread)) => {
+                    storage.discard_unread(first_unread, read);
+                    return Err(code);
+                }
+            }
+        }
+        Ok(received)
+    }
+
+    #[test]
+    #[ignore = "release single receive storage parsing and owner instruction profile"]
+    fn single_datagram_receive_ready_profile() {
+        use bytes::Bytes;
+        use wtransport_proto::{
+            ids::{SessionId, StreamId},
+            varint::VarInt,
+        };
+
+        let stream: u64 = std::env::var("SINGLE_STORAGE_STREAM")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let len: usize = std::env::var("SINGLE_STORAGE_LEN")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let kind = std::env::var("SINGLE_STORAGE_KIND").unwrap();
+        let session = |stream| {
+            SessionId::try_from_session_stream(StreamId::new(VarInt::try_from_u64(stream).unwrap()))
+                .unwrap()
+        };
+        let session_id = session(stream);
+        let payload = vec![0xa5; len];
+        let mut input = Vec::new();
+        if kind == "foreign" {
+            input.push(super::Datagram::write(session(stream + 4), &[0x33; 40]).into_quic_bytes());
+        }
+        input.push(if kind == "malformed" {
+            Bytes::from(vec![0x40].into_boxed_slice())
+        } else {
+            super::Datagram::write(session_id, &payload).into_quic_bytes()
+        });
+        let mut result = Ok(None);
+        for _ in 0..100 {
+            drop(result);
+            result = process_single_receive_storage(&input, session_id);
+        }
+        for _ in 0..2_000_000 {
+            drop(result);
+            result = black_box(process_single_receive_storage(
+                black_box(&input),
+                black_box(session_id),
+            ));
+        }
+        assert_eq!(result.is_err(), kind == "malformed");
+        if let Ok(Some(datagram)) = &result {
+            assert_eq!(datagram.payload().as_ref(), payload);
+            assert_eq!(datagram.session_id(), session_id);
+        } else {
+            assert_eq!(kind, "malformed");
+        }
+        for (index, owner) in input.iter().enumerate() {
+            assert_eq!(
+                !owner.is_unique(),
+                kind != "malformed" && index == input.len() - 1
+            );
+        }
+        drop(result);
+        assert!(input.iter().all(Bytes::is_unique));
+        println!("stream={stream} len={len} kind={kind} iterations=2000000 final_extra_owners=0");
+    }
 
     struct CountedPending {
         polls: Arc<AtomicUsize>,

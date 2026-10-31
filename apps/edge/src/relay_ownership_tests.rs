@@ -172,6 +172,258 @@ async fn receive_projection_profile() {
     );
 }
 
+#[derive(Clone, Copy)]
+enum ReceiveStorageCase {
+    Valid,
+    Foreign(usize),
+    Malformed(usize),
+    ForeignOnly,
+}
+
+async fn receive_storage_case(count: usize, case: ReceiveStorageCase) -> u64 {
+    let (_server, _client, local, remote) = pair().await;
+    let mut expected = Vec::new();
+    let malformed = match case {
+        ReceiveStorageCase::Malformed(index) => Some(index),
+        _ => None,
+    };
+    {
+        let _hold = local.hold_egress();
+        for index in 0..count {
+            let payload = Bytes::from(vec![index as u8; 40]);
+            let foreign = matches!(case, ReceiveStorageCase::Foreign(at) if at == index)
+                || matches!(case, ReceiveStorageCase::ForeignOnly);
+            if malformed == Some(index) {
+                local
+                    .quic_connection()
+                    .send_datagram(Bytes::from_static(b"\x40"))
+                    .unwrap();
+            } else {
+                assert!(
+                    local
+                        .quic_connection()
+                        .try_send_datagram_with_prefix(
+                            wtransport::quinn::VarInt::from_u32(u32::from(foreign)),
+                            payload.clone(),
+                        )
+                        .unwrap()
+                );
+                if !foreign && malformed.is_none_or(|at| index < at) {
+                    expected.push(payload);
+                }
+            }
+        }
+        if malformed.is_none() && expected.is_empty() {
+            let payload = Bytes::from_static(&[0xf0; 40]);
+            local.send_datagram_owned(payload.clone()).unwrap();
+            expected.push(payload);
+        }
+    }
+    let mut batch = wtransport::datagram::DatagramBatch::single(Bytes::from_static(b"previous"));
+    let result = tokio::time::timeout(Duration::from_secs(5), remote.receive_datagrams(&mut batch))
+        .await
+        .unwrap();
+    assert_eq!(result.is_err(), malformed.is_some());
+    assert_eq!(remote.quic_connection().is_closed(), malformed.is_some());
+    assert_eq!(batch.payloads(), expected);
+    let mut fingerprint = u64::from(result.is_err());
+    for payload in batch.payloads() {
+        fingerprint = fingerprint
+            .wrapping_mul(257)
+            .wrapping_add(payload.len() as u64);
+        for byte in payload {
+            fingerprint = fingerprint.wrapping_mul(257).wrapping_add(u64::from(*byte));
+        }
+    }
+    fingerprint
+}
+
+#[tokio::test]
+#[ignore = "release receive storage layout, cancellation and byte profile"]
+async fn datagram_receive_storage_profile() {
+    use std::hint::black_box;
+    use std::mem::size_of_val;
+    use wtransport::datagram::DatagramBatch;
+
+    let workload = std::env::var("DATAGRAM_STORAGE_WORKLOAD").unwrap_or_else(|_| "layout".into());
+    let (_server, _client, local, remote) = pair().await;
+    let mut batch = DatagramBatch::default();
+    println!(
+        "single_future={} batch_future={} selective_future={}",
+        size_of_val(&remote.receive_datagram()),
+        size_of_val(&remote.receive_datagrams(&mut batch)),
+        size_of_val(&remote.receive_datagram_matching(|_| true))
+    );
+    if workload != "layout" {
+        let (phase, kind) = workload.split_once('_').unwrap();
+        let mut holder = if phase == "waiting" {
+            Some(Box::pin(remote.receive_datagram()))
+        } else {
+            None
+        };
+        if let Some(holder) = holder.as_mut() {
+            assert!(
+                holder
+                    .as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending()
+            );
+        }
+        if phase == "closed" {
+            remote.close(VarInt::from_u32(0), b"closed");
+            assert!(remote.receive_datagram().await.is_err());
+        }
+        let _egress = (kind == "send").then(|| local.hold_egress());
+        if kind == "send" {
+            let (_, cold) = measured(|| {
+                local.send_datagram(b"x").unwrap();
+                assert_eq!(local.quic_connection().clear_queued_datagrams(), 1);
+            });
+            println!("cold_send={cold:?}");
+        }
+        let (_, tally) = tokio::task::unconstrained(async {
+            measured(|| {
+                for _ in 0..2_000_000 {
+                    let polled = match kind {
+                        "single" => {
+                            poll_receive(remote.receive_datagram()).map(|result| result.map(|_| ()))
+                        }
+                        "batch" => poll_receive(remote.receive_datagrams(&mut batch)),
+                        "selective" => poll_receive(remote.receive_datagram_matching(|_| true))
+                            .map(|result| result.map(|_| ())),
+                        "send" => {
+                            local.send_datagram(b"x").unwrap();
+                            assert_eq!(local.quic_connection().clear_queued_datagrams(), 1);
+                            Poll::Pending
+                        }
+                        _ => panic!("unknown receive profile kind"),
+                    };
+                    if phase == "closed" {
+                        assert!(matches!(black_box(polled), Poll::Ready(Err(_))));
+                    } else {
+                        assert!(black_box(polled).is_pending());
+                    }
+                }
+            })
+        })
+        .await;
+        assert_eq!(
+            tally,
+            if kind == "send" {
+                Tally {
+                    allocations: 2_000_000,
+                    bytes: 4_000_000,
+                }
+            } else {
+                Tally::default()
+            }
+        );
+        drop(holder);
+        if phase == "waiting" {
+            local.send_datagram(b"after cancellation").unwrap();
+            assert_eq!(
+                &remote.receive_datagram().await.unwrap()[..],
+                b"after cancellation"
+            );
+        }
+        println!(
+            "workload={workload} iterations=2000000 allocations={} requested_bytes={}",
+            tally.allocations, tally.bytes
+        );
+        return;
+    }
+    let connection = remote.clone();
+    let (task, single) =
+        measured(|| tokio::spawn(async move { connection.receive_datagram().await }));
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    let connection = remote.clone();
+    let (task, batched) = measured(|| {
+        tokio::spawn(async move {
+            let mut batch = DatagramBatch::default();
+            connection.receive_datagrams(&mut batch).await
+        })
+    });
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    let connection = remote.clone();
+    let (task, selective) = measured(|| {
+        tokio::spawn(async move { connection.receive_datagram_matching(|_| true).await })
+    });
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    println!("single_task={single:?} batch_task={batched:?} selective_task={selective:?}");
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct PreviousPayload(std::sync::Arc<AtomicUsize>);
+    impl AsRef<[u8]> for PreviousPayload {
+        fn as_ref(&self) -> &[u8] {
+            b"previous"
+        }
+    }
+    impl Drop for PreviousPayload {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    let drops = std::sync::Arc::new(AtomicUsize::new(0));
+    let mut previous = DatagramBatch::single(Bytes::from_owner(PreviousPayload(
+        std::sync::Arc::clone(&drops),
+    )));
+    let mut holder = Box::pin(remote.receive_datagram());
+    assert!(
+        holder
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
+    {
+        let mut waiter = Box::pin(remote.receive_datagrams(&mut previous));
+        assert!(
+            waiter
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+    }
+    assert_eq!(drops.load(Ordering::Relaxed), 1);
+    assert!(previous.is_empty());
+    drop(holder);
+    local
+        .send_datagram(b"cancelled readers leave no waiter")
+        .unwrap();
+    assert_eq!(
+        &remote.receive_datagram().await.unwrap()[..],
+        b"cancelled readers leave no waiter"
+    );
+
+    let mut fingerprint = 0u64;
+    let mut cases = 0;
+    for count in 1..=8 {
+        for case in [ReceiveStorageCase::Valid, ReceiveStorageCase::ForeignOnly] {
+            fingerprint = fingerprint
+                .wrapping_mul(257)
+                .wrapping_add(receive_storage_case(count, case).await);
+            cases += 1;
+        }
+        for index in 0..count {
+            for case in [
+                ReceiveStorageCase::Foreign(index),
+                ReceiveStorageCase::Malformed(index),
+            ] {
+                fingerprint = fingerprint
+                    .wrapping_mul(257)
+                    .wrapping_add(receive_storage_case(count, case).await);
+                cases += 1;
+            }
+        }
+    }
+    println!(
+        "cases={cases} fingerprint={fingerprint:016x} previous_payload_drops={}",
+        drops.load(Ordering::Relaxed)
+    );
+}
+
 async fn pair() -> (Endpoint<Server>, Endpoint<Client>, Connection, Connection) {
     let cert = EdgeCert::generate(&["localhost"]).unwrap();
     let server = build_server(
