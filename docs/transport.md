@@ -739,9 +739,10 @@ newest pair within one 20 s lease.
 Every dataplane process draws a random 16-byte incarnation at start and names it in each
 daemon preface. The edge remembers the newest incarnation per daemon id while that daemon has
 registry slots, including browser-only half-pairs, and removes the record with its final slot.
-An announcement without slots retains no record. A preface naming a different incarnation
-retires every slot the earlier incarnation held, and each browser counterpart
-gets `counterpart_detached` at once. A clean shutdown closes its connections, but a crashed
+An announcement without slots retains no record. A verified tunnel preface names its incarnation
+before quote setup begins and retires every slot the earlier incarnation held. Each browser
+counterpart closes at once. Delayed quote setup completes only its admitted attachment; it
+cannot supersede a later incarnation. A clean shutdown closes its connections, but a crashed
 dataplane cannot, and without this the edge would hold its slots until the dead connections'
 30 s idle timeout before any browser re-issued. The dataplane does not wait for a session to
 announce itself: whenever the daemon hands it an edge admission (the attach ticket and the

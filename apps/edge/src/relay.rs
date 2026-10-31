@@ -426,30 +426,17 @@ pub async fn accept_loop(
                         }
                     }
                 };
-                let quote_control = if preface.role == Role::Daemon {
-                    match tokio::time::timeout(
-                        PREFACE_TIMEOUT,
-                        read_delivery_quote_stream(&connection),
-                    )
-                    .await
-                    {
-                        Ok(Ok(stream)) => Some(stream),
-                        Ok(Err(error)) => {
-                            metrics::record_handshake_failure("quote_preface");
-                            warn!("edge: invalid delivery-quote stream: {error}");
-                            connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-quote-preface");
-                            return;
-                        }
-                        Err(_) => {
-                            metrics::record_handshake_failure("quote_preface_timeout");
-                            warn!("edge: delivery-quote stream timed out");
-                            connection
-                                .close(VarInt::from_u32(CLOSE_CODE), b"quote-preface-timeout");
+                let (promoted, quote_control) = if preface.role == Role::Daemon {
+                    match prepare_tunnel(&connection, &registry, &preface).await {
+                        Ok((handle, quote)) => (Some(handle), Some(quote)),
+                        Err(error) => {
+                            warn!("edge: tunnel setup failed: {error}");
+                            connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-tunnel-setup");
                             return;
                         }
                     }
                 } else {
-                    None
+                    (promoted, None)
                 };
                 // The remote address names the connection's path; behind the
                 // harness proxy it is one relay's upstream socket, which is how a
@@ -563,6 +550,56 @@ async fn read_delivery_quote_stream(
     // This stream is advisory and must yield to the lifecycle stream above.
     send.set_priority(-100);
     Ok((send, recv))
+}
+
+async fn prepare_tunnel(
+    connection: &wtransport::Connection,
+    registry: &SpliceRegistry,
+    preface: &RoutingPreface,
+) -> Result<
+    (
+        crate::splice::AttachHandle,
+        (wtransport::SendStream, wtransport::RecvStream),
+    ),
+    String,
+> {
+    let RoutingAttachment::Tunnel { incarnation } = &preface.attachment else {
+        return Err("expected tunnel attachment".to_string());
+    };
+    // Seat the verified incarnation before any further peer-controlled await.
+    // Setup completion owns this handle and never supersedes an incarnation again.
+    let handle = registry
+        .attach_tunnel(&preface.session_id, &preface.daemon_id, incarnation)
+        .map_err(|error| {
+            if error == AttachError::EgressBudget {
+                connection.close(
+                    VarInt::from_u32(EGRESS_BUDGET_CLOSE_CODE),
+                    EGRESS_BUDGET_CLOSE_REASON,
+                );
+            }
+            format!("tunnel attachment: {error:?}")
+        })?;
+    let quote = tokio::time::timeout(PREFACE_TIMEOUT, read_delivery_quote_stream(connection))
+        .await
+        .map_err(|_| {
+            metrics::record_handshake_failure("quote_preface_timeout");
+            connection.close(VarInt::from_u32(CLOSE_CODE), b"quote-preface-timeout");
+            "delivery-quote preface timed out".to_string()
+        })
+        .and_then(|result| {
+            result.inspect_err(|_| {
+                metrics::record_handshake_failure("quote_preface");
+                connection.close(VarInt::from_u32(CLOSE_CODE), b"bad-quote-preface");
+            })
+        });
+    let quote = match quote {
+        Ok(quote) => quote,
+        Err(error) => {
+            registry.detach(&preface.session_id, Role::Daemon, handle.attachment_id);
+            return Err(error);
+        }
+    };
+    Ok((handle, quote))
 }
 
 /// After its preface the daemon's quote direction carries one byte per
@@ -1025,12 +1062,9 @@ async fn run_spliced_session(
     let session_id: Arc<str> = preface.session_id.into();
     let role = preface.role;
 
-    let attached = match (promoted, &preface.attachment) {
-        (Some(handle), _) => Ok(handle),
-        (None, RoutingAttachment::Tunnel { incarnation }) => {
-            registry.attach_tunnel(&session_id, &preface.daemon_id, incarnation)
-        }
-        (None, _) => registry.attach(&session_id, role, &preface.daemon_id),
+    let attached = match promoted {
+        Some(handle) => Ok(handle),
+        None => registry.attach(&session_id, role, &preface.daemon_id),
     };
     let handle = match attached {
         Ok(handle) => handle,

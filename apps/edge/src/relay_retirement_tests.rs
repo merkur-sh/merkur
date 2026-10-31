@@ -1,5 +1,6 @@
 use super::tests::{attach_test_peer, read_test_lifecycle};
 use super::*;
+use std::future::Future;
 use wtransport::endpoint::endpoint_side::Client;
 use wtransport::{ClientConfig, Endpoint};
 
@@ -229,4 +230,58 @@ async fn active_fault(relay: &Relay, failure: &str) {
     }
     daemon.closed().await;
     browser.close(VarInt::from_u32(0), b"done");
+}
+
+#[tokio::test]
+async fn delayed_old_tunnel_cannot_supersede_new_incarnation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (server, client, url) = endpoints();
+    let accept = async { server.accept().await.await?.accept().await };
+    let (edge, old) = tokio::join!(accept, client.connect(&url));
+    let edge = edge?;
+    let old = old?;
+    let registry = SpliceRegistry::new();
+    let daemon = crate::attach_ticket::TEST_DAEMON_ID;
+    let preface = RoutingPreface {
+        session_id: "old#signaling".into(),
+        daemon_id: daemon.into(),
+        role: Role::Daemon,
+        version: PREFACE_VERSION,
+        attachment: RoutingAttachment::Tunnel {
+            incarnation: "AAAAAAAAAAAAAAAAAAAAAA".into(),
+        },
+        ticket: crate::attach_ticket::test_ticket(Role::Daemon.into(), "old#signaling"),
+    };
+    let setup = prepare_tunnel(&edge, &registry, &preface);
+    tokio::pin!(setup);
+    // Poll through admission up to the missing quote preface, with no scheduler race.
+    assert!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(setup.as_mut().poll(cx).is_pending()))
+            .await
+    );
+    registry.announce_incarnation(daemon, "BBBBBBBBBBBBBBBBBB");
+    let replacement = registry
+        .attach_tunnel("new#signaling", daemon, "BBBBBBBBBBBBBBBBBB")
+        .map_err(|error| format!("{error:?}"))?;
+    let browser = registry
+        .attach("new#signaling", Role::Browser, daemon)
+        .map_err(|error| format!("{error:?}"))?;
+    let (mut quote, _events) = old.open_bi().await?.await?;
+    quote
+        .write_all(DELIVERY_QUOTE_STREAM_PREFACE)
+        .await
+        .map_err(|error| format!("{error:?}"))?;
+    let _old = setup.await;
+    assert!(
+        !matches!(
+            *replacement.lifecycle_rx.borrow(),
+            Some(crate::splice::AttachmentLifecycle::Retire(_))
+        ),
+        "new daemon was retired by delayed old tunnel"
+    );
+    assert!(!browser.datagram_rx.is_closed(), "new browser was removed");
+    assert!(browser.datagram_route.route(crate::splice::Frame::datagram(
+        bytes::Bytes::from_static(b"still open")
+    )));
+    Ok(())
 }
