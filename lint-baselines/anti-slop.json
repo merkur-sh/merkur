@@ -1303,7 +1303,7 @@
     "no-known-value-widening": 2,
     "no-runtime-typeof": 2,
     "no-shape-in-symbol-names": 3,
-    "no-swallowed-error": 2,
+    "no-swallowed-error": 1,
     "no-unknown-parameters": 5,
     "prefer-effect-match": 1,
     "require-safety-comment-for-type-assertion": 2

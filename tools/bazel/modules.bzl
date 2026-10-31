@@ -4021,6 +4021,7 @@ MODULES = {
             ":src/terminal-worker.ts.module",
             ":src/terminal/display-process-budget.ts.module",
             ":src/terminal/first-display-gpu-fence.ts.module",
+            ":src/terminal/prediction-fast-path.ts.module",
             ":src/terminal/shared-ring.ts.module",
             ":src/terminal/viewer-output-publisher.ts.module",
             ":src/terminal/viewer-output-ring.ts.module",

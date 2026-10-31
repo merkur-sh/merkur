@@ -166,6 +166,7 @@ export interface PredictionFastPathConsumer {
     cols: number,
     throughInputSeq: number,
   ): void;
+  /** Retire readiness and clear published prediction admission. */
   resetPublishedState(): void;
 }
 
@@ -524,7 +525,10 @@ export function createPredictionFastPathConsumer(
         throughInputSeq,
       );
     },
-    resetPublishedState,
+    resetPublishedState(): void {
+      Atomics.store(words, ACTIVE_EPOCH_WORD, 0);
+      resetPublishedState();
+    },
   };
 }
 
