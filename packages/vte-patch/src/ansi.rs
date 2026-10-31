@@ -8,7 +8,7 @@
 
 extern crate alloc;
 
-use alloc::borrow::ToOwned;
+use alloc::borrow::{Cow, ToOwned};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::convert::TryFrom;
@@ -654,7 +654,7 @@ pub trait Handler {
     fn desktop_notification(&mut self, _title: &[u8], _body: &[&[u8]]) {}
 
     /// OSC to set window title.
-    fn set_title(&mut self, _: Option<String>) {}
+    fn set_title(&mut self, _: Option<Cow<'_, str>>) {}
 
     /// Set the cursor style.
     fn set_cursor_style(&mut self, _: Option<CursorStyle>) {}
@@ -1575,14 +1575,18 @@ where
             // Set window title.
             b"0" | b"2" => {
                 if params.len() >= 2 {
-                    let title = params[1..]
-                        .iter()
-                        .flat_map(|x| str::from_utf8(x))
-                        .collect::<Vec<&str>>()
-                        .join(";")
-                        .trim()
-                        .to_owned();
-                    self.handler.set_title(Some(title));
+                    let title = if params.len() == 2 {
+                        Cow::Borrowed(str::from_utf8(params[1]).unwrap_or_default())
+                    } else {
+                        Cow::Owned(
+                            params[1..]
+                                .iter()
+                                .flat_map(|x| str::from_utf8(x))
+                                .collect::<Vec<&str>>()
+                                .join(";"),
+                        )
+                    };
+                    self.handler.set_title(Some(Cow::Borrowed(title.trim())));
                     return;
                 }
                 unhandled(params);

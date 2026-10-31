@@ -850,6 +850,9 @@ and notification fields have a 2,048-byte UTF-8 bound and exclude C0/C1 controls
 title also excludes semicolons. OSC 9 numeric subcommands cannot become host commands; accepted
 notifications are reconstructed as fixed OSC 777 notification sequences.
 
+Title admission applies the same text contract before canonical terminal storage. A rejected
+title changes neither the current title nor the titles saved by subsequent stack pushes.
+
 The current title is sent at authenticated attachment and rebind. Transient effects belong to
 attached peers: the daemon retains at most 16 unsent effects with a combined 2 MiB text bound,
 and advances offline cursors instead of replaying offline notifications or clipboard writes.

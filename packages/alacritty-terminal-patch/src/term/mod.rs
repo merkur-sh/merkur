@@ -1,5 +1,6 @@
 //! Exports the `Term` type which is a high-level API for the Grid.
 
+use std::borrow::Cow;
 use std::ops::{Index, IndexMut, Range};
 use std::sync::Arc;
 use std::{cmp, mem, ptr, str};
@@ -2695,7 +2696,14 @@ impl<T: EventListener> Handler for Term<T> {
     }
 
     #[inline]
-    fn set_title(&mut self, title: Option<String>) {
+    fn set_title(&mut self, title: Option<Cow<'_, str>>) {
+        if title
+            .as_deref()
+            .is_some_and(|title| !self.event_proxy.title_is_valid(title))
+        {
+            return;
+        }
+        let title = title.map(Cow::into_owned);
         trace!("Setting title to '{title:?}'");
 
         self.title.clone_from(&title);
@@ -2728,7 +2736,7 @@ impl<T: EventListener> Handler for Term<T> {
 
         if let Some(popped) = self.title_stack.pop() {
             trace!("Title '{popped:?}' popped from stack");
-            self.set_title(popped);
+            self.set_title(popped.map(Cow::Owned));
         }
     }
 
