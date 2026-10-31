@@ -1640,6 +1640,225 @@ mod driver_io {
         Bytes::from(vec![fill; len])
     }
 
+    struct ProjectionCounter {
+        enabled: AtomicBool,
+        calls: AtomicUsize,
+    }
+
+    impl ProjectionCounter {
+        fn measured<R>(&self, f: impl FnOnce() -> R) -> (R, usize) {
+            self.calls.store(0, Ordering::Relaxed);
+            self.enabled.store(true, Ordering::Relaxed);
+            let result = f();
+            self.enabled.store(false, Ordering::Relaxed);
+            (result, self.calls.load(Ordering::Relaxed))
+        }
+
+        fn count(&self) {
+            if self.enabled.load(Ordering::Relaxed) {
+                self.calls.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    struct CountingController {
+        inner: Box<dyn proto::congestion::Controller>,
+        counter: Arc<ProjectionCounter>,
+    }
+
+    impl proto::congestion::Controller for CountingController {
+        fn on_sent(&mut self, now: Instant, bytes: u64, packet: u64) {
+            self.inner.on_sent(now, bytes, packet);
+        }
+        fn on_ack(
+            &mut self,
+            now: Instant,
+            sent: Instant,
+            bytes: u64,
+            limited: bool,
+            rtt: &proto::RttEstimator,
+        ) {
+            self.inner.on_ack(now, sent, bytes, limited, rtt);
+        }
+        fn on_end_acks(&mut self, now: Instant, flight: u64, limited: bool, largest: Option<u64>) {
+            self.inner.on_end_acks(now, flight, limited, largest);
+        }
+        fn on_congestion_event(
+            &mut self,
+            now: Instant,
+            sent: Instant,
+            persistent: bool,
+            bytes: u64,
+        ) {
+            self.inner.on_congestion_event(now, sent, persistent, bytes);
+        }
+        fn on_mtu_update(&mut self, mtu: u16) {
+            self.inner.on_mtu_update(mtu);
+        }
+        fn window(&self) -> u64 {
+            self.counter.count();
+            self.inner.window()
+        }
+        fn metrics(&self) -> proto::congestion::ControllerMetrics {
+            self.counter.count();
+            self.inner.metrics()
+        }
+        fn resume_window(&mut self, window: proto::congestion::ResumeWindow) -> bool {
+            self.inner.resume_window(window)
+        }
+        fn clone_box(&self) -> Box<dyn proto::congestion::Controller> {
+            Box::new(Self {
+                inner: self.inner.clone_box(),
+                counter: Arc::clone(&self.counter),
+            })
+        }
+        fn initial_window(&self) -> u64 {
+            self.inner.initial_window()
+        }
+        fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
+            self
+        }
+    }
+
+    struct CountingFactory(Arc<ProjectionCounter>);
+
+    impl proto::congestion::ControllerFactory for CountingFactory {
+        fn build(
+            self: Arc<Self>,
+            now: Instant,
+            mtu: u16,
+        ) -> Box<dyn proto::congestion::Controller> {
+            Box::new(CountingController {
+                inner: proto::congestion::ControllerFactory::build(
+                    Arc::new(proto::congestion::CubicConfig::default()),
+                    now,
+                    mtu,
+                ),
+                counter: Arc::clone(&self.0),
+            })
+        }
+    }
+
+    #[test]
+    #[ignore = "receive-only projection call profile"]
+    fn receive_projection_profile() {
+        rt_basic().block_on(async {
+            let counter = Arc::new(ProjectionCounter {
+                enabled: AtomicBool::new(false),
+                calls: AtomicUsize::new(0),
+            });
+            let mut transport = TransportConfig::default();
+            transport.congestion_controller_factory(Arc::new(CountingFactory(Arc::clone(&counter))));
+            let factory = EndpointFactory::new();
+            let client = factory.endpoint_with_config(transport);
+            let server = factory.endpoint();
+            let (connection, remote) = connect(&client, &server).await;
+            let mut receive_calls = 0;
+            let mut pending_polls = 0;
+            for kind in ["single", "batch", "selective"] {
+                let (_, calls) = counter.measured(|| {
+                    for _ in 0..1000 {
+                        let before = connection.delivery_state();
+                        let mut out = [const { Bytes::new() }; 8];
+                        let mut future: Pin<Box<dyn Future<Output = ()>>> = match kind {
+                            "single" => Box::pin(async {
+                                connection.read_datagram().await.unwrap();
+                            }),
+                            "batch" => Box::pin(async {
+                                connection.read_datagrams(&mut out, 1500).await.unwrap();
+                            }),
+                            _ => Box::pin(async {
+                                connection.read_datagram_matching(|_| true).await.unwrap();
+                            }),
+                        };
+                        assert!(future
+                            .as_mut()
+                            .poll(&mut Context::from_waker(Waker::noop()))
+                            .is_pending());
+                        drop(future);
+                        assert_eq!(connection.delivery_state(), before);
+                    }
+                });
+                pending_polls += 1000;
+                receive_calls += calls;
+                println!("receive={kind} pending_polls=1000 projection_calls={calls}");
+            }
+            // Every poll is counted in isolation: the runtime and its driver run with counting off.
+            for kind in ["single", "batch", "selective"] {
+                let _hold = remote.hold_egress();
+                for byte in 0..4 {
+                    remote.send_datagram(Bytes::from(vec![byte; 40])).unwrap();
+                }
+                drop(_hold);
+                let mut out = [const { Bytes::new() }; 8];
+                let mut polls = 0;
+                let mut calls = 0;
+                let mut future: Pin<Box<dyn Future<Output = ()>>> = match kind {
+                    "single" => Box::pin(async {
+                        for byte in 0..4 {
+                            assert_eq!(connection.read_datagram().await.unwrap(), vec![byte; 40]);
+                        }
+                    }),
+                    "batch" => Box::pin(async {
+                        let count = connection.read_datagrams(&mut out, 1500).await.unwrap();
+                        assert_eq!(count, 4);
+                        for (byte, value) in out[..count].iter().enumerate() {
+                            assert_eq!(value.as_ref(), vec![byte as u8; 40]);
+                        }
+                    }),
+                    _ => Box::pin(async {
+                        assert_eq!(
+                            connection
+                                .read_datagram_matching(|bytes| bytes[0] == 3)
+                                .await
+                                .unwrap(),
+                            vec![3; 40]
+                        );
+                        for byte in 0..3 {
+                            assert_eq!(connection.read_datagram().await.unwrap(), vec![byte; 40]);
+                        }
+                    }),
+                };
+                std::future::poll_fn(|cx| {
+                    let before = connection.delivery_state();
+                    let (result, count) = counter.measured(|| future.as_mut().poll(cx));
+                    assert_eq!(connection.delivery_state(), before);
+                    calls += count;
+                    polls += 1;
+                    result
+                })
+                .await;
+                drop(future);
+                receive_calls += calls;
+                println!("receive={kind} ready_polls={polls} projection_calls={calls}");
+            }
+            let (_, send_calls) = counter.measured(|| {
+                connection
+                    .send_datagram(Bytes::from_static(b"send"))
+                    .unwrap()
+            });
+            assert_eq!(send_calls, 2);
+            let before = connection.delivery_state();
+            assert_eq!(before, connection.locked_delivery_state());
+            let (_, stats_calls) = counter.measured(|| connection.stats());
+            assert_eq!(stats_calls, 4);
+            println!("non_target_send_projection_calls={send_calls} non_target_stats_projection_calls={stats_calls}");
+            connection.close(VarInt::from_u32(0), b"closed");
+            let (_, closed_calls) = counter.measured(|| {
+                let mut future = pin!(connection.read_datagram());
+                assert!(matches!(
+                    future
+                        .as_mut()
+                        .poll(&mut Context::from_waker(Waker::noop())),
+                    Poll::Ready(Err(_))
+                ));
+            });
+            receive_calls += closed_calls;
+            println!("receive=closed projection_calls={closed_calls} pending_polls={pending_polls} total_receive_projection_calls={receive_calls}");
+            assert_eq!(receive_calls, 0);
+        });
+    }
+
     #[test]
     fn datagrams_admitted_under_a_hold_leave_in_one_packet_when_it_is_released() {
         let _guard = subscribe();

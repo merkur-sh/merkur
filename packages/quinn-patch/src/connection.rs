@@ -1199,21 +1199,20 @@ impl Future for ReadDatagrams<'_> {
         if this.out.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        let mut state = this.conn.state.lock("ReadDatagrams::poll");
+        let mut state = this.conn.state.lock_receive("ReadDatagrams::poll");
         // As `ReadDatagram`: drain what was received before reporting a closed connection.
-        let mut datagrams = state.inner.datagrams();
-        if let Some(first) = datagrams.recv() {
+        if let Some(first) = state.recv() {
             let mut bytes = first.len();
             this.out[0] = first;
             let mut count = 1;
             while count < this.out.len() {
-                let Some(next) = datagrams.peek_len() else {
+                let Some(next) = state.peek_len() else {
                     break;
                 };
                 if bytes + next > *this.max_bytes {
                     break;
                 }
-                let Some(datagram) = datagrams.recv() else {
+                let Some(datagram) = state.recv() else {
                     break;
                 };
                 bytes += next;
@@ -1222,7 +1221,7 @@ impl Future for ReadDatagrams<'_> {
             }
             return Poll::Ready(Ok(count));
         }
-        if let Some(ref e) = state.error {
+        if let Some(e) = state.error() {
             return Poll::Ready(Err(e.clone()));
         }
         loop {
@@ -1251,12 +1250,12 @@ impl Future for ReadDatagram<'_> {
     type Output = Result<Bytes, ConnectionError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let mut state = this.conn.state.lock("ReadDatagram::poll");
+        let mut state = this.conn.state.lock_receive("ReadDatagram::poll");
         // Check for buffered datagrams before checking `state.error` so that already-received
         // datagrams, which are necessarily finite, can be drained from a closed connection.
-        if let Some(x) = state.inner.datagrams().recv() {
+        if let Some(x) = state.recv() {
             return Poll::Ready(Ok(x));
-        } else if let Some(ref e) = state.error {
+        } else if let Some(e) = state.error() {
             return Poll::Ready(Err(e.clone()));
         }
         loop {
@@ -1286,11 +1285,11 @@ impl<F: FnMut(&Bytes) -> bool> Future for ReadDatagramMatching<'_, F> {
     type Output = Result<Bytes, ConnectionError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let mut state = this.conn.state.lock("ReadDatagramMatching::poll");
-        if let Some(packet) = state.inner.datagrams().recv_matching(this.predicate) {
+        let mut state = this.conn.state.lock_receive("ReadDatagramMatching::poll");
+        if let Some(packet) = state.recv_matching(this.predicate) {
             return Poll::Ready(Ok(packet));
         }
-        if let Some(ref error) = state.error {
+        if let Some(error) = state.error() {
             return Poll::Ready(Err(error.clone()));
         }
         loop {
@@ -1519,6 +1518,30 @@ pub(crate) struct State {
     /// Live [`EgressHold`]s. While any is held the driver builds no packet, so every
     /// datagram and stream write their holder admits is queued before the next one is built.
     egress_holds: u32,
+}
+
+impl crate::mutex::DatagramReceive for State {
+    type Error = ConnectionError;
+
+    #[inline]
+    fn recv(&mut self) -> Option<Bytes> {
+        self.inner.datagrams().recv()
+    }
+
+    #[inline]
+    fn recv_matching(&mut self, predicate: impl FnMut(&Bytes) -> bool) -> Option<Bytes> {
+        self.inner.datagrams().recv_matching(predicate)
+    }
+
+    #[inline]
+    fn peek_len(&mut self) -> Option<usize> {
+        self.inner.datagrams().peek_len()
+    }
+
+    #[inline]
+    fn error(&self) -> Option<&ConnectionError> {
+        self.error.as_ref()
+    }
 }
 
 impl Unlock for State {
