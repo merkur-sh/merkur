@@ -1157,17 +1157,17 @@ export function createAppController(): AppController {
       nav.pushOverlay({ k: 'link-approval', code: pendingDaemonLinkCode });
       pendingDaemonLinkCode = null;
     }
+    const navigationRevision = nav.revision();
     try {
       await started;
       if (lifetime !== deviceListLifetime || connectionAttempts.hasActive()) return;
-      nav.enterShell();
+      if (nav.revision() !== navigationRevision) return;
       reconnectLastDevice(opts);
     } catch (error) {
       // Selecting a cached device leaves the event stream running. The list's
       // stale completion must not unmount the terminal or replace the explicit
       // connection attempt with an auto-reconnect.
       if (lifetime !== deviceListLifetime || connectionAttempts.hasActive()) return;
-      nav.enterShell();
       throw error;
     }
   }
@@ -1720,7 +1720,9 @@ export function createAppController(): AppController {
   }
 
   function reconnectLastDevice(opts: { refreshLink?: boolean }): void {
+    const navigationRevision = nav.revision();
     if (
+      nav.route().k !== 'devices' ||
       notificationDestination.hasPending() ||
       opts.refreshLink === false ||
       session() !== null ||
@@ -1741,6 +1743,7 @@ export function createAppController(): AppController {
 
     queueMicrotask(() => {
       if (
+        nav.revision() !== navigationRevision ||
         notificationDestination.hasPending() ||
         sessionStorage.getItem(LAST_DEVICE_ID_KEY) !== lastDevice.id ||
         session() !== null ||

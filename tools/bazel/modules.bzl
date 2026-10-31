@@ -2634,6 +2634,11 @@ MODULES = {
             ":src/lib/device-list-cache.ts.module",
             ":tsconfig.json.module",
         ],
+        "src/app/device-loading-navigation.test.ts": [
+            ":package.json.module",
+            ":src/app/createAppController.ts.module",
+            ":tsconfig.json.module",
+        ],
         "src/app/device-snapshot-reconciliation.test.ts": [
             ":package.json.module",
             ":src/app/device-snapshot-reconciliation.ts.module",
@@ -5080,6 +5085,7 @@ MODULES = {
             ":src/app/connection-attempt.ts.module",
             ":src/app/createAppController.ts.module",
             ":src/app/createDeviceListController.ts.module",
+            ":src/app/device-loading-navigation.test.ts.module",
             ":src/app/device-snapshot-reconciliation.test.ts.module",
             ":src/app/device-snapshot-reconciliation.ts.module",
             ":src/app/document-title.test.ts.module",
@@ -9218,6 +9224,7 @@ TYPE_INPUTS = {
             "src/app/connection-attempt.ts",
             "src/app/createAppController.ts",
             "src/app/createDeviceListController.ts",
+            "src/app/device-loading-navigation.test.ts",
             "src/app/device-snapshot-reconciliation.test.ts",
             "src/app/device-snapshot-reconciliation.ts",
             "src/app/document-title.test.ts",

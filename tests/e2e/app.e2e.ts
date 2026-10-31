@@ -376,3 +376,25 @@ test('an open row menu covers the rows beneath it', async ({ baseURL, page }) =>
     second.dispose();
   }
 });
+
+test('pending device navigation keeps Settings after the opening frame', async ({ page }) => {
+  let release: () => void = () => {};
+  const opening = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/devices/events', async (route) => {
+    await opening;
+    await route.continue();
+  });
+  await page.goto('/');
+  await createAccount(page, `pending-navigation-${uniqueSuffix()}`, 'Password123!');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.locator('#settings')).toBeVisible();
+  release();
+  await expect(page.locator('#link-command')).not.toHaveText('');
+  await expect(page.locator('#settings')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});

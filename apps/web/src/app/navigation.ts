@@ -73,6 +73,8 @@ export type Overlay =
 const DEVICES: Route = { k: 'devices' };
 
 export interface Navigation {
+  /** Synchronous navigation intent serial, including moves that return to the same route. */
+  revision(): number;
   readonly phase: Accessor<AppPhase>;
   readonly route: Accessor<Route>;
   readonly connection: Accessor<ConnectionStatus>;
@@ -137,13 +139,16 @@ export function createNavigation(): Navigation {
    */
   let departures: Array<() => void> = [];
   let showing: AppPhase = 'bootstrapping';
+  let navigationRevision = 0;
 
   return {
+    revision: () => navigationRevision,
     phase,
     route,
     connection,
     overlays,
     enterAuth() {
+      navigationRevision += 1;
       const leaving = showing !== 'auth';
       showing = 'auth';
       setPhase('auth');
@@ -162,6 +167,7 @@ export function createNavigation(): Navigation {
       for (const resolve of waiting) resolve();
     },
     enterShell() {
+      navigationRevision += 1;
       showing = 'shell';
       setPhase('shell');
       setStack([DEVICES]);
@@ -171,24 +177,30 @@ export function createNavigation(): Navigation {
       // dialog closes itself when its own submit resolves.
     },
     push(next) {
+      navigationRevision += 1;
       setStack((current) => [...current, next]);
     },
     replace(next) {
+      navigationRevision += 1;
       setStack((current) => [...current.slice(0, -1), next]);
     },
     pop() {
+      navigationRevision += 1;
       setStack((current) => (current.length <= 1 ? current : current.slice(0, -1)));
     },
     setConnection(next) {
       writeConnection(next);
     },
     pushOverlay(overlay) {
+      navigationRevision += 1;
       setOverlays((current) => [...current, overlay]);
     },
     popOverlay() {
+      navigationRevision += 1;
       setOverlays((current) => current.slice(0, -1));
     },
     closeOverlay(overlay) {
+      navigationRevision += 1;
       setOverlays((current) =>
         current.includes(overlay) ? current.filter((open) => open !== overlay) : current,
       );

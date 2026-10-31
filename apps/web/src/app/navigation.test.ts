@@ -175,3 +175,15 @@ describe('createNavigation', () => {
     await leave;
   });
 });
+
+test('navigation intent serial records leaving and returning to the same route', () => {
+  withNavigation((nav) => {
+    nav.enterShell();
+    const revision = nav.revision();
+    nav.push({ k: 'settings', tab: 'terminal' });
+    nav.pop();
+    expect(nav.revision()).toBe(revision + 2);
+    flush();
+    expect(nav.route().k).toBe('devices');
+  });
+});
