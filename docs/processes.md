@@ -81,8 +81,9 @@ The Effect runtime owns:
   connections, daemon-control workers, the liveness ticker, and presence expiry.
 
 Each device-event response runs one scoped fiber owned by the server runtime. Setup Effects
-compose directly into that fiber; abort, consumer cancellation and runtime shutdown release
-subscriptions and browser membership. Stream admission follows the response controller's byte
+compose directly into that fiber; abort, consumer cancellation, fixed delegation expiry and runtime
+shutdown release subscriptions and browser membership. At delegation expiry the stream first emits
+`browser-session-ended` and closes. Stream admission follows the response controller's byte
 demand, bounded to 64 KiB plus one complete frame, including a large opening snapshot. Native
 socket and proxy buffering has its own ownership outside that application queue.
 During shutdown, the application's stream owner first closes admission and awaits every stream's

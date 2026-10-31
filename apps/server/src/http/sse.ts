@@ -12,7 +12,7 @@ import {
   type DeviceResumeFrame,
   type DeviceSnapshotFrame,
 } from '@merkur/shared';
-import { Cause, Deferred, Effect, Queue, Schedule } from 'effect';
+import { Cause, Clock, Deferred, Effect, Queue, Schedule } from 'effect';
 import type { ServerRuntimeContext } from '../runtime';
 import type { BrowserPresenceSignal } from '../services/browser-session-presence';
 import type { DeviceEventSignal } from '../services/device-events-service';
@@ -116,6 +116,7 @@ interface DeviceEventsSseOptions<E, R> {
   readonly request: Request;
   /** Whose streams this one counts against. */
   readonly userId: string;
+  readonly delegationExpiresAt: number;
   readonly keepAliveMs: number;
   /** The client's last applied cursor, or null on a first open. */
   readonly since: DeviceEventsCursor | null;
@@ -225,6 +226,10 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
         function onAbort(): void {
           close('client_gone');
         }
+        function endSession(): void {
+          write(`event: ${BROWSER_EVENT_SESSION_ENDED}\ndata: null\n\n`);
+          close('session_ended');
+        }
         abortClose = onAbort;
         const unregister = options.lifetime.register(() => {
           close('server_shutdown');
@@ -271,6 +276,15 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
         // children. Setup operations have finite spans; this lifetime has no span.
         const program = Effect.scoped(
           Effect.gen(function* () {
+            const remaining = options.delegationExpiresAt - (yield* Clock.currentTimeMillis);
+            if (remaining <= 0) {
+              endSession();
+              return;
+            }
+            yield* Effect.sleep(remaining).pipe(
+              Effect.andThen(Effect.sync(endSession)),
+              Effect.forkScoped,
+            );
             yield* Effect.acquireRelease(options.subscribe(onSignal), (unsubscribe) => unsubscribe);
 
             const telemetryWake = yield* Effect.acquireRelease(
@@ -286,8 +300,7 @@ export function createDeviceEventsSseResponse<E, R = ServerRuntimeContext>(
             yield* Effect.acquireRelease(
               options.subscribePresence((signal) => {
                 if (signal._tag === 'session-ended') {
-                  write(`event: ${BROWSER_EVENT_SESSION_ENDED}\ndata: null\n\n`);
-                  close('session_ended');
+                  endSession();
                 } else if (signal._tag === 'sessions-changed') {
                   write(`event: ${BROWSER_EVENT_SESSIONS_CHANGED}\ndata: null\n\n`);
                 } else if (signal._tag === 'resync') close('resync');

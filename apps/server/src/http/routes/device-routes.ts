@@ -68,6 +68,7 @@ export function deviceRoutesPlugin({
           run: runServerProgram,
           request,
           userId,
+          delegationExpiresAt,
           keepAliveMs: DEVICE_EVENTS_KEEPALIVE_MS,
           since: parseDeviceEventsCursor(request.headers.get(DEVICE_EVENTS_SINCE_HEADER)),
           subscribePresence: (listener) =>

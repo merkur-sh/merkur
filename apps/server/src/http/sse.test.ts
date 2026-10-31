@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { DeviceDeltaFrame, DeviceEventsCursor } from '@merkur/shared';
-import { Effect, Layer, ManagedRuntime } from 'effect';
+import { Effect, ManagedRuntime } from 'effect';
+import { TestClock } from 'effect/testing';
 import type { BrowserPresenceSignal } from '../services/browser-session-presence';
 import type { DeviceEventSignal } from '../services/device-events-service';
 import {
@@ -26,6 +27,7 @@ function delta(seq: number): DeviceDeltaFrame {
 
 interface Harness {
   readonly response: Response;
+  readonly advance: (millis: number) => Promise<void>;
   readonly lifetime: ReturnType<typeof createDeviceEventsSseLifetime>;
   readonly reader: ReadableStreamDefaultReader<Uint8Array>;
   readonly errors: unknown[];
@@ -49,6 +51,7 @@ const REBUILT_EPOCH = '00112233445566ff';
 function createHarness(options: {
   readonly since: DeviceEventsCursor | null;
   readonly seq: number;
+  readonly delegationExpiresAt?: number;
   readonly userId?: string;
   readonly holdSnapshot?: boolean;
   readonly loadSnapshot?: () => Promise<readonly (typeof DEVICE)[]>;
@@ -59,7 +62,7 @@ function createHarness(options: {
 }): Harness {
   const requestController = new AbortController();
   if (options.aborted === true) requestController.abort();
-  const runtime = ManagedRuntime.make(Layer.empty);
+  const runtime = ManagedRuntime.make(TestClock.layer());
   const lifetime = options.lifetime ?? createDeviceEventsSseLifetime();
   const released = { devices: 0, presence: 0, telemetry: 0 };
   const errors: unknown[] = [];
@@ -81,6 +84,7 @@ function createHarness(options: {
     request: new Request('https://merkur.test/events', { signal: requestController.signal }),
     userId: options.userId ?? 'user-1',
     keepAliveMs: 60_000,
+    delegationExpiresAt: options.delegationExpiresAt ?? 2_592_000_000,
     since: options.since,
     subscribePresence: (next) =>
       Effect.sync(() => {
@@ -126,6 +130,7 @@ function createHarness(options: {
   if (reader === undefined) throw new Error('response body missing');
   return {
     response,
+    advance: (millis) => runtime.runPromise(TestClock.adjust(millis)),
     lifetime,
     reader,
     errors,
@@ -151,6 +156,26 @@ function createHarness(options: {
 }
 
 describe('createDeviceEventsSseResponse', () => {
+  test('stream ends at delegation expiry', async () => {
+    const harness = createHarness({ since: null, seq: 0, delegationExpiresAt: 1_000 });
+    try {
+      await readFramesUntil(harness.reader, (text) => text.includes('event: snapshot'));
+      await harness.advance(999);
+      expect(harness.closes).toEqual([]);
+      await harness.advance(1);
+      expect(harness.closes).toEqual([{ reason: 'session_ended', openForUser: 0 }]);
+      const ended = await readFramesUntil(harness.reader, (text) =>
+        text.includes('event: browser-session-ended'),
+      );
+      expect(ended).toContain('event: browser-session-ended');
+      expect((await harness.reader.read()).done).toBe(true);
+      expect(harness.released.presence).toBe(1);
+    } finally {
+      await harness.reader.cancel();
+      await harness.shutdown();
+    }
+  });
+
   for (const resume of [false, true]) {
     test(`states telemetry before the first ${resume ? 'resume' : 'snapshot'}`, async () => {
       let release = (_consent: boolean | null): void => {};
