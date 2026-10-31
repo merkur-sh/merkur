@@ -6667,6 +6667,7 @@ MODULES = {
             "//packages/shared:src/index.ts.module",
             ":perf/geometry-counts.ts.module",
             ":perf/harness.ts.module",
+            ":perf/terminal-wasm.ts.module",
             ":tsconfig.json.module",
         ],
         "bench-sse-parser.test.ts": [
@@ -6725,6 +6726,7 @@ MODULES = {
             "//apps/web:src/terminal/fonts.ts.module",
             "//apps/web:term_wasm_files",
             ":perf/harness.ts.module",
+            ":perf/terminal-wasm.ts.module",
             ":tsconfig.json.module",
         ],
         "bench-wasm-font-style-upgrade.test.ts": [
@@ -7362,6 +7364,10 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "perf/row-layout-plan.ts": [
+            "//:package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "perf/terminal-wasm.ts": [
             "//:package.json.module",
             ":tsconfig.json.module",
         ],
@@ -10632,6 +10638,7 @@ TYPE_INPUTS = {
             "perf/row-layout-plan.test.ts",
             "perf/row-layout-plan.ts",
             "perf/row-layout-worker.ts",
+            "perf/terminal-wasm.ts",
             "perf/webgl-fence-cadence-worker.ts",
             "perf/webgpu-renderer-benchmark.ts",
             "perf/webgpu-terminal-renderer.test.ts",

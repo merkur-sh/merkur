@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { DEFAULT_TERMINAL_FONT } from '../apps/web/src/terminal/fonts';
 import { emitPerfMetric, summarizeSamples } from './perf/harness';
+import { readTerminalWasm } from './perf/terminal-wasm';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const samples = readSampleCount(process.env.BENCH_SAMPLES);
@@ -11,9 +12,7 @@ const samples = readSampleCount(process.env.BENCH_SAMPLES);
 // the boot face exists.
 const regularBytes = await readFontFace(DEFAULT_TERMINAL_FONT.regular);
 const bootBytes = await readFontFace(DEFAULT_TERMINAL_FONT.boot);
-const wasmBytes = new Uint8Array(
-  await readFile(path.join(ROOT, 'apps', 'web', 'src', 'term-wasm', 'pkg', 'term_wasm_bg.wasm')),
-);
+const wasmBytes = new Uint8Array(await readTerminalWasm());
 const wasm = await import('../apps/web/src/term-wasm/pkg/term_wasm.js');
 const { memory } = wasm.initSync({ module: wasmBytes });
 
