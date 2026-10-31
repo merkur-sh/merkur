@@ -659,7 +659,7 @@
     "no-swallowed-error": 1
   },
   "apps/server/src/services/redis-service.ts": {
-    "no-compat-names": 4,
+    "no-compat-names": 3,
     "no-literal-timer-delay": 2,
     "no-unknown-parameters": 2,
     "no-unsafe-dictionary-type": 1

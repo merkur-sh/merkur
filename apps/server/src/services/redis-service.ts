@@ -1,6 +1,17 @@
 import { type MerkurSpanAttributes, spanAttributes } from '@merkur/shared';
 import { RedisClient } from 'bun';
-import { Context, Data, Effect, Exit, Layer, Metric, Queue, Redacted, Schedule } from 'effect';
+import {
+  Context,
+  Data,
+  Effect,
+  Exit,
+  Layer,
+  Metric,
+  Option,
+  Queue,
+  Redacted,
+  Schedule,
+} from 'effect';
 import { ServerConfigService } from '../config';
 import { createLogger, errorLogContext } from '../logger';
 import { redisOperationTimeoutCounter } from '../observability/metrics';
@@ -132,37 +143,20 @@ export const createRedisServiceEffect = Effect.fnUntraced(function* (
   logger: LoggerLike,
 ) {
   let closed = false;
-  const [commands, publisher, subscriber] = yield* Effect.acquireRelease(
-    Effect.sync(
-      () =>
-        [
-          createRedisClient(redisUrl),
-          createRedisClient(redisUrl),
-          createRedisClient(redisUrl),
-        ] as const,
-    ),
-    ([commands, publisher, subscriber]) =>
+  const commands = yield* createRedisCommandTransport(redisUrl, logger, 'commands');
+  const publisher = yield* createRedisCommandTransport(redisUrl, logger, 'publisher');
+  const subscriber = yield* Effect.acquireRelease(
+    Effect.sync(() => createRedisClient(redisUrl)),
+    (subscriber) =>
       Effect.sync(() => {
         closed = true;
         subscriber.close();
-        publisher.close();
-        commands.close();
       }),
   );
-  const commandsHealth: RedisOperationHealth = {
-    available: true,
-    replyCompatible: true,
-  };
-  const publisherHealth: RedisOperationHealth = {
-    available: true,
-    replyCompatible: true,
-  };
   const subscriberHealth: RedisOperationHealth = {
     available: true,
     replyCompatible: true,
   };
-  const commandClient = createRedisCommandClient(commands);
-  const publishClient = createRedisCommandClient(publisher);
   const subscriberReconnectListeners = new Set<() => void>();
 
   const subscriptions = createRedisSubscriptionClient(
@@ -201,73 +195,50 @@ export const createRedisServiceEffect = Effect.fnUntraced(function* (
     ),
   );
 
-  const connections = [
-    { client: commands, name: 'commands', health: commandsHealth },
-    { client: publisher, name: 'publisher', health: publisherHealth },
-    { client: subscriber, name: 'subscriber', health: subscriberHealth },
-  ];
-  const connectAll = yield* Effect.forEach(connections, ({ client, name, health }) =>
-    Effect.gen(function* () {
-      const disconnected = yield* Queue.dropping<void>(1);
-      attachRedisErrorLogger(
-        client,
-        logger,
-        name,
-        health,
-        () => {
-          if (client === subscriber) subscriptionsReady = false;
-          Queue.offerUnsafe(disconnected, undefined);
-        },
-        () => closed,
-      );
-      const connect = connectRedisClient(client).pipe(
-        Effect.andThen(client === subscriber ? restoreSubscriptions : Effect.void),
-        Effect.tapError(() => Effect.sync(() => client.close())),
-      );
-      return {
-        connect,
-        recover: Effect.forever(
-          Queue.take(disconnected).pipe(
-            Effect.andThen(
-              Queue.clear(disconnected).pipe(
-                Effect.andThen(connect),
-                Effect.retry(REDIS_RECONNECT_SCHEDULE),
-              ),
-            ),
-          ),
+  const subscriberDisconnected = yield* Queue.dropping<void>(1);
+  attachRedisErrorLogger(
+    subscriber,
+    logger,
+    'subscriber',
+    subscriberHealth,
+    () => {
+      subscriptionsReady = false;
+      Queue.offerUnsafe(subscriberDisconnected, undefined);
+    },
+    () => closed,
+  );
+  const connectSubscriber = connectRedisClient(subscriber).pipe(
+    Effect.andThen(restoreSubscriptions),
+    Effect.tapError(() => Effect.sync(() => subscriber.close())),
+  );
+  const recoverSubscriber = Effect.forever(
+    Queue.take(subscriberDisconnected).pipe(
+      Effect.andThen(
+        Queue.clear(subscriberDisconnected).pipe(
+          Effect.andThen(connectSubscriber),
+          Effect.retry(REDIS_RECONNECT_SCHEDULE),
         ),
-      };
-    }),
-  );
-  yield* Effect.all(
-    connectAll.map(({ connect }) => connect),
-    { concurrency: 'unbounded', discard: true },
-  );
-  yield* Effect.forEach(connectAll, ({ recover }) => Effect.forkScoped(recover));
-  return {
-    useCommands: (fn) =>
-      useRedisClient(commandClient, fn, 'Redis.commands', (error) =>
-        updateRedisOperationHealth(commandsHealth, error),
       ),
+    ),
+  );
+  yield* Effect.all([commands.connect, publisher.connect, connectSubscriber], {
+    concurrency: 'unbounded',
+    discard: true,
+  });
+  yield* Effect.forEach([commands.recover, publisher.recover, recoverSubscriber], (recover) =>
+    Effect.forkScoped(recover),
+  );
+  return {
+    useCommands: (fn) => commands.use(fn, 'Redis.commands'),
 
     loadScripts(scripts: readonly RedisScript[]): Effect.Effect<void, RedisError> {
-      return useRedisClient(
-        commandClient,
-        (client) => loadRedisScripts(client, scripts),
-        'Redis.script-load',
-        (error) => updateRedisOperationHealth(commandsHealth, error),
-      );
+      return commands.use((client) => loadRedisScripts(client, scripts), 'Redis.script-load');
     },
 
     publish(channel: string, message: string): Effect.Effect<void, RedisError> {
-      return useRedisClient(
-        publishClient,
-        async (client) => {
-          await client.sendCommand(['PUBLISH', channel, message]);
-        },
-        'Redis.publish',
-        (error) => updateRedisOperationHealth(publisherHealth, error),
-      );
+      return publisher.use(async (client) => {
+        await client.sendCommand(['PUBLISH', channel, message]);
+      }, 'Redis.publish');
     },
 
     subscribe: subscriptions.subscribe,
@@ -284,12 +255,171 @@ export const createRedisServiceEffect = Effect.fnUntraced(function* (
 
     healthSnapshot(): Effect.Effect<RedisHealthSnapshot> {
       return Effect.sync(() => ({
-        commandsReady: redisConnectionHealthy(commands, commandsHealth),
-        publisherReady: redisConnectionHealthy(publisher, publisherHealth),
+        commandsReady: commands.healthy(),
+        publisherReady: publisher.healthy(),
         subscriberReady: subscriptionsReady && redisConnectionHealthy(subscriber, subscriberHealth),
       }));
     },
   } satisfies RedisService;
+});
+
+interface RedisCommandState {
+  readonly native: Pick<RedisClient, 'send'>;
+  pending: number;
+  closed: boolean;
+}
+
+interface RedisCommandGeneration extends RedisCommandState {
+  readonly native: RedisClient;
+  callers: number;
+  retired: boolean;
+}
+
+class RedisCommandLease implements RedisCommandClient {
+  constructor(public generation: RedisCommandState | undefined) {}
+
+  sendCommand = async <T = unknown>(args: string[]): Promise<T> => {
+    const generation = this.generation;
+    if (generation === undefined || generation.closed) {
+      throw new RedisTransportError('Redis.commands', new Error('Redis operation lease has ended'));
+    }
+    const [command, ...parameters] = args;
+    if (command === undefined) throw new RedisReplyError('command', 'must not be empty');
+    if (generation.pending >= COMMAND_QUEUE_MAX_LENGTH) {
+      throw new RedisTransportError('Redis.commands', new Error('Redis command queue is full'));
+    }
+    generation.pending += 1;
+    try {
+      return await generation.native.send(command, parameters);
+    } finally {
+      generation.pending -= 1;
+    }
+  };
+
+  evalScript = <T = unknown>(
+    script: RedisScript,
+    keys: readonly string[],
+    args: readonly string[],
+  ): Promise<T> => {
+    return executeRedisScript<T>(this, script, keys, args);
+  };
+}
+
+const createRedisCommandTransport = Effect.fnUntraced(function* (
+  redisUrl: string,
+  logger: LoggerLike,
+  name: string,
+) {
+  let closed = false;
+  const health: RedisOperationHealth = { available: true, replyCompatible: true };
+  const disconnected = yield* Queue.dropping<void>(1);
+  const closeNative = (generation: RedisCommandGeneration): void => {
+    generation.closed = true;
+    generation.native.close();
+    generation.native.onconnect = null;
+    generation.native.onclose = null;
+  };
+  const generations = yield* Effect.acquireRelease(
+    Effect.sync(() => new Set<RedisCommandGeneration>()),
+    (owned) =>
+      Effect.sync(() => {
+        closed = true;
+        for (const generation of owned) {
+          generation.retired = true;
+          closeNative(generation);
+        }
+        owned.clear();
+      }),
+  );
+  const closeRetired = (generation: RedisCommandGeneration): void => {
+    if (!generation.retired || generation.callers !== 0) return;
+    if (generations.delete(generation)) {
+      closeNative(generation);
+    }
+  };
+  const retire = (generation: RedisCommandGeneration): void => {
+    if (closed || generation.retired) return;
+    generation.retired = true;
+    health.available = false;
+    Queue.offerUnsafe(disconnected, undefined);
+    closeRetired(generation);
+  };
+  const create = (): RedisCommandGeneration => {
+    const native = createRedisClient(redisUrl);
+    const generation: RedisCommandGeneration = {
+      native,
+      pending: 0,
+      callers: 0,
+      retired: false,
+      closed: false,
+    };
+    generations.add(generation);
+    native.onconnect = () => {
+      if (!closed && !generation.retired) health.available = true;
+    };
+    native.onclose = (error) => {
+      if (closed || generation.retired) return;
+      generation.closed = true;
+      logger.error('redis_error', { connectionName: name, ...errorLogContext(error) });
+      retire(generation);
+    };
+    return generation;
+  };
+  let current = create();
+  const connect = Effect.suspend(() => {
+    if (current.retired) current = create();
+    const generation = current;
+    return connectRedisClient(generation.native).pipe(
+      Effect.tapError(() => Effect.sync(() => retire(generation))),
+    );
+  });
+  return {
+    connect,
+    recover: Effect.forever(
+      Queue.take(disconnected).pipe(
+        Effect.andThen(
+          Queue.clear(disconnected).pipe(
+            Effect.andThen(Effect.suspend(() => (current.retired ? connect : Effect.void))),
+            Effect.retry(REDIS_RECONNECT_SCHEDULE),
+          ),
+        ),
+      ),
+    ),
+    healthy: () => !closed && !current.retired && redisConnectionHealthy(current.native, health),
+    use<T>(
+      fn: (client: RedisCommandClient) => T | PromiseLike<T>,
+      operation: MerkurSpanAttributes['db.operation.name'],
+    ): Effect.Effect<T, RedisError> {
+      return Effect.suspend(() => {
+        const generation = current;
+        if (closed || generation.retired) {
+          return Effect.fail(
+            new RedisTransportError(operation, new Error('Redis transport is retired')),
+          );
+        }
+        const lease = new RedisCommandLease(generation);
+        generation.callers += 1;
+        return runRedisOperation(
+          () => Promise.resolve(fn(lease)),
+          operation,
+          (error) => {
+            if (generation === current && !generation.retired) {
+              updateRedisOperationHealth(health, error);
+              if (error instanceof RedisTimeoutError) retire(generation);
+            }
+          },
+          (exit) => {
+            lease.generation = undefined;
+            generation.callers -= 1;
+            // An interrupted coroutine can still own native sends or resume after an await.
+            if (Exit.isFailure(exit) && Option.isNone(Exit.findErrorOption(exit)))
+              retire(generation);
+            closeRetired(generation);
+          },
+        );
+      });
+    },
+  };
 });
 
 export function evalRedisScript<T = unknown>(
@@ -312,30 +442,7 @@ export function preloadRedisScripts(
 }
 
 export function createRedisCommandClient(client: Pick<RedisClient, 'send'>): RedisCommandClient {
-  let pending = 0;
-  const commands: RedisCommandClient = {
-    async sendCommand<T = unknown>(args: string[]): Promise<T> {
-      const [command, ...parameters] = args;
-      if (command === undefined) throw new RedisReplyError('command', 'must not be empty');
-      if (pending >= COMMAND_QUEUE_MAX_LENGTH) {
-        throw new RedisTransportError('Redis.commands', new Error('Redis command queue is full'));
-      }
-      pending += 1;
-      try {
-        return await client.send(command, parameters);
-      } finally {
-        pending -= 1;
-      }
-    },
-    evalScript<T = unknown>(
-      script: RedisScript,
-      keys: readonly string[],
-      args: readonly string[],
-    ): Promise<T> {
-      return executeRedisScript<T>(commands, script, keys, args);
-    },
-  };
-  return commands;
+  return new RedisCommandLease({ native: client, pending: 0, closed: false });
 }
 
 async function executeRedisScript<T>(
@@ -539,8 +646,17 @@ export function useRedisClient<T, Client>(
   operation: MerkurSpanAttributes['db.operation.name'],
   observe?: (error: RedisError | null) => void,
 ): Effect.Effect<T, RedisError> {
+  return runRedisOperation(() => Promise.resolve(fn(client)), operation, observe);
+}
+
+function runRedisOperation<T>(
+  run: () => PromiseLike<T>,
+  operation: MerkurSpanAttributes['db.operation.name'],
+  observe?: (error: RedisError | null) => void,
+  release?: (exit: Exit.Exit<T, RedisError>) => void,
+): Effect.Effect<T, RedisError> {
   return Effect.tryPromise({
-    try: () => Promise.resolve(fn(client)),
+    try: run,
     catch: (cause) =>
       cause instanceof RedisError ? cause : new RedisTransportError(operation, cause),
   }).pipe(
@@ -548,25 +664,16 @@ export function useRedisClient<T, Client>(
       duration: REDIS_OPERATION_DEADLINE,
       orElse: () => Effect.fail(new RedisTimeoutError(operation, REDIS_OPERATION_DEADLINE_MS)),
     }),
-    Effect.tapError((error) =>
-      error instanceof RedisTimeoutError
-        ? Metric.update(redisOperationTimeoutCounter, 1)
-        : Effect.void,
-    ),
-    Effect.tap(() =>
-      observe === undefined
-        ? Effect.void
-        : Effect.sync(() => {
-            observe(null);
-          }),
-    ),
-    Effect.tapError((error) =>
-      observe === undefined
-        ? Effect.void
-        : Effect.sync(() => {
-            observe(error);
-          }),
-    ),
+    (effect) =>
+      Effect.onExitPrimitive(effect, (exit) => {
+        const error = Exit.isSuccess(exit) ? Option.none() : Exit.findErrorOption(exit);
+        if (Exit.isSuccess(exit)) observe?.(null);
+        else if (Option.isSome(error)) observe?.(error.value);
+        release?.(exit);
+        return Option.isSome(error) && error.value instanceof RedisTimeoutError
+          ? Metric.update(redisOperationTimeoutCounter, 1)
+          : undefined;
+      }),
     // `Debug`, because this wraps *every* Redis command: span volume here
     // scales with Redis QPS rather than request rate, and a presence-heavy
     // request can emit a dozen. Below the default `TRACE_LEVEL` it costs
