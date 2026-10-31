@@ -4828,6 +4828,7 @@ MODULES = {
         ],
         "src/transport/client-carrier.test.ts": [
             "//packages/shared:src/index.ts.module",
+            "//scripts:perf/carrier-reader-fixture.ts.module",
             ":package.json.module",
             ":src/transport/client-carrier.ts.module",
             ":tsconfig.json.module",
@@ -7216,6 +7217,10 @@ MODULES = {
             ":tsconfig.json.module",
         ],
         "output-argument.ts": [
+            "//:package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "perf/carrier-reader-fixture.ts": [
             "//:package.json.module",
             ":tsconfig.json.module",
         ],
@@ -10357,6 +10362,7 @@ TYPE_INPUTS = {
             "compress-site.ts",
         ],
         "apps/web/tsconfig.json": [
+            "perf/carrier-reader-fixture.ts",
             "perf/client-viewer-driver.ts",
             "term-wasm-ingress-fixture.ts",
         ],
@@ -10398,6 +10404,8 @@ TYPE_INPUTS = {
             "bazel-sources.ts",
             "bazel-tool.ts",
             "bench-browser-display-pipeline.ts",
+            "bench-carrier-reader-browser.ts",
+            "bench-carrier-reader.ts",
             "bench-client-viewer-boundary.ts",
             "bench-completion-observer.ts",
             "bench-daemon-multicast.ts",
@@ -10567,6 +10575,8 @@ TYPE_INPUTS = {
             "natlab/playwright-cli.ts",
             "natlab/run-native.ts",
             "output-argument.ts",
+            "perf/carrier-reader-fixture.ts",
+            "perf/carrier-reader-source.ts",
             "perf/cell-grid-fixture.ts",
             "perf/client-session-fixture.test.ts",
             "perf/client-session-fixture.ts",
@@ -10586,6 +10596,7 @@ TYPE_INPUTS = {
             "perf/historical-webgl.test.ts",
             "perf/historical-webgl.ts",
             "perf/immutable-image-worker.ts",
+            "perf/paired-instructions.ts",
             "perf/paired-tail.test.ts",
             "perf/paired-tail.ts",
             "perf/pty-input-lane.ts",

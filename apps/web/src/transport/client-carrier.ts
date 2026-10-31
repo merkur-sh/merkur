@@ -224,9 +224,23 @@ export class CarrierReader {
   }
 
   async record(maximum = MAX_RECORD_BYTES): Promise<Uint8Array | null> {
-    const header = await this.exact(4, true);
-    if (header === null) return null;
-    const length = new DataView(header.buffer, header.byteOffset, 4).getUint32(0);
+    let length = 0;
+    for (let read = 0; read < 4; ) {
+      if (this.offset === this.chunk.byteLength) {
+        const next = await this.reader.read();
+        if (next.done) {
+          if (read === 0) return null;
+          throw new Error('terminal carrier stream ended within a record');
+        }
+        this.chunk = next.value;
+        this.offset = 0;
+        if (this.chunk.byteLength === 0) continue;
+      }
+      const end = Math.min(this.offset + 4 - read, this.chunk.byteLength);
+      for (let at = this.offset; at < end; at++) length = length * 256 + (this.chunk[at] ?? 0);
+      read += end - this.offset;
+      this.offset = end;
+    }
     if (length > maximum) throw new Error('terminal carrier record exceeds its bound');
     return this.exact(length);
   }
