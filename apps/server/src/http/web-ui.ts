@@ -23,7 +23,7 @@ const HASHED_ASSET_PATTERN = /\.[A-Za-z0-9_-]{8}\.[a-z0-9]+$/;
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 // The HTML shell and the service worker gate deploy rollout; always revalidate.
 const NO_CACHE_CONTROL = 'no-cache';
-// Unhashed-but-mutable files (worker entries, manifest, icons): the service
+// Unhashed-but-mutable files (manifest, icons): the service
 // worker is their real cache; bound browser-cache staleness for non-SW loads.
 const SHORT_CACHE_CONTROL = 'public, max-age=300';
 const SERVICE_WORKER_PATH = '/sw.js';
@@ -46,6 +46,7 @@ function cacheControlForPath(requestPath: string): string {
   if (
     requestPath.startsWith('/fonts/') ||
     requestPath.startsWith('/chunks/') ||
+    requestPath.startsWith('/assets/') ||
     HASHED_ASSET_PATTERN.test(requestPath)
   ) {
     return IMMUTABLE_CACHE_CONTROL;
