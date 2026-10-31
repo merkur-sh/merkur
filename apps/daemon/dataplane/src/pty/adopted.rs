@@ -142,10 +142,10 @@ impl Shell {
 }
 
 impl ChildKiller for Shell {
-    /// What a spawned child's killer sends: the terminal hangup.
+    /// Final termination of the owned child; `waitpid` fences its actual exit.
     fn kill(&mut self) -> io::Result<()> {
         // SAFETY: `kill` reads no pointer.
-        if unsafe { libc::kill(self.0, libc::SIGHUP) } == -1 {
+        if unsafe { libc::kill(self.0, libc::SIGKILL) } == -1 {
             return Err(io::Error::last_os_error());
         }
         Ok(())

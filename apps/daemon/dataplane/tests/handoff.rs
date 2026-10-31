@@ -59,15 +59,16 @@ fn alive(pid: u32) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn shell_script(directory: &Path) -> PathBuf {
+fn shell_script(directory: &Path, ignore_hup: bool) -> PathBuf {
     let script = directory.join("shell.sh");
     let dir = directory.display();
+    let hup = if ignore_hup { "trap '' HUP\n" } else { "" };
     std::fs::write(
         &script,
         format!(
             // The pid file is renamed into place last, so its appearance means the trap is
             // set and the environment is written whole.
-            "#!/bin/sh\ntrap 'echo winch >> \"{dir}/winch\"' WINCH\nenv > '{dir}/shell.env'\n\
+            "#!/bin/sh\n{hup}trap 'echo winch >> \"{dir}/winch\"' WINCH\nenv > '{dir}/shell.env'\n\
              echo $$ > '{dir}/shell.pid.new'\nmv '{dir}/shell.pid.new' '{dir}/shell.pid'\n\
              printf 'before the upgrade\\n'\nwhile :; do sleep 0.05; done\n"
         ),
@@ -91,12 +92,36 @@ impl Drop for Running {
 
 #[test]
 fn a_live_shell_survives_its_dataplane_replacing_itself() {
-    let directory = std::env::temp_dir().join(format!("merkur-handoff-{}", std::process::id()));
+    handoff_stops(false);
+}
+
+#[test]
+fn hup_ignoring_adopted_shell_stops() {
+    handoff_stops(true);
+}
+
+struct ShellCleanup(u32);
+
+impl Drop for ShellCleanup {
+    fn drop(&mut self) {
+        if self.0 != 0 {
+            let _ = Command::new("kill")
+                .args(["-KILL", &self.0.to_string()])
+                .status();
+        }
+    }
+}
+
+fn handoff_stops(ignore_hup: bool) {
+    let directory = std::env::temp_dir().join(format!(
+        "merkur-handoff-{}-{ignore_hup}",
+        std::process::id()
+    ));
     if directory.exists() {
         std::fs::remove_dir_all(&directory).expect("remove a stale directory");
     }
     std::fs::create_dir_all(&directory).expect("directory");
-    let script = shell_script(&directory);
+    let script = shell_script(&directory, ignore_hup);
     let args = [
         "--shell",
         script.to_str().expect("utf-8 path"),
@@ -119,6 +144,7 @@ fn a_live_shell_survives_its_dataplane_replacing_itself() {
     let shell_pid = event(&mut events, EVT_PTY_READY)["pid"]
         .as_u64()
         .expect("pid");
+    let mut shell_cleanup = ShellCleanup(u32::try_from(shell_pid).expect("pid"));
     wait_for("the shell to start", || {
         directory.join("shell.pid").exists()
     });
@@ -175,10 +201,14 @@ fn a_live_shell_survives_its_dataplane_replacing_itself() {
     owner
         .write_all(&frame(CMD_SHUTDOWN, &serde_json::json!({})))
         .expect("shutdown");
+    wait_for("adopted dataplane shutdown", || {
+        child.0.try_wait().expect("status").is_some()
+    });
     let status = child.0.wait().expect("exit");
     assert!(status.success(), "{status}");
     wait_for("the shell to end with its terminal", || {
         !alive(u32::try_from(shell_pid).expect("pid"))
     });
+    shell_cleanup.0 = 0;
     std::fs::remove_dir_all(&directory).expect("remove the test directory");
 }
