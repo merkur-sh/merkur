@@ -136,7 +136,7 @@ describe('convergence', () => {
         })}\n`,
       );
       expect(failure instanceof DaemonUpdateTrustError).toBe(true);
-      expect(harness.upgrades).toEqual([]);
+      expect(harness.decisions).toEqual([`abort:${harness.preparedIds[0]}`]);
       expect(failure).not.toBeInstanceOf(Replaced);
       expect(await readlink(path.join(installRoot, 'current'))).toBe(current);
     } finally {
@@ -169,7 +169,7 @@ describe('convergence', () => {
           Effect.flip(convergeEffect(harness.value, stagerFor(versionDirectory), 'v2.0.0')),
         );
         expect(failure instanceof DaemonUpdateTrustError).toBe(true);
-        expect(harness.upgrades).toEqual([]);
+        expect(harness.decisions).toEqual([`abort:${harness.preparedIds[0]}`]);
         expect(await readlink(path.join(installRoot, 'current'))).toBe(current);
       } finally {
         await rm(installRoot, { recursive: true, force: true });
