@@ -10426,6 +10426,7 @@ TYPE_INPUTS = {
             "bench-keyboard-hotpaths.ts",
             "bench-keyboard.ts",
             "bench-logger-sink.ts",
+            "bench-perf-record-writes.ts",
             "bench-perf-ring.ts",
             "bench-reconnect-latency.ts",
             "bench-render-admission-browser.ts",

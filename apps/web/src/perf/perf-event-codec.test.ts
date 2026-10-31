@@ -16,6 +16,8 @@ import {
   createPerfRingReader,
   createPerfRingWriter,
   PERF_RECORD_BYTES,
+  type PerfRecordView,
+  type PerfRingWriter,
 } from './perf-ring';
 import {
   createPerfStringInterner,
@@ -589,10 +591,90 @@ const SAMPLES: readonly TerminalPerfEvent[] = [
 
 describe('perf event codec', () => {
   test('every event kind survives the round trip exactly', () => {
-    // Deliberately one pass over all kinds in one ring: a slot collision between
-    // two kinds sharing a physical record would show up here and not in
-    // per-kind isolation, because `begin` zeroes what a kind does not set.
     expect(roundTrip(SAMPLES)).toEqual([...SAMPLES]);
+  });
+
+  test('every decoder reads only fields its emitter explicitly initializes', () => {
+    const sab = createPerfRingBuffer(1);
+    const writer = createPerfRingWriter(sab);
+    const reader = createPerfRingReader(sab);
+    const table = createPerfStringTableBuffer();
+    const interner = createPerfStringInterner(table);
+    const resolver = createPerfStringResolver(table);
+    const floats = new Set<number>();
+    const words = new Set<number>();
+    const tracked: PerfRingWriter = {
+      begin(kind) {
+        floats.clear();
+        words.clear();
+        words.add(0);
+        writer.begin(kind);
+      },
+      f64(slot, value) {
+        floats.add(slot);
+        writer.f64(slot, value);
+      },
+      u32(slot, value) {
+        words.add(slot);
+        writer.u32(slot, value);
+      },
+      i32(slot, value) {
+        words.add(slot);
+        writer.i32(slot, value);
+      },
+      commit() {
+        writer.commit();
+      },
+      get writtenCount() {
+        return writer.writtenCount;
+      },
+    };
+    for (const event of SAMPLES) {
+      expect(encodePerfEvent(tracked, interner, event)).toBe(true);
+      reader.drain((record) => {
+        const observed: PerfRecordView = {
+          get kind() {
+            expect(words.has(0)).toBe(true);
+            return record.kind;
+          },
+          f64(slot) {
+            expect(floats.has(slot)).toBe(true);
+            return record.f64(slot);
+          },
+          u32(slot) {
+            expect(words.has(slot)).toBe(true);
+            return record.u32(slot);
+          },
+          i32(slot) {
+            expect(words.has(slot)).toBe(true);
+            return record.i32(slot);
+          },
+        };
+        expect(decodePerfEvent(observed, resolver)).toEqual(event);
+      });
+    }
+  });
+
+  test('poisoned slots survive every predecessor and successor kind through wrap', () => {
+    const sab = createPerfRingBuffer(1);
+    const writer = createPerfRingWriter(sab);
+    const reader = createPerfRingReader(sab);
+    const table = createPerfStringTableBuffer();
+    const interner = createPerfStringInterner(table);
+    const resolver = createPerfStringResolver(table);
+    const poison = new Uint8Array(sab, sab.byteLength - PERF_RECORD_BYTES);
+    for (const predecessor of SAMPLES) {
+      for (const successor of SAMPLES) {
+        poison.fill(0xff);
+        expect(encodePerfEvent(writer, interner, predecessor)).toBe(true);
+        reader.drain(() => {});
+        expect(encodePerfEvent(writer, interner, successor)).toBe(true);
+        const result = reader.drain((record) => {
+          expect(decodePerfEvent(record, resolver)).toEqual(successor);
+        });
+        expect(result).toEqual({ drained: 1, lost: 0 });
+      }
+    }
   });
 
   test('covers every kind in the event union', () => {
