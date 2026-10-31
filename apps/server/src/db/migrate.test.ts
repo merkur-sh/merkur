@@ -29,8 +29,11 @@ describe('schema migration', () => {
         'box_removals',
         'box_waitlist',
         'browser_delegations',
+        'daemon_control_owners',
         'daemon_link_claims',
+        'daemon_unlinks',
         'daemons',
+        'delegation_revocation_order',
         'delegation_revocation_outbox',
         'delegation_revocations',
         'keyboard_settings',
@@ -65,6 +68,7 @@ describe('schema migration', () => {
       }
       expect(await tableColumns(db, 'browser_delegations')).toContain('client_installed');
       expect(await tableColumns(db, 'refresh_tokens')).toContain('delegation_id');
+      expect(await tableColumns(db, 'push_subscriptions')).toContain('delegation_id');
     } finally {
       await db.destroy();
     }
@@ -95,6 +99,30 @@ describe('schema migration', () => {
       // A box queued for destruction names no account: the container still
       // exists, so its removal stays owed after the account is gone.
       expect(await rowCount(db, 'box_removals')).toBe(1);
+      expect(await rowCount(db, 'daemon_unlinks')).toBe(1);
+    } finally {
+      await db.destroy();
+    }
+  });
+
+  test('push ownership cutover wipes unowned subscriptions', async () => {
+    const directory = await migrationDirectory();
+    const db = createDatabase(`file:${path.join(directory, 'push-cutover.sqlite')}`);
+    const migrator = createMigrator(db, SOURCE_MIGRATIONS);
+    try {
+      expect((await migrator.migrateTo('011_revocation_commit_order')).error).toBeUndefined();
+      await sql`INSERT INTO users (id, username, opaque_registration_record, root_public_key, root_key_commitment,
+        root_epoch, root_envelope_nonce, root_envelope_ciphertext, created_at)
+        VALUES ('push-owner', 'push-owner', 'record', 'root', 'commitment', 1, 'nonce', 'envelope', 1)`.execute(
+        db,
+      );
+      await sql`INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
+        VALUES ('unowned-push', 'push-owner', 'https://fcm.googleapis.com/old', 'key', 'auth')`.execute(
+        db,
+      );
+      expect((await migrator.migrateToLatest()).error).toBeUndefined();
+      expect(await db.selectFrom('push_subscriptions').selectAll().execute()).toEqual([]);
+      expect(await tableColumns(db, 'push_subscriptions')).toContain('delegation_id');
     } finally {
       await db.destroy();
     }
@@ -191,8 +219,10 @@ describe('schema migration', () => {
 const ACCOUNT_OWNED_TABLES = [
   'box_access',
   'browser_delegations',
+  'daemon_control_owners',
   'daemon_link_claims',
   'daemons',
+  'delegation_revocation_order',
   'delegation_revocation_outbox',
   'delegation_revocations',
   'keyboard_settings',
@@ -243,6 +273,18 @@ async function seedFullAccount(db: Kysely<DatabaseSchema>): Promise<void> {
       daemon_binding_json: 'binding',
       daemon_identity_p256_public_key: 'identity-p256',
       identity_seal_backend: 'software',
+    })
+    .execute();
+  await db
+    .insertInto('daemon_control_owners')
+    .values({
+      connection_id: 'control-owner',
+      daemon_id: 'daemon-1',
+      user_id: 'user-1',
+      owner_instance_id: 'instance-1',
+      presence_id: 'presence-1',
+      claim_seq: 1,
+      root_epoch: 1,
     })
     .execute();
   await db
@@ -309,6 +351,7 @@ async function seedFullAccount(db: Kysely<DatabaseSchema>): Promise<void> {
     .values({
       id: 'push-1',
       user_id: 'user-1',
+      delegation_id: 'delegation-1',
       endpoint: 'https://push.example/1',
       p256dh: 'p256dh',
       auth: 'auth',

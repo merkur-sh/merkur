@@ -248,7 +248,14 @@ describe('password reset', () => {
       .execute();
     await db
       .insertInto('push_subscriptions')
-      .values({ id: 'push', user_id: userId, endpoint: 'https://push', p256dh: 'p', auth: 'a' })
+      .values({
+        id: 'push',
+        user_id: userId,
+        delegation_id: 'delegation-before-reset',
+        endpoint: 'https://push',
+        p256dh: 'p',
+        auth: 'a',
+      })
       .execute();
     await db
       .insertInto('keyboard_settings')

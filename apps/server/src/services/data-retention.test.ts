@@ -158,10 +158,24 @@ describe('database retention', () => {
       })
       .execute();
     await db
+      .insertInto('browser_delegations')
+      .values({
+        id: 'expired-browser',
+        user_id: 'expired',
+        root_epoch: 1,
+        delegate_public_key: 'delegate',
+        certificate_json: '{}',
+        issued_at: 1,
+        expires_at: 2,
+        revoked_at: null,
+      })
+      .execute();
+    await db
       .insertInto('push_subscriptions')
       .values({
         id: 'push',
         user_id: 'expired',
+        delegation_id: 'expired-browser',
         endpoint: 'endpoint',
         p256dh: 'key',
         auth: 'auth',

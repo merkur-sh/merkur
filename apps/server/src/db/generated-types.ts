@@ -143,8 +143,9 @@ export interface NotificationOutbox {
 
 export interface PushSubscriptions {
   auth: string;
+  delegation_id: string;
   endpoint: string;
-  id: string | null;
+  id: string;
   p256dh: string;
   user_id: string;
 }

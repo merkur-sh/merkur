@@ -4,6 +4,7 @@ import { Cause, Clock, Context, Data, Effect, Layer, Queue, Redacted } from 'eff
 import type { Kysely } from 'kysely';
 import { type ServerConfig, ServerConfigService } from '../config';
 import { DatabaseService } from '../db/client';
+import { tryDatabaseTransactionPromise, withDatabaseTransaction } from '../db/transaction';
 import type { DatabaseSchema } from '../db/types';
 import { createLogger, errorLogContext, type Logger, logWithLoggerEffect } from '../logger';
 import { type InfrastructureError, infrastructureError } from './errors';
@@ -34,6 +35,7 @@ export interface PushSubscriptionInput {
 }
 
 export class UntrustedPushDestination extends Data.TaggedError('UntrustedPushDestination') {}
+export class PushDelegationEnded extends Data.TaggedError('PushDelegationEnded') {}
 
 function isTrustedPushDestination(endpoint: string): boolean {
   const url = URL.parse(endpoint);
@@ -59,9 +61,14 @@ export interface PushNotificationService {
   getVapidPublicKey(): string | null;
   upsertSubscription(
     userId: string,
+    delegationId: string,
     subscription: PushSubscriptionInput,
-  ): Effect.Effect<void, InfrastructureError | UntrustedPushDestination>;
-  deleteSubscription(userId: string, endpoint: string): Effect.Effect<void, InfrastructureError>;
+  ): Effect.Effect<void, InfrastructureError | UntrustedPushDestination | PushDelegationEnded>;
+  deleteSubscription(
+    userId: string,
+    delegationId: string,
+    endpoint: string,
+  ): Effect.Effect<void, InfrastructureError>;
   notifyTerminalBell(input: {
     readonly userId: string;
     readonly daemonId: string;
@@ -122,40 +129,62 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
       return vapid === null ? null : vapidPublicKey;
     },
 
-    upsertSubscription(userId, subscription) {
+    upsertSubscription: Effect.fnUntraced(function* (
+      userId: string,
+      delegationId: string,
+      subscription: PushSubscriptionInput,
+    ) {
       if (!isTrustedPushDestination(subscription.endpoint))
-        return Effect.fail(new UntrustedPushDestination());
-      return Effect.tryPromise({
-        try: async () => {
-          await db
-            .insertInto('push_subscriptions')
-            .values({
-              id: createEntityId(),
-              user_id: userId,
-              endpoint: subscription.endpoint,
-              p256dh: subscription.p256dh,
-              auth: subscription.auth,
-            })
-            .onConflict((conflict) =>
-              conflict.column('endpoint').doUpdateSet({
+        return yield* new UntrustedPushDestination();
+      const now = yield* Clock.currentTimeMillis;
+      yield* withDatabaseTransaction(db, (trx) =>
+        tryDatabaseTransactionPromise({
+          try: async () => {
+            const live = await trx
+              .selectFrom('browser_delegations')
+              .select('id')
+              .where('id', '=', delegationId)
+              .where('user_id', '=', userId)
+              .where('revoked_at', 'is', null)
+              .where('expires_at', '>', now)
+              .executeTakeFirst();
+            if (live === undefined) throw new PushDelegationEnded();
+            await trx
+              .insertInto('push_subscriptions')
+              .values({
+                id: createEntityId(),
                 user_id: userId,
+                delegation_id: delegationId,
+                endpoint: subscription.endpoint,
                 p256dh: subscription.p256dh,
                 auth: subscription.auth,
-              }),
-            )
-            .execute();
-        },
-        catch: infrastructureError('push-notification', 'upsert-subscription'),
-      });
-    },
+              })
+              .onConflict((conflict) =>
+                conflict.column('endpoint').doUpdateSet({
+                  user_id: userId,
+                  delegation_id: delegationId,
+                  p256dh: subscription.p256dh,
+                  auth: subscription.auth,
+                }),
+              )
+              .execute();
+          },
+          catch: (cause) =>
+            cause instanceof PushDelegationEnded
+              ? cause
+              : infrastructureError('push-notification', 'upsert-subscription')(cause),
+        }),
+      );
+    }),
 
-    deleteSubscription(userId, endpoint): Effect.Effect<void, InfrastructureError> {
+    deleteSubscription(userId, delegationId, endpoint): Effect.Effect<void, InfrastructureError> {
       return Effect.tryPromise({
         try: async () => {
           await db
             .deleteFrom('push_subscriptions')
             .where('user_id', '=', userId)
             .where('endpoint', '=', endpoint)
+            .where('delegation_id', '=', delegationId)
             .execute();
         },
         catch: infrastructureError('push-notification', 'delete-subscription'),
@@ -201,12 +230,7 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
               catch: infrastructureError('push-notification', 'load-daemon-for-bell'),
             }),
             Effect.tryPromise({
-              try: () =>
-                db
-                  .selectFrom('push_subscriptions')
-                  .select(['endpoint', 'p256dh', 'auth'])
-                  .where('user_id', '=', input.userId)
-                  .execute(),
+              try: () => liveSubscriptions(input.userId, now),
               catch: infrastructureError('push-notification', 'load-push-subscriptions'),
             }),
           ],
@@ -265,12 +289,7 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
     lastFailedSignInPushAt.set(input.userId, now);
 
     const subscriptions = yield* Effect.tryPromise({
-      try: () =>
-        db
-          .selectFrom('push_subscriptions')
-          .select(['endpoint', 'p256dh', 'auth'])
-          .where('user_id', '=', input.userId)
-          .execute(),
+      try: () => liveSubscriptions(input.userId, now),
       catch: infrastructureError('push-notification', 'load-push-subscriptions'),
     });
 
@@ -316,6 +335,22 @@ export const createPushNotificationService = Effect.fnUntraced(function* (
     }),
   ).pipe(Effect.forkScoped);
   return service;
+
+  function liveSubscriptions(userId: string, now: number) {
+    return db
+      .selectFrom('push_subscriptions')
+      .innerJoin(
+        'browser_delegations',
+        'browser_delegations.id',
+        'push_subscriptions.delegation_id',
+      )
+      .select(['endpoint', 'p256dh', 'auth'])
+      .where('push_subscriptions.user_id', '=', userId)
+      .where('browser_delegations.user_id', '=', userId)
+      .where('browser_delegations.revoked_at', 'is', null)
+      .where('browser_delegations.expires_at', '>', now)
+      .execute();
+  }
 
   function handlePushSendErrorEffect(
     userId: string,

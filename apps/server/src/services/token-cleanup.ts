@@ -15,6 +15,7 @@ export function cleanupExpiredTokensEffect(
     const now = yield* Clock.currentTimeMillis;
     const deletedRefresh = yield* deleteExpiredRefreshTokensEffect(now);
     const deletedLink = yield* deleteExpiredLinkTokensEffect(now);
+    yield* deleteExpiredPushSubscriptionsEffect(now);
     yield* logWithLoggerEffect(logger, 'info', 'expired_tokens_cleaned', {
       refresh: deletedRefresh,
       link: deletedLink,
@@ -70,6 +71,30 @@ function deleteExpiredLinkTokensEffect(
       });
 
       return Number(deletedRows.numDeletedRows);
+    }),
+  );
+}
+
+function deleteExpiredPushSubscriptionsEffect(now: number) {
+  return deleteExpiredRowsInBatchesEffect(() =>
+    Effect.gen(function* () {
+      const db = yield* DatabaseService;
+      const expired = db
+        .selectFrom('push_subscriptions')
+        .innerJoin(
+          'browser_delegations',
+          'browser_delegations.id',
+          'push_subscriptions.delegation_id',
+        )
+        .select('push_subscriptions.id')
+        .where('browser_delegations.expires_at', '<=', now)
+        .limit(TOKEN_CLEANUP_BATCH_SIZE);
+      const deleted = yield* Effect.tryPromise({
+        try: () =>
+          db.deleteFrom('push_subscriptions').where('id', 'in', expired).executeTakeFirst(),
+        catch: infrastructureError('token-cleanup', 'delete-expired-push-subscriptions'),
+      });
+      return Number(deleted.numDeletedRows);
     }),
   );
 }

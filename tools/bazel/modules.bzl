@@ -601,6 +601,11 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "migrations/012_push_delegation_ownership.ts": [
+            "//apps/server:node_modules/kysely",
+            ":package.json.module",
+            ":tsconfig.json.module",
+        ],
         "package.json": [],
         "scripts/benchmark-effect-scope.test.ts": [
             "//apps/server:node_modules/effect",
@@ -681,6 +686,7 @@ MODULES = {
             ":migrations/009_account_telemetry.ts.module",
             ":migrations/010_daemon_control_ownership.ts.module",
             ":migrations/011_revocation_commit_order.ts.module",
+            ":migrations/012_push_delegation_ownership.ts.module",
             ":package.json.module",
             ":src/db/client.ts.module",
             ":src/db/libsql-dialect.ts.module",
@@ -1970,11 +1976,16 @@ MODULES = {
         ],
         "src/services/push-notification-service.test.ts": [
             "//apps/server:node_modules/effect",
+            "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
+            ":src/db/client.ts.module",
             ":src/db/migrate.ts.module",
+            ":src/http/routes/notification-routes.ts.module",
             ":src/logger.ts.module",
+            ":src/services/auth-service-fixture.ts.module",
             ":src/services/errors.ts.module",
             ":src/services/push-notification-service.ts.module",
+            ":src/services/token-cleanup.ts.module",
             ":tsconfig.json.module",
         ],
         "src/services/push-notification-service.ts": [
@@ -1984,6 +1995,7 @@ MODULES = {
             ":package.json.module",
             ":src/config.ts.module",
             ":src/db/client.ts.module",
+            ":src/db/transaction.ts.module",
             ":src/logger.ts.module",
             ":src/services/errors.ts.module",
             ":tsconfig.json.module",
@@ -2224,6 +2236,14 @@ MODULES = {
         ],
         "src/services/stun-ticket-service.ts": [
             ":package.json.module",
+            ":tsconfig.json.module",
+        ],
+        "src/services/token-cleanup.ts": [
+            "//apps/server:node_modules/effect",
+            ":package.json.module",
+            ":src/db/client.ts.module",
+            ":src/logger.ts.module",
+            ":src/services/errors.ts.module",
             ":tsconfig.json.module",
         ],
         "tsconfig.json": [
@@ -8633,6 +8653,7 @@ TYPE_INPUTS = {
             "migrations/009_account_telemetry.ts",
             "migrations/010_daemon_control_ownership.ts",
             "migrations/011_revocation_commit_order.ts",
+            "migrations/012_push_delegation_ownership.ts",
             "package.json",
             "scripts/benchmark-effect-scope.ts",
             "src/config.ts",

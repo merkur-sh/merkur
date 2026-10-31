@@ -1,18 +1,35 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-
-import { Deferred, Effect, Fiber, Queue, Redacted } from 'effect';
+import {
+  createDelegationRevocationStatement,
+  encodeUserAuthorizationBytes,
+} from '@merkur/shared/user-authorization';
+import { Deferred, Effect, Fiber, Layer, Queue, Redacted, Result } from 'effect';
 import { dual } from 'effect/Function';
 import { TestClock } from 'effect/testing';
+import { DatabaseService } from '../db/client';
 import { createMigratedKyselyDatabase } from '../db/migrate';
 import type { DatabaseSchema } from '../db/types';
+import { notificationRoutesPlugin } from '../http/routes/notification-routes';
 import { createLogger } from '../logger';
-
+import type { runServerProgram } from '../runtime';
+import {
+  service as auth,
+  db as authDb,
+  loginWithNewDelegation,
+  OLD_PASSWORD,
+  ROOT_KEY_COMMITMENT,
+  registerAccount,
+  useAuthServiceFixture,
+} from './auth-service-fixture';
 import { InfrastructureError } from './errors';
 import {
   createPushNotificationService,
+  PushDelegationEnded,
+  PushNotificationServiceTag,
   readPushErrorStatusCode,
   sendPushNotificationEffect,
 } from './push-notification-service';
+import { cleanupExpiredTokensEffect } from './token-cleanup';
 
 describe('push notification error classification', () => {
   test('unwraps an expired-subscription status from InfrastructureError.cause', () => {
@@ -57,7 +74,7 @@ describe('push operation ownership', () => {
               createLogger('push-test'),
             );
             const registered = yield* Effect.result(
-              service.upsertSubscription('push-owner', input.subscription),
+              service.upsertSubscription('push-owner', 'push-delegation', input.subscription),
             );
             expect(registered._tag).toBe('Failure');
             yield* service.notifyTerminalBell({
@@ -245,6 +262,7 @@ describe('push operation ownership', () => {
           .values({
             id: `expired-${status}`,
             user_id: 'push-owner',
+            delegation_id: 'push-delegation',
             ...input.subscription,
           })
           .onConflict((conflict) => conflict.column('endpoint').doNothing())
@@ -359,6 +377,163 @@ describe('push operation ownership', () => {
   });
 });
 
+describe('push delegation ownership', () => {
+  useAuthServiceFixture();
+  test('revoked delegation receives no bell while the live browser still does', async () => {
+    const first = await registerAccount(OLD_PASSWORD, 0x41, 'push-first');
+    const second = await loginWithNewDelegation(OLD_PASSWORD, 0x42, 'push-second');
+    const material = await pushMaterial();
+    await authDb
+      .insertInto('daemons')
+      .values({
+        id: 'owned-bell',
+        user_id: first.userId,
+        name: 'Bell',
+        platform: 'test',
+        daemon_identity_public_key: 'identity',
+        daemon_identity_p256_public_key: 'p256',
+        identity_seal_backend: 'software',
+        daemon_identity_key_commitment: 'commitment',
+        daemon_binding_json: '{}',
+        last_seen: null,
+        version: null,
+      })
+      .execute();
+    const sent: string[] = [];
+    const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(
+      fetchReplacement(async (url) => {
+        sent.push(String(url));
+        return new Response('accepted');
+      }),
+    );
+    try {
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* TestClock.setTime(second.certificate.issuedAt);
+            const push = yield* createPushNotificationService(
+              authDb,
+              {
+                webPush: {
+                  publicKey: material.vapid.publicKey,
+                  privateKey: Redacted.make(material.vapid.privateKey),
+                  contact: material.vapid.subject,
+                },
+              },
+              createLogger('push-test'),
+            );
+            yield* push.upsertSubscription(first.userId, first.certificate.delegationId, {
+              ...material.subscription,
+              endpoint: 'https://fcm.googleapis.com/first',
+            });
+            yield* push.upsertSubscription(first.userId, second.certificate.delegationId, {
+              ...material.subscription,
+              endpoint: 'https://fcm.googleapis.com/second',
+            });
+            yield* auth.logout({
+              actorCertificate: first.certificate,
+              revocation: createDelegationRevocationStatement(
+                {
+                  userId: first.userId,
+                  rootKeyCommitment: ROOT_KEY_COMMITMENT,
+                  actorDelegationId: first.certificate.delegationId,
+                  targets: [
+                    {
+                      delegationId: first.certificate.delegationId,
+                      expiresAt: first.certificate.expiresAt,
+                    },
+                  ],
+                  issuedAt: second.certificate.issuedAt,
+                  nonce: encodeUserAuthorizationBytes(new Uint8Array(32).fill(0x43)),
+                },
+                first.delegate,
+              ),
+            });
+            yield* push.deleteSubscription(
+              first.userId,
+              first.certificate.delegationId,
+              'https://fcm.googleapis.com/second',
+            );
+            yield* push.notifyTerminalBell({
+              userId: first.userId,
+              daemonId: 'owned-bell',
+              occurredAt: second.certificate.issuedAt,
+            });
+            expect(sent.sort()).toEqual(['https://fcm.googleapis.com/second']);
+            expect(
+              yield* Effect.promise(() =>
+                authDb.selectFrom('push_subscriptions').select('delegation_id').execute(),
+              ),
+            ).toEqual([{ delegation_id: second.certificate.delegationId }]);
+            const layer = Layer.succeed(PushNotificationServiceTag, push);
+            // SAFETY: subscription routes ask only for the push service supplied here.
+            const run = ((program) =>
+              Effect.runPromise(
+                Effect.provide(program as Effect.Effect<unknown, unknown, never>, layer),
+              )) as typeof runServerProgram;
+            const routes = notificationRoutesPlugin({
+              runServerProgram: run,
+              authorizeRequest: async () => ({
+                userId: first.userId,
+                delegationId: first.certificate.delegationId,
+                delegationExpiresAt: first.certificate.expiresAt,
+              }),
+              logger: createLogger('push-route-test'),
+            });
+            const subscribe = (endpoint: string) =>
+              routes.handle(
+                new Request('https://merkur.test/api/push/subscriptions', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({
+                    endpoint,
+                    keys: {
+                      p256dh: material.subscription.p256dh,
+                      auth: material.subscription.auth,
+                    },
+                  }),
+                }),
+              );
+            expect(
+              (yield* Effect.promise(() => subscribe('https://fcm.googleapis.com/first'))).status,
+            ).toBe(401);
+            expect(
+              (yield* Effect.promise(() => subscribe('https://attacker.example/first'))).status,
+            ).toBe(400);
+            yield* TestClock.setTime(second.certificate.expiresAt + 1);
+            yield* push.notifyTerminalBell({
+              userId: first.userId,
+              daemonId: 'owned-bell',
+              occurredAt: second.certificate.expiresAt + 1,
+            });
+            expect(sent).toEqual(['https://fcm.googleapis.com/second']);
+            const expired = yield* Effect.result(
+              push.upsertSubscription(
+                first.userId,
+                second.certificate.delegationId,
+                material.subscription,
+              ),
+            );
+            expect(expired._tag).toBe('Failure');
+            if (Result.isFailure(expired))
+              expect(expired.failure).toBeInstanceOf(PushDelegationEnded);
+            yield* cleanupExpiredTokensEffect(createLogger('push-cleanup-test')).pipe(
+              Effect.provideService(DatabaseService, authDb),
+            );
+            expect(
+              yield* Effect.promise(() =>
+                authDb.selectFrom('push_subscriptions').selectAll().execute(),
+              ),
+            ).toEqual([]);
+          }),
+        ).pipe(Effect.provide(TestClock.layer())),
+      );
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+});
+
 async function pushMaterial() {
   const keys = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
     'deriveBits',
@@ -395,8 +570,26 @@ async function pushDatabase(input: Awaited<ReturnType<typeof pushMaterial>>) {
     })
     .execute();
   await db
+    .insertInto('browser_delegations')
+    .values({
+      id: 'push-delegation',
+      user_id: 'push-owner',
+      root_epoch: 1,
+      delegate_public_key: 'delegate',
+      certificate_json: '{}',
+      issued_at: 0,
+      expires_at: 9e15,
+      revoked_at: null,
+    })
+    .execute();
+  await db
     .insertInto('push_subscriptions')
-    .values({ id: 'push-subscription', user_id: 'push-owner', ...input.subscription })
+    .values({
+      id: 'push-subscription',
+      user_id: 'push-owner',
+      delegation_id: 'push-delegation',
+      ...input.subscription,
+    })
     .execute();
   await db
     .insertInto('daemons')

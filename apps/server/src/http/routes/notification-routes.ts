@@ -4,6 +4,7 @@ import { errorLogContext, type Logger, logWithLoggerEffect } from '../../logger'
 import type { runServerProgram } from '../../runtime';
 import type { AuthenticatedBrowser } from '../../services/auth-service';
 import {
+  PushDelegationEnded,
   PushNotificationServiceTag,
   UntrustedPushDestination,
 } from '../../services/push-notification-service';
@@ -76,12 +77,12 @@ export function notificationRoutesPlugin({
               401: ApiModels.ErrorResponse,
             },
           },
-          async ({ body, request, userId }) => {
-            await runRouteEffect(
+          async ({ body, request, userId, delegationId }) => {
+            const result = await runRouteEffect(
               runServerProgram,
               Effect.gen(function* () {
                 const pushNotifications = yield* PushNotificationServiceTag;
-                yield* pushNotifications.upsertSubscription(userId, {
+                yield* pushNotifications.upsertSubscription(userId, delegationId, {
                   endpoint: body.endpoint,
                   p256dh: body.keys.p256dh,
                   auth: body.keys.auth,
@@ -95,10 +96,12 @@ export function notificationRoutesPlugin({
                 mapError: (error) =>
                   error instanceof UntrustedPushDestination
                     ? status(400, { error: 'untrusted_push_destination' })
-                    : null,
+                    : error instanceof PushDelegationEnded
+                      ? status(401, { error: 'invalid_delegation' })
+                      : null,
               },
             );
-            return status(STATUS_NO_CONTENT, undefined);
+            return result ?? status(STATUS_NO_CONTENT, undefined);
           },
         )
         .delete(
@@ -110,12 +113,12 @@ export function notificationRoutesPlugin({
               401: ApiModels.ErrorResponse,
             },
           },
-          async ({ body, request, userId }) => {
+          async ({ body, request, userId, delegationId }) => {
             await runRouteEffect(
               runServerProgram,
               Effect.gen(function* () {
                 const pushNotifications = yield* PushNotificationServiceTag;
-                yield* pushNotifications.deleteSubscription(userId, body.endpoint);
+                yield* pushNotifications.deleteSubscription(userId, delegationId, body.endpoint);
               }),
               {
                 logger,
