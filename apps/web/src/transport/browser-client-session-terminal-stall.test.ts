@@ -30,7 +30,6 @@ function extract(signature: string): string {
 const program = new Bun.Transpiler({ loader: 'ts' }).transformSync(
   [
     extract('async function fenceLineage('),
-    extract('async function deliverFrame('),
     extract('function deliverDatagram('),
     extract('function signalSpace('),
     extract('function waitSpace('),
@@ -42,11 +41,8 @@ function host(ringBytes: number) {
   const ring = new SharedArrayBuffer(ringBytes);
   const posted: TransportToTerminalPeer[] = [];
   const received: number[] = [];
-  let currentFrame: Uint8Array = new Uint8Array(0);
+  let currentFrame: Uint8Array = Uint8Array.of(42);
   const context = {
-    FRAME_KIND_CLIENT_INGRESS_BASE,
-    frameMapping: { epoch: 0, localMinusWire: 0, wireMin: 0, wireMax: 0 },
-    actionBytes: () => Uint8Array.of(42),
     active: true,
     generation: 1,
     lineage: 0,
