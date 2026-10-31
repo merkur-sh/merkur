@@ -110,7 +110,14 @@ impl EventListener for HostEvents {
             Event::Title(_) | Event::ResetTitle => 0,
             Event::ClipboardStore(..) | Event::ClipboardLoad(..) => 1,
             Event::Bell => 3,
-            _ => return,
+            Event::MouseCursorDirty
+            | Event::ColorRequest(..)
+            | Event::PtyWrite(_)
+            | Event::TextAreaSizeRequest(_)
+            | Event::CursorBlinkingChange
+            | Event::Wakeup
+            | Event::Exit
+            | Event::ChildExit(_) => return,
         };
         self.0.borrow_mut()[index] += 1;
     }
@@ -682,7 +689,7 @@ fn presented_cells(cells: &[merkur_codec::CellRepr]) -> merkur_client::viewer::V
     };
     use merkur_wire::protocol::CHANNEL_DISPLAY_COMMIT;
 
-    let cols = cells.len() as u16;
+    let cols = u16::try_from(cells.len()).unwrap();
     let header = FrameHeader {
         kind: FrameKind::Snapshot,
         memory_only: false,
@@ -722,7 +729,7 @@ fn presented_cells(cells: &[merkur_codec::CellRepr]) -> merkur_client::viewer::V
             graphics: &[],
         }),
     );
-    let body_len = (payload.len() - STREAM_HEADER_BYTES) as u32;
+    let body_len = u32::try_from(payload.len() - STREAM_HEADER_BYTES).unwrap();
     write_stream_header(
         &mut payload,
         &StreamHeader {
@@ -782,7 +789,7 @@ fn display_cells_cannot_emit_host_controls() {
         let mut composer = Composer::new(0);
         let mut out = Vec::new();
         assert!(composer.compose(viewer.grid(), &mut out));
-        let mut host = Host::new(cells.len() as u16, 1);
+        let mut host = Host::new(u16::try_from(cells.len()).unwrap(), 1);
         host.feed(&out);
         for (got, count) in effects.iter_mut().zip(*host.events.0.borrow()) {
             *got += count;
