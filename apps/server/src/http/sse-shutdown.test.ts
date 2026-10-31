@@ -28,6 +28,7 @@ test('closes and joins SSE before graceful HTTP drain while preserving ordinary 
         run: (program, options) => runtime.runPromise(program, options),
         request,
         userId: 'shutdown-native',
+        delegationExpiresAt: Date.now() + 2_592_000_000,
         keepAliveMs: 60_000,
         since: null,
         subscribe: () =>
