@@ -1164,8 +1164,8 @@ places no image until a viewport states them; a single zero metric is refused.
 The browser never decides which bytes an application reads. Every entry of an `input_run` is an
 **input record**, a description of what the user did, and the dataplane encodes it against the
 terminal it owns at the moment the record is admitted (`admit_user_record`). The modes that
-decide an encoding (Kitty keyboard flags, DECCKM, `modifyOtherKeys`, bracketed paste, mouse and
-focus reporting) reach the browser a round trip late, so a browser-side encoder would encode in
+decide an encoding (Kitty keyboard flags, DECCKM, DECKPAM, `modifyOtherKeys`, bracketed paste,
+mouse and focus reporting) reach the browser a round trip late, so a browser-side encoder would encode in
 the wrong mode during exactly that window. The layout is pinned in
 `packages/merkur-wire/src/input_record.rs` and `packages/protocol/src/input-record.ts`:
 

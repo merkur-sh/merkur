@@ -502,3 +502,46 @@ fn committed_text_is_hinted_exactly_and_an_inline_sized_commit_never_allocates()
         tally.allocated_bytes
     );
 }
+
+#[test]
+fn application_keypad_enter_uses_ss3() {
+    let record = fkey(KP_ENTER, 0);
+    assert_eq!(encoded(&record, TermMode::empty()), "\r");
+    assert_eq!(encoded(&record, TermMode::APP_KEYPAD), "\x1bOM");
+}
+
+#[test]
+fn application_keypad_preserves_numeric_mode_and_kitty_precedence() {
+    for (key, suffix) in [
+        (KP_0, 'p'),
+        (KP_9, 'y'),
+        (KP_DECIMAL, 'n'),
+        (KP_DIVIDE, 'o'),
+        (KP_MULTIPLY, 'j'),
+        (KP_SUBTRACT, 'm'),
+        (KP_ADD, 'k'),
+        (KP_EQUAL, 'X'),
+        (KP_SEPARATOR, 'l'),
+    ] {
+        assert_eq!(
+            encoded(&fkey(key, 0), TermMode::APP_KEYPAD),
+            format!("\x1bO{suffix}")
+        );
+    }
+    assert_eq!(encoded(&fkey(ENTER, 0), TermMode::APP_KEYPAD), "\r");
+    assert_eq!(
+        encoded(&fkey(KP_ENTER, mods::NUM_LOCK), TermMode::APP_KEYPAD),
+        "\r"
+    );
+    assert_eq!(
+        encoded(&fkey(KP_ENTER, 0), TermMode::APP_KEYPAD | kitty(1)),
+        "\x1b[57414u"
+    );
+    assert_eq!(
+        encoded(
+            &build::functional(KP_ENTER, RELEASE, 0),
+            TermMode::APP_KEYPAD
+        ),
+        ""
+    );
+}

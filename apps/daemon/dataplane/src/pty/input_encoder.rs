@@ -74,6 +74,7 @@ const KP_SUBTRACT: u32 = 0xE044;
 const KP_ADD: u32 = 0xE045;
 const KP_ENTER: u32 = 0xE046;
 const KP_EQUAL: u32 = 0xE047;
+const KP_SEPARATOR: u32 = 0xE048;
 const KP_LEFT: u32 = 0xE049;
 const KP_RIGHT: u32 = 0xE04A;
 const KP_UP: u32 = 0xE04B;
@@ -221,6 +222,15 @@ fn encode_key(key: &KeyRecord<'_>, mode: TermMode, out: &mut impl Sink) {
     }
     let mut code = key.key;
     if !flags.disambiguate && !flags.report_all_keys && (KP_0..=KP_BEGIN).contains(&code) {
+        if mode.contains(TermMode::APP_KEYPAD)
+            && flags.functional_legacy()
+            && mods == 0
+            && key.mods & mods::NUM_LOCK == 0
+            && let Some(final_byte) = application_keypad(code)
+        {
+            out.put(&[ESC, b'O', final_byte]);
+            return;
+        }
         code = keypad_to_main(code);
     }
 
@@ -565,6 +575,22 @@ fn modify_other_keys_code(code: u32, shifted: Option<u32>, mods: u8, level: u8) 
             report.then_some(produced)
         }
     }
+}
+
+/// Unmodified VT application-keypad identities, before main-key folding.
+fn application_keypad(code: u32) -> Option<u8> {
+    Some(match code {
+        KP_0..=KP_9 => b'p' + (code - KP_0) as u8,
+        KP_DECIMAL => b'n',
+        KP_DIVIDE => b'o',
+        KP_MULTIPLY => b'j',
+        KP_SUBTRACT => b'm',
+        KP_ADD => b'k',
+        KP_ENTER => b'M',
+        KP_EQUAL => b'X',
+        KP_SEPARATOR => b'l',
+        _ => return None,
+    })
 }
 
 fn keypad_to_main(code: u32) -> u32 {
