@@ -45,7 +45,6 @@ function runUpdateCommandEffect(logger: Logger): Effect.Effect<number, Error> {
       logger,
       installRoot,
       versionDirectory,
-      running: merkurRelease(),
     });
     logger.info('daemon_update_success', { from: merkurRelease(), to: release });
     return 0;

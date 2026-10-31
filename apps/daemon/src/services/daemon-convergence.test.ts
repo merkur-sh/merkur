@@ -10,6 +10,7 @@ import { createLogger } from '../logger';
 import { convergeEffect, type ReleaseStager } from './daemon-convergence';
 import {
   activateReleaseEffect,
+  DaemonUpdatePersistenceError,
   DaemonUpdateTrustError,
   persistReleaseTrustFloorEffect,
   readReleaseTrustFloorEffect,
@@ -250,7 +251,9 @@ describe('convergence', () => {
         const error = await Effect.runPromise(
           Effect.flip(owner === 'activation' ? advance : activate),
         );
-        expect(error.message).toContain('another update owns');
+        expect(error).toBeInstanceOf(DaemonUpdatePersistenceError);
+        if (!(error instanceof DaemonUpdatePersistenceError)) throw error;
+        expect(String(error.cause)).toContain('another update owns');
         resume.resolve();
         await pending;
         if (owner === 'activation') {

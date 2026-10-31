@@ -21,6 +21,7 @@ import { createLogger, logEffect, MerkurLoggerLayer } from './logger';
 import { createDaemonTelemetryScoped, MINIMUM_TRACE_LEVEL } from './observability/telemetry';
 import { DaemonHealthServiceLive } from './services/daemon-metrics';
 import { createDaemonProofSigner } from './services/daemon-proof-signer';
+import { acquireReleaseOwnershipEffect } from './services/daemon-release';
 import { runDaemonRuntimeEffect } from './services/daemon-runtime';
 import { takeDataplaneAdoption } from './services/dataplane-adoption';
 import { acquireDaemonInstanceLockEffect, DaemonAlreadyRunningError } from './single-instance';
@@ -146,6 +147,7 @@ const daemonProgram = Effect.scoped(
   Effect.gen(function* () {
     const config = yield* requireDaemonConfigEffect();
     yield* acquireDaemonInstanceLockEffect(daemonInstanceLockPath(config.daemon_id), logger);
+    yield* acquireReleaseOwnershipEffect(merkurInstallRootPath(), process.execPath);
     // Completed before the runtime is interrupted, so the control connection's
     // finalizer can tell a deliberate stop from a lost carrier and close with
     // the shutdown code instead of leaving the lease in its resume grace.

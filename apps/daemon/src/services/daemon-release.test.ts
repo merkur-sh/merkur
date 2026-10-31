@@ -285,13 +285,11 @@ describe('release convergence', () => {
           logger,
           installRoot,
           versionDirectory: releaseVersionDirectory(installRoot, 'v1.2.0'),
-          running: 'v1.1.0',
         }),
       );
 
       expect((await readdir(path.join(installRoot, 'versions'))).sort()).toEqual([
         '.staging-other',
-        'v1.1.0',
         'v1.2.0',
       ]);
       expect(await Bun.file(path.join(installRoot, 'current', 'merkur-tui')).exists()).toBe(true);

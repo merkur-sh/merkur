@@ -6,6 +6,7 @@ import {
   mkdir,
   open,
   readdir,
+  realpath,
   rename,
   rm,
   stat,
@@ -39,7 +40,7 @@ import {
   verifyReleaseManifestSignature,
 } from '@merkur/shared/release-signature';
 import { compileRequire } from '@merkur/shared/schema-check';
-import { Clock, Data, Effect, Schedule } from 'effect';
+import { Clock, Data, Effect, Schedule, type Scope } from 'effect';
 
 import { tryAcquireFileLock } from '../file-lock';
 import type { Logger } from '../logger';
@@ -299,16 +300,47 @@ export function stageVerifiedReleaseEffect(input: {
   });
 }
 
+/** Holds the actual installed executable's release while its daemon scope is alive. */
+export function acquireReleaseOwnershipEffect(
+  installRoot: string,
+  executable: string,
+): Effect.Effect<void, Error, Scope.Scope> {
+  return Effect.gen(function* () {
+    const { directory, root } = yield* Effect.tryPromise({
+      try: async () => ({
+        directory: path.dirname(await realpath(executable)),
+        root: await realpath(installRoot),
+      }),
+      catch: normalizeUnknownError,
+    });
+    // Source builds run Bun outside the versioned install tree.
+    if (path.dirname(directory) !== path.join(root, 'versions')) return;
+    yield* Effect.acquireRelease(
+      withReleaseTrustLockEffect(
+        installRoot,
+        Effect.tryPromise({
+          try: async () => {
+            const owner = await tryAcquireFileLock(path.join(directory, '.owner.lock'), 'shared');
+            if (owner === null) throw new Error('release is being pruned');
+            return owner;
+          },
+          catch: normalizeUnknownError,
+        }),
+      ),
+      (owner) => Effect.promise(() => owner.close()),
+    );
+  });
+}
+
 /**
  * Points `current` at a staged release, which is what every later start runs: the service
- * unit, `bin/merkur` and the shell integration all go through it. Then removes every version
- * but it and `running`, which an upgrading process is still executing from.
+ * unit, `bin/merkur` and the shell integration all go through it. Under the same release
+ * lock, removes inactive releases only when their ownership lock can be held exclusively.
  */
 export function activateReleaseEffect(input: {
   readonly logger: Logger;
   readonly installRoot: string;
   readonly versionDirectory: string;
-  readonly running: string | null;
 }): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
     yield* withReleaseTrustLockEffect(
@@ -337,13 +369,8 @@ export function activateReleaseEffect(input: {
           });
         }
         yield* swapCurrentSymlinkTargetEffect(input.installRoot, input.versionDirectory);
+        yield* pruneEffect(input.installRoot, path.basename(input.versionDirectory), input.logger);
       }),
-    );
-    yield* pruneEffect(
-      input.installRoot,
-      path.basename(input.versionDirectory),
-      input.running,
-      input.logger,
     );
   });
 }
@@ -953,10 +980,10 @@ export function readReleaseTrustFloorEffect(
   });
 }
 
-const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E>(
+const withReleaseTrustLockEffect = Effect.fnUntraced(function* <A, E, R>(
   installRoot: string,
-  operation: Effect.Effect<A, E>,
-): Effect.fn.Return<A, E | DaemonUpdateTrustError | DaemonUpdatePersistenceError> {
+  operation: Effect.Effect<A, E, R>,
+): Effect.fn.Return<A, E | DaemonUpdateTrustError | DaemonUpdatePersistenceError, R> {
   const lockPath = path.join(installRoot, 'release-trust.lock');
   yield* Effect.tryPromise({
     try: () => mkdir(installRoot, { recursive: true, mode: 0o700 }),
@@ -1449,7 +1476,6 @@ export function resolveVersionedDaemonExecutables(
 function pruneEffect(
   installRoot: string,
   activeVersion: string,
-  runningVersion: string | null,
   logger: Logger,
 ): Effect.Effect<void, Error> {
   return Effect.tryPromise({
@@ -1459,14 +1485,18 @@ function pruneEffect(
         return;
       }
       const entries = await readdir(versionsDirectory);
-      const keep = new Set(
-        runningVersion === null ? [activeVersion] : [activeVersion, runningVersion],
-      );
       for (const entry of entries) {
         // A dot entry is a stager's directory still being filled.
-        if (keep.has(entry) || entry.startsWith('.')) continue;
-        await rm(path.join(versionsDirectory, entry), { recursive: true, force: true });
-        logger.info('daemon_update_pruned_version', { version: entry });
+        if (entry === activeVersion || entry.startsWith('.')) continue;
+        const directory = path.join(versionsDirectory, entry);
+        const owner = await tryAcquireFileLock(path.join(directory, '.owner.lock'), 'exclusive');
+        if (owner === null) continue;
+        try {
+          await rm(directory, { recursive: true, force: true });
+          logger.info('daemon_update_pruned_version', { version: entry });
+        } finally {
+          await owner.close();
+        }
       }
     },
     catch: normalizeUnknownError,

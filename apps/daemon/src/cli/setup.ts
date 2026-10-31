@@ -146,7 +146,6 @@ function runSetupCommandEffect(args: string[], logger: Logger): Effect.Effect<nu
         logger,
         installRoot,
         versionDirectory,
-        running: currentTarget === null ? null : path.basename(currentTarget),
       });
       logger.info('daemon_setup_installed', { version, path: versionDirectory });
     }

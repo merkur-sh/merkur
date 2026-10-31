@@ -155,7 +155,6 @@ export function convergeEffect(
       logger: context.logger,
       installRoot: context.installRoot,
       versionDirectory,
-      running: merkurRelease(),
     });
     const executables = resolveVersionedDaemonExecutables(versionDirectory);
     const pid = context.dataplane.dataplanePid();
