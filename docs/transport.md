@@ -665,6 +665,10 @@ migrates the QUIC connection (connection id, not 4-tuple), costing one path-vali
 rather than a redial; Chromium performs no WebTransport migration, so a browser-side change runs
 the full carrier rebind.
 
+Browser reliable readers accumulate the four-byte big-endian record length directly from native
+chunks, including split headers. Each bounded body owns its buffer. An end before any header byte
+is clean completion; an end within a header or body is a truncated record.
+
 ### Edge egress admission
 
 Each edge replica meters its configured NIC once per second and keeps crash-conservative

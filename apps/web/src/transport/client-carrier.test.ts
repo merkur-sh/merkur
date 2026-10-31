@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { DISPLAY_DATAGRAM_RECEIVE_QUEUE_DEPTH } from '@merkur/shared';
+import { carrierChunks } from '../../../../scripts/perf/carrier-reader-fixture';
 import { CarrierReader, carrierRecord, dialClientCarrier } from './client-carrier';
 
 function reader(chunks: Uint8Array[]): CarrierReader {
@@ -14,6 +15,55 @@ function reader(chunks: Uint8Array[]): CarrierReader {
 }
 
 describe('native carrier framing', () => {
+  test('every header split and empty-chunk pattern owns the same body bytes', async () => {
+    for (const size of [0, 1, 64, 16_384]) {
+      const payload = Uint8Array.from({ length: size }, (_, index) => (index * 19 + 7) & 255);
+      const packet = carrierRecord(payload);
+      for (let splits = 0; splits < 8; splits++) {
+        for (const empty of [false, true]) {
+          const chunks = carrierChunks(packet, splits, empty);
+          if (empty) chunks.unshift(new Uint8Array(), new Uint8Array());
+          if (empty) chunks.push(new Uint8Array(), new Uint8Array());
+          const stream = reader(chunks);
+          const body = await stream.record();
+          expect(body).toEqual(payload);
+          packet.fill(0);
+          expect(body).toEqual(payload);
+          packet.set(carrierRecord(payload));
+          expect(await stream.record()).toBeNull();
+        }
+      }
+    }
+  });
+
+  test('EOF distinguishes an absent header from every truncated header and body', async () => {
+    for (let length = 0; length < 4; length++) {
+      const chunks = Array.from({ length }, () => Uint8Array.of(0));
+      chunks.push(new Uint8Array());
+      if (length === 0) expect(await reader(chunks).record()).toBeNull();
+      else await expect(reader(chunks).record()).rejects.toThrow('ended within a record');
+    }
+    for (let length = 0; length < 4; length++) {
+      const packet = carrierRecord(Uint8Array.of(1, 2, 3, 4));
+      await expect(reader([packet.subarray(0, 4 + length)]).record()).rejects.toThrow(
+        'ended within a record',
+      );
+    }
+  });
+
+  test('unsigned and boundary lengths reject before reading or allocating the body', async () => {
+    for (const length of [65, 0x7fff_ffff, 0x8000_0000, 0xffff_ffff]) {
+      const header = new Uint8Array(4);
+      new DataView(header.buffer).setUint32(0, length);
+      for (let splits = 0; splits < 8; splits++)
+        await expect(reader(carrierChunks(header, splits, true)).record(64)).rejects.toThrow(
+          'exceeds its bound',
+        );
+    }
+    expect(await reader([carrierRecord(new Uint8Array(64))]).record(64)).toEqual(
+      new Uint8Array(64),
+    );
+  });
   test('split headers and adjacent records retain exact payload boundaries', async () => {
     const first = carrierRecord(Uint8Array.of(1, 2, 3));
     const second = carrierRecord(Uint8Array.of(9));
