@@ -4039,6 +4039,8 @@ MODULES = {
             ":src/terminal-worker.ts.module",
             ":src/terminal/prediction-fast-path.ts.module",
             ":src/terminal/provisional-preview.ts.module",
+            ":src/transport/input-sequence-domain.ts.module",
+            ":src/wasm-loader.ts.module",
             ":tsconfig.json.module",
         ],
         "src/terminal-worker-presentation.test.ts": [

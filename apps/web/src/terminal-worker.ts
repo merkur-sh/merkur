@@ -1111,8 +1111,8 @@ function pumpPredictionRing(token: number): void {
 
   const overflowInputSeq = fastPath.takeOverflowInputSeq();
   if (overflowInputSeq !== null) handlePredictionRingOverflow(overflowInputSeq);
-  const processed = fastPath.drain(tuning.predictionCommandsPerSlice, handlePredictionCommand);
-  if (processed > 0 || overflowInputSeq !== null) publishPredictionModel();
+  fastPath.drain(tuning.predictionCommandsPerSlice, handlePredictionCommand);
+  if (overflowInputSeq !== null) publishPredictionModel();
   fastPath.drainProvisionalPreviews(handleProvisionalPreviewSnapshot);
   renderPredictionIfDirty();
 
@@ -1170,8 +1170,8 @@ function runDataPlaneFairnessSlice(): void {
   if (fastPath !== null && predictionRingPumpActive && fastPath.epochReady()) {
     const overflowInputSeq = fastPath.takeOverflowInputSeq();
     if (overflowInputSeq !== null) handlePredictionRingOverflow(overflowInputSeq);
-    const processed = fastPath.drain(tuning.predictionCommandsPerSlice, handlePredictionCommand);
-    if (processed > 0 || overflowInputSeq !== null) publishPredictionModel();
+    fastPath.drain(tuning.predictionCommandsPerSlice, handlePredictionCommand);
+    if (overflowInputSeq !== null) publishPredictionModel();
     fastPath.drainProvisionalPreviews(handleProvisionalPreviewSnapshot);
     renderPredictionIfDirty();
   }
