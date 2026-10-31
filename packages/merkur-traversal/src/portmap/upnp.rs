@@ -618,11 +618,12 @@ fn dechunk(mut body: &[u8]) -> Option<Vec<u8>> {
         if size == 0 {
             return Some(out);
         }
-        if body.len() < size + 2 {
+        let extent = size.checked_add(2)?;
+        if body.len() < extent {
             return None;
         }
         out.extend_from_slice(&body[..size]);
-        body = &body[size + 2..];
+        body = &body[extent..];
     }
 }
 
@@ -816,6 +817,13 @@ pub fn log_refusal(action: &'static str, error: SoapError) {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
+    #[test]
+    fn chunk_size_overflow_is_rejected() {
+        let response =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\n0\r\n\r\n";
+        assert!(split_response(response).is_none());
+    }
 
     const DESCRIPTION: &str = r#"<?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
