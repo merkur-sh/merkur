@@ -993,8 +993,15 @@ export function createDaemonControlService(
               return;
             const applied = yield* flushDaemonDelegationRevocations(presence);
             if (!applied) yield* retireDelegationRevocationPresence(presence);
-          }),
-        { discard: true },
+          }).pipe(
+            Effect.catch((error) =>
+              logWithLoggerEffect(logger, 'warn', 'daemon_revocation_delivery_failed', {
+                daemonId,
+                ...errorLogContext(error),
+              }),
+            ),
+          ),
+        { discard: true, concurrency: 'unbounded' },
       ),
     acceptConnection(input) {
       return Effect.gen(function* () {

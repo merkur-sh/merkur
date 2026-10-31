@@ -1147,6 +1147,68 @@ describe('DaemonControlService', () => {
     );
   });
 
+  test('a failing daemon cannot starve another pending revocation', async () => {
+    const bus = createBrokerBus();
+    const first = createFakeCoordination('instance-a', createCoordinationState());
+    const second = createFakeCoordination('instance-a', createCoordinationState());
+    let pending = false;
+    const attempted: string[] = [];
+    const service = createService(
+      {
+        ...first,
+        claimDaemonOnline: (input) =>
+          (input.daemonId === DAEMON_ID ? first : second).claimDaemonOnline(input),
+        getDaemonPresence: (id) => (id === DAEMON_ID ? first : second).getDaemonPresence(id),
+        unmarkDaemonOnline: (input) =>
+          (input.daemonId === DAEMON_ID ? first : second).unmarkDaemonOnline(input),
+        renewDaemonLeases: (inputs) =>
+          Effect.forEach(inputs, (input) =>
+            (input.daemonId === DAEMON_ID ? first : second)
+              .renewDaemonLeases([input])
+              .pipe(Effect.map((rows) => required(rows[0]))),
+          ),
+      },
+      bus.redis,
+      {
+        revocationOutbox: {
+          listPending: (id) =>
+            Effect.gen(function* () {
+              if (!pending) return [];
+              attempted.push(id);
+              if (id === DAEMON_ID)
+                return yield* infrastructureError('test', 'delivery')(new Error('daemon A failed'));
+              return [];
+            }),
+          markAcknowledged: () => Effect.void,
+          markRejected: () => Effect.void,
+        },
+      },
+    );
+    try {
+      await register(service, new TestSocket());
+      await Effect.runPromise(
+        service.acceptConnection({
+          daemonId: 'daemon-2',
+          userId: USER_ID,
+          daemonBindingJson: '{}',
+          boxId: null,
+          daemonVersion: 'test',
+          connectionId: 'connection-2',
+          presenceId: 'presence-2',
+          socket: new TestSocket(),
+          zone: null,
+        }),
+      );
+      pending = true;
+      await Effect.runPromise(
+        Effect.result(service.deliverPendingRevocations([DAEMON_ID, 'daemon-2'])),
+      );
+      expect(attempted).toContain('daemon-2');
+    } finally {
+      await Effect.runPromise(service.shutdown);
+    }
+  });
+
   test('committed revocation survives request interruption', async () => {
     const state = createCoordinationState();
     const bus = createBrokerBus();
