@@ -116,14 +116,6 @@ pub fn http_sink(
     close: bool,
     path: &'static str,
 ) -> (std::net::SocketAddr, std::sync::Arc<AtomicUsize>) {
-    http_status_sink(close, path, 204)
-}
-
-pub fn http_status_sink(
-    close: bool,
-    path: &'static str,
-    status: u16,
-) -> (std::net::SocketAddr, std::sync::Arc<AtomicUsize>) {
     use std::io::{BufRead, BufReader, Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind sink");
     let address = listener.local_addr().expect("sink address");
@@ -166,14 +158,12 @@ pub fn http_status_sink(
                     if counted {
                         counter.fetch_add(1, Ordering::Release);
                     }
-                    let response = if close {
-                        format!(
-                            "HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nconnection: close\r\n\r\n"
-                        )
+                    let response: &[u8] = if close {
+                        b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n"
                     } else {
-                        format!("HTTP/1.1 {status} Test\r\nContent-Length: 0\r\n\r\n")
+                        b"HTTP/1.1 204 No Content\r\n\r\n"
                     };
-                    if writer.write_all(response.as_bytes()).is_err() {
+                    if writer.write_all(response).is_err() {
                         return;
                     }
                     if close {
