@@ -68,6 +68,7 @@
     "bench:all": "bun run scripts/profile-project.ts --mode=micro",
     "bench:display-encoding": "bun run scripts/bench-display-encoding.ts",
     "bench:reconnect": "bun run scripts/bench-reconnect-latency.ts",
+    "bench:browser-session-construction": "bun run scripts/bench-browser-session-construction.ts",
     "bench:logger-sink": "bun run scripts/bench-logger-sink.ts",
     "bench:daemon-trace-export": "bun run scripts/bench-daemon-trace-export.ts",
     "bench:relay-keystroke-packets": "bun run scripts/run-relay-keystroke-packets.ts",
