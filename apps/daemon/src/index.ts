@@ -23,7 +23,11 @@ import { DaemonHealthServiceLive } from './services/daemon-metrics';
 import { createDaemonProofSigner } from './services/daemon-proof-signer';
 import { runDaemonRuntimeEffect } from './services/daemon-runtime';
 import { takeDataplaneAdoption } from './services/dataplane-adoption';
-import { acquireDaemonInstanceLockEffect, DaemonAlreadyRunningError } from './single-instance';
+import {
+  acquireDaemonInstanceLockEffect,
+  DaemonAlreadyRunningError,
+  takeDaemonInstanceLockDescriptor,
+} from './single-instance';
 
 const logger = createLogger('daemon');
 /** The subcommands talk to a person; the daemon runtime below talks to a log. */
@@ -140,12 +144,17 @@ if (cliCommand !== undefined) {
 
 // Read before anything can spawn a child that would inherit it. Set only when the previous
 // release replaced itself with this one, and then the dataplane is already running.
+const inheritedLock = command === 'daemon' ? await takeDaemonInstanceLockDescriptor() : null;
 const adoption = command === 'daemon' ? takeDataplaneAdoption() : null;
 
 const daemonProgram = Effect.scoped(
   Effect.gen(function* () {
     const config = yield* requireDaemonConfigEffect();
-    yield* acquireDaemonInstanceLockEffect(daemonInstanceLockPath(config.daemon_id), logger);
+    const instanceLockDescriptor = yield* acquireDaemonInstanceLockEffect(
+      daemonInstanceLockPath(config.daemon_id),
+      logger,
+      inheritedLock,
+    );
     // Completed before the runtime is interrupted, so the control connection's
     // finalizer can tell a deliberate stop from a lost carrier and close with
     // the shutdown code instead of leaving the lease in its resume grace.
@@ -167,6 +176,7 @@ const daemonProgram = Effect.scoped(
     );
     yield* Effect.addFinalizer(() => retireTelemetry);
     const runtimeFiber = yield* runDaemonRuntimeEffect(config, logger, signer, {
+      instanceLockDescriptor,
       shutdownIntent,
       retireTelemetry,
       telemetry,

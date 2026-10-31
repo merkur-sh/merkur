@@ -1017,7 +1017,10 @@ const recoverReleaseTrustStateEffect = Effect.fnUntraced(function* (installRoot:
       }),
   });
   if (bytes === null) return;
-  const current = yield* readReleaseTrustFloorEffect(installRoot, merkurReleaseSequence());
+  const current = yield* readReleaseTrustFloorEffect(
+    installRoot,
+    RELEASE_BOOTSTRAP_MINIMUM_SEQUENCE,
+  );
   let pending: ReleaseTrustFloor | null = null;
   try {
     pending = parseCanonicalReleaseTrustState(bytes);

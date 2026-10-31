@@ -5,7 +5,7 @@ import { daemonInstanceLockPath, launchAgentPath, loadDaemonConfigEffect } from 
 import type { Logger } from '../logger';
 import { isProcessAlive } from '../process-utils';
 import { resolveDataplaneBinaryPath } from '../services/dataplane-binary';
-import { readLockPidEffect, removeLockFileEffect } from '../single-instance';
+import { readLockPidEffect } from '../single-instance';
 import { resolveLaunchctlUserId, runLaunchctlEffect } from './launchctl';
 import { DAEMON_LAUNCHD_LABEL, DAEMON_SYSTEMD_UNIT_NAME } from './service-identity';
 import { runSystemctlEffect } from './systemctl';
@@ -65,13 +65,8 @@ function runStopCommandEffect(logger: Logger): Effect.Effect<number, Error> {
         );
       }
 
-      if (lockPath !== null && lockPid === null) {
-        yield* removeLockFileEffect(lockPath);
-      } else if (lockPath !== null && lockPid !== null) {
-        if (stop !== null) {
-          yield* Effect.tryPromise({ try: stop, catch: normalizeUnknownError });
-        }
-        yield* removeLockFileEffect(lockPath);
+      if (stop !== null) {
+        yield* Effect.tryPromise({ try: stop, catch: normalizeUnknownError });
       }
 
       logger.info('daemon_stop_success', { lockPid });

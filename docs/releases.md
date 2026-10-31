@@ -267,8 +267,9 @@ other ends the control client, and the daemon converges:
 3. **Hand over.** The dataplane closes its peers and transports, takes every byte its PTY reader
    has read into the terminal, writes the handoff, and `execve`s the new dataplane in its own
    pid, so the shell stays its child. The Bun owner then `execve`s the new owner in its own pid,
-   so it stays the dataplane's parent, and adopts the dataplane over a socket only its parent may
-   connect to. launchd and systemd see no exit.
+   so it stays the dataplane's parent, retaining the kernel instance lock on the same open file
+   description through `MERKUR_DAEMON_LOCK_FD`. It adopts the dataplane over a socket only its
+   parent may connect to. launchd and systemd see no exit.
 
 A staging failure leaves the running release serving; the daemon reads the release again after a
 doubling delay. A release it refuses for good (signature, rollback floor, minimum sequence,
@@ -292,7 +293,7 @@ one release from another and never change shape; each is pinned by a test:
 | Release identity | `GET /api/release` → `{"release":"vX.Y.Z"}` (`dev` from source) | `server-app.test.ts` |
 | Release files | `GET /api/releases/<tag>/<file>`: `merkur-release.json`, `merkur-release.sig`, `merkur-daemon-<platform>.tar.gz` | `server-app.test.ts`, `foundation.test.ts` |
 | Dataplane handoff | `MERKUR_DATAPLANE_HANDOFF_FD` names an unlinked file: one JSON header line `{pty_fd, child_pid, cols, rows, owner_listener_fd, image_listener_fd, image_path, image_credential}`, then the replay bytes | `handoff.rs` frozen header |
-| Owner adoption | `execve(versions/<tag>/merkur, [merkur, daemon])` with `MERKUR_DATAPLANE_ADOPT=<pid>:<socket>`; the first frame on the socket is `CMD_ADOPT {args}` | `dataplane-adoption.test.ts`, `apps/daemon/dataplane/tests/handoff.rs` |
+| Owner adoption | `execve(versions/<tag>/merkur, [merkur, daemon])` with `MERKUR_DATAPLANE_ADOPT=<pid>:<socket>` and `MERKUR_DAEMON_LOCK_FD=<fd>` retaining the locked description; the first frame on the socket is `CMD_ADOPT {args}` | `single-instance.test.ts`, `dataplane-adoption.test.ts`, `apps/daemon/dataplane/tests/handoff.rs` |
 
 A release identity decides which binary runs and never how a protocol behaves.
 

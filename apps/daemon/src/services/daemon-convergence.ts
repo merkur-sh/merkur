@@ -5,6 +5,7 @@ import { type Deferred, Duration, Effect, Predicate, type Queue, Result, Semapho
 
 import type { DaemonConfig } from '../config';
 import { type Logger, logEffect } from '../logger';
+import { DAEMON_INSTANCE_LOCK_FD_ENV } from '../single-instance';
 import {
   type DaemonControlHealthReporter,
   type DaemonControlPathSignal,
@@ -27,23 +28,19 @@ import type { DataplaneClient } from './dataplane-client';
 const CONVERGENCE_RETRY_INITIAL = Duration.seconds(5);
 const CONVERGENCE_RETRY_CEILING = Duration.minutes(5);
 
-/**
- * Replaces this process image, keeping its pid: Bun's `process.execve`. A seam for tests;
- * the default never returns.
- */
-export type Execve = (file: string, args: readonly string[], env: NodeJS.ProcessEnv) => never;
-
-const liveExecve: Execve = (file, args, env) => {
-  if (process.execve === undefined) {
-    throw new Error('this runtime cannot replace its process image');
-  }
-  return process.execve(file, args, env);
-};
+/** Replaces the process image while preserving its instance lock descriptor. */
+export type Execve = (
+  file: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  descriptor: number,
+) => never;
 
 export interface ConvergenceContext {
   readonly config: DaemonConfig;
   readonly logger: Logger;
   readonly installRoot: string;
+  readonly instanceLockDescriptor: number;
   readonly dataplane: Pick<DataplaneClient, 'upgradeEffect' | 'dataplanePid'>;
   readonly execve?: Execve;
 }
@@ -185,9 +182,17 @@ export function convergeEffect(
     });
     // The dataplane is replacing itself now. This process follows, keeping the pid the
     // dataplane accepts as its owner; nothing after this line runs in this release.
-    return (context.execve ?? liveExecve)(executables.daemon, [executables.daemon, 'daemon'], {
-      ...process.env,
-      [DATAPLANE_ADOPT_ENV]: encodeDataplaneAdoption({ pid, socketPath }),
-    });
+    const execve =
+      context.execve ?? (yield* Effect.promise(() => import('./owner-exec'))).execDaemonOwner;
+    return execve(
+      executables.daemon,
+      [executables.daemon, 'daemon'],
+      {
+        ...process.env,
+        [DATAPLANE_ADOPT_ENV]: encodeDataplaneAdoption({ pid, socketPath }),
+        [DAEMON_INSTANCE_LOCK_FD_ENV]: String(context.instanceLockDescriptor),
+      },
+      context.instanceLockDescriptor,
+    );
   });
 }

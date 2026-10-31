@@ -35,6 +35,7 @@ import { createTerminalBellReporterScoped } from './terminal-bell-reporter';
 const FINAL_TRANSPORT_CAPTURE_TIMEOUT_MS = 5_000;
 const FINAL_TRANSPORT_CAPTURE_POLL_MS = 5;
 export interface DaemonRuntimeOptions {
+  readonly instanceLockDescriptor: number;
   readonly telemetry: Pick<DaemonTelemetry, 'enabled' | 'set'>;
   /** See `DaemonControlClientOptions.shutdownIntent`. */
   readonly shutdownIntent?: Deferred.Deferred<void>;
@@ -155,6 +156,7 @@ export function runDaemonRuntimeEffect(
               config,
               logger,
               installRoot: options.installRoot,
+              instanceLockDescriptor: options.instanceLockDescriptor,
               dataplane: dataplaneClient,
             } satisfies ConvergenceContext;
             return yield* superviseCriticalDaemonEffects(

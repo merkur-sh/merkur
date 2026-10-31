@@ -3,6 +3,7 @@ import * as filesystem from 'node:fs/promises';
 import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import * as releaseIdentity from '@merkur/shared';
 import {
   daemonArtifactName,
   encodeReleaseManifest,
@@ -544,6 +545,31 @@ describe('daemon updater HTTP reliability', () => {
 });
 
 describe('trust_lock_recovery', () => {
+  test('a newer consumer preserves an unpublished floor below its own embedded floor', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'merkur-trust-embedded-'));
+    const floor = { manifestSha512: 'ab'.repeat(64), sequence: 42 };
+    const pending = { manifestSha512: 'cd'.repeat(64), sequence: 45 };
+    const sequence = spyOn(releaseIdentity, 'merkurReleaseSequence');
+    try {
+      sequence.mockReturnValue(1);
+      await Effect.runPromise(persistReleaseTrustFloorEffect(directory, floor));
+      await filesystem.writeFile(
+        path.join(directory, '.release-trust.json.new'),
+        `${JSON.stringify(pending)}\n`,
+      );
+      sequence.mockReturnValue(50);
+      await expect(
+        Effect.runPromise(persistReleaseTrustFloorEffect(directory, pending)),
+      ).rejects.toThrow('refusing to lower');
+      expect(await readFile(path.join(directory, 'release-trust.json'), 'utf8')).toBe(
+        `${JSON.stringify(pending)}\n`,
+      );
+    } finally {
+      sequence.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test.each(['locked', 'created', 'flushed', 'renamed'])(
     'recovers after SIGKILL at %s without lowering an accepted floor',
     async (barrier) => {
@@ -612,6 +638,13 @@ describe('trust_lock_recovery', () => {
           return handle;
         },
       );
+      const remove = filesystem.rm;
+      const cleanup = spyOn(filesystem, 'rm').mockImplementation(async (filename, options) => {
+        if (filename === path.join(directory, '.release-trust.json.new')) {
+          throw Object.assign(new Error(code), { code });
+        }
+        return remove(filename, options);
+      });
       try {
         await expect(
           Effect.runPromise(persistReleaseTrustFloorEffect(directory, next)),
@@ -619,11 +652,14 @@ describe('trust_lock_recovery', () => {
         expect(await readFile(path.join(directory, 'release-trust.json'), 'utf8')).toBe(
           `${JSON.stringify(before)}\n`,
         );
+        expect(await Bun.file(path.join(directory, '.release-trust.json.new')).exists()).toBe(true);
         injected.mockRestore();
+        cleanup.mockRestore();
         await Effect.runPromise(persistReleaseTrustFloorEffect(directory, next));
         expect(await Effect.runPromise(readReleaseTrustFloorEffect(directory, 1))).toEqual(next);
       } finally {
         injected.mockRestore();
+        cleanup.mockRestore();
         await rm(directory, { recursive: true, force: true });
       }
     },

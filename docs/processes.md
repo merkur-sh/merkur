@@ -259,9 +259,9 @@ merkur daemon (Bun)
     └── merkur-image-worker (one isolated inline or descriptor image decode job)
 ```
 
-The Bun process loads linked config, acquires the single-instance lock, starts the dataplane, and
-owns the persistent daemon-to-server WSS control connection, ping liveness, reconnect,
-and command dispatch. It also supervises terminal-bell reporting and a 30-second structured
+The Bun process loads linked config, acquires a kernel single-instance lock on a stable inode,
+starts the dataplane, and owns the persistent daemon-to-server WSS control connection, ping
+liveness, reconnect, and command dispatch. It also supervises terminal-bell reporting and a 30-second structured
 health/metric reporter, and serves `merkur profile` on the owner-only socket
 `~/.merkur/profile.sock` (see [Native boundary capture](./observability.md#native-boundary-capture));
 an unexpected failure in any critical owner terminates the runtime. The
@@ -372,9 +372,10 @@ separate operation.
 
 `merkur stop` arms the dataplane binary's cold `process-stop` helper before asking the service
 manager to stop. Linux uses a pidfd; macOS couples a kernel exit watch to the process audit token.
-The helper signals that captured process and waits for its actual exit before the CLI removes
-the instance lock. Service definitions preserve the owner's child cleanup: systemd terminates
-the main process first, and both systemd and launchd allow the cleanup to finish.
+The helper signals that captured process and waits for its actual exit. The kernel releases
+the instance lock when its descriptor closes; the lock inode stays in place. Service definitions
+preserve the owner's child cleanup: systemd terminates the main process first, and both systemd
+and launchd allow the cleanup to finish.
 
 An upgrade keeps that tree and its pids ([Convergence](./releases.md#convergence)). On `upgrade`,
 the dataplane binds an owner socket, stops its PTY reader with a `SIGURG` that ends its blocking
@@ -383,9 +384,11 @@ new release's dataplane with the PTY master, the owner listener and the image br
 inherited. The new dataplane rebuilds the screen from the replay, adopts the master and reaps
 the shell as its own child, serves the inherited broker socket, and accepts one owner
 connection whose peer pid is its parent's. The Bun owner `execve`s the new release's owner after
-the acknowledgement; it reclaims the single-instance lock that holds its own pid, connects to
-the socket, states the arguments a spawn would pass (`CMD_ADOPT`), and supervises the adopted
-dataplane over the socket. A later crash restarts it with a fresh spawn.
+the acknowledgement, retaining its locked descriptor across the native in-place exec. The new
+owner consumes `MERKUR_DAEMON_LOCK_FD`, marks that descriptor close-on-exec for child launches,
+checks that it names the instance-lock inode, and adopts that exact description. PID text does
+not grant or exclude ownership. The owner connects to the socket, states the arguments a spawn
+would pass (`CMD_ADOPT`), and supervises the adopted dataplane over the socket. A later crash restarts it with a fresh spawn.
 
 ## Hosted Processes Outside The Session Path
 

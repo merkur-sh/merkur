@@ -64,6 +64,7 @@ function context(
       config: { server_origin: 'https://merkur.test' } as DaemonConfig,
       logger,
       installRoot,
+      instanceLockDescriptor: 123,
       dataplane: {
         dataplanePid: () => 4242,
         upgradeEffect: (_commandId: string, executable: string, socketPath: string) =>

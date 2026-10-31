@@ -1,7 +1,7 @@
 import { spyOn } from 'bun:test';
 import * as filesystem from 'node:fs/promises';
 import path from 'node:path';
-import { Effect } from 'effect';
+import { Effect, Predicate } from 'effect';
 
 import { persistReleaseTrustFloorEffect } from './daemon-release';
 
@@ -33,6 +33,7 @@ spyOn(filesystem, 'rename').mockImplementation(async (from, to) => {
 });
 const file = Bun.file.bind(Bun);
 spyOn(Bun, 'file').mockImplementation((filename, options) => {
+  if (!Predicate.isString(filename)) throw new Error('Release fixture expects a file path');
   const result = file(filename, options);
   if (filename === target && barrier === 'locked') {
     const bytes = result.bytes.bind(result);

@@ -1,14 +1,20 @@
-import { type FileHandle, open, readFile, unlink } from 'node:fs/promises';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  ftruncateSync,
+  openSync,
+  statSync,
+  writeSync,
+} from 'node:fs';
+import { FileLockBusyError, lockFileDescriptor } from '@merkur/config/file-lock';
 import { normalizeUnknownError } from '@merkur/shared';
 import { Effect, type Scope } from 'effect';
 
 import type { Logger } from './logger';
-import {
-  isFileExistsError,
-  isMissingFileError,
-  isProcessAlive,
-  readPositivePidFile,
-} from './process-utils';
+import { isMissingFileError, readPositivePidFile } from './process-utils';
+
+export const DAEMON_INSTANCE_LOCK_FD_ENV = 'MERKUR_DAEMON_LOCK_FD';
 
 export class DaemonAlreadyRunningError extends Error {
   constructor(
@@ -23,115 +29,94 @@ export class DaemonAlreadyRunningError extends Error {
   }
 }
 
+/** Consume before any child can inherit the predecessor's descriptor announcement. */
+export async function takeDaemonInstanceLockDescriptor(): Promise<number | null> {
+  const value = process.env[DAEMON_INSTANCE_LOCK_FD_ENV];
+  delete process.env[DAEMON_INSTANCE_LOCK_FD_ENV];
+  if (value === undefined) return null;
+  const descriptor = Number(value);
+  if (!Number.isSafeInteger(descriptor) || descriptor < 3 || String(descriptor) !== value) {
+    throw new Error('Invalid inherited daemon lock descriptor');
+  }
+  const { closeInstanceLockOnExec } = await import('./services/owner-exec');
+  closeInstanceLockOnExec(descriptor);
+  return descriptor;
+}
+
 export function acquireDaemonInstanceLockEffect(
   lockPath: string,
   logger: Logger,
-): Effect.Effect<void, Error, Scope.Scope> {
-  return Effect.acquireRelease(acquireDaemonInstanceLock(lockPath, logger), (release) =>
-    Effect.promise(() => release()),
-  ).pipe(Effect.asVoid);
-}
-
-function acquireDaemonInstanceLock(
-  lockPath: string,
-  logger: Logger,
-): Effect.Effect<() => Promise<void>, Error> {
-  const lockBody = `${process.pid}\n`;
-
-  return Effect.suspend(() =>
-    openLockHandle(lockPath).pipe(
-      Effect.flatMap((handle) =>
-        writeLockBody(handle, lockBody).pipe(
-          Effect.as(createReleaseLock(lockPath, lockBody, handle, logger)),
-        ),
-      ),
-      Effect.catch((error: Error) => {
-        if (!isFileExistsError(error)) {
-          return Effect.fail(error);
+  inheritedDescriptor: number | null = null,
+): Effect.Effect<number, Error, Scope.Scope> {
+  return Effect.acquireRelease(
+    Effect.tryPromise({
+      try: () => acquireInstanceLock(lockPath, inheritedDescriptor),
+      catch: normalizeUnknownError,
+    }),
+    (descriptor) =>
+      Effect.sync(() => {
+        try {
+          closeSync(descriptor);
+        } catch (error) {
+          logger.warn('daemon_lock_release_failed', { lockPath, error: String(error) });
         }
-
-        return Effect.gen(function* () {
-          const existingPid = yield* readLockPidEffect(lockPath);
-          // A lock holding our own pid is always stale: no other live process
-          // can share our pid, so it is a leftover from a previous in-place
-          // re-exec (e.g. `bun --watch` reuses the pid and skips finalizers) or
-          // from pid reuse after the original holder died. Reclaim it rather
-          // than refusing to start.
-          const isOwnStaleLock = existingPid === process.pid;
-          if (existingPid !== null && !isOwnStaleLock && isProcessAlive(existingPid)) {
-            return yield* Effect.fail(new DaemonAlreadyRunningError(lockPath, existingPid));
-          }
-
-          logger.warn('daemon_stale_lock_removed', {
-            lockPath,
-            pid: existingPid,
-          });
-          yield* removeLockFileEffect(lockPath);
-          return yield* acquireDaemonInstanceLock(lockPath, logger);
-        });
       }),
-    ),
   );
 }
 
-function openLockHandle(lockPath: string): Effect.Effect<FileHandle, Error> {
-  return Effect.tryPromise({
-    try: () => open(lockPath, 'wx', 0o600),
-    catch: normalizeUnknownError,
-  });
-}
-
-function writeLockBody(handle: FileHandle, lockBody: string): Effect.Effect<void, Error> {
-  return Effect.tryPromise({
-    try: () => handle.writeFile(lockBody, 'utf8'),
-    catch: normalizeUnknownError,
-  });
-}
-
-export function removeLockFileEffect(lockPath: string): Effect.Effect<void, Error> {
-  return Effect.tryPromise({
-    try: () => unlink(lockPath),
-    catch: normalizeUnknownError,
-  }).pipe(
-    Effect.catch((error: Error) => (isMissingFileError(error) ? Effect.void : Effect.fail(error))),
-  );
-}
-
-function createReleaseLock(
-  lockPath: string,
-  lockBody: string,
-  handle: FileHandle,
-  logger: Logger,
-): () => Promise<void> {
-  let released = false;
-
-  return async () => {
-    if (released) {
-      return;
+async function acquireInstanceLock(lockPath: string, inheritedDescriptor: number | null) {
+  const descriptor =
+    inheritedDescriptor ??
+    openSync(lockPath, constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+  try {
+    const actual = fstatSync(descriptor, { bigint: true });
+    const expected = statSync(lockPath, { bigint: true });
+    if (!actual.isFile() || actual.dev !== expected.dev || actual.ino !== expected.ino) {
+      throw new Error('Inherited daemon lock descriptor does not name the instance lock');
     }
-    released = true;
-
-    await handle.close();
-
     try {
-      const currentLockBody = await readFile(lockPath, 'utf8');
-      if (currentLockBody === lockBody) {
-        await unlink(lockPath);
-      }
+      await lockFileDescriptor(descriptor, 6);
     } catch (error) {
-      if (!isMissingFileError(error)) {
-        logger.warn('daemon_lock_release_failed', {
-          lockPath,
-          error: String(error),
-        });
-      }
+      if (!(error instanceof FileLockBusyError)) throw error;
+      throw new DaemonAlreadyRunningError(lockPath, await readPositivePidFile(lockPath));
     }
-  };
+    const body = Buffer.from(`${process.pid}\n`);
+    ftruncateSync(descriptor, 0);
+    let offset = 0;
+    while (offset < body.byteLength) {
+      const written = writeSync(descriptor, body, offset, body.byteLength - offset, offset);
+      if (written === 0) throw new Error('Daemon PID write made no progress');
+      offset += written;
+    }
+    return descriptor;
+  } catch (error) {
+    closeSync(descriptor);
+    throw error;
+  }
 }
 
 export function readLockPidEffect(lockPath: string): Effect.Effect<number | null, Error> {
   return Effect.tryPromise({
-    try: () => readPositivePidFile(lockPath),
+    try: async () => {
+      let descriptor: number;
+      try {
+        descriptor = openSync(lockPath, constants.O_RDWR | constants.O_NOFOLLOW);
+      } catch (error) {
+        if (isMissingFileError(error)) return null;
+        throw error;
+      }
+      try {
+        try {
+          await lockFileDescriptor(descriptor, 6);
+          return null;
+        } catch (error) {
+          if (!(error instanceof FileLockBusyError)) throw error;
+          return await readPositivePidFile(lockPath);
+        }
+      } finally {
+        closeSync(descriptor);
+      }
+    },
     catch: normalizeUnknownError,
   });
 }
