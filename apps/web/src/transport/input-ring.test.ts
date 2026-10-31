@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { Worker } from 'node:worker_threads';
 import { createTaskWake } from '../lib/task-wake';
 import {
   createInputRingReader,
@@ -9,6 +10,10 @@ import {
   MAX_BUFFERED_INPUT_ENTRIES,
   wakeInputRingReader,
 } from './input-ring';
+import type {
+  InputConservationCommand,
+  InputConservationReply,
+} from './input-ring-conservation-worker';
 import {
   createPredictionAdmissionBuffer,
   createPredictionAdmissionResolver,
@@ -23,6 +28,175 @@ function readPayload(reader: InputRingReader, ordinal: number): Uint8Array {
   reader.copyPayload(ordinal, out, 0);
   return out;
 }
+
+function workerResponse(worker: Worker): Promise<InputConservationReply> {
+  return new Promise((resolve, reject) => {
+    const failed = (error: Error) => {
+      worker.off('message', received);
+      reject(error);
+    };
+    const received = (value: InputConservationReply) => {
+      worker.off('error', failed);
+      resolve(value);
+    };
+    worker.once('error', failed);
+    worker.once('message', received);
+  });
+}
+
+function workerCommand(
+  worker: Worker,
+  command: InputConservationCommand,
+): Promise<InputConservationReply> {
+  const response = workerResponse(worker);
+  worker.postMessage(command);
+  return response;
+}
+
+test('two owners conserve credit through partial ACKs, deferred input, wrap, discard and restart', async () => {
+  const sab = new SharedArrayBuffer(32 + 256);
+  const producer = new Worker(new URL('./input-ring-conservation-worker.ts', import.meta.url), {
+    workerData: { sab, role: 'writer' },
+  });
+  const consumer = new Worker(new URL('./input-ring-conservation-worker.ts', import.meta.url), {
+    workerData: { sab, role: 'reader' },
+  });
+  const write = (sequence: number, length: number, deferred = false) =>
+    workerCommand(producer, { kind: 'write', sequence, length, deferred });
+  try {
+    expect(await write(1, 40)).toMatchObject({ result: true, bytes: 40, entries: 1 });
+    expect(await write(2, 8, true)).toMatchObject({ result: true, bytes: 48, entries: 2 });
+    expect(await write(3, 16)).toMatchObject({ result: true, bytes: 64, entries: 3 });
+    expect(await workerCommand(consumer, { kind: 'read', count: 2 })).toMatchObject({
+      result: [
+        { ordinal: 0, sequence: 1, bytes: new Array(40).fill(1) },
+        { ordinal: 1, sequence: 2, bytes: new Array(8).fill(2) },
+      ],
+      bytes: 64,
+      entries: 3,
+    });
+    expect(await workerCommand(consumer, { kind: 'release', through: 1 })).toMatchObject({
+      bytes: 24,
+      entries: 2,
+    });
+    expect(await workerCommand(consumer, { kind: 'release', through: 1 })).toMatchObject({
+      bytes: 24,
+      entries: 2,
+    });
+    expect(await workerCommand(consumer, { kind: 'read', count: 2 })).toMatchObject({
+      result: [{ ordinal: 2, sequence: 3, bytes: new Array(16).fill(3) }],
+    });
+    expect(await workerCommand(consumer, { kind: 'release', through: 2 })).toMatchObject({
+      bytes: 16,
+      entries: 1,
+    });
+    expect(await workerCommand(consumer, { kind: 'discard' })).toMatchObject({
+      result: 0,
+      bytes: 16,
+      entries: 1,
+    });
+    expect(await workerCommand(consumer, { kind: 'release', through: 3 })).toMatchObject({
+      bytes: 0,
+      entries: 0,
+    });
+    await workerCommand(producer, { kind: 'restart' });
+    await workerCommand(consumer, { kind: 'restart' });
+    expect(await write(1, 80, true)).toMatchObject({ result: true, bytes: 80, entries: 1 });
+    expect(await workerCommand(consumer, { kind: 'read', count: 1 })).toMatchObject({ result: [] });
+    expect(await workerCommand(consumer, { kind: 'discard' })).toMatchObject({
+      result: 1,
+      bytes: 0,
+      entries: 0,
+    });
+    expect(await write(2, 64)).toMatchObject({ result: true, written: 248 });
+    await workerCommand(consumer, { kind: 'read', count: 1 });
+    await workerCommand(consumer, { kind: 'release', through: 1 });
+    expect(await write(3, 40)).toMatchObject({ result: true, written: 48 });
+    expect(await workerCommand(consumer, { kind: 'read', count: 1 })).toMatchObject({
+      result: [{ ordinal: 1, sequence: 3, bytes: new Array(40).fill(3) }],
+    });
+    await workerCommand(consumer, { kind: 'release', through: 2 });
+    await write(4, 8);
+    await workerCommand(consumer, { kind: 'read', count: 1 });
+    const race = new SharedArrayBuffer(4);
+    expect(
+      await workerCommand(producer, { kind: 'publish-race', sequence: 5, length: 8, race }),
+    ).toEqual({ ready: true });
+    const published = workerResponse(producer);
+    const refund = await workerCommand(consumer, { kind: 'release', through: 3, race });
+    expect(refund).toMatchObject({
+      bytes: 8,
+      entries: 1,
+      result: { loads: 0, comparisons: 0, subtractions: 2 },
+    });
+    if (process.env.INPUT_CREDIT_PROFILE === '1')
+      process.stdout.write(`${JSON.stringify({ race: refund })}\n`);
+    expect(await published).toMatchObject({ result: true });
+    expect(await workerCommand(consumer, { kind: 'read', count: 1 })).toMatchObject({
+      result: [{ ordinal: 3, sequence: 5, bytes: new Array(8).fill(5) }],
+    });
+    expect(await workerCommand(consumer, { kind: 'release', through: 4 })).toMatchObject({
+      bytes: 0,
+      entries: 0,
+    });
+  } finally {
+    await Promise.all([producer.terminate(), consumer.terminate()]);
+  }
+});
+
+test('input credit debit operations preserve exact released and discarded charges', () => {
+  const sab = new SharedArrayBuffer(INPUT_RING_SIZE);
+  const writer = createInputRingWriter(sab);
+  const reader = createInputRingReader(sab);
+  writer.write(1, payload(3, 1));
+  writer.write(2, payload(5, 2));
+  writer.write(3, payload(7, 3));
+  reader.tryReadNext();
+  const originals = {
+    load: Atomics.load,
+    compareExchange: Atomics.compareExchange,
+    sub: Atomics.sub,
+  };
+  const operations = { load: 0, compareExchange: 0, sub: 0 };
+  try {
+    const chargedWord = (array: Int32Array, index: number) =>
+      array.buffer === sab && (index === 5 || index === 6);
+    Object.defineProperty(Atomics, 'load', {
+      value(array: Int32Array, index: number) {
+        if (chargedWord(array, index)) operations.load++;
+        return originals.load(array, index);
+      },
+    });
+    Object.defineProperty(Atomics, 'compareExchange', {
+      value(array: Int32Array, index: number, expected: number, replacement: number) {
+        if (chargedWord(array, index)) operations.compareExchange++;
+        return originals.compareExchange(array, index, expected, replacement);
+      },
+    });
+    Object.defineProperty(Atomics, 'sub', {
+      value(array: Int32Array, index: number, amount: number) {
+        if (chargedWord(array, index)) operations.sub++;
+        return originals.sub(array, index, amount);
+      },
+    });
+    reader.release(1);
+    const release = { ...operations };
+    expect(release).toEqual({ load: 0, compareExchange: 0, sub: 2 });
+    expect([writer.bufferedBytes(), writer.bufferedEntries()]).toEqual([12, 2]);
+    operations.load = 0;
+    operations.compareExchange = 0;
+    operations.sub = 0;
+    expect(reader.discardQueuedEntries()).toBe(2);
+    const discard = { ...operations };
+    expect(discard).toEqual({ load: 0, compareExchange: 0, sub: 4 });
+    expect([writer.bufferedBytes(), writer.bufferedEntries()]).toEqual([0, 0]);
+    if (process.env.INPUT_CREDIT_PROFILE === '1')
+      process.stdout.write(`${JSON.stringify({ release, discard })}\n`);
+  } finally {
+    for (const operation of ['load', 'compareExchange', 'sub'] as const)
+      Object.defineProperty(Atomics, operation, { value: originals[operation] });
+  }
+});
 
 describe('input ring', () => {
   test('writes and reads entries in order with packed shadow provenance', () => {
