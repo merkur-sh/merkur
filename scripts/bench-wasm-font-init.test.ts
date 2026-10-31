@@ -44,7 +44,7 @@ describe('terminal WASM font initialization benchmark', () => {
     ).toBe(true);
     expect(metrics.every((metric) => metric.value > 0)).toBe(true);
 
-    expect(stdout.match(/checksum=\d+/g)).toEqual(
+    expect([...(stdout.match(/checksum=\d+/g) ?? [])]).toEqual(
       ['regular', 'boot'].flatMap(() =>
         [2361393152, 423624704, 940572672, 2361393152].map((checksum) => `checksum=${checksum}`),
       ),
