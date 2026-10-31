@@ -98,6 +98,7 @@ const CommandPalette: Component<Props> = (props) => {
   }
 
   function onKeyDown(event: KeyboardEvent): void {
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       run(matches()[cursor()]);

@@ -210,3 +210,32 @@ test('drives the machine list, its actions, and the palette from the keyboard', 
     linked.dispose();
   }
 });
+
+test('palette composition commits text without running its selected command', async ({ page }) => {
+  await page.goto('/');
+  await createAccount(page, `palette-composition-${uniqueSuffix()}`, 'Password123!');
+  await page.keyboard.down('MetaRight');
+  await page.keyboard.press('k');
+  await page.keyboard.up('MetaRight');
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  const query = palette.getByRole('combobox');
+  await query.fill('Settings');
+  await expect(palette.getByRole('option').first()).toBeVisible();
+  await query.evaluate((element) => {
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    element.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        isComposing: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    element.dispatchEvent(
+      new CompositionEvent('compositionend', { bubbles: true, data: 'Settings' }),
+    );
+  });
+  await expect(palette).toBeVisible();
+  await expect(query).toBeFocused();
+  await expectRoute(page, 'devices');
+});

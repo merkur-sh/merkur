@@ -2918,6 +2918,11 @@ MODULES = {
             ":package.json.module",
             ":tsconfig.json.module",
         ],
+        "src/components/CommandPalette.test.ts": [
+            ":package.json.module",
+            ":src/components/CommandPalette.tsx.module",
+            ":tsconfig.json.module",
+        ],
         "src/components/CommandPalette.tsx": [
             "//apps/web:node_modules/solid-js",
             ":package.json.module",
@@ -5129,6 +5134,7 @@ MODULES = {
             ":src/auth/user-root.ts.module",
             ":src/components/BuildVerification.tsx.module",
             ":src/components/BusyLabel.tsx.module",
+            ":src/components/CommandPalette.test.ts.module",
             ":src/components/CommandPalette.tsx.module",
             ":src/components/HoldButton.tsx.module",
             ":src/components/KeyboardHelp.tsx.module",
@@ -9268,6 +9274,7 @@ TYPE_INPUTS = {
             "src/auth/user-root.ts",
             "src/components/BuildVerification.tsx",
             "src/components/BusyLabel.tsx",
+            "src/components/CommandPalette.test.ts",
             "src/components/CommandPalette.tsx",
             "src/components/HoldButton.tsx",
             "src/components/KeyboardHelp.tsx",
