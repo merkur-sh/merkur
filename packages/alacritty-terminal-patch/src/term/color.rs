@@ -21,6 +21,16 @@ pub const COUNT: usize = 269;
 #[derive(Copy, Clone)]
 pub struct Colors([Option<Rgb>; COUNT]);
 
+impl Colors {
+    /// Whether the application has changed any terminal colour.
+    /// Called on palette mutations, outside cell capture.
+    #[cold]
+    #[inline(never)]
+    pub fn has_overrides(&self) -> bool {
+        self.0.iter().any(Option::is_some)
+    }
+}
+
 impl Default for Colors {
     fn default() -> Self {
         Self([None; COUNT])

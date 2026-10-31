@@ -123,6 +123,9 @@ pub trait EventListener {
     /// Canonical RIS, distinct from cancelling an incomplete control sequence.
     fn terminal_reset(&mut self) {}
 
+    /// Canonical palette mutation and whether any overridden slots remain.
+    fn terminal_color_changed(&mut self, _overridden: bool) {}
+
     fn terminal_apc_start(&mut self) {}
 
     fn terminal_apc_put(&mut self, _bytes: &[u8]) {}

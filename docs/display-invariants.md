@@ -10,6 +10,11 @@ The authoritative terminal grid lives in the daemon dataplane. Browser display s
 synchronized via snapshots, row deltas, ACKs, resync, and FEC. Display ACKs advance rows
 from the exact sent datagram snapshots, not from the latest terminal state.
 
+Capture resolves named and indexed colours through the authoritative terminal's active
+palette. Changes to cell palette slots invalidate retained visible captures before their
+grid keys can reuse them; resetting a slot restores its compiled colour. Resolved RGB
+travels in the existing cell fields, so receivers hash and present that same colour.
+
 Only the authenticated controlling attachment may resize the shared PTY. Explicit claims
 and compare-and-swap transfers issue a non-reusable generation; each resize must name the
 current grant before its per-peer intent serial can advance. A compound claim validates

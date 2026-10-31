@@ -1182,11 +1182,17 @@ image-delivery or physical-device acceptance.
 A terminal flush publishes each dirty row's immutable cells and XXH3 hash. Each Alacritty row
 carries a terminal-issued capture key: zero means changed or never captured, mutable cell access
 clears it, and whole-row movement preserves it. An unchanged row reuses its previous visible
-capture at its new viewport line when both projections are graphics-free. Other rows derive cells
-and hash together in one traversal. Width changes clear the capture pool. The visible set, the
-captures a refresh is replacing and the released spare cell arrays together retain at most twice
-the viewport row count, during a refresh too; only exclusive arrays, with no strong or weak outside
-owners, can be filled again, and a spare still owned elsewhere leaves the pool at its first check.
+capture at its new viewport line when both projections are graphics-free and the palette is
+unchanged. On full damage, a recorded palette mutation retires visible captures. The parser
+reports whether any overrides remain. Capture selects its resolver once per row from that signal.
+Its foreground/background caches start with valid active defaults, with no per-cell empty-cache
+or override check.
+The refresh's retained key vector is sorted once and searched for unchanged captures.
+Other rows derive cells and hash together in one traversal. Width changes clear the capture pool.
+The visible set, the captures a refresh is replacing and the released spare cell arrays together
+retain at most twice the viewport row count, during a refresh too; only exclusive arrays, with no
+strong or weak outside owners, can be filled again, and a spare still owned elsewhere leaves the
+pool at its first check.
 Each `RowCells` owner wraps boxed cells, a lazy span-plan index and a synchronized lazy
 canonical MZ source form. The first span-plan request computes the encoding and content census
 directly and sets an atomic flag. The second request builds run-cost prefixes, a cell-to-run

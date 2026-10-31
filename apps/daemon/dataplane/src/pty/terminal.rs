@@ -12,7 +12,7 @@ use alacritty_terminal::index::Line;
 #[cfg(test)]
 use alacritty_terminal::index::{Column, Point};
 use alacritty_terminal::term::{Config, Term, TermDamage, TermMode, point_to_viewport};
-use alacritty_terminal::vte::ansi::{Color, CursorShape, Processor};
+use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor, Rgb};
 use crossbeam_channel::Sender;
 use merkur_codec::{
     CELL_DIGEST_BYTES, CELL_DIGEST_WRAPPED_BIT, CellRepr, FrameHeader, FrameKind, GraphicsVersion,
@@ -26,7 +26,7 @@ use merkur_codec::{
 };
 use merkur_graphics::scene::Image;
 use merkur_image_worker::{content::ImageContent, retirement::Completion};
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -245,7 +245,8 @@ struct RowCapturePool {
     cols: usize,
     visible: Vec<Option<VisibleCapture>>,
     previous: Vec<Option<VisibleCapture>>,
-    by_key: HashMap<u64, usize>,
+    // Unique terminal-issued keys, sorted once per refresh and searched without hashing.
+    by_key: Vec<(u64, usize)>,
     previous_count: usize,
     spare: VecDeque<RowCells>,
     visible_count: usize,
@@ -254,6 +255,21 @@ struct RowCapturePool {
 }
 
 impl RowCapturePool {
+    // Palette mutations change canonical RGB without writing any grid cell or
+    // clearing its capture key. Retire visible content before keyed reuse.
+    #[cold]
+    #[inline(never)]
+    fn invalidate_colors(&mut self) {
+        let rows = self.visible.len();
+        for capture in self.visible.iter_mut().filter_map(Option::take) {
+            if self.spare.len() == rows {
+                self.spare.pop_front();
+            }
+            self.spare.push_back(capture.cells);
+        }
+        self.visible_count = 0;
+    }
+
     fn begin(&mut self, cols: u16, rows: u16, dirty: &DirtyRows, keep_previous: bool) {
         if self.cols != usize::from(cols) {
             self.visible.clear();
@@ -276,12 +292,13 @@ impl RowCapturePool {
             if let Some(capture) = self.visible[row].take() {
                 self.visible_count -= 1;
                 if keep_previous && capture.key != 0 && capture.graphics_free {
-                    self.by_key.insert(capture.key, self.previous.len());
+                    self.by_key.push((capture.key, self.previous.len()));
                 }
                 self.previous.push(Some(capture));
                 self.previous_count += 1;
             }
         }
+        self.by_key.sort_unstable_by_key(|(key, _)| *key);
     }
 
     fn capture(
@@ -293,8 +310,9 @@ impl RowCapturePool {
     ) -> CapturedRow {
         let previous = if graphics.is_empty() {
             self.by_key
-                .get(&key)
-                .and_then(|&slot| self.previous[slot].take())
+                .binary_search_by_key(&key, |(key, _)| *key)
+                .ok()
+                .and_then(|index| self.previous[self.by_key[index].1].take())
         } else {
             None
         };
@@ -454,6 +472,8 @@ fn tokens_equal(expected: &[u8], candidate: &[u8]) -> bool {
 }
 
 struct EventForwarder {
+    colors_changed: bool,
+    colors_overridden: bool,
     graphics: merkur_graphics::boundary::Boundary,
     graphics_reset: bool,
     viewport: Option<super::Viewport>,
@@ -475,6 +495,13 @@ struct EventForwarder {
 }
 
 impl EventListener for EventForwarder {
+    #[cold]
+    #[inline(never)]
+    fn terminal_color_changed(&mut self, overridden: bool) {
+        self.colors_changed = true;
+        self.colors_overridden = overridden;
+    }
+
     fn terminal_apc_start(&mut self) {
         self.graphics.start();
     }
@@ -971,6 +998,8 @@ impl TerminalState {
                 config,
                 &dimensions,
                 EventForwarder {
+                    colors_changed: false,
+                    colors_overridden: false,
                     graphics: merkur_graphics::boundary::Boundary::new(
                         merkur_graphics::processing::MAX_INPUT_BYTES.div_ceil(3) * 4,
                     ),
@@ -2265,7 +2294,12 @@ impl TerminalState {
         // Disjoint fields: the damage iterator borrows the terminal while its
         // rows go straight into the bitset, with no staging copy.
         match self.term.damage() {
-            TermDamage::Full => self.dirty_rows.mark_all(),
+            TermDamage::Full => {
+                if std::mem::take(&mut self.term.event_listener_mut().colors_changed) {
+                    self.row_captures.invalidate_colors();
+                }
+                self.dirty_rows.mark_all();
+            }
             TermDamage::Partial(lines) => {
                 for line in lines {
                     self.dirty_rows.mark(line);
@@ -2406,6 +2440,23 @@ fn fill_visible_cells(
     out: &mut [CellRepr],
     digest: &mut Vec<u8>,
 ) -> u64 {
+    if !term.event_listener().colors_overridden {
+        fill_visible_cells_with_colors::<false>(term, links, graphics, row_index, out, digest)
+    } else {
+        fill_visible_cells_with_colors::<true>(term, links, graphics, row_index, out, digest)
+    }
+}
+
+// Keep palette selection out of the cell loop's register allocation.
+#[inline(never)]
+fn fill_visible_cells_with_colors<const OVERRIDDEN: bool>(
+    term: &Term<EventForwarder>,
+    links: &Mutex<LinkTable>,
+    graphics: &graphics::Graphics,
+    row_index: usize,
+    out: &mut [CellRepr],
+    digest: &mut Vec<u8>,
+) -> u64 {
     let cols = out.len();
     #[cfg(test)]
     SNAPSHOT_CAPTURE_WORK.with(|work| {
@@ -2421,8 +2472,23 @@ fn fill_visible_cells(
     let grid = term.grid();
     let line = Line(row_index as i32);
     let row = &grid[line];
-    let mut fg_cache = None;
-    let mut bg_cache = None;
+    // Seed valid slots so the cell loop has no empty-cache state.
+    let mut fg_cache = (
+        Color::Named(NamedColor::Foreground),
+        if OVERRIDDEN {
+            resolve_active_color(Color::Named(NamedColor::Foreground), term)
+        } else {
+            CellRepr::BLANK.fg
+        },
+    );
+    let mut bg_cache = (
+        Color::Named(NamedColor::Background),
+        if OVERRIDDEN {
+            resolve_active_color(Color::Named(NamedColor::Background), term)
+        } else {
+            CellRepr::BLANK.bg
+        },
+    );
     // Cells of one OSC 8 region share an allocation, so a run of linked cells
     // resolves its id once. The table is locked only when a row holds a link.
     let mut link_cache: Option<(usize, u32)> = None;
@@ -2434,8 +2500,8 @@ fn fill_visible_cells(
         .zip(row)
         .take(cols)
     {
-        let fg = resolve_cached_color(cell.fg, &mut fg_cache);
-        let bg = resolve_cached_color(cell.bg, &mut bg_cache);
+        let fg = resolve_cached_color::<OVERRIDDEN>(cell.fg, term, &mut fg_cache);
+        let bg = resolve_cached_color::<OVERRIDDEN>(cell.bg, term, &mut bg_cache);
         let mut repr = CellRepr::from_alacritty_with_colors(cell, fg, bg);
         if let Some(link) = cell.hyperlink_ref() {
             let allocation = link.allocation();
@@ -2477,15 +2543,34 @@ fn fill_visible_cells(
 }
 
 #[inline]
-fn resolve_cached_color(color: Color, cache: &mut Option<(Color, [u8; 3])>) -> [u8; 3] {
-    if let Some((cached_color, resolved)) = cache.as_ref()
-        && *cached_color == color
-    {
-        return *resolved;
+fn resolve_cached_color<const OVERRIDDEN: bool>(
+    color: Color,
+    term: &Term<EventForwarder>,
+    cache: &mut (Color, [u8; 3]),
+) -> [u8; 3] {
+    if cache.0 == color {
+        return cache.1;
     }
-    let resolved = resolve_color(color);
-    *cache = Some((color, resolved));
+    let resolved = if OVERRIDDEN {
+        resolve_active_color(color, term)
+    } else {
+        resolve_color(color)
+    };
+    *cache = (color, resolved);
     resolved
+}
+
+#[inline]
+fn resolve_active_color(color: Color, term: &Term<EventForwarder>) -> [u8; 3] {
+    let override_color = match color {
+        Color::Spec(Rgb { r, g, b }) => return [r, g, b],
+        Color::Named(named) => term.colors()[named],
+        Color::Indexed(index) => term.colors()[usize::from(index)],
+    };
+    match override_color {
+        Some(Rgb { r, g, b }) => [r, g, b],
+        None => resolve_color(color),
+    }
 }
 
 fn write_display_header(out: &mut Vec<u8>, header: &FrameHeader) -> usize {
@@ -2604,6 +2689,115 @@ fn clamp_usize_to_u16(value: usize) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn osc_palette_override_reaches_snapshot() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut terminal = TerminalState::new(8, 2, tx);
+        terminal.apply_bytes(b"\x1b]4;200;#010203\x07\x1b[38;5;200mX\x1b[0m");
+        let (frame, _) = terminal.encode_snapshot_into(Vec::new());
+        let mut cells = Vec::new();
+        merkur_codec::validate_display_frame(
+            &frame,
+            &mut Vec::new(),
+            &mut cells,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .expect("snapshot validates");
+        assert_eq!(
+            cells[0].fg,
+            [1, 2, 3],
+            "OSC palette override is absent from snapshot"
+        );
+    }
+
+    #[test]
+    fn osc_palette_override_reaches_snapshot_existing_capture() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut terminal = TerminalState::new(8, 2, tx);
+        terminal.apply_bytes(b"\x1b[38;5;200mX\x1b[0m");
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        terminal.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        let before = hashes[0];
+        let previous_cells = captures[0].cells.clone();
+        terminal.clear_dirty();
+        terminal.apply_bytes(b"\x1b]4;200;#010203\x07");
+        terminal.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        assert_eq!(
+            captures[0].cells[0].fg,
+            [1, 2, 3],
+            "palette edit reused stale captured RGB"
+        );
+        assert_ne!(hashes[0], before);
+        assert_eq!(
+            previous_cells[0].fg,
+            merkur_codec::theme::INDEXED_COLOR_TABLE[200]
+        );
+        let overridden = captures[0].cells.clone();
+        terminal.clear_dirty();
+        terminal.apply_bytes(b"\x1b]4;200;#010203\x07");
+        terminal.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        assert!(
+            RowCells::ptr_eq(&overridden, &captures[0].cells),
+            "an unchanged palette must retain its capture"
+        );
+        terminal.clear_dirty();
+        terminal.apply_bytes(b"\x1b]104;200\x07");
+        terminal.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        assert_eq!(
+            hashes[0], before,
+            "OSC 104 restores the original canonical row"
+        );
+        assert_eq!(captures[0].cells[0].fg, previous_cells[0].fg);
+    }
+
+    #[test]
+    fn osc_palette_override_reaches_snapshot_named_colors_and_reset() {
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut terminal = TerminalState::new(8, 2, tx);
+        terminal.apply_bytes(b"X\x1b[38;2;7;8;9mY\x1b[0m");
+        let mut hashes = Vec::new();
+        let mut captures = Vec::new();
+        terminal.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        let original = hashes.clone();
+        terminal.clear_dirty();
+        terminal.apply_bytes(b"\x1b]10;#010203\x07\x1b]11;#040506\x07");
+        terminal.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        assert_eq!(captures[0].cells[0].fg, [1, 2, 3]);
+        assert_eq!(captures[0].cells[0].bg, [4, 5, 6]);
+        assert_eq!(
+            captures[0].cells[1].fg,
+            [7, 8, 9],
+            "explicit RGB is independent of the palette"
+        );
+        assert_ne!(hashes[0], original[0]);
+        let (mut frame, _) = terminal.encode_snapshot_into(Vec::new());
+        crate::display::encoder::patch_stream_header(
+            &mut frame, 1, 1, 0, 1, 1, false, true, 0, 1, 0, 0,
+        )
+        .unwrap();
+        let mut receiver = term_wasm::Terminal::new_headless(8, 2);
+        assert!(receiver.apply_delta_seq(&frame, 1));
+        receiver.commit_presentation_state();
+        assert_eq!(receiver.row_hash(0), hashes[0]);
+        let mut displayed = Vec::new();
+        receiver.displayed_row(0, &mut displayed);
+        assert_eq!(displayed[0].fg, Some([1, 2, 3]));
+        assert_eq!(displayed[0].bg, Some([4, 5, 6]));
+        terminal.clear_dirty();
+        terminal.apply_bytes(b"\x1b]110\x07\x1b]111\x07");
+        terminal.update_hashes_for_dirty_rows(&mut hashes, &mut captures);
+        assert_eq!(hashes, original);
+        // A cursor override must not leave the cell resolver on the overridden
+        // path after the final remaining slot is reset.
+        terminal.apply_bytes(b"\x1b]12;#070809\x07\x1b]10;#010203\x07\x1b]110\x07");
+        assert!(terminal.term.event_listener().colors_overridden);
+        terminal.apply_bytes(b"\x1b]112\x07");
+        assert!(!terminal.term.event_listener().colors_overridden);
+    }
+
     #[test]
     fn current_cursor_line_matches_renderable_cursor() {
         use alacritty_terminal::grid::Scroll;
@@ -3408,6 +3602,8 @@ mod tests {
         };
         let (tx, _rx) = crossbeam_channel::unbounded();
         let make_events = || EventForwarder {
+            colors_changed: false,
+            colors_overridden: false,
             graphics: merkur_graphics::boundary::Boundary::new(
                 merkur_graphics::processing::MAX_INPUT_BYTES.div_ceil(3) * 4,
             ),

@@ -2104,11 +2104,16 @@ impl<T: EventListener> Handler for Term<T> {
         trace!("Setting color[{index}] = {color:?}");
 
         // Damage terminal if the color changed and it's not the cursor.
-        if index != NamedColor::Cursor as usize && self.colors[index] != Some(color) {
+        let changed = self.colors[index] != Some(color);
+        if changed && index != NamedColor::Cursor as usize {
             self.mark_fully_damaged();
         }
 
         self.colors[index] = Some(color);
+        if changed {
+            self.event_proxy
+                .terminal_color_changed(self.colors.has_overrides());
+        }
     }
 
     /// Respond to a color query escape sequence.
@@ -2134,11 +2139,16 @@ impl<T: EventListener> Handler for Term<T> {
         trace!("Resetting color[{index}]");
 
         // Damage terminal if the color changed and it's not the cursor.
-        if index != NamedColor::Cursor as usize && self.colors[index].is_some() {
+        let changed = self.colors[index].is_some();
+        if changed && index != NamedColor::Cursor as usize {
             self.mark_fully_damaged();
         }
 
         self.colors[index] = None;
+        if changed {
+            self.event_proxy
+                .terminal_color_changed(self.colors.has_overrides());
+        }
     }
 
     /// Store data into clipboard.
