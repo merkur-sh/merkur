@@ -371,7 +371,7 @@ export type DataplaneProfileSessionsResult =
   | { readonly status: 'rejected'; readonly reason: string };
 
 /** Explicit capture ownership; browser captures cannot drain a CLI observation. */
-export type DataplaneProfileCaptureOwner =
+type DataplaneProfileCaptureOwner =
   | { readonly kind: 'cli'; readonly observation_id: string }
   | { readonly kind: 'browser' };
 
