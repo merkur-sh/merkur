@@ -31,7 +31,9 @@ if (process.argv.includes('--child')) {
         assert(ArrayBuffer.isView(bytes));
         modules += 1;
         moduleBytes += bytes.byteLength;
-        moduleHash = createHash('sha256').update(bytes).digest('hex');
+        moduleHash = createHash('sha256')
+          .update(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+          .digest('hex');
         return Reflect.construct(target, args);
       },
     });
