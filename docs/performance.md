@@ -2107,7 +2107,8 @@ as soon as the previous frame is consumed; ready work does not register a timer.
 refreshes and redraw/repair frame bounds retain a 60 Hz maintenance cadence. Partial writes
 preserve their offset while input and display grants continue. Graphics raster preparation
 runs on a lazy worker, and uploads require host acknowledgements before
-replacement placements become visible.
+replacement placements become visible. The composer reuses its known cursor position after
+text output; the workspace restores the remote cursor only after painting the status row.
 
 Native carrier and UI deliveries retain count and byte reservations through every forwarding
 queue; enqueueing to a second queue does not release their original credit. Control, display

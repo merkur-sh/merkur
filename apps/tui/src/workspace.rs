@@ -830,15 +830,15 @@ impl Workspace {
                 crate::ui::Style::Bar,
             );
             self.footer_shown = Some((footer, size));
-        }
-        if let Some(tab) = self.active()
-            && let Some(cursor) = tab.view.viewer().grid().terminal().displayed_cursor()
-            && cursor.row < size.rows.saturating_sub(1)
-            && cursor.col < size.cols
-        {
-            out.extend_from_slice(
-                format!("\x1b[{};{}H", cursor.row + 1, cursor.col + 1).as_bytes(),
-            );
+            if let Some(tab) = self.active()
+                && let Some(cursor) = tab.view.viewer().grid().terminal().displayed_cursor()
+                && cursor.row < size.rows.saturating_sub(1)
+                && cursor.col < size.cols
+            {
+                out.extend_from_slice(
+                    format!("\x1b[{};{}H", cursor.row + 1, cursor.col + 1).as_bytes(),
+                );
+            }
         }
         out.extend_from_slice(b"\x1b[?2026l\x1b[5n");
         Ok(())

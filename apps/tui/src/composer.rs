@@ -410,7 +410,6 @@ impl Writer<'_> {
             self.out.extend_from_slice(b"\x1b[?25l");
             return;
         };
-        self.at = None;
         self.move_to(cursor.row, cursor.col);
         if shown.is_none_or(|shown| shown.shape != cursor.shape) {
             self.out.extend_from_slice(match cursor.shape {

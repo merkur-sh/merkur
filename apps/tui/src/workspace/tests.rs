@@ -660,3 +660,49 @@ fn a_live_foreground_clipboard_is_emitted_once_as_base64_and_debug_never_names_i
         .unwrap();
     assert!(!paint.windows(b"\x1b]52;".len()).any(|b| b == b"\x1b]52;"));
 }
+
+#[test]
+#[ignore = "workspace host byte and allocation census; run with --ignored --nocapture"]
+fn cursor_cost_profile() {
+    use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::index::{Column, Line, Point};
+    use alacritty_terminal::term::test::TermSize;
+    use alacritty_terminal::term::{Config, Term};
+    use alacritty_terminal::vte::ansi::Processor;
+
+    let mut workspace = Workspace {
+        tabs: vec![tab(1)],
+        selected: Some(1),
+        ..Workspace::default()
+    };
+    let (commands, _receiver) = driver::Commands::channel();
+    workspace.tabs[0].commands = Some(commands);
+    let mut chrome = Chrome::default();
+    let mut out = Vec::with_capacity(4096);
+    let mut host = Term::new(Config::default(), &TermSize::new(12, 6), VoidListener);
+    let mut parser = Processor::<alacritty_terminal::vte::ansi::StdSyncHandler>::new();
+    for (name, prefix, invalidate) in [
+        ("first", false, false),
+        ("unchanged", false, false),
+        ("footer", true, false),
+        ("invalidated", true, true),
+    ] {
+        if invalidate {
+            workspace.tabs[0].view.invalidate();
+        }
+        out.clear();
+        let tally = crate::test_allocations::measure(|| {
+            workspace
+                .frame(size(), 0.0, prefix, &mut chrome, &mut out)
+                .unwrap();
+        });
+        parser.advance(&mut host, &out);
+        assert_eq!(host.grid().cursor.point, Point::new(Line(0), Column(0)));
+        assert!(out.ends_with(b"\x1b[?2026l\x1b[5n"));
+        println!(
+            "workspace {name}: bytes={} capacity={} {tally:?}",
+            out.len(),
+            out.capacity()
+        );
+    }
+}
