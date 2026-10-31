@@ -2162,7 +2162,8 @@ Reliable writer reservations survive the actual stream write. One blocked writer
 unfinished record and pins its reliable Noise lane across provider changes, even when its
 queue has free credit. Input datagrams, authenticated ACKs and other crypto lanes continue;
 retiring that carrier drops its pending reservations immediately. Control-producing work waits for its
-writer, and fixed latest facts and repair-row membership remain bounded in the shared session.
+writer, while viewport, focus and geometry host facts apply in input order independently of
+CTRL credit. Fixed latest facts and repair-row membership remain bounded in the shared session.
 The authenticated interactive fixture reports 64 serial authoritative echoes from a remote
 raw-mode program into an independently interpreted ANSI host grid. Prediction cannot
 satisfy these markers. It verifies the actual Direct or Relay footer for every sample and

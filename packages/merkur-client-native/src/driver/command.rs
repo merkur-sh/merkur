@@ -1,4 +1,4 @@
-//! Finite command ownership, with input and display grants independent of control.
+//! Finite command ownership, with ordered input/geometry and independent display grants.
 use super::Command;
 use crate::credit::{Credit, Lease};
 use tokio::sync::mpsc;
@@ -46,7 +46,10 @@ impl Commands {
     }
     pub fn send(&self, command: Command) -> Result<(), CommandSendError> {
         let index = match &command {
-            Command::Input { .. } => 0,
+            Command::Input { .. }
+            | Command::Viewport { .. }
+            | Command::Focused(_)
+            | Command::TakeGeometry => 0,
             Command::DisplayAck { .. } => 2,
             _ => 1,
         };
@@ -97,9 +100,9 @@ mod tests {
     async fn full_control_commands_keep_input_and_ack_admission_independent() {
         let (commands, mut incoming) = Commands::channel();
         for _ in 0..4096 {
-            commands.send(Command::Focused(true)).unwrap();
+            commands.send(Command::SnapshotRequest).unwrap();
         }
-        assert!(commands.send(Command::Focused(false)).is_err());
+        assert!(commands.send(Command::SnapshotRequest).is_err());
         commands
             .send(Command::Input {
                 local_seq: 1,
@@ -129,9 +132,9 @@ mod tests {
             Command::DisplayAck { .. }
         ));
         let held = incoming.control.recv().await.unwrap();
-        assert!(commands.send(Command::Focused(false)).is_err());
+        assert!(commands.send(Command::SnapshotRequest).is_err());
         drop(held);
-        commands.send(Command::Focused(false)).unwrap();
+        commands.send(Command::SnapshotRequest).unwrap();
         incoming.close();
         assert!(commands.is_closed());
         assert!(
@@ -143,5 +146,54 @@ mod tests {
                 })
                 .is_err()
         );
+    }
+    #[tokio::test]
+    async fn viewport_precedes_later_input() {
+        let (commands, mut incoming) = Commands::channel();
+        // The driver cannot poll this lane while its CTRL writer is blocked.
+        commands.send(Command::SnapshotRequest).unwrap();
+        commands
+            .send(Command::Viewport {
+                cols: 100,
+                rows: 30,
+                cell: None,
+            })
+            .unwrap();
+        commands.send(Command::Focused(true)).unwrap();
+        commands.send(Command::TakeGeometry).unwrap();
+        commands
+            .send(Command::Input {
+                local_seq: 1,
+                record: vec![1],
+                modelled: false,
+            })
+            .unwrap();
+        assert!(
+            matches!(
+                incoming.input.try_recv().unwrap().into_parts().0,
+                Command::Viewport {
+                    cols: 100,
+                    rows: 30,
+                    ..
+                }
+            ),
+            "viewport must precede later input without CTRL credit"
+        );
+        assert!(matches!(
+            incoming.input.try_recv().unwrap().into_parts().0,
+            Command::Focused(true)
+        ));
+        assert!(matches!(
+            incoming.input.try_recv().unwrap().into_parts().0,
+            Command::TakeGeometry
+        ));
+        assert!(matches!(
+            incoming.input.try_recv().unwrap().into_parts().0,
+            Command::Input { local_seq: 1, .. }
+        ));
+        assert!(matches!(
+            incoming.control.try_recv().unwrap().into_parts().0,
+            Command::SnapshotRequest
+        ));
     }
 }

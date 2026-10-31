@@ -167,6 +167,8 @@ Datagram input retries, ACKs and writers of other crypto lanes continue independ
 session keeps the unsent reliable input suffix, the latest display ACK and host facts, one
 latest plaintext PONG per provider and an exact repair-row bitmap until their writers admit
 them. Control-producing commands and reliable control ingress wait for actual writer credit.
+Viewport, focus and geometry claims share the input FIFO, applying their host facts before
+later input independently of CTRL credit; their outbound frames retain session custody.
 A separate 16-slot lifecycle ingress carries closure even when those lanes are blocked.
 UI commands own independent input, control and ACK reservations, each with 4,096 slots and a
 64 MiB resident budget. Reactor account and dial jobs have an owned cancellation handle and
