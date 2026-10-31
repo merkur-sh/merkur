@@ -13995,6 +13995,177 @@ proptest::proptest! {
     }
 }
 
+fn inline_workspace_compare_plan(
+    owner: &mut Option<DisplayScratch>,
+    worker: &mut Option<PrepareScratch>,
+    rounds: i32,
+    seed: &DisplayPrepareRequest,
+    policy: &DisplayCompressionPolicy,
+    case: (u16, bool, bool, bool),
+) {
+    use crate::edge_tunnel::test_allocations;
+    let (cols, entropy, links, relayed) = case;
+    macro_rules! exercise {
+        ($scratch:expr) => {{
+            let scratch = &mut $scratch;
+            let mut compressor = Compressor::new();
+            let mut frames = BufferPool::new(DISPLAY_FRAME_POOL_DEPTH);
+            let shared = SharedPeerMz::default();
+            let mut mz = shared.lock();
+            let mut results = Vec::new();
+            let mut warm_allocations = 0;
+            for round in 0..rounds {
+                test_allocations::begin_thread();
+                pack_captured_rows(
+                    &seed.buffers.rows,
+                    seed.header,
+                    seed.input_seq,
+                    policy,
+                    true,
+                    &mut compressor,
+                    scratch,
+                    &mut frames,
+                    Some(&mut MzContext {
+                        state: &mut mz,
+                        presentation_id: 1,
+                        snapshot: false,
+                    }),
+                );
+                let tally = test_allocations::end_thread();
+                if round >= 10 {
+                    warm_allocations += tally.allocations;
+                }
+                results.push((
+                    scratch.partition.score_us(),
+                    scratch.partition.get(0),
+                    scratch
+                        .batches
+                        .iter()
+                        .map(|(payload, rows, count, utility)| {
+                            (payload.frame.clone(), rows.len(), *count, *utility)
+                        })
+                        .collect::<Vec<_>>(),
+                ));
+                for (mut payload, _, _, _) in scratch.batches.drain(..) {
+                    mz.return_trace_buffer(std::mem::take(&mut payload.trace));
+                    frames.put(payload.frame);
+                }
+            }
+            assert_eq!(warm_allocations, 0);
+            results
+        }};
+    }
+    let inline = owner.as_mut().map(|owner| exercise!(owner.prepare));
+    let full = worker.as_mut().map(|worker| exercise!(*worker));
+    if let (Some(inline), Some(full)) = (&inline, &full) {
+        assert_eq!(
+            inline, full,
+            "cols={cols} entropy={entropy} links={links} relayed={relayed}"
+        );
+    }
+    let inline = inline.or(full).unwrap();
+    eprintln!(
+        "INLINE_PLAN cols={cols} entropy={entropy} links={links} relayed={relayed} warm_allocations=0 score={} bytes={}",
+        inline.last().unwrap().0,
+        inline
+            .last()
+            .unwrap()
+            .2
+            .iter()
+            .map(|batch| batch.0.len())
+            .sum::<usize>()
+    );
+}
+
+fn inline_workspace_compare_case(
+    owner: &mut Option<DisplayScratch>,
+    worker: &mut Option<PrepareScratch>,
+    rounds: i32,
+    shape: (u16, bool, bool),
+    graphics: &PreparedGraphics,
+) {
+    let (cols, entropy, links) = shape;
+    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
+    let mut terminal = TerminalState::new(cols, 1, event_tx);
+    terminal.apply_bytes(&maximum_prepare_fixture(cols, 1, entropy, 0));
+    if links {
+        terminal.apply_bytes(
+            "\x1b[1;1H\x1b]8;;https://example.test/\x1b\\界e\u{301}\x1b]8;;\x1b\\".as_bytes(),
+        );
+    }
+    let mut peer = benchmark_noise_peer();
+    peer.display_cache.resize(cols, 1);
+    for relayed in [false, true] {
+        let mut seed = interactive_request_for_test(
+            1,
+            &terminal,
+            &peer,
+            1,
+            &mut RowCaptureScratch::default(),
+            &mut HashMap::new(),
+        );
+        if cols == 8 {
+            let row = &mut seed.buffers.rows[0];
+            row.sent.graphics = graphics.clone();
+            let (size, encoding, content, span) = encoded_row_size(
+                &row.request,
+                &row.baseline,
+                &row.sent.cells,
+                None,
+                &row.sent.graphics,
+            );
+            row.encoded_size = size;
+            row.encoding = encoding;
+            row.content = content;
+            row.span = span;
+        }
+        let mut policy =
+            display_compression_policy(&peer, 100.0, relayed, ExecutionLane::Interactive, 0);
+        policy.planning_context.carrier = CarrierDeliveryQuote {
+            one_way_us: if relayed { 60_000.0 } else { 25_000.0 },
+            pacing_rate_bps: 8_000_000,
+            loss_upper: 0.01,
+            ..CarrierDeliveryQuote::default()
+        };
+        policy.planning_context.alternate_carrier = Some(CarrierDeliveryQuote {
+            one_way_us: if relayed { 25_000.0 } else { 60_000.0 },
+            pacing_rate_bps: 4_000_000,
+            ..CarrierDeliveryQuote::default()
+        });
+        inline_workspace_compare_plan(
+            owner,
+            worker,
+            rounds,
+            &seed,
+            &policy,
+            (cols, entropy, links, relayed),
+        );
+    }
+}
+
+fn report_inline_workspace_storage(
+    owner: &Option<DisplayScratch>,
+    worker: &Option<PrepareScratch>,
+    owner_cold: crate::edge_tunnel::test_allocations::Tally,
+    worker_cold: crate::edge_tunnel::test_allocations::Tally,
+) {
+    eprintln!(
+        "INLINE_STORAGE owner_allocations={} owner_requested={} owner_retained={} owner_size={} worker_allocations={} worker_requested={} worker_retained={} worker_size={}",
+        owner_cold.allocations,
+        owner_cold.allocated_bytes,
+        owner
+            .as_ref()
+            .map_or(0, |owner| owner.prepare.planner_workspace.retained_bytes()),
+        owner.as_ref().map_or(0, size_of_val),
+        worker_cold.allocations,
+        worker_cold.allocated_bytes,
+        worker
+            .as_ref()
+            .map_or(0, |worker| worker.planner_workspace.retained_bytes()),
+        worker.as_ref().map_or(0, size_of_val)
+    );
+}
+
 #[test]
 #[ignore = "exclusive inline workspace allocation and byte-equivalence profile"]
 fn inline_workspace_dominance_profile() {
@@ -14016,21 +14187,7 @@ fn inline_workspace_dominance_profile() {
     if let Some(worker) = &mut worker {
         worker.pin_sender_service(20.0);
     }
-    eprintln!(
-        "INLINE_STORAGE owner_allocations={} owner_requested={} owner_retained={} owner_size={} worker_allocations={} worker_requested={} worker_retained={} worker_size={}",
-        owner_cold.allocations,
-        owner_cold.allocated_bytes,
-        owner
-            .as_ref()
-            .map_or(0, |owner| owner.prepare.planner_workspace.retained_bytes()),
-        owner.as_ref().map_or(0, size_of_val),
-        worker_cold.allocations,
-        worker_cold.allocated_bytes,
-        worker
-            .as_ref()
-            .map_or(0, |worker| worker.planner_workspace.retained_bytes()),
-        worker.as_ref().map_or(0, size_of_val)
-    );
+    report_inline_workspace_storage(&owner, &worker, owner_cold, worker_cold);
     let owner_retained = owner
         .as_ref()
         .map(|owner| owner.prepare.planner_workspace.retained_bytes());
@@ -14081,124 +14238,13 @@ fn inline_workspace_dominance_profile() {
         (384, true, false),
         (512, true, false),
     ] {
-        let (event_tx, _event_rx) = crossbeam_channel::unbounded();
-        let mut terminal = TerminalState::new(cols, 1, event_tx);
-        terminal.apply_bytes(&maximum_prepare_fixture(cols, 1, entropy, 0));
-        if links {
-            terminal.apply_bytes(
-                "\x1b[1;1H\x1b]8;;https://example.test/\x1b\\界e\u{301}\x1b]8;;\x1b\\".as_bytes(),
-            );
-        }
-        let mut peer = benchmark_noise_peer();
-        peer.display_cache.resize(cols, 1);
-        for relayed in [false, true] {
-            let mut seed = interactive_request_for_test(
-                1,
-                &terminal,
-                &peer,
-                1,
-                &mut RowCaptureScratch::default(),
-                &mut HashMap::new(),
-            );
-            if cols == 8 {
-                let row = &mut seed.buffers.rows[0];
-                row.sent.graphics = graphics.clone();
-                let (size, encoding, content, span) = encoded_row_size(
-                    &row.request,
-                    &row.baseline,
-                    &row.sent.cells,
-                    None,
-                    &row.sent.graphics,
-                );
-                row.encoded_size = size;
-                row.encoding = encoding;
-                row.content = content;
-                row.span = span;
-            }
-            let mut policy =
-                display_compression_policy(&peer, 100.0, relayed, ExecutionLane::Interactive, 0);
-            policy.planning_context.carrier = CarrierDeliveryQuote {
-                one_way_us: if relayed { 60_000.0 } else { 25_000.0 },
-                pacing_rate_bps: 8_000_000,
-                loss_upper: 0.01,
-                ..CarrierDeliveryQuote::default()
-            };
-            policy.planning_context.alternate_carrier = Some(CarrierDeliveryQuote {
-                one_way_us: if relayed { 25_000.0 } else { 60_000.0 },
-                pacing_rate_bps: 4_000_000,
-                ..CarrierDeliveryQuote::default()
-            });
-            macro_rules! exercise {
-                ($scratch:expr) => {{
-                    let scratch = &mut $scratch;
-                    let mut compressor = Compressor::new();
-                    let mut frames = BufferPool::new(DISPLAY_FRAME_POOL_DEPTH);
-                    let shared = SharedPeerMz::default();
-                    let mut mz = shared.lock();
-                    let mut results = Vec::new();
-                    let mut warm_allocations = 0;
-                    for round in 0..rounds {
-                        test_allocations::begin_thread();
-                        pack_captured_rows(
-                            &seed.buffers.rows,
-                            seed.header,
-                            seed.input_seq,
-                            &policy,
-                            true,
-                            &mut compressor,
-                            scratch,
-                            &mut frames,
-                            Some(&mut MzContext {
-                                state: &mut mz,
-                                presentation_id: 1,
-                                snapshot: false,
-                            }),
-                        );
-                        let tally = test_allocations::end_thread();
-                        if round >= 10 {
-                            warm_allocations += tally.allocations;
-                        }
-                        results.push((
-                            scratch.partition.score_us(),
-                            scratch.partition.get(0),
-                            scratch
-                                .batches
-                                .iter()
-                                .map(|(payload, rows, count, utility)| {
-                                    (payload.frame.clone(), rows.len(), *count, *utility)
-                                })
-                                .collect::<Vec<_>>(),
-                        ));
-                        for (mut payload, _, _, _) in scratch.batches.drain(..) {
-                            mz.return_trace_buffer(std::mem::take(&mut payload.trace));
-                            frames.put(payload.frame);
-                        }
-                    }
-                    assert_eq!(warm_allocations, 0);
-                    results
-                }};
-            }
-            let inline = owner.as_mut().map(|owner| exercise!(owner.prepare));
-            let full = worker.as_mut().map(|worker| exercise!(*worker));
-            if let (Some(inline), Some(full)) = (&inline, &full) {
-                assert_eq!(
-                    inline, full,
-                    "cols={cols} entropy={entropy} links={links} relayed={relayed}"
-                );
-            }
-            let inline = inline.or(full).unwrap();
-            eprintln!(
-                "INLINE_PLAN cols={cols} entropy={entropy} links={links} relayed={relayed} warm_allocations=0 score={} bytes={}",
-                inline.last().unwrap().0,
-                inline
-                    .last()
-                    .unwrap()
-                    .2
-                    .iter()
-                    .map(|batch| batch.0.len())
-                    .sum::<usize>()
-            );
-        }
+        inline_workspace_compare_case(
+            &mut owner,
+            &mut worker,
+            rounds,
+            (cols, entropy, links),
+            &graphics,
+        );
     }
     assert_eq!(
         owner
@@ -14214,11 +14260,182 @@ fn inline_workspace_dominance_profile() {
     );
 }
 
+fn update_snapshot_profile_case(
+    terminal: &mut TerminalState,
+    mode: &str,
+    round: i32,
+    shape: (u16, u16, bool),
+) {
+    let (cols, rows, entropy) = shape;
+    match mode {
+        "typing" | "delta" => {
+            terminal.apply_bytes(
+                format!(
+                    "\x1b[1;1H{}",
+                    char::from(b'a' + u8::try_from(round % 26).unwrap())
+                )
+                .as_bytes(),
+            );
+        }
+        "scroll" => {
+            terminal.apply_bytes(
+                format!(
+                    "\x1b[{};1H\r\n{}",
+                    terminal.rows,
+                    char::from(b'a' + u8::try_from(round % 26).unwrap())
+                )
+                .as_bytes(),
+            );
+        }
+        "dense" => {
+            terminal.apply_bytes(&maximum_prepare_fixture(
+                terminal.cols,
+                terminal.rows,
+                entropy,
+                u8::try_from(round % 2).unwrap(),
+            ));
+        }
+        "sync" => {
+            terminal.apply_bytes(b"\x1b[?2026h");
+            terminal.apply_bytes(&maximum_prepare_fixture(
+                terminal.cols,
+                terminal.rows,
+                entropy,
+                u8::try_from(round % 2).unwrap(),
+            ));
+            terminal.apply_bytes(b"\x1b[?2026l");
+        }
+        "resize" => {
+            let resized_cols = if cols == 1 {
+                cols + u16::try_from(round % 2).unwrap()
+            } else {
+                cols - u16::try_from(round % 2).unwrap()
+            };
+            terminal.resize(resized_cols, rows);
+        }
+        _ => {}
+    }
+}
+
+fn assert_snapshot_profile_receiver(terminal: &TerminalState, payload: &[u8], hashes: &[u64]) {
+    let mut frame = payload.to_vec();
+    patch_stream_header(&mut frame, 1, 1, 0, 1, 1, false, true, 0, 1, 0, 0).unwrap();
+    let mut receiver = term_wasm::Terminal::new_headless(terminal.cols, terminal.rows);
+    assert!(receiver.apply_delta_seq(&frame, 1));
+    for (row, hash) in hashes.iter().enumerate() {
+        assert_eq!(receiver.row_hash(u16::try_from(row).unwrap()), *hash);
+    }
+}
+
+fn snapshot_capture_reuse_case(
+    shape: (u16, u16, bool),
+    mode: &str,
+    name: &str,
+    control: bool,
+    measure: bool,
+    samples: i32,
+) {
+    use crate::edge_tunnel::test_allocations;
+    use crate::pty::terminal::take_snapshot_capture_work;
+    let (cols, rows, entropy) = shape;
+    let (event_tx, _event_rx) = crossbeam_channel::unbounded();
+    let mut terminal = TerminalState::new(cols, rows, event_tx);
+    terminal.apply_bytes(&maximum_prepare_fixture(cols, rows, entropy, 0));
+    if cols >= 8 {
+        terminal.apply_bytes(
+            "\x1b[1;1H\x1b]8;;https://example.test/\x1b\\界e\u{301}\x1b]8;;\x1b\\".as_bytes(),
+        );
+    }
+    let mut hashes = Vec::new();
+    let mut dirty = Vec::new();
+    let mut cache = HashMap::new();
+    let mut payload = Vec::new();
+    let mut grid = Vec::new();
+    let mut graphics = Vec::new();
+    let mut oracle_payload = Vec::new();
+    let mut oracle_grid = Vec::new();
+    let mut oracle_hashes = Vec::new();
+    let mut oracle_graphics = Vec::new();
+    let mut held_captures = Vec::new();
+    for round in 0..samples + 10 {
+        update_snapshot_profile_case(&mut terminal, mode, round, (cols, rows, entropy));
+        take_snapshot_capture_work();
+        test_allocations::begin_thread();
+        let recaptured =
+            refresh_flush_row_captures(&mut terminal, &mut hashes, &mut dirty, &mut cache);
+        let capture_tally = test_allocations::end_thread();
+        let capture_work = take_snapshot_capture_work();
+        test_allocations::begin_thread();
+        if mode != "delta" {
+            let result = if control {
+                terminal.encode_snapshot_grid_state_for_test(
+                    payload,
+                    &mut grid,
+                    &mut hashes,
+                    &mut graphics,
+                )
+            } else {
+                terminal.encode_snapshot_state_into(payload, &mut grid, &mut hashes, &mut graphics)
+            };
+            payload = result.0;
+            assert_eq!(result.1, terminal.rows);
+        }
+        let snapshot_tally = test_allocations::end_thread();
+        let snapshot_work = take_snapshot_capture_work();
+        let tally = test_allocations::Tally {
+            allocations: capture_tally.allocations + snapshot_tally.allocations,
+            allocated_bytes: capture_tally.allocated_bytes + snapshot_tally.allocated_bytes,
+        };
+        let converted = capture_work.0 + snapshot_work.0;
+        let hash_calls = capture_work.1 + snapshot_work.1;
+        if round >= 10 {
+            assert_eq!(snapshot_tally.allocations, 0, "warm snapshot {name}");
+            assert_eq!(snapshot_tally.allocated_bytes, 0, "warm snapshot {name}");
+        }
+        if round == 0 {
+            for _ in 0..8 {
+                held_captures.push(cache.values().cloned().collect::<Vec<_>>());
+            }
+        }
+        if mode != "delta" && (!measure || round == 0 || round + 1 == samples + 10) {
+            let scratch_state = terminal.snapshot_scratch_state();
+            let oracle = terminal.encode_snapshot_grid_state_for_test(
+                oracle_payload,
+                &mut oracle_grid,
+                &mut oracle_hashes,
+                &mut oracle_graphics,
+            );
+            oracle_payload = oracle.0;
+            assert_eq!(terminal.snapshot_scratch_state(), scratch_state);
+            assert_eq!(payload, oracle_payload, "raw frame {name} round={round}");
+            assert_eq!(grid, oracle_grid);
+            assert_eq!(hashes, oracle_hashes);
+            assert_eq!(graphics, oracle_graphics);
+            assert_snapshot_profile_receiver(&terminal, &payload, &hashes);
+        }
+        if round == 0 || (!measure && round >= 10) || round + 1 == samples + 10 {
+            eprintln!(
+                "SNAPSHOT_CAPTURE case={name} round={round} recaptured={recaptured} converted={converted} hash_calls={hash_calls} allocations={} requested={} scratch_retained={} payload_capacity={} grid_capacity={} hashes_capacity={} graphics_capacity={} wire_bytes={} capture_allocations={} snapshot_allocations={} snapshot_converted={} snapshot_hash_calls={}",
+                tally.allocations,
+                tally.allocated_bytes,
+                terminal.snapshot_scratch_bytes(),
+                payload.capacity(),
+                grid.capacity(),
+                hashes.capacity(),
+                graphics.capacity(),
+                payload.len(),
+                capture_tally.allocations,
+                snapshot_tally.allocations,
+                snapshot_work.0,
+                snapshot_work.1,
+            );
+        }
+    }
+}
+
 #[test]
 #[ignore = "exclusive refreshed snapshot conversion and allocation profile"]
 fn snapshot_capture_reuse_profile() {
-    use crate::edge_tunnel::test_allocations;
-    use crate::pty::terminal::take_snapshot_capture_work;
     let selected = std::env::var("MERKUR_SNAPSHOT_CAPTURE_CASE").ok();
     let control = std::env::var_os("MERKUR_SNAPSHOT_CAPTURE_CONTROL").is_some();
     let measure = std::env::var_os("MERKUR_SNAPSHOT_CAPTURE_MEASURE").is_some();
@@ -14239,160 +14456,14 @@ fn snapshot_capture_reuse_profile() {
             if selected.as_ref().is_some_and(|selected| selected != &name) {
                 continue;
             }
-            let (event_tx, _event_rx) = crossbeam_channel::unbounded();
-            let mut terminal = TerminalState::new(cols, rows, event_tx);
-            terminal.apply_bytes(&maximum_prepare_fixture(cols, rows, entropy, 0));
-            if cols >= 8 {
-                terminal.apply_bytes(
-                    "\x1b[1;1H\x1b]8;;https://example.test/\x1b\\界e\u{301}\x1b]8;;\x1b\\"
-                        .as_bytes(),
-                );
-            }
-            let mut hashes = Vec::new();
-            let mut dirty = Vec::new();
-            let mut cache = HashMap::new();
-            let mut payload = Vec::new();
-            let mut grid = Vec::new();
-            let mut graphics = Vec::new();
-            let mut oracle_payload = Vec::new();
-            let mut oracle_grid = Vec::new();
-            let mut oracle_hashes = Vec::new();
-            let mut oracle_graphics = Vec::new();
-            let mut held_captures = Vec::new();
-            for round in 0..samples + 10 {
-                match mode {
-                    "typing" | "delta" => {
-                        terminal.apply_bytes(
-                            format!(
-                                "\x1b[1;1H{}",
-                                char::from(b'a' + u8::try_from(round % 26).unwrap())
-                            )
-                            .as_bytes(),
-                        );
-                    }
-                    "scroll" => {
-                        terminal.apply_bytes(
-                            format!(
-                                "\x1b[{};1H\r\n{}",
-                                terminal.rows,
-                                char::from(b'a' + u8::try_from(round % 26).unwrap())
-                            )
-                            .as_bytes(),
-                        );
-                    }
-                    "dense" => {
-                        terminal.apply_bytes(&maximum_prepare_fixture(
-                            terminal.cols,
-                            terminal.rows,
-                            entropy,
-                            u8::try_from(round % 2).unwrap(),
-                        ));
-                    }
-                    "sync" => {
-                        terminal.apply_bytes(b"\x1b[?2026h");
-                        terminal.apply_bytes(&maximum_prepare_fixture(
-                            terminal.cols,
-                            terminal.rows,
-                            entropy,
-                            u8::try_from(round % 2).unwrap(),
-                        ));
-                        terminal.apply_bytes(b"\x1b[?2026l");
-                    }
-                    "resize" => {
-                        let resized_cols = if cols == 1 {
-                            cols + u16::try_from(round % 2).unwrap()
-                        } else {
-                            cols - u16::try_from(round % 2).unwrap()
-                        };
-                        terminal.resize(resized_cols, rows);
-                    }
-                    _ => {}
-                }
-                take_snapshot_capture_work();
-                test_allocations::begin_thread();
-                let recaptured =
-                    refresh_flush_row_captures(&mut terminal, &mut hashes, &mut dirty, &mut cache);
-                let capture_tally = test_allocations::end_thread();
-                let capture_work = take_snapshot_capture_work();
-                test_allocations::begin_thread();
-                if mode != "delta" {
-                    let result = if control {
-                        terminal.encode_snapshot_grid_state_for_test(
-                            payload,
-                            &mut grid,
-                            &mut hashes,
-                            &mut graphics,
-                        )
-                    } else {
-                        terminal.encode_snapshot_state_into(
-                            payload,
-                            &mut grid,
-                            &mut hashes,
-                            &mut graphics,
-                        )
-                    };
-                    payload = result.0;
-                    assert_eq!(result.1, terminal.rows);
-                }
-                let snapshot_tally = test_allocations::end_thread();
-                let snapshot_work = take_snapshot_capture_work();
-                let tally = test_allocations::Tally {
-                    allocations: capture_tally.allocations + snapshot_tally.allocations,
-                    allocated_bytes: capture_tally.allocated_bytes + snapshot_tally.allocated_bytes,
-                };
-                let converted = capture_work.0 + snapshot_work.0;
-                let hash_calls = capture_work.1 + snapshot_work.1;
-                if round >= 10 {
-                    assert_eq!(snapshot_tally.allocations, 0, "warm snapshot {name}");
-                    assert_eq!(snapshot_tally.allocated_bytes, 0, "warm snapshot {name}");
-                }
-                if round == 0 {
-                    for _ in 0..8 {
-                        held_captures.push(cache.values().cloned().collect::<Vec<_>>());
-                    }
-                }
-                if mode != "delta" && (!measure || round == 0 || round + 1 == samples + 10) {
-                    let scratch_state = terminal.snapshot_scratch_state();
-                    let oracle = terminal.encode_snapshot_grid_state_for_test(
-                        oracle_payload,
-                        &mut oracle_grid,
-                        &mut oracle_hashes,
-                        &mut oracle_graphics,
-                    );
-                    oracle_payload = oracle.0;
-                    assert_eq!(terminal.snapshot_scratch_state(), scratch_state);
-                    assert_eq!(payload, oracle_payload, "raw frame {name} round={round}");
-                    assert_eq!(grid, oracle_grid);
-                    assert_eq!(hashes, oracle_hashes);
-                    assert_eq!(graphics, oracle_graphics);
-                    let mut frame = payload.clone();
-                    patch_stream_header(&mut frame, 1, 1, 0, 1, 1, false, true, 0, 1, 0, 0)
-                        .unwrap();
-                    let mut receiver =
-                        term_wasm::Terminal::new_headless(terminal.cols, terminal.rows);
-                    assert!(receiver.apply_delta_seq(&frame, 1));
-                    for (row, hash) in hashes.iter().enumerate() {
-                        assert_eq!(receiver.row_hash(u16::try_from(row).unwrap()), *hash);
-                    }
-                }
-                if round == 0 || (!measure && round >= 10) || round + 1 == samples + 10 {
-                    eprintln!(
-                        "SNAPSHOT_CAPTURE case={name} round={round} recaptured={recaptured} converted={converted} hash_calls={hash_calls} allocations={} requested={} scratch_retained={} payload_capacity={} grid_capacity={} hashes_capacity={} graphics_capacity={} wire_bytes={} capture_allocations={} snapshot_allocations={} snapshot_converted={} snapshot_hash_calls={}",
-                        tally.allocations,
-                        tally.allocated_bytes,
-                        terminal.snapshot_scratch_bytes(),
-                        payload.capacity(),
-                        grid.capacity(),
-                        hashes.capacity(),
-                        graphics.capacity(),
-                        payload.len(),
-                        capture_tally.allocations,
-                        snapshot_tally.allocations,
-                        snapshot_work.0,
-                        snapshot_work.1,
-                    );
-                }
-            }
+            snapshot_capture_reuse_case(
+                (cols, rows, entropy),
+                mode,
+                &name,
+                control,
+                measure,
+                samples,
+            );
         }
     }
 }

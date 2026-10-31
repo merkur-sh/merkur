@@ -2498,6 +2498,39 @@ fn preauth_profile_control_turn(
     retired
 }
 
+fn update_preauth_profile_case(
+    name: &str,
+    round: i32,
+    pending: usize,
+    dials: &mut HashMap<String, EdgeDialState>,
+    timer_owner: &mut Option<EdgePreauthDeadline>,
+) {
+    match name {
+        "expire" if round != 0 => {
+            for index in 0..pending {
+                let mut state = succeeded_dial(&format!("session-{index:02}"));
+                state.lifecycle.preauth_lease = Some(EdgePreauthLease {
+                    generation: index as u64 + 1,
+                    expires_at_ms: 60_000.0,
+                });
+                dials.insert(format!("browser-{index:02}"), state);
+            }
+        }
+        "install" => *timer_owner = None,
+        "replace" => {
+            dials.get_mut("browser-00").unwrap().session_id = format!("replacement-{round:05}");
+        }
+        "authenticate" => {
+            dials.get_mut("browser-00").unwrap().lifecycle.preauth_lease = (round % 2 == 0)
+                .then_some(EdgePreauthLease {
+                    generation: 1,
+                    expires_at_ms: 60_000.0,
+                });
+        }
+        _ => {}
+    }
+}
+
 #[test]
 #[ignore = "exclusive pre-auth deadline allocation and instruction profile"]
 fn preauth_deadline_selection_profile() {
@@ -2539,31 +2572,7 @@ fn preauth_deadline_selection_profile() {
             allocated_bytes: 0,
         };
         for round in 0..rounds {
-            match name {
-                "expire" if round != 0 => {
-                    for index in 0..pending {
-                        let mut state = succeeded_dial(&format!("session-{index:02}"));
-                        state.lifecycle.preauth_lease = Some(EdgePreauthLease {
-                            generation: index as u64 + 1,
-                            expires_at_ms: 60_000.0,
-                        });
-                        dials.insert(format!("browser-{index:02}"), state);
-                    }
-                }
-                "install" => timer_owner = None,
-                "replace" => {
-                    dials.get_mut("browser-00").unwrap().session_id =
-                        format!("replacement-{round:05}");
-                }
-                "authenticate" => {
-                    dials.get_mut("browser-00").unwrap().lifecycle.preauth_lease = (round % 2 == 0)
-                        .then_some(EdgePreauthLease {
-                            generation: 1,
-                            expires_at_ms: 60_000.0,
-                        });
-                }
-                _ => {}
-            }
+            update_preauth_profile_case(name, round, pending, &mut dials, &mut timer_owner);
             test_allocations::begin_thread();
             let turn = if control {
                 preauth_profile_control_turn
