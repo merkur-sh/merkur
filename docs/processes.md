@@ -193,7 +193,8 @@ viewport; exit, SIGINT, SIGTERM, SIGHUP and panic restore
 termios, host modes and the normal screen.
 
 Host input accepts raw CR as Enter, BS or DEL as Backspace, HT as Tab, and
-other C0 bytes except ESC as control-key presses alongside extended keyboard reports. Text
+other C0 bytes except ESC as control-key presses alongside extended keyboard reports. SS3
+application-cursor and F1–F4 reports retain their functional identity across split reads. Text
 runs stop at each key so text, deletion and submission retain their order across reads.
 LF denotes Ctrl-J; bracketed paste retains its text, including embedded control bytes.
 The workspace prefix is Ctrl-\\; pressing it twice sends one Ctrl-\\ to the machine.

@@ -201,6 +201,7 @@ impl HostInput {
         };
         match introducer {
             b'[' => self.csi(input, out),
+            b'O' => ss3(input, out),
             b']' => string(input, true, Reply::Osc, out),
             b'P' => string(input, false, Reply::Dcs, out),
             b'_' => string(input, false, apc_reply, out),
@@ -448,6 +449,22 @@ fn tilde_key(number: u32) -> Option<u32> {
         29 => functional::MENU,
         _ => return None,
     })
+}
+
+/// Application-cursor and F1–F4 reports keep their identity across host reads.
+fn ss3(input: &[u8], out: &mut Vec<HostEvent>) -> Step {
+    let Some(&code) = input.get(2) else {
+        return Step::Incomplete;
+    };
+    let key = if code == b'R' {
+        Some(functional::F1 + 2)
+    } else {
+        letter_key(code)
+    };
+    if let Some(key) = key {
+        out.push(HostEvent::Record(build::functional(key, 0, 0)));
+    }
+    Step::Consumed(3)
 }
 
 /// `CSI 1;m X` keys. F3 is `CSI 13 ~`, since `CSI R` is a cursor report.

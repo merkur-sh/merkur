@@ -393,3 +393,36 @@ fn split_password_paste_keeps_only_the_unfinished_marker_then_wipes_storage() {
         matches!(events.first(), Some(HostEvent::Record(record)) if matches!(merkur_wire::input_record::decode(record), Some(merkur_wire::input_record::InputRecord::Paste("private-prefix-continued-secret"))))
     );
 }
+
+#[test]
+fn ss3_reports_preserve_functional_key_identity() {
+    let cases: &[(&[u8], u32)] = &[
+        (b"\x1bOP", functional::F1),
+        (b"\x1bOQ", functional::F1 + 1),
+        (b"\x1bOR", functional::F1 + 2),
+        (b"\x1bOS", functional::F1 + 3),
+        (b"\x1bOA", functional::UP),
+        (b"\x1bOB", functional::DOWN),
+        (b"\x1bOC", functional::RIGHT),
+        (b"\x1bOD", functional::LEFT),
+        (b"\x1bOH", functional::HOME),
+        (b"\x1bOF", functional::END),
+    ];
+    for &(bytes, code) in cases {
+        for split in 0..=bytes.len() {
+            let mut input = HostInput::default();
+            let mut events = Vec::new();
+            input.feed(&bytes[..split], &mut events);
+            if split < bytes.len() {
+                assert!(events.is_empty(), "incomplete SS3 report must stay pending");
+            }
+            input.feed(&bytes[split..], &mut events);
+            assert_eq!(
+                events,
+                [HostEvent::Record(key(0, code, 0, None, None))],
+                "SS3 must preserve functional identity: {bytes:?}, split {split}"
+            );
+            assert!(input.pending.is_empty());
+        }
+    }
+}
