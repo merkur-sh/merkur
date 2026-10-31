@@ -310,7 +310,7 @@ export function createTerminalInputController(
    * would drain independently and interleave them wrongly — which on a
    * command line is indistinguishable from corruption.
    */
-  const pendingInputs: PendingInput[] = [];
+  const pendingInputs: Array<PendingInput | undefined> = [];
   /** Retained payload bytes, bounded alongside the entry count. */
   let pendingInputBytes = 0;
   let pendingInputHead = 0;
@@ -541,6 +541,14 @@ export function createTerminalInputController(
     // Drop the NEWEST, never the oldest. Dropping from the head would punch a
     // hole in the middle of a command line; truncating the tail leaves a
     // correct prefix.
+    // Reclaim consumed slots once they occupy at least the live suffix. Each
+    // copied live entry is paid for by a consumed slot, keeping append amortized
+    // constant time and storage below twice the outstanding entry bound.
+    if (pendingInputHead > 0 && pendingInputHead * 2 >= pendingInputs.length) {
+      pendingInputs.copyWithin(0, pendingInputHead);
+      pendingInputs.length -= pendingInputHead;
+      pendingInputHead = 0;
+    }
     pendingInputs.push(input);
     pendingInputBytes += input.bytes.byteLength;
     armInputRetry();
@@ -595,6 +603,7 @@ export function createTerminalInputController(
       if (pending === undefined) break;
       if (currentSession !== pending.session) {
         pendingInputBytes -= pending.bytes.byteLength;
+        pendingInputs[pendingInputHead] = undefined;
         pendingInputHead += 1;
         continue;
       }
@@ -615,6 +624,7 @@ export function createTerminalInputController(
         return;
       }
       pendingInputBytes -= pending.bytes.byteLength;
+      pendingInputs[pendingInputHead] = undefined;
       pendingInputHead += 1;
     }
     clearPendingInputs();

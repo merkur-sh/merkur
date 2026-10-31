@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import {
   type DecodedInputRecord,
   decodeInputRecord,
@@ -1192,4 +1194,48 @@ describe('input controller macros', () => {
     ]);
     controller.destroy();
   });
+});
+
+test('partial drains retain only outstanding input payloads and bounded storage', () => {
+  const source = readFileSync(new URL('./input-controller.ts', import.meta.url), 'utf8');
+  const functions = ['enqueueInput', 'drainInputs'].map((name) => {
+    const start = source.indexOf(`  function ${name}(`);
+    const end = source.indexOf('\n  }', start);
+    if (start < 0 || end < start) throw new Error(`missing ${name}`);
+    return source.slice(start, end + 4);
+  });
+  const session = {};
+  const pendingInputs: Array<{ bytes: Uint8Array; session: object } | undefined> = [];
+  let credit = 0;
+  const context = {
+    pendingInputs,
+    pendingInputHead: 0,
+    pendingInputBytes: 0,
+    MAX_PENDING_INPUTS: 4096,
+    MAX_BUFFERED_INPUT_BYTES: 65536,
+    options: { getSession: () => session },
+    armInputRetry() {},
+    trySend: () => (credit-- > 0 ? 1 : null),
+    clearPendingInputs() {
+      throw new Error('the backlog must remain nonempty');
+    },
+    session,
+  };
+  runInNewContext(
+    new Bun.Transpiler({ loader: 'ts' }).transformSync(functions.join('\n')),
+    context,
+  );
+  const enqueue = () =>
+    runInNewContext('enqueueInput({session, bytes: new Uint8Array(8)})', context);
+  enqueue();
+  enqueue();
+  for (let turn = 0; turn < 64; turn++) {
+    credit = 1;
+    runInNewContext('drainInputs()', context);
+    enqueue();
+    const retained = pendingInputs.filter((entry) => entry !== undefined);
+    expect(retained).toHaveLength(2);
+    expect(retained.reduce((sum, entry) => sum + (entry?.bytes.byteLength ?? 0), 0)).toBe(16);
+    expect(pendingInputs.length).toBeLessThanOrEqual(4);
+  }
 });
