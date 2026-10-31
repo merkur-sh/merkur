@@ -275,9 +275,11 @@ connections and closes them; the account's other browsers receive `browser-sessi
 browser receiving that event or a definitive refresh rejection tears down its terminal, clears that
 one delegation, and returns to login with a "Session ended" dialog. Network failures do not.
 
-Explicit logout is self-revocation. The browser signs its own target, keeps only the public
-certificate and signed statement as an offline tombstone, deletes the usable delegate before network
-delivery, and retries the tombstone before any later refresh or login.
+Explicit logout is self-revocation. The signed transaction alone selects the delegation and refresh
+families to revoke; the logout route clears the refresh cookie without using it as authority.
+The browser signs its own target, keeps only the public certificate and signed statement as an offline
+tombstone, deletes the usable delegate before network delivery, and retries the tombstone before any
+later refresh or login.
 
 The daemon receives each statement as a `delegation_revoke` control command. The Rust dataplane
 verifies the actor certificate and statement, records the tombstone, and evicts affected live,

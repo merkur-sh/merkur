@@ -1,6 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
+import {
+  createDelegationRevocationStatement,
+  encodeUserAuthorizationBytes,
+} from '@merkur/shared/user-authorization';
 import { Effect, Layer } from 'effect';
 import { Elysia } from 'elysia';
+import { SqliteQueryCompiler } from 'kysely';
 
 import type { AuthIdentity } from '../../config';
 import { createLogger } from '../../logger';
@@ -11,6 +16,18 @@ import {
   type AuthService,
   AuthServiceTag,
 } from '../../services/auth-service';
+import {
+  browser,
+  db,
+  finishRegistration,
+  loginWithNewDelegation,
+  OLD_PASSWORD,
+  ROOT_KEY_COMMITMENT,
+  service as realAuthService,
+  registerAccount,
+  startClientAndServerAuth,
+  useAuthServiceFixture,
+} from '../../services/auth-service-fixture';
 import { DaemonControlServiceTag } from '../../services/daemon-control-service';
 import {
   type RateLimitReservation,
@@ -455,6 +472,147 @@ describe('auth routes', () => {
     expect(response.headers.get('retry-after')).toBe('1800');
     expect(consumed).toEqual(['auth:finish:ip:unknown', 'auth:register:ip:unknown']);
   });
+});
+
+describe('signed logout', () => {
+  useAuthServiceFixture();
+
+  test.each(['ordinary', 'missing', 'stale', 'malformed', 'foreign', 'replay', 'revoked'] as const)(
+    '%s cookie cannot select the refresh authority logout revokes',
+    async (workload) => {
+      const actor = await registerAccount(OLD_PASSWORD, 0x61, 'logout-actor');
+      const sibling = await loginWithNewDelegation(OLD_PASSWORD, 0x62, 'logout-sibling');
+      const foreign = await finishRegistration(
+        await startClientAndServerAuth(OLD_PASSWORD, 'other@example.com'),
+        0x63,
+        'logout-foreign',
+      );
+      const cookie = (header: string) => header.split(';')[0] ?? '';
+      const foreignCookie = cookie(foreign.session.refreshCookieHeader);
+      const rotated = await Effect.runPromise(realAuthService.refresh(foreignCookie));
+      if (rotated === null) throw new Error('foreign refresh failed before logout');
+      const foreignToken = await db
+        .selectFrom('refresh_tokens')
+        .select('id')
+        .where('user_id', '=', foreign.userId)
+        .where('rotated_at', 'is not', null)
+        .executeTakeFirstOrThrow();
+      const proof = {
+        actorCertificate: actor.certificate,
+        revocation: createDelegationRevocationStatement(
+          {
+            userId: actor.userId,
+            rootKeyCommitment: ROOT_KEY_COMMITMENT,
+            actorDelegationId: actor.certificate.delegationId,
+            targets: [
+              {
+                delegationId: actor.certificate.delegationId,
+                expiresAt: actor.certificate.expiresAt,
+              },
+            ],
+            issuedAt: Date.now(),
+            nonce: encodeUserAuthorizationBytes(new Uint8Array(32).fill(0x64)),
+          },
+          actor.delegate,
+        ),
+      };
+      const flushed: unknown[] = [];
+      const app = createApp(realAuthService, undefined, null, flushed);
+      if (workload === 'replay') {
+        expect((await app.handle(request('/api/auth/logout', proof))).status).toBe(200);
+      } else if (workload === 'revoked') {
+        await Effect.runPromise(
+          realAuthService.revokeBrowserSessions(browser(actor), proof, { kind: 'self' }),
+        );
+        const { signature: _signature, ...statement } = proof.revocation;
+        proof.revocation = createDelegationRevocationStatement(
+          {
+            ...statement,
+            nonce: encodeUserAuthorizationBytes(new Uint8Array(32).fill(0x65)),
+          },
+          actor.delegate,
+        );
+      }
+      const before = JSON.stringify(
+        await db
+          .selectFrom('refresh_tokens')
+          .selectAll()
+          .where('delegation_id', '!=', actor.certificate.delegationId)
+          .orderBy('id')
+          .execute(),
+      );
+      const foreignHeader = `merkur_refresh=${foreignToken.id}.invalid-secret`;
+      const headers = {
+        ordinary: cookie(actor.session.refreshCookieHeader),
+        missing: '',
+        stale: 'merkur_refresh=missing-token.stale-secret',
+        malformed: 'merkur_refresh=malformed',
+        foreign: foreignHeader,
+        replay: foreignHeader,
+        revoked: foreignHeader,
+      };
+      const req = request('/api/auth/logout', proof);
+      const cookieHeader = headers[workload];
+      if (cookieHeader !== '') req.headers.set('cookie', cookieHeader);
+      const compile = spyOn(SqliteQueryCompiler.prototype, 'compileQuery');
+      let response: Response;
+      try {
+        response = await app.handle(req);
+        const queries = compile.mock.results.flatMap((result) =>
+          result.type === 'return' ? [result.value.sql] : [],
+        );
+        process.stdout.write(
+          `${JSON.stringify({
+            workload,
+            sqlStatements: queries.length,
+            refreshStatements: queries.filter((sql) => sql.includes('"refresh_tokens"')).length,
+            familyDeletes: queries.filter((sql) =>
+              sql.startsWith('delete from "refresh_tokens" where "family_id"'),
+            ).length,
+          })}\n`,
+        );
+      } finally {
+        compile.mockRestore();
+      }
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('{"ok":true}');
+      expect(response.headers.get('set-cookie')).toBe(
+        'merkur_refresh=;Max-Age=0;Path=/api/auth;SameSite=Strict;Secure;HttpOnly',
+      );
+      expect(flushed).toContain(actor.userId);
+      expect(
+        await db
+          .selectFrom('refresh_tokens')
+          .selectAll()
+          .where('delegation_id', '=', actor.certificate.delegationId)
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await Effect.runPromise(realAuthService.verifyBearerToken(actor.session.accessToken)),
+      ).toBeNull();
+      expect(
+        JSON.stringify(
+          await db
+            .selectFrom('refresh_tokens')
+            .selectAll()
+            .where('delegation_id', '!=', actor.certificate.delegationId)
+            .orderBy('id')
+            .execute(),
+        ),
+      ).toBe(before);
+      expect(
+        await Effect.runPromise(realAuthService.refresh(cookie(actor.session.refreshCookieHeader))),
+      ).toBeNull();
+      expect(
+        await Effect.runPromise(
+          realAuthService.refresh(cookie(sibling.session.refreshCookieHeader)),
+        ),
+      ).toMatchObject({ userId: actor.userId, delegationId: sibling.certificate.delegationId });
+      expect(
+        await Effect.runPromise(realAuthService.refresh(cookie(rotated.refreshCookieHeader))),
+      ).toMatchObject({ userId: foreign.userId, delegationId: foreign.certificate.delegationId });
+    },
+  );
 });
 
 describe('email identity routes', () => {

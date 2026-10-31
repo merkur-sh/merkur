@@ -348,17 +348,9 @@ describe('AuthService user-root OPAQUE flows', () => {
     expect(selfRevocation.issuedAt).toBeGreaterThan(remotelyRevokedAt);
     await expect(
       Effect.runPromise(
-        service.revokeBrowserSessions(
-          {
-            userId: actor.userId,
-            delegationId: actor.certificate.delegationId,
-            delegationExpiresAt: actor.certificate.expiresAt,
-          },
-          { actorCertificate: actor.certificate, revocation: selfRevocation },
-          { kind: 'self' },
-        ),
+        service.logout({ actorCertificate: actor.certificate, revocation: selfRevocation }),
       ),
-    ).resolves.toBe(0);
+    ).resolves.toBe('merkur_refresh=;Max-Age=0;Path=/api/auth;SameSite=Strict;Secure;HttpOnly');
 
     expect(
       await db.selectFrom('delegation_revocations').select('nonce').orderBy('nonce').execute(),

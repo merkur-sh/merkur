@@ -830,10 +830,13 @@ MODULES = {
         "src/http/routes/auth-routes.test.ts": [
             "//apps/server:node_modules/effect",
             "//apps/server:node_modules/elysia",
+            "//apps/server:node_modules/kysely",
+            "//packages/shared:src/user-authorization.ts.module",
             ":package.json.module",
             ":src/http/api-errors.ts.module",
             ":src/http/routes/auth-routes.ts.module",
             ":src/logger.ts.module",
+            ":src/services/auth-service-fixture.ts.module",
             ":src/services/auth-service.ts.module",
             ":src/services/daemon-control-service.ts.module",
             ":src/services/rate-limit-service.ts.module",
