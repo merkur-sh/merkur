@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 
+import { expectDeviceListLive } from './app-state';
 import {
   createAccount,
   expectLoggedIn,
@@ -377,26 +378,44 @@ test('an open row menu covers the rows beneath it', async ({ baseURL, page }) =>
   }
 });
 
-test('pending device navigation keeps Settings after the opening frame', async ({ page }) => {
+test('pending device navigation keeps Settings after the opening frame', async ({
+  page: registration,
+  browser,
+  baseURL,
+}) => {
+  const username = `pending-navigation-${uniqueSuffix()}`;
+  const password = 'Password123!';
+  await registration.goto('/');
+  await createAccount(registration, username, password);
+  // Consent is stored before a fresh browser requests its uncached opening frame.
+  const context = await browser.newContext({ baseURL });
+  const page = await context.newPage();
   let release: () => void = () => {};
   const opening = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route('**/api/devices/events', async (route) => {
-    await opening;
-    await route.continue();
-  });
-  await page.goto('/');
-  await createAccount(page, `pending-navigation-${uniqueSuffix()}`, 'Password123!');
-  const loading = page.locator('[role="status"][aria-label="Loading machines"]');
-  await expect(loading).toHaveCount(1);
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.locator('body')).toHaveAttribute('data-route', 'settings');
-  release();
-  await expect(loading).toHaveCount(0);
-  await expect(page.locator('body')).toHaveAttribute('data-route', 'settings');
-  await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  try {
+    await page.route('**/api/devices/events', async (route) => {
+      await opening;
+      await route.continue();
+    });
+    await page.goto('/');
+    await signIn(page, username, password);
+    await expectLoggedIn(page);
+    const loading = page.locator('[role="status"][aria-label="Loading machines"]');
+    await expect(loading).toHaveCount(1);
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(page.locator('body')).toHaveAttribute('data-route', 'settings');
+    release();
+    await expectDeviceListLive(page);
+    await expect(loading).toHaveCount(0);
+    await expect(page.locator('body')).toHaveAttribute('data-route', 'settings');
+    await expect(page.getByRole('tab', { name: 'Terminal', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  } finally {
+    release();
+    await context.close();
+  }
 });
