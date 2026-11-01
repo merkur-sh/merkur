@@ -78,10 +78,10 @@ def observation_response(transaction, mapped, receipt=True):
     return struct.pack("!HH", 0x101, len(attributes)) + VERIFY.COOKIE + transaction + attributes
 
 
-def pcp4_map(port, lifetime, granted, assigned="172.30.2.2", nonce=b"n" * 12):
+def pcp4_map(port, lifetime, granted, assigned="172.30.2.2", nonce=b"n" * 12, suggested="198.51.100.2"):
     sent, answered = pcp6_map("::ffff:10.20.2.2", port, lifetime, granted, nonce)
     sent, answered = bytearray(sent), bytearray(answered)
-    sent[44:60] = ipaddress.IPv6Address("::ffff:198.51.100.2").packed
+    sent[44:60] = ipaddress.IPv6Address(f"::ffff:{suggested}").packed
     answered[44:60] = ipaddress.IPv6Address(f"::ffff:{assigned}").packed
     return bytes(sent), bytes(answered)
 
@@ -347,6 +347,11 @@ class NativeEvidence(unittest.TestCase):
                 with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
                     self.prove("inner-lease")
 
+    def test_inner_nat_delete_must_name_the_address_it_was_granted(self):
+        self.write_capture(self._inner_lease(delete_suggested=VERIFY.CLIENT4))
+        with self.assertRaisesRegex(VERIFY.VerificationError, "mismatched PCP grant/deletion"):
+            self.prove("inner-lease")
+
     def test_inner_nat_cannot_count_normal_close_cleanup_after_the_binding_stopped(self):
         frames = self._inner_lease()
         self.write_capture(frames[:-1])
@@ -379,12 +384,13 @@ class NativeEvidence(unittest.TestCase):
             self.prove("inner-lease")
 
     def _inner_lease(self, delete_nonce=b"n" * 12, delete_port=39000, receipt=True,
-                     assigned="172.30.2.2", observed_port=39000):
+                     assigned="172.30.2.2", observed_port=39000, delete_suggested="172.30.2.2"):
         (self.root / "outer-nft.json").write_text(json.dumps({"nftables": [{"counter": {"name": "peer_drop", "packets": 8}}]}))
         binding, observer = ("10.20.2.2", observed_port), ("198.51.100.10", 3478)
         control, cleanup, gateway = ("10.20.2.2", 44000), ("10.20.2.2", 44001), ("10.20.2.1", 5351)
         acquire, grant = pcp4_map(39000, 3600, 120, assigned=assigned)
-        delete, acknowledgement = pcp4_map(delete_port, 0, 0, assigned=assigned, nonce=delete_nonce)
+        delete, acknowledgement = pcp4_map(delete_port, 0, 0, assigned=assigned, nonce=delete_nonce,
+                                           suggested=delete_suggested)
         transaction = b"o" * 12
         return [ipv4_udp(CLIENT, (VERIFY.DAEMON4, 51110), request(b"p" * 12, "c")),
                 ipv4_udp(binding, observer, observation_request(transaction)),

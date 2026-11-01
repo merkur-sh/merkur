@@ -1020,8 +1020,9 @@ def inner_lease_rejection(packets: list[Packet]) -> dict[str, Any] | None:
         port = struct.unpack_from("!H", wire, 40)[0]
         if port == 0:
             continue
+        suggested = assigned if wire[4:8] == b"\0\0\0\0" else CLIENT4
         if (packet.source[0] == local and packet.destination == gateway and wire[:4] == b"\x02\x01\0\0"
-                and canonical_ip(wire[8:24]) == local and canonical_ip(wire[44:60]) == CLIENT4):
+                and canonical_ip(wire[8:24]) == local and canonical_ip(wire[44:60]) == suggested):
             requests[(packet.source, wire[24:36], port)] = packet
         elif (packet.source == gateway and packet.destination[0] == local and wire[:4] == b"\x02\x81\0\0"):
             request = requests.get((packet.destination, wire[24:36], port))
