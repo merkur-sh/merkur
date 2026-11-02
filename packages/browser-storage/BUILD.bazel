@@ -23,15 +23,11 @@ js_library(
 
 bun_test_files(
     # The conformance scenarios in the three engines the web app runs in.
-    # Large: a browser macOS has never run is scanned before its first launch.
-    files = {"src/engines.test.ts": {
-        "browsers": [
-            "chromium",
-            "firefox",
-            "webkit",
-        ],
-        "size": "large",
-    }},
+    files = {"src/engines.test.ts": {"browsers": [
+        "chromium",
+        "firefox",
+        "webkit",
+    ]}},
     tests = glob(
         ["**/*.test.ts"],
         exclude = IGNORED,

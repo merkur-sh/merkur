@@ -1,14 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 
-import {
-  type Browser,
-  type BrowserType,
-  chromium,
-  firefox,
-  type LaunchOptions,
-  webkit,
-} from '@playwright/test';
+import { type Browser, type BrowserType, chromium, firefox, webkit } from '@playwright/test';
 
 import type { ScenarioResult } from './conformance';
 import type { PageConformance } from './conformance-page';
@@ -26,28 +19,12 @@ const ENGINES: readonly (readonly [string, BrowserType])[] = [
   ['Firefox', firefox],
 ];
 
-/**
- * Firefox's processes each enter a macOS sandbox of their own, which Bazel's
- * sandbox does not permit (`sandbox_init() failed`). These are Firefox's own
- * switches for its process sandboxes; the storage it implements is unchanged.
- */
-const FIREFOX_UNSANDBOXED = {
-  MOZ_DISABLE_CONTENT_SANDBOX: '1',
-  MOZ_DISABLE_GMP_SANDBOX: '1',
-  MOZ_DISABLE_GPU_SANDBOX: '1',
-  MOZ_DISABLE_RDD_SANDBOX: '1',
-  MOZ_DISABLE_SOCKET_PROCESS_SANDBOX: '1',
-  MOZ_DISABLE_UTILITY_SANDBOX: '1',
-};
-
 /** A first page and the scenarios take seconds. */
 const ENGINE_TIMEOUT_MS = 60_000;
 
 /**
  * Longer than Playwright's own launch timeout (180 s), so a launch that fails
  * is reported by Playwright, with the browser's log, rather than cut off here.
- * A browser macOS has never run is scanned before its first launch: on a fresh
- * CI runner Firefox's first launch outlasted a 60 s limit with nothing logged.
  */
 const LAUNCH_TIMEOUT_MS = 240_000;
 
@@ -104,9 +81,9 @@ for (const [engine, browserType] of ENGINES) {
     let browser: Browser | null = null;
 
     beforeAll(async () => {
-      const options: LaunchOptions = { headless: true };
-      if (browserType === firefox) options.env = { ...process.env, ...FIREFOX_UNSANDBOXED };
-      browser = await browserType.launch(options);
+      // Firefox runs with its own sandboxes, as it ships: its Bazel test is unsandboxed
+      // (`tools/bazel/bun/bun.bzl`), since macOS does not let it nest one in Bazel's.
+      browser = await browserType.launch({ headless: true });
     }, LAUNCH_TIMEOUT_MS);
 
     afterAll(async () => {

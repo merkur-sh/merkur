@@ -383,6 +383,11 @@ _NEEDS = ["browsers", "checkout", "data", "size", "tools"]
 
 _BROWSER_CPUS = "cpu:4"
 
+# Engines whose processes each enter a macOS sandbox of their own, which Bazel's sandbox does not
+# let them nest (`sandbox_init`: Operation not permitted, and the launch hangs). Their tests run
+# unsandboxed, so the browser runs with its own sandboxes as it ships.
+_SELF_SANDBOXED_ENGINES = ["firefox"]
+
 def bun_test_files(name = "test", tests = [], files = {}):
     """One `bun test` per test file, over a checkout of what that file loads.
 
@@ -433,7 +438,8 @@ def bun_test_files(name = "test", tests = [], files = {}):
             # A test of the repository as a whole, declared or named with its root's URL, which
             # `--config=quick` leaves for the push. Chromium's browser, GPU and renderer processes
             # and SwiftShader's threads use a runner's every CPU, so a browser test reserves them.
-            tags = tags + ([_BROWSER_CPUS] if browsers else []),
+            tags = tags + ([_BROWSER_CPUS] if browsers else []) +
+                   (["no-sandbox"] if [e for e in engines if e in _SELF_SANDBOXED_ENGINES] else []),
             tests = [test],
             tools = needs.get("tools", {}),
             workspace = _WORKSPACE,
