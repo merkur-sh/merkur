@@ -40,8 +40,16 @@ const FIREFOX_UNSANDBOXED = {
   MOZ_DISABLE_UTILITY_SANDBOX: '1',
 };
 
-/** A browser launch and a first page take seconds; the scenarios themselves take less. */
+/** A first page and the scenarios take seconds. */
 const ENGINE_TIMEOUT_MS = 60_000;
+
+/**
+ * Longer than Playwright's own launch timeout (180 s), so a launch that fails
+ * is reported by Playwright, with the browser's log, rather than cut off here.
+ * A browser macOS has never run is scanned before its first launch: on a fresh
+ * CI runner Firefox's first launch outlasted a 60 s limit with nothing logged.
+ */
+const LAUNCH_TIMEOUT_MS = 240_000;
 
 const bundles = new Map<string, string>();
 let server: ReturnType<typeof Bun.serve> | null = null;
@@ -99,7 +107,7 @@ for (const [engine, browserType] of ENGINES) {
       const options: LaunchOptions = { headless: true };
       if (browserType === firefox) options.env = { ...process.env, ...FIREFOX_UNSANDBOXED };
       browser = await browserType.launch(options);
-    }, ENGINE_TIMEOUT_MS);
+    }, LAUNCH_TIMEOUT_MS);
 
     afterAll(async () => {
       await browser?.close();
