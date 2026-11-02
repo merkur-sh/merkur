@@ -2510,8 +2510,10 @@ MODULES = {
         "package.json": [],
         "public/fonts/JetBrainsMonoNF-Regular.ttf": [],
         "src/api.refresh.test.ts": [
+            "//apps/web:node_modules/fake-indexeddb",
             ":package.json.module",
             ":src/api.ts.module",
+            ":src/lib/storage-names.ts.module",
             ":tsconfig.json.module",
         ],
         "src/api.telemetry.test.ts": [

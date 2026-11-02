@@ -14,8 +14,7 @@
  * is a bug in the web app and is still worth a count.
  */
 export const BROWSER_STORAGE_TARGETS = [
-  'refresh_retired',
-  'refresh_generation',
+  'refresh_credential',
   'pending_logout',
   'device_list',
   'transport_autotuner',

@@ -822,10 +822,8 @@
     "no-runtime-typeof": 1
   },
   "apps/web/src/api.refresh.test.ts": {
-    "no-runtime-typeof": 1,
     "no-unknown-returns": 1,
-    "no-weak-assertion": 2,
-    "require-safety-comment-for-type-assertion": 6
+    "no-weak-assertion": 2
   },
   "apps/web/src/api.ts": {
     "no-conditional-empty-object-spread": 2,

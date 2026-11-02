@@ -7,8 +7,7 @@ import { BROWSER_STORAGE_TARGETS, type BrowserStorageTarget } from '@merkur/shar
  * the table and the shared contract to the same set.
  */
 export const STORAGE_NAMES = {
-  refresh_retired: 'merkur:refresh-credential-retired',
-  refresh_generation: 'merkur:refresh-credential-generation',
+  refresh_credential: 'merkur-refresh-credential',
   pending_logout: 'merkur:pending-browser-logout',
   device_list: 'merkur:device-list:v1',
   transport_autotuner: 'merkur-transport-tuning',

@@ -588,8 +588,7 @@ export const ApiModels = {
   BrowserStorageReportBody: t.Object(
     {
       target: t.Union([
-        t.Literal('refresh_retired'),
-        t.Literal('refresh_generation'),
+        t.Literal('refresh_credential'),
         t.Literal('pending_logout'),
         t.Literal('device_list'),
         t.Literal('transport_autotuner'),

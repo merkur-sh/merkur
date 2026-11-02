@@ -186,7 +186,7 @@ export function createAuth(options: CreateAuthOptions): {
     const logoutRetry = await retryPendingLogout(AbortSignal.timeout(4_000));
     if (logoutRetry !== 'none') {
       await browserDelegationStore.clear().catch(() => undefined);
-      retireAccountRefreshCredential();
+      await retireAccountRefreshCredential();
       clearLocalAccount();
       options.enterAuth();
       return;
@@ -234,7 +234,7 @@ export function createAuth(options: CreateAuthOptions): {
     if (account === null) {
       // The HttpOnly account credential is insufficient by itself. A missing,
       // expired, corrupted, or wrong-account delegation ends the local session.
-      retireAccountRefreshCredential();
+      await retireAccountRefreshCredential();
       clearLocalAccount();
       options.enterAuth();
       return;
@@ -473,7 +473,7 @@ export function createAuth(options: CreateAuthOptions): {
     rejecting = account;
     // Leave the shell synchronously; IndexedDB cleanup must not hold the UI open.
     // The identity check keeps a late deletion from clearing a later login.
-    retireAccountRefreshCredential();
+    void retireAccountRefreshCredential();
     void options.enterAuth().then(() => {
       clearLocalAccount();
       options.endSignedInState();
@@ -540,7 +540,7 @@ export function createAuth(options: CreateAuthOptions): {
       .catch((error: unknown) => {
         logger.warn('browser_logout_vault_clear_failed', { error: String(error) });
       });
-    retireAccountRefreshCredential();
+    void retireAccountRefreshCredential();
     // The phase flips now; the account, and with it everything the shell was
     // showing, is dropped only once the shell has left the screen. A frame
     // earlier and the list empties and the link command blanks while the

@@ -1,5 +1,5 @@
 import { treaty } from '@elysia/eden';
-import { type Json, localValue } from '@merkur/browser-storage';
+import { defineDatabase, keyedStore, withDatabase } from '@merkur/browser-storage';
 import type { App } from '@merkur/server';
 import {
   type AccountKeyboardSettings,
@@ -101,12 +101,16 @@ const REFRESH_TIMEOUT = '4 seconds';
  * from a replay, so the credential is retired and the session ends in a
  * re-login instead of a revocation.
  *
- * Retirement is origin-wide, because the cookie is. {@link retiredRefreshGeneration}
- * carries it to every tab on the origin, including ones opened after the
- * failure.
+ * Retirement is origin-wide, because the cookie is. One IndexedDB record,
+ * {@link refreshCredential}, carries it to every tab on the origin, including
+ * ones opened after the failure. Not `localStorage`: Firefox gives each tab its
+ * own snapshot of it, so a tab that took the lock after another retired the
+ * credential could still read it live (`@merkur/browser-storage` measured the
+ * lost update). An IndexedDB write that completed before the lock was released
+ * is what every later transaction in every tab reads.
  *
  * It is recorded as the *generation* it applies to rather than as a boolean.
- * Sign-in increments {@link refreshGeneration}, so a refresh that captured
+ * Sign-in increments the generation, so a refresh that captured
  * an older generation and only fails afterwards writes a value that no longer
  * matches, and is inert. That is what keeps a tab whose refresh timed out from
  * retiring the brand-new chain another tab just signed in for. Authentication
@@ -129,12 +133,38 @@ const REFRESH_TIMEOUT = '4 seconds';
  */
 const FIRST_GENERATION = 0;
 
-function parseGeneration(value: Json): number | null {
-  return Number.isSafeInteger(value) && Number(value) >= FIRST_GENERATION ? Number(value) : null;
+interface RefreshCredentialState {
+  /** Counts sign-ins on this origin; a retirement applies to one generation only. */
+  readonly generation: number;
+  readonly retired: boolean;
 }
 
-const retiredRefreshGeneration = localValue(STORAGE_NAMES.refresh_retired, parseGeneration);
-const refreshGeneration = localValue(STORAGE_NAMES.refresh_generation, parseGeneration);
+const INITIAL_CREDENTIAL: RefreshCredentialState = { generation: FIRST_GENERATION, retired: false };
+
+const refreshCredential = defineDatabase(STORAGE_NAMES.refresh_credential, 1, {
+  credential: keyedStore<'current', RefreshCredentialState>((value) =>
+    value instanceof Object &&
+    'generation' in value &&
+    'retired' in value &&
+    Number.isSafeInteger(value.generation) &&
+    Number(value.generation) >= FIRST_GENERATION &&
+    (value.retired === true || value.retired === false)
+      ? { generation: Number(value.generation), retired: value.retired }
+      : null,
+  ),
+});
+
+/**
+ * Every write resolves only once it is on disk: a retirement lost to a crash
+ * would let the next launch present a spent token.
+ */
+const DURABLE = { durability: 'strict' } as const;
+
+/**
+ * The generation this tab last read or wrote. It stands in for the record when
+ * IndexedDB is unavailable, which keeps this tab's own latch failing closed.
+ */
+let knownGeneration = FIRST_GENERATION;
 
 /**
  * The generation this tab retired, or null while it holds a live credential.
@@ -143,8 +173,59 @@ const refreshGeneration = localValue(STORAGE_NAMES.refresh_generation, parseGene
  */
 let retiredAtGeneration: number | null = null;
 
+/** The stored state, or `null` when IndexedDB failed (counted by the package). */
+async function readRefreshCredential(): Promise<RefreshCredentialState | null> {
+  try {
+    const state =
+      (await withDatabase(refreshCredential, (database) =>
+        database.read(['credential'], (transaction) =>
+          transaction.store('credential').get('current'),
+        ),
+      )) ?? INITIAL_CREDENTIAL;
+    knownGeneration = state.generation;
+    return state;
+  } catch (cause) {
+    if (!(cause instanceof DOMException)) throw cause;
+    return null;
+  }
+}
+
+/**
+ * Applies `change` to the stored state in one read-write transaction, so no tab
+ * interleaves between the read and the write. A storage failure is counted by
+ * the package and leaves this tab's latch as the only record.
+ */
+async function updateRefreshCredential(
+  change: (current: RefreshCredentialState) => RefreshCredentialState,
+): Promise<void> {
+  try {
+    await withDatabase(refreshCredential, (database) =>
+      database.write(
+        ['credential'],
+        async (transaction) => {
+          const store = transaction.store('credential');
+          const next = change((await store.get('current')) ?? INITIAL_CREDENTIAL);
+          knownGeneration = next.generation;
+          store.put('current', next);
+        },
+        DURABLE,
+      ),
+    );
+  } catch (cause) {
+    if (!(cause instanceof DOMException)) throw cause;
+  }
+}
+
+/** Retires `generation`, which a sign-in since then has already made inert. */
+function retireGeneration(generation: number): Promise<void> {
+  retiredAtGeneration = generation;
+  return updateRefreshCredential((current) =>
+    current.generation === generation ? { generation, retired: true } : current,
+  );
+}
+
 export async function refreshAccessToken(): Promise<LoginResponse | null> {
-  if (isRefreshCredentialRetired()) {
+  if (await isRefreshCredentialRetired()) {
     return null;
   }
   if (refreshPromise !== null) {
@@ -166,8 +247,8 @@ export async function refreshAccessToken(): Promise<LoginResponse | null> {
       .then((response) => {
         return response;
       })
-      .catch((error: unknown) => {
-        retire();
+      .catch(async (error: unknown) => {
+        await retire();
         throw error;
       }),
   ).finally(() => {
@@ -185,30 +266,39 @@ export async function changePasswordSession(
   return withAccountCookieLock(async () => {
     try {
       const session = await changeAccountPasswordRequest(accessToken, body, signal);
-      markAccountSessionEstablished();
+      await markAccountSessionEstablished();
       return session;
     } catch (error) {
       // An ambiguous response may have replaced the cookie server-side. Do not
       // let another tab retry the previous refresh family after releasing the lock.
       if (!(error instanceof ApiError && error.status >= 400 && error.status < 500)) {
-        retireAccountRefreshCredential();
+        await retireAccountRefreshCredential();
       }
       throw error;
     }
   }, signal);
 }
 
-/** A successful OPAQUE finish installed a fresh refresh-token family. */
-export function markAccountSessionEstablished(): void {
-  clearRefreshCredentialRetirement();
+/**
+ * A successful OPAQUE finish installed a fresh refresh-token family: a new
+ * generation, not retired. This tab's own latch clears at once, which is what
+ * lets a tab that retired sign back in when storage is unavailable.
+ */
+export function markAccountSessionEstablished(): Promise<void> {
+  retiredAtGeneration = null;
+  return updateRefreshCredential((current) => ({
+    generation: current.generation + 1,
+    retired: false,
+  }));
 }
 
-/** Stop this origin from repeatedly presenting a refresh chain that failed local delegation checks. */
-export function retireAccountRefreshCredential(): void {
-  const generation = currentRefreshGeneration();
-  retiredAtGeneration = generation;
-  // When storage is unavailable this tab's in-memory latch still fails closed.
-  retiredRefreshGeneration.write(generation);
+/**
+ * Stop this origin from repeatedly presenting a refresh chain that failed local
+ * delegation checks. This tab stops at once; the returned promise is the
+ * origin-wide record landing, which never rejects for a storage failure.
+ */
+export function retireAccountRefreshCredential(): Promise<void> {
+  return retireGeneration(knownGeneration);
 }
 
 /** The release this server's daemons run (`/api/release`). */
@@ -641,49 +731,32 @@ export function deletePushSubscriptionEffect(
  * would let a waiting tab read a credential that is about to be retired.
  */
 function withRefreshCredentialLock(
-  run: (retire: () => void) => Promise<LoginResponse | null>,
+  run: (retire: () => Promise<void>) => Promise<LoginResponse | null>,
 ): Promise<LoginResponse | null> {
-  return withAccountCookieLock((): Promise<LoginResponse | null> => {
+  return withAccountCookieLock(async (): Promise<LoginResponse | null> => {
     // This tab was clear when it called, but it may have queued behind a
     // holder that retired the credential before releasing.
-    if (isRefreshCredentialRetired()) {
-      return Promise.resolve(null);
+    if (await isRefreshCredentialRetired()) {
+      return null;
     }
-    const generation = currentRefreshGeneration();
+    const generation = knownGeneration;
     let released = false;
-    return run(() => {
+    return run(async () => {
       // A `retire` captured and called after the locked region has finished
-      // carries no ordering guarantee, so it must not take effect.
+      // carries no ordering guarantee, so it must not take effect. One called
+      // inside it is awaited there, so the record lands before the lock is
+      // released and the next holder reads it.
       if (released) return;
-      retiredAtGeneration = generation;
-      // With storage blocked by the browser this tab's own latch still holds;
-      // only the origin-wide reach is lost.
-      retiredRefreshGeneration.write(generation);
+      await retireGeneration(generation);
     }).finally(() => {
       released = true;
     });
   });
 }
 
-function isRefreshCredentialRetired(): boolean {
-  const generation = currentRefreshGeneration();
-  if (retiredAtGeneration === generation) {
-    return true;
-  }
-  return retiredRefreshGeneration.read() === generation;
-}
-
-function clearRefreshCredentialRetirement(): void {
-  // Clear this tab directly as well as bumping the generation: with storage
-  // blocked the generation can never move, and this is what lets a tab that
-  // retired sign back in.
-  retiredAtGeneration = null;
-  retiredRefreshGeneration.remove();
-  refreshGeneration.write(currentRefreshGeneration() + 1);
-}
-
-function currentRefreshGeneration(): number {
-  return refreshGeneration.read() ?? FIRST_GENERATION;
+async function isRefreshCredentialRetired(): Promise<boolean> {
+  const state = await readRefreshCredential();
+  return retiredAtGeneration === knownGeneration || state?.retired === true;
 }
 
 function edenEffect<A>(

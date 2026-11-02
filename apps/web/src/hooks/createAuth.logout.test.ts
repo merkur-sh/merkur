@@ -52,8 +52,8 @@ beforeAll(async () => {
 
 beforeEach(() => storageEntries.clear());
 
-afterEach(() => {
-  markAccountSessionEstablished();
+afterEach(async () => {
+  await markAccountSessionEstablished();
   storageEntries.clear();
 });
 

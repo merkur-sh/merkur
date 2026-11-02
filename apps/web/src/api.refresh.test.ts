@@ -1,4 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test';
+import { IDBFactory } from 'fake-indexeddb';
+
+import { STORAGE_NAMES } from './lib/storage-names';
 
 /**
  * Covers the browser half of strict refresh-token reuse detection.
@@ -6,11 +9,12 @@ import { beforeAll, describe, expect, mock, test } from 'bun:test';
  * The server grants no grace for a spent refresh token, so these client
  * guarantees are what keep an honest session from being revoked: serialize
  * refreshes across tabs, never present the cookie again once a refresh outcome
- * is ambiguous, and make that retirement visible to every tab on the origin.
+ * is ambiguous, and make that retirement visible to every tab on the origin,
+ * including the one already waiting for the lock.
+ *
+ * Each tab is a distinct module instance of `./api`: fresh module-level state,
+ * shared globals, one IndexedDB and one lock manager, as tabs of one origin have.
  */
-
-const RETIREMENT_KEY = 'merkur:refresh-credential-retired';
-const GENERATION_KEY = 'merkur:refresh-credential-generation';
 
 function sessionResponse(accessToken: string): Response {
   return new Response(
@@ -34,153 +38,152 @@ interface LockRequest {
   readonly mode: string | undefined;
 }
 
-interface StorageAccess {
-  readonly op: 'get' | 'set' | 'remove';
-  readonly key: string;
-  /** Whether the refresh lock was held at the moment of the access. */
-  readonly underLock: boolean;
-}
-
 const lockRequests: LockRequest[] = [];
-const storageAccesses: StorageAccess[] = [];
-const storageEntries = new Map<string, string>();
-let lockHeld = false;
 
-const fetchMock = mock((): Promise<Response> => Promise.reject(new TypeError('network down')));
+/** First come, first served per name, as a browser grants exclusive locks. */
+const lockTails = new Map<string, Promise<void>>();
 
-let refreshAccessToken: () => Promise<unknown>;
+const fetchMock = mock(
+  (_input: RequestInfo | URL): Promise<Response> => Promise.reject(new TypeError('network down')),
+);
 
-function accessesFor(op: StorageAccess['op']): StorageAccess[] {
-  return storageAccesses.filter((access) => access.op === op && access.key === RETIREMENT_KEY);
+function refreshRequests(): number {
+  return fetchMock.mock.calls.filter(([input]) => String(input).includes('/auth/refresh')).length;
 }
 
-beforeAll(async () => {
+type Api = typeof import('./api');
+let tabCount = 0;
+
+async function openTab(): Promise<Api> {
+  tabCount += 1;
+  // The first tab is the literal import, which is what puts `./api` in this test's
+  // checkout; every later one is a distinct instance of the same file.
+  if (tabCount === 1) return await import('./api');
+  const specifier = './api';
+  // SAFETY: the module is `./api`; the query only makes Bun load a distinct instance of it.
+  return (await import(`${specifier}?tab=${tabCount}`)) as Api;
+}
+
+/** The stored credential state, read as another tab would. */
+async function storedCredential(): Promise<unknown> {
+  const connection = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(STORAGE_NAMES.refresh_credential);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    if (!connection.objectStoreNames.contains('credential')) return undefined;
+    return await new Promise((resolve, reject) => {
+      const request = connection.transaction('credential').objectStore('credential').get('current');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    connection.close();
+  }
+}
+
+beforeAll(() => {
   // api.ts binds its Eden client to `location.origin` at module scope, and the
-  // lock and storage are browser APIs; none exist in the bun test realm.
+  // lock and IndexedDB are browser APIs; none exist in the bun test realm.
   Object.defineProperty(globalThis, 'location', {
     configurable: true,
     value: { origin: 'https://merkur.test' },
   });
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    value: {
-      getItem(key: string): string | null {
-        storageAccesses.push({ op: 'get', key, underLock: lockHeld });
-        return storageEntries.get(key) ?? null;
-      },
-      setItem(key: string, value: string): void {
-        storageAccesses.push({ op: 'set', key, underLock: lockHeld });
-        storageEntries.set(key, value);
-      },
-      removeItem(key: string): void {
-        storageAccesses.push({ op: 'remove', key, underLock: lockHeld });
-        storageEntries.delete(key);
-      },
-    },
-  });
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() });
   Object.defineProperty(globalThis.navigator, 'locks', {
     configurable: true,
     value: {
       request<T>(name: string, options: { mode?: string }, callback: () => Promise<T>): Promise<T> {
         lockRequests.push({ name, mode: options.mode });
-        return (async () => {
-          lockHeld = true;
+        const previous = lockTails.get(name) ?? Promise.resolve();
+        let release = (): void => undefined;
+        lockTails.set(
+          name,
+          previous.then(
+            () =>
+              new Promise<void>((resolve) => {
+                release = resolve;
+              }),
+          ),
+        );
+        return previous.then(async () => {
           try {
             return await callback();
           } finally {
-            lockHeld = false;
+            release();
           }
-        })();
+        });
       },
     },
   });
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fetchMock });
-
-  ({ refreshAccessToken } = await import('./api'));
 });
 
 describe('refreshAccessToken', () => {
-  test('serializes across tabs and retires the credential after an ambiguous failure', async () => {
-    await expect(refreshAccessToken()).rejects.toBeDefined();
+  test('a tab queued behind a failing refresh never presents the credential it retired', async () => {
+    let failStalledRefresh: (reason: Error) => void = () => undefined;
+    let markRefreshStarted: () => void = () => undefined;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    fetchMock.mockImplementation(
+      (_input) =>
+        new Promise<Response>((_resolve, reject) => {
+          failStalledRefresh = reject;
+          markRefreshStarted();
+        }),
+    );
+    const first = await openTab();
+    const second = await openTab();
 
-    // The rotating credential is taken under an exclusive origin-wide lock, so a
-    // second tab cannot post the same one-use cookie concurrently.
-    expect(lockRequests).toEqual([{ name: 'merkur-auth-refresh', mode: 'exclusive' }]);
-    const attemptsAfterFirstFailure = fetchMock.mock.calls.length;
-    expect(attemptsAfterFirstFailure).toBeGreaterThan(0);
-
-    // Retirement is recorded origin-wide, not just in this tab's memory, and is
-    // tagged with the generation it applies to rather than a bare boolean.
-    expect(storageEntries.get(RETIREMENT_KEY)).toBe('0');
-
-    // The ordering that makes the lock meaningful: Web Locks releases as soon as
-    // the callback's promise settles, so retiring from the surrounding
-    // `.then`/`.catch` would let a waiting tab read the flag before it is
-    // written. Both the write and at least one read must happen while held.
-    expect(accessesFor('set').every((access) => access.underLock)).toBe(true);
-    expect(accessesFor('get').some((access) => access.underLock)).toBe(true);
+    const failing = first.refreshAccessToken();
+    await refreshStarted;
+    // The second tab reads no retirement yet, so it queues for the lock.
+    const queued = second.refreshAccessToken();
+    failStalledRefresh(new TypeError('network down'));
+    await expect(failing).rejects.toBeDefined();
 
     // A network failure may have rotated server-side with the Set-Cookie lost,
-    // which would leave a spent token in the jar. Re-presenting it is
-    // indistinguishable from a replay and would revoke the whole chain, so the
-    // credential is retired and no further request is made.
-    expect(await refreshAccessToken()).toBeNull();
-    expect(await refreshAccessToken()).toBeNull();
-    expect(fetchMock.mock.calls.length).toBe(attemptsAfterFirstFailure);
-    expect(lockRequests).toHaveLength(1);
+    // which would leave a spent token in the jar. The first tab records that
+    // before it releases the lock, so the tab that takes it next reads it and
+    // sends nothing: re-presenting the token would revoke the whole chain.
+    expect(await queued).toBeNull();
+    expect(refreshRequests()).toBe(1);
+    expect(lockRequests.every((request) => request.mode === 'exclusive')).toBe(true);
+    expect(await storedCredential()).toEqual({ generation: 0, retired: true });
   });
 
-  test('a sibling tab never presents a credential another tab retired', async () => {
-    const attemptsBefore = fetchMock.mock.calls.length;
-    const locksBefore = lockRequests.length;
-
-    // A distinct module instance is a faithful second tab: fresh module-level
-    // state, shared globals and shared storage. This also stands in for a tab
-    // opened after the failure, and for a reloaded one.
-    const secondTabSpecifier = './api';
-    const secondTab = (await import(`${secondTabSpecifier}?tab=2`)) as typeof import('./api');
-
-    // Its in-memory latch is unset, so only the persisted flag can stop it.
-    expect(await secondTab.refreshAccessToken()).toBeNull();
-    expect(fetchMock.mock.calls.length).toBe(attemptsBefore);
-    expect(lockRequests).toHaveLength(locksBefore);
+  test('a retired credential is never presented again, by this tab or a new one', async () => {
+    const attemptsBefore = refreshRequests();
+    const opened = await openTab();
+    expect(await opened.refreshAccessToken()).toBeNull();
+    expect(await opened.refreshAccessToken()).toBeNull();
+    expect(refreshRequests()).toBe(attemptsBefore);
   });
 
   test('a successful sign-in clears the origin-wide retirement', async () => {
-    expect(storageEntries.get(RETIREMENT_KEY)).toBe('0');
     fetchMock.mockImplementation(() => Promise.resolve(sessionResponse('token-1')));
+    const signedIn = await openTab();
 
-    const thirdTabSpecifier = './api';
-    const thirdTab = (await import(`${thirdTabSpecifier}?tab=3`)) as typeof import('./api');
-
-    thirdTab.markAccountSessionEstablished();
     // Without this the retirement would be permanent and the user could never
     // sign back in on any tab.
-    expect(storageEntries.has(RETIREMENT_KEY)).toBe(false);
-    expect(storageEntries.get(GENERATION_KEY)).toBe('1');
-    expect(await thirdTab.refreshAccessToken()).not.toBeNull();
+    await signedIn.markAccountSessionEstablished();
+    expect(await storedCredential()).toEqual({ generation: 1, retired: false });
+    expect(await signedIn.refreshAccessToken()).not.toBeNull();
   });
 
   test('a refresh that fails after another tab signs in does not retire the new chain', async () => {
     // Tab A starts a refresh and stalls. Sign-in deliberately does NOT take the
     // refresh lock — holding it across a password verify would stall every
     // tab — so tab B can complete a sign-in while A is still in flight.
-    // Dispatch on the endpoint rather than by swapping implementations, so the
-    // test does not depend on when each request happens to reach fetch.
     let failStalledRefresh: (reason: Error) => void = () => undefined;
     let markRefreshStarted: () => void = () => undefined;
     const refreshStarted = new Promise<void>((resolve) => {
       markRefreshStarted = resolve;
     });
-    fetchMock.mockImplementation((...args: unknown[]) => {
-      const [input] = args;
-      const url =
-        typeof input === 'string'
-          ? input
-          : input instanceof URL
-            ? input.href
-            : String((input as Request).url);
-      if (url.includes('/auth/refresh')) {
+    fetchMock.mockImplementation((input) => {
+      if (String(input).includes('/auth/refresh')) {
         return new Promise<Response>((_resolve, reject) => {
           failStalledRefresh = reject;
           markRefreshStarted();
@@ -189,25 +192,22 @@ describe('refreshAccessToken', () => {
       return Promise.resolve(sessionResponse('token-2'));
     });
 
-    const tabSpecifier = './api';
-    const tabA = (await import(`${tabSpecifier}?tab=4`)) as typeof import('./api');
-    const tabB = (await import(`${tabSpecifier}?tab=5`)) as typeof import('./api');
-
+    const tabA = await openTab();
+    const tabB = await openTab();
     const stalledRefresh = tabA.refreshAccessToken();
-    // Let A enter the lock, capture the current generation, and dispatch before
-    // B moves it. OPAQUE sign-in used to provide this scheduling edge itself.
+    // Let A enter the lock and capture the current generation before B moves it.
     await refreshStarted;
-    const generationBeforeSignIn = storageEntries.get(GENERATION_KEY);
 
-    tabB.markAccountSessionEstablished();
-    expect(storageEntries.get(GENERATION_KEY)).not.toBe(generationBeforeSignIn);
+    await tabB.markAccountSessionEstablished();
+    expect(await storedCredential()).toEqual({ generation: 2, retired: false });
 
     // Only now does A's request fail. Its retirement carries the generation it
     // captured before B signed in, so it cannot apply to B's new chain.
     failStalledRefresh(new TypeError('network down'));
     await expect(stalledRefresh).rejects.toBeDefined();
+    expect(await storedCredential()).toEqual({ generation: 2, retired: false });
 
-    const tabC = (await import(`${tabSpecifier}?tab=6`)) as typeof import('./api');
+    const tabC = await openTab();
     fetchMock.mockImplementation(() => Promise.resolve(sessionResponse('token-3')));
     expect(await tabC.refreshAccessToken()).not.toBeNull();
   });

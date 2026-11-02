@@ -347,7 +347,7 @@ export async function adoptNewAccountRoot(
     }).catch(() => undefined);
     throw error;
   }
-  markAccountSessionEstablished();
+  await markAccountSessionEstablished();
   return {
     username,
     session,
@@ -422,7 +422,7 @@ async function finishBrowserAccountLogin(
       signal,
     );
     assertSessionMatchesCertificate(session, certificate);
-    markAccountSessionEstablished();
+    await markAccountSessionEstablished();
     return {
       username,
       session,

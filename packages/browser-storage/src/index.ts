@@ -5,5 +5,5 @@ export {
   STORAGE_FAILURES,
   type StorageFailure,
 } from './failures';
-export { type Cloned, guarded, type Json } from './parse';
+export { type Cloned, guarded } from './parse';
 export { localValue, sessionValue } from './web-storage';
